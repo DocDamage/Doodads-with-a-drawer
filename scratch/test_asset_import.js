@@ -103,7 +103,17 @@ try {
     assert.strictEqual(overwriteFailure.ok, false);
     assert.strictEqual(fs.readFileSync(overwriteTarget, 'utf8'), 'original bytes', 'rollback must restore overwritten files');
 
-    console.log('✓ Recursive routing, collision rename, duplicate detection, and rollback/restore verified.');
+    const escapedTarget = path.join(sandbox, 'escaped.png');
+    const forgedPlan = {
+        projectRoot: project,
+        operations: [{ source: tree, destination: escapedTarget, overwrite: false, kind: 'image' }],
+        duplicates: [], skipped: [], unsupported: [], errors: []
+    };
+    const escapedResult = QJ.DD.Import.executeBatch(forgedPlan);
+    assert.strictEqual(escapedResult.ok, false, 'execution must reject a destination outside the planned project root');
+    assert.strictEqual(fs.existsSync(escapedTarget), false, 'a forged plan must not write outside the project root');
+
+    console.log('✓ Routing, collision handling, rollback, and execution-time path confinement verified.');
 } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
 }
