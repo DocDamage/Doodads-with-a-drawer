@@ -80,7 +80,8 @@ global.PluginManager = {
         editorMode: "true",
         defaultLayout: "Mapping",
         cacheEnabled: "true",
-        saveMode: "false"
+        saveMode: "false",
+        devDiagnostics: "global.__qjParameterCodeExecuted = true"
     })
 };
 
@@ -188,6 +189,13 @@ console.log("Loading QJ-Doodads.js into mock engine...");
 require(path.join(__dirname, '..', 'QJ-Doodads.js'));
 
 console.log("✓ Plugin loaded cleanly without runtime errors.");
+assert.strictEqual(global.__qjParameterCodeExecuted, undefined, 'plugin parameters must never execute JavaScript');
+assert.strictEqual(
+    QJ.DD.Security.escapeHtml('<img src=x onerror="bad">&'),
+    '&lt;img src=x onerror=&quot;bad&quot;&gt;&amp;',
+    'workspace HTML interpolations must escape untrusted labels'
+);
+console.log("✓ Plugin parameter execution and HTML injection defenses verified.");
 
 // Verify QJ namespaces
 assert(QJ.DD, "QJ.DD must exist");
