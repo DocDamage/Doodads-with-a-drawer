@@ -2377,6 +2377,33 @@ QJ.DD.Slicing.Visual = {
 // SECTION 15: QJ.DD.EXPORT (PNG SLICE EXPORTER)
 //==========================================================
 QJ.DD.Export = {
+    safeFileName(name) {
+        const baseName = String(name || 'slice').split(/[\\/]/).pop();
+        return baseName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/^\.+$/, 'slice');
+    },
+
+    getRegionGeometry(region) {
+        const atlasW = Math.max(1, Math.round(region.w));
+        const atlasH = Math.max(1, Math.round(region.h));
+        const rotated = Boolean(region.rotated);
+        const contentW = rotated ? atlasH : atlasW;
+        const contentH = rotated ? atlasW : atlasH;
+        const trimmed = Boolean(region.trimmed);
+        const sourceSize = region.sourceSize || {};
+        const spriteSourceSize = region.spriteSourceSize || {};
+        return {
+            atlasW,
+            atlasH,
+            contentW,
+            contentH,
+            outputW: trimmed && Number.isFinite(sourceSize.w) ? sourceSize.w : contentW,
+            outputH: trimmed && Number.isFinite(sourceSize.h) ? sourceSize.h : contentH,
+            destinationX: trimmed && Number.isFinite(spriteSourceSize.x) ? spriteSourceSize.x : 0,
+            destinationY: trimmed && Number.isFinite(spriteSourceSize.y) ? spriteSourceSize.y : 0,
+            rotated
+        };
+    },
+
     exportSlices(asset, targetDir) {
         const fs = QJ.DD.FS.fs, path = QJ.DD.FS.path;
         if (!fs || !path) return false;
@@ -2397,15 +2424,28 @@ QJ.DD.Export = {
 
             for (let i = 0; i < asset.slice.regions.length; i++) {
                 const r = asset.slice.regions[i];
-                canvas.width = r.w;
-                canvas.height = r.h;
-                ctx.clearRect(0, 0, r.w, r.h);
-                ctx.drawImage(img, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+                const geometry = this.getRegionGeometry(r);
+                canvas.width = geometry.outputW;
+                canvas.height = geometry.outputH;
+                ctx.clearRect(0, 0, geometry.outputW, geometry.outputH);
+                if (geometry.rotated) {
+                    ctx.save();
+                    ctx.translate(geometry.destinationX, geometry.destinationY + geometry.contentH);
+                    ctx.rotate(-Math.PI / 2);
+                    ctx.drawImage(img, r.x, r.y, geometry.atlasW, geometry.atlasH, 0, 0, geometry.atlasW, geometry.atlasH);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(
+                        img, r.x, r.y, geometry.atlasW, geometry.atlasH,
+                        geometry.destinationX, geometry.destinationY, geometry.contentW, geometry.contentH
+                    );
+                }
 
                 const dataUrl = canvas.toDataURL('image/png');
                 const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
                 const buffer = Buffer.from(base64Data, 'base64');
-                const sliceFileName = `${r.name || ('slice_' + (i + 1))}.png`;
+                const rawName = this.safeFileName(r.name || ('slice_' + (i + 1))).replace(/\.[^.]+$/, '');
+                const sliceFileName = `${rawName || ('slice_' + (i + 1))}.png`;
                 fs.writeFileSync(path.join(outDir, sliceFileName), buffer);
                 count++;
             }
