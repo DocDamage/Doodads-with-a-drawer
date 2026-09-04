@@ -1,0 +1,18 @@
+# RPG Maker / workspace-generated caches and recovery data
+data/qj_asset_cache/
+data/QJAssetWorkspaceRecovery.json
+
+# Transaction scratch files (normally removed automatically)
+*.tmp
+*.qjimport-*
+*.qjtxn-*
+
+# Local test fixtures
+scratch/*_fixture/
+scratch/test_import_source/
+
+# Common local tooling
+node_modules/
+.DS_Store
+Thumbs.db
+*.log

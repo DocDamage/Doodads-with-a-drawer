@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "projectId": "qj_project",
+  "generatedAt": 0,
+  "assets": {
+    "test_asset_1": {
+      "id": "test_asset_1",
+      "fileName": "CastleDoor.png",
+      "collections": [
+        "Castle Set"
+      ]
+    }
+  },
+  "collections": {
+    "Castle Set": [
+      "test_asset_1"
+    ]
+  },
+  "settings": {}
+}

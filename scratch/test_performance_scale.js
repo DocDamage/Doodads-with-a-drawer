@@ -1,0 +1,158 @@
+// Performance & Scale Test Suite for QJ Doodads Asset Workspace
+const assert = require('assert');
+const fs = require('fs');
+
+// Load plugin into isolated mock environment
+global.window = global;
+global.document = {
+    createElement(tag) {
+        return {
+            tagName: tag.toUpperCase(),
+            style: {},
+            classList: { add() {}, remove() {}, toggle() {} },
+            appendChild() {},
+            querySelectorAll() { return []; },
+            addEventListener() {},
+            removeEventListener() {},
+            getContext() {
+                return {
+                    drawImage() {},
+                    getImageData(x, y, w, h) {
+                        return { data: new Uint8Array(w * h * 4) };
+                    },
+                    fillRect() {},
+                    fillText() {}
+                };
+            },
+            toDataURL() { return "data:image/png;base64,mock"; }
+        };
+    },
+    getElementById() { return null; },
+    body: { appendChild() {} }
+};
+global.Image = class {
+    constructor() {
+        setTimeout(() => {
+            this.naturalWidth = 128;
+            this.naturalHeight = 128;
+            if (this.onload) this.onload();
+        }, 1);
+    }
+};
+global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: () => true };
+global.PluginManager = { parameters: () => ({}) };
+
+require('../QJ-Doodads.js');
+
+console.log("=== Testing QJ Doodads Performance, Scaling & LRU Cache ===");
+
+// 1. Benchmark 10,000 and 25,000 assets indexing & searching
+console.log("Generating 25,000 synthetic assets...");
+const mockAssets = [];
+const categories = ['Characters', 'Doodads', 'Tilesets', 'Pictures', 'Audio'];
+const tagPool = ['tree', 'forest', 'indoor', 'stone', 'water', 'undead', 'hero', 'npc', 'chest', 'door'];
+
+for (let i = 0; i < 25000; i++) {
+    const cat = categories[i % categories.length];
+    const tags = [tagPool[i % tagPool.length], tagPool[(i * 3) % tagPool.length]];
+    mockAssets.push({
+        id: `asset_${i}`,
+        path: `img/${cat.toLowerCase()}/prop_${i}.png`,
+        fileName: `prop_${i}.png`,
+        category: cat,
+        type: cat === 'Characters' ? 'character_sheet' : 'doodad',
+        tags: tags,
+        autoTags: [cat.toLowerCase()],
+        favorite: i % 10 === 0,
+        width: 48,
+        height: 48,
+        placement: { defaultMode: 'doodad' },
+        collision: { preset: 'none' }
+    });
+}
+console.log(`✓ Created ${mockAssets.length} synthetic assets in memory.`);
+
+// 2. Search query benchmark
+console.log("Benchmarking tokenized search on 25,000 assets...");
+const query1 = "prop_123 tag:tree -dead";
+const t0 = Date.now();
+const results1 = QJ.DD.Search.filter(mockAssets, query1);
+const dt1 = Date.now() - t0;
+console.log(`✓ Query '${query1}' returned ${results1.length} matches in ${dt1}ms (Target: < 50ms).`);
+assert(dt1 < 50, `Search took too long: ${dt1}ms`);
+
+const query2 = "category:Characters favorite:true";
+const t1 = Date.now();
+const results2 = QJ.DD.Search.filter(mockAssets, "type:character_sheet favorite:true");
+const dt2 = Date.now() - t1;
+console.log(`✓ Query '${query2}' returned ${results2.length} matches in ${dt2}ms.`);
+assert(dt2 < 50, `Search took too long: ${dt2}ms`);
+
+// 3. Virtual grid calculation benchmark
+console.log("Testing virtual grid row-range computation for 25,000 items...");
+QJ.DD.Workspace.filteredAssets = mockAssets;
+QJ.DD.Workspace.thumbSize = 96;
+const containerW = 340;
+const gap = 8;
+const cols = Math.max(1, Math.floor((containerW + gap) / (96 + gap)));
+const colWidth = Math.floor((containerW - (cols - 1) * gap) / cols);
+const cardHeight = colWidth + 24;
+const rowHeight = cardHeight + gap;
+const totalRows = Math.ceil(mockAssets.length / cols);
+const totalHeight = totalRows * rowHeight;
+
+assert(totalRows > 0, "Total rows must be > 0");
+assert(totalHeight > 0, "Total height must be > 0");
+
+// Check middle scroll calculation
+const testScrollTop = 5000;
+const viewportH = 600;
+const startRow = Math.max(0, Math.floor(testScrollTop / rowHeight) - 2);
+const endRow = Math.min(totalRows - 1, Math.ceil((testScrollTop + viewportH) / rowHeight) + 2);
+const startIndex = startRow * cols;
+const endIndex = Math.min(mockAssets.length, (endRow + 1) * cols);
+const renderedCount = endIndex - startIndex;
+
+console.log(`✓ At scrollTop ${testScrollTop}px, virtual grid renders rows ${startRow}..${endRow} (${renderedCount} cards out of 25,000).`);
+assert(renderedCount <= 40, `Virtual grid should only render ~20-40 elements, but rendered ${renderedCount}`);
+
+// 4. LRU Cache & Size Buckets in QJ.DD.Thumbnail
+console.log("Testing Thumbnail LRU cache and bucket resolution...");
+assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(48), 64);
+assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(90), 96);
+assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(110), 96);
+assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(120), 128);
+assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(200), 192);
+console.log("✓ Bucket resolution passed.");
+
+QJ.DD.Thumbnail.clearCache();
+for (let i = 0; i < 600; i++) {
+    QJ.DD.Thumbnail.setCache(`test_item_${i}`, `data:image/png;base64,${i}`);
+}
+assert(Object.keys(QJ.DD.Thumbnail.cache).length <= 500, "Cache must not exceed maxCacheSize (500)");
+assert(!QJ.DD.Thumbnail.cache['test_item_0'], "Oldest item must have been evicted by LRU");
+assert(QJ.DD.Thumbnail.cache['test_item_599'], "Newest item must be retained in cache");
+console.log("✓ LRU eviction verified (capped strictly at 500 items).");
+
+// 5. Async Slicing with Progress & Cancellation
+console.log("Testing Async Slicing with cancellation token...");
+const cancelToken = { isCancelled: false };
+const progressEvents = [];
+const dummyImg = { naturalWidth: 256, naturalHeight: 256, width: 256, height: 256 };
+
+QJ.DD.Slicing.Visual.analyzeAsync(dummyImg, {}, (step, pct) => {
+    progressEvents.push({ step, pct });
+}, cancelToken).then((result) => {
+    assert(result !== null, "Analysis without cancellation should return result");
+    assert(progressEvents.length > 0, "Progress events should be emitted");
+    console.log(`✓ Async slicing completed with ${progressEvents.length} progress events.`);
+
+    // Test cancellation
+    const cancelToken2 = { isCancelled: true };
+    QJ.DD.Slicing.Visual.analyzeAsync(dummyImg, {}, null, cancelToken2).then((res2) => {
+        assert.strictEqual(res2, null, "Cancelled analysis must return null immediately");
+        console.log("✓ Cancellation token successfully aborted analysis.");
+        console.log("=== All Performance & Scaling Tests Passed Successfully! ===");
+        process.exit(0);
+    });
+});

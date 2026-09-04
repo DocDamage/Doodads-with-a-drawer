@@ -1,0 +1,7 @@
+{
+  "Mapping": { "drawerWidth": 360, "inspectorWidth": 280, "thumbSize": 96, "viewMode": "grid" },
+  "Events": { "drawerWidth": 320, "inspectorWidth": 380, "thumbSize": 80, "viewMode": "grid" },
+  "Characters": { "drawerWidth": 420, "inspectorWidth": 260, "thumbSize": 128, "viewMode": "grid" },
+  "Tiles": { "drawerWidth": 380, "inspectorWidth": 260, "thumbSize": 48, "viewMode": "compact" },
+  "Compact": { "drawerWidth": 280, "inspectorWidth": 240, "thumbSize": 64, "viewMode": "list" }
+}

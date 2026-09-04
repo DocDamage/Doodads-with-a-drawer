@@ -1,0 +1,72 @@
+{
+  "custom_guard_patrol": {
+    "name": "Guard Patrol",
+    "category": "Guards",
+    "trigger": 0,
+    "priorityType": 1,
+    "directionFix": true,
+    "stepAnime": false,
+    "walkAnime": true,
+    "through": false,
+    "list": [
+      {
+        "code": 101,
+        "indent": 0,
+        "parameters": [
+          "Actor1",
+          0,
+          0,
+          2,
+          "Guard"
+        ]
+      },
+      {
+        "code": 401,
+        "indent": 0,
+        "parameters": [
+          "Halt! Who goes there?"
+        ]
+      },
+      {
+        "code": 0,
+        "indent": 0,
+        "parameters": []
+      }
+    ]
+  },
+  "custom_chest_gold_template": {
+    "name": "Chest_Gold_Template",
+    "category": "Treasure",
+    "trigger": 0,
+    "priorityType": 1,
+    "directionFix": false,
+    "stepAnime": false,
+    "walkAnime": true,
+    "through": false,
+    "list": [
+      {
+        "code": 101,
+        "indent": 0,
+        "parameters": [
+          "",
+          0,
+          0,
+          2,
+          ""
+        ]
+      },
+      {
+        "code": 401,
+        "indent": 0,
+        "parameters": [
+          "You opened the chest!"
+        ]
+      },
+      {
+        "code": 0,
+        "indent": 0,
+        "parameters": []
+      }
+    ]
+  }
+}
