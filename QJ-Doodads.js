@@ -3977,6 +3977,25 @@ QJ.DD.Import = {
         return this.destinations.includes(normalized) ? normalized : null;
     },
 
+    validateExecutionPlan(plan) {
+        const path = QJ.DD.FS.path;
+        if (!path || !plan || !Array.isArray(plan.operations)) return 'Import plan is invalid.';
+        const projectRoot = path.resolve(plan.projectRoot || '.');
+        for (const operation of plan.operations) {
+            if (!operation || !operation.source || !operation.destination || !this.isSupported(operation.source)) {
+                return 'Import plan contains an invalid or unsupported operation.';
+            }
+            const destination = path.resolve(operation.destination);
+            const relative = path.relative(projectRoot, destination).replace(/\\/g, '/');
+            const insideProject = relative && !relative.startsWith('../') && relative !== '..' && !path.isAbsolute(relative);
+            const insideAllowedFolder = this.destinations.some(folder => relative.startsWith(folder + '/'));
+            if (!insideProject || !insideAllowedFolder) {
+                return `Import destination is outside an allowed project asset folder: ${operation.destination}`;
+            }
+        }
+        return null;
+    },
+
     collectFiles(sourcePaths) {
         const fs = QJ.DD.FS.fs;
         const path = QJ.DD.FS.path;
@@ -4118,6 +4137,11 @@ QJ.DD.Import = {
             rolledBack: false
         };
         if (!fs || !path || !plan || result.errors.length > 0) return result;
+        const validationError = this.validateExecutionPlan(plan);
+        if (validationError) {
+            result.errors.push({ message: validationError });
+            return result;
+        }
 
         const completed = [];
         const tempFiles = [];
@@ -4200,6 +4224,11 @@ QJ.DD.Import = {
             cancelled: false
         };
         if (!fs || !path || !fsp || !plan || result.errors.length > 0) return result;
+        const validationError = this.validateExecutionPlan(plan);
+        if (validationError) {
+            result.errors.push({ message: validationError });
+            return result;
+        }
 
         const completed = [];
         const tempFiles = [];
