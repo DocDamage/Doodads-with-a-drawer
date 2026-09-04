@@ -1170,6 +1170,13 @@ QJ.DD.FS = {
 QJ.DD.AssetIndex = {
     libraryPath: 'data/QJAssetLibrary.json',
     supportedExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.ogg', '.m4a', '.wav']),
+    roots: [
+        'img/characters', 'img/doodads', 'img/tilesets', 'img/pictures',
+        'img/animations', 'img/battlebacks1', 'img/battlebacks2', 'img/enemies',
+        'img/faces', 'img/parallaxes', 'img/sv_actors', 'img/sv_enemies',
+        'img/system', 'img/titles1', 'img/titles2',
+        'audio/bgm', 'audio/bgs', 'audio/me', 'audio/se'
+    ],
     data: {
         version: 1,
         projectId: "qj_project",
@@ -1200,32 +1207,104 @@ QJ.DD.AssetIndex = {
     scan() {
         if (!QJ.DD.FS.fs) return;
         this.init();
-        const roots = [
-            'img/characters',
-            'img/doodads',
-            'img/tilesets',
-            'img/pictures',
-            'img/animations',
-            'img/battlebacks1',
-            'img/battlebacks2',
-            'img/enemies',
-            'img/faces',
-            'img/parallaxes',
-            'img/sv_actors',
-            'img/sv_enemies',
-            'img/system',
-            'img/titles1',
-            'img/titles2',
-            'audio/bgm',
-            'audio/bgs',
-            'audio/me',
-            'audio/se'
-        ];
-        for (const r of roots) {
+        for (const r of this.roots) {
             this.scanDirectory(r);
         }
         this.save();
         this.rebuildList();
+    },
+
+    async scanAsync(options = {}) {
+        const fs = QJ.DD.FS.fs;
+        const path = QJ.DD.FS.path;
+        const result = { cancelled: false, discovered: 0, indexed: 0, unchanged: 0, removed: 0, errors: [] };
+        if (!fs || !path || !fs.promises) {
+            result.errors.push('Filesystem access is unavailable.');
+            return result;
+        }
+        if (options.loadCache !== false) this.init();
+
+        const projectRoot = path.resolve(options.projectRoot || '.');
+        const roots = (options.roots || this.roots)
+            .map(root => String(root).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, ''));
+        const batchSize = Math.max(1, options.batchSize || 100);
+        const cancellationToken = options.cancellationToken || null;
+        const isCancelled = () => Boolean(cancellationToken && (cancellationToken.cancelled || cancellationToken.isCancelled));
+        const files = [];
+        const directories = roots.map(root => ({ absolute: path.resolve(projectRoot, root), relative: root }));
+
+        while (directories.length > 0) {
+            if (isCancelled()) { result.cancelled = true; return result; }
+            const directory = directories.pop();
+            try {
+                const entries = await fs.promises.readdir(directory.absolute, { withFileTypes: true });
+                entries.sort((a, b) => a.name.localeCompare(b.name));
+                for (const entry of entries) {
+                    const absolute = path.join(directory.absolute, entry.name);
+                    const relative = `${directory.relative}/${entry.name}`.replace(/\\/g, '/');
+                    if (entry.isDirectory()) directories.push({ absolute, relative });
+                    else if (entry.isFile() && this.isSupportedAssetFile(entry.name)) files.push({ absolute, relative });
+                }
+            } catch (error) {
+                if (!error || error.code !== 'ENOENT') result.errors.push(`${directory.relative}: ${error.message || error}`);
+            }
+            if (directories.length % batchSize === 0) await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        files.sort((a, b) => a.relative.localeCompare(b.relative));
+        result.discovered = files.length;
+        const seen = new Set();
+        for (let index = 0; index < files.length; index++) {
+            if (isCancelled()) { result.cancelled = true; return result; }
+            const file = files[index];
+            const assetPath = file.relative.replace(/\\/g, '/');
+            const assetId = assetPath.toLowerCase();
+            seen.add(assetId);
+            try {
+                const stat = await fs.promises.stat(file.absolute);
+                const existing = this.data.assets[assetId];
+                if (existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size) {
+                    result.unchanged++;
+                } else {
+                    this.indexFile(file.absolute, path.basename(file.absolute), path.extname(file.absolute).toLowerCase(), assetPath, stat);
+                    result.indexed++;
+                }
+            } catch (error) {
+                result.errors.push(`${assetPath}: ${error.message || error}`);
+            }
+            if ((index + 1) % batchSize === 0 || index === files.length - 1) {
+                if (typeof options.onProgress === 'function') {
+                    options.onProgress({ completed: index + 1, total: files.length, path: assetPath });
+                }
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+        }
+
+        const rootPrefixes = roots.map(root => root.toLowerCase() + '/');
+        for (const [assetId, asset] of Object.entries(this.data.assets)) {
+            const normalizedPath = String(asset.path || assetId).replace(/\\/g, '/').toLowerCase();
+            const inScannedRoot = rootPrefixes.some(prefix => normalizedPath.startsWith(prefix));
+            if (inScannedRoot && !seen.has(assetId.toLowerCase())) {
+                delete this.data.assets[assetId];
+                result.removed++;
+                for (const collection of Object.values(this.data.collections || {})) {
+                    if (Array.isArray(collection)) {
+                        const collectionIndex = collection.indexOf(assetId);
+                        if (collectionIndex >= 0) collection.splice(collectionIndex, 1);
+                    }
+                }
+            }
+        }
+
+        this.data.generatedAt = Date.now();
+        this.rebuildList();
+        if (options.save !== false) {
+            const target = options.projectRoot
+                ? path.join(projectRoot, options.libraryPath || this.libraryPath)
+                : (options.libraryPath || this.libraryPath);
+            QJ.DD.FS.atomicWriteJson(target, this.data);
+        }
+        return result;
     },
 
     scanDirectory(dirPath) {
@@ -1245,23 +1324,24 @@ QJ.DD.AssetIndex = {
         }
     },
 
-    indexFile(fullPath, fileName, ext) {
+    indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
         const fs = QJ.DD.FS.fs;
-        const stat = fs.statSync(fullPath);
-        const assetId = fullPath.toLowerCase();
+        const stat = knownStat || fs.statSync(fullPath);
+        const normalizedAssetPath = String(assetPath).replace(/\\/g, '/');
+        const assetId = normalizedAssetPath.toLowerCase();
 
         let existing = this.data.assets[assetId];
         if (existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size) {
             return;
         }
 
-        const category = this.detectCategory(fullPath);
-        const autoTags = this.generateAutoTags(fullPath, fileName);
-        const assetType = this.detectAssetType(fullPath, fileName, ext);
+        const category = this.detectCategory(normalizedAssetPath);
+        const autoTags = this.generateAutoTags(normalizedAssetPath, fileName);
+        const assetType = this.detectAssetType(normalizedAssetPath, fileName, ext);
 
         const newEntry = {
             id: assetId,
-            path: fullPath,
+            path: normalizedAssetPath,
             type: assetType,
             category: category,
             fileName: fileName,
@@ -4172,13 +4252,14 @@ QJ.DD.Workspace = {
     open() {
         if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs() || this.mounted) return;
         QJ.DD.Persistence.captureSession();
-        QJ.DD.AssetIndex.scan();
+        QJ.DD.AssetIndex.init();
         this.buildDom();
         this.attachCanvasListeners();
         this.mounted = true;
         if (window.$gameSystem && window.$gameSystem.doodadsQJ) {
             window.$gameSystem.doodadsQJ.editing = true;
         }
+        this.startAssetScan();
 
         // Check for recovery file
         const recovery = QJ.DD.FS.readJson('data/QJAssetWorkspaceRecovery.json');
@@ -4198,6 +4279,7 @@ QJ.DD.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        if (this._assetScanToken) this._assetScanToken.cancelled = true;
         this.detachCanvasListeners();
         this.removeGhost();
         if (this.container && this.container.parentNode) {
@@ -4209,6 +4291,28 @@ QJ.DD.Workspace = {
         }
         this.placementTool = null;
         QJ.DD.Audio.stopPreview();
+    },
+
+    async startAssetScan() {
+        if (this._assetScanToken) this._assetScanToken.cancelled = true;
+        const token = { cancelled: false };
+        this._assetScanToken = token;
+        const status = document.getElementById('qj-status-right');
+        const result = await QJ.DD.AssetIndex.scanAsync({
+            loadCache: false,
+            cancellationToken: token,
+            onProgress: progress => {
+                if (status && !token.cancelled) status.textContent = `Indexing assets ${progress.completed}/${progress.total}`;
+            }
+        });
+        if (this._assetScanToken !== token || token.cancelled || result.cancelled) return result;
+        this._assetScanToken = null;
+        if (this.mounted) {
+            this.refreshDrawerCards();
+            if (status) status.textContent = `Indexed ${result.discovered} assets | ${result.removed} stale removed`;
+            if (result.errors.length > 0) this.showToast(`Asset scan completed with ${result.errors.length} warning(s).`);
+        }
+        return result;
     },
 
     buildDom() {
@@ -6388,7 +6492,7 @@ QJ.DD.Workspace = {
         });
         if (!result.ok) return result;
 
-        QJ.DD.AssetIndex.scan();
+        await QJ.DD.AssetIndex.scanAsync({ loadCache: false });
         this.refreshDrawerCards();
 
         if (options.autoSlice) {
@@ -6577,9 +6681,9 @@ QJ.DD.Workspace = {
         `;
         document.body.appendChild(diag);
 
-        document.getElementById('qj-rebuild-idx-btn').onclick = () => {
+        document.getElementById('qj-rebuild-idx-btn').onclick = async () => {
             QJ.DD.AssetIndex.data.assets = {};
-            QJ.DD.AssetIndex.scan();
+            await QJ.DD.AssetIndex.scanAsync({ loadCache: false });
             this.refreshDrawerCards();
             this.showToast("Asset Library Rebuilt!");
             diag.parentNode.removeChild(diag);
