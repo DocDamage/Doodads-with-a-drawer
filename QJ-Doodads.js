@@ -2704,7 +2704,9 @@ QJ.DD.Slicing.Editor = {
             this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
             this.render();
             this.updateRegionList();
-            QJ.DD.Workspace.showToast(`SAF Detected ${this.regions.length} Regions!`);
+            const confidence = Math.round((Number(res.confidence) || 0) * 100);
+            const verdict = res.status === 'review' ? 'Review required' : 'Auto-slice complete';
+            QJ.DD.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
         };
 
         // Fixed Grid
