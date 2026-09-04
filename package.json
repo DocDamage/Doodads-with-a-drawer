@@ -5,7 +5,7 @@
   "description": "Visual asset workspace and doodad editor for RPG Maker MZ/MV",
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.19"
   },
   "scripts": {
     "check": "node --check QJ-Doodads.js",
