@@ -75,6 +75,13 @@ global.$dataDoodadsQJ = { 1: [] };
 // Load plugin
 require('../QJ-Doodads.js');
 
+const testStateDir = path.join(__dirname, 'interactive_systems_fixture');
+fs.rmSync(testStateDir, { recursive: true, force: true });
+fs.mkdirSync(testStateDir, { recursive: true });
+process.on('exit', () => fs.rmSync(testStateDir, { recursive: true, force: true }));
+QJ.DD.EventTemplates.filePath = path.join(testStateDir, 'QJEventTemplates.json');
+QJ.DD.EventTemplates.custom = {};
+
 // Test 1: Slicer Editor Snapping
 console.log("Testing Slicer Editor coordinate snapping...");
 const editor = QJ.DD.Slicing.Editor;

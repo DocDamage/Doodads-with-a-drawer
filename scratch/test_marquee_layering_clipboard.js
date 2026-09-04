@@ -142,7 +142,7 @@ console.log("✓ Clipboard Copy, Paste, and Undo/Redo verified.");
 // 4. Test Explorer Import Logic with Collision Protection
 console.log("Testing Explorer Import Logic & Collision Protection...");
 const tempImportDir = path.join(__dirname, 'test_import_source');
-const tempTargetDir = path.join(__dirname, '../img/doodads');
+const tempTargetDir = path.join(__dirname, 'test_import_target');
 QJ.DD.FS.ensureDir(tempImportDir);
 QJ.DD.FS.ensureDir(tempTargetDir);
 
@@ -179,6 +179,7 @@ if (fs.existsSync(testFile1)) fs.unlinkSync(testFile1);
 if (fs.existsSync(dest)) fs.unlinkSync(dest);
 if (fs.existsSync(targetExisting)) fs.unlinkSync(targetExisting);
 if (fs.existsSync(tempImportDir)) fs.rmdirSync(tempImportDir);
+if (fs.existsSync(tempTargetDir)) fs.rmdirSync(tempTargetDir);
 console.log("✓ Explorer collision protection renaming verified.");
 
 // 5. Test Quick Toggle Methods

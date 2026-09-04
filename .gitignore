@@ -13,6 +13,10 @@ scratch/test_import_source/
 
 # Common local tooling
 node_modules/
+coverage/
+.env
+.env.*
+!.env.example
 .DS_Store
 Thumbs.db
 *.log

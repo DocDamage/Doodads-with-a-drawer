@@ -64,9 +64,11 @@ console.log("✓ Legacy v1 Doodads successfully migrated with full default backf
 
 // 2. Test Corrupt JSON Backup Fallback
 console.log("\nTesting Corrupt JSON Auto-Recovery from Backup...");
-const testDir = 'data';
-const backupDir = 'data/qj_asset_cache/backups';
-if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+const testDir = path.join(__dirname, 'migration_qa_fixture');
+const backupDir = path.join(testDir, 'backups');
+fs.rmSync(testDir, { recursive: true, force: true });
+fs.mkdirSync(backupDir, { recursive: true });
+process.on('exit', () => fs.rmSync(testDir, { recursive: true, force: true }));
 
 const corruptFile = path.join(testDir, 'scratch_corrupt_test.json');
 const backupFile = path.join(backupDir, 'scratch_corrupt_test.json.2026-09-03T20-00-00-000Z.bak');
@@ -79,7 +81,10 @@ const intactBackup = { recoveredSuccessfully: true, timestamp: Date.now() };
 fs.writeFileSync(backupFile, JSON.stringify(intactBackup), 'utf8');
 
 // Attempt readJson on the corrupt file
+const originalFindLatestBackup = QJ.DD.FS.findLatestBackup;
+QJ.DD.FS.findLatestBackup = () => backupFile;
 const result = QJ.DD.FS.readJson(corruptFile);
+QJ.DD.FS.findLatestBackup = originalFindLatestBackup;
 assert(result !== null, "readJson should not return null when intact backup exists");
 assert.strictEqual(result.recoveredSuccessfully, true, "Data should be seamlessly recovered from latest backup");
 console.log("✓ Corrupt JSON automatically detected and recovered from backup!");

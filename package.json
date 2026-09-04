@@ -1,0 +1,19 @@
+{
+  "name": "qj-doodads-asset-workspace",
+  "version": "2.0.0-alpha.1",
+  "private": true,
+  "description": "Visual asset workspace and doodad editor for RPG Maker MZ/MV",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "check": "node --check QJ-Doodads.js",
+    "test": "node scratch/run-tests.js",
+    "verify": "node scratch/verify-project.js",
+    "coverage": "c8 --reporter=text --reporter=json-summary --include=QJ-Doodads.js --check-coverage --lines=40 --statements=40 --functions=40 --branches=40 node scratch/run-tests.js"
+  },
+  "devDependencies": {
+    "c8": "10.1.3"
+  }
+}

@@ -70,6 +70,17 @@ global.SceneManager = { _scene: { _spriteset: { addDoodadsQJ: () => {}, sortDood
 // Require QJ-Doodads.js
 require('../QJ-Doodads.js');
 
+// Keep persistence writes inside a disposable fixture instead of project data/.
+const testStateDir = path.join(__dirname, 'context_authoring_fixture');
+fs.rmSync(testStateDir, { recursive: true, force: true });
+fs.mkdirSync(testStateDir, { recursive: true });
+process.on('exit', () => fs.rmSync(testStateDir, { recursive: true, force: true }));
+QJ.DD.AssetIndex.libraryPath = path.join(testStateDir, 'QJAssetLibrary.json');
+QJ.DD.AssetIndex.data = { version: 1, projectId: 'test', generatedAt: 0, assets: {}, collections: {}, settings: {} };
+QJ.DD.AssetIndex.rebuildList();
+QJ.DD.EventTemplates.filePath = path.join(testStateDir, 'QJEventTemplates.json');
+QJ.DD.EventTemplates.custom = {};
+
 // Test 1: Virtual Collections management in QJ.DD.AssetIndex
 console.log("Testing Virtual Collections management...");
 QJ.DD.AssetIndex.data.assets['test_asset_1'] = { id: 'test_asset_1', fileName: 'CastleDoor.png', collections: [] };
@@ -94,8 +105,8 @@ console.log("✓ Virtual Collections and search integration verified.");
 
 // Test 3: Sidecar .saf.json parser in QJ.DD.Slicing.Metadata
 console.log("Testing Sidecar .saf.json parser...");
-const testImgPath = path.join(__dirname, 'mock_sheet.png');
-const testSafPath = path.join(__dirname, 'mock_sheet.saf.json');
+const testImgPath = path.join(testStateDir, 'mock_sheet.png');
+const testSafPath = path.join(testStateDir, 'mock_sheet.saf.json');
 const safData = {
     frames: [
         { filename: "gem_blue", frame: { x: 0, y: 0, w: 32, h: 32 }, pivot: { x: 0.5, y: 1.0 } },

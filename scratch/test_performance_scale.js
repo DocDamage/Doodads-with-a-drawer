@@ -78,8 +78,9 @@ const query1 = "prop_123 tag:tree -dead";
 const t0 = Date.now();
 const results1 = QJ.DD.Search.filter(mockAssets, query1);
 const dt1 = Date.now() - t0;
-console.log(`✓ Query '${query1}' returned ${results1.length} matches in ${dt1}ms (Target: < 50ms).`);
-assert(dt1 < 50, `Search took too long: ${dt1}ms`);
+const searchBudgetMs = process.env.NODE_V8_COVERAGE ? 150 : 50;
+console.log(`✓ Query '${query1}' returned ${results1.length} matches in ${dt1}ms (Target: < ${searchBudgetMs}ms).`);
+assert(dt1 < searchBudgetMs, `Search took too long: ${dt1}ms`);
 
 const query2 = "category:Characters favorite:true";
 const t1 = Date.now();

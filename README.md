@@ -12,10 +12,16 @@ See [QJ_Doodads_Asset_Workspace_Guide.md](QJ_Doodads_Asset_Workspace_Guide.md) f
 
 ## Verification
 
-The dependency-free regression scripts run directly with Node.js:
+Install the pinned development dependencies, then run the complete preflight and coverage gate:
 
 ```powershell
-Get-ChildItem scratch/test_*.js | ForEach-Object { node $_.FullName }
+npm install
+npm run verify
+npm run coverage
 ```
+
+The regression tests themselves use only Node.js. The coverage command uses `c8` and currently enforces a 40% baseline across the monolithic RPG Maker plugin; browser/NW.js UI branches remain covered by the manual checklist until an engine-level test harness is available.
+
+Use [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) for the final RPG Maker MZ/MV playtest.
 
 `QJ-Doodads.original.js` is retained as the upstream baseline for compatibility comparison.

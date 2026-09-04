@@ -3285,6 +3285,8 @@ To prevent the project from exploding:
 
 # 63. Definition of Done
 
+**Automated preflight status (2026-09-03): Complete.** Sixteen isolated Node.js regression suites cover the core algorithms, RPG Maker MZ/MV compatibility shims, incremental indexing, the visual slicing pipeline, transactional import, persistence rollback/recovery, event authoring, workspace operations, and production-mode isolation. The repository also has syntax/JSON/secret/artifact verification, a measured coverage gate, dependency locking, and Windows/Linux continuous integration. The remaining release gate is the engine-level workflow in `MANUAL_TEST_CHECKLIST.md`, including visual inspection, real NW.js input behavior, long-session memory profiling, and round-trip editing in RPG Maker.
+
 The project is complete when the following workflow is reliable:
 
 1. Start test play.
