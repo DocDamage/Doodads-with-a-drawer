@@ -234,22 +234,62 @@ function Sprite_MouseDoodadsCursorQJ() {
 const pluginName = "QJ-Doodads";
 const parameters = (typeof PluginManager !== 'undefined' && PluginManager.parameters) ? PluginManager.parameters(pluginName) : {};
 
+function parseBooleanParameter(value, fallback) {
+    if (typeof value === 'boolean') return value;
+    if (value === undefined || value === null || value === '') return fallback;
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'on') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'off') return false;
+    return fallback;
+}
+
+function parseNumberParameter(value, fallback, min, max) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+}
+
+function safePluginFolder(value) {
+    const segments = String(value || 'doodads').replace(/\\/g, '/').split('/')
+        .filter(segment => segment && segment !== '.' && segment !== '..')
+        .map(segment => segment.replace(/[<>:"|?*\x00-\x1f]/g, '_'))
+        .filter(Boolean);
+    return (segments.length ? segments.join('/') : 'doodads') + '/';
+}
+
+function safeDataBaseName(value) {
+    const safe = String(value || 'DoodadsQJ')
+        .replace(/\.json$/i, '')
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+        .replace(/^\.+|\.+$/g, '');
+    return safe || 'DoodadsQJ';
+}
+
+QJ.DD.Security = QJ.DD.Security || {
+    escapeHtml(value) {
+        return String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, character => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+    }
+};
+
+const escapeHtml = QJ.DD.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
-const folderName = "img/" + (parameters.folderName || "doodads/");
-const editorMode = parameters.editorMode !== undefined ? eval(parameters.editorMode) : true;
-const dataFileName = String(parameters.dataFileName || "DoodadsQJ") + ".json";
+const folderName = "img/" + safePluginFolder(parameters.folderName);
+const editorMode = parseBooleanParameter(parameters.editorMode, true);
+const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
 const pluginVersion = 2.0;
-const doodadScaleMode = parameters.doodadScaleMode !== undefined ? eval(parameters.doodadScaleMode) : true;
-const saveMode = parameters.saveMode !== undefined ? eval(parameters.saveMode) : false;
+const doodadScaleMode = parseBooleanParameter(parameters.doodadScaleMode, true);
+const saveMode = parseBooleanParameter(parameters.saveMode, false);
 
 const defaultLayoutName = String(parameters.defaultLayout || "Mapping");
-const defaultThumbnailSize = Number(parameters.defaultThumbnailSize || 96);
-const cacheEnabled = parameters.cacheEnabled !== undefined ? eval(parameters.cacheEnabled) : true;
-const backgroundWorkBudget = Number(parameters.backgroundWorkBudget || 4);
-const autosaveRecoveryInterval = Number(parameters.autosaveRecoveryInterval || 60);
-const backupRetentionCount = Number(parameters.backupRetentionCount || 10);
-const enableMVCompatibility = parameters.enableMVCompatibility !== undefined ? eval(parameters.enableMVCompatibility) : true;
-const devDiagnostics = parameters.devDiagnostics !== undefined ? eval(parameters.devDiagnostics) : false;
+const defaultThumbnailSize = parseNumberParameter(parameters.defaultThumbnailSize, 96, 32, 256);
+const cacheEnabled = parseBooleanParameter(parameters.cacheEnabled, true);
+const backgroundWorkBudget = parseNumberParameter(parameters.backgroundWorkBudget, 4, 1, 16);
+const autosaveRecoveryInterval = parseNumberParameter(parameters.autosaveRecoveryInterval, 60, 0, 600);
+const backupRetentionCount = Math.round(parseNumberParameter(parameters.backupRetentionCount, 10, 1, 50));
+const enableMVCompatibility = parseBooleanParameter(parameters.enableMVCompatibility, true);
+const devDiagnostics = parseBooleanParameter(parameters.devDiagnostics, false);
 
 //==========================================================
 // SECTION 2: STANDARD STRUCTS & RUNTIME DATA
@@ -2567,7 +2607,7 @@ QJ.DD.Slicing.Editor = {
             <!-- Top Toolbar -->
             <div style="height: 48px; background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; padding: 0 16px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-weight: bold; color: #60a5fa; font-size: 13px;">SLICER: ${this.asset.fileName}</span>
+                    <span style="font-weight: bold; color: #60a5fa; font-size: 13px;">SLICER: ${escapeHtml(this.asset.fileName)}</span>
                     <button class="qj-btn" id="qj-slicer-undo" title="Undo (Ctrl+Z)">Undo</button>
                     <button class="qj-btn" id="qj-slicer-redo" title="Redo (Ctrl+Y)">Redo</button>
                     <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
@@ -3205,7 +3245,7 @@ QJ.DD.Slicing.Editor = {
             `;
             item.innerHTML = `
                 <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">
-                    <strong>#${i + 1}</strong> ${r.name || 'Region'}
+                    <strong>#${i + 1}</strong> ${escapeHtml(r.name || 'Region')}
                     <span style="color: #64748b; margin-left: 4px;">(${r.w}x${r.h})</span>
                 </div>
                 <span style="color: #94a3b8; font-size: 10px;">${r.x},${r.y}</span>
@@ -3251,7 +3291,7 @@ QJ.DD.Slicing.Editor = {
             </div>
             <div style="margin-top: 6px;">
                 <label style="color: #94a3b8; font-size: 10px;">Name:</label>
-                <input type="text" id="qj-insp-name" value="${r.name || ''}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                <input type="text" id="qj-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
                 <div>
@@ -4985,7 +5025,7 @@ QJ.DD.Workspace = {
             const priorityNames = ["Below Characters", "Same as Characters", "Above Characters"];
 
             content.innerHTML = `
-                <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP EVENT: ${ev ? ev.name : ('EV' + evId)} (ID: ${evId})</div>
+                <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP EVENT: ${escapeHtml(ev ? ev.name : ('EV' + evId))} (ID: ${evId})</div>
                 <div style="font-size: 11px; margin-bottom: 4px;">Tile Coordinates: <span style="color: #fff;">[${ge ? ge.x : (ev ? ev.x : 0)}, ${ge ? ge.y : (ev ? ev.y : 0)}]</span></div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
@@ -5139,8 +5179,8 @@ QJ.DD.Workspace = {
                         <button class="qj-btn" id="qj-doodad-hide-toggle" style="padding: 2px 6px; font-size: 11px;">${isHidden ? '👁 Hidden' : '👁 Hide'}</button>
                     </div>
                 </div>
-                <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: #fff;">${d.bit ? d.bit[1] : 'Unknown'}</span></div>
-                ${d.groupId ? `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Group: ${d.groupId} <button class="qj-btn" id="qj-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
+                <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: #fff;">${escapeHtml(d.bit ? d.bit[1] : 'Unknown')}</span></div>
+                ${d.groupId ? `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="qj-btn" id="qj-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">X:</label>
@@ -5326,12 +5366,12 @@ QJ.DD.Workspace = {
         const templates = QJ.DD.EventTemplates.templates;
         let templateOptions = '';
         for (const key in templates) {
-            templateOptions += `<option value="${key}">${templates[key].name}</option>`;
+            templateOptions += `<option value="${escapeHtml(key)}">${escapeHtml(templates[key].name)}</option>`;
         }
 
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${a.fileName}</div>
-            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${a.category}</span></div>
+            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${escapeHtml(a.category)}</span></div>
             <div style="font-size: 11px; margin-bottom: 4px;">Dimensions: ${a.width} x ${a.height}</div>
             <div style="display: flex; gap: 6px; margin: 8px 0;">
                 <button class="qj-btn" id="qj-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
@@ -6298,7 +6338,7 @@ QJ.DD.Workspace = {
         `;
         modal.innerHTML = `
             <div style="font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 8px;">PLACEMENT DECISION</div>
-            <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 16px;">Does ${payload.fileName} need an interactive RPG Maker MZ event?</div>
+            <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 16px;">Does ${escapeHtml(payload.fileName)} need an interactive RPG Maker MZ event?</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <button class="qj-btn qj-btn-primary" id="qj-ask-yes">Yes (Create MZ Event)</button>
                 <button class="qj-btn" id="qj-ask-no">No (Decorative Doodad)</button>
@@ -6459,7 +6499,7 @@ QJ.DD.Workspace = {
                 padding: 5px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;
                 color: ${item.danger ? '#f87171' : '#e2e8f0'};
             `;
-            row.innerHTML = `<span>${item.icon || '•'}</span> <span>${item.label}</span>`;
+            row.innerHTML = `<span>${escapeHtml(item.icon || '•')}</span> <span>${escapeHtml(item.label)}</span>`;
             row.onmouseenter = () => { row.style.background = item.danger ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.25)'; };
             row.onmouseleave = () => { row.style.background = 'transparent'; };
             row.onclick = (e) => {
