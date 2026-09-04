@@ -93,6 +93,17 @@ try {
     assert.deepStrictEqual(metadata.animationGroups[0], {
         name: 'idle', direction: 'pingpong', frames: ['idle_0.png', 'idle_1.png']
     });
+
+    assert.strictEqual(typeof QJ.DD.Export.getRegionGeometry, 'function');
+    assert.deepStrictEqual(QJ.DD.Export.getRegionGeometry(metadata.regions[0]), {
+        atlasW: 16, atlasH: 20, contentW: 16, contentH: 20,
+        outputW: 24, outputH: 30, destinationX: 3, destinationY: 4, rotated: false
+    });
+    assert.deepStrictEqual(QJ.DD.Export.getRegionGeometry(metadata.regions[1]), {
+        atlasW: 20, atlasH: 16, contentW: 16, contentH: 20,
+        outputW: 16, outputH: 20, destinationX: 0, destinationY: 0, rotated: true
+    });
+    assert.strictEqual(QJ.DD.Export.safeFileName('../../bad:name?.png'), 'bad_name_.png');
 } finally {
     fs.rmSync(fixtureDir, { recursive: true, force: true });
 }
