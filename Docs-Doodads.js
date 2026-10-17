@@ -1076,17 +1076,18 @@ DocsDoodads.Lighting = {
         return 1 - amount * DocsDoodads.Motion.noise(time * 6 + (Number(seed) || 0) * 3.7);
     },
 
-    // display: the map's scroll in pixels ({ x, y }), so lights land in screen space.
+    // display: the map's scroll in pixels ({ x, y }) or a map-to-screen function, so lights land in screen space.
     collect(doodads, display = { x: 0, y: 0 }) {
+        const toScreen = typeof display === 'function' ? display : (x, y) => ({ x: x - display.x, y: y - display.y });
         const out = [];
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
             const l = Object.assign({}, this.lightDefaults, d.light);
-            const mapSpace = d.posMode !== 0;
+            const at = d.posMode !== 0 ? toScreen(d.x, d.y) : { x: d.x, y: d.y };
             out.push({
                 doodad: d,
-                x: d.x - (mapSpace ? display.x : 0) + (Number(l.offsetX) || 0),
-                y: d.y - (mapSpace ? display.y : 0) + (Number(l.offsetY) || 0),
+                x: at.x + (Number(l.offsetX) || 0),
+                y: at.y + (Number(l.offsetY) || 0),
                 radius: Math.max(8, Number(l.radius) || 144),
                 color: this.parseColor(l.color, 0xffd27f),
                 intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)),
@@ -1132,6 +1133,34 @@ DocsDoodads.safeFrame = function(rect, width, height) {
 //==========================================================
 // SECTION 6: SPRITE_DOCSDOODAD RUNTIME ENGINE
 //==========================================================
+// Map pixels to screen pixels. Looping maps wrap the camera, so this uses MZ's adjustX/adjustY
+// exactly like Sprite_Character; a plain display offset would push doodads off-screen at the seam.
+DocsDoodads.mapToScreen = function(x, y) {
+    const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
+    if (!gameMap) return { x, y };
+    const tw = gameMap.tileWidth ? gameMap.tileWidth() : 48;
+    const th = gameMap.tileHeight ? gameMap.tileHeight() : 48;
+    const round = v => Math.round(v * 1000) / 1000;
+    return {
+        x: round(typeof gameMap.adjustX === 'function' ? gameMap.adjustX(x / tw) * tw : x - gameMap.displayX() * tw),
+        y: round(typeof gameMap.adjustY === 'function' ? gameMap.adjustY(y / th) * th : y - gameMap.displayY() * th)
+    };
+};
+
+// Screen pixels back to map pixels, wrapped into the map on looping maps.
+DocsDoodads.screenToMap = function(screenX, screenY) {
+    const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
+    if (!gameMap) return { x: screenX, y: screenY };
+    const tw = gameMap.tileWidth ? gameMap.tileWidth() : 48;
+    const th = gameMap.tileHeight ? gameMap.tileHeight() : 48;
+    let x = gameMap.displayX() * tw + screenX;
+    let y = gameMap.displayY() * th + screenY;
+    const wrap = (v, size) => ((v % size) + size) % size;
+    if (gameMap.isLoopHorizontal && gameMap.isLoopHorizontal() && gameMap.width) x = wrap(x, gameMap.width() * tw);
+    if (gameMap.isLoopVertical && gameMap.isLoopVertical() && gameMap.height) y = wrap(y, gameMap.height() * th);
+    return { x, y };
+};
+
 DocsDoodads.frameCount = function() {
     return typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : 0;
 };
@@ -1219,9 +1248,7 @@ if (typeof PIXI !== 'undefined') {
     Sprite_DocsDoodad.prototype.screenPosition = function() {
         const d = this._data;
         if (d.posMode === 1 && typeof $gameMap !== 'undefined' && $gameMap) {
-            const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
-            const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-            return { x: d.x - $gameMap.displayX() * tw, y: d.y - $gameMap.displayY() * th };
+            return DocsDoodads.mapToScreen(d.x, d.y);
         }
         return { x: d.x || 0, y: d.y || 0 };
     };
@@ -1512,7 +1539,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         const visibleData = (this._docsDoodadSprites || []).filter(s => s.visible).map(s => s._data);
-        const lights = Lighting.collect(visibleData, { x: $gameMap.displayX() * tw, y: $gameMap.displayY() * th });
+        const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y));
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
@@ -5522,6 +5549,37 @@ DocsDoodads.MapLinks = {
         return d;
     },
 
+    // World positions (pixels) of the current map and its linked neighbours, up to depth links away.
+    layout(mapId, neighborsOf, sizeOf, depth = 2) {
+        const start = sizeOf(mapId);
+        if (!start) return [];
+        const placed = [{ mapId, x: 0, y: 0, w: start.w, h: start.h, distance: 0 }];
+        const seen = new Set([mapId]);
+        for (let i = 0; i < placed.length; i++) {
+            const m = placed[i];
+            if (m.distance >= depth) continue;
+            const links = neighborsOf(m.mapId) || {};
+            for (const side of this.sides) {
+                const id = Number(links[side]);
+                if (!id || seen.has(id)) continue;
+                const size = sizeOf(id);
+                if (!size) continue;
+                seen.add(id);
+                const x = side === 'east' ? m.x + m.w : side === 'west' ? m.x - size.w : m.x;
+                const y = side === 'south' ? m.y + m.h : side === 'north' ? m.y - size.h : m.y;
+                placed.push({ mapId: id, x, y, w: size.w, h: size.h, distance: m.distance + 1 });
+            }
+        }
+        return placed;
+    },
+
+    bounds(layout) {
+        return {
+            left: Math.min(...layout.map(m => m.x)), top: Math.min(...layout.map(m => m.y)),
+            right: Math.max(...layout.map(m => m.x + m.w)), bottom: Math.max(...layout.map(m => m.y + m.h))
+        };
+    },
+
     // Copies of doodads that hang over this map's edges, shifted into each neighbouring map.
     edgeCopies(mapId, doodads, neighbors, sizeOf) {
         const out = [];
@@ -8211,6 +8269,7 @@ DocsDoodads.Workspace = {
                     <div style="margin-top: 4px; color: #cbd5e1;">Neighbouring maps (for doodads that cross the edge):</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">${side('north', 'North')}${side('south', 'South')}${side('west', 'West')}${side('east', 'East')}</div>
                     <button class="dd-btn" id="dd-map-mirror" title="Copy doodads hanging over an edge onto the neighbouring map">Mirror Edge Doodads</button>
+                    <button class="dd-btn" id="dd-map-world" title="See this map and its linked neighbours together">World View</button>
                 </div>
             </details>`;
     },
@@ -8232,6 +8291,66 @@ DocsDoodads.Workspace = {
         }
         const mirror = document.getElementById('dd-map-mirror');
         if (mirror) mirror.onclick = () => this.mirrorEdgeDoodads();
+        const world = document.getElementById('dd-map-world');
+        if (world) world.onclick = () => this.showWorldView();
+    },
+
+    // A scaled overview of this map and its linked neighbours with their doodads; click a map to go there.
+    showWorldView() {
+        const existing = document.getElementById('dd-world-view');
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        const current = this.currentMapId();
+        const layout = DocsDoodads.MapLinks.layout(current, id => this.mapNeighbors(id), id => this.mapSizeLookup(id), 2);
+        if (layout.length === 0) return;
+        const names = {};
+        for (const m of this.mapEntries()) names[m.id] = m.name;
+        const b = DocsDoodads.MapLinks.bounds(layout);
+        const width = 720, height = 480;
+        const scale = Math.min((width - 20) / (b.right - b.left), (height - 20) / (b.bottom - b.top));
+        const toX = x => 10 + (x - b.left) * scale, toY = y => 10 + (y - b.top) * scale;
+
+        const modal = document.createElement('div');
+        modal.id = 'dd-world-view';
+        modal.className = 'dd-glass';
+        modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 16px; z-index: 10030;';
+        modal.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <div style="font-weight: bold; color: #60a5fa; font-size: 13px;">WORLD VIEW</div>
+                <button class="dd-btn" id="dd-world-close">Close</button>
+            </div>
+            <canvas id="dd-world-canvas" width="${width}" height="${height}" style="background: #0b1120; border: 1px solid #334155; border-radius: 4px; cursor: pointer;"></canvas>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
+        document.body.appendChild(modal);
+        const canvas = document.getElementById('dd-world-canvas');
+        const ctx = canvas.getContext('2d');
+        for (const m of layout) {
+            ctx.fillStyle = m.mapId === current ? '#1e3a5f' : '#16213a';
+            ctx.fillRect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+            ctx.strokeStyle = m.mapId === current ? '#38bdf8' : '#475569';
+            ctx.lineWidth = m.mapId === current ? 2 : 1;
+            ctx.strokeRect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+            for (const d of DocsDoodads.doodads(m.mapId)) {
+                if (!d || d.posMode === 0) continue;
+                const r = DocsDoodads.Guides.rectOf(d);
+                const crosses = r.left < 0 || r.top < 0 || r.right > m.w || r.bottom > m.h;
+                ctx.fillStyle = d.mirrorOf ? 'rgba(148,163,184,0.6)' : crosses ? '#f59e0b' : '#22c55e';
+                ctx.fillRect(toX(m.x + r.left), toY(m.y + r.top), Math.max(1.5, (r.right - r.left) * scale), Math.max(1.5, (r.bottom - r.top) * scale));
+            }
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = '11px sans-serif';
+            ctx.fillText(`${String(m.mapId).padStart(3, '0')} ${names[m.mapId] || ''}`, toX(m.x) + 4, toY(m.y) + 13);
+        }
+        const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
+        document.getElementById('dd-world-close').onclick = close;
+        canvas.onclick = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const wx = (e.clientX - rect.left - 10) / scale + b.left, wy = (e.clientY - rect.top - 10) / scale + b.top;
+            const hit = layout.find(m => wx >= m.x && wx <= m.x + m.w && wy >= m.y && wy <= m.y + m.h);
+            if (hit && hit.mapId !== current) {
+                close();
+                this.goToMap(hit.mapId);
+            }
+        };
     },
 
     // Transfers the player; the workspace stays open and picks the new map up in onMapLoaded.
@@ -9387,10 +9506,11 @@ DocsDoodads.Workspace = {
 
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
-        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
-        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const ox = window.$gameMap ? $gameMap.displayX() * tw : 0;
-        const oy = window.$gameMap ? $gameMap.displayY() * th : 0;
+        // Offsets from the screen position of the map origin's nearest copy keep lines continuous on looping maps.
+        const anchor = this._drag && this._drag.primary ? this._drag.primary : (this.pathPoints && this.pathPoints[0]) || { x: 0, y: 0 };
+        const anchorScreen = DocsDoodads.mapToScreen(anchor.x, anchor.y);
+        const ox = anchor.x - anchorScreen.x;
+        const oy = anchor.y - anchorScreen.y;
         for (const line of this.activeGuides || []) {
             g.lineStyle(1, line.kind === 'spacing' ? 0xf59e0b : 0xec4899, 1);
             if (line.axis === 'x') { g.moveTo(line.at - ox, line.from - oy); g.lineTo(line.at - ox, line.to - oy); }
@@ -9561,8 +9681,9 @@ DocsDoodads.Workspace = {
                 const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
                 const scaleX = rect.width / canvas.width;
                 const scaleY = rect.height / canvas.height;
-                const screenTileX = (coords.tileX * tw + tw / 2 - $gameMap.displayX() * tw) * scaleX + rect.left;
-                const screenTileY = (coords.tileY * th + th - $gameMap.displayY() * th) * scaleY + rect.top;
+                const tileScreen = DocsDoodads.mapToScreen(coords.tileX * tw + tw / 2, coords.tileY * th + th);
+                const screenTileX = tileScreen.x * scaleX + rect.left;
+                const screenTileY = tileScreen.y * scaleY + rect.top;
                 posX = screenTileX;
                 posY = screenTileY;
             }
@@ -9599,8 +9720,9 @@ DocsDoodads.Workspace = {
 
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const mapPixelX = $gameMap.displayX() * tw + screenX;
-        const mapPixelY = $gameMap.displayY() * th + screenY;
+        const mapped = DocsDoodads.screenToMap(screenX, screenY);
+        const mapPixelX = mapped.x;
+        const mapPixelY = mapped.y;
         const tileX = Math.floor(mapPixelX / tw);
         const tileY = Math.floor(mapPixelY / th);
         return { x: mapPixelX, y: mapPixelY, tileX, tileY };
@@ -10056,11 +10178,10 @@ DocsDoodads.Workspace = {
         return items.filter(d => !d.editorHidden).map(d => {
             const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
             const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
-            const offsetX = d.posMode === 1 && window.$gameMap ? $gameMap.displayX() * tw : 0;
-            const offsetY = d.posMode === 1 && window.$gameMap ? $gameMap.displayY() * th : 0;
+            const at = d.posMode === 1 && window.$gameMap ? DocsDoodads.mapToScreen(d.x, d.y) : { x: d.x, y: d.y };
             return {
-                x: d.x - offsetX - w * (d.anchorX !== undefined ? d.anchorX : 0.5),
-                y: d.y - offsetY - h * (d.anchorY !== undefined ? d.anchorY : 1.0),
+                x: at.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5),
+                y: at.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0),
                 w, h
             };
         });
