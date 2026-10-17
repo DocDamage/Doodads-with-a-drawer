@@ -1226,6 +1226,8 @@ QJ.DD.AssetIndex = {
         settings: {}
     },
     list: [],
+    // Bump when indexFile derives new fields so unchanged files are re-indexed once.
+    entryRevision: 3,
 
     init() {
         const loaded = QJ.DD.FS.readJson(this.libraryPath);
@@ -1237,6 +1239,31 @@ QJ.DD.AssetIndex = {
 
     rebuildList() {
         this.list = Object.values(this.data.assets);
+    },
+
+    isEntryCurrent(existing, stat) {
+        return Boolean(existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size &&
+            existing.entryRevision === this.entryRevision);
+    },
+
+    // Reads width/height from the PNG IHDR chunk without decoding the image.
+    readImageSize(fullPath) {
+        const fs = QJ.DD.FS.fs;
+        let fd = null;
+        try {
+            fd = fs.openSync(fullPath, 'r');
+            const header = Buffer.alloc(24);
+            if (fs.readSync(fd, header, 0, 24, 0) < 24) return null;
+            const isPng = header.readUInt32BE(0) === 0x89504e47 && header.toString('ascii', 12, 16) === 'IHDR';
+            if (!isPng) return null;
+            return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) };
+        } catch (error) {
+            return null;
+        } finally {
+            if (fd !== null) {
+                try { fs.closeSync(fd); } catch (error) {}
+            }
+        }
     },
 
     isSupportedAssetFile(filePath) {
@@ -1303,7 +1330,7 @@ QJ.DD.AssetIndex = {
             try {
                 const stat = await fs.promises.stat(file.absolute);
                 const existing = this.data.assets[assetId];
-                if (existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size) {
+                if (this.isEntryCurrent(existing, stat)) {
                     result.unchanged++;
                 } else {
                     this.indexFile(file.absolute, path.basename(file.absolute), path.extname(file.absolute).toLowerCase(), assetPath, stat);
@@ -1371,7 +1398,7 @@ QJ.DD.AssetIndex = {
         const assetId = normalizedAssetPath.toLowerCase();
 
         let existing = this.data.assets[assetId];
-        if (existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size) {
+        if (this.isEntryCurrent(existing, stat)) {
             return;
         }
 
@@ -1388,6 +1415,7 @@ QJ.DD.AssetIndex = {
             extension: ext,
             mtimeMs: stat.mtimeMs,
             sizeBytes: stat.size,
+            entryRevision: this.entryRevision,
             width: 0,
             height: 0,
             tags: existing ? existing.tags : [],
@@ -1411,6 +1439,11 @@ QJ.DD.AssetIndex = {
         };
 
         if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+            const size = this.readImageSize(fullPath);
+            if (size) {
+                newEntry.width = size.width;
+                newEntry.height = size.height;
+            }
             const known = QJ.DD.Slicing.Known.detect(newEntry);
             if (known) {
                 newEntry.slice = known;
@@ -1428,6 +1461,10 @@ QJ.DD.AssetIndex = {
         if (lower.includes('img/doodads')) return 'Doodads';
         if (lower.includes('img/tilesets')) return 'Tilesets';
         if (lower.includes('img/pictures')) return 'Pictures';
+        if (lower.includes('img/faces')) return 'Faces';
+        if (/img\/(enemies|sv_enemies|sv_actors)\//.test(lower)) return 'Battlers';
+        if (/img\/(battlebacks1|battlebacks2|parallaxes|titles1|titles2)\//.test(lower)) return 'Backgrounds';
+        if (lower.includes('img/system')) return 'System';
         if (lower.includes('audio/')) return 'Audio';
         return 'Other';
     },
@@ -1459,6 +1496,15 @@ QJ.DD.AssetIndex = {
 
     save() {
         QJ.DD.FS.atomicWriteJson(this.libraryPath, this.data);
+    },
+
+    // Accepts "a, b ,a" style input; stores lowercase, trimmed, de-duplicated tags.
+    setTags(assetId, input) {
+        const asset = this.data.assets[assetId];
+        if (!asset) return;
+        const raw = Array.isArray(input) ? input : String(input || '').split(',');
+        asset.tags = [...new Set(raw.map(t => String(t).trim().toLowerCase().replace(/\s+/g, ' ')).filter(Boolean))];
+        this.save();
     },
 
     toggleFavorite(assetId) {
@@ -2665,13 +2711,17 @@ QJ.DD.Slicing.Editor = {
         this.canvas.width = container.clientWidth;
         this.canvas.height = container.clientHeight;
 
-        window.addEventListener('resize', () => {
-            if (this.modal && container) {
-                this.canvas.width = container.clientWidth;
-                this.canvas.height = container.clientHeight;
-                this.render();
-            }
-        });
+        if (!this._windowResizeListenerBound) {
+            this._windowResizeListenerBound = true;
+            window.addEventListener('resize', () => {
+                const current = document.getElementById('qj-slicer-canvas-container');
+                if (this.modal && current) {
+                    this.canvas.width = current.clientWidth;
+                    this.canvas.height = current.clientHeight;
+                    this.render();
+                }
+            });
+        }
 
         this.bindEvents();
         this.updateRegionList();
@@ -2984,22 +3034,30 @@ QJ.DD.Slicing.Editor = {
             }
         });
 
-        // Keyboard shortcuts in slicer
-        window.addEventListener('keydown', (e) => {
-            if (!this.modal) return;
-            if (e.key === 'Escape') {
-                this.close();
-            } else if (e.key === 'Delete' || e.key === 'Backspace') {
-                document.getElementById('qj-slicer-del-btn').click();
-            } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-                this.undo();
-            } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-                this.redo();
-            } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
-                e.preventDefault();
-                document.getElementById('qj-slicer-dup-btn').click();
-            }
-        });
+        // bindEvents runs on every open; window listeners must only be registered once.
+        if (!this._windowKeyListenerBound) {
+            this._windowKeyListenerBound = true;
+            window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        }
+    },
+
+    handleKeyDown(e) {
+        if (!this.modal) return;
+        if (e.key === 'Escape') {
+            this.close();
+            return;
+        }
+        if (QJ.DD.isEditableTarget(e.target)) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            document.getElementById('qj-slicer-del-btn').click();
+        } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+            this.undo();
+        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+            this.redo();
+        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
+            e.preventDefault();
+            document.getElementById('qj-slicer-dup-btn').click();
+        }
     },
 
     snapCoordX(x, w) {
@@ -3321,8 +3379,10 @@ QJ.DD.Slicing.Editor = {
             r.w = Math.max(4, parseInt(rw.value, 10) || 4);
             r.h = Math.max(4, parseInt(rh.value, 10) || 4);
             r.name = rname.value;
-            r.pivotX = parseFloat(pivx.value) || 0.5;
-            r.pivotY = parseFloat(pivy.value) || 1.0;
+            // 0 is a valid pivot (left/top edge); only blank or invalid input falls back.
+            const px = parseFloat(pivx.value), py = parseFloat(pivy.value);
+            r.pivotX = Number.isFinite(px) ? px : 0.5;
+            r.pivotY = Number.isFinite(py) ? py : 1.0;
             this.render();
         };
 
@@ -3377,7 +3437,8 @@ QJ.DD.Events = {
                     directionFix: options.directionFix !== undefined ? options.directionFix : false,
                     image: {
                         characterIndex: options.characterIndex !== undefined ? options.characterIndex : 0,
-                        characterName: options.characterName || "",
+                        // MZ ImageManager appends ".png" itself.
+                        characterName: String(options.characterName || "").replace(/\.png$/i, ""),
                         direction: options.direction || 2,
                         pattern: options.pattern || 1,
                         tileId: 0
@@ -4453,6 +4514,7 @@ QJ.DD.Workspace = {
                 transition: all 0.15s ease;
             }
             .qj-btn:hover { background: #374151; border-color: #60a5fa; }
+            #qj-category-tabs .qj-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
             .qj-btn-primary { background: #2563eb; border-color: #3b82f6; }
             .qj-btn-primary:hover { background: #1d4ed8; }
             .qj-btn-active { background: #059669 !important; border-color: #10b981 !important; color: #fff !important; }
@@ -4539,12 +4601,16 @@ QJ.DD.Workspace = {
         `;
         drawer.innerHTML = `
             <div id="qj-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Drawer"></div>
-            <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; overflow-x: auto;" id="qj-category-tabs">
+            <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; flex-wrap: wrap; gap: 4px;" id="qj-category-tabs">
                 <button class="qj-btn qj-btn-primary" data-cat="All">All</button>
                 <button class="qj-btn" data-cat="Characters">Characters</button>
                 <button class="qj-btn" data-cat="Doodads">Doodads</button>
                 <button class="qj-btn" data-cat="Tilesets">Tiles</button>
                 <button class="qj-btn" data-cat="Pictures">Pictures</button>
+                <button class="qj-btn" data-cat="Faces">Faces</button>
+                <button class="qj-btn" data-cat="Battlers">Battlers</button>
+                <button class="qj-btn" data-cat="Backgrounds">Backgrounds</button>
+                <button class="qj-btn" data-cat="System">System</button>
                 <button class="qj-btn" data-cat="Audio">Audio</button>
                 <button class="qj-btn" data-cat="Favorites" title="Show Favorited Assets">★ Favs</button>
                 <button class="qj-btn" data-cat="Recent" title="Show Recently Used Assets">🕒 Recent</button>
@@ -4965,6 +5031,7 @@ QJ.DD.Workspace = {
                 frameW: asset.width || 48,
                 frameH: asset.height || 48,
                 collision: asset.collision || { preset: "none" },
+                characterIndex: asset.placement.characterIndex || 0,
                 placementMode: asset.placement.defaultMode || (asset.type === 'character_sheet' ? 'event' : 'ask')
             };
             e.dataTransfer.setData('text/plain', JSON.stringify(this.activeDragPayload));
@@ -5407,6 +5474,11 @@ QJ.DD.Workspace = {
             <div style="display: flex; gap: 6px; margin: 8px 0;">
                 <button class="qj-btn" id="qj-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
             </div>
+            <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
+                <input type="text" id="qj-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. forest, prop" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
+            </div>
             <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Placement Mode:</label>
                 <select id="qj-place-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
@@ -5420,6 +5492,11 @@ QJ.DD.Workspace = {
                 <select id="qj-event-template" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
                     ${templateOptions}
                 </select>
+                ${a.type === 'character_sheet' ? `
+                <label style="display: block; font-size: 11px; margin: 8px 0 3px;">Character on Sheet:</label>
+                <select id="qj-char-index" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                    ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}">#${i + 1} (${i < 4 ? 'top' : 'bottom'} row, ${(i % 4) + 1} of 4)</option>`).join('')}
+                </select>` : ''}
             </div>
             <div style="margin-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
@@ -5447,6 +5524,18 @@ QJ.DD.Workspace = {
         modeSel.onchange = (e) => {
             a.placement.defaultMode = e.target.value;
             templateGroup.style.display = a.placement.defaultMode === "event" ? "block" : "none";
+        };
+
+        const charSel = document.getElementById('qj-char-index');
+        if (charSel) {
+            charSel.value = String(a.placement.characterIndex || 0);
+            charSel.onchange = (e) => { a.placement.characterIndex = parseInt(e.target.value, 10) || 0; };
+        }
+
+        const tagInput = document.getElementById('qj-asset-tags');
+        tagInput.onchange = (e) => {
+            QJ.DD.AssetIndex.setTags(a.id, e.target.value);
+            tagInput.value = (a.tags || []).join(', ');
         };
 
         const colSel = document.getElementById('qj-col-preset');
@@ -5489,7 +5578,9 @@ QJ.DD.Workspace = {
 
             const ev = QJ.DD.Events.createEventObject(newId, coords.tileX, coords.tileY, {
                 characterName: asset.fileName,
-                characterIndex: 0,
+                characterIndex: asset.type === 'character_sheet'
+                    ? (asset.characterIndex !== undefined ? asset.characterIndex : ((asset.placement && asset.placement.characterIndex) || 0))
+                    : 0,
                 list: template.list,
                 trigger: template.trigger,
                 priorityType: template.priorityType
@@ -5511,8 +5602,9 @@ QJ.DD.Workspace = {
             d.bit = [3, asset.path];
             d.x = coords.x;
             d.y = coords.y;
-            d.frameW = asset.width || 48;
-            d.frameH = asset.height || 48;
+            // Drag payloads carry frameW/frameH; library assets carry width/height.
+            d.frameW = asset.frameW || asset.width || 48;
+            d.frameH = asset.frameH || asset.height || 48;
             d.collision = { preset: asset.collision.preset || "none", shape: null };
 
             const cmd = {
@@ -5983,9 +6075,33 @@ QJ.DD.Workspace = {
         return { x: mapPixelX, y: mapPixelY, tileX, tileY };
     },
 
+    // Engine elements stacked above the canvas (MZ #gameVideo/#errorPrinter, MV #GameVideo/#ErrorPrinter)
+    // would otherwise receive every drop and click aimed at the map.
+    canvasOverlayIds: ['gameVideo', 'errorPrinter', 'GameVideo', 'ErrorPrinter'],
+
+    setCanvasOverlaysPassthrough(enabled) {
+        if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+        if (enabled) {
+            this._overlayPointerEvents = {};
+            for (const id of this.canvasOverlayIds) {
+                const el = document.getElementById(id);
+                if (!el || !el.style) continue;
+                this._overlayPointerEvents[id] = el.style.pointerEvents;
+                el.style.pointerEvents = 'none';
+            }
+        } else if (this._overlayPointerEvents) {
+            for (const [id, previous] of Object.entries(this._overlayPointerEvents)) {
+                const el = document.getElementById(id);
+                if (el && el.style) el.style.pointerEvents = previous;
+            }
+            this._overlayPointerEvents = null;
+        }
+    },
+
     attachCanvasListeners() {
         const canvas = QJ.DD.Compat.getCanvas();
         if (!canvas) return;
+        this.setCanvasOverlaysPassthrough(true);
 
         this._onDragOver = (e) => {
             if (this.activeDragPayload) {
@@ -6251,6 +6367,7 @@ QJ.DD.Workspace = {
     },
 
     detachCanvasListeners() {
+        this.setCanvasOverlaysPassthrough(false);
         const canvas = QJ.DD.Compat.getCanvas();
         if (canvas && typeof canvas.removeEventListener === 'function') {
             if (this._onDragOver) canvas.removeEventListener('dragover', this._onDragOver);
@@ -6332,13 +6449,22 @@ QJ.DD.Workspace = {
         this.showToast("No doodad or event under cursor");
     },
 
+    doodadContainsPoint(d, x, y) {
+        const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+        const left = d.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5);
+        const top = d.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0);
+        if (x >= left && x <= left + w && y >= top && y <= top + h) return true;
+        // Keep small props easy to click.
+        return Math.hypot(d.x - x, d.y - y) < 40;
+    },
+
     handleDoodadSelection(coords, isMulti) {
         const list = QJ.DD.doodads();
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
             if (d.editorHidden) continue;
-            const dist = Math.hypot(d.x - coords.x, d.y - coords.y);
-            if (dist < 40) {
+            if (this.doodadContainsPoint(d, coords.x, coords.y)) {
                 this.selectDoodad(d, isMulti);
                 return;
             }
@@ -6928,15 +7054,51 @@ if (typeof Scene_Map !== 'undefined') {
     Scene_Map.prototype.initialize = function() {
         $.Scene_Map_initialize.call(this);
     };
+}
 
-    $.Scene_Map_updateScene = Scene_Map.prototype.updateScene;
-    Scene_Map.prototype.updateScene = function() {
-        $.Scene_Map_updateScene.call(this);
-        if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
+QJ.DD.isEditableTarget = function(target) {
+    return Boolean(target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
+};
 
-        if (typeof Input !== 'undefined' && Input.isTriggered(editKey)) {
-            QJ.DD.Workspace.toggle();
-        }
+// While the workspace is open the game world is frozen: clicks in editor panels must not
+// walk the player, events must not wander or trigger, and the menu must stay closed.
+if (typeof Game_Player !== 'undefined') {
+    $.Game_Player_canMove = Game_Player.prototype.canMove;
+    Game_Player.prototype.canMove = function() {
+        if (QJ.DD.Workspace.mounted) return false;
+        return $.Game_Player_canMove.call(this);
+    };
+}
+if (typeof Game_Event !== 'undefined') {
+    $.Game_Event_updateSelfMovement = Game_Event.prototype.updateSelfMovement;
+    Game_Event.prototype.updateSelfMovement = function() {
+        if (QJ.DD.Workspace.mounted) return;
+        $.Game_Event_updateSelfMovement.call(this);
+    };
+}
+if (typeof Game_Map !== 'undefined') {
+    $.Game_Map_isEventRunning = Game_Map.prototype.isEventRunning;
+    Game_Map.prototype.isEventRunning = function() {
+        if (QJ.DD.Workspace.mounted) return true;
+        return $.Game_Map_isEventRunning.call(this);
+    };
+}
+// MZ's TouchInput cancels every wheel event on the document, which stops the asset grid,
+// tab bar, and inspector lists from scrolling. The game has no use for the wheel while editing.
+if (typeof TouchInput !== 'undefined' && typeof TouchInput._onWheel === 'function') {
+    $.TouchInput__onWheel = TouchInput._onWheel;
+    TouchInput._onWheel = function(event) {
+        if (QJ.DD.Workspace.mounted) return;
+        $.TouchInput__onWheel.call(this, event);
+    };
+}
+// MZ's Input listens on the whole document and prevents Backspace/arrows by default,
+// which breaks typing in workspace fields and lets keystrokes drive the game.
+if (typeof Input !== 'undefined' && typeof Input._onKeyDown === 'function') {
+    $.Input__onKeyDown = Input._onKeyDown;
+    Input._onKeyDown = function(event) {
+        if (QJ.DD.Workspace.mounted && QJ.DD.isEditableTarget(event.target)) return;
+        $.Input__onKeyDown.call(this, event);
     };
 }
 
@@ -6944,14 +7106,14 @@ if (typeof Scene_Map !== 'undefined') {
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('dragover', (e) => {
         if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
-        if (window.$gameSystem && window.$gameSystem.doodadsQJ && window.$gameSystem.doodadsQJ.editing) {
+        if (QJ.DD.Workspace.mounted) {
             e.preventDefault();
         }
     });
 
     window.addEventListener('drop', (e) => {
         if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
-        if (window.$gameSystem && window.$gameSystem.doodadsQJ && window.$gameSystem.doodadsQJ.editing) {
+        if (QJ.DD.Workspace.mounted) {
             e.preventDefault();
             if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 const sourcePaths = [];
@@ -6966,11 +7128,17 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 
     window.addEventListener('keydown', (e) => {
         if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
-        if (!window.$gameSystem || !window.$gameSystem.doodadsQJ || !window.$gameSystem.doodadsQJ.editing) return;
+        // editKey is a KeyboardEvent.code ("F10"), which Input.keyMapper never reports, so opening is handled here.
         if (e.code === editKey) {
+            const onMap = typeof Scene_Map !== 'undefined' && typeof SceneManager !== 'undefined' && SceneManager._scene instanceof Scene_Map;
+            if (!QJ.DD.Workspace.mounted && !onMap) return;
             e.preventDefault();
             QJ.DD.Workspace.toggle();
-        } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+            return;
+        }
+        if (!QJ.DD.Workspace.mounted || QJ.DD.isEditableTarget(e.target)) return;
+        if (QJ.DD.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
+        if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
             e.preventDefault();
             QJ.DD.Undo.undo();
         } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
@@ -6995,7 +7163,6 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                 QJ.DD.Workspace.deleteSelectedDoodad();
             }
         } else if (e.key === 'g' || e.key === 'G') {
-            if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             e.preventDefault();
             QJ.DD.Workspace.toggleGrid();
         } else if (e.key === 'h' || e.key === 'H') {

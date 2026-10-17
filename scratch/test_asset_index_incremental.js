@@ -30,7 +30,8 @@ async function main() {
         assets: {
             'img/doodads/existing.png': {
                 id: 'img/doodads/existing.png', path: 'img/doodads/existing.png', fileName: 'existing.png',
-                mtimeMs: stat.mtimeMs, sizeBytes: stat.size, tags: ['manual'], favorite: true
+                mtimeMs: stat.mtimeMs, sizeBytes: stat.size, entryRevision: QJ.DD.AssetIndex.entryRevision,
+                tags: ['manual'], favorite: true
             },
             'img/doodads/deleted.png': {
                 id: 'img/doodads/deleted.png', path: 'img/doodads/deleted.png', fileName: 'deleted.png', mtimeMs: 1, sizeBytes: 1
