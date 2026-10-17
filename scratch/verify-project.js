@@ -49,7 +49,8 @@ function visit(directory) {
             continue;
         }
         const relative = path.relative(projectRoot, absolute).replace(/\\/g, '/');
-        if (/\.(dd|qj)(import|txn)-|\.tmp$/i.test(entry.name)) // qj* = artifacts from pre-rename builds transactionArtifacts.push(relative);
+        // qj* names are artifacts from pre-rename builds.
+        if (/\.(dd|qj)(import|txn)-|\.tmp$/i.test(entry.name)) transactionArtifacts.push(relative);
         if (entry.size > 5 * 1024 * 1024) continue;
         const content = fs.readFileSync(absolute, 'utf8');
         if (secretPatterns.some(pattern => pattern.test(content))) findings.push(relative);
