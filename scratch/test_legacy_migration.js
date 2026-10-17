@@ -89,6 +89,14 @@ assert.strictEqual(window.$dataDocsDoodads[1][0].x, 10, "DoodadsQJ.json placemen
 // Backups made by QJ builds stay restorable from Diagnostics.
 const backups = DocsDoodads.FS.listBackups('data/Map001.json');
 assert.strictEqual(backups.length, 1, "legacy backups are listed for restore");
+write('data/Map001.json', { displayName: 'current' });
+fs.writeFileSync(backups[0].path, JSON.stringify({ displayName: 'from QJ backup' }));
+const restored = DocsDoodads.FS.restoreBackup('data/Map001.json', backups[0].path);
+assert.strictEqual(restored.ok, true, "a listed legacy backup can actually be restored: " + restored.error);
+assert.strictEqual(JSON.parse(fs.readFileSync('data/Map001.json', 'utf8')).displayName, 'from QJ backup');
+assert.ok(restored.safetyBackup && fs.existsSync(restored.safetyBackup), "the current file is backed up before restoring");
+assert.ok(DocsDoodads.FS.restoreBackup('data/Map001.json', path.join(sandbox, 'data', 'evil.json.bak')).ok === false,
+    "backups outside the backup folders are still rejected");
 
 // Clearing recovery removes both the new and the legacy snapshot.
 DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', { timestamp: 2 });
