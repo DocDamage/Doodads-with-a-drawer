@@ -4588,12 +4588,373 @@ if (typeof Game_CharacterBase !== 'undefined') {
 }
 
 //==========================================================
+// SECTION 19B: PLACEMENT TOOLS (PATHS, SCATTER, GUIDES, PREFABS, MAP LINKS)
+//==========================================================
+DocsDoodads.Paths = {
+    // Catmull-Rom through the clicked points; the ends stay where they were clicked.
+    smooth(points, steps = 8) {
+        if (!points || points.length < 3) return (points || []).slice();
+        const out = [];
+        for (let i = 0; i < points.length - 1; i++) {
+            const p0 = points[Math.max(0, i - 1)], p1 = points[i], p2 = points[i + 1], p3 = points[Math.min(points.length - 1, i + 2)];
+            for (let s = 0; s < steps; s++) {
+                const t = s / steps, t2 = t * t, t3 = t2 * t;
+                const f = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+                out.push({ x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) });
+            }
+        }
+        out.push({ x: points[points.length - 1].x, y: points[points.length - 1].y });
+        return out;
+    },
+
+    angleOf(a, b) {
+        return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    },
+
+    // Evenly spaced placements along the path. Sharp turns become "corner" pieces at the vertex,
+    // and each straight run is spaced so its pieces meet the corners exactly.
+    sample(points, spacing, options = {}) {
+        const pts = (options.smooth ? this.smooth(points) : points || []).map(p => ({ x: p.x, y: p.y }));
+        if (pts.length === 0) return [];
+        if (pts.length === 1) return [{ x: pts[0].x, y: pts[0].y, angle: 0, kind: 'start' }];
+        spacing = Math.max(4, Number(spacing) || 48);
+        const cornerAngle = options.cornerAngle !== undefined ? options.cornerAngle : 35;
+
+        // Split the polyline into runs at sharp vertices.
+        const runs = [];
+        let run = [pts[0]];
+        for (let i = 1; i < pts.length; i++) {
+            run.push(pts[i]);
+            if (i < pts.length - 1 && !options.smooth) {
+                let turn = Math.abs(this.angleOf(pts[i], pts[i + 1]) - this.angleOf(pts[i - 1], pts[i])) % 360;
+                if (turn > 180) turn = 360 - turn;
+                if (turn >= cornerAngle) {
+                    runs.push(run);
+                    run = [pts[i]];
+                }
+            }
+        }
+        runs.push(run);
+
+        const out = [];
+        runs.forEach((r, runIndex) => {
+            const lengths = [];
+            let total = 0;
+            for (let i = 1; i < r.length; i++) {
+                const len = Math.hypot(r[i].x - r[i - 1].x, r[i].y - r[i - 1].y);
+                lengths.push(len);
+                total += len;
+            }
+            const n = Math.max(1, Math.round(total / spacing));
+            const pointAt = (dist) => {
+                let seg = 0;
+                while (seg < lengths.length - 1 && dist > lengths[seg]) { dist -= lengths[seg]; seg++; }
+                const a = r[seg], b = r[seg + 1];
+                const k = lengths[seg] > 0 ? Math.min(1, dist / lengths[seg]) : 0;
+                return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, angle: this.angleOf(a, b) };
+            };
+            for (let i = runIndex === 0 ? 0 : 1; i <= n; i++) {
+                const p = pointAt(total * i / n);
+                const isFirst = runIndex === 0 && i === 0;
+                const isLast = runIndex === runs.length - 1 && i === n;
+                const kind = isFirst ? 'start' : isLast ? 'end' : i === n ? 'corner' : 'segment';
+                out.push({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, angle: Math.round(p.angle * 100) / 100, kind });
+            }
+        });
+        return out;
+    }
+};
+
+DocsDoodads.Scatter = {
+    // Small seeded generator so a stroke can be reproduced in tests.
+    rng(seed) {
+        let a = (Number(seed) || 1) >>> 0;
+        return () => {
+            a = (a + 0x6D2B79F5) >>> 0;
+            let t = a;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    },
+
+    // Poisson-disk style dart throwing: no two props closer than minDistance, existing props included.
+    candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
+        const accepted = [];
+        const others = (existing || []).slice();
+        const attempts = maxAttempts || Math.max(30, count * 30);
+        for (let i = 0; i < attempts && accepted.length < count; i++) {
+            const angle = rng() * Math.PI * 2;
+            const dist = radius * Math.sqrt(rng());
+            const p = { x: center.x + Math.cos(angle) * dist, y: center.y + Math.sin(angle) * dist };
+            if (minDistance > 0 && others.some(o => Math.hypot(o.x - p.x, o.y - p.y) < minDistance)) continue;
+            accepted.push(p);
+            others.push(p);
+        }
+        return accepted;
+    },
+
+    parseIdList(text) {
+        return String(text || '').split(/[^0-9]+/).filter(Boolean).map(n => parseInt(n, 10)).filter(n => n > 0);
+    },
+
+    allowed(point, rules, query) {
+        const tw = query.tileWidth || 48, th = query.tileHeight || 48;
+        const tx = Math.floor(point.x / tw), ty = Math.floor(point.y / th);
+        if (point.x < 0 || point.y < 0 || tx >= query.width || ty >= query.height) return false;
+        rules = rules || {};
+        if (rules.regions && rules.regions.length > 0 && !rules.regions.includes(query.regionId(tx, ty))) return false;
+        if (rules.terrainTags && rules.terrainTags.length > 0 && !rules.terrainTags.includes(query.terrainTag(tx, ty))) return false;
+        if (rules.avoidBlocked && !query.isPassable(tx, ty)) return false;
+        return true;
+    },
+
+    variation(settings, rng) {
+        const jitter = (amount) => (rng() * 2 - 1) * (Number(amount) || 0);
+        return {
+            scale: Math.round((1 + jitter(settings.scaleJitter)) * 100) / 100,
+            rotation: Math.round(jitter(settings.rotateJitter)),
+            flipX: rng() < (Number(settings.flipChance) || 0),
+            hue: Math.round(jitter(settings.hueJitter))
+        };
+    }
+};
+
+DocsDoodads.Guides = {
+    rectOf(d) {
+        const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+        const left = d.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5);
+        const top = d.y - h * (d.anchorY !== undefined ? d.anchorY : 1);
+        return { left, right: left + w, top, bottom: top + h, cx: left + w / 2, cy: top + h / 2 };
+    },
+
+    unionRect(rects) {
+        const r = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+        for (const x of rects) {
+            r.left = Math.min(r.left, x.left); r.right = Math.max(r.right, x.right);
+            r.top = Math.min(r.top, x.top); r.bottom = Math.max(r.bottom, x.bottom);
+        }
+        r.cx = (r.left + r.right) / 2;
+        r.cy = (r.top + r.bottom) / 2;
+        return r;
+    },
+
+    // Edge/centre alignment first; otherwise equal spacing between the nearest neighbours.
+    snap(moving, others, threshold = 6) {
+        const result = { dx: 0, dy: 0, lines: [] };
+        const m = Object.assign({}, moving);
+        if (m.cx === undefined) m.cx = (m.left + m.right) / 2;
+        if (m.cy === undefined) m.cy = (m.top + m.bottom) / 2;
+        const rects = (others || []).map(o => Object.assign({ cx: (o.left + o.right) / 2, cy: (o.top + o.bottom) / 2 }, o));
+
+        const axis = (keys, crossFrom, crossTo, name) => {
+            let best = null;
+            for (const o of rects) {
+                for (const mk of keys) {
+                    for (const ok of keys) {
+                        const diff = o[ok] - m[mk];
+                        if (Math.abs(diff) <= threshold && (best === null || Math.abs(diff) < Math.abs(best))) best = diff;
+                    }
+                }
+            }
+            if (best === null) return null;
+            const lines = [];
+            for (const o of rects) {
+                for (const mk of keys) {
+                    for (const ok of keys) {
+                        if (Math.abs(o[ok] - (m[mk] + best)) < 0.01) {
+                            lines.push({ axis: name, at: o[ok], from: Math.min(o[crossFrom], m[crossFrom]), to: Math.max(o[crossTo], m[crossTo]) });
+                        }
+                    }
+                }
+            }
+            return { delta: best, lines };
+        };
+
+        const spacing = (lo, hi, crossLo, crossHi, name) => {
+            const overlapping = rects.filter(o => o[crossLo] < m[crossHi] && o[crossHi] > m[crossLo]);
+            const before = overlapping.filter(o => o[hi] <= m[lo]).sort((a, b) => b[hi] - a[hi])[0];
+            const after = overlapping.filter(o => o[lo] >= m[hi]).sort((a, b) => a[lo] - b[lo])[0];
+            if (!before || !after) return null;
+            const gap1 = m[lo] - before[hi], gap2 = after[lo] - m[hi];
+            if (Math.abs(gap1 - gap2) > threshold * 2) return null;
+            const delta = (gap2 - gap1) / 2;
+            const mid = (m[crossLo] + m[crossHi]) / 2;
+            return { delta, lines: [
+                { axis: name, kind: 'spacing', at: mid, from: before[hi], to: m[lo] + delta },
+                { axis: name, kind: 'spacing', at: mid, from: m[hi] + delta, to: after[lo] }
+            ] };
+        };
+
+        const x = axis(['left', 'cx', 'right'], 'top', 'bottom', 'x') || spacing('left', 'right', 'top', 'bottom', 'x-gap');
+        const y = axis(['top', 'cy', 'bottom'], 'left', 'right', 'y') || spacing('top', 'bottom', 'left', 'right', 'y-gap');
+        if (x) { result.dx = x.delta; result.lines.push(...x.lines); }
+        if (y) { result.dy = y.delta; result.lines.push(...y.lines); }
+        return result;
+    }
+};
+
+DocsDoodads.Prefabs = {
+    filePath: 'data/DocsDoodadsPrefabs.json',
+    list: [],
+    loaded: false,
+
+    load() {
+        const data = DocsDoodads.FS.readJson(this.filePath);
+        this.list = data && Array.isArray(data.prefabs) ? data.prefabs : [];
+        this.loaded = true;
+        return this.list;
+    },
+
+    ensureLoaded() {
+        if (!this.loaded) this.load();
+        return this.list;
+    },
+
+    save() {
+        return DocsDoodads.FS.atomicWriteJson(this.filePath, { version: 1, prefabs: this.list });
+    },
+
+    get(id) {
+        return this.ensureLoaded().find(p => p.id === id) || null;
+    },
+
+    add(prefab) {
+        this.ensureLoaded().push(prefab);
+        return prefab;
+    },
+
+    remove(id) {
+        const index = this.ensureLoaded().findIndex(p => p.id === id);
+        if (index >= 0) this.list.splice(index, 1);
+        return index >= 0;
+    },
+
+    newId(prefix) {
+        return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    },
+
+    cleanDoodad(d) {
+        const copy = JSON.parse(JSON.stringify(d));
+        for (const key of ['groupId', 'prefabRef', 'locked', 'uid', 'mirrorOf', 'editorHidden']) delete copy[key];
+        return copy;
+    },
+
+    // The origin is the bottom-centre of the doodads' anchor points; events keep tile offsets from it.
+    originFor(doodads, events, tw, th) {
+        if (doodads.length > 0) {
+            const xs = doodads.map(d => d.x), ys = doodads.map(d => d.y);
+            return { x: Math.round((Math.min(...xs) + Math.max(...xs)) / 2), y: Math.max(...ys) };
+        }
+        if (events.length > 0) {
+            const xs = events.map(e => e.x), ys = events.map(e => e.y);
+            return { x: Math.round((Math.min(...xs) + Math.max(...xs)) / 2 * tw + tw / 2), y: (Math.max(...ys) + 1) * th };
+        }
+        return { x: 0, y: 0 };
+    },
+
+    capture(name, doodads, events, options = {}) {
+        const tw = options.tileWidth || 48, th = options.tileHeight || 48;
+        doodads = (doodads || []).filter(Boolean);
+        events = (events || []).filter(Boolean);
+        const origin = this.originFor(doodads, events, tw, th);
+        const originTile = { x: Math.floor(origin.x / tw), y: Math.floor((origin.y - 1) / th) };
+        const first = doodads.find(d => d.bit && d.bit[0] === 3);
+        return {
+            id: this.newId('pf_'),
+            name: String(name || 'Prefab').trim() || 'Prefab',
+            createdAt: Date.now(),
+            origin,
+            thumbnail: first ? first.bit[1] : '',
+            doodads: doodads.map(d => Object.assign(this.cleanDoodad(d), { x: d.x - origin.x, y: d.y - origin.y })),
+            events: events.map(e => Object.assign(JSON.parse(JSON.stringify(e)), { dx: e.x - originTile.x, dy: e.y - originTile.y }))
+        };
+    },
+
+    instantiate(prefab, at, options = {}) {
+        const tw = options.tileWidth || 48, th = options.tileHeight || 48;
+        const instance = options.instance || this.newId('pi_');
+        const groupId = options.groupId || ('grp_' + instance);
+        const atTile = { x: Math.floor(at.x / tw), y: Math.floor((at.y - 1) / th) };
+        const doodads = (prefab.doodads || []).map(src => {
+            const d = JSON.parse(JSON.stringify(src));
+            d.x = Math.round(at.x + src.x);
+            d.y = Math.round(at.y + src.y);
+            d.groupId = groupId;
+            d.prefabRef = { id: prefab.id, instance, ox: at.x, oy: at.y };
+            return d;
+        });
+        const events = (prefab.events || []).map(src => {
+            const e = JSON.parse(JSON.stringify(src));
+            e.x = atTile.x + src.dx;
+            e.y = atTile.y + src.dy;
+            delete e.dx;
+            delete e.dy;
+            e.id = options.allocateEventId ? options.allocateEventId(e) : null;
+            return e;
+        });
+        return { instance, groupId, doodads, events };
+    },
+
+    // Recaptures the master's doodads from one placed copy (its events are left as they were).
+    updateFromInstance(prefab, instanceDoodads) {
+        if (!prefab || !instanceDoodads || instanceDoodads.length === 0) return null;
+        const ref = instanceDoodads[0].prefabRef;
+        prefab.doodads = instanceDoodads.map(d => Object.assign(this.cleanDoodad(d), { x: d.x - ref.ox, y: d.y - ref.oy }));
+        const first = instanceDoodads.find(d => d.bit && d.bit[0] === 3);
+        if (first) prefab.thumbnail = first.bit[1];
+        prefab.updatedAt = Date.now();
+        return prefab;
+    }
+};
+
+DocsDoodads.MapLinks = {
+    sides: ['east', 'west', 'north', 'south'],
+
+    ensureUid(d) {
+        if (!d.uid) d.uid = 'dd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        return d;
+    },
+
+    // Copies of doodads that hang over this map's edges, shifted into each neighbouring map.
+    edgeCopies(mapId, doodads, neighbors, sizeOf) {
+        const out = [];
+        const size = sizeOf(mapId);
+        if (!size || !neighbors) return out;
+        for (const d of doodads || []) {
+            if (!d || d.mirrorOf || d.posMode === 0) continue;
+            const r = DocsDoodads.Guides.rectOf(d);
+            const shifts = [];
+            if (neighbors.east && r.right > size.w) shifts.push({ mapId: neighbors.east, dx: -size.w, dy: 0 });
+            if (neighbors.west && r.left < 0) { const s = sizeOf(neighbors.west); if (s) shifts.push({ mapId: neighbors.west, dx: s.w, dy: 0 }); }
+            if (neighbors.south && r.bottom > size.h) shifts.push({ mapId: neighbors.south, dx: 0, dy: -size.h });
+            if (neighbors.north && r.top < 0) { const s = sizeOf(neighbors.north); if (s) shifts.push({ mapId: neighbors.north, dx: 0, dy: s.h }); }
+            for (const shift of shifts) {
+                const copy = DocsDoodads.Prefabs.cleanDoodad(d);
+                copy.x = d.x + shift.dx;
+                copy.y = d.y + shift.dy;
+                copy.mirrorOf = { mapId, uid: d.uid };
+                out.push({ mapId: Number(shift.mapId), doodad: copy });
+            }
+        }
+        return out;
+    }
+};
+
+//==========================================================
 // SECTION 20: DocsDoodads.UNDO (COMMAND-BASED HISTORY STACK)
 //==========================================================
 DocsDoodads.Undo = {
     undoStack: [],
     redoStack: [],
     maxDepth: 300,
+
+    clear() {
+        this.undoStack = [];
+        this.redoStack = [];
+        if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateUndoButtons();
+    },
 
     execute(command) {
         if (!command || !command.apply || !command.revert) return;
@@ -4634,21 +4995,89 @@ DocsDoodads.Persistence = {
     sessionSnapshots: {},
     dirtyMap: false,
     dirtyDoodads: false,
+    // Unsaved event edits for maps other than the current one, keyed by map id.
+    stagedMaps: {},
+
+    mapFilePath(mapId) {
+        return `data/Map${String(mapId).padStart(3, '0')}.json`;
+    },
 
     captureSession() {
         if (!window.$gameMap) return;
-        const mapFile = `data/Map${String($gameMap.mapId()).padStart(3, '0')}.json`;
+        const mapFile = this.mapFilePath($gameMap.mapId());
         this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
+    },
+
+    // The staged (editable) copy of a map's data, loaded from disk the first time it is needed.
+    // It is tagged with its map id so edits can never be written into a different map's file.
+    stagedFor(mapId) {
+        const gameMap = window.$gameMap;
+        if (!gameMap) return null;
+        mapId = mapId || gameMap.mapId();
+        // Untagged staged data predates map tagging and always belongs to the current map.
+        const owner = gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : gameMap.mapId();
+        if (gameMap._stagedMapData && owner === mapId) {
+            gameMap._stagedMapDataId = mapId;
+            return gameMap._stagedMapData;
+        }
+        if (gameMap._stagedMapData) this.stagedMaps[owner] = gameMap._stagedMapData;
+        let data = this.stagedMaps[mapId];
+        delete this.stagedMaps[mapId];
+        if (!data) {
+            const mapFile = this.mapFilePath(mapId);
+            if (!this.sessionSnapshots[mapFile]) this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
+            data = DocsDoodads.FS.readJson(mapFile) || { events: [null] };
+        }
+        gameMap._stagedMapData = data;
+        gameMap._stagedMapDataId = mapId;
+        return data;
+    },
+
+    // Called before the game loads another map: park this map's staged edits and bring back the next one's.
+    onMapChanging(fromId, toId) {
+        const gameMap = window.$gameMap;
+        if (!gameMap || fromId === toId) return;
+        // Undo commands capture the map they were made on; they must not run against another map.
+        DocsDoodads.Undo.clear();
+        if (gameMap._stagedMapData) {
+            const owner = gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : fromId;
+            if (this.dirtyMap) this.stagedMaps[owner] = gameMap._stagedMapData;
+        }
+        gameMap._stagedMapData = this.stagedMaps[toId] || null;
+        if (gameMap._stagedMapData) {
+            gameMap._stagedMapDataId = toId;
+            delete this.stagedMaps[toId];
+        } else {
+            delete gameMap._stagedMapDataId;
+        }
+    },
+
+    // Every map file this save will write: the current map's staged data plus any parked maps.
+    pendingMapEntries() {
+        const entries = [];
+        const gameMap = window.$gameMap;
+        if (gameMap && gameMap._stagedMapData) {
+            const owner = gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : gameMap.mapId();
+            entries.push({ mapId: owner, data: gameMap._stagedMapData });
+        }
+        for (const [mapId, data] of Object.entries(this.stagedMaps)) {
+            if (!entries.some(e => String(e.mapId) === String(mapId))) entries.push({ mapId: Number(mapId), data });
+        }
+        return entries;
     },
 
     checkConflict() {
         if (!window.$gameMap) return false;
-        const mapFile = `data/Map${String($gameMap.mapId()).padStart(3, '0')}.json`;
-        const snap = this.sessionSnapshots[mapFile];
-        if (!snap) return false;
-        const current = DocsDoodads.FS.stat(mapFile);
-        if (!current) return false;
-        return current.mtimeMs !== snap.mtimeMs || current.size !== snap.size;
+        const files = new Set([this.mapFilePath($gameMap.mapId())]);
+        for (const entry of this.pendingMapEntries()) files.add(this.mapFilePath(entry.mapId));
+        for (const mapFile of files) {
+            const snap = this.sessionSnapshots[mapFile];
+            if (!snap) continue;
+            const current = DocsDoodads.FS.stat(mapFile);
+            if (!current) continue;
+            if (current.mtimeMs !== snap.mtimeMs || current.size !== snap.size) return true;
+        }
+        return false;
     },
 
     saveAll(force = false) {
@@ -4658,15 +5087,12 @@ DocsDoodads.Persistence = {
             return false;
         }
 
-        const mapFile = `data/Map${String($gameMap.mapId()).padStart(3, '0')}.json`;
         const doodadFile = 'data/' + dataFileName;
-        const entries = [
+        const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
+        const entries = mapEntries.concat([
             { path: doodadFile, data: window.$dataDocsDoodads || {}, indent: saveMode ? 0 : 2 },
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 2 }
-        ];
-        if (window.$gameMap._stagedMapData) {
-            entries.unshift({ path: mapFile, data: $gameMap._stagedMapData, indent: 2 });
-        }
+        ]);
 
         try {
             for (const entry of entries) DocsDoodads.FS.createTimestampedBackup(entry.path);
@@ -4683,12 +5109,14 @@ DocsDoodads.Persistence = {
             return false;
         }
 
-        if (window.$gameMap._stagedMapData) this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
+        for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
+        this.stagedMaps = {};
 
         this.dirtyMap = false;
         this.dirtyDoodads = false;
         this.clearRecovery();
-        DocsDoodads.Workspace.showToast("Project Saved! Reload map in MZ before editing there.");
+        const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
+        DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
         return true;
     },
 
@@ -5291,7 +5719,7 @@ DocsDoodads.Workspace = {
     currentCategory: 'All',
     searchQuery: '',
     placementTool: null, // 'stamp', 'eyedropper', 'brush'
-    brushSettings: { radius: 80, density: 3, scaleJitter: 0.15, rotateJitter: 25 },
+    brushSettings: { radius: 80, density: 3, scaleJitter: 0.15, rotateJitter: 25, minDistance: 32, flipChance: 0.5, hueJitter: 0, regions: '', terrainTags: '', avoidBlocked: false },
     activeDragPayload: null,
     ghostEl: null,
     isBrushActive: false,
@@ -5307,13 +5735,19 @@ DocsDoodads.Workspace = {
     // One placement tool at a time; keeps the toolbar highlight and brush popover in sync.
     setPlacementTool(tool) {
         this.placementTool = tool || null;
-        const buttons = { eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn' };
+        const buttons = { eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn' };
         for (const [name, id] of Object.entries(buttons)) {
             const btn = document.getElementById(id);
             if (btn) btn.classList.toggle('dd-btn-active', this.placementTool === name);
         }
         const brushPopover = document.getElementById('dd-brush-popover');
         if (brushPopover) brushPopover.style.display = this.placementTool === 'brush' ? 'block' : 'none';
+        const pathPopover = document.getElementById('dd-path-popover');
+        if (pathPopover) pathPopover.style.display = this.placementTool === 'path' ? 'block' : 'none';
+        if (this.placementTool !== 'path') {
+            this.pathPoints = [];
+            this._pathHover = null;
+        }
     },
 
     open() {
@@ -5334,14 +5768,9 @@ DocsDoodads.Workspace = {
         if (recovery) {
             const dateStr = new Date(recovery.timestamp).toLocaleTimeString();
             if (confirm(`Unfinished session from ${dateStr} found. Would you like to recover it?`)) {
-                if (recovery.doodads && window.$gameMap) {
-                    window.$dataDocsDoodads[$gameMap.mapId()] = recovery.doodads;
-                    if (recovery.mapSettings) window.$dataDocsDoodads.mapSettings = recovery.mapSettings;
-                    if (SceneManager._scene && SceneManager._scene._spriteset) {
-                        SceneManager._scene._spriteset.addDocsDoodads();
-                    }
-                }
-                this.showToast("Session Recovered!");
+                this.applyRecovery(recovery);
+                this.showToast(recovery.mapId && recovery.mapId !== this.currentMapId()
+                    ? `Session recovered into map ${recovery.mapId}.` : "Session Recovered!");
             }
         }
     },
@@ -5360,6 +5789,28 @@ DocsDoodads.Workspace = {
         }
         this.placementTool = null;
         DocsDoodads.Audio.stopPreview();
+    },
+
+    // Puts a crash snapshot back on the map it was recorded on, never the map that happens to be open.
+    applyRecovery(recovery) {
+        if (!recovery || !window.$gameMap) return;
+        const mapId = recovery.mapId || this.currentMapId();
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        if (Array.isArray(recovery.doodads)) {
+            data[mapId] = recovery.doodads;
+            DocsDoodads.Persistence.dirtyDoodads = true;
+        }
+        if (recovery.mapSettings) data.mapSettings = recovery.mapSettings;
+        if (recovery.stagedMap) {
+            if (mapId === this.currentMapId()) {
+                $gameMap._stagedMapData = recovery.stagedMap;
+                $gameMap._stagedMapDataId = mapId;
+            } else {
+                DocsDoodads.Persistence.stagedMaps[mapId] = recovery.stagedMap;
+            }
+            DocsDoodads.Persistence.dirtyMap = true;
+        }
+        this.refreshSpriteset();
     },
 
     async startAssetScan() {
@@ -5477,6 +5928,51 @@ DocsDoodads.Workspace = {
                             </div>
                             <input type="range" id="dd-brush-rot" min="0" max="180" value="25" style="width: 100%;" />
                         </div>
+                        <div>
+                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
+                                <span>Min Spacing:</span><span id="dd-brush-min-val">32px</span>
+                            </div>
+                            <input type="range" id="dd-brush-min" min="0" max="160" value="32" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
+                                <span>Flip Chance:</span><span id="dd-brush-flip-val">50%</span>
+                            </div>
+                            <input type="range" id="dd-brush-flip" min="0" max="100" value="50" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
+                                <span>Hue Variation:</span><span id="dd-brush-hue-val">0°</span>
+                            </div>
+                            <input type="range" id="dd-brush-hue" min="0" max="90" value="0" style="width: 100%;" />
+                        </div>
+                        <div style="color: #94a3b8;">Only on regions (e.g. 1, 2):
+                            <input type="text" id="dd-brush-regions" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
+                        <div style="color: #94a3b8;">Only on terrain tags:
+                            <input type="text" id="dd-brush-terrain" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
+                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-brush-avoid" /> Skip impassable tiles</label>
+                    </div>
+                </div>
+                <button class="dd-btn" id="dd-path-btn" title="Path: click points, double-click or Enter to place props along them">Path</button>
+                <div id="dd-path-popover" class="dd-glass" style="display: none; position: absolute; top: 58px; right: 380px; width: 250px; padding: 12px; z-index: 10015;">
+                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 6px;">PATH TOOL</div>
+                    <div style="font-size: 10px; color: #94a3b8; margin-bottom: 8px; line-height: 1.4;">Click to add points. Double-click or Enter places the selected asset along them; Backspace removes the last point; Alt for off-grid points.</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
+                        <div>
+                            <div style="display: flex; justify-content: space-between; color: #94a3b8;"><span>Spacing:</span><span id="dd-path-spacing-val">48px</span></div>
+                            <input type="range" id="dd-path-spacing" min="8" max="240" value="48" style="width: 100%;" />
+                        </div>
+                        <div>
+                            <div style="display: flex; justify-content: space-between; color: #94a3b8;"><span>Random Offset:</span><span id="dd-path-jitter-val">0px</span></div>
+                            <input type="range" id="dd-path-jitter" min="0" max="24" value="0" style="width: 100%;" />
+                        </div>
+                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-align" /> Turn pieces along the path</label>
+                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-smooth" /> Smooth curve</label>
+                        <div style="color: #94a3b8;">End piece: <span id="dd-path-end-name" style="color: #e2e8f0;">same as path</span></div>
+                        <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-end-btn" style="flex: 1; padding: 3px;">Use Selected</button><button class="dd-btn" id="dd-path-end-clear" style="padding: 3px 6px;">Clear</button></div>
+                        <div style="color: #94a3b8;">Corner piece: <span id="dd-path-corner-name" style="color: #e2e8f0;">same as path</span></div>
+                        <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-corner-btn" style="flex: 1; padding: 3px;">Use Selected</button><button class="dd-btn" id="dd-path-corner-clear" style="padding: 3px 6px;">Clear</button></div>
+                        <div style="display: flex; gap: 4px; margin-top: 4px;"><button class="dd-btn dd-btn-primary" id="dd-path-place" style="flex: 1;">Place Path</button><button class="dd-btn" id="dd-path-clear">Clear Points</button></div>
                     </div>
                 </div>
                 <button class="dd-btn" id="dd-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
@@ -5509,6 +6005,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" data-cat="Backgrounds">Backgrounds</button>
                 <button class="dd-btn" data-cat="System">System</button>
                 <button class="dd-btn" data-cat="Audio">Audio</button>
+                <button class="dd-btn" data-cat="Prefabs" title="Saved prefabs: groups of doodads and events">Prefabs</button>
                 <button class="dd-btn" data-cat="Favorites" title="Show Favorited Assets">★ Favs</button>
                 <button class="dd-btn" data-cat="Recent" title="Show Recently Used Assets">🕒 Recent</button>
             </div>
@@ -5747,11 +6244,54 @@ DocsDoodads.Workspace = {
         setupBrushSlider('dd-brush-den', 'density', 'dd-brush-den-val', '');
         setupBrushSlider('dd-brush-scale', 'scaleJitter', 'dd-brush-scale-val', '%', 0.01);
         setupBrushSlider('dd-brush-rot', 'rotateJitter', 'dd-brush-rot-val', '°');
+        setupBrushSlider('dd-brush-min', 'minDistance', 'dd-brush-min-val', 'px');
+        setupBrushSlider('dd-brush-flip', 'flipChance', 'dd-brush-flip-val', '%', 0.01);
+        setupBrushSlider('dd-brush-hue', 'hueJitter', 'dd-brush-hue-val', '°');
+        document.getElementById('dd-brush-regions').oninput = (ev) => { this.brushSettings.regions = ev.target.value; };
+        document.getElementById('dd-brush-terrain').oninput = (ev) => { this.brushSettings.terrainTags = ev.target.value; };
+        document.getElementById('dd-brush-avoid').onchange = (ev) => { this.brushSettings.avoidBlocked = Boolean(ev.target.checked); };
+
+        document.getElementById('dd-path-btn').onclick = () => {
+            this.setPlacementTool(this.placementTool === 'path' ? null : 'path');
+            this.showToast(this.placementTool ? "Path Active: click points on the map" : "Path Deactivated");
+        };
+        const pathSlider = (id, prop) => {
+            const input = document.getElementById(id);
+            input.oninput = (ev) => {
+                this.pathSettings[prop] = parseFloat(ev.target.value) || 0;
+                document.getElementById(id + '-val').textContent = ev.target.value + 'px';
+            };
+        };
+        pathSlider('dd-path-spacing', 'spacing');
+        pathSlider('dd-path-jitter', 'jitter');
+        document.getElementById('dd-path-align').onchange = (ev) => { this.pathSettings.alignToPath = Boolean(ev.target.checked); };
+        document.getElementById('dd-path-smooth').onchange = (ev) => { this.pathSettings.smooth = Boolean(ev.target.checked); };
+        const pieceButtons = (kind, prop) => {
+            const label = document.getElementById(`dd-path-${kind}-name`);
+            document.getElementById(`dd-path-${kind}-btn`).onclick = () => {
+                if (!this.selectedAsset || this.selectedAsset.category === 'Audio' || this.selectedAsset.type === 'prefab') {
+                    this.showToast('Select an image asset in the drawer first.');
+                    return;
+                }
+                this.pathSettings[prop] = this.selectedAsset;
+                label.textContent = this.selectedAsset.fileName;
+            };
+            document.getElementById(`dd-path-${kind}-clear`).onclick = () => {
+                this.pathSettings[prop] = null;
+                label.textContent = 'same as path';
+            };
+        };
+        pieceButtons('end', 'endAsset');
+        pieceButtons('corner', 'cornerAsset');
+        document.getElementById('dd-path-place').onclick = () => this.finishPath();
+        document.getElementById('dd-path-clear').onclick = () => { this.pathPoints = []; };
     },
 
     refreshDrawerCards() {
         let filtered = DocsDoodads.AssetIndex.list;
-        if (this.currentCategory === 'Favorites') {
+        if (this.currentCategory === 'Prefabs') {
+            filtered = this.prefabAssets();
+        } else if (this.currentCategory === 'Favorites') {
             filtered = filtered.filter(a => a.favorite);
         } else if (this.currentCategory === 'Recent') {
             filtered = filtered.filter(a => a.usage && a.usage.lastUsedAt > 0)
@@ -5856,7 +6396,7 @@ DocsDoodads.Workspace = {
         };
 
         card.ondblclick = () => {
-            if (asset.category !== 'Audio') {
+            if (asset.category !== 'Audio' && asset.type !== 'prefab') {
                 DocsDoodads.Slicing.Editor.open(asset);
             }
         };
@@ -5864,6 +6404,10 @@ DocsDoodads.Workspace = {
         card.oncontextmenu = (e) => {
             e.preventDefault();
             this.selectAsset(asset);
+            if (asset.type === 'prefab') {
+                this.showContextMenu(e.clientX, e.clientY, this.prefabMenuItems(asset));
+                return;
+            }
             const items = [
                 { label: 'Place as Doodad', icon: '📌', onClick: () => this.placeAssetOnMapCenter(asset) },
                 {
@@ -5909,6 +6453,11 @@ DocsDoodads.Workspace = {
 
         card.draggable = true;
         card.ondragstart = (e) => {
+            if (asset.type === 'prefab') {
+                this.activeDragPayload = { type: 'prefab', prefabId: asset.prefabId, path: asset.path, fileName: asset.fileName, category: 'Prefabs' };
+                e.dataTransfer.setData('text/plain', JSON.stringify(this.activeDragPayload));
+                return;
+            }
             this.activeDragPayload = {
                 assetId: asset.id,
                 path: asset.path,
@@ -6119,6 +6668,7 @@ DocsDoodads.Workspace = {
                 <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
                     <button class="dd-btn" id="dd-multi-trace-col" style="width: 100%;" title="Fit each doodad's collision to the solid base of its image">Trace Collision from Art</button>
                 </div>
+                ${this.renderSelectionTools(items)}
                 ${this.renderEffectSections(items)}
                 <div style="margin-top: 12px;">
                     <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: #991b1b;">Delete Selection (${items.length})</button>
@@ -6153,6 +6703,7 @@ DocsDoodads.Workspace = {
             document.getElementById('dd-dup-all-btn').onclick = () => this.duplicateSelectedDoodad();
             document.getElementById('dd-multi-trace-col').onclick = () => this.traceCollision(items);
             this.bindEffectSections(items);
+            this.bindSelectionTools(items);
             document.getElementById('dd-del-all-btn').onclick = () => this.deleteSelectedDoodad();
             return;
         }
@@ -6251,6 +6802,7 @@ DocsDoodads.Workspace = {
                         <button class="dd-btn" id="dd-prop-to-back" title="Send to Back">To Back</button>
                     </div>
                 </div>
+                ${this.renderSelectionTools([d])}
                 ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
@@ -6340,6 +6892,7 @@ DocsDoodads.Workspace = {
             });
 
             this.bindEffectSections([d]);
+            this.bindSelectionTools([d]);
             document.getElementById('dd-prop-trace-col').onclick = () => this.traceCollision([d]);
             document.getElementById('dd-prop-forward').onclick = () => this.bringForward([d]);
             document.getElementById('dd-prop-backward').onclick = () => this.sendBackward([d]);
@@ -6361,6 +6914,10 @@ DocsDoodads.Workspace = {
         }
 
         const a = this.selectedAsset;
+        if (a.type === 'prefab') {
+            this.renderPrefabInspector(content, a);
+            return;
+        }
         if (a.category === 'Audio') {
             this.renderAudioInspector(content, a);
             return;
@@ -6735,7 +7292,8 @@ DocsDoodads.Workspace = {
                         <input type="checkbox" id="dd-map-preview" ${this.lightingPreview === false ? '' : 'checked'} /> Preview lighting while editing</label>
                     <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
-            </details>`;
+            </details>
+            ${this.renderMapNavigation()}`;
 
         const read = () => ({
             darkness: parseFloat(document.getElementById('dd-map-dark').value) || 0,
@@ -6760,6 +7318,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-color').onchange = () => this.setMapAmbient(read());
         document.getElementById('dd-map-switch').onchange = () => this.setMapAmbient(read());
         document.getElementById('dd-map-preview').onchange = (e) => { this.lightingPreview = Boolean(e.target.checked); };
+        this.bindMapNavigation();
     },
 
     // ---- Collision traced from the art ----
@@ -6843,6 +7402,229 @@ DocsDoodads.Workspace = {
         return d;
     },
 
+    // ---- Prefab drawer entries and panels ----
+    prefabAssets() {
+        return DocsDoodads.Prefabs.ensureLoaded().map(p => ({
+            id: `prefab:${p.id}:${p.updatedAt || p.createdAt || 0}`,
+            prefabId: p.id,
+            path: p.thumbnail || '',
+            fileName: p.name,
+            category: 'Prefabs',
+            type: 'prefab',
+            width: 0, height: 0,
+            tags: [], autoTags: ['prefab'],
+            favorite: false,
+            placement: { defaultMode: 'doodad' },
+            collision: { preset: 'none' },
+            slice: null
+        }));
+    },
+
+    renamePrefab(prefabId) {
+        const prefab = DocsDoodads.Prefabs.get(prefabId);
+        if (!prefab) return;
+        const name = prompt('Prefab name:', prefab.name);
+        if (!name || !name.trim()) return;
+        prefab.name = name.trim();
+        prefab.updatedAt = Date.now();
+        DocsDoodads.Prefabs.save();
+        this.selectedAsset = null;
+        this.refreshDrawerCards();
+        this.refreshInspector();
+    },
+
+    deletePrefab(prefabId) {
+        const prefab = DocsDoodads.Prefabs.get(prefabId);
+        if (!prefab || !confirm(`Delete prefab "${prefab.name}"? Copies already placed stay on the map.`)) return;
+        DocsDoodads.Prefabs.remove(prefabId);
+        DocsDoodads.Prefabs.save();
+        this.selectedAsset = null;
+        this.refreshDrawerCards();
+        this.refreshInspector();
+    },
+
+    placePrefabAtPlayer(prefabId) {
+        if (!window.$gamePlayer || !window.$gameMap) return;
+        this.placePrefab(DocsDoodads.Prefabs.get(prefabId), this.snapToTile({ x: 0, y: 0, tileX: $gamePlayer.x, tileY: $gamePlayer.y }));
+    },
+
+    prefabMenuItems(asset) {
+        return [
+            { label: 'Place at Player', icon: '📌', onClick: () => this.placePrefabAtPlayer(asset.prefabId) },
+            { label: 'Rename...', icon: '✏️', onClick: () => this.renamePrefab(asset.prefabId) },
+            { separator: true },
+            { label: 'Delete Prefab', icon: '🗑️', danger: true, onClick: () => this.deletePrefab(asset.prefabId) }
+        ];
+    },
+
+    renderPrefabInspector(content, a) {
+        const prefab = DocsDoodads.Prefabs.get(a.prefabId);
+        if (!prefab) {
+            content.innerHTML = 'This prefab no longer exists.';
+            return;
+        }
+        const copies = Object.keys(window.$dataDocsDoodads || {}).reduce((n, key) => {
+            const list = window.$dataDocsDoodads[key];
+            if (!Array.isArray(list)) return n;
+            return n + new Set(list.filter(d => d && d.prefabRef && d.prefabRef.id === prefab.id).map(d => d.prefabRef.instance)).size;
+        }, 0);
+        content.innerHTML = `
+            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Prefab &middot; ${prefab.doodads.length} doodad(s), ${prefab.events.length} event(s)</div>
+            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: #60a5fa;">${copies}</span></div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+                <button class="dd-btn dd-btn-primary" id="dd-prefab-place">Place at Player</button>
+                <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${copies})</button>
+                <button class="dd-btn" id="dd-prefab-rename">Rename</button>
+                <button class="dd-btn" id="dd-prefab-delete" style="background: #991b1b;">Delete Prefab</button>
+            </div>`;
+        document.getElementById('dd-prefab-place').onclick = () => this.placePrefabAtPlayer(prefab.id);
+        document.getElementById('dd-prefab-sync').onclick = () => { this.syncPrefabInstances(prefab.id); this.refreshInspector(); };
+        document.getElementById('dd-prefab-rename').onclick = () => this.renamePrefab(prefab.id);
+        document.getElementById('dd-prefab-delete').onclick = () => this.deletePrefab(prefab.id);
+    },
+
+    // Prefab, copy/move-to-map and prefab-instance actions shown above the effect sections.
+    renderSelectionTools(items) {
+        const instance = items.length > 0 && items[0].prefabRef ? items[0] : null;
+        const prefab = instance ? DocsDoodads.Prefabs.get(instance.prefabRef.id) : null;
+        const mirror = items.find(d => d.mirrorOf);
+        return `
+            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 8px;">
+                ${mirror ? `<div style="font-size: 10px; color: #f59e0b; margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
+                ${prefab ? `
+                <div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px;">
+                    <button class="dd-btn" id="dd-sel-prefab-update" title="Make the master prefab match this copy" style="padding: 4px;">Update Prefab</button>
+                    <button class="dd-btn" id="dd-sel-prefab-sync" title="Rebuild every copy from the master" style="padding: 4px;">Sync Copies</button>
+                    <button class="dd-btn" id="dd-sel-prefab-detach" title="Stop linking this copy to the prefab" style="padding: 4px;">Detach</button>
+                </div>` : ''}
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+                    <button class="dd-btn" id="dd-sel-save-prefab" style="padding: 4px;" title="Save the selection (and events under it) as a reusable prefab">Save Prefab</button>
+                    <button class="dd-btn" id="dd-sel-copy-map" style="padding: 4px;">Copy to Map</button>
+                    <button class="dd-btn" id="dd-sel-move-map" style="padding: 4px;">Move to Map</button>
+                </div>
+            </div>`;
+    },
+
+    bindSelectionTools(items) {
+        const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+        on('dd-sel-save-prefab', () => {
+            const name = prompt('Prefab name:', 'Prefab ' + (DocsDoodads.Prefabs.ensureLoaded().length + 1));
+            if (!name || !name.trim()) return;
+            const events = this.eventsWithin(items);
+            const includeEvents = events.length === 0 || confirm(`Include the ${events.length} event(s) under the selection in the prefab?`);
+            this.savePrefabFromSelection(name.trim(), includeEvents);
+        });
+        on('dd-sel-copy-map', () => this.showMapPicker('Copy selection to map', mapId => this.sendDoodadsToMap(items, mapId, 'copy')));
+        on('dd-sel-move-map', () => this.showMapPicker('Move selection to map', mapId => { this.sendDoodadsToMap(items, mapId, 'move'); this.refreshInspector(); }));
+        on('dd-sel-prefab-update', () => this.updatePrefabFromInstance(items[0]));
+        on('dd-sel-prefab-sync', () => { if (items[0].prefabRef) this.syncPrefabInstances(items[0].prefabRef.id); this.refreshInspector(); });
+        on('dd-sel-prefab-detach', () => { this.detachPrefabInstance(items[0]); this.refreshInspector(); });
+    },
+
+    // ---- Maps: switching, neighbours, picker ----
+    mapEntries() {
+        const infos = typeof window !== 'undefined' && window.$dataMapInfos ? window.$dataMapInfos : [];
+        return infos.filter(Boolean).map(info => ({ id: info.id, name: info.name || `Map ${info.id}` }));
+    },
+
+    mapOptions(selected, includeNone) {
+        const options = includeNone ? [`<option value="0">(none)</option>`] : [];
+        for (const map of this.mapEntries()) {
+            options.push(`<option value="${map.id}" ${Number(selected) === map.id ? 'selected' : ''}>${String(map.id).padStart(3, '0')}: ${escapeHtml(map.name)}</option>`);
+        }
+        return options.join('');
+    },
+
+    showMapPicker(title, onPick) {
+        const existing = document.getElementById('dd-map-picker');
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        const modal = document.createElement('div');
+        modal.id = 'dd-map-picker';
+        modal.className = 'dd-glass';
+        modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; padding: 18px; z-index: 10030;';
+        modal.innerHTML = `
+            <div style="font-weight: bold; color: #60a5fa; font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
+            <select id="dd-map-picker-select" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
+            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                <button class="dd-btn" id="dd-map-picker-cancel">Cancel</button>
+                <button class="dd-btn dd-btn-primary" id="dd-map-picker-ok">OK</button>
+            </div>`;
+        document.body.appendChild(modal);
+        const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
+        document.getElementById('dd-map-picker-cancel').onclick = close;
+        document.getElementById('dd-map-picker-ok').onclick = () => {
+            const mapId = parseInt(document.getElementById('dd-map-picker-select').value, 10);
+            close();
+            if (mapId) onPick(mapId);
+        };
+    },
+
+    renderMapNavigation() {
+        const neighbors = this.mapNeighbors();
+        const side = (name, label) => `<div>${label}<select id="dd-map-nb-${name}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px;">${this.mapOptions(neighbors[name] || 0, true)}</select></div>`;
+        return `
+            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Maps</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+                    <div>Go to map (keeps the editor open):
+                        <select id="dd-map-goto" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
+                        <button class="dd-btn" id="dd-map-goto-btn" style="width: 100%; margin-top: 4px;">Go to Map</button></div>
+                    <div style="margin-top: 4px; color: #cbd5e1;">Neighbouring maps (for doodads that cross the edge):</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">${side('north', 'North')}${side('south', 'South')}${side('west', 'West')}${side('east', 'East')}</div>
+                    <button class="dd-btn" id="dd-map-mirror" title="Copy doodads hanging over an edge onto the neighbouring map">Mirror Edge Doodads</button>
+                </div>
+            </details>`;
+    },
+
+    bindMapNavigation() {
+        const go = document.getElementById('dd-map-goto-btn');
+        if (go) go.onclick = () => this.goToMap(parseInt(document.getElementById('dd-map-goto').value, 10));
+        for (const name of DocsDoodads.MapLinks.sides) {
+            const select = document.getElementById(`dd-map-nb-${name}`);
+            if (!select) continue;
+            select.onchange = () => {
+                const next = {};
+                for (const s of DocsDoodads.MapLinks.sides) {
+                    const el = document.getElementById(`dd-map-nb-${s}`);
+                    next[s] = el ? parseInt(el.value, 10) || 0 : 0;
+                }
+                this.setMapNeighbors(next);
+            };
+        }
+        const mirror = document.getElementById('dd-map-mirror');
+        if (mirror) mirror.onclick = () => this.mirrorEdgeDoodads();
+    },
+
+    // Transfers the player; the workspace stays open and picks the new map up in onMapLoaded.
+    goToMap(mapId) {
+        if (!mapId || !window.$gamePlayer || !window.$gameMap || mapId === this.currentMapId()) return;
+        const size = this.mapSizeLookup(mapId);
+        const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const cols = size ? Math.max(1, Math.floor(size.w / tw)) : 1;
+        const rows = size ? Math.max(1, Math.floor(size.h / th)) : 1;
+        const x = Math.min(cols - 1, Math.max(0, $gamePlayer.x));
+        const y = Math.min(rows - 1, Math.max(0, $gamePlayer.y));
+        this.selectedDoodad = null;
+        this.selectedDoodads = [];
+        this.selectedEvent = null;
+        $gamePlayer.reserveTransfer(mapId, x, y, $gamePlayer.direction(), 2);
+        this.showToast(`Going to map ${mapId}...`);
+    },
+
+    onMapLoaded() {
+        if (!this.mounted) return;
+        const persistence = DocsDoodads.Persistence;
+        if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
+        this.pathPoints = [];
+        this.refreshInspector();
+        const status = document.getElementById('dd-status-left');
+        if (status) status.textContent = `Doc's Doodads v${pluginVersion} | Map ${this.currentMapId()} | Hold Alt for free placement`;
+    },
+
     updateIndexStatus(removed) {
         const status = document.getElementById('dd-status-right');
         if (!status) return;
@@ -6903,13 +7685,17 @@ DocsDoodads.Workspace = {
     },
 
     commitPlacement(asset, coords, modeOverride) {
+        if (asset && asset.type === 'prefab') {
+            this.placePrefab(DocsDoodads.Prefabs.get(asset.prefabId), coords);
+            return;
+        }
         const mode = modeOverride || asset.placement.defaultMode || "doodad";
 
         if (mode === "event" || asset.type === "character_sheet" || asset.type === "single_character") {
             const templateKey = document.getElementById('dd-event-template') ? document.getElementById('dd-event-template').value : 'npc';
             const template = DocsDoodads.EventTemplates.get(templateKey);
             const mapId = $gameMap.mapId();
-            $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+            DocsDoodads.Persistence.stagedFor(mapId);
             const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
 
             const ev = DocsDoodads.Events.createEventObject(newId, coords.tileX, coords.tileY, {
@@ -7169,14 +7955,16 @@ DocsDoodads.Workspace = {
         this.showToast(`Sent ${items.length} doodad(s) to back (Z: ${targetZ})`);
     },
 
-    // Copies offset by 16px and unlocked; each copied group becomes one new, independent group.
-    cloneDoodadsForCopy(items) {
+    // Copies are unlocked and get fresh ids; each copied group becomes one new, independent group.
+    cloneDoodadsForCopy(items, offset = 16) {
         const groupIds = new Map();
         return items.map(orig => {
             const dup = JSON.parse(JSON.stringify(orig));
-            dup.x += 16;
-            dup.y += 16;
+            dup.x += offset;
+            dup.y += offset;
             dup.locked = false;
+            delete dup.uid;
+            delete dup.mirrorOf;
             if (orig.groupId) {
                 if (!groupIds.has(orig.groupId)) groupIds.set(orig.groupId, 'grp_' + Date.now() + '_' + groupIds.size + '_' + Math.random().toString(36).slice(2, 6));
                 dup.groupId = groupIds.get(orig.groupId);
@@ -7187,25 +7975,40 @@ DocsDoodads.Workspace = {
         });
     },
 
+    clipboardPath: 'data/docs_doodads_cache/clipboard.json',
+
+    // The clipboard is also written to disk so it survives map changes and Playtest restarts.
     copySelected() {
         const items = this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
         if (items.length === 0) return;
         this._clipboardDoodads = items.map(d => JSON.parse(JSON.stringify(d)));
+        this._clipboardSourceMapId = this.currentMapId();
+        DocsDoodads.FS.atomicWriteJson(this.clipboardPath, { sourceMapId: this._clipboardSourceMapId, doodads: this._clipboardDoodads });
         this.showToast(`Copied ${items.length} doodad(s) to clipboard`);
     },
 
-    pasteCopied() {
-        if (!this._clipboardDoodads || this._clipboardDoodads.length === 0) return;
-        const mapId = (window.$gameMap && typeof window.$gameMap.mapId === 'function') ? window.$gameMap.mapId() : 0;
-        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
-        const duplicates = [];
+    loadClipboard() {
+        if (this._clipboardDoodads && this._clipboardDoodads.length > 0) return true;
+        const saved = DocsDoodads.FS.existsSync(this.clipboardPath) ? DocsDoodads.FS.readJson(this.clipboardPath) : null;
+        if (!saved || !Array.isArray(saved.doodads) || saved.doodads.length === 0) return false;
+        this._clipboardDoodads = saved.doodads;
+        this._clipboardSourceMapId = saved.sourceMapId;
+        return true;
+    },
 
-        duplicates.push(...this.cloneDoodadsForCopy(this._clipboardDoodads));
+    // Same map: the copy is offset so it is visible. Another map: it lands at the same position.
+    pasteCopied() {
+        if (!this.loadClipboard()) return;
+        const mapId = this.currentMapId();
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+        const sameMap = this._clipboardSourceMapId === undefined || this._clipboardSourceMapId === mapId;
+        const duplicates = this.cloneDoodadsForCopy(this._clipboardDoodads, sameMap ? 16 : 0);
 
         const cmd = {
             type: 'paste_doodads',
             apply: () => {
                 duplicates.forEach(d => list.push(d));
+                DocsDoodads.Persistence.dirtyDoodads = true;
                 this.refreshSpriteset();
             },
             revert: () => {
@@ -7218,7 +8021,358 @@ DocsDoodads.Workspace = {
         };
         DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
-        this.showToast(`Pasted ${duplicates.length} doodad(s)`);
+        this.showToast(`Pasted ${duplicates.length} doodad(s)${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
+    },
+
+    // ---- Shared undo for whole per-map arrays (prefab sync, mirroring, send to map) ----
+    recordMapListsEdit(beforeLists, type) {
+        const data = window.$dataDocsDoodads;
+        const afterLists = {};
+        for (const mapId of Object.keys(beforeLists)) afterLists[mapId] = (data[mapId] || []).slice();
+        const write = (lists) => {
+            for (const [mapId, items] of Object.entries(lists)) {
+                if (!items) { delete data[mapId]; continue; }
+                const target = data[mapId] = data[mapId] || [];
+                target.length = 0;
+                items.forEach(d => target.push(d));
+            }
+            DocsDoodads.Persistence.dirtyDoodads = true;
+            this.refreshSpriteset();
+        };
+        DocsDoodads.Undo.execute({ type, apply: () => write(afterLists), revert: () => write(beforeLists) });
+    },
+
+    snapshotMapLists(mapIds) {
+        const data = window.$dataDocsDoodads;
+        const out = {};
+        for (const mapId of mapIds) out[mapId] = data[mapId] ? data[mapId].slice() : null;
+        return out;
+    },
+
+    sendDoodadsToMap(items, targetMapId, mode = 'copy') {
+        items = (items || []).filter(d => d && (mode === 'copy' || !d.locked));
+        const sourceMapId = this.currentMapId();
+        targetMapId = Number(targetMapId);
+        if (items.length === 0 || !targetMapId || targetMapId === sourceMapId) return 0;
+        const data = window.$dataDocsDoodads;
+        const before = this.snapshotMapLists([sourceMapId, targetMapId]);
+        const target = data[targetMapId] = data[targetMapId] || [];
+        if (mode === 'move') {
+            const source = data[sourceMapId] || [];
+            for (const d of items) {
+                const i = source.indexOf(d);
+                if (i > -1) source.splice(i, 1);
+                target.push(d);
+            }
+            this.selectedDoodad = null;
+            this.selectedDoodads = [];
+        } else {
+            this.cloneDoodadsForCopy(items, 0).forEach(d => target.push(d));
+        }
+        this.recordMapListsEdit(before, mode === 'move' ? 'move_to_map' : 'copy_to_map');
+        this.showToast(`${mode === 'move' ? 'Moved' : 'Copied'} ${items.length} doodad(s) to map ${targetMapId}`);
+        return items.length;
+    },
+
+    // Map pixel size; neighbouring maps are read from disk (overridable in tests).
+    mapSizeLookup(mapId) {
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        if (window.$gameMap && $gameMap.mapId() === mapId && $gameMap.width) return { w: $gameMap.width() * tw, h: $gameMap.height() * th };
+        const map = DocsDoodads.FS.readJson(DocsDoodads.Persistence.mapFilePath(mapId));
+        return map && map.width ? { w: map.width * tw, h: map.height * th } : null;
+    },
+
+    mapNeighbors(mapId = this.currentMapId()) {
+        const settings = DocsDoodads.Lighting.mapSettings(mapId);
+        return (settings && settings.neighbors) || {};
+    },
+
+    setMapNeighbors(neighbors) {
+        const mapId = this.currentMapId();
+        const data = window.$dataDocsDoodads;
+        const before = data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null;
+        const clean = {};
+        for (const side of DocsDoodads.MapLinks.sides) if (Number(neighbors[side]) > 0) clean[side] = Number(neighbors[side]);
+        const next = Object.assign({}, before || {}, { neighbors: clean });
+        const write = (value) => {
+            if (value) {
+                data.mapSettings = data.mapSettings || {};
+                data.mapSettings[mapId] = JSON.parse(JSON.stringify(value));
+            } else if (data.mapSettings) {
+                delete data.mapSettings[mapId];
+            }
+            DocsDoodads.Persistence.dirtyDoodads = true;
+        };
+        DocsDoodads.Undo.execute({ type: 'map_neighbors', apply: () => write(next), revert: () => write(before) });
+    },
+
+    // Doodads hanging over this map's edges get read-only copies on the neighbouring maps.
+    mirrorEdgeDoodads() {
+        const mapId = this.currentMapId();
+        const neighbors = this.mapNeighbors(mapId);
+        const data = window.$dataDocsDoodads;
+        const own = data[mapId] || [];
+        own.forEach(d => { if (!d.mirrorOf) DocsDoodads.MapLinks.ensureUid(d); });
+        const copies = DocsDoodads.MapLinks.edgeCopies(mapId, own, neighbors, id => this.mapSizeLookup(id));
+        const targets = new Set(Object.values(neighbors).map(Number).filter(Boolean));
+        copies.forEach(c => targets.add(c.mapId));
+        if (targets.size === 0) {
+            this.showToast('Set neighbouring maps first.');
+            return 0;
+        }
+        const before = this.snapshotMapLists([...targets]);
+        for (const target of targets) {
+            const list = data[target] = (data[target] || []).filter(d => !(d.mirrorOf && d.mirrorOf.mapId === mapId));
+            copies.filter(c => c.mapId === target).forEach(c => list.push(Object.assign(c.doodad, { locked: true })));
+        }
+        this.recordMapListsEdit(before, 'mirror_edges');
+        this.showToast(`Mirrored ${copies.length} edge doodad(s) to ${targets.size} neighbouring map(s).`);
+        return copies.length;
+    },
+
+    // ---- Path tool ----
+    pathSettings: { spacing: 48, alignToPath: false, smooth: false, jitter: 0, endAsset: null, cornerAsset: null },
+    pathPoints: [],
+
+    placePath(points, asset, settings = this.pathSettings) {
+        if (!asset || !points || points.length === 0) return [];
+        const samples = DocsDoodads.Paths.sample(points, settings.spacing, { smooth: settings.smooth });
+        const rng = DocsDoodads.Scatter.rng(Date.now());
+        const placed = samples.map(p => {
+            const special = (p.kind === 'start' || p.kind === 'end') ? settings.endAsset : p.kind === 'corner' ? settings.cornerAsset : null;
+            const jitter = Number(settings.jitter) || 0;
+            const x = Math.round(p.x + (jitter ? (rng() * 2 - 1) * jitter : 0));
+            const y = Math.round(p.y + (jitter ? (rng() * 2 - 1) * jitter : 0));
+            const d = this.newDoodadFromAsset(special || asset, x, y);
+            if (settings.alignToPath) d.rotation = Math.round(p.angle);
+            return d;
+        });
+        const mapId = this.currentMapId();
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+        DocsDoodads.Undo.execute({
+            type: 'place_path',
+            apply: () => { placed.forEach(d => list.push(d)); DocsDoodads.Persistence.dirtyDoodads = true; this.refreshSpriteset(); },
+            revert: () => { placed.forEach(d => { const i = list.indexOf(d); if (i > -1) list.splice(i, 1); }); this.refreshSpriteset(); }
+        });
+        DocsDoodads.AssetIndex.recordUsage(asset.id);
+        this.showToast(`Placed ${placed.length} piece(s) along the path.`);
+        return placed;
+    },
+
+    finishPath() {
+        const points = this.pathPoints || [];
+        this.pathPoints = [];
+        if (points.length > 0 && this.selectedAsset && this.selectedAsset.category !== 'Audio') this.placePath(points, this.selectedAsset);
+    },
+
+    // ---- Prefabs ----
+    prefabInstanceDoodads(d) {
+        if (!d || !d.prefabRef) return [];
+        return (DocsDoodads.doodads() || []).filter(x => x.prefabRef && x.prefabRef.instance === d.prefabRef.instance);
+    },
+
+    // Events inside the selection's tile bounds go into the prefab with the doodads.
+    eventsWithin(items) {
+        if (!items.length || !window.$gameMap) return [];
+        const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const r = DocsDoodads.Guides.unionRect(items.map(d => DocsDoodads.Guides.rectOf(d)));
+        const staged = DocsDoodads.Persistence.stagedFor();
+        return ((staged && staged.events) || []).filter(e => e &&
+            (e.x + 0.5) * tw >= r.left && (e.x + 0.5) * tw <= r.right && (e.y + 0.5) * th >= r.top && (e.y + 0.5) * th <= r.bottom);
+    },
+
+    savePrefabFromSelection(name, includeEvents = true) {
+        const items = this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
+        if (items.length === 0) return null;
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const events = includeEvents ? this.eventsWithin(items) : [];
+        const prefab = DocsDoodads.Prefabs.capture(name, items, events, { tileWidth: tw, tileHeight: th });
+        DocsDoodads.Prefabs.add(prefab);
+        DocsDoodads.Prefabs.save();
+        // The selection itself becomes the prefab's first linked copy.
+        const instance = DocsDoodads.Prefabs.newId('pi_');
+        this.editDoodads(items, d => {
+            d.prefabRef = { id: prefab.id, instance, ox: prefab.origin.x, oy: prefab.origin.y };
+            d.groupId = 'grp_' + instance;
+        }, 'link_prefab');
+        this.showToast(`Saved prefab "${prefab.name}" (${prefab.doodads.length} doodads, ${prefab.events.length} events).`);
+        if (this.currentCategory === 'Prefabs') this.refreshDrawerCards();
+        return prefab;
+    },
+
+    placePrefab(prefab, at) {
+        if (!prefab) return null;
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const staged = prefab.events && prefab.events.length > 0 ? DocsDoodads.Persistence.stagedFor() : null;
+        const reserved = [];
+        const inst = DocsDoodads.Prefabs.instantiate(prefab, at, {
+            tileWidth: tw, tileHeight: th,
+            allocateEventId: () => {
+                const id = DocsDoodads.Events.allocateSafeId(staged);
+                staged.events[id] = { id, reserved: true };
+                reserved.push(id);
+                return id;
+            }
+        });
+        reserved.forEach(id => { delete staged.events[id]; });
+        const mapId = this.currentMapId();
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+        DocsDoodads.Undo.execute({
+            type: 'place_prefab',
+            apply: () => {
+                inst.doodads.forEach(d => list.push(d));
+                inst.events.forEach(e => { staged.events[e.id] = e; });
+                DocsDoodads.Persistence.dirtyDoodads = true;
+                if (inst.events.length) DocsDoodads.Persistence.dirtyMap = true;
+                this.refreshSpriteset();
+            },
+            revert: () => {
+                inst.doodads.forEach(d => { const i = list.indexOf(d); if (i > -1) list.splice(i, 1); });
+                inst.events.forEach(e => { if (staged.events[e.id] === e) staged.events[e.id] = null; });
+                this.refreshSpriteset();
+            }
+        });
+        this.showToast(`Placed prefab "${prefab.name}"${inst.events.length ? ` with ${inst.events.length} event(s)` : ''}.`);
+        if (this.selectedAsset && this.selectedAsset.type === 'prefab') this.refreshInspector();
+        return inst;
+    },
+
+    updatePrefabFromInstance(d) {
+        const prefab = d && d.prefabRef ? DocsDoodads.Prefabs.get(d.prefabRef.id) : null;
+        if (!prefab) return null;
+        DocsDoodads.Prefabs.updateFromInstance(prefab, this.prefabInstanceDoodads(d));
+        DocsDoodads.Prefabs.save();
+        this.showToast(`Updated prefab "${prefab.name}" from this copy.`);
+        return prefab;
+    },
+
+    // Rebuilds every placed copy (on every map) from the master, keeping each copy's position and group.
+    syncPrefabInstances(prefabId) {
+        const prefab = DocsDoodads.Prefabs.get(prefabId);
+        if (!prefab) return 0;
+        const data = window.$dataDocsDoodads;
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const mapIds = Object.keys(data).filter(k => Array.isArray(data[k]) && data[k].some(d => d && d.prefabRef && d.prefabRef.id === prefabId));
+        const before = this.snapshotMapLists(mapIds);
+        let count = 0;
+        for (const mapId of mapIds) {
+            const next = [];
+            const done = new Set();
+            for (const d of data[mapId]) {
+                if (!d || !d.prefabRef || d.prefabRef.id !== prefabId) { next.push(d); continue; }
+                if (done.has(d.prefabRef.instance)) continue;
+                done.add(d.prefabRef.instance);
+                const rebuilt = DocsDoodads.Prefabs.instantiate(prefab, { x: d.prefabRef.ox, y: d.prefabRef.oy },
+                    { tileWidth: tw, tileHeight: th, instance: d.prefabRef.instance, groupId: d.groupId });
+                rebuilt.doodads.forEach(x => next.push(x));
+                count++;
+            }
+            data[mapId].length = 0;
+            next.forEach(d => data[mapId].push(d));
+        }
+        this.recordMapListsEdit(before, 'sync_prefab');
+        this.selectedDoodad = null;
+        this.selectedDoodads = [];
+        this.showToast(`Synced ${count} cop${count === 1 ? 'y' : 'ies'} of "${prefab.name}".`);
+        return count;
+    },
+
+    detachPrefabInstance(d) {
+        const items = this.prefabInstanceDoodads(d);
+        this.editDoodads(items, x => { delete x.prefabRef; }, 'detach_prefab');
+    },
+
+    // ---- Dragging doodads with smart guides ----
+    activeGuides: [],
+
+    beginDoodadDrag(point) {
+        const hit = this.doodadAt(point.x, point.y);
+        if (!hit || hit.locked) return false;
+        const selection = this.selectedDoodads && this.selectedDoodads.includes(hit) ? this.selectedDoodads : null;
+        if (!selection) this.selectDoodad(hit);
+        const items = (this.selectedDoodads && this.selectedDoodads.length ? this.selectedDoodads : [hit]).filter(d => !d.locked);
+        if (items.length === 0) return false;
+        const moving = new Set(items);
+        this._drag = {
+            start: { x: point.x, y: point.y },
+            primary: hit,
+            items,
+            origin: items.map(d => ({ x: d.x, y: d.y })),
+            before: this.snapshotDoodads(items),
+            others: (DocsDoodads.doodads() || []).filter(d => !moving.has(d) && !d.editorHidden).map(d => DocsDoodads.Guides.rectOf(d)),
+            moved: false
+        };
+        return true;
+    },
+
+    updateDoodadDrag(point, modifiers = {}) {
+        const drag = this._drag;
+        if (!drag) return;
+        let dx = point.x - drag.start.x;
+        let dy = point.y - drag.start.y;
+        if (Math.abs(dx) + Math.abs(dy) > 0) drag.moved = true;
+        const primaryIndex = drag.items.indexOf(drag.primary);
+        const primaryOrigin = drag.origin[primaryIndex >= 0 ? primaryIndex : 0];
+        this.activeGuides = [];
+        if (modifiers.shiftKey) {
+            const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+            const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+            const px = primaryOrigin.x + dx, py = primaryOrigin.y + dy;
+            dx += Math.round((px - tw / 2) / tw) * tw + tw / 2 - px;
+            dy += Math.round(py / th) * th - py;
+        } else if (!modifiers.altKey) {
+            const rects = drag.items.map((d, i) => DocsDoodads.Guides.rectOf(Object.assign({}, d, { x: drag.origin[i].x + dx, y: drag.origin[i].y + dy })));
+            const snap = DocsDoodads.Guides.snap(DocsDoodads.Guides.unionRect(rects), drag.others, 6);
+            dx += snap.dx;
+            dy += snap.dy;
+            this.activeGuides = snap.lines;
+        }
+        drag.items.forEach((d, i) => {
+            d.x = Math.round(drag.origin[i].x + dx);
+            d.y = Math.round(drag.origin[i].y + dy);
+        });
+        this.refreshSpriteset(true);
+    },
+
+    endDoodadDrag() {
+        const drag = this._drag;
+        this._drag = null;
+        this.activeGuides = [];
+        if (!drag || !drag.moved) return false;
+        this.recordDoodadEdit(drag.items, drag.before, 'move_doodads');
+        this.refreshInspector();
+        return true;
+    },
+
+    // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
+    drawEditorOverlayExtras(g) {
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const ox = window.$gameMap ? $gameMap.displayX() * tw : 0;
+        const oy = window.$gameMap ? $gameMap.displayY() * th : 0;
+        for (const line of this.activeGuides || []) {
+            g.lineStyle(1, line.kind === 'spacing' ? 0xf59e0b : 0xec4899, 1);
+            if (line.axis === 'x') { g.moveTo(line.at - ox, line.from - oy); g.lineTo(line.at - ox, line.to - oy); }
+            else if (line.axis === 'y') { g.moveTo(line.from - ox, line.at - oy); g.lineTo(line.to - ox, line.at - oy); }
+            else if (line.axis === 'x-gap') { g.moveTo(line.from - ox, line.at - oy); g.lineTo(line.to - ox, line.at - oy); }
+            else if (line.axis === 'y-gap') { g.moveTo(line.at - ox, line.from - oy); g.lineTo(line.at - ox, line.to - oy); }
+        }
+        if (this.placementTool === 'path' && this.pathPoints && this.pathPoints.length > 0) {
+            const points = this.pathPoints.concat(this._pathHover ? [this._pathHover] : []);
+            g.lineStyle(2, 0x22d3ee, 0.9);
+            points.forEach((p, i) => { if (i === 0) g.moveTo(p.x - ox, p.y - oy); else g.lineTo(p.x - ox, p.y - oy); });
+            g.lineStyle(0);
+            for (const s of DocsDoodads.Paths.sample(points, this.pathSettings.spacing, { smooth: this.pathSettings.smooth })) {
+                g.beginFill(s.kind === 'segment' ? 0x22d3ee : 0xf59e0b, 0.9);
+                g.drawCircle(s.x - ox, s.y - oy, s.kind === 'segment' ? 3 : 5);
+                g.endFill();
+            }
+        }
     },
 
     // The grid itself is drawn by Spriteset_Map (updateDocsEditorOverlay) in map space so it stays
@@ -7389,6 +8543,15 @@ DocsDoodads.Workspace = {
         this.ghostEl = null;
     },
 
+    // Bottom-centre of the tile under a map point (the default placement spot).
+    snapToTile(coords) {
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const tileX = coords.tileX !== undefined ? coords.tileX : Math.floor(coords.x / tw);
+        const tileY = coords.tileY !== undefined ? coords.tileY : Math.floor(coords.y / th);
+        return { x: tileX * tw + tw / 2, y: tileY * th + th, tileX, tileY };
+    },
+
     clientToMapCoords(clientX, clientY) {
         const canvas = DocsDoodads.Compat.getCanvas();
         if (!canvas || !window.$gameMap) return { x: 0, y: 0, tileX: 0, tileY: 0 };
@@ -7467,6 +8630,10 @@ DocsDoodads.Workspace = {
                     return;
                 }
 
+                if (payload.type === 'prefab') {
+                    this.placePrefab(DocsDoodads.Prefabs.get(payload.prefabId), e.altKey ? coords : this.snapToTile(coords));
+                    return;
+                }
                 if (payload.placementMode === 'ask') {
                     this.showAskEventModal(payload, coords, e.altKey);
                 } else {
@@ -7556,7 +8723,17 @@ DocsDoodads.Workspace = {
                 return;
             }
 
-            // 2. Stamp Tool
+            // 2. Path Tool: collect points
+            if (this.placementTool === 'path') {
+                if (!this.selectedAsset || this.selectedAsset.category === 'Audio' || this.selectedAsset.type === 'prefab') {
+                    this.showToast('Select an image asset in the drawer to draw a path with.');
+                    return;
+                }
+                this.pathPoints.push(e.altKey ? { x: coords.x, y: coords.y } : this.snapToTile(coords));
+                return;
+            }
+
+            // 3. Stamp Tool
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 const snapCoords = e.altKey ? coords : {
                     x: coords.tileX * 48 + 24,
@@ -7581,6 +8758,14 @@ DocsDoodads.Workspace = {
                 this.scatterAt(e.clientX, e.clientY);
                 return;
             }
+            if (!this.placementTool && e.button === 0 && !e.shiftKey && !e.altKey) {
+                const point = this.clientToMapCoords(e.clientX, e.clientY);
+                if (this.beginDoodadDrag(point)) {
+                    this._dragClientStart = { x: e.clientX, y: e.clientY };
+                    this._dragActive = false;
+                    return;
+                }
+            }
             if (!this.placementTool && e.button === 0) {
                 this.isMarqueeActive = true;
                 this.marqueeStartClient = { x: e.clientX, y: e.clientY };
@@ -7591,6 +8776,24 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseMove = (e) => {
+            if (this._drag) {
+                // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
+                if (e.buttons === 0) {
+                    if (this.endDoodadDrag()) this._suppressNextClick = true;
+                    this._dragActive = false;
+                    return;
+                }
+                // A small wobble while clicking is not a move.
+                if (!this._dragActive && Math.hypot(e.clientX - this._dragClientStart.x, e.clientY - this._dragClientStart.y) < 4) return;
+                this._dragActive = true;
+                this.updateDoodadDrag(this.clientToMapCoords(e.clientX, e.clientY), { shiftKey: e.shiftKey, altKey: e.altKey });
+                return;
+            }
+            if (this.placementTool === 'path') {
+                const hover = this.clientToMapCoords(e.clientX, e.clientY);
+                this._pathHover = e.altKey ? { x: hover.x, y: hover.y } : this.snapToTile(hover);
+                return;
+            }
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 this.showGhost(this.selectedAsset, e.clientX, e.clientY, e.altKey);
             } else if (this.isBrushActive && this.placementTool === 'brush' && this.selectedAsset) {
@@ -7623,6 +8826,11 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseUp = (e) => {
+            if (this._drag) {
+                if (this.endDoodadDrag()) this._suppressNextClick = true;
+                this._dragActive = false;
+                return;
+            }
             if (this.isBrushActive) {
                 this.isBrushActive = false;
                 if (this.currentBrushBatch.length > 0) {
@@ -7683,6 +8891,13 @@ DocsDoodads.Workspace = {
             canvas.addEventListener('click', this._onCanvasClick);
             canvas.addEventListener('mousedown', this._onCanvasMouseDown);
             canvas.addEventListener('contextmenu', this._onCanvasContextMenu);
+            this._onCanvasDblClick = (e) => {
+                if (this.placementTool === 'path') {
+                    e.preventDefault();
+                    this.finishPath();
+                }
+            };
+            canvas.addEventListener('dblclick', this._onCanvasDblClick);
         }
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
             window.addEventListener('mousemove', this._onCanvasMouseMove);
@@ -7699,6 +8914,7 @@ DocsDoodads.Workspace = {
             if (this._onCanvasClick) canvas.removeEventListener('click', this._onCanvasClick);
             if (this._onCanvasMouseDown) canvas.removeEventListener('mousedown', this._onCanvasMouseDown);
             if (this._onCanvasContextMenu) canvas.removeEventListener('contextmenu', this._onCanvasContextMenu);
+            if (this._onCanvasDblClick) canvas.removeEventListener('dblclick', this._onCanvasDblClick);
         }
         if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
             if (this._onCanvasMouseMove) window.removeEventListener('mousemove', this._onCanvasMouseMove);
@@ -7706,32 +8922,47 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // Evenly spaced scatter: props keep minDistance from each other and from what is already there,
+    // and only land where the region/terrain/passability rules allow.
     scatterAt(clientX, clientY) {
         const coords = this.clientToMapCoords(clientX, clientY);
         const asset = this.selectedAsset;
         const b = this.brushSettings;
-        const list = window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
+        const mapId = this.currentMapId();
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+        this._scatterRng = this._scatterRng || DocsDoodads.Scatter.rng(Date.now());
+        const rng = this._scatterRng;
+        const reach = b.radius + (b.minDistance || 0);
+        const existing = list.filter(d => Math.abs(d.x - coords.x) <= reach && Math.abs(d.y - coords.y) <= reach).map(d => ({ x: d.x, y: d.y }));
+        const points = DocsDoodads.Scatter.candidates(coords, b.radius, b.minDistance || 0, existing, b.density, rng);
+        const rules = {
+            regions: DocsDoodads.Scatter.parseIdList(b.regions),
+            terrainTags: DocsDoodads.Scatter.parseIdList(b.terrainTags),
+            avoidBlocked: Boolean(b.avoidBlocked)
+        };
+        const gameMap = window.$gameMap;
+        const query = {
+            tileWidth: gameMap && gameMap.tileWidth ? gameMap.tileWidth() : 48,
+            tileHeight: gameMap && gameMap.tileHeight ? gameMap.tileHeight() : 48,
+            width: gameMap && gameMap.width ? gameMap.width() : Infinity,
+            height: gameMap && gameMap.height ? gameMap.height() : Infinity,
+            regionId: (x, y) => (gameMap && gameMap.regionId ? gameMap.regionId(x, y) : 0),
+            terrainTag: (x, y) => (gameMap && gameMap.terrainTag ? gameMap.terrainTag(x, y) : 0),
+            isPassable: (x, y) => (gameMap && gameMap.isPassable ? [2, 4, 6, 8].some(d => gameMap.isPassable(x, y, d)) : true)
+        };
 
-        for (let i = 0; i < b.density; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = Math.random() * b.radius;
-            const px = coords.x + Math.cos(angle) * dist;
-            const py = coords.y + Math.sin(angle) * dist;
-
-            const scaleJitter = 1.0 + (Math.random() * 2 - 1) * b.scaleJitter;
-            const rotJitter = (Math.random() * 2 - 1) * b.rotateJitter;
-
-            const d = this.newDoodadFromAsset(asset, Math.round(px), Math.round(py));
-            d.scaleX = parseFloat(scaleJitter.toFixed(2));
-            d.scaleY = parseFloat(scaleJitter.toFixed(2));
-            d.rotation = Math.round(rotJitter);
-
+        for (const p of points) {
+            if (!DocsDoodads.Scatter.allowed(p, rules, query)) continue;
+            const v = DocsDoodads.Scatter.variation(b, rng);
+            const d = this.newDoodadFromAsset(asset, Math.round(p.x), Math.round(p.y));
+            d.scaleX = v.scale * (v.flipX ? -1 : 1);
+            d.scaleY = v.scale;
+            d.rotation = v.rotation;
+            if (v.hue) d.hue = v.hue;
             list.push(d);
             this.currentBrushBatch.push(d);
         }
-        if (SceneManager._scene && SceneManager._scene._spriteset) {
-            SceneManager._scene._spriteset.addDocsDoodads();
-        }
+        this.refreshSpriteset();
     },
 
     handleEyedropper(coords) {
@@ -7892,7 +9123,7 @@ DocsDoodads.Workspace = {
 
     createAudioEvent(payload, coords) {
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+        DocsDoodads.Persistence.stagedFor(mapId);
         const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
         const baseName = payload.fileName.replace(/\.[^/.]+$/, "");
         let code = 250;
@@ -7925,7 +9156,7 @@ DocsDoodads.Workspace = {
         if (!evId) return;
 
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+        DocsDoodads.Persistence.stagedFor(mapId);
         const oldEv = $gameMap._stagedMapData.events[evId] || ev;
 
         const cmd = {
@@ -7953,7 +9184,7 @@ DocsDoodads.Workspace = {
         if (!ev) return;
 
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+        DocsDoodads.Persistence.stagedFor(mapId);
         const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
 
         const dup = JSON.parse(JSON.stringify(ev));
@@ -8036,7 +9267,7 @@ DocsDoodads.Workspace = {
 
     appendAudioCommandToEvent(payload, gameEvent) {
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+        DocsDoodads.Persistence.stagedFor(mapId);
         const evId = gameEvent.eventId();
         const ev = $gameMap._stagedMapData.events[evId] || gameEvent.event();
         if (!ev || !ev.pages || !ev.pages[0]) return;
@@ -8225,8 +9456,15 @@ DocsDoodads.Workspace = {
         };
         document.getElementById('dd-conf-reload').onclick = () => {
             closeM();
-            if ($gameMap) $gameMap._stagedMapData = null;
-            DocsDoodads.Persistence.captureSession();
+            const persistence = DocsDoodads.Persistence;
+            for (const entry of persistence.pendingMapEntries()) {
+                const file = persistence.mapFilePath(entry.mapId);
+                persistence.sessionSnapshots[file] = DocsDoodads.FS.stat(file);
+            }
+            persistence.stagedMaps = {};
+            if ($gameMap) { $gameMap._stagedMapData = null; delete $gameMap._stagedMapDataId; }
+            persistence.dirtyMap = false;
+            persistence.captureSession();
             this.showToast("External Map Data Reloaded!");
         };
         document.getElementById('dd-conf-cancel').onclick = closeM;
@@ -8353,6 +9591,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             } else if (targetPath === mapFile && window.$gameMap) {
                 $gameMap._stagedMapData = DocsDoodads.FS.readJson(targetPath);
+                $gameMap._stagedMapDataId = $gameMap.mapId();
                 DocsDoodads.Persistence.captureSession();
             }
             close();
@@ -8394,9 +9633,10 @@ DocsDoodads.Workspace = {
 // SECTION 25: SCENE_MAP INTEGRATION & KEY BINDINGS
 //==========================================================
 if (typeof Scene_Map !== 'undefined') {
-    $.Scene_Map_initialize = Scene_Map.prototype.initialize;
-    Scene_Map.prototype.initialize = function() {
-        $.Scene_Map_initialize.call(this);
+    $.Scene_Map_onMapLoaded = Scene_Map.prototype.onMapLoaded;
+    Scene_Map.prototype.onMapLoaded = function() {
+        $.Scene_Map_onMapLoaded.call(this);
+        DocsDoodads.Workspace.onMapLoaded();
     };
 }
 
@@ -8421,6 +9661,14 @@ if (typeof Game_Event !== 'undefined') {
     };
 }
 if (typeof Game_Map !== 'undefined') {
+    // Staged event edits belong to the map they were made on; park them when another map loads.
+    $.Game_Map_setup = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        if (this === window.$gameMap && this._mapId && this._mapId !== mapId) {
+            DocsDoodads.Persistence.onMapChanging(this._mapId, mapId);
+        }
+        $.Game_Map_setup.call(this, mapId);
+    };
     $.Game_Map_isEventRunning = Game_Map.prototype.isEventRunning;
     Game_Map.prototype.isEventRunning = function() {
         if (DocsDoodads.Workspace.mounted) return true;
@@ -8554,6 +9802,10 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                     DocsDoodads.Workspace.refreshInspector();
                 }
             }
+        } else if (DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace')) {
+            e.preventDefault();
+            if (e.key === 'Enter') DocsDoodads.Workspace.finishPath();
+            else DocsDoodads.Workspace.pathPoints.pop();
         } else if (e.key === 'Escape') {
             e.preventDefault();
             DocsDoodads.Workspace.setPlacementTool(null);
