@@ -889,6 +889,36 @@ if (typeof Spriteset_Map !== 'undefined') {
                 this._docsDoodadSprites[i].update();
             }
         }
+        this.updateDocsEditorOverlay();
+    };
+
+    // Editor-only overlay above the doodad layer: placement grid and selection outlines.
+    Spriteset_Map.prototype.updateDocsEditorOverlay = function() {
+        if (!this._docsDoodadsContainer || typeof PIXI === 'undefined' || !PIXI.Graphics) return;
+        if (!this._docsSelectionOutline) {
+            this._docsSelectionOutline = new PIXI.Graphics();
+            this._baseSprite.addChild(this._docsSelectionOutline);
+        }
+        const outline = this._docsSelectionOutline;
+        outline.clear();
+        if (!DocsDoodads.Workspace.mounted) return;
+        // Keep the outline above the doodad layer even after the layer is rebuilt.
+        if (outline.parent && outline.parent.children[outline.parent.children.length - 1] !== outline) {
+            outline.parent.addChild(outline);
+        }
+        const workspace = DocsDoodads.Workspace;
+        if (workspace.gridSnapShow) {
+            const width = typeof Graphics !== 'undefined' ? Graphics.width : 816;
+            const height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+            const grid = workspace.placementGridLines(width, height);
+            outline.lineStyle(1, 0xffffff, 0.25);
+            for (const x of grid.xs) { outline.moveTo(x, 0); outline.lineTo(x, height); }
+            for (const y of grid.ys) { outline.moveTo(0, y); outline.lineTo(width, y); }
+        }
+        for (const rect of workspace.selectionScreenRects()) {
+            outline.lineStyle(2, 0x38bdf8, 1);
+            outline.drawRect(rect.x, rect.y, rect.w, rect.h);
+        }
     };
 }
 
@@ -1041,9 +1071,16 @@ DocsDoodads.FS = {
             console.error("[DocsDoodads.FS] Validation failed for atomic JSON write:", e);
             return false;
         }
-        this.fs.writeFileSync(tmpPath, jsonStr, 'utf8');
-        this.fs.renameSync(tmpPath, filePath);
-        return true;
+        try {
+            this.fs.writeFileSync(tmpPath, jsonStr, 'utf8');
+            this.fs.renameSync(tmpPath, filePath);
+            return true;
+        } catch(e) {
+            // e.g. a read-only target: keep the original file and do not leave the temp copy behind.
+            console.error(`[DocsDoodads.FS] Could not write ${filePath}:`, e);
+            try { if (this.existsSync(tmpPath)) this.fs.unlinkSync(tmpPath); } catch(cleanupError) {}
+            return false;
+        }
     },
 
     createTimestampedBackup(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
@@ -1147,9 +1184,10 @@ DocsDoodads.FS = {
                     item.rollback = `${item.targetPath}.ddtxn-${transactionId}-${index}.rollback`;
                     this.fs.copyFileSync(item.targetPath, item.rollback);
                 }
-                rollbackRecords.push(item);
                 if (typeof options.beforeCommit === 'function') options.beforeCommit(index, entries[index]);
                 this.fs.renameSync(item.temporary, item.targetPath);
+                // Only files that were actually replaced need restoring if a later file fails.
+                rollbackRecords.push(item);
                 result.committed.push(item.targetPath);
             }
 
@@ -1190,10 +1228,13 @@ DocsDoodads.FS = {
         }
         try {
             const backupDirectory = this.path.resolve(options.backupDir || 'data/docs_doodads_cache/backups');
+            // listBackups also offers backups made by QJ-Doodads builds, so those must be restorable too.
+            const allowedDirectories = [backupDirectory];
+            if (!options.backupDir) allowedDirectories.push(this.path.resolve(DocsDoodads.Legacy.backupDirectory));
             const resolvedBackup = this.path.resolve(backupPath);
             const resolvedTarget = this.path.resolve(filePath);
             const expectedPrefix = this.path.basename(resolvedTarget) + '.';
-            if (this.path.dirname(resolvedBackup) !== backupDirectory ||
+            if (!allowedDirectories.includes(this.path.dirname(resolvedBackup)) ||
                 !this.path.basename(resolvedBackup).startsWith(expectedPrefix) ||
                 !resolvedBackup.endsWith('.bak')) {
                 throw new Error('Selected backup does not belong to the target file.');
@@ -1238,12 +1279,24 @@ DocsDoodads.FS = {
             const fallback = this.findLatestBackup(filePath);
             if (fallback) {
                 try {
+                    const recovered = JSON.parse(this.readFileSync(fallback, 'utf8'));
                     console.warn(`[DocsDoodads.FS] Automatically recovered ${filePath} from backup ${fallback}`);
-                    return JSON.parse(this.readFileSync(fallback, 'utf8'));
+                    this.recoveryNotices.push(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.`);
+                    return recovered;
                 } catch(e2) {}
             }
+            this.recoveryNotices.push(`${filePath} was unreadable and no backup exists; defaults were used.`);
             return null;
         }
+    },
+
+    // Unreadable-file fallbacks waiting to be shown to the user.
+    recoveryNotices: [],
+
+    takeRecoveryNotices() {
+        const notices = this.recoveryNotices.slice();
+        this.recoveryNotices.length = 0;
+        return notices;
     },
 
     stat(filePath) {
@@ -1276,7 +1329,7 @@ DocsDoodads.AssetIndex = {
     },
     list: [],
     // Bump when indexFile derives new fields so unchanged files are re-indexed once.
-    entryRevision: 3,
+    entryRevision: 4,
 
     init() {
         const loaded = DocsDoodads.FS.readJson(this.libraryPath);
@@ -1493,11 +1546,18 @@ DocsDoodads.AssetIndex = {
                 newEntry.width = size.width;
                 newEntry.height = size.height;
             }
-            const known = DocsDoodads.Slicing.Known.detect(newEntry);
-            if (known) {
-                newEntry.slice = known;
-                newEntry.width = known.width;
-                newEntry.height = known.height;
+            // Hand-edited slices are the user's work; detection only fills in slices that are not manual.
+            const isManual = Boolean(existing && existing.slice && existing.slice.status === 'manual');
+            if (!isManual) {
+                const metadata = DocsDoodads.Slicing.Metadata.parse(fullPath);
+                const known = metadata ? null : DocsDoodads.Slicing.Known.detect(newEntry);
+                if (metadata) {
+                    newEntry.slice = metadata;
+                } else if (known) {
+                    newEntry.slice = known;
+                    newEntry.width = known.width;
+                    newEntry.height = known.height;
+                }
             }
         }
 
@@ -2042,16 +2102,18 @@ DocsDoodads.Slicing.Metadata = {
                 if (![frame.x, frame.y, frame.w, frame.h].every(Number.isFinite)) continue;
                 const sourceSize = frameData.sourceSize || { w: frame.w, h: frame.h };
                 const spriteSourceSize = frameData.spriteSourceSize || { x: 0, y: 0, w: frame.w, h: frame.h };
+                const rotated = Boolean(frameData.rotated);
+                // As in PIXI: a rotated frame's w/h are the unrotated sprite size, so it covers h x w on the sheet.
                 regions.push({
                     id: name,
                     name,
                     x: frame.x,
                     y: frame.y,
-                    w: frame.w,
-                    h: frame.h,
+                    w: rotated ? frame.h : frame.w,
+                    h: rotated ? frame.w : frame.h,
                     pivotX: frameData.pivot && Number.isFinite(frameData.pivot.x) ? frameData.pivot.x : 0.5,
                     pivotY: frameData.pivot && Number.isFinite(frameData.pivot.y) ? frameData.pivot.y : 1.0,
-                    rotated: Boolean(frameData.rotated),
+                    rotated,
                     trimmed: Boolean(frameData.trimmed),
                     sourceSize: { w: sourceSize.w, h: sourceSize.h },
                     spriteSourceSize: {
@@ -3466,6 +3528,26 @@ DocsDoodads.Events = {
         return events.length > 0 ? events.length : 1;
     },
 
+    // The MZ editor lists each Set Movement Route step as a 505 line after the 205 command and
+    // stores route steps with indent: null. The game ignores 505s, but the editor needs them.
+    withRouteDisplayLines(list) {
+        const out = [];
+        const source = JSON.parse(JSON.stringify(list));
+        for (let i = 0; i < source.length; i++) {
+            const command = source[i];
+            out.push(command);
+            if (command.code !== 205 || !command.parameters || !command.parameters[1] || !Array.isArray(command.parameters[1].list)) continue;
+            const route = command.parameters[1].list;
+            route.forEach(step => { if (step.code !== 0 && !('indent' in step)) step.indent = null; });
+            if (source[i + 1] && source[i + 1].code === 505) continue; // already in editor form
+            for (const step of route) {
+                if (step.code === 0) continue;
+                out.push({ code: 505, indent: command.indent || 0, parameters: [JSON.parse(JSON.stringify(step))] });
+            }
+        }
+        return out;
+    },
+
     createEventObject(id, x, y, options = {}) {
         const ev = {
             id: id,
@@ -3492,7 +3574,7 @@ DocsDoodads.Events = {
                         pattern: options.pattern || 1,
                         tileId: 0
                     },
-                    list: options.list || [{ code: 0, indent: 0, parameters: [] }],
+                    list: this.withRouteDisplayLines(options.list || [{ code: 0, indent: 0, parameters: [] }]),
                     moveFrequency: 3,
                     moveRoute: { list: [{ code: 0, parameters: [] }], repeat: true, skippable: false, wait: false },
                     moveSpeed: 3,
@@ -3911,6 +3993,17 @@ DocsDoodads.Persistence = {
         return true;
     },
 
+    // Snapshots written during this Playtest run are its own autosaves, not crash leftovers.
+    bootedAt: Date.now(),
+
+    recoverableSnapshot() {
+        const recovery = DocsDoodads.FS.readJson('data/DocsDoodadsRecovery.json');
+        if (!recovery || !recovery.timestamp) return null;
+        if (recovery.timestamp >= this.bootedAt) return null;
+        if (this.bootedAt - recovery.timestamp >= 86400000) return null;
+        return recovery;
+    },
+
     clearRecovery() {
         const recoveryPath = 'data/DocsDoodadsRecovery.json';
         for (const filePath of [recoveryPath, DocsDoodads.Legacy.pathFor(recoveryPath)]) {
@@ -4015,37 +4108,43 @@ DocsDoodads.Layout = {
 //==========================================================
 DocsDoodads.Audio = {
     currentPlaying: null,
+    // The map's BGM/BGS from before the first BGM/BGS preview, restored when previews stop.
+    _savedBackground: null,
 
     playPreview(asset) {
         if (!asset || asset.category !== 'Audio') return;
         const baseName = asset.fileName.replace(/\.[^/.]+$/, "");
         this.stopPreview();
+        if (typeof AudioManager === 'undefined') return;
 
-        if (typeof AudioManager !== 'undefined') {
-            if (asset.path.includes('/bgm/')) {
-                AudioManager.playBgm({ name: baseName, volume: 90, pitch: 100, pan: 0 });
-                this.currentPlaying = { type: 'bgm', name: baseName };
-            } else if (asset.path.includes('/bgs/')) {
-                AudioManager.playBgs({ name: baseName, volume: 90, pitch: 100, pan: 0 });
-                this.currentPlaying = { type: 'bgs', name: baseName };
-            } else if (asset.path.includes('/me/')) {
-                AudioManager.playMe({ name: baseName, volume: 90, pitch: 100, pan: 0 });
-                this.currentPlaying = { type: 'me', name: baseName };
-            } else {
-                AudioManager.playSe({ name: baseName, volume: 90, pitch: 100, pan: 0 });
-                this.currentPlaying = { type: 'se', name: baseName };
-            }
+        const sound = { name: baseName, volume: 90, pitch: 100, pan: 0 };
+        let type = 'se';
+        if (asset.path.includes('/bgm/')) type = 'bgm';
+        else if (asset.path.includes('/bgs/')) type = 'bgs';
+        else if (asset.path.includes('/me/')) type = 'me';
+
+        if ((type === 'bgm' || type === 'bgs') && !this._savedBackground) {
+            this._savedBackground = { bgm: AudioManager.saveBgm(), bgs: AudioManager.saveBgs() };
         }
+        if (type === 'bgm') AudioManager.playBgm(sound);
+        else if (type === 'bgs') AudioManager.playBgs(sound);
+        else if (type === 'me') AudioManager.playMe(sound); // MZ resumes the BGM after an ME
+        else AudioManager.playSe(sound);
+        this.currentPlaying = { type, name: baseName };
     },
 
     stopPreview() {
-        if (typeof AudioManager !== 'undefined') {
-            AudioManager.stopBgm();
-            AudioManager.stopBgs();
-            AudioManager.stopMe();
-            AudioManager.stopSe();
-        }
+        const playing = this.currentPlaying;
         this.currentPlaying = null;
+        if (!playing || typeof AudioManager === 'undefined') return;
+        if (playing.type === 'se') AudioManager.stopSe();
+        else if (playing.type === 'me') AudioManager.stopMe();
+        else if (this._savedBackground) {
+            const saved = this._savedBackground;
+            this._savedBackground = null;
+            AudioManager.replayBgm(saved.bgm);
+            AudioManager.replayBgs(saved.bgs);
+        }
     }
 };
 
@@ -4120,25 +4219,45 @@ DocsDoodads.Import = {
         const path = DocsDoodads.FS.path;
         const files = [];
         const errors = [];
-        if (!fs || !path) return { files, errors: [{ path: '', message: 'Filesystem access is unavailable.' }] };
+        // For files inside a dropped folder: their sub-folder path below that dropped folder ('' at its top level).
+        const relativeDirs = new Map();
+        if (!fs || !path) return { files, errors: [{ path: '', message: 'Filesystem access is unavailable.' }], relativeDirs };
 
-        const pending = Array.from(sourcePaths || []).filter(Boolean).map(p => path.resolve(String(p)));
+        const pending = Array.from(sourcePaths || []).filter(Boolean).map(p => ({ current: path.resolve(String(p)), root: null }));
         while (pending.length > 0) {
-            const current = pending.pop();
+            const { current, root } = pending.pop();
             try {
                 const stat = fs.statSync(current);
                 if (stat.isDirectory()) {
                     const children = fs.readdirSync(current).sort().reverse();
-                    for (const child of children) pending.push(path.join(current, child));
+                    for (const child of children) pending.push({ current: path.join(current, child), root: root || current });
                 } else if (stat.isFile()) {
                     files.push(current);
+                    if (root) relativeDirs.set(current, path.relative(root, path.dirname(current)));
                 }
             } catch (error) {
                 errors.push({ path: current, message: error && error.message ? error.message : String(error) });
             }
         }
         files.sort((a, b) => a.localeCompare(b));
-        return { files, errors };
+        return { files, errors, relativeDirs };
+    },
+
+    // Plain-language summary of a runAssetImport result for the toast.
+    describeResult(result) {
+        const path = DocsDoodads.FS.path;
+        const baseName = (p) => path ? path.basename(String(p)) : String(p).split(/[\\/]/).pop();
+        if (result.ok) {
+            const parts = [`Imported ${result.imported.length} file(s)`];
+            if (result.duplicates && result.duplicates.length) parts.push(`${result.duplicates.length} identical file(s) skipped`);
+            if (result.skipped && result.skipped.length) parts.push(`${result.skipped.length} skipped because the name already exists`);
+            return parts.join(', ') + '.';
+        }
+        if (result.cancelled) return `Import cancelled${result.rolledBack ? '; copied files were rolled back' : ''}.`;
+        const collision = (result.errors || []).find(error => error.message === 'Destination already exists.');
+        if (collision) return `Import cancelled: ${baseName(collision.destination || collision.path)} already exists. Nothing was imported.`;
+        const reason = result.errors && result.errors[0] ? result.errors[0].message : 'Unknown import error';
+        return `Import failed${result.rolledBack ? ' and was rolled back' : ''}: ${reason}`;
     },
 
     filesEqual(firstPath, secondPath) {
@@ -4186,7 +4305,16 @@ DocsDoodads.Import = {
                 continue;
             }
 
-            const targetFolder = path.resolve(plan.projectRoot, relativeFolder);
+            let targetFolder = path.resolve(plan.projectRoot, relativeFolder);
+            // img/doodads belongs to this plugin and is scanned recursively, so folders inside a dropped
+            // folder are kept there; RPG Maker's own folders (characters, faces, audio...) stay flat.
+            const droppedDir = collected.relativeDirs && collected.relativeDirs.get(source);
+            if (droppedDir && relativeFolder === 'img/doodads') {
+                const segments = droppedDir.split(/[\\/]+/)
+                    .filter(segment => segment && segment !== '.' && segment !== '..')
+                    .map(segment => segment.replace(/[<>:"|?*\x00-\x1f]/g, '_'));
+                if (segments.length) targetFolder = path.join(targetFolder, ...segments);
+            }
             const rootPrefix = plan.projectRoot.endsWith(path.sep) ? plan.projectRoot : plan.projectRoot + path.sep;
             if (targetFolder !== plan.projectRoot && !targetFolder.startsWith(rootPrefix)) {
                 plan.errors.push({ path: source, message: 'Import destination escapes the project root.' });
@@ -4477,6 +4605,18 @@ DocsDoodads.Workspace = {
         if (this.mounted) this.close(); else this.open();
     },
 
+    // One placement tool at a time; keeps the toolbar highlight and brush popover in sync.
+    setPlacementTool(tool) {
+        this.placementTool = tool || null;
+        const buttons = { eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn' };
+        for (const [name, id] of Object.entries(buttons)) {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.toggle('dd-btn-active', this.placementTool === name);
+        }
+        const brushPopover = document.getElementById('dd-brush-popover');
+        if (brushPopover) brushPopover.style.display = this.placementTool === 'brush' ? 'block' : 'none';
+    },
+
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
         DocsDoodads.Persistence.captureSession();
@@ -4488,10 +4628,11 @@ DocsDoodads.Workspace = {
             window.$gameSystem.docsDoodads.editing = true;
         }
         this.startAssetScan();
+        this.showRecoveryNotices();
 
         // Check for recovery file
-        const recovery = DocsDoodads.FS.readJson('data/DocsDoodadsRecovery.json');
-        if (recovery && recovery.timestamp && (Date.now() - recovery.timestamp) < 86400000) {
+        const recovery = DocsDoodads.Persistence.recoverableSnapshot();
+        if (recovery) {
             const dateStr = new Date(recovery.timestamp).toLocaleTimeString();
             if (confirm(`Unfinished session from ${dateStr} found. Would you like to recover it?`)) {
                 if (recovery.doodads && window.$gameMap) {
@@ -4537,7 +4678,7 @@ DocsDoodads.Workspace = {
         this._assetScanToken = null;
         if (this.mounted) {
             this.refreshDrawerCards();
-            if (status) status.textContent = `Indexed ${result.discovered} assets | ${result.removed} stale removed`;
+            this.updateIndexStatus(result.removed);
             if (result.errors.length > 0) this.showToast(`Asset scan completed with ${result.errors.length} warning(s).`);
         }
         return result;
@@ -4877,28 +5018,17 @@ DocsDoodads.Workspace = {
             document.getElementById('dd-stop-audio-btn').style.display = 'none';
         };
 
-        const eyeBtn = document.getElementById('dd-eyedropper-btn');
-        eyeBtn.onclick = () => {
-            this.placementTool = this.placementTool === 'eyedropper' ? null : 'eyedropper';
-            eyeBtn.classList.toggle('dd-btn-active', this.placementTool === 'eyedropper');
+        document.getElementById('dd-eyedropper-btn').onclick = () => {
+            this.setPlacementTool(this.placementTool === 'eyedropper' ? null : 'eyedropper');
             this.showToast(this.placementTool ? "Eyedropper Active: Click any object on map" : "Eyedropper Deactivated");
         };
-
-        const stampBtn = document.getElementById('dd-stamp-btn');
-        stampBtn.onclick = () => {
-            this.placementTool = this.placementTool === 'stamp' ? null : 'stamp';
-            stampBtn.classList.toggle('dd-btn-active', this.placementTool === 'stamp');
+        document.getElementById('dd-stamp-btn').onclick = () => {
+            this.setPlacementTool(this.placementTool === 'stamp' ? null : 'stamp');
             this.showToast(this.placementTool ? "Stamp Active: Click map to place repeatedly" : "Stamp Deactivated");
         };
-
-        const brushBtn = document.getElementById('dd-brush-btn');
-        const brushPopover = document.getElementById('dd-brush-popover');
-        brushBtn.onclick = () => {
-            this.placementTool = this.placementTool === 'brush' ? null : 'brush';
-            const active = this.placementTool === 'brush';
-            brushBtn.classList.toggle('dd-btn-active', active);
-            if (brushPopover) brushPopover.style.display = active ? 'block' : 'none';
-            this.showToast(active ? "Scatter Brush Active: Drag map to scatter" : "Brush Deactivated");
+        document.getElementById('dd-brush-btn').onclick = () => {
+            this.setPlacementTool(this.placementTool === 'brush' ? null : 'brush');
+            this.showToast(this.placementTool ? "Scatter Brush Active: Drag map to scatter" : "Brush Deactivated");
         };
 
         const setupBrushSlider = (id, prop, valId, suffix, mult = 1) => {
@@ -5517,6 +5647,10 @@ DocsDoodads.Workspace = {
         }
 
         const a = this.selectedAsset;
+        if (a.category === 'Audio') {
+            this.renderAudioInspector(content, a);
+            return;
+        }
         const templates = DocsDoodads.EventTemplates.templates;
         let templateOptions = '';
         for (const key in templates) {
@@ -5610,6 +5744,56 @@ DocsDoodads.Workspace = {
 
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
+        };
+    },
+
+    updateIndexStatus(removed) {
+        const status = document.getElementById('dd-status-right');
+        if (!status) return;
+        const count = DocsDoodads.AssetIndex.list.length;
+        status.textContent = removed ? `Indexed ${count} assets | ${removed} stale removed` : `Indexed ${count} assets`;
+    },
+
+    renderAudioInspector(content, a) {
+        const channel = /\/bgm\//i.test(a.path) ? 'BGM' : /\/bgs\//i.test(a.path) ? 'BGS' : /\/me\//i.test(a.path) ? 'ME' : 'SE';
+        content.innerHTML = `
+            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">Audio</span> &middot; Channel: <span style="color: #60a5fa;">${channel}</span></div>
+            <div style="display: flex; gap: 6px; margin: 8px 0;">
+                <button class="dd-btn dd-btn-primary" id="dd-audio-preview-btn" style="flex: 1;">&#9654; Preview</button>
+                <button class="dd-btn" id="dd-audio-stop-btn" style="flex: 1;">&#9632; Stop</button>
+            </div>
+            <div style="display: flex; gap: 6px; margin: 8px 0;">
+                <button class="dd-btn" id="dd-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
+                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. ambient, door" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
+            </div>
+            <div style="font-size: 11px; color: #94a3b8; line-height: 1.5;">
+                Drag onto an empty tile to create a sound event, or onto an existing event to add a play command to it.
+            </div>
+        `;
+        document.getElementById('dd-audio-preview-btn').onclick = () => {
+            DocsDoodads.Audio.playPreview(a);
+            const stopAll = document.getElementById('dd-stop-audio-btn');
+            if (stopAll) stopAll.style.display = '';
+        };
+        document.getElementById('dd-audio-stop-btn').onclick = () => {
+            DocsDoodads.Audio.stopPreview();
+            const stopAll = document.getElementById('dd-stop-audio-btn');
+            if (stopAll) stopAll.style.display = 'none';
+        };
+        document.getElementById('dd-fav-toggle').onclick = () => {
+            DocsDoodads.AssetIndex.toggleFavorite(a.id);
+            this.refreshInspector();
+            this.refreshDrawerCards();
+        };
+        const tagInput = document.getElementById('dd-asset-tags');
+        tagInput.onchange = (e) => {
+            DocsDoodads.AssetIndex.setTags(a.id, e.target.value);
+            tagInput.value = (a.tags || []).join(', ');
         };
     },
 
@@ -5900,6 +6084,24 @@ DocsDoodads.Workspace = {
         this.showToast(`Sent ${items.length} doodad(s) to back (Z: ${targetZ})`);
     },
 
+    // Copies offset by 16px and unlocked; each copied group becomes one new, independent group.
+    cloneDoodadsForCopy(items) {
+        const groupIds = new Map();
+        return items.map(orig => {
+            const dup = JSON.parse(JSON.stringify(orig));
+            dup.x += 16;
+            dup.y += 16;
+            dup.locked = false;
+            if (orig.groupId) {
+                if (!groupIds.has(orig.groupId)) groupIds.set(orig.groupId, 'grp_' + Date.now() + '_' + groupIds.size + '_' + Math.random().toString(36).slice(2, 6));
+                dup.groupId = groupIds.get(orig.groupId);
+            } else {
+                delete dup.groupId;
+            }
+            return dup;
+        });
+    },
+
     copySelected() {
         const items = this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
         if (items.length === 0) return;
@@ -5913,14 +6115,7 @@ DocsDoodads.Workspace = {
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         const duplicates = [];
 
-        for (const orig of this._clipboardDoodads) {
-            const dup = JSON.parse(JSON.stringify(orig));
-            dup.x += 16;
-            dup.y += 16;
-            dup.locked = false;
-            delete dup.groupId;
-            duplicates.push(dup);
-        }
+        duplicates.push(...this.cloneDoodadsForCopy(this._clipboardDoodads));
 
         const cmd = {
             type: 'paste_doodads',
@@ -5941,23 +6136,26 @@ DocsDoodads.Workspace = {
         this.showToast(`Pasted ${duplicates.length} doodad(s)`);
     },
 
+    // The grid itself is drawn by Spriteset_Map (updateDocsEditorOverlay) in map space so it stays
+    // on tile edges at any window scale or scroll position; this only clears the old DOM overlay.
     renderPlacementGrid() {
-        let gridEl = document.getElementById('dd-map-grid-overlay');
-        if (!this.gridSnapShow) {
-            if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
-            return;
-        }
-        if (!gridEl) {
-            gridEl = document.createElement('div');
-            gridEl.id = 'dd-map-grid-overlay';
-            gridEl.style.cssText = `
-                position: fixed; inset: 0; pointer-events: none; z-index: 10001;
-                background-size: 48px 48px;
-                background-image: linear-gradient(to right, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-                                  linear-gradient(to bottom, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
-            `;
-            document.body.appendChild(gridEl);
-        }
+        const gridEl = document.getElementById('dd-map-grid-overlay');
+        if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
+    },
+
+    // Screen-space x/y positions of tile edges for a width x height area at the current scroll.
+    placementGridLines(width, height) {
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const ox = window.$gameMap ? $gameMap.displayX() * tw : 0;
+        const oy = window.$gameMap ? $gameMap.displayY() * th : 0;
+        const lines = (size, offset, limit) => {
+            const out = [];
+            let first = ((-offset % size) + size) % size;
+            for (let p = first; p < limit; p += size) out.push(Math.round(p * 100) / 100);
+            return out;
+        };
+        return { xs: lines(tw, ox, width), ys: lines(th, oy, height) };
     },
 
     toggleGrid() {
@@ -6036,14 +6234,7 @@ DocsDoodads.Workspace = {
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         const duplicates = [];
 
-        for (const orig of items) {
-            const dup = JSON.parse(JSON.stringify(orig));
-            dup.x += 16;
-            dup.y += 16;
-            dup.locked = false;
-            delete dup.groupId;
-            duplicates.push(dup);
-        }
+        duplicates.push(...this.cloneDoodadsForCopy(items));
 
         const cmd = {
             apply: () => {
@@ -6212,15 +6403,7 @@ DocsDoodads.Workspace = {
             const items = [];
 
             // Check if right-clicking placed doodad
-            const list = DocsDoodads.doodads() || [];
-            let clickedDoodad = null;
-            for (let i = list.length - 1; i >= 0; i--) {
-                const d = list[i];
-                if (!d.editorHidden && Math.hypot(d.x - coords.x, d.y - coords.y) < 40) {
-                    clickedDoodad = d;
-                    break;
-                }
-            }
+            const clickedDoodad = this.doodadAt(coords.x, coords.y);
 
             if (clickedDoodad) {
                 this.selectDoodad(clickedDoodad);
@@ -6473,15 +6656,18 @@ DocsDoodads.Workspace = {
     },
 
     handleEyedropper(coords) {
-        const list = DocsDoodads.doodads();
-        for (let i = list.length - 1; i >= 0; i--) {
-            const d = list[i];
-            const dist = Math.hypot(d.x - coords.x, d.y - coords.y);
-            if (dist < 40) {
+        const d = this.doodadAt(coords.x, coords.y);
+        if (d) {
+            const sourcePath = d.bit && d.bit[0] === 3 ? String(d.bit[1]).replace(/\\/g, '/').toLowerCase() : null;
+            const asset = sourcePath && DocsDoodads.AssetIndex.list.find(a => String(a.path || '').replace(/\\/g, '/').toLowerCase() === sourcePath);
+            if (asset) {
+                this.selectAsset(asset);
+                this.showToast(`Eyedropper: Selected ${asset.fileName} in drawer`);
+            } else {
                 this.selectDoodad(d);
                 this.showToast(`Eyedropper: Selected Placed Doodad`);
-                return;
             }
+            return;
         }
         if (window.$gameMap && window.$gameMap.eventsXy) {
             const evs = window.$gameMap.eventsXy(coords.tileX, coords.tileY);
@@ -6515,15 +6701,40 @@ DocsDoodads.Workspace = {
         return Math.hypot(d.x - x, d.y - y) < 40;
     },
 
-    handleDoodadSelection(coords, isMulti) {
-        const list = DocsDoodads.doodads();
+    // Screen-space boxes for the selected doodads, matching Sprite_DocsDoodad placement.
+    selectionScreenRects() {
+        const items = this.selectedDoodads && this.selectedDoodads.length > 0
+            ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        return items.filter(d => !d.editorHidden).map(d => {
+            const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
+            const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+            const offsetX = d.posMode === 1 && window.$gameMap ? $gameMap.displayX() * tw : 0;
+            const offsetY = d.posMode === 1 && window.$gameMap ? $gameMap.displayY() * th : 0;
+            return {
+                x: d.x - offsetX - w * (d.anchorX !== undefined ? d.anchorX : 0.5),
+                y: d.y - offsetY - h * (d.anchorY !== undefined ? d.anchorY : 1.0),
+                w, h
+            };
+        });
+    },
+
+    // Topmost visible doodad whose image covers the map point.
+    doodadAt(x, y) {
+        const list = DocsDoodads.doodads() || [];
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
-            if (d.editorHidden) continue;
-            if (this.doodadContainsPoint(d, coords.x, coords.y)) {
-                this.selectDoodad(d, isMulti);
-                return;
-            }
+            if (!d.editorHidden && this.doodadContainsPoint(d, x, y)) return d;
+        }
+        return null;
+    },
+
+    handleDoodadSelection(coords, isMulti) {
+        const hit = this.doodadAt(coords.x, coords.y);
+        if (hit) {
+            this.selectDoodad(hit, isMulti);
+            return;
         }
         // If no doodad clicked, check for genuine MZ Event on that tile
         if (!isMulti && window.$gameMap && window.$gameMap.eventsXy) {
@@ -6820,7 +7031,7 @@ DocsDoodads.Workspace = {
         const overlay = document.createElement('div');
         overlay.id = 'dd-import-modal';
         overlay.style.cssText = `
-            position: fixed; inset: 0; z-index: 10030; display: flex;
+            position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10030; display: flex;
             align-items: center; justify-content: center; background: rgba(2,6,23,0.72);
             pointer-events: auto;
         `;
@@ -6899,15 +7110,8 @@ DocsDoodads.Workspace = {
             });
             activeCancellation = null;
             close();
-            if (result.ok) {
-                const duplicateText = result.duplicates.length ? `, ${result.duplicates.length} duplicate(s) skipped` : '';
-                this.showToast(`Imported ${result.imported.length} file(s)${duplicateText}.`);
-            } else if (result.cancelled) {
-                this.showToast(`Import cancelled${result.rolledBack ? '; copied files were rolled back' : ''}.`);
-            } else {
-                const reason = result.errors[0] ? result.errors[0].message : 'Unknown import error';
-                this.showToast(`Import failed${result.rolledBack ? ' and was rolled back' : ''}: ${reason}`);
-            }
+            this.showToast(DocsDoodads.Import.describeResult(result), result.ok ? 3500 : 6000);
+            this.updateIndexStatus();
         };
         overlay.onclick = event => { if (event.target === overlay && !activeCancellation) close(); };
     },
@@ -7078,7 +7282,12 @@ DocsDoodads.Workspace = {
         refreshBackups();
     },
 
-    showToast(msg) {
+    showRecoveryNotices() {
+        const notices = DocsDoodads.FS.takeRecoveryNotices();
+        if (notices.length > 0) this.showToast(notices.join(' '), 9000);
+    },
+
+    showToast(msg, duration = 2200) {
         const toast = document.createElement('div');
         toast.style.cssText = `
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
@@ -7091,7 +7300,7 @@ DocsDoodads.Workspace = {
         setTimeout(() => {
             toast.style.opacity = '0';
             setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
-        }, 2200);
+        }, duration);
     },
 
     updateUndoButtons() {
@@ -7268,15 +7477,9 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            DocsDoodads.Workspace.placementTool = null;
+            DocsDoodads.Workspace.setPlacementTool(null);
             DocsDoodads.Workspace.removeGhost();
             DocsDoodads.Workspace.selectDoodad(null);
-            const stampBtn = document.getElementById('dd-stamp-btn');
-            const brushBtn = document.getElementById('dd-brush-btn');
-            const eyeBtn = document.getElementById('dd-eyedropper-btn');
-            if (stampBtn) stampBtn.classList.remove('dd-btn-active');
-            if (brushBtn) brushBtn.classList.remove('dd-btn-active');
-            if (eyeBtn) eyeBtn.classList.remove('dd-btn-active');
         }
     });
 }

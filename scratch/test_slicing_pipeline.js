@@ -99,9 +99,11 @@ try {
         atlasW: 16, atlasH: 20, contentW: 16, contentH: 20,
         outputW: 24, outputH: 30, destinationX: 3, destinationY: 4, rotated: false
     });
+    // Rotated frame: frame w/h (20x16) is the unrotated sprite, so it covers 16x20 on the sheet (PIXI convention).
+    assert.deepStrictEqual([metadata.regions[1].w, metadata.regions[1].h], [16, 20]);
     assert.deepStrictEqual(DocsDoodads.Export.getRegionGeometry(metadata.regions[1]), {
-        atlasW: 20, atlasH: 16, contentW: 16, contentH: 20,
-        outputW: 16, outputH: 20, destinationX: 0, destinationY: 0, rotated: true
+        atlasW: 16, atlasH: 20, contentW: 20, contentH: 16,
+        outputW: 20, outputH: 16, destinationX: 0, destinationY: 0, rotated: true
     });
     assert.strictEqual(DocsDoodads.Export.safeFileName('../../bad:name?.png'), 'bad_name_.png');
 } finally {
