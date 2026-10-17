@@ -727,9 +727,27 @@ if (typeof DataManager !== 'undefined') {
         tryLoad(0);
     };
 
+    DataManager.loadDocsDoodadsPacked = function() {
+        if (!DocsDoodads.Packer.shouldRequestManifest()) return;
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', DocsDoodads.Packer.manifestPath);
+        xhr.overrideMimeType('application/json');
+        xhr.onload = function() {
+            if (xhr.status < 400) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data && data.maps) DocsDoodads.Packer.data = data;
+                } catch (e) {}
+            }
+        };
+        xhr.onerror = function() {};
+        xhr.send();
+    };
+
     DataManager.checkDocsDoodadsData = function() {
         if (!window.$dataDocsDoodads) window.$dataDocsDoodads = {};
         DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
+        DataManager.loadDocsDoodadsPacked();
     };
 
     DataManager.saveDocsDoodadsData = function() {
@@ -769,6 +787,11 @@ DocsDoodads.doodads = function(mapId) {
 //==========================================================
 DocsDoodads.loadBitmap = function(path) {
     if (typeof ImageManager === 'undefined') return null;
+    const full = String(path).replace(/\\/g, '/');
+    const versioned = DocsDoodads.LiveReload ? DocsDoodads.LiveReload.urlFor(full) : full;
+    if (versioned !== full && typeof ImageManager.loadBitmapFromUrl === 'function') {
+        return ImageManager.loadBitmapFromUrl(versioned);
+    }
     if (path.startsWith('img/')) {
         path = path.slice(4);
     }
@@ -1098,6 +1121,14 @@ DocsDoodads.Lighting = {
     }
 };
 
+// A frame clipped to the image. Images replaced by smaller ones would otherwise make PIXI throw
+// "frame does not fit inside the base Texture" and stop the game.
+DocsDoodads.safeFrame = function(rect, width, height) {
+    const x = Math.max(0, Math.floor(rect.x || 0)), y = Math.max(0, Math.floor(rect.y || 0));
+    if (x >= width || y >= height) return { x: 0, y: 0, w: width, h: height };
+    return { x, y, w: Math.max(1, Math.min(rect.w || width, width - x)), h: Math.max(1, Math.min(rect.h || height, height - y)) };
+};
+
 //==========================================================
 // SECTION 6: SPRITE_DOCSDOODAD RUNTIME ENGINE
 //==========================================================
@@ -1137,7 +1168,11 @@ if (typeof PIXI !== 'undefined') {
                 bmp = ImageManager.loadTileset(tileset.tilesetNames[bit[1]]);
             }
         } else if (bit[0] === 3) {
-            bmp = DocsDoodads.loadBitmap(bit[1]);
+            const packed = DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
+                ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
+            this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;
+            this._regionSize = packed ? { w: packed.w, h: packed.h } : null;
+            bmp = DocsDoodads.loadBitmap(packed ? packed.sheet : bit[1]);
         }
         if (bmp) {
             if (bmp.isReady()) {
@@ -1153,9 +1188,13 @@ if (typeof PIXI !== 'undefined') {
         this._bmp = bmp;
         const fw = this._data.frameW || bmp.width;
         const fh = this._data.frameH || bmp.height;
-        const fx = this._data.frameX || 0;
-        const fy = this._data.frameY || 0;
-        this.texture = new PIXI.Texture(bmp._baseTexture, new PIXI.Rectangle(fx, fy, fw, fh));
+        const fx = this._regionOrigin ? this._regionOrigin.x : (this._data.frameX || 0);
+        const fy = this._regionOrigin ? this._regionOrigin.y : (this._data.frameY || 0);
+        // A packed region may have been clipped to a smaller image; never read into its neighbours.
+        const limitW = this._regionSize ? fx + Math.min(fw, this._regionSize.w) : bmp.width;
+        const limitH = this._regionSize ? fy + Math.min(fh, this._regionSize.h) : bmp.height;
+        const frame = DocsDoodads.safeFrame({ x: fx, y: fy, w: fw, h: fh }, Math.min(bmp.width, limitW), Math.min(bmp.height, limitH));
+        this.texture = new PIXI.Texture(bmp._baseTexture, new PIXI.Rectangle(frame.x, frame.y, frame.w, frame.h));
         if (this._shadowSprite) this._shadowSprite.texture = this.texture;
     };
 
@@ -1329,9 +1368,10 @@ if (typeof PIXI !== 'undefined') {
         const row = Math.floor(this._currentFrame / xF);
         const fw = this._data.frameW || 32;
         const fh = this._data.frameH || 32;
-        const startX = this._data.frameX || 0;
-        const startY = this._data.frameY || 0;
-        this.texture.frame = new PIXI.Rectangle(startX + col * fw, startY + row * fh, fw, fh);
+        const startX = this._regionOrigin ? this._regionOrigin.x : (this._data.frameX || 0);
+        const startY = this._regionOrigin ? this._regionOrigin.y : (this._data.frameY || 0);
+        const frame = DocsDoodads.safeFrame({ x: startX + col * fw, y: startY + row * fh, w: fw, h: fh }, this._bmp.width, this._bmp.height);
+        this.texture.frame = new PIXI.Rectangle(frame.x, frame.y, frame.w, frame.h);
     };
 }
 
@@ -2022,6 +2062,10 @@ DocsDoodads.AssetIndex = {
         }
     },
 
+    isIgnoredDirectory(name) {
+        return name === '_packed' || String(name).startsWith('.');
+    },
+
     isSupportedAssetFile(filePath) {
         if (!DocsDoodads.FS.path) return false;
         return this.supportedExtensions.has(DocsDoodads.FS.path.extname(filePath).toLowerCase());
@@ -2065,7 +2109,9 @@ DocsDoodads.AssetIndex = {
                 for (const entry of entries) {
                     const absolute = path.join(directory.absolute, entry.name);
                     const relative = `${directory.relative}/${entry.name}`.replace(/\\/g, '/');
-                    if (entry.isDirectory()) directories.push({ absolute, relative });
+                    if (entry.isDirectory()) {
+                        if (!this.isIgnoredDirectory(entry.name)) directories.push({ absolute, relative });
+                    }
                     else if (entry.isFile() && this.isSupportedAssetFile(entry.name)) files.push({ absolute, relative });
                 }
             } catch (error) {
@@ -2137,7 +2183,7 @@ DocsDoodads.AssetIndex = {
         for (const ent of entries) {
             const fullPath = path.join(dirPath, ent.name).replace(/\\/g, '/');
             if (ent.isDirectory()) {
-                this.scanDirectory(fullPath);
+                if (!this.isIgnoredDirectory(ent.name)) this.scanDirectory(fullPath);
             } else if (ent.isFile()) {
                 const ext = path.extname(ent.name).toLowerCase();
                 if (this.isSupportedAssetFile(ent.name)) {
@@ -2338,6 +2384,532 @@ DocsDoodads.AssetIndex = {
 };
 
 //==========================================================
+// SECTION 11B: ASSET MANAGEMENT (USAGE, FINGERPRINTS, LIVE RELOAD, PACKING)
+//==========================================================
+// Where every file is used. RPG Maker refers to most files by name inside a fixed folder
+// ("name" references); doodads and prefabs store a full path ("path" references).
+DocsDoodads.Usage = {
+    lastIndex: null,
+
+    keyOf(filePath) {
+        return String(filePath || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\.[^/.]+$/, '').toLowerCase();
+    },
+
+    folderOf(key) {
+        const i = key.lastIndexOf('/');
+        return i >= 0 ? key.slice(0, i) : '';
+    },
+
+    isEngineReserved(asset) {
+        return /^img\/system\//i.test(String(asset && asset.path || '').replace(/\\/g, '/'));
+    },
+
+    // Calls fn(ref) for every reference; ref.set(value) rewrites it (a bare name or a full path).
+    visitSources(sources, fn) {
+        const named = (folder, holder, field, source, label, display) => {
+            const name = holder ? holder[field] : null;
+            if (!name || typeof name !== 'string') return;
+            fn({ key: `${folder}/${name}`.toLowerCase(), kind: 'name', folder, source, label, display: Boolean(display),
+                set: value => { holder[field] = value; } });
+        };
+        const audio = (folder, holder, source, label, display) => named(folder, holder, 'name', source, label, display);
+        const routeCommand = (cmd, source, label, display) => {
+            if (!cmd || !cmd.parameters) return;
+            if (cmd.code === 41) named('img/characters', cmd.parameters, 0, source, label + ' (move route image)', display);
+            if (cmd.code === 44) audio('audio/se', cmd.parameters[0], source, label + ' (move route SE)', display);
+        };
+        const visitList = (list, source, label) => {
+            for (const cmd of list || []) {
+                if (!cmd || !cmd.parameters) continue;
+                const p = cmd.parameters;
+                switch (cmd.code) {
+                    case 101: named('img/faces', p, 0, source, label + ' (Show Text face)'); break;
+                    case 231: named('img/pictures', p, 1, source, label + ' (Show Picture)'); break;
+                    case 241: case 132: audio('audio/bgm', p[0], source, label + ' (BGM)'); break;
+                    case 140: audio('audio/bgm', p[1], source, label + ' (vehicle BGM)'); break;
+                    case 245: audio('audio/bgs', p[0], source, label + ' (BGS)'); break;
+                    case 249: case 133: case 139: audio('audio/me', p[0], source, label + ' (ME)'); break;
+                    case 250: audio('audio/se', p[0], source, label + ' (SE)'); break;
+                    case 322:
+                        named('img/characters', p, 1, source, label + ' (actor image)');
+                        named('img/faces', p, 3, source, label + ' (actor face)');
+                        named('img/sv_actors', p, 5, source, label + ' (actor battler)');
+                        break;
+                    case 323: named('img/characters', p, 1, source, label + ' (vehicle image)'); break;
+                    case 283:
+                        named('img/battlebacks1', p, 0, source, label + ' (battleback)');
+                        named('img/battlebacks2', p, 1, source, label + ' (battleback)');
+                        break;
+                    case 284: named('img/parallaxes', p, 0, source, label + ' (parallax)'); break;
+                    case 205: for (const step of (p[1] && p[1].list) || []) routeCommand(step, source, label); break;
+                    // 505 lines repeat a move route for the MZ editor's display: rewritten, not counted.
+                    case 505: routeCommand(p[0], source, label, true); break;
+                }
+            }
+        };
+        const mapInfos = sources.mapInfos || [];
+        const mapLabel = id => {
+            const info = mapInfos[id];
+            return `Map ${String(id).padStart(3, '0')}${info && info.name ? ` "${info.name}"` : ''}`;
+        };
+
+        for (const [id, map] of Object.entries(sources.maps || {})) {
+            if (!map) continue;
+            const source = `map:${id}`, base = mapLabel(id);
+            named('img/parallaxes', map, 'parallaxName', source, base + ' (parallax)');
+            named('img/battlebacks1', map, 'battleback1Name', source, base + ' (battleback)');
+            named('img/battlebacks2', map, 'battleback2Name', source, base + ' (battleback)');
+            audio('audio/bgm', map.bgm, source, base + ' (autoplay BGM)');
+            audio('audio/bgs', map.bgs, source, base + ' (autoplay BGS)');
+            for (const ev of map.events || []) {
+                if (!ev) continue;
+                const label = `${base} · EV${String(ev.id).padStart(3, '0')} "${ev.name || ''}"`;
+                (ev.pages || []).forEach((page, i) => {
+                    if (page.image) named('img/characters', page.image, 'characterName', source, `${label} page ${i + 1} image`);
+                    visitList(page.list, source, `${label} page ${i + 1}`);
+                });
+            }
+        }
+
+        const db = sources.database || {};
+        for (const actor of db.Actors || []) {
+            if (!actor) continue;
+            const label = `Actor ${actor.id} "${actor.name || ''}"`;
+            named('img/characters', actor, 'characterName', 'database:Actors', label);
+            named('img/faces', actor, 'faceName', 'database:Actors', label);
+            named('img/sv_actors', actor, 'battlerName', 'database:Actors', label);
+        }
+        for (const enemy of db.Enemies || []) {
+            if (!enemy) continue;
+            const label = `Enemy ${enemy.id} "${enemy.name || ''}"`;
+            named('img/enemies', enemy, 'battlerName', 'database:Enemies', label);
+            named('img/sv_enemies', enemy, 'battlerName', 'database:Enemies', label);
+        }
+        for (const tileset of db.Tilesets || []) {
+            if (!tileset || !tileset.tilesetNames) continue;
+            tileset.tilesetNames.forEach((n, i) => named('img/tilesets', tileset.tilesetNames, i, 'database:Tilesets', `Tileset ${tileset.id} "${tileset.name || ''}"`));
+        }
+        const sys = db.System;
+        if (sys) {
+            named('img/titles1', sys, 'title1Name', 'database:System', 'System (title)');
+            named('img/titles2', sys, 'title2Name', 'database:System', 'System (title frame)');
+            named('img/battlebacks1', sys, 'battleback1Name', 'database:System', 'System (test battleback)');
+            named('img/battlebacks2', sys, 'battleback2Name', 'database:System', 'System (test battleback)');
+            for (const field of ['titleBgm', 'battleBgm']) audio('audio/bgm', sys[field], 'database:System', `System (${field})`);
+            for (const field of ['victoryMe', 'defeatMe', 'gameoverMe']) audio('audio/me', sys[field], 'database:System', `System (${field})`);
+            (sys.sounds || []).forEach((s, i) => audio('audio/se', s, 'database:System', `System (sound ${i})`));
+            for (const vehicle of ['boat', 'ship', 'airship']) {
+                if (!sys[vehicle]) continue;
+                named('img/characters', sys[vehicle], 'characterName', 'database:System', `System (${vehicle})`);
+                audio('audio/bgm', sys[vehicle].bgm, 'database:System', `System (${vehicle} BGM)`);
+            }
+        }
+        for (const ce of db.CommonEvents || []) {
+            if (ce) visitList(ce.list, 'database:CommonEvents', `Common Event ${ce.id} "${ce.name || ''}"`);
+        }
+        for (const troop of db.Troops || []) {
+            if (!troop) continue;
+            (troop.pages || []).forEach((page, i) => visitList(page.list, 'database:Troops', `Troop ${troop.id} "${troop.name || ''}" page ${i + 1}`));
+        }
+
+        const pathRef = (holder, field, source, label, display) => {
+            const value = holder[field];
+            if (!value || typeof value !== 'string') return;
+            fn({ key: this.keyOf(value), kind: 'path', source, label, display: Boolean(display), set: v => { holder[field] = v; } });
+        };
+        for (const [id, list] of Object.entries(sources.doodads || {})) {
+            if (!Array.isArray(list)) continue;
+            list.forEach((d, i) => {
+                if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'doodads', `${mapLabel(id)} · doodad #${i + 1}`);
+            });
+        }
+        for (const prefab of sources.prefabs || []) {
+            const label = `Prefab "${prefab.name}"`;
+            (prefab.doodads || []).forEach(d => { if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'prefabs', label); });
+            pathRef(prefab, 'thumbnail', 'prefabs', label + ' thumbnail', true);
+        }
+    },
+
+    buildIndex(sources) {
+        const index = new Map();
+        this.visitSources(sources, ref => {
+            if (ref.display) return;
+            if (!index.has(ref.key)) index.set(ref.key, []);
+            index.get(ref.key).push({ source: ref.source, label: ref.label, kind: ref.kind });
+        });
+        return index;
+    },
+
+    isUsed(asset, index = this.lastIndex) {
+        return Boolean(index && index.has(this.keyOf(asset.path)));
+    },
+
+    unusedAssets(assets, index) {
+        return (assets || []).filter(a => !this.isEngineReserved(a) && !index.has(this.keyOf(a.path)));
+    },
+
+    // Rewrites every reference from oldPath to newPath. Name references can only follow a rename
+    // inside the same folder; a move to another folder is refused while any exist.
+    rewrite(sources, oldPath, newPath) {
+        const oldKey = this.keyOf(oldPath), newKey = this.keyOf(newPath);
+        const newName = String(newPath).replace(/\\/g, '/').split('/').pop().replace(/\.[^/.]+$/, '');
+        const matches = [];
+        this.visitSources(sources, ref => { if (ref.key === oldKey) matches.push(ref); });
+        const blocked = matches.filter(r => r.kind === 'name' && r.folder.toLowerCase() !== this.folderOf(newKey));
+        if (blocked.length > 0) return { ok: false, blocked, changed: [], count: 0 };
+        const changed = new Set();
+        for (const ref of matches) {
+            ref.set(ref.kind === 'name' ? newName : String(newPath).replace(/\\/g, '/'));
+            changed.add(ref.source);
+        }
+        return { ok: true, blocked: [], changed: [...changed], count: matches.filter(r => !r.display).length };
+    }
+};
+
+// 64-bit difference hashes (9x8 greyscale, left-vs-right) for duplicates and look-alikes.
+DocsDoodads.Similarity = {
+    grey(data, i) {
+        const a = data[i + 3] / 255;
+        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        return lum * a + 128 * (1 - a);
+    },
+
+    hashPixels(data, width, height, frame) {
+        const f = frame || { x: 0, y: 0, w: width, h: height };
+        const sums = new Float64Array(72), counts = new Float64Array(72);
+        for (let y = 0; y < f.h; y++) {
+            const cy = Math.min(7, Math.floor(y * 8 / f.h));
+            for (let x = 0; x < f.w; x++) {
+                const cx = Math.min(8, Math.floor(x * 9 / f.w));
+                const cell = cy * 9 + cx;
+                sums[cell] += this.grey(data, ((f.y + y) * width + f.x + x) * 4);
+                counts[cell]++;
+            }
+        }
+        let hex = '';
+        for (let row = 0; row < 8; row++) {
+            let byte = 0;
+            for (let col = 0; col < 8; col++) {
+                const left = sums[row * 9 + col] / Math.max(1, counts[row * 9 + col]);
+                const right = sums[row * 9 + col + 1] / Math.max(1, counts[row * 9 + col + 1]);
+                byte = (byte << 1) | (left < right - 0.5 ? 1 : 0);
+            }
+            hex += byte.toString(16).padStart(2, '0');
+        }
+        return hex;
+    },
+
+    popcount(n) {
+        n = n - ((n >>> 1) & 0x55555555);
+        n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
+        return (((n + (n >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
+    },
+
+    hamming(a, b) {
+        if (!a || !b) return 64;
+        return this.popcount((parseInt(a.slice(0, 8), 16) ^ parseInt(b.slice(0, 8), 16)) >>> 0) +
+            this.popcount((parseInt(a.slice(8, 16), 16) ^ parseInt(b.slice(8, 16), 16)) >>> 0);
+    },
+
+    bitsOf(hex) {
+        let bits = '';
+        for (const ch of hex) bits += parseInt(ch, 16).toString(2).padStart(4, '0');
+        return bits;
+    },
+
+    // Groups entries within maxDistance bits. Splitting the hash into maxDistance + 1 bands means
+    // any close pair shares at least one band exactly, so only same-band buckets are compared.
+    findDuplicates(entries, maxDistance = 4) {
+        const items = (entries || []).filter(e => e && e.hash);
+        const parent = items.map((_, i) => i);
+        const find = i => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+        const bandCount = Math.min(16, maxDistance + 1);
+        const bandSize = Math.ceil(64 / bandCount);
+        const bits = items.map(e => this.bitsOf(e.hash));
+        const compared = new Set();
+        for (let band = 0; band < bandCount; band++) {
+            const buckets = new Map();
+            items.forEach((e, i) => {
+                const key = bits[i].slice(band * bandSize, (band + 1) * bandSize);
+                if (!buckets.has(key)) buckets.set(key, []);
+                buckets.get(key).push(i);
+            });
+            for (const bucket of buckets.values()) {
+                for (let x = 0; x < bucket.length; x++) {
+                    for (let y = x + 1; y < bucket.length; y++) {
+                        const i = bucket[x], j = bucket[y];
+                        const pairKey = i < j ? i * 1e6 + j : j * 1e6 + i;
+                        if (compared.has(pairKey)) continue;
+                        compared.add(pairKey);
+                        if (this.hamming(items[i].hash, items[j].hash) <= maxDistance) parent[find(i)] = find(j);
+                    }
+                }
+            }
+        }
+        const groups = new Map();
+        items.forEach((e, i) => {
+            const root = find(i);
+            if (!groups.has(root)) groups.set(root, []);
+            groups.get(root).push(e);
+        });
+        return [...groups.values()].filter(g => g.length > 1);
+    },
+
+    similarTo(hash, entries, limit = 50) {
+        return (entries || []).filter(e => e && e.hash)
+            .map(entry => ({ entry, distance: this.hamming(hash, entry.hash) }))
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, limit);
+    }
+};
+
+// Watches img/ and audio/ while the workspace is open, so saving in Aseprite or Photoshop
+// updates the drawer and the placed doodads without restarting.
+DocsDoodads.LiveReload = {
+    watchers: [],
+    pending: new Set(),
+    timer: null,
+    delay: 300,
+    versions: {},
+
+    classify(root, filename) {
+        if (!filename) return null;
+        const rel = String(filename).replace(/\\/g, '/').replace(/^\/+/, '');
+        if (rel.split('/').some(part => part === '_packed' || part.startsWith('.'))) return null;
+        if (/\.(tmp|bak)$|\.(dd|qj)(import|txn)-|~$/i.test(rel)) return null;
+        if (!DocsDoodads.AssetIndex.isSupportedAssetFile(rel)) return null;
+        return `${root}/${rel}`;
+    },
+
+    bump(assetPath) {
+        this.versions[assetPath] = (this.versions[assetPath] || 0) + 1;
+    },
+
+    urlFor(assetPath) {
+        const version = this.versions[assetPath];
+        return version ? `${assetPath}?v=${version}` : assetPath;
+    },
+
+    process(paths, handlers) {
+        const unique = [...new Set(paths)];
+        const summary = { updated: [], removed: [] };
+        for (const p of unique) {
+            if (handlers.exists(p)) {
+                handlers.index(p);
+                summary.updated.push(p);
+            } else {
+                handlers.remove(p);
+                summary.removed.push(p);
+            }
+            handlers.invalidate(p);
+        }
+        if (unique.length > 0) handlers.reloadSprites();
+        return summary;
+    },
+
+    defaultHandlers() {
+        const FS = DocsDoodads.FS;
+        return {
+            exists: p => FS.existsSync(p),
+            index: p => {
+                const stat = FS.fs.statSync(p);
+                DocsDoodads.AssetIndex.indexFile(p, FS.path.basename(p), FS.path.extname(p).toLowerCase(), p, stat);
+            },
+            remove: p => { delete DocsDoodads.AssetIndex.data.assets[p.toLowerCase()]; },
+            invalidate: p => {
+                this.bump(p);
+                DocsDoodads.Thumbnail.invalidate(p.toLowerCase());
+                if (typeof ImageManager !== 'undefined' && ImageManager._cache) {
+                    const encoded = typeof Utils !== 'undefined' && Utils.encodeURI ? Utils.encodeURI(p) : p;
+                    for (const key of Object.keys(ImageManager._cache)) {
+                        if (key === p || key === encoded || key.startsWith(p + '?')) delete ImageManager._cache[key];
+                    }
+                }
+            },
+            reloadSprites: () => DocsDoodads.Workspace.refreshSpriteset()
+        };
+    },
+
+    queue(assetPath) {
+        if (!assetPath) return;
+        this.pending.add(assetPath);
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.flush(), this.delay);
+    },
+
+    flush() {
+        const paths = [...this.pending];
+        this.pending.clear();
+        if (paths.length === 0) return null;
+        const summary = this.process(paths, this.defaultHandlers());
+        DocsDoodads.AssetIndex.rebuildList();
+        DocsDoodads.AssetIndex.save();
+        DocsDoodads.Usage.lastIndex = null;
+        const ws = DocsDoodads.Workspace;
+        if (ws.mounted) {
+            if (ws.selectedAsset && ws.selectedAsset.path) {
+                const id = String(ws.selectedAsset.path).toLowerCase();
+                if (summary.updated.some(p => p.toLowerCase() === id) || summary.removed.some(p => p.toLowerCase() === id)) {
+                    ws.selectedAsset = DocsDoodads.AssetIndex.data.assets[id] || null;
+                    ws.refreshInspector();
+                }
+            }
+            ws.refreshDrawerCards();
+            ws.updateIndexStatus();
+            const names = summary.updated.concat(summary.removed).map(p => p.split('/').pop());
+            ws.showToast(`Reloaded ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`);
+        }
+        return summary;
+    },
+
+    start() {
+        this.stop();
+        const fs = DocsDoodads.FS.fs;
+        if (!fs || typeof fs.watch !== 'function') return false;
+        for (const root of ['img', 'audio']) {
+            if (!fs.existsSync(root)) continue;
+            try {
+                this.watchers.push(fs.watch(root, { recursive: true }, (event, file) => this.queue(this.classify(root, file))));
+            } catch (error) {
+                DocsDoodads.Core.log(`Live reload unavailable for ${root}`, error);
+            }
+        }
+        return this.watchers.length > 0;
+    },
+
+    stop() {
+        for (const watcher of this.watchers) {
+            try { watcher.close(); } catch (error) {}
+        }
+        this.watchers = [];
+        clearTimeout(this.timer);
+        this.pending.clear();
+    }
+};
+
+// Optional per-map texture packing: every image region a map's doodads use is copied into a few
+// sheets so the deployed game loads and draws fewer textures. Playtests keep using the originals.
+DocsDoodads.Packer = {
+    manifestPath: 'data/DocsDoodadsPacked.json',
+    sheetDirectory: 'img/doodads/_packed',
+    data: { version: 1, maps: {} },
+    previewInTest: false,
+
+    shouldUse() {
+        return !DocsDoodads.Compat.isTest() || this.previewInTest;
+    },
+
+    regionOf(d) {
+        const xf = Math.max(1, d.xFrame || 1), yf = Math.max(1, d.yFrame || 1);
+        return { x: d.frameX || 0, y: d.frameY || 0, w: (d.frameW || 48) * xf, h: (d.frameH || 48) * yf };
+    },
+
+    keyFor(d) {
+        const r = this.regionOf(d);
+        return `${String(d.bit[1]).replace(/\\/g, '/')}|${r.x}|${r.y}|${r.w}|${r.h}`;
+    },
+
+    regionsFor(doodads) {
+        const seen = new Map();
+        for (const d of doodads || []) {
+            if (!d || !d.bit || d.bit[0] !== 3) continue;
+            const key = this.keyFor(d);
+            if (!seen.has(key)) seen.set(key, { key, path: String(d.bit[1]).replace(/\\/g, '/'), rect: this.regionOf(d) });
+        }
+        return [...seen.values()];
+    },
+
+    // Shelf packing, tallest first; anything larger than a sheet is left out (and keeps its original image).
+    pack(rects, options = {}) {
+        const maxSize = options.maxSize || 2048;
+        const padding = options.padding !== undefined ? options.padding : 2;
+        const sheets = [];
+        const skipped = [];
+        const order = rects.slice().sort((a, b) => (b.h - a.h) || (b.w - a.w) || String(a.key).localeCompare(String(b.key)));
+        for (const rect of order) {
+            if (rect.w > maxSize || rect.h > maxSize) { skipped.push(rect); continue; }
+            let placed = false;
+            for (const sheet of sheets) {
+                for (const shelf of sheet.shelves) {
+                    if (rect.h <= shelf.h && shelf.x + rect.w <= maxSize) {
+                        sheet.items.push({ key: rect.key, x: shelf.x, y: shelf.y, w: rect.w, h: rect.h });
+                        shelf.x += rect.w + padding;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed && sheet.nextY + rect.h <= maxSize) {
+                    const shelf = { y: sheet.nextY, h: rect.h, x: rect.w + padding };
+                    sheet.shelves.push(shelf);
+                    sheet.items.push({ key: rect.key, x: 0, y: shelf.y, w: rect.w, h: rect.h });
+                    sheet.nextY += rect.h + padding;
+                    placed = true;
+                }
+                if (placed) break;
+            }
+            if (!placed) {
+                sheets.push({ shelves: [{ y: 0, h: rect.h, x: rect.w + padding }], nextY: rect.h + padding, items: [{ key: rect.key, x: 0, y: 0, w: rect.w, h: rect.h }] });
+            }
+        }
+        return {
+            sheets: sheets.map(s => ({
+                w: Math.max(...s.items.map(i => i.x + i.w)),
+                h: Math.max(...s.items.map(i => i.y + i.h)),
+                items: s.items
+            })),
+            skipped
+        };
+    },
+
+    buildManifest(mapId, regions, packed, mtimes) {
+        const name = i => `${this.sheetDirectory}/Map${String(mapId).padStart(3, '0')}_${i}.png`;
+        const frames = {};
+        packed.sheets.forEach((sheet, i) => sheet.items.forEach(item => { frames[item.key] = { sheet: i, x: item.x, y: item.y, w: item.w, h: item.h }; }));
+        const sources = {};
+        for (const r of regions) if (frames[r.key]) sources[r.path] = mtimes[r.path] || 0;
+        return { mapId: Number(mapId), builtAt: Date.now(), sheets: packed.sheets.map((s, i) => name(i)), sizes: packed.sheets.map(s => ({ w: s.w, h: s.h })), frames, sources };
+    },
+
+    forMap(mapId) {
+        return this.data && this.data.maps ? this.data.maps[mapId] || null : null;
+    },
+
+    resolve(manifest, d) {
+        if (!manifest || !d || !d.bit || d.bit[0] !== 3) return null;
+        const entry = manifest.frames[this.keyFor(d)];
+        return entry ? { sheet: manifest.sheets[entry.sheet], x: entry.x, y: entry.y, w: entry.w, h: entry.h } : null;
+    },
+
+    staleSources(manifest, mtimeOf) {
+        if (!manifest) return [];
+        return Object.keys(manifest.sources || {}).filter(p => mtimeOf(p) !== manifest.sources[p]);
+    },
+
+    manifestExists() {
+        return Boolean(DocsDoodads.FS.fs && DocsDoodads.FS.existsSync(this.manifestPath));
+    },
+
+    // Desktop builds check the file directly; browser builds only ask when the doodads file says packing is used.
+    shouldRequestManifest() {
+        if (DocsDoodads.FS.fs) return this.manifestExists();
+        return Boolean(typeof window !== 'undefined' && window.$dataDocsDoodads && window.$dataDocsDoodads.usesPacking);
+    },
+
+    clampRegions(regions, sizeOf) {
+        return regions.map(r => {
+            const size = sizeOf(r.path);
+            return size ? Object.assign({}, r, { rect: DocsDoodads.safeFrame(r.rect, size.w, size.h) }) : r;
+        });
+    },
+
+    load() {
+        const loaded = DocsDoodads.FS.fs ? DocsDoodads.FS.readJson(this.manifestPath) : null;
+        if (loaded && loaded.maps) this.data = loaded;
+        return this.data;
+    }
+};
+
+//==========================================================
 // SECTION 12: DocsDoodads.SEARCH (TOKENIZED QUERY PARSER)
 //==========================================================
 DocsDoodads.Search = {
@@ -2350,6 +2922,7 @@ DocsDoodads.Search = {
             favorite: null,
             animated: null,
             collections: [],
+            used: null,
             negative: []
         };
         if (!queryString) return tokens;
@@ -2378,6 +2951,9 @@ DocsDoodads.Search = {
                 tokens.favorite = p.slice(9).toLowerCase() === 'true';
             } else if (p.startsWith('animated:')) {
                 tokens.animated = p.slice(9).toLowerCase() === 'true';
+            } else if (p.startsWith('used:')) {
+                const value = p.slice(5).toLowerCase();
+                tokens.used = /^(yes|true|1)$/.test(value) ? true : /^(no|false|0)$/.test(value) ? false : null;
             } else if (p.startsWith('collection:')) {
                 tokens.collections.push(p.slice(11).replace(/["']/g, '').toLowerCase());
             } else {
@@ -2394,6 +2970,11 @@ DocsDoodads.Search = {
             }
         }
         if (parsed.favorite !== null && asset.favorite !== parsed.favorite) return false;
+        if (parsed.used !== null && parsed.used !== undefined && DocsDoodads.Usage.lastIndex) {
+            const used = DocsDoodads.Usage.isUsed(asset);
+            if (parsed.used && !used) return false;
+            if (!parsed.used && (used || DocsDoodads.Usage.isEngineReserved(asset))) return false;
+        }
         if (parsed.types.length > 0 && !parsed.types.includes((asset.type || '').toLowerCase())) return false;
         if (parsed.folders.length > 0) {
             const pathLower = (asset.path || '').toLowerCase();
@@ -2451,9 +3032,14 @@ DocsDoodads.Thumbnail = {
         return `data/docs_doodads_cache/thumbnails/${safeKey}.txt`;
     },
 
+    // The modified time is part of the key so a file changed while the game was closed gets a new thumbnail.
+    keyFor(asset, bucket) {
+        return `${asset.id}_${Math.round(asset.mtimeMs || 0)}_${bucket}`;
+    },
+
     get(asset, size = 96, callback) {
         const bucket = this.getBucketSize(size);
-        const key = `${asset.id}_${bucket}`;
+        const key = this.keyFor(asset, bucket);
 
         // 1. In-memory LRU Cache check
         if (this.cache[key]) {
@@ -2491,6 +3077,25 @@ DocsDoodads.Thumbnail = {
         }
         this.cache[key] = dataUrl;
         this.cacheOrder.push(key);
+    },
+
+    // Drops every cached size of one asset (memory and disk) so it is regenerated.
+    invalidate(assetId) {
+        const prefix = assetId + '_';
+        this.cacheOrder = this.cacheOrder.filter(key => {
+            if (!key.startsWith(prefix)) return true;
+            delete this.cache[key];
+            return false;
+        });
+        const dir = 'data/docs_doodads_cache/thumbnails';
+        const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
+        try {
+            if (DocsDoodads.FS.existsSync(dir)) {
+                for (const file of DocsDoodads.FS.fs.readdirSync(dir)) {
+                    if (file.startsWith(safePrefix)) DocsDoodads.FS.fs.unlinkSync(`${dir}/${file}`);
+                }
+            }
+        } catch (e) {}
     },
 
     clearCache() {
@@ -2565,7 +3170,7 @@ DocsDoodads.Thumbnail = {
         }
 
         const img = new Image();
-        img.src = asset.path;
+        img.src = DocsDoodads.LiveReload.urlFor(asset.path);
         img.onload = () => {
             const canvas = document.createElement('canvas');
             canvas.width = size;
@@ -4958,6 +5563,7 @@ DocsDoodads.Undo = {
 
     execute(command) {
         if (!command || !command.apply || !command.revert) return;
+        DocsDoodads.Usage.lastIndex = null;
         command.apply();
         this.undoStack.push(command);
         if (this.undoStack.length > this.maxDepth) this.undoStack.shift();
@@ -5756,11 +6362,14 @@ DocsDoodads.Workspace = {
         DocsDoodads.AssetIndex.init();
         this.buildDom();
         this.attachCanvasListeners();
+        this._onWindowResize = () => this.layoutPanels();
+        window.addEventListener('resize', this._onWindowResize);
         this.mounted = true;
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }
         this.startAssetScan();
+        DocsDoodads.LiveReload.start();
         this.showRecoveryNotices();
 
         // Check for recovery file
@@ -5779,6 +6388,7 @@ DocsDoodads.Workspace = {
         if (!this.mounted) return;
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
         this.detachCanvasListeners();
+        if (this._onWindowResize) window.removeEventListener('resize', this._onWindowResize);
         this.removeGhost();
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
@@ -5788,6 +6398,7 @@ DocsDoodads.Workspace = {
             window.$gameSystem.docsDoodads.editing = false;
         }
         this.placementTool = null;
+        DocsDoodads.LiveReload.stop();
         DocsDoodads.Audio.stopPreview();
     },
 
@@ -5863,6 +6474,8 @@ DocsDoodads.Workspace = {
             }
             .dd-btn:hover { background: #374151; border-color: #60a5fa; }
             #dd-category-tabs .dd-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+            #dd-toolbar .dd-btn { padding: 5px 8px; white-space: nowrap; }
+            #dd-toolbar > div { flex-wrap: wrap; row-gap: 6px; }
             .dd-btn-primary { background: #2563eb; border-color: #3b82f6; }
             .dd-btn-primary:hover { background: #1d4ed8; }
             .dd-btn-active { background: #059669 !important; border-color: #10b981 !important; color: #fff !important; }
@@ -5882,9 +6495,10 @@ DocsDoodads.Workspace = {
         // Top Toolbar
         const toolbar = document.createElement('div');
         toolbar.className = 'dd-glass';
+        toolbar.id = 'dd-toolbar';
         toolbar.style.cssText = `
-            position: absolute; top: 10px; left: 10px; right: 10px; height: 50px;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+            position: absolute; top: 10px; left: 10px; right: 10px; min-height: 50px; gap: 6px 10px;
+            display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 6px 12px;
         `;
         toolbar.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -5901,7 +6515,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
                 <button class="dd-btn" id="dd-stamp-btn" title="Stamp: Click repeatedly to place">Stamp</button>
                 <button class="dd-btn" id="dd-brush-btn" title="Scatter Brush: Drag to scatter props">Scatter Brush</button>
-                <div id="dd-brush-popover" class="dd-glass" style="display: none; position: absolute; top: 58px; right: 380px; width: 230px; padding: 12px; z-index: 10015;">
+                <div id="dd-brush-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
                     <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">BRUSH SETTINGS</div>
                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
                         <div>
@@ -5954,7 +6568,7 @@ DocsDoodads.Workspace = {
                     </div>
                 </div>
                 <button class="dd-btn" id="dd-path-btn" title="Path: click points, double-click or Enter to place props along them">Path</button>
-                <div id="dd-path-popover" class="dd-glass" style="display: none; position: absolute; top: 58px; right: 380px; width: 250px; padding: 12px; z-index: 10015;">
+                <div id="dd-path-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 250px; padding: 12px; z-index: 10015;">
                     <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 6px;">PATH TOOL</div>
                     <div style="font-size: 10px; color: #94a3b8; margin-bottom: 8px; line-height: 1.4;">Click to add points. Double-click or Enter places the selected asset along them; Backspace removes the last point; Alt for off-grid points.</div>
                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
@@ -5977,6 +6591,7 @@ DocsDoodads.Workspace = {
                 </div>
                 <button class="dd-btn" id="dd-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
                 <button class="dd-btn" id="dd-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
+                <button class="dd-btn" id="dd-tools-btn" title="Find duplicate and unused files">Asset Tools</button>
                 <button class="dd-btn" id="dd-diag-btn" title="Diagnostics">Diagnostics</button>
                 <button class="dd-btn dd-btn-primary" id="dd-save-btn">Save Changes</button>
                 <button class="dd-btn" id="dd-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
@@ -6063,8 +6678,20 @@ DocsDoodads.Workspace = {
         this.inspectorEl = inspector;
 
         this.bindEvents();
+        this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
+    },
+
+    // The toolbar wraps onto more rows in narrow windows; the side panels start just below it.
+    layoutPanels() {
+        const toolbar = document.getElementById('dd-toolbar');
+        if (!toolbar) return;
+        const top = (toolbar.offsetTop || 10) + (toolbar.offsetHeight || 50) + 10;
+        for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
+            const panel = document.getElementById(id);
+            if (panel) panel.style.top = top + 'px';
+        }
     },
 
     refreshLayoutSelector() {
@@ -6210,6 +6837,7 @@ DocsDoodads.Workspace = {
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
+        document.getElementById('dd-tools-btn').onclick = () => this.showAssetTools();
 
         document.getElementById('dd-stop-audio-btn').onclick = () => {
             DocsDoodads.Audio.stopPreview();
@@ -6289,7 +6917,10 @@ DocsDoodads.Workspace = {
 
     refreshDrawerCards() {
         let filtered = DocsDoodads.AssetIndex.list;
-        if (this.currentCategory === 'Prefabs') {
+        if (/(^|\s)used:/i.test(this.searchQuery || '') && !DocsDoodads.Usage.lastIndex) this.refreshUsageIndex();
+        if (this.currentCategory === 'Similar') {
+            filtered = this.similarResults || [];
+        } else if (this.currentCategory === 'Prefabs') {
             filtered = this.prefabAssets();
         } else if (this.currentCategory === 'Favorites') {
             filtered = filtered.filter(a => a.favorite);
@@ -6303,7 +6934,8 @@ DocsDoodads.Workspace = {
         this.filteredAssets = filtered;
 
         const countEl = document.getElementById('dd-asset-count');
-        if (countEl) countEl.textContent = `Assets: ${filtered.length}`;
+        if (countEl) countEl.textContent = this.currentCategory === 'Similar' && this.similarSource
+            ? `Most like ${this.similarSource}: ${filtered.length}` : `Assets: ${filtered.length}`;
 
         const container = document.getElementById('dd-cards-container');
         if (container) container.scrollTop = 0;
@@ -6979,6 +7611,7 @@ DocsDoodads.Workspace = {
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
+            ${this.renderUsagePanel(a)}
             <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                 <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place on Map Center</button>
                 <button class="dd-btn" id="dd-open-slicer-btn">Open Slicer</button>
@@ -7035,6 +7668,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
+        this.bindUsagePanel(a);
     },
 
     // ---- Undoable doodad property editing (inspector sections, tools) ----
@@ -7293,7 +7927,8 @@ DocsDoodads.Workspace = {
                     <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
             </details>
-            ${this.renderMapNavigation()}`;
+            ${this.renderMapNavigation()}
+            ${this.renderPackingPanel()}`;
 
         const read = () => ({
             darkness: parseFloat(document.getElementById('dd-map-dark').value) || 0,
@@ -7319,6 +7954,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-switch').onchange = () => this.setMapAmbient(read());
         document.getElementById('dd-map-preview').onchange = (e) => { this.lightingPreview = Boolean(e.target.checked); };
         this.bindMapNavigation();
+        this.bindPackingPanel();
     },
 
     // ---- Collision traced from the art ----
@@ -7625,6 +8261,403 @@ DocsDoodads.Workspace = {
         if (status) status.textContent = `Doc's Doodads v${pluginVersion} | Map ${this.currentMapId()} | Hold Alt for free placement`;
     },
 
+    // ---- Where-used, unused report, safe rename/move ----
+    databaseFiles: ['Actors', 'Enemies', 'Tilesets', 'System', 'CommonEvents', 'Troops'],
+
+    // Fresh copies of everything that can reference a file: map and database files from disk,
+    // doodads and prefabs from memory (cloned, so planning a rename never touches live data).
+    loadUsageSources() {
+        const FS = DocsDoodads.FS;
+        const mapInfos = FS.readJson('data/MapInfos.json') || (window.$dataMapInfos || []);
+        const maps = {};
+        for (const info of mapInfos) {
+            if (!info) continue;
+            const map = FS.readJson(DocsDoodads.Persistence.mapFilePath(info.id));
+            if (map) maps[info.id] = map;
+        }
+        const database = {};
+        for (const name of this.databaseFiles) database[name] = FS.readJson(`data/${name}.json`);
+        return {
+            mapInfos,
+            maps,
+            database,
+            doodads: JSON.parse(JSON.stringify(window.$dataDocsDoodads || {})),
+            prefabs: JSON.parse(JSON.stringify(DocsDoodads.Prefabs.ensureLoaded()))
+        };
+    },
+
+    refreshUsageIndex() {
+        DocsDoodads.Usage.lastIndex = DocsDoodads.Usage.buildIndex(this.loadUsageSources());
+        return DocsDoodads.Usage.lastIndex;
+    },
+
+    assetUsage(asset) {
+        const index = DocsDoodads.Usage.lastIndex || this.refreshUsageIndex();
+        return index.get(DocsDoodads.Usage.keyOf(asset.path)) || [];
+    },
+
+    // Files that move with an image or sound: atlas metadata, and the other audio format.
+    companionFiles(oldPath, newPath) {
+        const FS = DocsDoodads.FS;
+        const out = [];
+        const oldBase = oldPath.replace(/\.[^/.]+$/, ''), newBase = newPath.replace(/\.[^/.]+$/, '');
+        const ext = (FS.path.extname(oldPath) || '').toLowerCase();
+        const extras = ext === '.ogg' ? ['.m4a'] : ext === '.m4a' ? ['.ogg'] : ['.json'];
+        for (const extra of extras) {
+            if (FS.existsSync(oldBase + extra)) out.push({ from: oldBase + extra, to: newBase + extra });
+        }
+        return out;
+    },
+
+    // Renames or moves a file and rewrites every reference to it in one transaction. Name
+    // references (events, database) only allow renames inside the same folder.
+    renameAsset(asset, newPath) {
+        const FS = DocsDoodads.FS;
+        const persistence = DocsDoodads.Persistence;
+        const fail = error => ({ ok: false, error });
+        if (!FS.fs || !asset) return fail('Files cannot be renamed here.');
+        if (persistence.dirtyDoodads || persistence.dirtyMap || Object.keys(persistence.stagedMaps).length > 0) {
+            return fail('Save your changes first, then rename.');
+        }
+        const oldPath = String(asset.path).replace(/\\/g, '/');
+        newPath = String(newPath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
+        if (!newPath || newPath === oldPath) return fail('Enter a new name or folder.');
+        if (!/^(img|audio)\//i.test(newPath) || newPath.split('/').includes('..') || /[<>:"|?*\x00-\x1f]/.test(newPath)) {
+            return fail('The new path must stay inside img/ or audio/ and use normal file name characters.');
+        }
+        if (FS.path.extname(newPath).toLowerCase() !== FS.path.extname(oldPath).toLowerCase()) return fail('Keep the same file extension.');
+        if (FS.existsSync(newPath) && newPath.toLowerCase() !== oldPath.toLowerCase()) return fail(`${newPath} already exists.`);
+
+        const sources = this.loadUsageSources();
+        const plan = DocsDoodads.Usage.rewrite(sources, oldPath, newPath);
+        if (!plan.ok) {
+            const where = plan.blocked.slice(0, 3).map(r => r.label).join('; ');
+            return fail(`It is referenced by name in ${plan.blocked.length} place(s) (${where}), so it can only be renamed inside ${plan.blocked[0].folder}/.`);
+        }
+
+        const entries = [];
+        for (const source of plan.changed) {
+            if (source.startsWith('map:')) {
+                const id = source.slice(4);
+                entries.push({ path: persistence.mapFilePath(id), data: sources.maps[id], indent: 2 });
+            } else if (source.startsWith('database:')) {
+                const name = source.slice(9);
+                entries.push({ path: `data/${name}.json`, data: sources.database[name], indent: 0 });
+            } else if (source === 'doodads') {
+                entries.push({ path: 'data/' + dataFileName, data: sources.doodads, indent: saveMode ? 0 : 2 });
+            } else if (source === 'prefabs') {
+                entries.push({ path: DocsDoodads.Prefabs.filePath, data: { version: 1, prefabs: sources.prefabs }, indent: 2 });
+            }
+        }
+        // The library entry keeps its tags, favourite, slices and collision under the new id.
+        const library = JSON.parse(JSON.stringify(DocsDoodads.AssetIndex.data));
+        const oldId = oldPath.toLowerCase(), newId = newPath.toLowerCase();
+        const entry = library.assets[oldId] || JSON.parse(JSON.stringify(asset));
+        delete library.assets[oldId];
+        entry.id = newId;
+        entry.path = newPath;
+        entry.fileName = newPath.split('/').pop();
+        entry.category = DocsDoodads.AssetIndex.detectCategory(newPath);
+        library.assets[newId] = entry;
+        for (const members of Object.values(library.collections || {})) {
+            if (Array.isArray(members)) members.forEach((id, i) => { if (id === oldId) members[i] = newId; });
+        }
+        entries.push({ path: DocsDoodads.AssetIndex.libraryPath, data: library, indent: 2 });
+
+        // Move the files first: undoing a rename is easy, undoing half-written data is not.
+        const moves = [{ from: oldPath, to: newPath }].concat(this.companionFiles(oldPath, newPath));
+        const done = [];
+        const undoMoves = () => { for (const m of done.reverse()) { try { FS.fs.renameSync(m.to, m.from); } catch (e) {} } };
+        try {
+            for (const m of moves) {
+                FS.mkdirp(FS.path.dirname(m.to));
+                FS.fs.renameSync(m.from, m.to);
+                done.push(m);
+            }
+        } catch (error) {
+            undoMoves();
+            return fail(`Could not move the file: ${error.message || error}`);
+        }
+        try {
+            for (const e of entries) FS.createTimestampedBackup(e.path);
+        } catch (error) {
+            undoMoves();
+            return fail(`Backup failed, nothing was changed: ${error.message || error}`);
+        }
+        const written = FS.atomicWriteManyJson(entries);
+        if (!written.ok) {
+            undoMoves();
+            return fail(`Could not update the project files (${written.error}); the file was moved back.`);
+        }
+
+        // Bring the live game data in line with what is now on disk.
+        DocsDoodads.Usage.rewrite({ doodads: window.$dataDocsDoodads || {}, prefabs: DocsDoodads.Prefabs.ensureLoaded() }, oldPath, newPath);
+        const mapId = this.currentMapId();
+        if (window.$dataMap && plan.changed.includes(`map:${mapId}`)) {
+            DocsDoodads.Usage.rewrite({ maps: { [mapId]: window.$dataMap } }, oldPath, newPath);
+        }
+        for (const name of this.databaseFiles) {
+            const live = window['$data' + name];
+            if (live && plan.changed.includes(`database:${name}`)) DocsDoodads.Usage.rewrite({ database: { [name]: live } }, oldPath, newPath);
+        }
+        for (const e of entries) if (/data\/Map\d+\.json$/.test(e.path)) persistence.sessionSnapshots[e.path] = FS.stat(e.path);
+        DocsDoodads.AssetIndex.data = library;
+        DocsDoodads.AssetIndex.rebuildList();
+        DocsDoodads.Thumbnail.invalidate(oldId);
+        DocsDoodads.Usage.lastIndex = null;
+        if (this.selectedAsset === asset) this.selectedAsset = library.assets[newId];
+        this.refreshSpriteset();
+        this.refreshDrawerCards();
+        this.refreshInspector();
+        const changedFiles = entries.map(e => e.path);
+        this.showToast(`Renamed to ${entry.fileName}; updated ${plan.count} reference(s) in ${changedFiles.length - 1} file(s).`, 3500);
+        return { ok: true, changedFiles, references: plan.count };
+    },
+
+    // ---- Fingerprints: duplicates and "more like this" ----
+    async computeFingerprints(options = {}) {
+        const assets = DocsDoodads.AssetIndex.list.filter(a => a.category !== 'Audio' && /\.(png|jpe?g|webp)$/i.test(a.path || ''));
+        const todo = assets.filter(a => !a.fingerprint || a.fingerprint.mtimeMs !== a.mtimeMs);
+        const crypto = typeof require !== 'undefined' ? require('crypto') : null;
+        let done = 0;
+        for (const asset of todo) {
+            if (options.token && options.token.cancelled) break;
+            try {
+                const px = await this.loadPixels(DocsDoodads.LiveReload.urlFor(asset.path));
+                const sha1 = crypto && DocsDoodads.FS.fs ? crypto.createHash('sha1').update(DocsDoodads.FS.fs.readFileSync(asset.path)).digest('hex') : null;
+                asset.fingerprint = { hash: DocsDoodads.Similarity.hashPixels(px.data, px.width, px.height), sha1, mtimeMs: asset.mtimeMs };
+            } catch (error) {
+                asset.fingerprint = { hash: null, sha1: null, mtimeMs: asset.mtimeMs };
+            }
+            done++;
+            if (options.onProgress && (done % 10 === 0 || done === todo.length)) options.onProgress(done, todo.length);
+            if (done % 20 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        if (todo.length > 0) DocsDoodads.AssetIndex.save();
+        return assets;
+    },
+
+    fingerprintEntries() {
+        return DocsDoodads.AssetIndex.list.filter(a => a.fingerprint && a.fingerprint.hash)
+            .map(a => ({ id: a.id, hash: a.fingerprint.hash, sha1: a.fingerprint.sha1, asset: a }));
+    },
+
+    async showSimilarTo(asset) {
+        const status = document.getElementById('dd-status-right');
+        await this.computeFingerprints({ onProgress: (n, total) => { if (status) status.textContent = `Fingerprinting ${n}/${total}`; } });
+        this.updateIndexStatus();
+        const target = DocsDoodads.AssetIndex.data.assets[asset.id];
+        if (!target || !target.fingerprint || !target.fingerprint.hash) {
+            this.showToast('This image could not be read.');
+            return;
+        }
+        const results = DocsDoodads.Similarity.similarTo(target.fingerprint.hash, this.fingerprintEntries(), 60);
+        this.similarResults = results.map(r => r.entry.asset);
+        this.similarSource = asset.fileName;
+        this.setCategory('Similar');
+        this.showToast(`Showing images most like ${asset.fileName}.`);
+    },
+
+    setCategory(category) {
+        this.currentCategory = category;
+        if (category === 'Similar') {
+            this.searchQuery = '';
+            const input = document.getElementById('dd-search-input');
+            if (input) input.value = '';
+        }
+        const tabs = document.getElementById('dd-category-tabs');
+        if (tabs && tabs.querySelectorAll) tabs.querySelectorAll('button').forEach(b => { b.className = 'dd-btn' + (b.dataset && b.dataset.cat === category ? ' dd-btn-primary' : ''); });
+        this.refreshDrawerCards();
+    },
+
+    // ---- Per-map art packing ----
+    async packCurrentMap() {
+        const FS = DocsDoodads.FS;
+        const Packer = DocsDoodads.Packer;
+        const mapId = this.currentMapId();
+        const regions = Packer.regionsFor(DocsDoodads.doodads(mapId));
+        if (regions.length === 0) {
+            this.showToast('This map has no image doodads to pack.');
+            return null;
+        }
+        const packed = Packer.pack(regions.map(r => ({ key: r.key, w: r.rect.w, h: r.rect.h })), { maxSize: 2048, padding: 2 });
+        const images = {};
+        for (const r of regions) {
+            if (!images[r.path]) {
+                images[r.path] = await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve(img);
+                    img.onerror = () => reject(new Error(`Could not load ${r.path}`));
+                    img.src = DocsDoodads.LiveReload.urlFor(r.path);
+                });
+            }
+        }
+        const clipped = Packer.clampRegions(regions, p => (images[p] ? { w: images[p].naturalWidth, h: images[p].naturalHeight } : null));
+        regions.splice(0, regions.length, ...clipped);
+        packed.sheets.length = 0;
+        Object.assign(packed, Packer.pack(regions.map(r => ({ key: r.key, w: r.rect.w, h: r.rect.h })), { maxSize: 2048, padding: 2 }));
+        this.removePack(mapId, true);
+        FS.mkdirp(Packer.sheetDirectory);
+        const byKey = new Map(regions.map(r => [r.key, r]));
+        const mtimes = {};
+        for (const r of regions) { const st = FS.stat(r.path); mtimes[r.path] = st ? st.mtimeMs : 0; }
+        const manifest = Packer.buildManifest(mapId, regions, packed, mtimes);
+        packed.sheets.forEach((sheet, i) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = sheet.w;
+            canvas.height = sheet.h;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            for (const item of sheet.items) {
+                const r = byKey.get(item.key);
+                ctx.drawImage(images[r.path], r.rect.x, r.rect.y, r.rect.w, r.rect.h, item.x, item.y, item.w, item.h);
+            }
+            const base64 = canvas.toDataURL('image/png').split(',')[1];
+            FS.fs.writeFileSync(manifest.sheets[i], Buffer.from(base64, 'base64'));
+        });
+        Packer.data.maps[mapId] = manifest;
+        FS.atomicWriteJson(Packer.manifestPath, Packer.data);
+        // Browser builds can't check for the manifest file, so the doodads file records that packing is in use.
+        if (!window.$dataDocsDoodads.usesPacking) {
+            window.$dataDocsDoodads.usesPacking = true;
+            DocsDoodads.Persistence.dirtyDoodads = true;
+        }
+        const skipped = packed.skipped.length ? `; ${packed.skipped.length} image(s) too large stay separate` : '';
+        this.showToast(`Packed ${Object.keys(manifest.frames).length} image region(s) into ${manifest.sheets.length} sheet(s)${skipped}.`, 3500);
+        this.refreshInspector();
+        return manifest;
+    },
+
+    removePack(mapId = this.currentMapId(), quiet = false) {
+        const FS = DocsDoodads.FS;
+        const manifest = DocsDoodads.Packer.forMap(mapId);
+        if (!manifest) return false;
+        for (const sheet of manifest.sheets) { try { if (FS.existsSync(sheet)) FS.fs.unlinkSync(sheet); } catch (e) {} }
+        delete DocsDoodads.Packer.data.maps[mapId];
+        FS.atomicWriteJson(DocsDoodads.Packer.manifestPath, DocsDoodads.Packer.data);
+        if (!quiet) {
+            this.showToast('Removed packed art for this map.');
+            this.refreshInspector();
+        }
+        return true;
+    },
+
+    renderPackingPanel() {
+        const manifest = DocsDoodads.Packer.forMap(this.currentMapId());
+        const stale = manifest ? DocsDoodads.Packer.staleSources(manifest, p => { const st = DocsDoodads.FS.stat(p); return st ? st.mtimeMs : 0; }) : [];
+        const status = manifest
+            ? `${Object.keys(manifest.frames).length} region(s) in ${manifest.sheets.length} sheet(s), built ${new Date(manifest.builtAt).toLocaleString()}.`
+            : 'Not packed. Deployed games load each image separately.';
+        return `
+            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Performance</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+                    <div>${escapeHtml(status)}</div>
+                    ${stale.length ? `<div style="color: #f59e0b;">Out of date: ${escapeHtml(stale.slice(0, 3).join(', '))} changed. Pack again.</div>` : ''}
+                    <div style="color: #64748b; line-height: 1.4;">Packing copies the art this map's doodads use into a few sheets in img/doodads/_packed for the deployed game. Playtests keep using the original files.</div>
+                    <button class="dd-btn" id="dd-pack-map">${manifest ? 'Pack Again' : 'Pack Map Art'}</button>
+                    ${manifest ? '<button class="dd-btn" id="dd-pack-remove">Remove Packed Art</button>' : ''}
+                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1;"><input type="checkbox" id="dd-pack-preview" ${DocsDoodads.Packer.previewInTest ? 'checked' : ''} /> Use packed art in this playtest</label>
+                </div>
+            </details>`;
+    },
+
+    bindPackingPanel() {
+        const pack = document.getElementById('dd-pack-map');
+        if (pack) pack.onclick = () => this.packCurrentMap().catch(error => this.showToast(`Packing failed: ${error.message || error}`));
+        const remove = document.getElementById('dd-pack-remove');
+        if (remove) remove.onclick = () => this.removePack();
+        const preview = document.getElementById('dd-pack-preview');
+        if (preview) preview.onchange = (e) => { DocsDoodads.Packer.previewInTest = Boolean(e.target.checked); this.refreshSpriteset(); };
+    },
+
+    // ---- Asset Tools: duplicates and unused files ----
+    showAssetTools() {
+        const existing = document.getElementById('dd-asset-tools');
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        const modal = document.createElement('div');
+        modal.id = 'dd-asset-tools';
+        modal.className = 'dd-glass';
+        modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 560px; max-height: 80vh; padding: 18px; z-index: 10030; display: flex; flex-direction: column; gap: 10px;';
+        modal.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">ASSET TOOLS</div>
+                <button class="dd-btn" id="dd-tools-close">Close</button>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button class="dd-btn dd-btn-primary" id="dd-tools-dupes" style="flex: 1;">Find Duplicates</button>
+                <button class="dd-btn dd-btn-primary" id="dd-tools-unused" style="flex: 1;">Find Unused Files</button>
+            </div>
+            <div id="dd-tools-status" style="font-size: 11px; color: #94a3b8;">Duplicates compares every image's fingerprint (computed once, then cached). Unused checks maps, events, the database, doodads and prefabs.</div>
+            <div id="dd-tools-results" style="overflow-y: auto; font-size: 11px; color: #cbd5e1; display: flex; flex-direction: column; gap: 8px;"></div>`;
+        document.body.appendChild(modal);
+        const statusEl = document.getElementById('dd-tools-status');
+        const resultsEl = document.getElementById('dd-tools-results');
+        const row = a => `<div style="display: flex; justify-content: space-between; gap: 8px;"><span>${escapeHtml(a.path)}</span><button class="dd-btn dd-tools-show" data-id="${escapeHtml(a.id)}" style="padding: 1px 6px; font-size: 10px;">Show</button></div>`;
+        const bindShow = () => {
+            resultsEl.querySelectorAll('.dd-tools-show').forEach(btn => {
+                btn.onclick = () => {
+                    const asset = DocsDoodads.AssetIndex.data.assets[btn.dataset.id];
+                    if (asset) this.selectAsset(asset);
+                };
+            });
+        };
+        document.getElementById('dd-tools-close').onclick = () => modal.parentNode && modal.parentNode.removeChild(modal);
+        document.getElementById('dd-tools-dupes').onclick = async () => {
+            resultsEl.innerHTML = '';
+            await this.computeFingerprints({ onProgress: (n, total) => { statusEl.textContent = `Fingerprinting images ${n}/${total}...`; } });
+            const entries = this.fingerprintEntries();
+            const exact = new Map();
+            for (const e of entries) if (e.sha1) { if (!exact.has(e.sha1)) exact.set(e.sha1, []); exact.get(e.sha1).push(e); }
+            const exactGroups = [...exact.values()].filter(g => g.length > 1);
+            const exactIds = new Set(exactGroups.flat().map(e => e.id));
+            const nearGroups = DocsDoodads.Similarity.findDuplicates(entries.filter(e => !exactIds.has(e.id)), 1);
+            statusEl.textContent = `${exactGroups.length} group(s) of identical files, ${nearGroups.length} group(s) of near-identical images (from ${entries.length} images).`;
+            resultsEl.innerHTML = exactGroups.map(g => `<div style="border: 1px solid #334155; border-radius: 4px; padding: 6px;"><div style="color: #f87171; margin-bottom: 4px;">Identical files</div>${g.map(e => row(e.asset)).join('')}</div>`).join('') +
+                nearGroups.map(g => `<div style="border: 1px solid #334155; border-radius: 4px; padding: 6px;"><div style="color: #f59e0b; margin-bottom: 4px;">Near-identical (resized or re-saved)</div>${g.map(e => row(e.asset)).join('')}</div>`).join('');
+            bindShow();
+        };
+        document.getElementById('dd-tools-unused').onclick = () => {
+            statusEl.textContent = 'Checking maps, events, database, doodads and prefabs...';
+            const index = this.refreshUsageIndex();
+            const unused = DocsDoodads.Usage.unusedAssets(DocsDoodads.AssetIndex.list, index);
+            statusEl.textContent = `${unused.length} file(s) are not referenced anywhere the editor can see. Plugins and scripts can also load files by name, so check before deleting. Search "used:no" lists them in the drawer.`;
+            resultsEl.innerHTML = unused.slice(0, 500).map(row).join('') + (unused.length > 500 ? `<div>...and ${unused.length - 500} more.</div>` : '');
+            bindShow();
+        };
+    },
+
+    renderUsagePanel(a) {
+        return `
+            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; margin-top: 8px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
+                    <button class="dd-btn" id="dd-asset-usage" style="padding: 4px;" title="List every map, event, database entry, doodad and prefab using this file">Where Used</button>
+                    <button class="dd-btn" id="dd-asset-rename" style="padding: 4px;" title="Rename or move the file and update every reference">Rename/Move</button>
+                    <button class="dd-btn" id="dd-asset-similar" style="padding: 4px;" title="Show the images that look most like this one">More Like This</button>
+                </div>
+                <div id="dd-asset-usage-list" style="font-size: 10px; color: #94a3b8; margin-top: 6px; line-height: 1.5;"></div>
+            </div>`;
+    },
+
+    bindUsagePanel(a) {
+        const list = document.getElementById('dd-asset-usage-list');
+        document.getElementById('dd-asset-usage').onclick = () => {
+            const refs = this.assetUsage(a);
+            list.innerHTML = refs.length === 0
+                ? 'Not used by any map, event, database entry, doodad or prefab.'
+                : `<div style="color: #e2e8f0;">Used in ${refs.length} place(s):</div>` + refs.slice(0, 40).map(r => `<div>• ${escapeHtml(r.label)}</div>`).join('') + (refs.length > 40 ? `<div>...and ${refs.length - 40} more</div>` : '');
+        };
+        document.getElementById('dd-asset-rename').onclick = () => {
+            const target = prompt('New path (rename or move; engine files must stay in their folder):', a.path);
+            if (!target || target.trim() === a.path) return;
+            const refs = this.assetUsage(a);
+            if (!confirm(`Rename ${a.path} to ${target.trim()} and update ${refs.length} reference(s)? Changed files are backed up first. If this project is open in RPG Maker MZ, reload it there afterwards.`)) return;
+            const result = this.renameAsset(a, target.trim());
+            if (!result.ok) alert(result.error);
+        };
+        document.getElementById('dd-asset-similar').onclick = () => this.showSimilarTo(a);
+    },
+
     updateIndexStatus(removed) {
         const status = document.getElementById('dd-status-right');
         if (!status) return;
@@ -7652,7 +8685,10 @@ DocsDoodads.Workspace = {
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.5;">
                 Drag onto an empty tile to create a sound event, or onto an existing event to add a play command to it.
             </div>
+            ${this.renderUsagePanel(a)}
         `;
+        this.bindUsagePanel(a);
+        document.getElementById('dd-asset-similar').style.display = 'none';
         document.getElementById('dd-audio-preview-btn').onclick = () => {
             DocsDoodads.Audio.playPreview(a);
             const stopAll = document.getElementById('dd-stop-audio-btn');
