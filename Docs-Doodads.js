@@ -1,16 +1,18 @@
 //==========================================================
-// RPG Maker MZ & MV: QJ Doodads Asset Workspace
+// RPG Maker MZ & MV: Doc's Doodads
 //==========================================================
 /*:
  * @target MZ
- * @plugindesc Asset Workspace & Doodad Engine [V2.0] QJ-Doodads.js
- * @author Qiu Jiu / Upgraded by Antigravity
+ * @plugindesc Doc's Doodads - Asset Workspace & Doodad Engine [V2.0]
+ * @author Doc
  *
  * @help
  * ============================================================================
- * QJ DOODADS ASSET WORKSPACE
+ * DOC'S DOODADS
  * ============================================================================
  * An advanced visual asset-driven mapping and placement workspace for RPG Maker MZ.
+ * Doc's Doodads began as Qiu Jiu's QJ-Doodads (V1.2) and has grown into its own tool.
+ * Projects saved by QJ-Doodads are read and migrated automatically.
  *
  * KEY CAPABILITIES:
  * 1. Visual Asset Drawer:
@@ -22,7 +24,7 @@
  * 2. Intelligent Slicing Engine & Interactive Slicer Modal:
  *    - Automatic detection of standard MZ sheets ($Single, 8-character, Faces, IconSet, SV).
  *    - Divisor-based grid candidate scoring.
- *    - Sidecar atlas metadata parsing (Aseprite, TexturePacker, SAF .saf.json).
+ *    - Sidecar atlas metadata parsing (Aseprite, TexturePacker, .saf.json).
  *    - Canvas visual auto-slicer with adaptive Otsu alpha thresholding, border flood,
  *      morphological cleanup, 4-connected components, and gutter splitting.
  *    - Interactive 1600% zoomable Slicer Modal with 8-handle drag/resize, smart snapping,
@@ -63,8 +65,8 @@
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
  *    - Safe persistence: Session snapshots, dirty tracking, pre-save external conflict
- *      detection, timestamped backups in data/qj_asset_cache/backups/, and atomic writes.
- *    - Autosave crash recovery snapshots in data/QJAssetWorkspaceRecovery.json.
+ *      detection, timestamped backups in data/docs_doodads_cache/backups/, and atomic writes.
+ *    - Autosave crash recovery snapshots in data/DocsDoodadsRecovery.json.
  *    - Diagnostics panel with cache statistics, memory tracking, and validation tools.
  *
  * KEYBOARD SHORTCUTS:
@@ -81,8 +83,7 @@
  * - Escape           : Cancel current placement tool / close modals
  *
  * THIRD-PARTY NOTICES:
- * - QJ-Doodads is licensed under the MIT License. Copyright (c) Qiu Jiu.
- * - Sprite Atlas Forge detection algorithms adapted under the MIT License.
+ * - Based on QJ-Doodads by Qiu Jiu, MIT License. Copyright (c) 2022 Qiu Jiu.
  * ============================================================================
  *
  * @param editKey
@@ -112,7 +113,7 @@
  * @param dataFileName
  * @text Doodads Data File Name
  * @type text
- * @default DoodadsQJ
+ * @default DocsDoodads
  * @desc Name of the doodads json file in data/ (without .json).
  *
  * @param doodadScaleMode
@@ -129,7 +130,7 @@
  * @on Compact / Minified
  * @off Formatted / Indented
  * @default false
- * @desc Format style when saving DoodadsQJ.json.
+ * @desc Format style when saving DocsDoodads.json.
  *
  * @param defaultLayout
  * @text Default Workspace Layout
@@ -178,7 +179,7 @@
  * @min 1
  * @max 50
  * @default 10
- * @desc Number of timestamped project backups retained in data/qj_asset_cache/backups/.
+ * @desc Number of timestamped project backups retained in data/docs_doodads_cache/backups/.
  *
  * @param gridSnapShow
  * @text Show Grid Snap
@@ -211,16 +212,14 @@
  * @desc Enable diagnostics logging in Developer Tools console.
  */
 
-var QJ = (typeof window !== 'undefined' ? (window.QJ = window.QJ || {}) : {});
-QJ.DD = QJ.DD || { reWrite: {} };
+var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
 var Imported = (typeof window !== 'undefined' ? (window.Imported = window.Imported || {}) : {});
-Imported.QJDoodads = true;
-Imported.QJAssetWorkspace = true;
+Imported.DocsDoodads = true;
 
-function Sprite_DoodadQJ() {
+function Sprite_DocsDoodad() {
     this.initialize(...arguments);
 }
-function Sprite_MouseDoodadsCursorQJ() {
+function Sprite_DocsDoodadsMouseCursor() {
     this.initialize(...arguments);
 }
 
@@ -231,8 +230,32 @@ function Sprite_MouseDoodadsCursorQJ() {
 //==========================================================
 // SECTION 1: CORE CONSTANTS & PARAMETERS
 //==========================================================
-const pluginName = "QJ-Doodads";
-const parameters = (typeof PluginManager !== 'undefined' && PluginManager.parameters) ? PluginManager.parameters(pluginName) : {};
+const pluginName = "Docs-Doodads";
+
+// Doc's Doodads began as QJ-Doodads. Names used by those builds are read as a fallback so
+// existing projects keep their settings, data, backups, and recovery snapshots.
+DocsDoodads.Legacy = {
+    pluginName: 'QJ-Doodads',
+    dataFileName: 'DoodadsQJ.json',
+    backupDirectory: 'data/qj_asset_cache/backups',
+    files: {
+        'data/DocsDoodadsLibrary.json': 'data/QJAssetLibrary.json',
+        'data/DocsDoodadsEventTemplates.json': 'data/QJEventTemplates.json',
+        'data/DocsDoodadsLayouts.json': 'data/QJWorkspaceLayouts.json',
+        'data/DocsDoodadsRecovery.json': 'data/QJAssetWorkspaceRecovery.json'
+    },
+    pathFor(filePath) {
+        return this.files[String(filePath).replace(/\\/g, '/').replace(/^\.\//, '')] || null;
+    }
+};
+
+function readPluginParameters() {
+    if (typeof PluginManager === 'undefined' || !PluginManager.parameters) return {};
+    const current = PluginManager.parameters(pluginName) || {};
+    if (Object.keys(current).length > 0) return current;
+    return PluginManager.parameters(DocsDoodads.Legacy.pluginName) || {};
+}
+const parameters = readPluginParameters();
 
 function parseBooleanParameter(value, fallback) {
     if (typeof value === 'boolean') return value;
@@ -258,14 +281,14 @@ function safePluginFolder(value) {
 }
 
 function safeDataBaseName(value) {
-    const safe = String(value || 'DoodadsQJ')
+    const safe = String(value || 'DocsDoodads')
         .replace(/\.json$/i, '')
         .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
         .replace(/^\.+|\.+$/g, '');
-    return safe || 'DoodadsQJ';
+    return safe || 'DocsDoodads';
 }
 
-QJ.DD.Security = QJ.DD.Security || {
+DocsDoodads.Security = DocsDoodads.Security || {
     escapeHtml(value) {
         return String(value === undefined || value === null ? '' : value).replace(/[&<>"']/g, character => ({
             '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -273,7 +296,7 @@ QJ.DD.Security = QJ.DD.Security || {
     }
 };
 
-const escapeHtml = QJ.DD.Security.escapeHtml;
+const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
 const folderName = "img/" + safePluginFolder(parameters.folderName);
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
@@ -294,7 +317,7 @@ const devDiagnostics = parseBooleanParameter(parameters.devDiagnostics, false);
 //==========================================================
 // SECTION 2: STANDARD STRUCTS & RUNTIME DATA
 //==========================================================
-QJ.DD.standardStructData = {
+DocsDoodads.standardStructData = {
     bit: [1],
     index: 0,
     anchorX: 0.5,
@@ -333,13 +356,13 @@ QJ.DD.standardStructData = {
     }
 };
 
-QJ.DD.standardStruct = function() {
+DocsDoodads.standardStruct = function() {
     return (typeof JsonEx !== 'undefined' && JsonEx.makeDeepCopy) ? 
-        JsonEx.makeDeepCopy(QJ.DD.standardStructData) : 
-        JSON.parse(JSON.stringify(QJ.DD.standardStructData));
+        JsonEx.makeDeepCopy(DocsDoodads.standardStructData) : 
+        JSON.parse(JSON.stringify(DocsDoodads.standardStructData));
 };
 
-QJ.DD.initPluginData = {
+DocsDoodads.initPluginData = {
     version: pluginVersion
 };
 
@@ -573,18 +596,18 @@ function testCircleCircle(a, b, response) {
     return true;
 }
 
-QJ.DD.V = function(x, y) { return new SATVector(x, y); };
-QJ.DD.C = function(pos, r) { return new SATCircle(pos, r); };
-QJ.DD.B = function(pos, w, h) { return new SATBox(pos, w, h); };
-QJ.DD.P = function(pos, points) { return new SATPolygon(pos, points); };
-QJ.DD.box = function(x, y, w, h) {
+DocsDoodads.V = function(x, y) { return new SATVector(x, y); };
+DocsDoodads.C = function(pos, r) { return new SATCircle(pos, r); };
+DocsDoodads.B = function(pos, w, h) { return new SATBox(pos, w, h); };
+DocsDoodads.P = function(pos, points) { return new SATPolygon(pos, points); };
+DocsDoodads.box = function(x, y, w, h) {
     var b = new SATBox(new SATVector(x - w / 2, y - h / 2), w, h);
     return b.toPolygon();
 };
-QJ.DD.circle = function(x, y, r) {
+DocsDoodads.circle = function(x, y, r) {
     return new SATCircle(new SATVector(x, y), r);
 };
-QJ.DD.judge = function(a, b) {
+DocsDoodads.judge = function(a, b) {
     if (a instanceof SATPolygon && b instanceof SATPolygon) { return testPolygonPolygon(a, b); }
     if (a instanceof SATCircle && b instanceof SATPolygon) { return testCirclePolygon(a, b); }
     if (a instanceof SATPolygon && b instanceof SATCircle) { return testPolygonCircle(a, b); }
@@ -596,7 +619,7 @@ QJ.DD.judge = function(a, b) {
 //==========================================================
 // SECTION 4: DATA LOAD / SAVE & LEGACY VS TRANSLATION
 //==========================================================
-QJ.DD.migrateData = function(data, type) {
+DocsDoodads.migrateData = function(data, type) {
     if (!data) return data;
     if (type === 'doodads') {
         for (var mapId in data) {
@@ -633,43 +656,56 @@ if (typeof DataManager !== 'undefined') {
     $.DataManager_loadDatabase = DataManager.loadDatabase;
     DataManager.loadDatabase = function() {
         $.DataManager_loadDatabase.call(this);
-        this.loadDoodadsDataQJ();
+        this.loadDocsDoodadsData();
     };
 
-    DataManager.loadDoodadsDataQJ = function() {
-        var xhr = new XMLHttpRequest();
-        var url = 'data/' + dataFileName;
-        xhr.open('GET', url);
-        xhr.overrideMimeType('application/json');
-        xhr.onload = function() {
-            if (xhr.status < 400) {
-                window.$dataDoodadsQJ = JSON.parse(xhr.responseText);
-                DataManager.checkDoodadsDataQJ();
-            }
+    DataManager.loadDocsDoodadsData = function() {
+        // Projects saved by QJ-Doodads have DoodadsQJ.json until they are saved again.
+        const candidates = ['data/' + dataFileName];
+        if (dataFileName === 'DocsDoodads.json') candidates.push('data/' + DocsDoodads.Legacy.dataFileName);
+        const tryLoad = (index) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', candidates[index]);
+            xhr.overrideMimeType('application/json');
+            const next = () => {
+                if (index + 1 < candidates.length) {
+                    tryLoad(index + 1);
+                } else {
+                    window.$dataDocsDoodads = {};
+                    DataManager.checkDocsDoodadsData();
+                }
+            };
+            xhr.onload = function() {
+                if (xhr.status < 400) {
+                    window.$dataDocsDoodads = JSON.parse(xhr.responseText);
+                    DataManager.checkDocsDoodadsData();
+                } else {
+                    next();
+                }
+            };
+            xhr.onerror = next;
+            xhr.send();
         };
-        xhr.onerror = function() {
-            window.$dataDoodadsQJ = {};
-        };
-        xhr.send();
+        tryLoad(0);
     };
 
-    DataManager.checkDoodadsDataQJ = function() {
-        if (!window.$dataDoodadsQJ) window.$dataDoodadsQJ = {};
-        QJ.DD.migrateData(window.$dataDoodadsQJ, 'doodads');
+    DataManager.checkDocsDoodadsData = function() {
+        if (!window.$dataDocsDoodads) window.$dataDocsDoodads = {};
+        DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
     };
 
-    DataManager.saveDoodadsDataQJ = function() {
+    DataManager.saveDocsDoodadsData = function() {
         if (typeof StorageManager !== 'undefined') {
             const fs = (typeof require !== 'undefined') ? require('fs') : null;
             if (fs) {
                 const filePath = 'data/' + dataFileName;
-                const content = saveMode ? JSON.stringify(window.$dataDoodadsQJ) : JSON.stringify(window.$dataDoodadsQJ, null, 2);
+                const content = saveMode ? JSON.stringify(window.$dataDocsDoodads) : JSON.stringify(window.$dataDocsDoodads, null, 2);
                 fs.writeFileSync(filePath, content);
             }
         }
     };
 
-    DataManager.loadMapDataSynDoodadsQJ = function(type, mapId) {
+    DataManager.loadMapDataSyncDocsDoodads = function(type, mapId) {
         const fs = (typeof require !== 'undefined') ? require('fs') : null;
         if (!fs) return null;
         const filePath = 'data/Map' + String(mapId).padStart(3, '0') + '.json';
@@ -684,16 +720,16 @@ if (typeof DataManager !== 'undefined') {
     };
 }
 
-QJ.DD.doodads = function(mapId) {
-    if (typeof window === 'undefined' || !window.$dataDoodadsQJ) return [];
+DocsDoodads.doodads = function(mapId) {
+    if (typeof window === 'undefined' || !window.$dataDocsDoodads) return [];
     mapId = mapId || (window.$gameMap ? window.$gameMap.mapId() : 0);
-    return window.$dataDoodadsQJ[mapId] || [];
+    return window.$dataDocsDoodads[mapId] || [];
 };
 
 //==========================================================
 // SECTION 5: BITMAP / TEXTURE PRELOADING
 //==========================================================
-QJ.DD.loadBitmap = function(path) {
+DocsDoodads.loadBitmap = function(path) {
     if (typeof ImageManager === 'undefined') return null;
     if (path.startsWith('img/')) {
         path = path.slice(4);
@@ -708,13 +744,13 @@ QJ.DD.loadBitmap = function(path) {
 };
 
 //==========================================================
-// SECTION 6: SPRITE_DOODADQJ RUNTIME ENGINE
+// SECTION 6: SPRITE_DOCSDOODAD RUNTIME ENGINE
 //==========================================================
 if (typeof PIXI !== 'undefined') {
-    Sprite_DoodadQJ.prototype = Object.create(PIXI.Sprite.prototype);
-    Sprite_DoodadQJ.prototype.constructor = Sprite_DoodadQJ;
+    Sprite_DocsDoodad.prototype = Object.create(PIXI.Sprite.prototype);
+    Sprite_DocsDoodad.prototype.constructor = Sprite_DocsDoodad;
 
-    Sprite_DoodadQJ.prototype.initialize = function(data, spriteset) {
+    Sprite_DocsDoodad.prototype.initialize = function(data, spriteset) {
         PIXI.Sprite.call(this);
         this._data = data;
         this._spriteset = spriteset;
@@ -732,7 +768,7 @@ if (typeof PIXI !== 'undefined') {
         this.loadTexture();
     };
 
-    Sprite_DoodadQJ.prototype.loadTexture = function() {
+    Sprite_DocsDoodad.prototype.loadTexture = function() {
         if (!this._data || !this._data.bit) return;
         const bit = this._data.bit;
         let bmp = null;
@@ -744,7 +780,7 @@ if (typeof PIXI !== 'undefined') {
                 bmp = ImageManager.loadTileset(tileset.tilesetNames[bit[1]]);
             }
         } else if (bit[0] === 3) {
-            bmp = QJ.DD.loadBitmap(bit[1]);
+            bmp = DocsDoodads.loadBitmap(bit[1]);
         }
         if (bmp) {
             if (bmp.isReady()) {
@@ -755,7 +791,7 @@ if (typeof PIXI !== 'undefined') {
         }
     };
 
-    Sprite_DoodadQJ.prototype.setupBitmap = function(bmp) {
+    Sprite_DocsDoodad.prototype.setupBitmap = function(bmp) {
         if (!bmp || !bmp._baseTexture) return;
         this._bmp = bmp;
         const fw = this._data.frameW || bmp.width;
@@ -765,7 +801,7 @@ if (typeof PIXI !== 'undefined') {
         this.texture = new PIXI.Texture(bmp._baseTexture, new PIXI.Rectangle(fx, fy, fw, fh));
     };
 
-    Sprite_DoodadQJ.prototype.update = function() {
+    Sprite_DocsDoodad.prototype.update = function() {
         if (!this._data) return;
         if (this._data.rotateSpeed) {
             this.rotation += (this._data.rotateSpeed * Math.PI / 180);
@@ -785,14 +821,14 @@ if (typeof PIXI !== 'undefined') {
             this.x = screenX;
             this.y = screenY;
         }
-        if (this._data.editorHidden && QJ.DD.Workspace && QJ.DD.Workspace.mounted) {
+        if (this._data.editorHidden && DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) {
             this.visible = false;
         } else {
             this.visible = true;
         }
     };
 
-    Sprite_DoodadQJ.prototype.updateFrameAnimation = function() {
+    Sprite_DocsDoodad.prototype.updateFrameAnimation = function() {
         if (!this._bmp || !this._bmp._baseTexture) return;
         const total = (this._data.xFrame || 1) * (this._data.yFrame || 1);
         this._currentFrame = (this._currentFrame + 1) % total;
@@ -814,32 +850,32 @@ if (typeof Spriteset_Map !== 'undefined') {
     $.Spriteset_Map_createLowerLayer = Spriteset_Map.prototype.createLowerLayer;
     Spriteset_Map.prototype.createLowerLayer = function() {
         $.Spriteset_Map_createLowerLayer.call(this);
-        this.createDoodadsLayerQJ();
+        this.createDocsDoodadsLayer();
     };
 
-    Spriteset_Map.prototype.createDoodadsLayerQJ = function() {
-        this._doodadsContainerQJ = new PIXI.Container();
-        this._doodadSpritesQJ = [];
-        this._baseSprite.addChild(this._doodadsContainerQJ);
-        this.addDoodadsQJ();
+    Spriteset_Map.prototype.createDocsDoodadsLayer = function() {
+        this._docsDoodadsContainer = new PIXI.Container();
+        this._docsDoodadSprites = [];
+        this._baseSprite.addChild(this._docsDoodadsContainer);
+        this.addDocsDoodads();
     };
 
-    Spriteset_Map.prototype.addDoodadsQJ = function() {
-        if (!this._doodadsContainerQJ) return;
-        this._doodadsContainerQJ.removeChildren();
-        this._doodadSpritesQJ = [];
-        const list = QJ.DD.doodads();
+    Spriteset_Map.prototype.addDocsDoodads = function() {
+        if (!this._docsDoodadsContainer) return;
+        this._docsDoodadsContainer.removeChildren();
+        this._docsDoodadSprites = [];
+        const list = DocsDoodads.doodads();
         for (const data of list) {
-            const spr = new Sprite_DoodadQJ(data, this);
-            this._doodadsContainerQJ.addChild(spr);
-            this._doodadSpritesQJ.push(spr);
+            const spr = new Sprite_DocsDoodad(data, this);
+            this._docsDoodadsContainer.addChild(spr);
+            this._docsDoodadSprites.push(spr);
         }
-        this.sortDoodadsQJ();
+        this.sortDocsDoodads();
     };
 
-    Spriteset_Map.prototype.sortDoodadsQJ = function() {
-        if (!this._doodadsContainerQJ) return;
-        this._doodadsContainerQJ.children.sort((a, b) => {
+    Spriteset_Map.prototype.sortDocsDoodads = function() {
+        if (!this._docsDoodadsContainer) return;
+        this._docsDoodadsContainer.children.sort((a, b) => {
             if (a.z !== b.z) return a.z - b.z;
             return a.y - b.y;
         });
@@ -848,9 +884,9 @@ if (typeof Spriteset_Map !== 'undefined') {
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
         $.Spriteset_Map_update.call(this);
-        if (this._doodadSpritesQJ) {
-            for (let i = 0; i < this._doodadSpritesQJ.length; i++) {
-                this._doodadSpritesQJ[i].update();
+        if (this._docsDoodadSprites) {
+            for (let i = 0; i < this._docsDoodadSprites.length; i++) {
+                this._docsDoodadSprites[i].update();
             }
         }
     };
@@ -858,9 +894,9 @@ if (typeof Spriteset_Map !== 'undefined') {
 
 
 //==========================================================
-// SECTION 8: QJ.DD.CORE & DIAGNOSTICS
+// SECTION 8: DocsDoodads.CORE & DIAGNOSTICS
 //==========================================================
-QJ.DD.Core = {
+DocsDoodads.Core = {
     version: pluginVersion,
     events: {},
 
@@ -877,15 +913,15 @@ QJ.DD.Core = {
 
     log() {
         if (devDiagnostics) {
-            console.log("[QJ.DD]", ...arguments);
+            console.log("[DocsDoodads]", ...arguments);
         }
     }
 };
 
 //==========================================================
-// SECTION 9: QJ.DD.COMPAT (MZ & MV ABSTRACTION)
+// SECTION 9: DocsDoodads.COMPAT (MZ & MV ABSTRACTION)
 //==========================================================
-QJ.DD.Compat = {
+DocsDoodads.Compat = {
     isMZ() {
         return typeof Utils !== 'undefined' && Utils.RPGMAKER_NAME === "MZ";
     },
@@ -972,9 +1008,9 @@ QJ.DD.Compat = {
 };
 
 //==========================================================
-// SECTION 10: QJ.DD.FS (FILESYSTEM, ATOMIC WRITES, BACKUPS)
+// SECTION 10: DocsDoodads.FS (FILESYSTEM, ATOMIC WRITES, BACKUPS)
 //==========================================================
-QJ.DD.FS = {
+DocsDoodads.FS = {
     fs: (typeof require !== 'undefined') ? require('fs') : null,
     path: (typeof require !== 'undefined') ? require('path') : null,
 
@@ -1002,7 +1038,7 @@ QJ.DD.FS = {
         try {
             JSON.parse(jsonStr);
         } catch(e) {
-            console.error("[QJ.DD.FS] Validation failed for atomic JSON write:", e);
+            console.error("[DocsDoodads.FS] Validation failed for atomic JSON write:", e);
             return false;
         }
         this.fs.writeFileSync(tmpPath, jsonStr, 'utf8');
@@ -1010,7 +1046,7 @@ QJ.DD.FS = {
         return true;
     },
 
-    createTimestampedBackup(filePath, backupDirectory = 'data/qj_asset_cache/backups') {
+    createTimestampedBackup(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
         if (!this.fs || !this.path || !this.existsSync(filePath)) return null;
         const cacheDir = backupDirectory;
         if (!this.existsSync(cacheDir)) {
@@ -1044,27 +1080,36 @@ QJ.DD.FS = {
 
     findLatestBackup(filePath) {
         if (!this.fs || !this.path) return null;
-        const cacheDir = 'data/qj_asset_cache/backups';
-        if (!this.existsSync(cacheDir)) return null;
         const baseName = this.path.basename(filePath);
-        const backups = this.fs.readdirSync(cacheDir)
-            .filter(f => f.startsWith(baseName) && f.endsWith('.bak'))
-            .map(f => ({ path: this.path.join(cacheDir, f), time: this.fs.statSync(this.path.join(cacheDir, f)).mtimeMs }))
-            .sort((a, b) => b.time - a.time);
+        const backups = [];
+        for (const cacheDir of ['data/docs_doodads_cache/backups', DocsDoodads.Legacy.backupDirectory]) {
+            if (!this.existsSync(cacheDir)) continue;
+            for (const f of this.fs.readdirSync(cacheDir)) {
+                if (f.startsWith(baseName) && f.endsWith('.bak')) {
+                    backups.push({ path: this.path.join(cacheDir, f), time: this.fs.statSync(this.path.join(cacheDir, f)).mtimeMs });
+                }
+            }
+        }
+        backups.sort((a, b) => b.time - a.time);
         return backups.length > 0 ? backups[0].path : null;
     },
 
-    listBackups(filePath, backupDirectory = 'data/qj_asset_cache/backups') {
-        if (!this.fs || !this.path || !this.existsSync(backupDirectory)) return [];
+    listBackups(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
+        if (!this.fs || !this.path) return [];
         const baseName = this.path.basename(filePath);
-        return this.fs.readdirSync(backupDirectory)
-            .filter(fileName => fileName.startsWith(baseName + '.') && fileName.endsWith('.bak'))
-            .map(fileName => {
-                const backupPath = this.path.join(backupDirectory, fileName);
+        const directories = [backupDirectory];
+        if (backupDirectory === 'data/docs_doodads_cache/backups') directories.push(DocsDoodads.Legacy.backupDirectory);
+        const backups = [];
+        for (const directory of directories) {
+            if (!this.existsSync(directory)) continue;
+            for (const fileName of this.fs.readdirSync(directory)) {
+                if (!fileName.startsWith(baseName + '.') || !fileName.endsWith('.bak')) continue;
+                const backupPath = this.path.join(directory, fileName);
                 const stat = this.fs.statSync(backupPath);
-                return { path: backupPath, name: fileName, mtimeMs: stat.mtimeMs, size: stat.size };
-            })
-            .sort((a, b) => b.mtimeMs - a.mtimeMs);
+                backups.push({ path: backupPath, name: fileName, mtimeMs: stat.mtimeMs, size: stat.size });
+            }
+        }
+        return backups.sort((a, b) => b.mtimeMs - a.mtimeMs);
     },
 
     atomicWriteManyJson(entries, options = {}) {
@@ -1091,7 +1136,7 @@ QJ.DD.FS = {
                 const json = indent ? JSON.stringify(entry.data, null, indent) : JSON.stringify(entry.data);
                 JSON.parse(json);
                 this.ensureDir(this.path.dirname(targetPath));
-                const temporary = `${targetPath}.qjtxn-${transactionId}-${index}.tmp`;
+                const temporary = `${targetPath}.ddtxn-${transactionId}-${index}.tmp`;
                 this.fs.writeFileSync(temporary, json, 'utf8');
                 prepared.push({ targetPath, temporary, existed: this.existsSync(targetPath), rollback: null });
             }
@@ -1099,7 +1144,7 @@ QJ.DD.FS = {
             for (let index = 0; index < prepared.length; index++) {
                 const item = prepared[index];
                 if (item.existed) {
-                    item.rollback = `${item.targetPath}.qjtxn-${transactionId}-${index}.rollback`;
+                    item.rollback = `${item.targetPath}.ddtxn-${transactionId}-${index}.rollback`;
                     this.fs.copyFileSync(item.targetPath, item.rollback);
                 }
                 rollbackRecords.push(item);
@@ -1144,7 +1189,7 @@ QJ.DD.FS = {
             return result;
         }
         try {
-            const backupDirectory = this.path.resolve(options.backupDir || 'data/qj_asset_cache/backups');
+            const backupDirectory = this.path.resolve(options.backupDir || 'data/docs_doodads_cache/backups');
             const resolvedBackup = this.path.resolve(backupPath);
             const resolvedTarget = this.path.resolve(filePath);
             const expectedPrefix = this.path.basename(resolvedTarget) + '.';
@@ -1182,14 +1227,18 @@ QJ.DD.FS = {
 
     readJson(filePath) {
         try {
-            if (!this.existsSync(filePath)) return null;
+            if (!this.existsSync(filePath)) {
+                const legacyPath = DocsDoodads.Legacy.pathFor(filePath);
+                if (!legacyPath || !this.existsSync(legacyPath)) return null;
+                filePath = legacyPath;
+            }
             return JSON.parse(this.readFileSync(filePath, 'utf8'));
         } catch(e) {
-            console.warn(`[QJ.DD.FS] Corrupt JSON encountered reading ${filePath}:`, e);
+            console.warn(`[DocsDoodads.FS] Corrupt JSON encountered reading ${filePath}:`, e);
             const fallback = this.findLatestBackup(filePath);
             if (fallback) {
                 try {
-                    console.warn(`[QJ.DD.FS] Automatically recovered ${filePath} from backup ${fallback}`);
+                    console.warn(`[DocsDoodads.FS] Automatically recovered ${filePath} from backup ${fallback}`);
                     return JSON.parse(this.readFileSync(fallback, 'utf8'));
                 } catch(e2) {}
             }
@@ -1205,10 +1254,10 @@ QJ.DD.FS = {
 };
 
 //==========================================================
-// SECTION 11: QJ.DD.ASSETINDEX & METADATA CACHE
+// SECTION 11: DocsDoodads.ASSETINDEX & METADATA CACHE
 //==========================================================
-QJ.DD.AssetIndex = {
-    libraryPath: 'data/QJAssetLibrary.json',
+DocsDoodads.AssetIndex = {
+    libraryPath: 'data/DocsDoodadsLibrary.json',
     supportedExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.ogg', '.m4a', '.wav']),
     roots: [
         'img/characters', 'img/doodads', 'img/tilesets', 'img/pictures',
@@ -1219,16 +1268,18 @@ QJ.DD.AssetIndex = {
     ],
     data: {
         version: 1,
-        projectId: "qj_project",
+        projectId: "docs_doodads_project",
         generatedAt: 0,
         assets: {},
         collections: {},
         settings: {}
     },
     list: [],
+    // Bump when indexFile derives new fields so unchanged files are re-indexed once.
+    entryRevision: 3,
 
     init() {
-        const loaded = QJ.DD.FS.readJson(this.libraryPath);
+        const loaded = DocsDoodads.FS.readJson(this.libraryPath);
         if (loaded && loaded.version === 1) {
             this.data = loaded;
         }
@@ -1239,13 +1290,38 @@ QJ.DD.AssetIndex = {
         this.list = Object.values(this.data.assets);
     },
 
+    isEntryCurrent(existing, stat) {
+        return Boolean(existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size &&
+            existing.entryRevision === this.entryRevision);
+    },
+
+    // Reads width/height from the PNG IHDR chunk without decoding the image.
+    readImageSize(fullPath) {
+        const fs = DocsDoodads.FS.fs;
+        let fd = null;
+        try {
+            fd = fs.openSync(fullPath, 'r');
+            const header = Buffer.alloc(24);
+            if (fs.readSync(fd, header, 0, 24, 0) < 24) return null;
+            const isPng = header.readUInt32BE(0) === 0x89504e47 && header.toString('ascii', 12, 16) === 'IHDR';
+            if (!isPng) return null;
+            return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) };
+        } catch (error) {
+            return null;
+        } finally {
+            if (fd !== null) {
+                try { fs.closeSync(fd); } catch (error) {}
+            }
+        }
+    },
+
     isSupportedAssetFile(filePath) {
-        if (!QJ.DD.FS.path) return false;
-        return this.supportedExtensions.has(QJ.DD.FS.path.extname(filePath).toLowerCase());
+        if (!DocsDoodads.FS.path) return false;
+        return this.supportedExtensions.has(DocsDoodads.FS.path.extname(filePath).toLowerCase());
     },
 
     scan() {
-        if (!QJ.DD.FS.fs) return;
+        if (!DocsDoodads.FS.fs) return;
         this.init();
         for (const r of this.roots) {
             this.scanDirectory(r);
@@ -1255,8 +1331,8 @@ QJ.DD.AssetIndex = {
     },
 
     async scanAsync(options = {}) {
-        const fs = QJ.DD.FS.fs;
-        const path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs;
+        const path = DocsDoodads.FS.path;
         const result = { cancelled: false, discovered: 0, indexed: 0, unchanged: 0, removed: 0, errors: [] };
         if (!fs || !path || !fs.promises) {
             result.errors.push('Filesystem access is unavailable.');
@@ -1303,7 +1379,7 @@ QJ.DD.AssetIndex = {
             try {
                 const stat = await fs.promises.stat(file.absolute);
                 const existing = this.data.assets[assetId];
-                if (existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size) {
+                if (this.isEntryCurrent(existing, stat)) {
                     result.unchanged++;
                 } else {
                     this.indexFile(file.absolute, path.basename(file.absolute), path.extname(file.absolute).toLowerCase(), assetPath, stat);
@@ -1342,13 +1418,13 @@ QJ.DD.AssetIndex = {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
-            QJ.DD.FS.atomicWriteJson(target, this.data);
+            DocsDoodads.FS.atomicWriteJson(target, this.data);
         }
         return result;
     },
 
     scanDirectory(dirPath) {
-        const fs = QJ.DD.FS.fs, path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
         if (!fs || !fs.existsSync(dirPath)) return;
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });
         for (const ent of entries) {
@@ -1365,13 +1441,13 @@ QJ.DD.AssetIndex = {
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
-        const fs = QJ.DD.FS.fs;
+        const fs = DocsDoodads.FS.fs;
         const stat = knownStat || fs.statSync(fullPath);
         const normalizedAssetPath = String(assetPath).replace(/\\/g, '/');
         const assetId = normalizedAssetPath.toLowerCase();
 
         let existing = this.data.assets[assetId];
-        if (existing && existing.mtimeMs === stat.mtimeMs && existing.sizeBytes === stat.size) {
+        if (this.isEntryCurrent(existing, stat)) {
             return;
         }
 
@@ -1388,6 +1464,7 @@ QJ.DD.AssetIndex = {
             extension: ext,
             mtimeMs: stat.mtimeMs,
             sizeBytes: stat.size,
+            entryRevision: this.entryRevision,
             width: 0,
             height: 0,
             tags: existing ? existing.tags : [],
@@ -1411,7 +1488,12 @@ QJ.DD.AssetIndex = {
         };
 
         if (['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
-            const known = QJ.DD.Slicing.Known.detect(newEntry);
+            const size = this.readImageSize(fullPath);
+            if (size) {
+                newEntry.width = size.width;
+                newEntry.height = size.height;
+            }
+            const known = DocsDoodads.Slicing.Known.detect(newEntry);
             if (known) {
                 newEntry.slice = known;
                 newEntry.width = known.width;
@@ -1428,6 +1510,10 @@ QJ.DD.AssetIndex = {
         if (lower.includes('img/doodads')) return 'Doodads';
         if (lower.includes('img/tilesets')) return 'Tilesets';
         if (lower.includes('img/pictures')) return 'Pictures';
+        if (lower.includes('img/faces')) return 'Faces';
+        if (/img\/(enemies|sv_enemies|sv_actors)\//.test(lower)) return 'Battlers';
+        if (/img\/(battlebacks1|battlebacks2|parallaxes|titles1|titles2)\//.test(lower)) return 'Backgrounds';
+        if (lower.includes('img/system')) return 'System';
         if (lower.includes('audio/')) return 'Audio';
         return 'Other';
     },
@@ -1458,7 +1544,16 @@ QJ.DD.AssetIndex = {
     },
 
     save() {
-        QJ.DD.FS.atomicWriteJson(this.libraryPath, this.data);
+        DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+    },
+
+    // Accepts "a, b ,a" style input; stores lowercase, trimmed, de-duplicated tags.
+    setTags(assetId, input) {
+        const asset = this.data.assets[assetId];
+        if (!asset) return;
+        const raw = Array.isArray(input) ? input : String(input || '').split(',');
+        asset.tags = [...new Set(raw.map(t => String(t).trim().toLowerCase().replace(/\s+/g, ' ')).filter(Boolean))];
+        this.save();
     },
 
     toggleFavorite(assetId) {
@@ -1529,9 +1624,9 @@ QJ.DD.AssetIndex = {
 };
 
 //==========================================================
-// SECTION 12: QJ.DD.SEARCH (TOKENIZED QUERY PARSER)
+// SECTION 12: DocsDoodads.SEARCH (TOKENIZED QUERY PARSER)
 //==========================================================
-QJ.DD.Search = {
+DocsDoodads.Search = {
     parseQuery(queryString) {
         const tokens = {
             terms: [],
@@ -1614,9 +1709,9 @@ QJ.DD.Search = {
 };
 
 //==========================================================
-// SECTION 13: QJ.DD.THUMBNAIL (COOPERATIVE BACKGROUND QUEUE)
+// SECTION 13: DocsDoodads.THUMBNAIL (COOPERATIVE BACKGROUND QUEUE)
 //==========================================================
-QJ.DD.Thumbnail = {
+DocsDoodads.Thumbnail = {
     cache: {},
     cacheOrder: [],
     maxCacheSize: 500,
@@ -1639,7 +1734,7 @@ QJ.DD.Thumbnail = {
 
     getDiskPath(key) {
         const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
-        return `data/qj_asset_cache/thumbnails/${safeKey}.txt`;
+        return `data/docs_doodads_cache/thumbnails/${safeKey}.txt`;
     },
 
     get(asset, size = 96, callback) {
@@ -1657,11 +1752,11 @@ QJ.DD.Thumbnail = {
         }
 
         // 2. Disk Cache check
-        if (cacheEnabled && QJ.DD.FS.existsSync) {
+        if (cacheEnabled && DocsDoodads.FS.existsSync) {
             const diskFile = this.getDiskPath(key);
-            if (QJ.DD.FS.existsSync(diskFile)) {
+            if (DocsDoodads.FS.existsSync(diskFile)) {
                 try {
-                    const cachedData = QJ.DD.FS.readFileSync(diskFile, 'utf8');
+                    const cachedData = DocsDoodads.FS.readFileSync(diskFile, 'utf8');
                     if (cachedData && cachedData.startsWith('data:image')) {
                         this.setCache(key, cachedData);
                         callback(cachedData);
@@ -1688,13 +1783,13 @@ QJ.DD.Thumbnail = {
         this.cache = {};
         this.cacheOrder = [];
         this.queue = [];
-        if (QJ.DD.FS.fs) {
-            const dir = 'data/qj_asset_cache/thumbnails';
-            if (QJ.DD.FS.existsSync(dir)) {
+        if (DocsDoodads.FS.fs) {
+            const dir = 'data/docs_doodads_cache/thumbnails';
+            if (DocsDoodads.FS.existsSync(dir)) {
                 try {
-                    const files = QJ.DD.FS.fs.readdirSync(dir);
+                    const files = DocsDoodads.FS.fs.readdirSync(dir);
                     for (const f of files) {
-                        QJ.DD.FS.fs.unlinkSync(`${dir}/${f}`);
+                        DocsDoodads.FS.fs.unlinkSync(`${dir}/${f}`);
                     }
                 } catch(e) {}
             }
@@ -1713,12 +1808,12 @@ QJ.DD.Thumbnail = {
                 job.callback(dataUrl);
 
                 // Write to disk cache
-                if (cacheEnabled && QJ.DD.FS.fs && dataUrl) {
+                if (cacheEnabled && DocsDoodads.FS.fs && dataUrl) {
                     const diskFile = this.getDiskPath(job.key);
                     try {
-                        const dir = 'data/qj_asset_cache/thumbnails';
-                        if (!QJ.DD.FS.existsSync(dir)) QJ.DD.FS.mkdirp(dir);
-                        QJ.DD.FS.writeFileSync(diskFile, dataUrl, 'utf8');
+                        const dir = 'data/docs_doodads_cache/thumbnails';
+                        if (!DocsDoodads.FS.existsSync(dir)) DocsDoodads.FS.mkdirp(dir);
+                        DocsDoodads.FS.writeFileSync(diskFile, dataUrl, 'utf8');
                     } catch(e) {}
                 }
             });
@@ -1786,12 +1881,12 @@ QJ.DD.Thumbnail = {
 
 
 //==========================================================
-// SECTION 14: QJ.DD.SLICING (KNOWN, GRID, METADATA, VISUAL)
+// SECTION 14: DocsDoodads.SLICING (KNOWN, GRID, METADATA, VISUAL)
 //==========================================================
-QJ.DD.Slicing = {};
+DocsDoodads.Slicing = {};
 
 // 14.1 Known RPG Maker MZ Detection
-QJ.DD.Slicing.Known = {
+DocsDoodads.Slicing.Known = {
     detect(asset) {
         const path = (asset.path || "").toLowerCase();
         const fileName = asset.fileName || "";
@@ -1886,7 +1981,7 @@ QJ.DD.Slicing.Known = {
 };
 
 // 14.2 Divisor Fixed Grid Slicing
-QJ.DD.Slicing.Grid = {
+DocsDoodads.Slicing.Grid = {
     findCandidates(width, height) {
         const candidates = [];
         const commonCellSizes = [16, 24, 32, 48, 64, 96, 128];
@@ -1923,9 +2018,9 @@ QJ.DD.Slicing.Grid = {
 };
 
 // 14.3 Sidecar Atlas Metadata Parsers
-QJ.DD.Slicing.Metadata = {
+DocsDoodads.Slicing.Metadata = {
     parse(imagePath) {
-        const fs = QJ.DD.FS.fs;
+        const fs = DocsDoodads.FS.fs;
         if (!fs) return null;
         const candidates = [
             imagePath.replace(/\.[^/.]+$/, '.saf.json'),
@@ -1998,14 +2093,14 @@ QJ.DD.Slicing.Metadata = {
                 animationGroups
             };
         } catch (error) {
-            QJ.DD.Core.log('Atlas sidecar parse failed.', jsonPath, error);
+            DocsDoodads.Core.log('Atlas sidecar parse failed.', jsonPath, error);
             return null;
         }
     }
 };
 
-// 14.4 Sprite Atlas Forge-Inspired Visual Auto-Slicer
-QJ.DD.Slicing.Visual = {
+// 14.4 Visual Auto-Slicer
+DocsDoodads.Slicing.Visual = {
     analyze(imageElement, options = {}) {
         if (typeof document === 'undefined') return { status: "none", regions: [] };
         const canvas = document.createElement('canvas');
@@ -2414,9 +2509,9 @@ QJ.DD.Slicing.Visual = {
 };
 
 //==========================================================
-// SECTION 15: QJ.DD.EXPORT (PNG SLICE EXPORTER)
+// SECTION 15: DocsDoodads.EXPORT (PNG SLICE EXPORTER)
 //==========================================================
-QJ.DD.Export = {
+DocsDoodads.Export = {
     safeFileName(name) {
         const baseName = String(name || 'slice').split(/[\\/]/).pop();
         return baseName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/^\.+$/, 'slice');
@@ -2445,7 +2540,7 @@ QJ.DD.Export = {
     },
 
     exportSlices(asset, targetDir) {
-        const fs = QJ.DD.FS.fs, path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
         if (!fs || !path) return false;
         if (!asset.slice || !asset.slice.regions || asset.slice.regions.length === 0) {
             alert("No slice regions defined for this asset.");
@@ -2453,7 +2548,7 @@ QJ.DD.Export = {
         }
 
         const outDir = targetDir || path.join('img', 'doodads', 'sliced_' + asset.fileName.replace(/\.[^/.]+$/, ""));
-        QJ.DD.FS.mkdirp(outDir);
+        DocsDoodads.FS.mkdirp(outDir);
 
         const img = new Image();
         img.src = asset.path;
@@ -2489,7 +2584,7 @@ QJ.DD.Export = {
                 fs.writeFileSync(path.join(outDir, sliceFileName), buffer);
                 count++;
             }
-            QJ.DD.Workspace.showToast(`Exported ${count} slices to ${outDir}`);
+            DocsDoodads.Workspace.showToast(`Exported ${count} slices to ${outDir}`);
         };
         return true;
     }
@@ -2497,9 +2592,9 @@ QJ.DD.Export = {
 
 
 //==========================================================
-// SECTION 16: QJ.DD.SLICING.EDITOR (FULL INTERACTIVE MODAL)
+// SECTION 16: DocsDoodads.SLICING.EDITOR (FULL INTERACTIVE MODAL)
 //==========================================================
-QJ.DD.Slicing.Editor = {
+DocsDoodads.Slicing.Editor = {
     modal: null,
     asset: null,
     img: null,
@@ -2570,14 +2665,14 @@ QJ.DD.Slicing.Editor = {
     },
 
     updateUndoButtons() {
-        const uBtn = document.getElementById('qj-slicer-undo');
-        const rBtn = document.getElementById('qj-slicer-redo');
+        const uBtn = document.getElementById('dd-slicer-undo');
+        const rBtn = document.getElementById('dd-slicer-redo');
         if (uBtn) uBtn.style.opacity = this.undoStack.length > 0 ? '1' : '0.5';
         if (rBtn) rBtn.style.opacity = this.redoStack.length > 0 ? '1' : '0.5';
     },
 
     fitToScreen() {
-        const vp = document.getElementById('qj-slicer-canvas-container');
+        const vp = document.getElementById('dd-slicer-canvas-container');
         if (!vp || !this.img) return;
         const availW = vp.clientWidth - 40;
         const availH = vp.clientHeight - 40;
@@ -2594,8 +2689,8 @@ QJ.DD.Slicing.Editor = {
         }
 
         const modal = document.createElement('div');
-        modal.id = 'qj-slicer-modal-root';
-        modal.className = 'qj-glass';
+        modal.id = 'dd-slicer-modal-root';
+        modal.className = 'dd-glass';
         modal.style.cssText = `
             position: fixed; top: 20px; left: 20px; right: 20px; bottom: 20px;
             z-index: 10005; display: flex; flex-direction: column; overflow: hidden;
@@ -2608,42 +2703,42 @@ QJ.DD.Slicing.Editor = {
             <div style="height: 48px; background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; padding: 0 16px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-weight: bold; color: #60a5fa; font-size: 13px;">SLICER: ${escapeHtml(this.asset.fileName)}</span>
-                    <button class="qj-btn" id="qj-slicer-undo" title="Undo (Ctrl+Z)">Undo</button>
-                    <button class="qj-btn" id="qj-slicer-redo" title="Redo (Ctrl+Y)">Redo</button>
+                    <button class="dd-btn" id="dd-slicer-undo" title="Undo (Ctrl+Z)">Undo</button>
+                    <button class="dd-btn" id="dd-slicer-redo" title="Redo (Ctrl+Y)">Redo</button>
                     <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                    <button class="qj-btn qj-btn-primary" id="qj-slicer-saf-btn" title="Run Sprite Atlas Forge Visual Detection">SAF Auto-Slice</button>
-                    <button class="qj-btn" id="qj-slicer-grid-btn" title="Slice into fixed grid">Fixed Grid</button>
-                    <button class="qj-btn" id="qj-slicer-add-btn" title="Add region">Add Box</button>
-                    <button class="qj-btn" id="qj-slicer-del-btn" title="Delete selected region">Delete</button>
-                    <button class="qj-btn" id="qj-slicer-dup-btn" title="Duplicate selected">Duplicate</button>
+                    <button class="dd-btn dd-btn-primary" id="dd-slicer-auto-btn" title="Detect sprite regions automatically">Auto-Slice</button>
+                    <button class="dd-btn" id="dd-slicer-grid-btn" title="Slice into fixed grid">Fixed Grid</button>
+                    <button class="dd-btn" id="dd-slicer-add-btn" title="Add region">Add Box</button>
+                    <button class="dd-btn" id="dd-slicer-del-btn" title="Delete selected region">Delete</button>
+                    <button class="dd-btn" id="dd-slicer-dup-btn" title="Duplicate selected">Duplicate</button>
                     <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                    <button class="qj-btn" id="qj-slicer-splitv-btn" title="Split vertical">Split Vert</button>
-                    <button class="qj-btn" id="qj-slicer-splith-btn" title="Split horizontal">Split Horz</button>
-                    <button class="qj-btn" id="qj-slicer-export-btn" title="Export individual PNG files">Export PNGs</button>
+                    <button class="dd-btn" id="dd-slicer-splitv-btn" title="Split vertical">Split Vert</button>
+                    <button class="dd-btn" id="dd-slicer-splith-btn" title="Split horizontal">Split Horz</button>
+                    <button class="dd-btn" id="dd-slicer-export-btn" title="Export individual PNG files">Export PNGs</button>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <button class="qj-btn qj-btn-primary" id="qj-slicer-save-btn">Save Slices</button>
-                    <button class="qj-btn" id="qj-slicer-close-btn" style="background: #ef4444; border-color: #dc2626;">Close</button>
+                    <button class="dd-btn dd-btn-primary" id="dd-slicer-save-btn">Save Slices</button>
+                    <button class="dd-btn" id="dd-slicer-close-btn" style="background: #ef4444; border-color: #dc2626;">Close</button>
                 </div>
             </div>
 
             <!-- Workspace Body: Left Canvas Viewport + Right Region List -->
             <div style="flex: 1; display: flex; overflow: hidden; position: relative;">
                 <!-- Canvas Container -->
-                <div id="qj-slicer-canvas-container" style="flex: 1; background: #0b0f19; overflow: hidden; position: relative; cursor: default;">
-                    <canvas id="qj-slicer-interactive-canvas" style="position: absolute; top: 0; left: 0;"></canvas>
+                <div id="dd-slicer-canvas-container" style="flex: 1; background: #0b0f19; overflow: hidden; position: relative; cursor: default;">
+                    <canvas id="dd-slicer-interactive-canvas" style="position: absolute; top: 0; left: 0;"></canvas>
                 </div>
 
                 <!-- Right Sidebar: Region List & Inspector -->
                 <div style="width: 320px; background: rgba(15, 23, 42, 0.95); border-left: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; overflow: hidden;">
                     <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: bold; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between;">
-                        <span>REGIONS (<span id="qj-region-count">0</span>)</span>
-                        <span id="qj-slicer-zoom-indicator" style="color: #60a5fa;">100%</span>
+                        <span>REGIONS (<span id="dd-region-count">0</span>)</span>
+                        <span id="dd-slicer-zoom-indicator" style="color: #60a5fa;">100%</span>
                     </div>
-                    <div id="qj-region-list" style="flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+                    <div id="dd-region-list" style="flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
                     <!-- Selected Region Properties -->
-                    <div id="qj-region-inspector" style="padding: 12px; background: #111827; border-top: 1px solid rgba(255,255,255,0.1); font-size: 11px;">
+                    <div id="dd-region-inspector" style="padding: 12px; background: #111827; border-top: 1px solid rgba(255,255,255,0.1); font-size: 11px;">
                         <div style="color: #64748b; text-align: center;">No region selected</div>
                     </div>
                 </div>
@@ -2651,27 +2746,31 @@ QJ.DD.Slicing.Editor = {
 
             <!-- Bottom Status Bar -->
             <div style="height: 26px; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 11px; color: #64748b;">
-                <span id="qj-slicer-hint">Mouse Wheel: Zoom (25%-1600%) | Space+Drag / Middle Click: Pan | Drag handle: Resize | Drag inside: Move | Drag empty: Create</span>
-                <span id="qj-slicer-img-dim">${this.img.naturalWidth} x ${this.img.naturalHeight} px</span>
+                <span id="dd-slicer-hint">Mouse Wheel: Zoom (25%-1600%) | Space+Drag / Middle Click: Pan | Drag handle: Resize | Drag inside: Move | Drag empty: Create</span>
+                <span id="dd-slicer-img-dim">${this.img.naturalWidth} x ${this.img.naturalHeight} px</span>
             </div>
         `;
 
         document.body.appendChild(modal);
         this.modal = modal;
 
-        this.canvas = document.getElementById('qj-slicer-interactive-canvas');
+        this.canvas = document.getElementById('dd-slicer-interactive-canvas');
         this.ctx = this.canvas.getContext('2d');
-        const container = document.getElementById('qj-slicer-canvas-container');
+        const container = document.getElementById('dd-slicer-canvas-container');
         this.canvas.width = container.clientWidth;
         this.canvas.height = container.clientHeight;
 
-        window.addEventListener('resize', () => {
-            if (this.modal && container) {
-                this.canvas.width = container.clientWidth;
-                this.canvas.height = container.clientHeight;
-                this.render();
-            }
-        });
+        if (!this._windowResizeListenerBound) {
+            this._windowResizeListenerBound = true;
+            window.addEventListener('resize', () => {
+                const current = document.getElementById('dd-slicer-canvas-container');
+                if (this.modal && current) {
+                    this.canvas.width = current.clientWidth;
+                    this.canvas.height = current.clientHeight;
+                    this.render();
+                }
+            });
+        }
 
         this.bindEvents();
         this.updateRegionList();
@@ -2679,38 +2778,38 @@ QJ.DD.Slicing.Editor = {
     },
 
     bindEvents() {
-        const container = document.getElementById('qj-slicer-canvas-container');
+        const container = document.getElementById('dd-slicer-canvas-container');
 
         // Close & Save
-        document.getElementById('qj-slicer-close-btn').onclick = () => this.close();
-        document.getElementById('qj-slicer-save-btn').onclick = () => {
+        document.getElementById('dd-slicer-close-btn').onclick = () => this.close();
+        document.getElementById('dd-slicer-save-btn').onclick = () => {
             this.asset.slice.regions = this.regions;
             this.asset.slice.status = "manual";
-            QJ.DD.AssetIndex.save();
-            QJ.DD.Workspace.refreshDrawerCards();
-            QJ.DD.Workspace.showToast("Slice Regions Saved!");
+            DocsDoodads.AssetIndex.save();
+            DocsDoodads.Workspace.refreshDrawerCards();
+            DocsDoodads.Workspace.showToast("Slice Regions Saved!");
             this.close();
         };
 
         // Undo & Redo
-        document.getElementById('qj-slicer-undo').onclick = () => this.undo();
-        document.getElementById('qj-slicer-redo').onclick = () => this.redo();
+        document.getElementById('dd-slicer-undo').onclick = () => this.undo();
+        document.getElementById('dd-slicer-redo').onclick = () => this.redo();
 
-        // SAF Auto-slice
-        document.getElementById('qj-slicer-saf-btn').onclick = () => {
+        // Visual auto-slice
+        document.getElementById('dd-slicer-auto-btn').onclick = () => {
             this.saveState();
-            const res = QJ.DD.Slicing.Visual.analyze(this.img);
+            const res = DocsDoodads.Slicing.Visual.analyze(this.img);
             this.regions = res.regions;
             this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
             this.render();
             this.updateRegionList();
             const confidence = Math.round((Number(res.confidence) || 0) * 100);
             const verdict = res.status === 'review' ? 'Review required' : 'Auto-slice complete';
-            QJ.DD.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
+            DocsDoodads.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
         };
 
         // Fixed Grid
-        document.getElementById('qj-slicer-grid-btn').onclick = () => {
+        document.getElementById('dd-slicer-grid-btn').onclick = () => {
             const input = prompt("Enter grid columns and rows (e.g. 8x4):", "4x2");
             if (!input) return;
             const parts = input.split(/[xX, ]+/);
@@ -2719,17 +2818,17 @@ QJ.DD.Slicing.Editor = {
                 const rows = parseInt(parts[1], 10);
                 if (cols > 0 && rows > 0) {
                     this.saveState();
-                    this.regions = QJ.DD.Slicing.Grid.sliceToGrid(this.img.naturalWidth, this.img.naturalHeight, cols, rows);
+                    this.regions = DocsDoodads.Slicing.Grid.sliceToGrid(this.img.naturalWidth, this.img.naturalHeight, cols, rows);
                     this.selectedRegionIdx = 0;
                     this.render();
                     this.updateRegionList();
-                    QJ.DD.Workspace.showToast(`Sliced into ${cols}x${rows} Grid!`);
+                    DocsDoodads.Workspace.showToast(`Sliced into ${cols}x${rows} Grid!`);
                 }
             }
         };
 
         // Add, Delete, Duplicate
-        document.getElementById('qj-slicer-add-btn').onclick = () => {
+        document.getElementById('dd-slicer-add-btn').onclick = () => {
             this.saveState();
             const newReg = {
                 id: 'reg_' + Date.now(),
@@ -2745,7 +2844,7 @@ QJ.DD.Slicing.Editor = {
             this.updateRegionList();
         };
 
-        document.getElementById('qj-slicer-del-btn').onclick = () => {
+        document.getElementById('dd-slicer-del-btn').onclick = () => {
             if (this.selectedRegionIdx >= 0 && this.selectedRegionIdx < this.regions.length) {
                 this.saveState();
                 this.regions.splice(this.selectedRegionIdx, 1);
@@ -2755,7 +2854,7 @@ QJ.DD.Slicing.Editor = {
             }
         };
 
-        document.getElementById('qj-slicer-dup-btn').onclick = () => {
+        document.getElementById('dd-slicer-dup-btn').onclick = () => {
             if (this.selectedRegionIdx >= 0 && this.selectedRegionIdx < this.regions.length) {
                 this.saveState();
                 const cur = this.regions[this.selectedRegionIdx];
@@ -2771,7 +2870,7 @@ QJ.DD.Slicing.Editor = {
         };
 
         // Split
-        document.getElementById('qj-slicer-splitv-btn').onclick = () => {
+        document.getElementById('dd-slicer-splitv-btn').onclick = () => {
             if (this.selectedRegionIdx >= 0 && this.selectedRegionIdx < this.regions.length) {
                 this.saveState();
                 const cur = this.regions[this.selectedRegionIdx];
@@ -2784,7 +2883,7 @@ QJ.DD.Slicing.Editor = {
             }
         };
 
-        document.getElementById('qj-slicer-splith-btn').onclick = () => {
+        document.getElementById('dd-slicer-splith-btn').onclick = () => {
             if (this.selectedRegionIdx >= 0 && this.selectedRegionIdx < this.regions.length) {
                 this.saveState();
                 const cur = this.regions[this.selectedRegionIdx];
@@ -2797,9 +2896,9 @@ QJ.DD.Slicing.Editor = {
             }
         };
 
-        document.getElementById('qj-slicer-export-btn').onclick = () => {
+        document.getElementById('dd-slicer-export-btn').onclick = () => {
             this.asset.slice.regions = this.regions;
-            QJ.DD.Export.exportSlices(this.asset);
+            DocsDoodads.Export.exportSlices(this.asset);
         };
 
         // Mouse interactions on Canvas
@@ -2817,7 +2916,7 @@ QJ.DD.Slicing.Editor = {
             this.panY = mouseY - (mouseY - this.panY) * (newZoom / this.zoom);
             this.zoom = newZoom;
 
-            const ind = document.getElementById('qj-slicer-zoom-indicator');
+            const ind = document.getElementById('dd-slicer-zoom-indicator');
             if (ind) ind.textContent = Math.round(this.zoom * 100) + '%';
             this.render();
         });
@@ -2984,22 +3083,30 @@ QJ.DD.Slicing.Editor = {
             }
         });
 
-        // Keyboard shortcuts in slicer
-        window.addEventListener('keydown', (e) => {
-            if (!this.modal) return;
-            if (e.key === 'Escape') {
-                this.close();
-            } else if (e.key === 'Delete' || e.key === 'Backspace') {
-                document.getElementById('qj-slicer-del-btn').click();
-            } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-                this.undo();
-            } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-                this.redo();
-            } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
-                e.preventDefault();
-                document.getElementById('qj-slicer-dup-btn').click();
-            }
-        });
+        // bindEvents runs on every open; window listeners must only be registered once.
+        if (!this._windowKeyListenerBound) {
+            this._windowKeyListenerBound = true;
+            window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        }
+    },
+
+    handleKeyDown(e) {
+        if (!this.modal) return;
+        if (e.key === 'Escape') {
+            this.close();
+            return;
+        }
+        if (DocsDoodads.isEditableTarget(e.target)) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            document.getElementById('dd-slicer-del-btn').click();
+        } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+            this.undo();
+        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+            this.redo();
+        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
+            e.preventDefault();
+            document.getElementById('dd-slicer-dup-btn').click();
+        }
     },
 
     snapCoordX(x, w) {
@@ -3231,16 +3338,16 @@ QJ.DD.Slicing.Editor = {
     },
 
     updateRegionList() {
-        const countEl = document.getElementById('qj-region-count');
+        const countEl = document.getElementById('dd-region-count');
         if (countEl) countEl.textContent = this.regions.length;
-        const listEl = document.getElementById('qj-region-list');
+        const listEl = document.getElementById('dd-region-list');
         if (!listEl) return;
         listEl.innerHTML = '';
 
         for (let i = 0; i < this.regions.length; i++) {
             const r = this.regions[i];
             const item = document.createElement('div');
-            item.className = 'qj-btn' + (i === this.selectedRegionIdx ? ' qj-btn-active' : '');
+            item.className = 'dd-btn' + (i === this.selectedRegionIdx ? ' dd-btn-active' : '');
             item.style.cssText = `
                 display: flex; align-items: center; justify-content: space-between;
                 padding: 6px 8px; font-size: 11px; text-align: left;
@@ -3263,7 +3370,7 @@ QJ.DD.Slicing.Editor = {
     },
 
     updateInspectorValues() {
-        const insp = document.getElementById('qj-region-inspector');
+        const insp = document.getElementById('dd-region-inspector');
         if (!insp) return;
         if (this.selectedRegionIdx < 0 || this.selectedRegionIdx >= this.regions.length) {
             insp.innerHTML = '<div style="color: #64748b; text-align: center;">No region selected</div>';
@@ -3276,44 +3383,44 @@ QJ.DD.Slicing.Editor = {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                 <div>
                     <label style="color: #94a3b8; font-size: 10px;">X:</label>
-                    <input type="number" id="qj-insp-rx" value="${r.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <input type="number" id="dd-insp-rx" value="${r.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                 </div>
                 <div>
                     <label style="color: #94a3b8; font-size: 10px;">Y:</label>
-                    <input type="number" id="qj-insp-ry" value="${r.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <input type="number" id="dd-insp-ry" value="${r.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                 </div>
                 <div>
                     <label style="color: #94a3b8; font-size: 10px;">Width:</label>
-                    <input type="number" id="qj-insp-rw" value="${r.w}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <input type="number" id="dd-insp-rw" value="${r.w}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                 </div>
                 <div>
                     <label style="color: #94a3b8; font-size: 10px;">Height:</label>
-                    <input type="number" id="qj-insp-rh" value="${r.h}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <input type="number" id="dd-insp-rh" value="${r.h}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                 </div>
             </div>
             <div style="margin-top: 6px;">
                 <label style="color: #94a3b8; font-size: 10px;">Name:</label>
-                <input type="text" id="qj-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                <input type="text" id="dd-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
                 <div>
                     <label style="color: #94a3b8; font-size: 10px;">Pivot X:</label>
-                    <input type="number" step="0.1" id="qj-insp-pivx" value="${r.pivotX !== undefined ? r.pivotX : 0.5}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <input type="number" step="0.1" id="dd-insp-pivx" value="${r.pivotX !== undefined ? r.pivotX : 0.5}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                 </div>
                 <div>
                     <label style="color: #94a3b8; font-size: 10px;">Pivot Y:</label>
-                    <input type="number" step="0.1" id="qj-insp-pivy" value="${r.pivotY !== undefined ? r.pivotY : 1.0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <input type="number" step="0.1" id="dd-insp-pivy" value="${r.pivotY !== undefined ? r.pivotY : 1.0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                 </div>
             </div>
         `;
 
-        const rx = document.getElementById('qj-insp-rx');
-        const ry = document.getElementById('qj-insp-ry');
-        const rw = document.getElementById('qj-insp-rw');
-        const rh = document.getElementById('qj-insp-rh');
-        const rname = document.getElementById('qj-insp-name');
-        const pivx = document.getElementById('qj-insp-pivx');
-        const pivy = document.getElementById('qj-insp-pivy');
+        const rx = document.getElementById('dd-insp-rx');
+        const ry = document.getElementById('dd-insp-ry');
+        const rw = document.getElementById('dd-insp-rw');
+        const rh = document.getElementById('dd-insp-rh');
+        const rname = document.getElementById('dd-insp-name');
+        const pivx = document.getElementById('dd-insp-pivx');
+        const pivy = document.getElementById('dd-insp-pivy');
 
         const applyInputs = () => {
             r.x = parseInt(rx.value, 10) || 0;
@@ -3321,8 +3428,10 @@ QJ.DD.Slicing.Editor = {
             r.w = Math.max(4, parseInt(rw.value, 10) || 4);
             r.h = Math.max(4, parseInt(rh.value, 10) || 4);
             r.name = rname.value;
-            r.pivotX = parseFloat(pivx.value) || 0.5;
-            r.pivotY = parseFloat(pivy.value) || 1.0;
+            // 0 is a valid pivot (left/top edge); only blank or invalid input falls back.
+            const px = parseFloat(pivx.value), py = parseFloat(pivy.value);
+            r.pivotX = Number.isFinite(px) ? px : 0.5;
+            r.pivotY = Number.isFinite(py) ? py : 1.0;
             this.render();
         };
 
@@ -3345,9 +3454,9 @@ QJ.DD.Slicing.Editor = {
 
 
 //==========================================================
-// SECTION 17: QJ.DD.EVENTS (REAL MZ EVENT CREATOR)
+// SECTION 17: DocsDoodads.EVENTS (REAL MZ EVENT CREATOR)
 //==========================================================
-QJ.DD.Events = {
+DocsDoodads.Events = {
     allocateSafeId(mapData) {
         if (!mapData || !mapData.events) return 1;
         const events = mapData.events;
@@ -3377,7 +3486,8 @@ QJ.DD.Events = {
                     directionFix: options.directionFix !== undefined ? options.directionFix : false,
                     image: {
                         characterIndex: options.characterIndex !== undefined ? options.characterIndex : 0,
-                        characterName: options.characterName || "",
+                        // MZ ImageManager appends ".png" itself.
+                        characterName: String(options.characterName || "").replace(/\.png$/i, ""),
                         direction: options.direction || 2,
                         pattern: options.pattern || 1,
                         tileId: 0
@@ -3400,10 +3510,10 @@ QJ.DD.Events = {
 };
 
 //==========================================================
-// SECTION 18: QJ.DD.EVENTTEMPLATES (ALL 20 BUILT-INS + CUSTOM)
+// SECTION 18: DocsDoodads.EVENTTEMPLATES (ALL 20 BUILT-INS + CUSTOM)
 //==========================================================
-QJ.DD.EventTemplates = {
-    customPath: 'data/QJEventTemplates.json',
+DocsDoodads.EventTemplates = {
+    customPath: 'data/DocsDoodadsEventTemplates.json',
     templates: {
         npc: {
             name: "NPC (Talkable)",
@@ -3599,7 +3709,7 @@ QJ.DD.EventTemplates = {
     },
 
     init() {
-        const custom = QJ.DD.FS.readJson(this.customPath);
+        const custom = DocsDoodads.FS.readJson(this.customPath);
         if (custom) {
             Object.assign(this.templates, custom);
         }
@@ -3625,20 +3735,20 @@ QJ.DD.EventTemplates = {
         };
         this.templates[key] = tmpl;
 
-        let customData = QJ.DD.FS.readJson(this.customPath) || {};
+        let customData = DocsDoodads.FS.readJson(this.customPath) || {};
         customData[key] = tmpl;
-        QJ.DD.FS.atomicWriteJson(this.customPath, customData);
+        DocsDoodads.FS.atomicWriteJson(this.customPath, customData);
         return key;
     }
 };
 
-QJ.DD.EventTemplates.init();
+DocsDoodads.EventTemplates.init();
 
 
 //==========================================================
-// SECTION 19: QJ.DD.COLLISION (PRESETS & SAT RUNTIME)
+// SECTION 19: DocsDoodads.COLLISION (PRESETS & SAT RUNTIME)
 //==========================================================
-QJ.DD.Collision = {
+DocsDoodads.Collision = {
     presets: {
         none: null,
         full: { x: 0, y: 0, w: 1, h: 1 },
@@ -3661,18 +3771,18 @@ if (typeof Game_CharacterBase !== 'undefined') {
     Game_CharacterBase.prototype.canPass = function(x, y, d) {
         if (!_Game_CharacterBase_canPass.apply(this, arguments)) return false;
 
-        const doodads = QJ.DD.doodads();
+        const doodads = DocsDoodads.doodads();
         if (!doodads || doodads.length === 0) return true;
 
         const targetMapX = $gameMap.roundXWithDirection(x, d);
         const targetMapY = $gameMap.roundYWithDirection(y, d);
         const targetPx = targetMapX * 48 + 24;
         const targetPy = targetMapY * 48 + 24;
-        const playerSATBox = QJ.DD.box(targetPx, targetPy, 32, 32);
+        const playerSATBox = DocsDoodads.box(targetPx, targetPy, 32, 32);
 
         for (const dData of doodads) {
             if (dData.collision && dData.collision.preset !== "none") {
-                const shape = dData.collision.shape || QJ.DD.Collision.getPresetShape(dData.collision.preset);
+                const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
                 if (shape) {
                     const dw = (dData.frameW || 48) * (dData.scaleX || 1);
                     const dh = (dData.frameH || 48) * (dData.scaleY || 1);
@@ -3687,8 +3797,8 @@ if (typeof Game_CharacterBase !== 'undefined') {
                     const colW = shape.w * dw;
                     const colH = shape.h * dh;
 
-                    const colBody = QJ.DD.box(colX, colY, colW, colH);
-                    if (QJ.DD.judge(colBody, playerSATBox)) {
+                    const colBody = DocsDoodads.box(colX, colY, colW, colH);
+                    if (DocsDoodads.judge(colBody, playerSATBox)) {
                         return false;
                     }
                 }
@@ -3699,9 +3809,9 @@ if (typeof Game_CharacterBase !== 'undefined') {
 }
 
 //==========================================================
-// SECTION 20: QJ.DD.UNDO (COMMAND-BASED HISTORY STACK)
+// SECTION 20: DocsDoodads.UNDO (COMMAND-BASED HISTORY STACK)
 //==========================================================
-QJ.DD.Undo = {
+DocsDoodads.Undo = {
     undoStack: [],
     redoStack: [],
     maxDepth: 300,
@@ -3712,7 +3822,7 @@ QJ.DD.Undo = {
         this.undoStack.push(command);
         if (this.undoStack.length > this.maxDepth) this.undoStack.shift();
         this.redoStack = [];
-        QJ.DD.Workspace.updateUndoButtons();
+        DocsDoodads.Workspace.updateUndoButtons();
     },
 
     undo() {
@@ -3720,7 +3830,7 @@ QJ.DD.Undo = {
         const cmd = this.undoStack.pop();
         cmd.revert();
         this.redoStack.push(cmd);
-        QJ.DD.Workspace.updateUndoButtons();
+        DocsDoodads.Workspace.updateUndoButtons();
         if (typeof SoundManager !== 'undefined') SoundManager.playCancel();
         return true;
     },
@@ -3730,16 +3840,16 @@ QJ.DD.Undo = {
         const cmd = this.redoStack.pop();
         cmd.apply();
         this.undoStack.push(cmd);
-        QJ.DD.Workspace.updateUndoButtons();
+        DocsDoodads.Workspace.updateUndoButtons();
         if (typeof SoundManager !== 'undefined') SoundManager.playOk();
         return true;
     }
 };
 
 //==========================================================
-// SECTION 21: QJ.DD.PERSISTENCE & RECOVERY
+// SECTION 21: DocsDoodads.PERSISTENCE & RECOVERY
 //==========================================================
-QJ.DD.Persistence = {
+DocsDoodads.Persistence = {
     sessionSnapshots: {},
     dirtyMap: false,
     dirtyDoodads: false,
@@ -3747,7 +3857,7 @@ QJ.DD.Persistence = {
     captureSession() {
         if (!window.$gameMap) return;
         const mapFile = `data/Map${String($gameMap.mapId()).padStart(3, '0')}.json`;
-        this.sessionSnapshots[mapFile] = QJ.DD.FS.stat(mapFile);
+        this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
     },
 
     checkConflict() {
@@ -3755,7 +3865,7 @@ QJ.DD.Persistence = {
         const mapFile = `data/Map${String($gameMap.mapId()).padStart(3, '0')}.json`;
         const snap = this.sessionSnapshots[mapFile];
         if (!snap) return false;
-        const current = QJ.DD.FS.stat(mapFile);
+        const current = DocsDoodads.FS.stat(mapFile);
         if (!current) return false;
         return current.mtimeMs !== snap.mtimeMs || current.size !== snap.size;
     },
@@ -3763,52 +3873,59 @@ QJ.DD.Persistence = {
     saveAll(force = false) {
         if (!window.$gameMap) return false;
         if (!force && this.checkConflict()) {
-            QJ.DD.Workspace.showConflictModal();
+            DocsDoodads.Workspace.showConflictModal();
             return false;
         }
 
         const mapFile = `data/Map${String($gameMap.mapId()).padStart(3, '0')}.json`;
         const doodadFile = 'data/' + dataFileName;
         const entries = [
-            { path: doodadFile, data: window.$dataDoodadsQJ || {}, indent: saveMode ? 0 : 2 },
-            { path: QJ.DD.AssetIndex.libraryPath, data: QJ.DD.AssetIndex.data, indent: 2 }
+            { path: doodadFile, data: window.$dataDocsDoodads || {}, indent: saveMode ? 0 : 2 },
+            { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 2 }
         ];
         if (window.$gameMap._stagedMapData) {
             entries.unshift({ path: mapFile, data: $gameMap._stagedMapData, indent: 2 });
         }
 
         try {
-            for (const entry of entries) QJ.DD.FS.createTimestampedBackup(entry.path);
+            for (const entry of entries) DocsDoodads.FS.createTimestampedBackup(entry.path);
         } catch (error) {
-            QJ.DD.Core.log('Backup creation failed; save cancelled.', error);
-            QJ.DD.Workspace.showToast(`Save cancelled: backup failed (${error.message || error}).`);
+            DocsDoodads.Core.log('Backup creation failed; save cancelled.', error);
+            DocsDoodads.Workspace.showToast(`Save cancelled: backup failed (${error.message || error}).`);
             return false;
         }
 
-        const saveResult = QJ.DD.FS.atomicWriteManyJson(entries);
+        const saveResult = DocsDoodads.FS.atomicWriteManyJson(entries);
         if (!saveResult.ok) {
-            QJ.DD.Core.log('Project save transaction failed.', saveResult.error);
-            QJ.DD.Workspace.showToast(`Save failed${saveResult.rolledBack ? '; previous files restored' : ''}: ${saveResult.error}`);
+            DocsDoodads.Core.log('Project save transaction failed.', saveResult.error);
+            DocsDoodads.Workspace.showToast(`Save failed${saveResult.rolledBack ? '; previous files restored' : ''}: ${saveResult.error}`);
             return false;
         }
 
-        if (window.$gameMap._stagedMapData) this.sessionSnapshots[mapFile] = QJ.DD.FS.stat(mapFile);
+        if (window.$gameMap._stagedMapData) this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
 
         this.dirtyMap = false;
         this.dirtyDoodads = false;
-        if (QJ.DD.FS.fs && QJ.DD.FS.fs.existsSync('data/QJAssetWorkspaceRecovery.json')) {
-            try { QJ.DD.FS.fs.unlinkSync('data/QJAssetWorkspaceRecovery.json'); } catch(e) {}
-        }
-        QJ.DD.Workspace.showToast("Project Saved! Reload map in MZ before editing there.");
+        this.clearRecovery();
+        DocsDoodads.Workspace.showToast("Project Saved! Reload map in MZ before editing there.");
         return true;
+    },
+
+    clearRecovery() {
+        const recoveryPath = 'data/DocsDoodadsRecovery.json';
+        for (const filePath of [recoveryPath, DocsDoodads.Legacy.pathFor(recoveryPath)]) {
+            if (DocsDoodads.FS.fs && DocsDoodads.FS.fs.existsSync(filePath)) {
+                try { DocsDoodads.FS.fs.unlinkSync(filePath); } catch(e) {}
+            }
+        }
     }
 };
 
 //==========================================================
-// SECTION 22: QJ.DD.LAYOUT (MULTIPLE SAVED LAYOUTS)
+// SECTION 22: DocsDoodads.LAYOUT (MULTIPLE SAVED LAYOUTS)
 //==========================================================
-QJ.DD.Layout = {
-    filePath: 'data/QJWorkspaceLayouts.json',
+DocsDoodads.Layout = {
+    filePath: 'data/DocsDoodadsLayouts.json',
     presets: {
         Mapping: { drawerWidth: 360, inspectorWidth: 280, thumbSize: 96, viewMode: 'grid' },
         Events: { drawerWidth: 320, inspectorWidth: 380, thumbSize: 80, viewMode: 'grid' },
@@ -3821,7 +3938,7 @@ QJ.DD.Layout = {
 
     init() {
         try {
-            const data = QJ.DD.FS.readJson(this.filePath);
+            const data = DocsDoodads.FS.readJson(this.filePath);
             if (data && typeof data === 'object') {
                 this.custom = data;
             } else {
@@ -3846,9 +3963,9 @@ QJ.DD.Layout = {
     saveCurrentAs(name) {
         if (!name || name.trim() === '') return false;
         name = name.trim();
-        const drawer = document.getElementById('qj-drawer-panel');
-        const inspector = document.getElementById('qj-inspector-panel');
-        const zoom = document.getElementById('qj-thumb-zoom');
+        const drawer = document.getElementById('dd-drawer-panel');
+        const inspector = document.getElementById('dd-inspector-panel');
+        const zoom = document.getElementById('dd-thumb-zoom');
         const layoutData = {
             drawerWidth: drawer ? (parseInt(drawer.style.width, 10) || 360) : 360,
             inspectorWidth: inspector ? (parseInt(inspector.style.width, 10) || 280) : 280,
@@ -3856,7 +3973,7 @@ QJ.DD.Layout = {
             viewMode: 'grid'
         };
         this.custom[name] = layoutData;
-        QJ.DD.FS.atomicWriteJson(this.filePath, this.custom);
+        DocsDoodads.FS.atomicWriteJson(this.filePath, this.custom);
         this.current = name;
         return true;
     },
@@ -3864,7 +3981,7 @@ QJ.DD.Layout = {
     deleteCustomLayout(name) {
         if (this.custom[name]) {
             delete this.custom[name];
-            QJ.DD.FS.atomicWriteJson(this.filePath, this.custom);
+            DocsDoodads.FS.atomicWriteJson(this.filePath, this.custom);
             if (this.current === name) this.apply('Mapping');
             return true;
         }
@@ -3875,28 +3992,28 @@ QJ.DD.Layout = {
         this.init();
         this.current = layoutName;
         const cfg = this.get(layoutName);
-        const drawer = document.getElementById('qj-drawer-panel');
-        const inspector = document.getElementById('qj-inspector-panel');
+        const drawer = document.getElementById('dd-drawer-panel');
+        const inspector = document.getElementById('dd-inspector-panel');
         if (drawer) drawer.style.width = cfg.drawerWidth + 'px';
         if (inspector) inspector.style.width = cfg.inspectorWidth + 'px';
-        const zoom = document.getElementById('qj-thumb-zoom');
+        const zoom = document.getElementById('dd-thumb-zoom');
         if (zoom) {
             zoom.value = cfg.thumbSize;
-            if (QJ.DD.Workspace) {
-                QJ.DD.Workspace.thumbSize = cfg.thumbSize;
-                QJ.DD.Workspace.updateVirtualGrid(true);
+            if (DocsDoodads.Workspace) {
+                DocsDoodads.Workspace.thumbSize = cfg.thumbSize;
+                DocsDoodads.Workspace.updateVirtualGrid(true);
             }
         }
-        if (QJ.DD.Workspace && typeof QJ.DD.Workspace.refreshLayoutSelector === 'function') {
-            QJ.DD.Workspace.refreshLayoutSelector();
+        if (DocsDoodads.Workspace && typeof DocsDoodads.Workspace.refreshLayoutSelector === 'function') {
+            DocsDoodads.Workspace.refreshLayoutSelector();
         }
     }
 };
 
 //==========================================================
-// SECTION 23: QJ.DD.AUDIO (PREVIEW & SOUND TRIGGERS)
+// SECTION 23: DocsDoodads.AUDIO (PREVIEW & SOUND TRIGGERS)
 //==========================================================
-QJ.DD.Audio = {
+DocsDoodads.Audio = {
     currentPlaying: null,
 
     playPreview(asset) {
@@ -3933,9 +4050,9 @@ QJ.DD.Audio = {
 };
 
 //==========================================================
-// SECTION 24: QJ.DD.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
+// SECTION 24: DocsDoodads.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
 //==========================================================
-QJ.DD.Import = {
+DocsDoodads.Import = {
     imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp']),
     audioExtensions: new Set(['.ogg', '.m4a', '.wav']),
     destinations: [
@@ -3945,13 +4062,13 @@ QJ.DD.Import = {
     ],
 
     isSupported(filePath) {
-        if (!QJ.DD.FS.path) return false;
-        const ext = QJ.DD.FS.path.extname(filePath).toLowerCase();
+        if (!DocsDoodads.FS.path) return false;
+        const ext = DocsDoodads.FS.path.extname(filePath).toLowerCase();
         return this.imageExtensions.has(ext) || this.audioExtensions.has(ext);
     },
 
     detectDestination(filePath) {
-        const path = QJ.DD.FS.path;
+        const path = DocsDoodads.FS.path;
         if (!path) return null;
         const fileName = path.basename(filePath);
         const ext = path.extname(fileName).toLowerCase();
@@ -3980,7 +4097,7 @@ QJ.DD.Import = {
     },
 
     validateExecutionPlan(plan) {
-        const path = QJ.DD.FS.path;
+        const path = DocsDoodads.FS.path;
         if (!path || !plan || !Array.isArray(plan.operations)) return 'Import plan is invalid.';
         const projectRoot = path.resolve(plan.projectRoot || '.');
         for (const operation of plan.operations) {
@@ -3999,8 +4116,8 @@ QJ.DD.Import = {
     },
 
     collectFiles(sourcePaths) {
-        const fs = QJ.DD.FS.fs;
-        const path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs;
+        const path = DocsDoodads.FS.path;
         const files = [];
         const errors = [];
         if (!fs || !path) return { files, errors: [{ path: '', message: 'Filesystem access is unavailable.' }] };
@@ -4025,7 +4142,7 @@ QJ.DD.Import = {
     },
 
     filesEqual(firstPath, secondPath) {
-        const fs = QJ.DD.FS.fs;
+        const fs = DocsDoodads.FS.fs;
         if (!fs) return false;
         try {
             const firstStat = fs.statSync(firstPath);
@@ -4038,8 +4155,8 @@ QJ.DD.Import = {
     },
 
     planBatch(sourcePaths, options = {}) {
-        const fs = QJ.DD.FS.fs;
-        const path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs;
+        const path = DocsDoodads.FS.path;
         const plan = {
             projectRoot: path ? path.resolve(options.projectRoot || '.') : '.',
             collisionPolicy: options.collisionPolicy || 'rename',
@@ -4126,8 +4243,8 @@ QJ.DD.Import = {
     },
 
     executeBatch(plan) {
-        const fs = QJ.DD.FS.fs;
-        const path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs;
+        const path = DocsDoodads.FS.path;
         const result = {
             ok: false,
             imported: [],
@@ -4151,7 +4268,7 @@ QJ.DD.Import = {
         try {
             for (let index = 0; index < plan.operations.length; index++) {
                 const operation = plan.operations[index];
-                QJ.DD.FS.ensureDir(path.dirname(operation.destination));
+                DocsDoodads.FS.ensureDir(path.dirname(operation.destination));
 
                 const existed = fs.existsSync(operation.destination);
                 if (existed && !operation.overwrite) {
@@ -4160,12 +4277,12 @@ QJ.DD.Import = {
 
                 let backup = null;
                 if (existed) {
-                    backup = `${operation.destination}.qjimport-${transactionId}.bak`;
+                    backup = `${operation.destination}.ddimport-${transactionId}.bak`;
                     fs.copyFileSync(operation.destination, backup);
                     tempFiles.push(backup);
                 }
 
-                const temporary = `${operation.destination}.qjimport-${transactionId}-${index}.tmp`;
+                const temporary = `${operation.destination}.ddimport-${transactionId}-${index}.tmp`;
                 tempFiles.push(temporary);
                 fs.copyFileSync(operation.source, temporary);
                 if (existed) {
@@ -4211,8 +4328,8 @@ QJ.DD.Import = {
     },
 
     async executeBatchAsync(plan, options = {}) {
-        const fs = QJ.DD.FS.fs;
-        const path = QJ.DD.FS.path;
+        const fs = DocsDoodads.FS.fs;
+        const path = DocsDoodads.FS.path;
         const fsp = fs && fs.promises;
         const result = {
             ok: false,
@@ -4249,7 +4366,7 @@ QJ.DD.Import = {
             for (let index = 0; index < plan.operations.length; index++) {
                 if (cancellationToken && cancellationToken.cancelled) {
                     const cancellation = new Error('Import cancelled.');
-                    cancellation.code = 'QJ_IMPORT_CANCELLED';
+                    cancellation.code = 'DD_IMPORT_CANCELLED';
                     throw cancellation;
                 }
 
@@ -4262,12 +4379,12 @@ QJ.DD.Import = {
 
                 let backup = null;
                 if (existed) {
-                    backup = `${operation.destination}.qjimport-${transactionId}.bak`;
+                    backup = `${operation.destination}.ddimport-${transactionId}.bak`;
                     await fsp.copyFile(operation.destination, backup);
                     tempFiles.push(backup);
                 }
 
-                const temporary = `${operation.destination}.qjimport-${transactionId}-${index}.tmp`;
+                const temporary = `${operation.destination}.ddimport-${transactionId}-${index}.tmp`;
                 tempFiles.push(temporary);
                 await fsp.copyFile(operation.source, temporary);
                 if (existed) {
@@ -4292,7 +4409,7 @@ QJ.DD.Import = {
 
                 if (cancellationToken && cancellationToken.cancelled) {
                     const cancellation = new Error('Import cancelled.');
-                    cancellation.code = 'QJ_IMPORT_CANCELLED';
+                    cancellation.code = 'DD_IMPORT_CANCELLED';
                     throw cancellation;
                 }
             }
@@ -4303,7 +4420,7 @@ QJ.DD.Import = {
             result.ok = true;
             return result;
         } catch (error) {
-            result.cancelled = Boolean(error && error.code === 'QJ_IMPORT_CANCELLED');
+            result.cancelled = Boolean(error && error.code === 'DD_IMPORT_CANCELLED');
             result.errors.push({ message: error && error.message ? error.message : String(error) });
             for (let index = completed.length - 1; index >= 0; index--) {
                 const record = completed[index];
@@ -4334,9 +4451,9 @@ QJ.DD.Import = {
 
 
 //==========================================================
-// SECTION 25: QJ.DD.WORKSPACE (GLASSMORPHIC WORKSPACE UI & TOOLS)
+// SECTION 25: DocsDoodads.WORKSPACE (GLASSMORPHIC WORKSPACE UI & TOOLS)
 //==========================================================
-QJ.DD.Workspace = {
+DocsDoodads.Workspace = {
     mounted: false,
     container: null,
     drawerEl: null,
@@ -4361,26 +4478,26 @@ QJ.DD.Workspace = {
     },
 
     open() {
-        if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs() || this.mounted) return;
-        QJ.DD.Persistence.captureSession();
-        QJ.DD.AssetIndex.init();
+        if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        DocsDoodads.Persistence.captureSession();
+        DocsDoodads.AssetIndex.init();
         this.buildDom();
         this.attachCanvasListeners();
         this.mounted = true;
-        if (window.$gameSystem && window.$gameSystem.doodadsQJ) {
-            window.$gameSystem.doodadsQJ.editing = true;
+        if (window.$gameSystem && window.$gameSystem.docsDoodads) {
+            window.$gameSystem.docsDoodads.editing = true;
         }
         this.startAssetScan();
 
         // Check for recovery file
-        const recovery = QJ.DD.FS.readJson('data/QJAssetWorkspaceRecovery.json');
+        const recovery = DocsDoodads.FS.readJson('data/DocsDoodadsRecovery.json');
         if (recovery && recovery.timestamp && (Date.now() - recovery.timestamp) < 86400000) {
             const dateStr = new Date(recovery.timestamp).toLocaleTimeString();
             if (confirm(`Unfinished session from ${dateStr} found. Would you like to recover it?`)) {
                 if (recovery.doodads && window.$gameMap) {
-                    window.$dataDoodadsQJ[$gameMap.mapId()] = recovery.doodads;
+                    window.$dataDocsDoodads[$gameMap.mapId()] = recovery.doodads;
                     if (SceneManager._scene && SceneManager._scene._spriteset) {
-                        SceneManager._scene._spriteset.addDoodadsQJ();
+                        SceneManager._scene._spriteset.addDocsDoodads();
                     }
                 }
                 this.showToast("Session Recovered!");
@@ -4397,19 +4514,19 @@ QJ.DD.Workspace = {
             this.container.parentNode.removeChild(this.container);
         }
         this.mounted = false;
-        if (window.$gameSystem && window.$gameSystem.doodadsQJ) {
-            window.$gameSystem.doodadsQJ.editing = false;
+        if (window.$gameSystem && window.$gameSystem.docsDoodads) {
+            window.$gameSystem.docsDoodads.editing = false;
         }
         this.placementTool = null;
-        QJ.DD.Audio.stopPreview();
+        DocsDoodads.Audio.stopPreview();
     },
 
     async startAssetScan() {
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
         const token = { cancelled: false };
         this._assetScanToken = token;
-        const status = document.getElementById('qj-status-right');
-        const result = await QJ.DD.AssetIndex.scanAsync({
+        const status = document.getElementById('dd-status-right');
+        const result = await DocsDoodads.AssetIndex.scanAsync({
             loadCache: false,
             cancellationToken: token,
             onProgress: progress => {
@@ -4428,7 +4545,7 @@ QJ.DD.Workspace = {
 
     buildDom() {
         const wrap = document.createElement('div');
-        wrap.id = 'qj-asset-workspace-root';
+        wrap.id = 'dd-asset-workspace-root';
         wrap.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
             pointer-events: none; z-index: 10000; font-family: 'Segoe UI', Roboto, sans-serif;
@@ -4437,8 +4554,8 @@ QJ.DD.Workspace = {
 
         const style = document.createElement('style');
         style.textContent = `
-            #qj-asset-workspace-root * { box-sizing: border-box; }
-            .qj-glass {
+            #dd-asset-workspace-root * { box-sizing: border-box; }
+            .dd-glass {
                 background: rgba(17, 24, 39, 0.92);
                 backdrop-filter: blur(16px);
                 border: 1px solid rgba(255, 255, 255, 0.12);
@@ -4447,22 +4564,23 @@ QJ.DD.Workspace = {
                 box-shadow: 0 12px 36px rgba(0,0,0,0.65);
                 pointer-events: auto;
             }
-            .qj-btn {
+            .dd-btn {
                 background: #1f2937; color: #f1f5f9; border: 1px solid #374151;
                 padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
                 transition: all 0.15s ease;
             }
-            .qj-btn:hover { background: #374151; border-color: #60a5fa; }
-            .qj-btn-primary { background: #2563eb; border-color: #3b82f6; }
-            .qj-btn-primary:hover { background: #1d4ed8; }
-            .qj-btn-active { background: #059669 !important; border-color: #10b981 !important; color: #fff !important; }
-            .qj-card {
+            .dd-btn:hover { background: #374151; border-color: #60a5fa; }
+            #dd-category-tabs .dd-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+            .dd-btn-primary { background: #2563eb; border-color: #3b82f6; }
+            .dd-btn-primary:hover { background: #1d4ed8; }
+            .dd-btn-active { background: #059669 !important; border-color: #10b981 !important; color: #fff !important; }
+            .dd-card {
                 background: #18202f; border: 1px solid #283548; border-radius: 6px;
                 cursor: pointer; position: relative; overflow: hidden; transition: transform 0.15s, border-color 0.15s;
             }
-            .qj-card:hover { transform: translateY(-2px); border-color: #3b82f6; }
-            .qj-card.selected { border: 2px solid #60a5fa; background: #1e293b; }
-            .qj-badge {
+            .dd-card:hover { transform: translateY(-2px); border-color: #3b82f6; }
+            .dd-card.selected { border: 2px solid #60a5fa; background: #1e293b; }
+            .dd-badge {
                 position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.75);
                 padding: 2px 5px; border-radius: 3px; font-size: 10px; color: #93c5fd;
             }
@@ -4471,94 +4589,98 @@ QJ.DD.Workspace = {
 
         // Top Toolbar
         const toolbar = document.createElement('div');
-        toolbar.className = 'qj-glass';
+        toolbar.className = 'dd-glass';
         toolbar.style.cssText = `
             position: absolute; top: 10px; left: 10px; right: 10px; height: 50px;
             display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
         `;
         toolbar.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-weight: bold; font-size: 14px; color: #60a5fa; letter-spacing: 0.5px;">QJ WORKSPACE</span>
-                <input type="text" id="qj-search-input" placeholder="Search (e.g. tree tag:prop -dead)"
+                <span style="font-weight: bold; font-size: 14px; color: #60a5fa; letter-spacing: 0.5px;">DOC'S DOODADS</span>
+                <input type="text" id="dd-search-input" placeholder="Search (e.g. tree tag:prop -dead)"
                     style="width: 200px; background: #0b1120; border: 1px solid #334155; color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 12px;" />
-                <select id="qj-layout-select" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
-                <button class="qj-btn" id="qj-save-layout-btn" title="Save current panel sizes as custom layout">+ Layout</button>
-                <button class="qj-btn" id="qj-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
-                <button class="qj-btn" id="qj-undo-btn">Undo</button>
-                <button class="qj-btn" id="qj-redo-btn">Redo</button>
+                <select id="dd-layout-select" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
+                <button class="dd-btn" id="dd-save-layout-btn" title="Save current panel sizes as custom layout">+ Layout</button>
+                <button class="dd-btn" id="dd-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
+                <button class="dd-btn" id="dd-undo-btn">Undo</button>
+                <button class="dd-btn" id="dd-redo-btn">Redo</button>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <button class="qj-btn" id="qj-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
-                <button class="qj-btn" id="qj-stamp-btn" title="Stamp: Click repeatedly to place">Stamp</button>
-                <button class="qj-btn" id="qj-brush-btn" title="Scatter Brush: Drag to scatter props">Scatter Brush</button>
-                <div id="qj-brush-popover" class="qj-glass" style="display: none; position: absolute; top: 58px; right: 380px; width: 230px; padding: 12px; z-index: 10015;">
+                <button class="dd-btn" id="dd-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
+                <button class="dd-btn" id="dd-stamp-btn" title="Stamp: Click repeatedly to place">Stamp</button>
+                <button class="dd-btn" id="dd-brush-btn" title="Scatter Brush: Drag to scatter props">Scatter Brush</button>
+                <div id="dd-brush-popover" class="dd-glass" style="display: none; position: absolute; top: 58px; right: 380px; width: 230px; padding: 12px; z-index: 10015;">
                     <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">BRUSH SETTINGS</div>
                     <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
                         <div>
                             <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Radius:</span><span id="qj-brush-rad-val">80px</span>
+                                <span>Radius:</span><span id="dd-brush-rad-val">80px</span>
                             </div>
-                            <input type="range" id="qj-brush-rad" min="20" max="250" value="80" style="width: 100%;" />
+                            <input type="range" id="dd-brush-rad" min="20" max="250" value="80" style="width: 100%;" />
                         </div>
                         <div>
                             <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Density:</span><span id="qj-brush-den-val">3</span>
+                                <span>Density:</span><span id="dd-brush-den-val">3</span>
                             </div>
-                            <input type="range" id="qj-brush-den" min="1" max="10" value="3" style="width: 100%;" />
+                            <input type="range" id="dd-brush-den" min="1" max="10" value="3" style="width: 100%;" />
                         </div>
                         <div>
                             <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Scale Variation:</span><span id="qj-brush-scale-val">15%</span>
+                                <span>Scale Variation:</span><span id="dd-brush-scale-val">15%</span>
                             </div>
-                            <input type="range" id="qj-brush-scale" min="0" max="50" value="15" style="width: 100%;" />
+                            <input type="range" id="dd-brush-scale" min="0" max="50" value="15" style="width: 100%;" />
                         </div>
                         <div>
                             <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Rotation Variation:</span><span id="qj-brush-rot-val">25°</span>
+                                <span>Rotation Variation:</span><span id="dd-brush-rot-val">25°</span>
                             </div>
-                            <input type="range" id="qj-brush-rot" min="0" max="180" value="25" style="width: 100%;" />
+                            <input type="range" id="dd-brush-rot" min="0" max="180" value="25" style="width: 100%;" />
                         </div>
                     </div>
                 </div>
-                <button class="qj-btn" id="qj-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
-                <button class="qj-btn" id="qj-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
-                <button class="qj-btn" id="qj-diag-btn" title="Diagnostics">Diagnostics</button>
-                <button class="qj-btn qj-btn-primary" id="qj-save-btn">Save Changes</button>
-                <button class="qj-btn" id="qj-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
+                <button class="dd-btn" id="dd-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
+                <button class="dd-btn" id="dd-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
+                <button class="dd-btn" id="dd-diag-btn" title="Diagnostics">Diagnostics</button>
+                <button class="dd-btn dd-btn-primary" id="dd-save-btn">Save Changes</button>
+                <button class="dd-btn" id="dd-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
             </div>
         `;
         wrap.appendChild(toolbar);
 
         // Left Drawer (Virtualized Cards)
         const drawer = document.createElement('div');
-        drawer.className = 'qj-glass';
-        drawer.id = 'qj-drawer-panel';
+        drawer.className = 'dd-glass';
+        drawer.id = 'dd-drawer-panel';
         drawer.style.cssText = `
             position: absolute; top: 70px; left: 10px; bottom: 32px; width: 360px;
             display: flex; flex-direction: column; overflow: hidden;
         `;
         drawer.innerHTML = `
-            <div id="qj-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Drawer"></div>
-            <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; overflow-x: auto;" id="qj-category-tabs">
-                <button class="qj-btn qj-btn-primary" data-cat="All">All</button>
-                <button class="qj-btn" data-cat="Characters">Characters</button>
-                <button class="qj-btn" data-cat="Doodads">Doodads</button>
-                <button class="qj-btn" data-cat="Tilesets">Tiles</button>
-                <button class="qj-btn" data-cat="Pictures">Pictures</button>
-                <button class="qj-btn" data-cat="Audio">Audio</button>
-                <button class="qj-btn" data-cat="Favorites" title="Show Favorited Assets">★ Favs</button>
-                <button class="qj-btn" data-cat="Recent" title="Show Recently Used Assets">🕒 Recent</button>
+            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Drawer"></div>
+            <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; flex-wrap: wrap; gap: 4px;" id="dd-category-tabs">
+                <button class="dd-btn dd-btn-primary" data-cat="All">All</button>
+                <button class="dd-btn" data-cat="Characters">Characters</button>
+                <button class="dd-btn" data-cat="Doodads">Doodads</button>
+                <button class="dd-btn" data-cat="Tilesets">Tiles</button>
+                <button class="dd-btn" data-cat="Pictures">Pictures</button>
+                <button class="dd-btn" data-cat="Faces">Faces</button>
+                <button class="dd-btn" data-cat="Battlers">Battlers</button>
+                <button class="dd-btn" data-cat="Backgrounds">Backgrounds</button>
+                <button class="dd-btn" data-cat="System">System</button>
+                <button class="dd-btn" data-cat="Audio">Audio</button>
+                <button class="dd-btn" data-cat="Favorites" title="Show Favorited Assets">★ Favs</button>
+                <button class="dd-btn" data-cat="Recent" title="Show Recently Used Assets">🕒 Recent</button>
             </div>
             <div style="padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <span style="font-size: 11px; color: #94a3b8;" id="qj-asset-count">Assets: 0</span>
+                <span style="font-size: 11px; color: #94a3b8;" id="dd-asset-count">Assets: 0</span>
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span style="font-size: 11px; color: #94a3b8;">Zoom:</span>
-                    <input type="range" id="qj-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 80px;" />
+                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 80px;" />
                 </div>
             </div>
-            <div id="qj-cards-container" style="flex: 1; overflow-y: auto; padding: 10px; position: relative;">
-                <div id="qj-cards-sizer" style="width: 100%; position: relative;">
-                    <div id="qj-cards-viewport" style="position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px;">
+            <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 10px; position: relative;">
+                <div id="dd-cards-sizer" style="width: 100%; position: relative;">
+                    <div id="dd-cards-viewport" style="position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px;">
                     </div>
                 </div>
             </div>
@@ -4567,18 +4689,18 @@ QJ.DD.Workspace = {
 
         // Right Inspector Panel
         const inspector = document.createElement('div');
-        inspector.className = 'qj-glass';
-        inspector.id = 'qj-inspector-panel';
+        inspector.className = 'dd-glass';
+        inspector.id = 'dd-inspector-panel';
         inspector.style.cssText = `
             position: absolute; top: 70px; right: 10px; bottom: 32px; width: 280px;
             padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
         `;
         inspector.innerHTML = `
-            <div id="qj-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Inspector"></div>
+            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Inspector"></div>
             <div style="font-weight: bold; font-size: 13px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;">
                 INSPECTOR & PROPERTIES
             </div>
-            <div id="qj-inspector-content" style="font-size: 12px; color: #94a3b8;">
+            <div id="dd-inspector-content" style="font-size: 12px; color: #94a3b8;">
                 Select an asset in the drawer or click a placed doodad/event on the map.
             </div>
         `;
@@ -4586,14 +4708,14 @@ QJ.DD.Workspace = {
 
         // Bottom Status Bar
         const statusBar = document.createElement('div');
-        statusBar.className = 'qj-glass';
+        statusBar.className = 'dd-glass';
         statusBar.style.cssText = `
             position: absolute; bottom: 5px; left: 10px; right: 10px; height: 24px;
             display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 11px; color: #64748b;
         `;
         statusBar.innerHTML = `
-            <span id="qj-status-left">QJ Doodads Asset Workspace v${pluginVersion} Ready | Hold Alt for free placement</span>
-            <span id="qj-status-right">Map ID: ${$gameMap ? $gameMap.mapId() : 0} | Autosave Active</span>
+            <span id="dd-status-left">Doc's Doodads v${pluginVersion} Ready | Hold Alt for free placement</span>
+            <span id="dd-status-right">Map ID: ${$gameMap ? $gameMap.mapId() : 0} | Autosave Active</span>
         `;
         wrap.appendChild(statusBar);
 
@@ -4607,56 +4729,56 @@ QJ.DD.Workspace = {
     },
 
     refreshLayoutSelector() {
-        const layoutSel = document.getElementById('qj-layout-select');
+        const layoutSel = document.getElementById('dd-layout-select');
         if (!layoutSel) return;
-        const names = QJ.DD.Layout.getAllNames();
+        const names = DocsDoodads.Layout.getAllNames();
         layoutSel.innerHTML = '';
         for (const name of names) {
             const opt = document.createElement('option');
             opt.value = name;
             opt.textContent = `Layout: ${name}`;
-            if (name === QJ.DD.Layout.current) opt.selected = true;
+            if (name === DocsDoodads.Layout.current) opt.selected = true;
             layoutSel.appendChild(opt);
         }
-        const delBtn = document.getElementById('qj-del-layout-btn');
+        const delBtn = document.getElementById('dd-del-layout-btn');
         if (delBtn) {
-            const isCustom = !QJ.DD.Layout.presets[QJ.DD.Layout.current];
+            const isCustom = !DocsDoodads.Layout.presets[DocsDoodads.Layout.current];
             delBtn.style.display = isCustom ? 'inline-block' : 'none';
         }
     },
 
     bindEvents() {
-        document.getElementById('qj-close-btn').onclick = () => this.close();
-        document.getElementById('qj-save-btn').onclick = () => QJ.DD.Persistence.saveAll();
-        document.getElementById('qj-undo-btn').onclick = () => QJ.DD.Undo.undo();
-        document.getElementById('qj-redo-btn').onclick = () => QJ.DD.Undo.redo();
+        document.getElementById('dd-close-btn').onclick = () => this.close();
+        document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
+        document.getElementById('dd-undo-btn').onclick = () => DocsDoodads.Undo.undo();
+        document.getElementById('dd-redo-btn').onclick = () => DocsDoodads.Undo.redo();
 
         this.refreshLayoutSelector();
-        const layoutSel = document.getElementById('qj-layout-select');
+        const layoutSel = document.getElementById('dd-layout-select');
         if (layoutSel) {
             layoutSel.onchange = (e) => {
-                QJ.DD.Layout.apply(e.target.value);
+                DocsDoodads.Layout.apply(e.target.value);
             };
         }
 
-        const saveLayoutBtn = document.getElementById('qj-save-layout-btn');
+        const saveLayoutBtn = document.getElementById('dd-save-layout-btn');
         if (saveLayoutBtn) {
             saveLayoutBtn.onclick = () => {
-                const name = prompt("Enter a name for this custom layout:", "Custom Layout " + (Object.keys(QJ.DD.Layout.custom).length + 1));
+                const name = prompt("Enter a name for this custom layout:", "Custom Layout " + (Object.keys(DocsDoodads.Layout.custom).length + 1));
                 if (name && name.trim()) {
-                    QJ.DD.Layout.saveCurrentAs(name.trim());
+                    DocsDoodads.Layout.saveCurrentAs(name.trim());
                     this.refreshLayoutSelector();
                     this.showToast(`Saved layout "${name.trim()}"!`);
                 }
             };
         }
 
-        const delLayoutBtn = document.getElementById('qj-del-layout-btn');
+        const delLayoutBtn = document.getElementById('dd-del-layout-btn');
         if (delLayoutBtn) {
             delLayoutBtn.onclick = () => {
-                const cur = QJ.DD.Layout.current;
+                const cur = DocsDoodads.Layout.current;
                 if (confirm(`Delete custom layout "${cur}"?`)) {
-                    QJ.DD.Layout.deleteCustomLayout(cur);
+                    DocsDoodads.Layout.deleteCustomLayout(cur);
                     this.refreshLayoutSelector();
                     this.showToast(`Deleted layout "${cur}".`);
                 }
@@ -4664,7 +4786,7 @@ QJ.DD.Workspace = {
         }
 
         // Draggable Drawer Resizer
-        const drawerResizer = document.getElementById('qj-drawer-resizer');
+        const drawerResizer = document.getElementById('dd-drawer-resizer');
         if (drawerResizer && this.drawerEl) {
             let isResizing = false;
             let startX = 0;
@@ -4691,7 +4813,7 @@ QJ.DD.Workspace = {
         }
 
         // Draggable Inspector Resizer
-        const inspectorResizer = document.getElementById('qj-inspector-resizer');
+        const inspectorResizer = document.getElementById('dd-inspector-resizer');
         if (inspectorResizer && this.inspectorEl) {
             let isResizing = false;
             let startX = 0;
@@ -4716,65 +4838,65 @@ QJ.DD.Workspace = {
             };
         }
 
-        const searchInput = document.getElementById('qj-search-input');
+        const searchInput = document.getElementById('dd-search-input');
         searchInput.oninput = (e) => {
             this.searchQuery = e.target.value;
             this.refreshDrawerCards();
         };
 
-        const container = document.getElementById('qj-cards-container');
+        const container = document.getElementById('dd-cards-container');
         if (container) {
             container.onscroll = () => this.updateVirtualGrid();
         }
 
-        const zoomSlider = document.getElementById('qj-thumb-zoom');
+        const zoomSlider = document.getElementById('dd-thumb-zoom');
         zoomSlider.oninput = (e) => {
             this.thumbSize = Number(e.target.value);
             this.updateVirtualGrid(true);
         };
 
-        const catTabs = document.getElementById('qj-category-tabs');
+        const catTabs = document.getElementById('dd-category-tabs');
         catTabs.onclick = (e) => {
             if (e.target.dataset.cat) {
-                catTabs.querySelectorAll('button').forEach(b => b.className = 'qj-btn');
-                e.target.className = 'qj-btn qj-btn-primary';
+                catTabs.querySelectorAll('button').forEach(b => b.className = 'dd-btn');
+                e.target.className = 'dd-btn dd-btn-primary';
                 this.currentCategory = e.target.dataset.cat;
                 this.refreshDrawerCards();
             }
         };
 
-        document.getElementById('qj-slicer-btn').onclick = () => {
-            if (this.selectedAsset) QJ.DD.Slicing.Editor.open(this.selectedAsset);
+        document.getElementById('dd-slicer-btn').onclick = () => {
+            if (this.selectedAsset) DocsDoodads.Slicing.Editor.open(this.selectedAsset);
             else alert("Please select a sprite sheet in the drawer first!");
         };
 
-        document.getElementById('qj-diag-btn').onclick = () => this.openDiagnosticsModal();
+        document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
 
-        document.getElementById('qj-stop-audio-btn').onclick = () => {
-            QJ.DD.Audio.stopPreview();
-            document.getElementById('qj-stop-audio-btn').style.display = 'none';
+        document.getElementById('dd-stop-audio-btn').onclick = () => {
+            DocsDoodads.Audio.stopPreview();
+            document.getElementById('dd-stop-audio-btn').style.display = 'none';
         };
 
-        const eyeBtn = document.getElementById('qj-eyedropper-btn');
+        const eyeBtn = document.getElementById('dd-eyedropper-btn');
         eyeBtn.onclick = () => {
             this.placementTool = this.placementTool === 'eyedropper' ? null : 'eyedropper';
-            eyeBtn.classList.toggle('qj-btn-active', this.placementTool === 'eyedropper');
+            eyeBtn.classList.toggle('dd-btn-active', this.placementTool === 'eyedropper');
             this.showToast(this.placementTool ? "Eyedropper Active: Click any object on map" : "Eyedropper Deactivated");
         };
 
-        const stampBtn = document.getElementById('qj-stamp-btn');
+        const stampBtn = document.getElementById('dd-stamp-btn');
         stampBtn.onclick = () => {
             this.placementTool = this.placementTool === 'stamp' ? null : 'stamp';
-            stampBtn.classList.toggle('qj-btn-active', this.placementTool === 'stamp');
+            stampBtn.classList.toggle('dd-btn-active', this.placementTool === 'stamp');
             this.showToast(this.placementTool ? "Stamp Active: Click map to place repeatedly" : "Stamp Deactivated");
         };
 
-        const brushBtn = document.getElementById('qj-brush-btn');
-        const brushPopover = document.getElementById('qj-brush-popover');
+        const brushBtn = document.getElementById('dd-brush-btn');
+        const brushPopover = document.getElementById('dd-brush-popover');
         brushBtn.onclick = () => {
             this.placementTool = this.placementTool === 'brush' ? null : 'brush';
             const active = this.placementTool === 'brush';
-            brushBtn.classList.toggle('qj-btn-active', active);
+            brushBtn.classList.toggle('dd-btn-active', active);
             if (brushPopover) brushPopover.style.display = active ? 'block' : 'none';
             this.showToast(active ? "Scatter Brush Active: Drag map to scatter" : "Brush Deactivated");
         };
@@ -4790,14 +4912,14 @@ QJ.DD.Workspace = {
                 };
             }
         };
-        setupBrushSlider('qj-brush-rad', 'radius', 'qj-brush-rad-val', 'px');
-        setupBrushSlider('qj-brush-den', 'density', 'qj-brush-den-val', '');
-        setupBrushSlider('qj-brush-scale', 'scaleJitter', 'qj-brush-scale-val', '%', 0.01);
-        setupBrushSlider('qj-brush-rot', 'rotateJitter', 'qj-brush-rot-val', '°');
+        setupBrushSlider('dd-brush-rad', 'radius', 'dd-brush-rad-val', 'px');
+        setupBrushSlider('dd-brush-den', 'density', 'dd-brush-den-val', '');
+        setupBrushSlider('dd-brush-scale', 'scaleJitter', 'dd-brush-scale-val', '%', 0.01);
+        setupBrushSlider('dd-brush-rot', 'rotateJitter', 'dd-brush-rot-val', '°');
     },
 
     refreshDrawerCards() {
-        let filtered = QJ.DD.AssetIndex.list;
+        let filtered = DocsDoodads.AssetIndex.list;
         if (this.currentCategory === 'Favorites') {
             filtered = filtered.filter(a => a.favorite);
         } else if (this.currentCategory === 'Recent') {
@@ -4806,22 +4928,22 @@ QJ.DD.Workspace = {
         } else if (this.currentCategory !== 'All') {
             filtered = filtered.filter(a => a.category === this.currentCategory);
         }
-        filtered = QJ.DD.Search.filter(filtered, this.searchQuery);
+        filtered = DocsDoodads.Search.filter(filtered, this.searchQuery);
         this.filteredAssets = filtered;
 
-        const countEl = document.getElementById('qj-asset-count');
+        const countEl = document.getElementById('dd-asset-count');
         if (countEl) countEl.textContent = `Assets: ${filtered.length}`;
 
-        const container = document.getElementById('qj-cards-container');
+        const container = document.getElementById('dd-cards-container');
         if (container) container.scrollTop = 0;
 
         this.updateVirtualGrid(true);
     },
 
     updateVirtualGrid(forceRecalculate = false) {
-        const container = document.getElementById('qj-cards-container');
-        const sizer = document.getElementById('qj-cards-sizer');
-        const viewport = document.getElementById('qj-cards-viewport');
+        const container = document.getElementById('dd-cards-container');
+        const sizer = document.getElementById('dd-cards-sizer');
+        const viewport = document.getElementById('dd-cards-viewport');
         if (!container || !sizer || !viewport) return;
 
         const assets = this.filteredAssets || [];
@@ -4866,12 +4988,12 @@ QJ.DD.Workspace = {
 
     createCardElement(asset, cardHeight) {
         const card = document.createElement('div');
-        card.className = 'qj-card' + (this.selectedAsset === asset ? ' selected' : '');
+        card.className = 'dd-card' + (this.selectedAsset === asset ? ' selected' : '');
         card.style.cssText = `height: ${cardHeight}px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px;`;
 
         const imgEl = document.createElement('img');
         imgEl.style.cssText = 'max-width: 85%; max-height: 70%; object-fit: contain; image-rendering: pixelated;';
-        QJ.DD.Thumbnail.get(asset, this.thumbSize || 96, (dataUrl) => {
+        DocsDoodads.Thumbnail.get(asset, this.thumbSize || 96, (dataUrl) => {
             imgEl.src = dataUrl;
         });
         card.appendChild(imgEl);
@@ -4883,7 +5005,7 @@ QJ.DD.Workspace = {
 
         if (asset.favorite) {
             const favBadge = document.createElement('span');
-            favBadge.className = 'qj-badge';
+            favBadge.className = 'dd-badge';
             favBadge.textContent = '★';
             favBadge.style.color = '#fbbf24';
             card.appendChild(favBadge);
@@ -4891,20 +5013,20 @@ QJ.DD.Workspace = {
 
         card.onclick = () => {
             this.selectAsset(asset);
-            const container = document.getElementById('qj-cards-container');
-            if (container) container.querySelectorAll('.qj-card').forEach(c => c.classList.remove('selected'));
+            const container = document.getElementById('dd-cards-container');
+            if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));
             card.classList.add('selected');
 
             if (asset.category === 'Audio') {
-                QJ.DD.Audio.playPreview(asset);
-                const stopBtn = document.getElementById('qj-stop-audio-btn');
+                DocsDoodads.Audio.playPreview(asset);
+                const stopBtn = document.getElementById('dd-stop-audio-btn');
                 if (stopBtn) stopBtn.style.display = 'block';
             }
         };
 
         card.ondblclick = () => {
             if (asset.category !== 'Audio') {
-                QJ.DD.Slicing.Editor.open(asset);
+                DocsDoodads.Slicing.Editor.open(asset);
             }
         };
 
@@ -4916,7 +5038,7 @@ QJ.DD.Workspace = {
                 {
                     label: 'Place as Real MZ Event...', icon: '⚡', onClick: () => {
                         const templateKey = prompt("Enter Template Key (e.g. npc, door, chest, signpost, switch, save_point):", "npc") || "npc";
-                        const prev = document.getElementById('qj-event-template');
+                        const prev = document.getElementById('dd-event-template');
                         if (prev) prev.value = templateKey;
                         this.commitPlacement(asset, this.clientToMapCoords(e.clientX, e.clientY), 'event');
                     }
@@ -4926,7 +5048,7 @@ QJ.DD.Workspace = {
                     label: asset.favorite ? 'Remove from Favorites' : 'Add to Favorites',
                     icon: '★',
                     onClick: () => {
-                        QJ.DD.AssetIndex.toggleFavorite(asset.id);
+                        DocsDoodads.AssetIndex.toggleFavorite(asset.id);
                         this.refreshInspector();
                         this.refreshDrawerCards();
                     }
@@ -4937,7 +5059,7 @@ QJ.DD.Workspace = {
                     onClick: () => {
                         const colName = prompt("Enter Collection Name (e.g. Castle Set, Forest Props):", "Custom Collection");
                         if (colName && colName.trim()) {
-                            QJ.DD.AssetIndex.addAssetToCollection(asset.id, colName.trim());
+                            DocsDoodads.AssetIndex.addAssetToCollection(asset.id, colName.trim());
                             this.showToast(`Added ${asset.fileName} to "${colName.trim()}"!`);
                         }
                     }
@@ -4945,11 +5067,11 @@ QJ.DD.Workspace = {
                 { separator: true }
             ];
             if (asset.category !== 'Audio') {
-                items.push({ label: 'Open in Slicing Modal', icon: '✂️', onClick: () => QJ.DD.Slicing.Editor.open(asset) });
-                items.push({ label: 'Export Slices to PNGs', icon: '💾', onClick: () => QJ.DD.Export.exportSlices(asset) });
+                items.push({ label: 'Open in Slicing Modal', icon: '✂️', onClick: () => DocsDoodads.Slicing.Editor.open(asset) });
+                items.push({ label: 'Export Slices to PNGs', icon: '💾', onClick: () => DocsDoodads.Export.exportSlices(asset) });
             } else {
-                items.push({ label: 'Play Audio Preview', icon: '▶️', onClick: () => QJ.DD.Audio.playPreview(asset) });
-                items.push({ label: 'Stop Audio', icon: '⏹', onClick: () => QJ.DD.Audio.stopPreview() });
+                items.push({ label: 'Play Audio Preview', icon: '▶️', onClick: () => DocsDoodads.Audio.playPreview(asset) });
+                items.push({ label: 'Stop Audio', icon: '⏹', onClick: () => DocsDoodads.Audio.stopPreview() });
             }
             this.showContextMenu(e.clientX, e.clientY, items);
         };
@@ -4965,6 +5087,7 @@ QJ.DD.Workspace = {
                 frameW: asset.width || 48,
                 frameH: asset.height || 48,
                 collision: asset.collision || { preset: "none" },
+                characterIndex: asset.placement.characterIndex || 0,
                 placementMode: asset.placement.defaultMode || (asset.type === 'character_sheet' ? 'event' : 'ask')
             };
             e.dataTransfer.setData('text/plain', JSON.stringify(this.activeDragPayload));
@@ -5005,7 +5128,7 @@ QJ.DD.Workspace = {
 
         // If doodad is part of a group and not multi-selecting, select all members in the group
         if (!isMulti && doodad.groupId) {
-            const groupMembers = (QJ.DD.doodads() || []).filter(d => d.groupId === doodad.groupId);
+            const groupMembers = (DocsDoodads.doodads() || []).filter(d => d.groupId === doodad.groupId);
             if (groupMembers.length > 1) {
                 this.selectedDoodads = groupMembers;
                 this.selectedDoodad = doodad;
@@ -5043,7 +5166,7 @@ QJ.DD.Workspace = {
     },
 
     refreshInspector() {
-        const content = document.getElementById('qj-inspector-content');
+        const content = document.getElementById('dd-inspector-content');
         if (!content) return;
 
         // Case 0: MZ Map Event Selected
@@ -5061,44 +5184,44 @@ QJ.DD.Workspace = {
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Tile X:</label>
-                        <input type="number" id="qj-ev-x" value="${ge ? ge.x : (ev ? ev.x : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" id="dd-ev-x" value="${ge ? ge.x : (ev ? ev.x : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Tile Y:</label>
-                        <input type="number" id="qj-ev-y" value="${ge ? ge.y : (ev ? ev.y : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" id="dd-ev-y" value="${ge ? ge.y : (ev ? ev.y : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                 </div>
                 <div style="margin-top: 6px;">
                     <label style="display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">Trigger:</label>
-                    <select id="qj-ev-trigger" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
+                    <select id="dd-ev-trigger" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
                         ${triggerNames.map((t, idx) => `<option value="${idx}" ${(page0.trigger === idx) ? 'selected' : ''}>${t}</option>`).join('')}
                     </select>
                 </div>
                 <div style="margin-top: 6px;">
                     <label style="display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">Priority:</label>
-                    <select id="qj-ev-priority" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
+                    <select id="dd-ev-priority" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
                         ${priorityNames.map((p, idx) => `<option value="${idx}" ${(page0.priorityType === idx) ? 'selected' : ''}>${p}</option>`).join('')}
                     </select>
                 </div>
                 <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
-                    <button class="qj-btn qj-btn-primary" id="qj-ev-save-template-btn">💾 Save as Event Template</button>
-                    <button class="qj-btn" id="qj-ev-dup-btn">Duplicate Event</button>
-                    <button class="qj-btn" id="qj-ev-del-btn" style="background: #991b1b;">Delete Event</button>
+                    <button class="dd-btn dd-btn-primary" id="dd-ev-save-template-btn">💾 Save as Event Template</button>
+                    <button class="dd-btn" id="dd-ev-dup-btn">Duplicate Event</button>
+                    <button class="dd-btn" id="dd-ev-del-btn" style="background: #991b1b;">Delete Event</button>
                 </div>
             `;
 
-            document.getElementById('qj-ev-save-template-btn').onclick = () => {
+            document.getElementById('dd-ev-save-template-btn').onclick = () => {
                 const name = prompt("Enter a name for this new Event Template:", ev.name || ("Template_" + evId));
                 if (name && name.trim()) {
                     const cat = prompt("Category (Interaction, Mechanics, Atmosphere, Custom):", "Custom") || "Custom";
-                    QJ.DD.EventTemplates.saveCustomTemplate(name.trim(), ev, cat.trim());
+                    DocsDoodads.EventTemplates.saveCustomTemplate(name.trim(), ev, cat.trim());
                     this.showToast(`Saved template "${name.trim()}"!`);
                 }
             };
-            document.getElementById('qj-ev-del-btn').onclick = () => {
+            document.getElementById('dd-ev-del-btn').onclick = () => {
                 this.deleteSelectedEvent();
             };
-            document.getElementById('qj-ev-dup-btn').onclick = () => {
+            document.getElementById('dd-ev-dup-btn').onclick = () => {
                 this.duplicateSelectedEvent();
             };
             return;
@@ -5122,75 +5245,75 @@ QJ.DD.Workspace = {
                 <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
                     <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">ALIGN</div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
-                        <button class="qj-btn" id="qj-align-left" title="Align Left">Left</button>
-                        <button class="qj-btn" id="qj-align-center-x" title="Align Center X">Center X</button>
-                        <button class="qj-btn" id="qj-align-right" title="Align Right">Right</button>
-                        <button class="qj-btn" id="qj-align-top" title="Align Top">Top</button>
-                        <button class="qj-btn" id="qj-align-center-y" title="Align Center Y">Center Y</button>
-                        <button class="qj-btn" id="qj-align-bottom" title="Align Bottom">Bottom</button>
+                        <button class="dd-btn" id="dd-align-left" title="Align Left">Left</button>
+                        <button class="dd-btn" id="dd-align-center-x" title="Align Center X">Center X</button>
+                        <button class="dd-btn" id="dd-align-right" title="Align Right">Right</button>
+                        <button class="dd-btn" id="dd-align-top" title="Align Top">Top</button>
+                        <button class="dd-btn" id="dd-align-center-y" title="Align Center Y">Center Y</button>
+                        <button class="dd-btn" id="dd-align-bottom" title="Align Bottom">Bottom</button>
                     </div>
                 </div>
 
                 <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
                     <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">DISTRIBUTE</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <button class="qj-btn" id="qj-dist-h" title="Distribute Horizontally">Horizontal</button>
-                        <button class="qj-btn" id="qj-dist-v" title="Distribute Vertically">Vertical</button>
+                        <button class="dd-btn" id="dd-dist-h" title="Distribute Horizontally">Horizontal</button>
+                        <button class="dd-btn" id="dd-dist-v" title="Distribute Vertically">Vertical</button>
                     </div>
                 </div>
 
                 <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
                     <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">LAYERING (Z-ORDER)</div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-                        <button class="qj-btn" id="qj-multi-z-fwd" title="Bring Forward (+1 Z)">+1 Z</button>
-                        <button class="qj-btn" id="qj-multi-z-back" title="Send Backward (-1 Z)">-1 Z</button>
-                        <button class="qj-btn" id="qj-multi-z-front" title="Bring to Front">To Front</button>
-                        <button class="qj-btn" id="qj-multi-z-bottom" title="Send to Back">To Back</button>
+                        <button class="dd-btn" id="dd-multi-z-fwd" title="Bring Forward (+1 Z)">+1 Z</button>
+                        <button class="dd-btn" id="dd-multi-z-back" title="Send Backward (-1 Z)">-1 Z</button>
+                        <button class="dd-btn" id="dd-multi-z-front" title="Bring to Front">To Front</button>
+                        <button class="dd-btn" id="dd-multi-z-bottom" title="Send to Back">To Back</button>
                     </div>
                 </div>
 
                 <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
                     <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">ORGANIZATION</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <button class="qj-btn" id="qj-grp-btn">${hasGroup ? 'Ungroup' : 'Group'}</button>
-                        <button class="qj-btn" id="qj-lock-btn">${lockedCount === items.length ? 'Unlock All' : 'Lock All'}</button>
-                        <button class="qj-btn" id="qj-hide-btn">${hiddenCount === items.length ? 'Show All' : 'Hide All'}</button>
-                        <button class="qj-btn" id="qj-dup-all-btn">Duplicate</button>
+                        <button class="dd-btn" id="dd-grp-btn">${hasGroup ? 'Ungroup' : 'Group'}</button>
+                        <button class="dd-btn" id="dd-lock-btn">${lockedCount === items.length ? 'Unlock All' : 'Lock All'}</button>
+                        <button class="dd-btn" id="dd-hide-btn">${hiddenCount === items.length ? 'Show All' : 'Hide All'}</button>
+                        <button class="dd-btn" id="dd-dup-all-btn">Duplicate</button>
                     </div>
                 </div>
 
                 <div style="margin-top: 12px;">
-                    <button class="qj-btn" id="qj-del-all-btn" style="width: 100%; background: #991b1b;">Delete Selection (${items.length})</button>
+                    <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: #991b1b;">Delete Selection (${items.length})</button>
                 </div>
             `;
 
-            document.getElementById('qj-align-left').onclick = () => this.alignSelected('left');
-            document.getElementById('qj-align-center-x').onclick = () => this.alignSelected('centerX');
-            document.getElementById('qj-align-right').onclick = () => this.alignSelected('right');
-            document.getElementById('qj-align-top').onclick = () => this.alignSelected('top');
-            document.getElementById('qj-align-center-y').onclick = () => this.alignSelected('centerY');
-            document.getElementById('qj-align-bottom').onclick = () => this.alignSelected('bottom');
+            document.getElementById('dd-align-left').onclick = () => this.alignSelected('left');
+            document.getElementById('dd-align-center-x').onclick = () => this.alignSelected('centerX');
+            document.getElementById('dd-align-right').onclick = () => this.alignSelected('right');
+            document.getElementById('dd-align-top').onclick = () => this.alignSelected('top');
+            document.getElementById('dd-align-center-y').onclick = () => this.alignSelected('centerY');
+            document.getElementById('dd-align-bottom').onclick = () => this.alignSelected('bottom');
 
-            document.getElementById('qj-dist-h').onclick = () => this.distributeSelected('horizontal');
-            document.getElementById('qj-dist-v').onclick = () => this.distributeSelected('vertical');
+            document.getElementById('dd-dist-h').onclick = () => this.distributeSelected('horizontal');
+            document.getElementById('dd-dist-v').onclick = () => this.distributeSelected('vertical');
 
-            document.getElementById('qj-multi-z-fwd').onclick = () => this.bringForward();
-            document.getElementById('qj-multi-z-back').onclick = () => this.sendBackward();
-            document.getElementById('qj-multi-z-front').onclick = () => this.bringToFront();
-            document.getElementById('qj-multi-z-bottom').onclick = () => this.sendToBack();
+            document.getElementById('dd-multi-z-fwd').onclick = () => this.bringForward();
+            document.getElementById('dd-multi-z-back').onclick = () => this.sendBackward();
+            document.getElementById('dd-multi-z-front').onclick = () => this.bringToFront();
+            document.getElementById('dd-multi-z-bottom').onclick = () => this.sendToBack();
 
-            document.getElementById('qj-grp-btn').onclick = () => {
+            document.getElementById('dd-grp-btn').onclick = () => {
                 if (hasGroup) this.ungroupSelected();
                 else this.groupSelected();
             };
-            document.getElementById('qj-lock-btn').onclick = () => {
+            document.getElementById('dd-lock-btn').onclick = () => {
                 this.lockSelected(lockedCount !== items.length);
             };
-            document.getElementById('qj-hide-btn').onclick = () => {
+            document.getElementById('dd-hide-btn').onclick = () => {
                 this.hideSelected(hiddenCount !== items.length);
             };
-            document.getElementById('qj-dup-all-btn').onclick = () => this.duplicateSelectedDoodad();
-            document.getElementById('qj-del-all-btn').onclick = () => this.deleteSelectedDoodad();
+            document.getElementById('dd-dup-all-btn').onclick = () => this.duplicateSelectedDoodad();
+            document.getElementById('dd-del-all-btn').onclick = () => this.deleteSelectedDoodad();
             return;
         }
 
@@ -5206,41 +5329,41 @@ QJ.DD.Workspace = {
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
                     <div style="font-weight: bold; color: #38bdf8;">DOODAD PROPERTIES</div>
                     <div style="display: flex; gap: 4px;">
-                        <button class="qj-btn" id="qj-doodad-lock-toggle" style="padding: 2px 6px; font-size: 11px;">${isLocked ? '🔒 Locked' : '🔓 Lock'}</button>
-                        <button class="qj-btn" id="qj-doodad-hide-toggle" style="padding: 2px 6px; font-size: 11px;">${isHidden ? '👁 Hidden' : '👁 Hide'}</button>
+                        <button class="dd-btn" id="dd-doodad-lock-toggle" style="padding: 2px 6px; font-size: 11px;">${isLocked ? '🔒 Locked' : '🔓 Lock'}</button>
+                        <button class="dd-btn" id="dd-doodad-hide-toggle" style="padding: 2px 6px; font-size: 11px;">${isHidden ? '👁 Hidden' : '👁 Hide'}</button>
                     </div>
                 </div>
                 <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: #fff;">${escapeHtml(d.bit ? d.bit[1] : 'Unknown')}</span></div>
-                ${d.groupId ? `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="qj-btn" id="qj-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
+                ${d.groupId ? `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="dd-btn" id="dd-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">X:</label>
-                        <input type="number" id="qj-prop-x" value="${d.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" id="dd-prop-x" value="${d.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Y:</label>
-                        <input type="number" id="qj-prop-y" value="${d.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" id="dd-prop-y" value="${d.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Z-Order:</label>
-                        <input type="number" id="qj-prop-z" value="${d.z || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" id="dd-prop-z" value="${d.z || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Rotation (°):</label>
-                        <input type="number" id="qj-prop-rot" value="${d.rotation || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" id="dd-prop-rot" value="${d.rotation || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Scale X:</label>
-                        <input type="number" step="0.1" id="qj-prop-sx" value="${d.scaleX || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" step="0.1" id="dd-prop-sx" value="${d.scaleX || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                     <div>
                         <label style="font-size: 10px; color: #94a3b8;">Scale Y:</label>
-                        <input type="number" step="0.1" id="qj-prop-sy" value="${d.scaleY || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <input type="number" step="0.1" id="dd-prop-sy" value="${d.scaleY || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
                     </div>
                 </div>
                 <div style="margin-top: 6px;">
                     <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
-                    <select id="qj-prop-col" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                    <select id="dd-prop-col" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
                         <option value="none">None (Passable)</option>
                         <option value="full">Full Bounds</option>
                         <option value="bottomHalf">Bottom Half</option>
@@ -5253,26 +5376,26 @@ QJ.DD.Workspace = {
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
-                <div id="qj-custom-col-editor" style="display: ${isCustomCol ? 'block' : 'none'}; margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid #334155; padding: 8px; border-radius: 4px;">
+                <div id="dd-custom-col-editor" style="display: ${isCustomCol ? 'block' : 'none'}; margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid #334155; padding: 8px; border-radius: 4px;">
                     <div style="font-size: 10px; color: #38bdf8; margin-bottom: 4px; font-weight: bold;">CUSTOM COLLISION BOX</div>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <canvas id="qj-col-preview" width="64" height="64" style="background: #0b1120; border: 1px solid #475569; border-radius: 3px; flex-shrink: 0;"></canvas>
+                        <canvas id="dd-col-preview" width="64" height="64" style="background: #0b1120; border: 1px solid #475569; border-radius: 3px; flex-shrink: 0;"></canvas>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; flex: 1;">
                             <div>
                                 <label style="color: #94a3b8;">Rel X:</label>
-                                <input type="number" step="0.05" min="0" max="1" id="qj-col-x" value="${shape.x.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <input type="number" step="0.05" min="0" max="1" id="dd-col-x" value="${shape.x.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
                             </div>
                             <div>
                                 <label style="color: #94a3b8;">Rel Y:</label>
-                                <input type="number" step="0.05" min="0" max="1" id="qj-col-y" value="${shape.y.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <input type="number" step="0.05" min="0" max="1" id="dd-col-y" value="${shape.y.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
                             </div>
                             <div>
                                 <label style="color: #94a3b8;">Rel W:</label>
-                                <input type="number" step="0.05" min="0.05" max="1" id="qj-col-w" value="${shape.w.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-w" value="${shape.w.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
                             </div>
                             <div>
                                 <label style="color: #94a3b8;">Rel H:</label>
-                                <input type="number" step="0.05" min="0.05" max="1" id="qj-col-h" value="${shape.h.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-h" value="${shape.h.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
                             </div>
                         </div>
                     </div>
@@ -5281,20 +5404,20 @@ QJ.DD.Workspace = {
                 <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 8px;">
                     <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 4px;">LAYERING (Z-ORDER)</div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-                        <button class="qj-btn" id="qj-prop-forward" title="Bring Forward (+1 Z)">+1 Z</button>
-                        <button class="qj-btn" id="qj-prop-backward" title="Send Backward (-1 Z)">-1 Z</button>
-                        <button class="qj-btn" id="qj-prop-to-front" title="Bring to Front">To Front</button>
-                        <button class="qj-btn" id="qj-prop-to-back" title="Send to Back">To Back</button>
+                        <button class="dd-btn" id="dd-prop-forward" title="Bring Forward (+1 Z)">+1 Z</button>
+                        <button class="dd-btn" id="dd-prop-backward" title="Send Backward (-1 Z)">-1 Z</button>
+                        <button class="dd-btn" id="dd-prop-to-front" title="Bring to Front">To Front</button>
+                        <button class="dd-btn" id="dd-prop-to-back" title="Send to Back">To Back</button>
                     </div>
                 </div>
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="qj-btn" id="qj-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
-                    <button class="qj-btn" id="qj-prop-del" style="flex: 1; background: #991b1b;">Delete</button>
+                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
+                    <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: #991b1b;">Delete</button>
                 </div>
             `;
 
             const renderColPreview = () => {
-                const cvs = document.getElementById('qj-col-preview');
+                const cvs = document.getElementById('dd-col-preview');
                 if (!cvs || typeof cvs.getContext !== 'function') return;
                 const ctx = cvs.getContext('2d');
                 ctx.clearRect(0, 0, 64, 64);
@@ -5309,10 +5432,10 @@ QJ.DD.Workspace = {
                 ctx.strokeRect(4 + s.x * 56, 4 + s.y * 56, s.w * 56, s.h * 56);
             };
 
-            document.getElementById('qj-prop-col').value = (d.collision && d.collision.preset) ? d.collision.preset : "none";
-            document.getElementById('qj-prop-col').onchange = (e) => {
+            document.getElementById('dd-prop-col').value = (d.collision && d.collision.preset) ? d.collision.preset : "none";
+            document.getElementById('dd-prop-col').onchange = (e) => {
                 const val = e.target.value;
-                const colEditor = document.getElementById('qj-custom-col-editor');
+                const colEditor = document.getElementById('dd-custom-col-editor');
                 if (val === 'custom') {
                     d.collision = { preset: 'custom', shape: shape };
                     if (colEditor) colEditor.style.display = 'block';
@@ -5326,30 +5449,30 @@ QJ.DD.Workspace = {
             if (isCustomCol) renderColPreview();
 
             const updateCustomCol = () => {
-                const cx = Math.max(0, Math.min(1, parseFloat(document.getElementById('qj-col-x').value) || 0));
-                const cy = Math.max(0, Math.min(1, parseFloat(document.getElementById('qj-col-y').value) || 0));
-                const cw = Math.max(0.05, Math.min(1 - cx, parseFloat(document.getElementById('qj-col-w').value) || 0.5));
-                const ch = Math.max(0.05, Math.min(1 - cy, parseFloat(document.getElementById('qj-col-h').value) || 0.5));
+                const cx = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-x').value) || 0));
+                const cy = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-y').value) || 0));
+                const cw = Math.max(0.05, Math.min(1 - cx, parseFloat(document.getElementById('dd-col-w').value) || 0.5));
+                const ch = Math.max(0.05, Math.min(1 - cy, parseFloat(document.getElementById('dd-col-h').value) || 0.5));
                 d.collision = { preset: 'custom', shape: { x: cx, y: cy, w: cw, h: ch } };
                 renderColPreview();
             };
-            ['qj-col-x', 'qj-col-y', 'qj-col-w', 'qj-col-h'].forEach(id => {
+            ['dd-col-x', 'dd-col-y', 'dd-col-w', 'dd-col-h'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.oninput = updateCustomCol;
             });
 
-            document.getElementById('qj-doodad-lock-toggle').onclick = () => {
+            document.getElementById('dd-doodad-lock-toggle').onclick = () => {
                 d.locked = !d.locked;
                 this.refreshInspector();
             };
-            document.getElementById('qj-doodad-hide-toggle').onclick = () => {
+            document.getElementById('dd-doodad-hide-toggle').onclick = () => {
                 d.editorHidden = !d.editorHidden;
                 if (SceneManager._scene && SceneManager._scene._spriteset) {
-                    SceneManager._scene._spriteset.sortDoodadsQJ();
+                    SceneManager._scene._spriteset.sortDocsDoodads();
                 }
                 this.refreshInspector();
             };
-            const ungrpBtn = document.getElementById('qj-ungrp-single');
+            const ungrpBtn = document.getElementById('dd-ungrp-single');
             if (ungrpBtn) {
                 ungrpBtn.onclick = () => {
                     delete d.groupId;
@@ -5359,29 +5482,29 @@ QJ.DD.Workspace = {
 
             const applyDoodadInputs = () => {
                 if (d.locked) return;
-                d.x = parseInt(document.getElementById('qj-prop-x').value, 10) || 0;
-                d.y = parseInt(document.getElementById('qj-prop-y').value, 10) || 0;
-                d.z = parseInt(document.getElementById('qj-prop-z').value, 10) || 0;
-                d.rotation = parseInt(document.getElementById('qj-prop-rot').value, 10) || 0;
-                d.scaleX = parseFloat(document.getElementById('qj-prop-sx').value) || 1;
-                d.scaleY = parseFloat(document.getElementById('qj-prop-sy').value) || 1;
+                d.x = parseInt(document.getElementById('dd-prop-x').value, 10) || 0;
+                d.y = parseInt(document.getElementById('dd-prop-y').value, 10) || 0;
+                d.z = parseInt(document.getElementById('dd-prop-z').value, 10) || 0;
+                d.rotation = parseInt(document.getElementById('dd-prop-rot').value, 10) || 0;
+                d.scaleX = parseFloat(document.getElementById('dd-prop-sx').value) || 1;
+                d.scaleY = parseFloat(document.getElementById('dd-prop-sy').value) || 1;
                 if (SceneManager._scene && SceneManager._scene._spriteset) {
-                    SceneManager._scene._spriteset.sortDoodadsQJ();
+                    SceneManager._scene._spriteset.sortDocsDoodads();
                 }
             };
 
-            ['qj-prop-x','qj-prop-y','qj-prop-z','qj-prop-rot','qj-prop-sx','qj-prop-sy'].forEach(id => {
+            ['dd-prop-x','dd-prop-y','dd-prop-z','dd-prop-rot','dd-prop-sx','dd-prop-sy'].forEach(id => {
                 document.getElementById(id).onchange = applyDoodadInputs;
             });
 
-            document.getElementById('qj-prop-forward').onclick = () => this.bringForward([d]);
-            document.getElementById('qj-prop-backward').onclick = () => this.sendBackward([d]);
-            document.getElementById('qj-prop-to-front').onclick = () => this.bringToFront([d]);
-            document.getElementById('qj-prop-to-back').onclick = () => this.sendToBack([d]);
-            document.getElementById('qj-prop-dup').onclick = () => {
+            document.getElementById('dd-prop-forward').onclick = () => this.bringForward([d]);
+            document.getElementById('dd-prop-backward').onclick = () => this.sendBackward([d]);
+            document.getElementById('dd-prop-to-front').onclick = () => this.bringToFront([d]);
+            document.getElementById('dd-prop-to-back').onclick = () => this.sendToBack([d]);
+            document.getElementById('dd-prop-dup').onclick = () => {
                 this.duplicateSelectedDoodad();
             };
-            document.getElementById('qj-prop-del').onclick = () => {
+            document.getElementById('dd-prop-del').onclick = () => {
                 this.deleteSelectedDoodad();
             };
             return;
@@ -5394,7 +5517,7 @@ QJ.DD.Workspace = {
         }
 
         const a = this.selectedAsset;
-        const templates = QJ.DD.EventTemplates.templates;
+        const templates = DocsDoodads.EventTemplates.templates;
         let templateOptions = '';
         for (const key in templates) {
             templateOptions += `<option value="${escapeHtml(key)}">${escapeHtml(templates[key].name)}</option>`;
@@ -5405,25 +5528,35 @@ QJ.DD.Workspace = {
             <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${escapeHtml(a.category)}</span></div>
             <div style="font-size: 11px; margin-bottom: 4px;">Dimensions: ${a.width} x ${a.height}</div>
             <div style="display: flex; gap: 6px; margin: 8px 0;">
-                <button class="qj-btn" id="qj-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
+                <button class="dd-btn" id="dd-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
+            </div>
+            <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
+                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. forest, prop" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
             </div>
             <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Placement Mode:</label>
-                <select id="qj-place-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-place-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
                     <option value="doodad">Decorative Doodad</option>
                     <option value="event">Real MZ Event</option>
                     <option value="ask">Ask Each Time</option>
                 </select>
             </div>
-            <div id="qj-template-group" style="margin-top: 8px; display: none;">
+            <div id="dd-template-group" style="margin-top: 8px; display: none;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Event Template:</label>
-                <select id="qj-event-template" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-event-template" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
                     ${templateOptions}
                 </select>
+                ${a.type === 'character_sheet' ? `
+                <label style="display: block; font-size: 11px; margin: 8px 0 3px;">Character on Sheet:</label>
+                <select id="dd-char-index" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                    ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}">#${i + 1} (${i < 4 ? 'top' : 'bottom'} row, ${(i % 4) + 1} of 4)</option>`).join('')}
+                </select>` : ''}
             </div>
             <div style="margin-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
-                <select id="qj-col-preset" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-col-preset" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
                     <option value="none">None (Passable)</option>
                     <option value="full">Full Bounds</option>
                     <option value="bottomHalf">Bottom Half</option>
@@ -5434,13 +5567,13 @@ QJ.DD.Workspace = {
                 </select>
             </div>
             <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
-                <button class="qj-btn qj-btn-primary" id="qj-place-now-btn">Place on Map Center</button>
-                <button class="qj-btn" id="qj-open-slicer-btn">Open Slicer</button>
+                <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place on Map Center</button>
+                <button class="dd-btn" id="dd-open-slicer-btn">Open Slicer</button>
             </div>
         `;
 
-        const modeSel = document.getElementById('qj-place-mode');
-        const templateGroup = document.getElementById('qj-template-group');
+        const modeSel = document.getElementById('dd-place-mode');
+        const templateGroup = document.getElementById('dd-template-group');
         modeSel.value = a.placement.defaultMode || "doodad";
         templateGroup.style.display = modeSel.value === "event" ? "block" : "none";
 
@@ -5449,21 +5582,33 @@ QJ.DD.Workspace = {
             templateGroup.style.display = a.placement.defaultMode === "event" ? "block" : "none";
         };
 
-        const colSel = document.getElementById('qj-col-preset');
+        const charSel = document.getElementById('dd-char-index');
+        if (charSel) {
+            charSel.value = String(a.placement.characterIndex || 0);
+            charSel.onchange = (e) => { a.placement.characterIndex = parseInt(e.target.value, 10) || 0; };
+        }
+
+        const tagInput = document.getElementById('dd-asset-tags');
+        tagInput.onchange = (e) => {
+            DocsDoodads.AssetIndex.setTags(a.id, e.target.value);
+            tagInput.value = (a.tags || []).join(', ');
+        };
+
+        const colSel = document.getElementById('dd-col-preset');
         colSel.value = a.collision.preset || "none";
         colSel.onchange = (e) => { a.collision.preset = e.target.value; };
 
-        document.getElementById('qj-fav-toggle').onclick = () => {
-            QJ.DD.AssetIndex.toggleFavorite(a.id);
+        document.getElementById('dd-fav-toggle').onclick = () => {
+            DocsDoodads.AssetIndex.toggleFavorite(a.id);
             this.refreshInspector();
             this.refreshDrawerCards();
         };
 
-        document.getElementById('qj-open-slicer-btn').onclick = () => {
-            QJ.DD.Slicing.Editor.open(a);
+        document.getElementById('dd-open-slicer-btn').onclick = () => {
+            DocsDoodads.Slicing.Editor.open(a);
         };
 
-        document.getElementById('qj-place-now-btn').onclick = () => {
+        document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
     },
@@ -5481,15 +5626,17 @@ QJ.DD.Workspace = {
         const mode = modeOverride || asset.placement.defaultMode || "doodad";
 
         if (mode === "event" || asset.type === "character_sheet" || asset.type === "single_character") {
-            const templateKey = document.getElementById('qj-event-template') ? document.getElementById('qj-event-template').value : 'npc';
-            const template = QJ.DD.EventTemplates.get(templateKey);
+            const templateKey = document.getElementById('dd-event-template') ? document.getElementById('dd-event-template').value : 'npc';
+            const template = DocsDoodads.EventTemplates.get(templateKey);
             const mapId = $gameMap.mapId();
-            $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSynDoodadsQJ(0, mapId) || { events: [null] };
-            const newId = QJ.DD.Events.allocateSafeId($gameMap._stagedMapData);
+            $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+            const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
 
-            const ev = QJ.DD.Events.createEventObject(newId, coords.tileX, coords.tileY, {
+            const ev = DocsDoodads.Events.createEventObject(newId, coords.tileX, coords.tileY, {
                 characterName: asset.fileName,
-                characterIndex: 0,
+                characterIndex: asset.type === 'character_sheet'
+                    ? (asset.characterIndex !== undefined ? asset.characterIndex : ((asset.placement && asset.placement.characterIndex) || 0))
+                    : 0,
                 list: template.list,
                 trigger: template.trigger,
                 priorityType: template.priorityType
@@ -5498,45 +5645,46 @@ QJ.DD.Workspace = {
             const cmd = {
                 apply: () => {
                     $gameMap._stagedMapData.events[newId] = ev;
-                    QJ.DD.Persistence.dirtyMap = true;
+                    DocsDoodads.Persistence.dirtyMap = true;
                 },
                 revert: () => {
                     delete $gameMap._stagedMapData.events[newId];
                 }
             };
-            QJ.DD.Undo.execute(cmd);
+            DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
-            const d = QJ.DD.standardStruct();
+            const d = DocsDoodads.standardStruct();
             d.bit = [3, asset.path];
             d.x = coords.x;
             d.y = coords.y;
-            d.frameW = asset.width || 48;
-            d.frameH = asset.height || 48;
+            // Drag payloads carry frameW/frameH; library assets carry width/height.
+            d.frameW = asset.frameW || asset.width || 48;
+            d.frameH = asset.frameH || asset.height || 48;
             d.collision = { preset: asset.collision.preset || "none", shape: null };
 
             const cmd = {
                 apply: () => {
-                    window.$dataDoodadsQJ[$gameMap.mapId()] = window.$dataDoodadsQJ[$gameMap.mapId()] || [];
-                    window.$dataDoodadsQJ[$gameMap.mapId()].push(d);
-                    QJ.DD.Persistence.dirtyDoodads = true;
+                    window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
+                    window.$dataDocsDoodads[$gameMap.mapId()].push(d);
+                    DocsDoodads.Persistence.dirtyDoodads = true;
                     if (SceneManager._scene && SceneManager._scene._spriteset) {
-                        SceneManager._scene._spriteset.addDoodadsQJ();
+                        SceneManager._scene._spriteset.addDocsDoodads();
                     }
                 },
                 revert: () => {
-                    const list = window.$dataDoodadsQJ[$gameMap.mapId()] || [];
+                    const list = window.$dataDocsDoodads[$gameMap.mapId()] || [];
                     const idx = list.indexOf(d);
                     if (idx > -1) list.splice(idx, 1);
                     if (SceneManager._scene && SceneManager._scene._spriteset) {
-                        SceneManager._scene._spriteset.addDoodadsQJ();
+                        SceneManager._scene._spriteset.addDocsDoodads();
                     }
                 }
             };
-            QJ.DD.Undo.execute(cmd);
+            DocsDoodads.Undo.execute(cmd);
             this.showToast("Placed Doodad on Map!");
         }
-        QJ.DD.AssetIndex.recordUsage(asset.id);
+        DocsDoodads.AssetIndex.recordUsage(asset.id);
     },
 
     alignSelected(mode) {
@@ -5565,7 +5713,7 @@ QJ.DD.Workspace = {
         }
 
         const after = items.map(d => ({ doodad: d, x: d.x, y: d.y }));
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'align_doodads',
             apply: () => {
                 after.forEach(a => { a.doodad.x = a.x; a.doodad.y = a.y; });
@@ -5604,7 +5752,7 @@ QJ.DD.Workspace = {
         }
 
         const after = items.map(d => ({ doodad: d, x: d.x, y: d.y }));
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'distribute_doodads',
             apply: () => {
                 after.forEach(a => { a.doodad.x = a.x; a.doodad.y = a.y; });
@@ -5626,7 +5774,7 @@ QJ.DD.Workspace = {
         const grpId = 'grp_' + Date.now();
         const before = items.map(d => ({ doodad: d, groupId: d.groupId }));
         items.forEach(d => d.groupId = grpId);
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'group_doodads',
             apply: () => { items.forEach(d => d.groupId = grpId); },
             revert: () => { before.forEach(b => { if (b.groupId) b.doodad.groupId = b.groupId; else delete b.doodad.groupId; }); }
@@ -5640,7 +5788,7 @@ QJ.DD.Workspace = {
         if (items.length === 0) return;
         const before = items.map(d => ({ doodad: d, groupId: d.groupId }));
         items.forEach(d => delete d.groupId);
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'ungroup_doodads',
             apply: () => { items.forEach(d => delete d.groupId); },
             revert: () => { before.forEach(b => { if (b.groupId) b.doodad.groupId = b.groupId; else delete b.doodad.groupId; }); }
@@ -5654,7 +5802,7 @@ QJ.DD.Workspace = {
         if (items.length === 0) return;
         const before = items.map(d => ({ doodad: d, locked: d.locked }));
         items.forEach(d => d.locked = !!locked);
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'lock_doodads',
             apply: () => { items.forEach(d => d.locked = !!locked); },
             revert: () => { before.forEach(b => b.doodad.locked = !!b.locked); }
@@ -5668,7 +5816,7 @@ QJ.DD.Workspace = {
         if (items.length === 0) return;
         const before = items.map(d => ({ doodad: d, editorHidden: d.editorHidden }));
         items.forEach(d => d.editorHidden = !!hidden);
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'hide_doodads',
             apply: () => {
                 items.forEach(d => d.editorHidden = !!hidden);
@@ -5689,7 +5837,7 @@ QJ.DD.Workspace = {
         if (!items || items.length === 0) return;
         const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
         const after = items.map(d => ({ doodad: d, z: (d.z || 0) + 1 }));
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'z_order_fwd',
             apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
             revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
@@ -5704,7 +5852,7 @@ QJ.DD.Workspace = {
         if (!items || items.length === 0) return;
         const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
         const after = items.map(d => ({ doodad: d, z: (d.z || 0) - 1 }));
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'z_order_back',
             apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
             revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
@@ -5717,13 +5865,13 @@ QJ.DD.Workspace = {
     bringToFront(items) {
         items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
         if (!items || items.length === 0) return;
-        const all = QJ.DD.doodads() || [];
+        const all = DocsDoodads.doodads() || [];
         let maxZ = 0;
         all.forEach(d => { if ((d.z || 0) > maxZ) maxZ = d.z; });
         const targetZ = maxZ + 1;
         const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
         const after = items.map(d => ({ doodad: d, z: targetZ }));
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'z_order_front',
             apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
             revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
@@ -5736,13 +5884,13 @@ QJ.DD.Workspace = {
     sendToBack(items) {
         items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
         if (!items || items.length === 0) return;
-        const all = QJ.DD.doodads() || [];
+        const all = DocsDoodads.doodads() || [];
         let minZ = 0;
         all.forEach(d => { if ((d.z || 0) < minZ) minZ = d.z; });
         const targetZ = minZ - 1;
         const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
         const after = items.map(d => ({ doodad: d, z: targetZ }));
-        QJ.DD.Undo.execute({
+        DocsDoodads.Undo.execute({
             type: 'z_order_bottom',
             apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
             revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
@@ -5762,7 +5910,7 @@ QJ.DD.Workspace = {
     pasteCopied() {
         if (!this._clipboardDoodads || this._clipboardDoodads.length === 0) return;
         const mapId = (window.$gameMap && typeof window.$gameMap.mapId === 'function') ? window.$gameMap.mapId() : 0;
-        const list = window.$dataDoodadsQJ[mapId] = window.$dataDoodadsQJ[mapId] || [];
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         const duplicates = [];
 
         for (const orig of this._clipboardDoodads) {
@@ -5788,20 +5936,20 @@ QJ.DD.Workspace = {
                 this.refreshSpriteset();
             }
         };
-        QJ.DD.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
         this.showToast(`Pasted ${duplicates.length} doodad(s)`);
     },
 
     renderPlacementGrid() {
-        let gridEl = document.getElementById('qj-map-grid-overlay');
+        let gridEl = document.getElementById('dd-map-grid-overlay');
         if (!this.gridSnapShow) {
             if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
             return;
         }
         if (!gridEl) {
             gridEl = document.createElement('div');
-            gridEl.id = 'qj-map-grid-overlay';
+            gridEl.id = 'dd-map-grid-overlay';
             gridEl.style.cssText = `
                 position: fixed; inset: 0; pointer-events: none; z-index: 10001;
                 background-size: 48px 48px;
@@ -5819,17 +5967,17 @@ QJ.DD.Workspace = {
     },
 
     toggleInspector() {
-        const panel = document.getElementById('qj-inspector-panel');
+        const panel = document.getElementById('dd-inspector-panel');
         if (!panel) return;
         const isHidden = panel.style.display === 'none';
         panel.style.display = isHidden ? 'flex' : 'none';
-        const resizer = document.getElementById('qj-inspector-resizer');
+        const resizer = document.getElementById('dd-inspector-resizer');
         if (resizer) resizer.style.display = isHidden ? 'block' : 'none';
         this.showToast(isHidden ? "Inspector Shown" : "Inspector Hidden");
     },
 
     focusSearch() {
-        const inp = document.getElementById('qj-search-input');
+        const inp = document.getElementById('dd-search-input');
         if (inp) {
             inp.focus();
             inp.select();
@@ -5839,9 +5987,9 @@ QJ.DD.Workspace = {
     refreshSpriteset(sortOnly) {
         if (typeof SceneManager !== 'undefined' && SceneManager._scene && SceneManager._scene._spriteset) {
             if (sortOnly) {
-                SceneManager._scene._spriteset.sortDoodadsQJ();
+                SceneManager._scene._spriteset.sortDocsDoodads();
             } else {
-                SceneManager._scene._spriteset.addDoodadsQJ();
+                SceneManager._scene._spriteset.addDocsDoodads();
             }
         }
     },
@@ -5855,7 +6003,7 @@ QJ.DD.Workspace = {
             return;
         }
         const mapId = (window.$gameMap && typeof window.$gameMap.mapId === 'function') ? window.$gameMap.mapId() : 0;
-        const list = (window.$dataDoodadsQJ && window.$dataDoodadsQJ[mapId]) ? window.$dataDoodadsQJ[mapId] : [];
+        const list = (window.$dataDocsDoodads && window.$dataDocsDoodads[mapId]) ? window.$dataDocsDoodads[mapId] : [];
         const toDelete = [...items];
         const deletedRecords = toDelete.map(d => ({ doodad: d, index: list.indexOf(d) })).filter(r => r.index > -1);
 
@@ -5874,7 +6022,7 @@ QJ.DD.Workspace = {
                 this.refreshSpriteset();
             }
         };
-        QJ.DD.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(cmd);
         this.selectedDoodad = null;
         this.selectedDoodads = [];
         this.refreshInspector();
@@ -5885,7 +6033,7 @@ QJ.DD.Workspace = {
         const items = this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
         if (items.length === 0 || !window.$gameMap) return;
         const mapId = typeof window.$gameMap.mapId === 'function' ? window.$gameMap.mapId() : 0;
-        const list = window.$dataDoodadsQJ[mapId] = window.$dataDoodadsQJ[mapId] || [];
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         const duplicates = [];
 
         for (const orig of items) {
@@ -5910,7 +6058,7 @@ QJ.DD.Workspace = {
                 this.refreshSpriteset();
             }
         };
-        QJ.DD.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
         this.showToast(`Duplicated ${duplicates.length} Doodad(s)`);
     },
@@ -5919,20 +6067,20 @@ QJ.DD.Workspace = {
     showGhost(asset, clientX, clientY, isAlt) {
         if (!this.ghostEl) {
             this.ghostEl = document.createElement('div');
-            this.ghostEl.id = 'qj-map-ghost';
+            this.ghostEl.id = 'dd-map-ghost';
             this.ghostEl.style.cssText = `
                 position: fixed; pointer-events: none; z-index: 10002;
                 opacity: 0.65; transform: translate(-50%, -100%);
                 filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
             `;
             const img = document.createElement('img');
-            img.id = 'qj-ghost-img';
+            img.id = 'dd-ghost-img';
             img.style.cssText = 'image-rendering: pixelated; max-width: 144px; max-height: 144px;';
             this.ghostEl.appendChild(img);
             document.body.appendChild(this.ghostEl);
         }
 
-        const img = document.getElementById('qj-ghost-img');
+        const img = document.getElementById('dd-ghost-img');
         if (img && img.src !== asset.path) img.src = asset.path;
 
         let posX = clientX;
@@ -5966,7 +6114,7 @@ QJ.DD.Workspace = {
     },
 
     clientToMapCoords(clientX, clientY) {
-        const canvas = QJ.DD.Compat.getCanvas();
+        const canvas = DocsDoodads.Compat.getCanvas();
         if (!canvas || !window.$gameMap) return { x: 0, y: 0, tileX: 0, tileY: 0 };
         const rect = canvas.getBoundingClientRect();
         const scaleX = (canvas.width && rect.width) ? (canvas.width / rect.width) : 1;
@@ -5983,9 +6131,33 @@ QJ.DD.Workspace = {
         return { x: mapPixelX, y: mapPixelY, tileX, tileY };
     },
 
+    // Engine elements stacked above the canvas (MZ #gameVideo/#errorPrinter, MV #GameVideo/#ErrorPrinter)
+    // would otherwise receive every drop and click aimed at the map.
+    canvasOverlayIds: ['gameVideo', 'errorPrinter', 'GameVideo', 'ErrorPrinter'],
+
+    setCanvasOverlaysPassthrough(enabled) {
+        if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+        if (enabled) {
+            this._overlayPointerEvents = {};
+            for (const id of this.canvasOverlayIds) {
+                const el = document.getElementById(id);
+                if (!el || !el.style) continue;
+                this._overlayPointerEvents[id] = el.style.pointerEvents;
+                el.style.pointerEvents = 'none';
+            }
+        } else if (this._overlayPointerEvents) {
+            for (const [id, previous] of Object.entries(this._overlayPointerEvents)) {
+                const el = document.getElementById(id);
+                if (el && el.style) el.style.pointerEvents = previous;
+            }
+            this._overlayPointerEvents = null;
+        }
+    },
+
     attachCanvasListeners() {
-        const canvas = QJ.DD.Compat.getCanvas();
+        const canvas = DocsDoodads.Compat.getCanvas();
         if (!canvas) return;
+        this.setCanvasOverlaysPassthrough(true);
 
         this._onDragOver = (e) => {
             if (this.activeDragPayload) {
@@ -6040,7 +6212,7 @@ QJ.DD.Workspace = {
             const items = [];
 
             // Check if right-clicking placed doodad
-            const list = QJ.DD.doodads() || [];
+            const list = DocsDoodads.doodads() || [];
             let clickedDoodad = null;
             for (let i = list.length - 1; i >= 0; i--) {
                 const d = list[i];
@@ -6078,7 +6250,7 @@ QJ.DD.Workspace = {
                             const name = prompt("Enter a name for this new Event Template:", evObj.name || ("Template_EV" + ge.eventId()));
                             if (name && name.trim()) {
                                 const cat = prompt("Category (Interaction, Mechanics, Atmosphere, Custom):", "Custom") || "Custom";
-                                QJ.DD.EventTemplates.saveCustomTemplate(name.trim(), evObj, cat.trim());
+                                DocsDoodads.EventTemplates.saveCustomTemplate(name.trim(), evObj, cat.trim());
                                 this.showToast(`Saved template "${name.trim()}"!`);
                             }
                         }
@@ -6160,10 +6332,10 @@ QJ.DD.Workspace = {
                 const dy = e.clientY - this.marqueeStartClient.y;
                 if (Math.hypot(dx, dy) > 5) {
                     this.hasMarqueeMoved = true;
-                    let overlay = document.getElementById('qj-marquee-overlay');
+                    let overlay = document.getElementById('dd-marquee-overlay');
                     if (!overlay) {
                         overlay = document.createElement('div');
-                        overlay.id = 'qj-marquee-overlay';
+                        overlay.id = 'dd-marquee-overlay';
                         overlay.style.cssText = `
                             position: fixed; pointer-events: none; z-index: 10006;
                             border: 1px dashed #38bdf8; background: rgba(56, 189, 248, 0.18);
@@ -6189,27 +6361,27 @@ QJ.DD.Workspace = {
                     const batch = [...this.currentBrushBatch];
                     const cmd = {
                         apply: () => {
-                            const list = window.$dataDoodadsQJ[$gameMap.mapId()] = window.$dataDoodadsQJ[$gameMap.mapId()] || [];
+                            const list = window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
                             batch.forEach(item => {
                                 if (!list.includes(item)) list.push(item);
                             });
-                            if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDoodadsQJ();
+                            if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDocsDoodads();
                         },
                         revert: () => {
-                            const list = window.$dataDoodadsQJ[$gameMap.mapId()] || [];
+                            const list = window.$dataDocsDoodads[$gameMap.mapId()] || [];
                             batch.forEach(item => {
                                 const i = list.indexOf(item);
                                 if (i > -1) list.splice(i, 1);
                             });
-                            if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDoodadsQJ();
+                            if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDocsDoodads();
                         }
                     };
-                    QJ.DD.Undo.execute(cmd);
+                    DocsDoodads.Undo.execute(cmd);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
             }
             if (this.isMarqueeActive) {
-                const overlay = document.getElementById('qj-marquee-overlay');
+                const overlay = document.getElementById('dd-marquee-overlay');
                 if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
                 if (this.hasMarqueeMoved && this.marqueeStartMap) {
                     const currentMap = this.clientToMapCoords(e.clientX, e.clientY);
@@ -6218,7 +6390,7 @@ QJ.DD.Workspace = {
                     const minY = Math.min(this.marqueeStartMap.y, currentMap.y);
                     const maxY = Math.max(this.marqueeStartMap.y, currentMap.y);
 
-                    const all = QJ.DD.doodads() || [];
+                    const all = DocsDoodads.doodads() || [];
                     const enclosed = all.filter(d => !d.editorHidden && d.x >= minX && d.x <= maxX && d.y >= minY && d.y <= maxY);
 
                     if (this.marqueeShift) {
@@ -6251,7 +6423,8 @@ QJ.DD.Workspace = {
     },
 
     detachCanvasListeners() {
-        const canvas = QJ.DD.Compat.getCanvas();
+        this.setCanvasOverlaysPassthrough(false);
+        const canvas = DocsDoodads.Compat.getCanvas();
         if (canvas && typeof canvas.removeEventListener === 'function') {
             if (this._onDragOver) canvas.removeEventListener('dragover', this._onDragOver);
             if (this._onDrop) canvas.removeEventListener('drop', this._onDrop);
@@ -6269,7 +6442,7 @@ QJ.DD.Workspace = {
         const coords = this.clientToMapCoords(clientX, clientY);
         const asset = this.selectedAsset;
         const b = this.brushSettings;
-        const list = window.$dataDoodadsQJ[$gameMap.mapId()] = window.$dataDoodadsQJ[$gameMap.mapId()] || [];
+        const list = window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
 
         for (let i = 0; i < b.density; i++) {
             const angle = Math.random() * Math.PI * 2;
@@ -6280,7 +6453,7 @@ QJ.DD.Workspace = {
             const scaleJitter = 1.0 + (Math.random() * 2 - 1) * b.scaleJitter;
             const rotJitter = (Math.random() * 2 - 1) * b.rotateJitter;
 
-            const d = QJ.DD.standardStruct();
+            const d = DocsDoodads.standardStruct();
             d.bit = [3, asset.path];
             d.x = Math.round(px);
             d.y = Math.round(py);
@@ -6295,12 +6468,12 @@ QJ.DD.Workspace = {
             this.currentBrushBatch.push(d);
         }
         if (SceneManager._scene && SceneManager._scene._spriteset) {
-            SceneManager._scene._spriteset.addDoodadsQJ();
+            SceneManager._scene._spriteset.addDocsDoodads();
         }
     },
 
     handleEyedropper(coords) {
-        const list = QJ.DD.doodads();
+        const list = DocsDoodads.doodads();
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
             const dist = Math.hypot(d.x - coords.x, d.y - coords.y);
@@ -6316,7 +6489,7 @@ QJ.DD.Workspace = {
                 const ge = evs[0];
                 const charName = ge.characterName ? ge.characterName() : '';
                 if (charName) {
-                    const matchedAsset = QJ.DD.AssetIndex.list.find(a => a.fileName === charName || a.fileName === (charName + '.png'));
+                    const matchedAsset = DocsDoodads.AssetIndex.list.find(a => a.fileName === charName || a.fileName === (charName + '.png'));
                     if (matchedAsset) {
                         this.selectAsset(matchedAsset);
                         this.showToast(`Eyedropper: Matched Character Sheet ${charName}`);
@@ -6332,13 +6505,22 @@ QJ.DD.Workspace = {
         this.showToast("No doodad or event under cursor");
     },
 
+    doodadContainsPoint(d, x, y) {
+        const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+        const left = d.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5);
+        const top = d.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0);
+        if (x >= left && x <= left + w && y >= top && y <= top + h) return true;
+        // Keep small props easy to click.
+        return Math.hypot(d.x - x, d.y - y) < 40;
+    },
+
     handleDoodadSelection(coords, isMulti) {
-        const list = QJ.DD.doodads();
+        const list = DocsDoodads.doodads();
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
             if (d.editorHidden) continue;
-            const dist = Math.hypot(d.x - coords.x, d.y - coords.y);
-            if (dist < 40) {
+            if (this.doodadContainsPoint(d, coords.x, coords.y)) {
                 this.selectDoodad(d, isMulti);
                 return;
             }
@@ -6362,7 +6544,7 @@ QJ.DD.Workspace = {
 
     showAskEventModal(payload, coords, isAlt) {
         const modal = document.createElement('div');
-        modal.className = 'qj-glass';
+        modal.className = 'dd-glass';
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 380px; padding: 20px; z-index: 10020; text-align: center;
@@ -6371,13 +6553,13 @@ QJ.DD.Workspace = {
             <div style="font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 8px;">PLACEMENT DECISION</div>
             <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 16px;">Does ${escapeHtml(payload.fileName)} need an interactive RPG Maker MZ event?</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                <button class="qj-btn qj-btn-primary" id="qj-ask-yes">Yes (Create MZ Event)</button>
-                <button class="qj-btn" id="qj-ask-no">No (Decorative Doodad)</button>
-                <button class="qj-btn" id="qj-ask-yes-rem" style="font-size: 11px;">Yes & Remember</button>
-                <button class="qj-btn" id="qj-ask-no-rem" style="font-size: 11px;">No & Remember</button>
+                <button class="dd-btn dd-btn-primary" id="dd-ask-yes">Yes (Create MZ Event)</button>
+                <button class="dd-btn" id="dd-ask-no">No (Decorative Doodad)</button>
+                <button class="dd-btn" id="dd-ask-yes-rem" style="font-size: 11px;">Yes & Remember</button>
+                <button class="dd-btn" id="dd-ask-no-rem" style="font-size: 11px;">No & Remember</button>
             </div>
             <div style="margin-top: 12px;">
-                <button class="qj-btn" id="qj-ask-cancel" style="width: 100%;">Cancel</button>
+                <button class="dd-btn" id="dd-ask-cancel" style="width: 100%;">Cancel</button>
             </div>
         `;
         document.body.appendChild(modal);
@@ -6391,44 +6573,44 @@ QJ.DD.Workspace = {
 
         const closeM = () => modal.parentNode && modal.parentNode.removeChild(modal);
 
-        document.getElementById('qj-ask-yes').onclick = () => {
+        document.getElementById('dd-ask-yes').onclick = () => {
             closeM();
             this.commitPlacement(payload, snapCoords, 'event');
         };
-        document.getElementById('qj-ask-no').onclick = () => {
+        document.getElementById('dd-ask-no').onclick = () => {
             closeM();
             this.commitPlacement(payload, snapCoords, 'doodad');
         };
-        document.getElementById('qj-ask-yes-rem').onclick = () => {
+        document.getElementById('dd-ask-yes-rem').onclick = () => {
             closeM();
-            if (QJ.DD.AssetIndex.data.assets[payload.assetId]) {
-                QJ.DD.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'event';
-                QJ.DD.AssetIndex.save();
+            if (DocsDoodads.AssetIndex.data.assets[payload.assetId]) {
+                DocsDoodads.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'event';
+                DocsDoodads.AssetIndex.save();
             }
             this.commitPlacement(payload, snapCoords, 'event');
         };
-        document.getElementById('qj-ask-no-rem').onclick = () => {
+        document.getElementById('dd-ask-no-rem').onclick = () => {
             closeM();
-            if (QJ.DD.AssetIndex.data.assets[payload.assetId]) {
-                QJ.DD.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'doodad';
-                QJ.DD.AssetIndex.save();
+            if (DocsDoodads.AssetIndex.data.assets[payload.assetId]) {
+                DocsDoodads.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'doodad';
+                DocsDoodads.AssetIndex.save();
             }
             this.commitPlacement(payload, snapCoords, 'doodad');
         };
-        document.getElementById('qj-ask-cancel').onclick = closeM;
+        document.getElementById('dd-ask-cancel').onclick = closeM;
     },
 
     createAudioEvent(payload, coords) {
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSynDoodadsQJ(0, mapId) || { events: [null] };
-        const newId = QJ.DD.Events.allocateSafeId($gameMap._stagedMapData);
+        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+        const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
         const baseName = payload.fileName.replace(/\.[^/.]+$/, "");
         let code = 250;
         if (payload.path.includes('/bgm/')) code = 241;
         else if (payload.path.includes('/bgs/')) code = 245;
         else if (payload.path.includes('/me/')) code = 249;
 
-        const ev = QJ.DD.Events.createEventObject(newId, coords.tileX, coords.tileY, {
+        const ev = DocsDoodads.Events.createEventObject(newId, coords.tileX, coords.tileY, {
             name: `Sound_${baseName}`,
             trigger: 1, // Player Touch
             priorityType: 0,
@@ -6440,7 +6622,7 @@ QJ.DD.Workspace = {
         });
 
         $gameMap._stagedMapData.events[newId] = ev;
-        QJ.DD.Persistence.dirtyMap = true;
+        DocsDoodads.Persistence.dirtyMap = true;
         this.showToast(`Created Sound Event EV${String(newId).padStart(3, '0')}`);
     },
 
@@ -6453,7 +6635,7 @@ QJ.DD.Workspace = {
         if (!evId) return;
 
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSynDoodadsQJ(0, mapId) || { events: [null] };
+        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
         const oldEv = $gameMap._stagedMapData.events[evId] || ev;
 
         const cmd = {
@@ -6461,15 +6643,15 @@ QJ.DD.Workspace = {
             apply: () => {
                 delete $gameMap._stagedMapData.events[evId];
                 if (ge && ge._erased !== undefined) ge._erased = true;
-                QJ.DD.Persistence.dirtyMap = true;
+                DocsDoodads.Persistence.dirtyMap = true;
             },
             revert: () => {
                 $gameMap._stagedMapData.events[evId] = oldEv;
                 if (ge && ge._erased !== undefined) ge._erased = false;
-                QJ.DD.Persistence.dirtyMap = true;
+                DocsDoodads.Persistence.dirtyMap = true;
             }
         };
-        QJ.DD.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(cmd);
         this.selectEvent(null);
         this.showToast(`Deleted Event EV${String(evId).padStart(3, '0')}`);
     },
@@ -6481,8 +6663,8 @@ QJ.DD.Workspace = {
         if (!ev) return;
 
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSynDoodadsQJ(0, mapId) || { events: [null] };
-        const newId = QJ.DD.Events.allocateSafeId($gameMap._stagedMapData);
+        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
+        const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
 
         const dup = JSON.parse(JSON.stringify(ev));
         dup.id = newId;
@@ -6493,14 +6675,14 @@ QJ.DD.Workspace = {
             type: 'duplicate_event',
             apply: () => {
                 $gameMap._stagedMapData.events[newId] = dup;
-                QJ.DD.Persistence.dirtyMap = true;
+                DocsDoodads.Persistence.dirtyMap = true;
             },
             revert: () => {
                 delete $gameMap._stagedMapData.events[newId];
-                QJ.DD.Persistence.dirtyMap = true;
+                DocsDoodads.Persistence.dirtyMap = true;
             }
         };
-        QJ.DD.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(cmd);
         this.selectEvent({ stagedEvent: dup });
         this.showToast(`Duplicated to Event EV${String(newId).padStart(3, '0')}`);
     },
@@ -6509,8 +6691,8 @@ QJ.DD.Workspace = {
         this.closeContextMenu();
         if (!items || items.length === 0) return;
         const menu = document.createElement('div');
-        menu.id = 'qj-context-menu';
-        menu.className = 'qj-glass';
+        menu.id = 'dd-context-menu';
+        menu.className = 'dd-glass';
         menu.style.cssText = `
             position: fixed; z-index: 10050; min-width: 180px; padding: 4px;
             display: flex; flex-direction: column; gap: 2px;
@@ -6524,7 +6706,7 @@ QJ.DD.Workspace = {
                 return;
             }
             const row = document.createElement('button');
-            row.className = 'qj-btn';
+            row.className = 'dd-btn';
             row.style.cssText = `
                 text-align: left; width: 100%; border: none; background: transparent;
                 padding: 5px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;
@@ -6558,13 +6740,13 @@ QJ.DD.Workspace = {
     },
 
     closeContextMenu() {
-        const existing = document.getElementById('qj-context-menu');
+        const existing = document.getElementById('dd-context-menu');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     },
 
     appendAudioCommandToEvent(payload, gameEvent) {
         const mapId = $gameMap.mapId();
-        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSynDoodadsQJ(0, mapId) || { events: [null] };
+        $gameMap._stagedMapData = $gameMap._stagedMapData || DataManager.loadMapDataSyncDocsDoodads(0, mapId) || { events: [null] };
         const evId = gameEvent.eventId();
         const ev = $gameMap._stagedMapData.events[evId] || gameEvent.event();
         if (!ev || !ev.pages || !ev.pages[0]) return;
@@ -6583,69 +6765,69 @@ QJ.DD.Workspace = {
             type: 'append_audio_command',
             apply: () => {
                 pageList.splice(insertIdx, 0, soundCmd);
-                QJ.DD.Persistence.dirtyMap = true;
+                DocsDoodads.Persistence.dirtyMap = true;
             },
             revert: () => {
                 const idx = pageList.indexOf(soundCmd);
                 if (idx > -1) pageList.splice(idx, 1);
-                QJ.DD.Persistence.dirtyMap = true;
+                DocsDoodads.Persistence.dirtyMap = true;
             }
         };
-        QJ.DD.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(cmd);
         this.showToast(`Appended Sound Command to Event EV${String(evId).padStart(3, '0')}`);
     },
 
     async runAssetImport(sourcePaths, options = {}) {
-        const plan = QJ.DD.Import.planBatch(sourcePaths, options);
-        const result = await QJ.DD.Import.executeBatchAsync(plan, {
+        const plan = DocsDoodads.Import.planBatch(sourcePaths, options);
+        const result = await DocsDoodads.Import.executeBatchAsync(plan, {
             cancellationToken: options.cancellationToken,
             onProgress: options.onProgress
         });
         if (!result.ok) return result;
 
-        await QJ.DD.AssetIndex.scanAsync({ loadCache: false });
+        await DocsDoodads.AssetIndex.scanAsync({ loadCache: false });
         this.refreshDrawerCards();
 
         if (options.autoSlice) {
-            const path = QJ.DD.FS.path;
+            const path = DocsDoodads.FS.path;
             const imported = new Set(result.imported.map(filePath => path.resolve(filePath).toLowerCase()));
-            const firstImage = QJ.DD.AssetIndex.list.find(asset =>
+            const firstImage = DocsDoodads.AssetIndex.list.find(asset =>
                 asset.category !== 'Audio' && imported.has(path.resolve(asset.path).toLowerCase())
             );
             if (firstImage && typeof setTimeout === 'function') {
-                setTimeout(() => QJ.DD.Slicing.Editor.open(firstImage), 0);
+                setTimeout(() => DocsDoodads.Slicing.Editor.open(firstImage), 0);
             }
         }
         return result;
     },
 
     showAssetImportModal(sourcePaths) {
-        if (!QJ.DD.FS.fs || !QJ.DD.FS.path) {
+        if (!DocsDoodads.FS.fs || !DocsDoodads.FS.path) {
             this.showToast('Explorer import requires NW.js filesystem access.');
             return;
         }
 
-        const collected = QJ.DD.Import.collectFiles(sourcePaths);
-        const supportedCount = collected.files.filter(filePath => QJ.DD.Import.isSupported(filePath)).length;
+        const collected = DocsDoodads.Import.collectFiles(sourcePaths);
+        const supportedCount = collected.files.filter(filePath => DocsDoodads.Import.isSupported(filePath)).length;
         if (supportedCount === 0) {
             this.showToast('No supported image or audio files were found.');
             return;
         }
 
-        const previous = document.getElementById('qj-import-modal');
+        const previous = document.getElementById('dd-import-modal');
         if (previous && previous.parentNode) previous.parentNode.removeChild(previous);
 
         const overlay = document.createElement('div');
-        overlay.id = 'qj-import-modal';
+        overlay.id = 'dd-import-modal';
         overlay.style.cssText = `
             position: fixed; inset: 0; z-index: 10030; display: flex;
             align-items: center; justify-content: center; background: rgba(2,6,23,0.72);
             pointer-events: auto;
         `;
         const modal = document.createElement('div');
-        modal.className = 'qj-glass';
+        modal.className = 'dd-glass';
         modal.style.cssText = 'width: 430px; padding: 20px; color: #e2e8f0;';
-        const destinationOptions = QJ.DD.Import.destinations
+        const destinationOptions = DocsDoodads.Import.destinations
             .map(destination => `<option value="${destination}">${destination}</option>`)
             .join('');
         modal.innerHTML = `
@@ -6654,38 +6836,38 @@ QJ.DD.Workspace = {
                 ${supportedCount} supported file(s) found${collected.files.length !== supportedCount ? `; ${collected.files.length - supportedCount} unsupported skipped` : ''}.
             </div>
             <label style="display: block; font-size: 11px; margin-bottom: 5px; color: #cbd5e1;">Destination</label>
-            <select id="qj-import-destination" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <select id="dd-import-destination" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
                 <option value="auto">Auto-route by asset type</option>
                 ${destinationOptions}
             </select>
             <label style="display: block; font-size: 11px; margin-bottom: 5px; color: #cbd5e1;">When a filename already exists (apply to all)</label>
-            <select id="qj-import-collision" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <select id="dd-import-collision" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
                 <option value="rename">Keep both (add numeric suffix)</option>
                 <option value="skip">Skip incoming file</option>
                 <option value="overwrite">Overwrite existing file</option>
                 <option value="error">Cancel batch on collision</option>
             </select>
             <label style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #cbd5e1; margin-bottom: 16px;">
-                <input id="qj-import-auto-slice" type="checkbox" /> Open the first imported image in the slicer
+                <input id="dd-import-auto-slice" type="checkbox" /> Open the first imported image in the slicer
             </label>
-            <div id="qj-import-warning" style="display: none; color: #fbbf24; font-size: 11px; margin: -6px 0 12px;">
+            <div id="dd-import-warning" style="display: none; color: #fbbf24; font-size: 11px; margin: -6px 0 12px;">
                 Overwrite is explicit and transactional; existing files are restored if the batch fails.
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <button class="qj-btn" id="qj-import-cancel">Cancel</button>
-                <button class="qj-btn qj-btn-primary" id="qj-import-confirm">Import</button>
+                <button class="dd-btn" id="dd-import-cancel">Cancel</button>
+                <button class="dd-btn dd-btn-primary" id="dd-import-confirm">Import</button>
             </div>
         `;
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
         const close = () => overlay.parentNode && overlay.parentNode.removeChild(overlay);
-        const destination = document.getElementById('qj-import-destination');
-        const collision = document.getElementById('qj-import-collision');
-        const autoSlice = document.getElementById('qj-import-auto-slice');
-        const warning = document.getElementById('qj-import-warning');
-        const confirmButton = document.getElementById('qj-import-confirm');
-        const cancelButton = document.getElementById('qj-import-cancel');
+        const destination = document.getElementById('dd-import-destination');
+        const collision = document.getElementById('dd-import-collision');
+        const autoSlice = document.getElementById('dd-import-auto-slice');
+        const warning = document.getElementById('dd-import-warning');
+        const confirmButton = document.getElementById('dd-import-confirm');
+        const cancelButton = document.getElementById('dd-import-cancel');
         let activeCancellation = null;
 
         collision.onchange = () => {
@@ -6732,7 +6914,7 @@ QJ.DD.Workspace = {
 
     showConflictModal() {
         const modal = document.createElement('div');
-        modal.className = 'qj-glass';
+        modal.className = 'dd-glass';
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 440px; padding: 22px; z-index: 10025; text-align: center;
@@ -6745,31 +6927,31 @@ QJ.DD.Workspace = {
                 Overwriting now may erase external edits made in MZ.
             </div>
             <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="qj-btn" id="qj-conf-force" style="background: #b91c1c;">Force Overwrite With Workspace Changes</button>
-                <button class="qj-btn" id="qj-conf-reload">Reload Map from Disk (Discard Workspace Staged)</button>
-                <button class="qj-btn" id="qj-conf-cancel">Cancel Save</button>
+                <button class="dd-btn" id="dd-conf-force" style="background: #b91c1c;">Force Overwrite With Workspace Changes</button>
+                <button class="dd-btn" id="dd-conf-reload">Reload Map from Disk (Discard Workspace Staged)</button>
+                <button class="dd-btn" id="dd-conf-cancel">Cancel Save</button>
             </div>
         `;
         document.body.appendChild(modal);
 
         const closeM = () => modal.parentNode && modal.parentNode.removeChild(modal);
 
-        document.getElementById('qj-conf-force').onclick = () => {
+        document.getElementById('dd-conf-force').onclick = () => {
             closeM();
-            QJ.DD.Persistence.saveAll(true);
+            DocsDoodads.Persistence.saveAll(true);
         };
-        document.getElementById('qj-conf-reload').onclick = () => {
+        document.getElementById('dd-conf-reload').onclick = () => {
             closeM();
             if ($gameMap) $gameMap._stagedMapData = null;
-            QJ.DD.Persistence.captureSession();
+            DocsDoodads.Persistence.captureSession();
             this.showToast("External Map Data Reloaded!");
         };
-        document.getElementById('qj-conf-cancel').onclick = closeM;
+        document.getElementById('dd-conf-cancel').onclick = closeM;
     },
 
     openDiagnosticsModal() {
         const diag = document.createElement('div');
-        diag.className = 'qj-glass';
+        diag.className = 'dd-glass';
         diag.style.cssText = `
             position: fixed; top: 100px; left: 50%; transform: translateX(-50%);
             width: 440px; padding: 20px; z-index: 10010;
@@ -6777,41 +6959,41 @@ QJ.DD.Workspace = {
         diag.innerHTML = `
             <div style="font-weight: bold; font-size: 14px; color: #60a5fa; margin-bottom: 12px;">SYSTEM DIAGNOSTICS</div>
             <div style="font-size: 12px; line-height: 1.8; color: #cbd5e1;">
-                <div>Total Indexed Assets: <strong style="color: #fff;">${QJ.DD.AssetIndex.list.length}</strong></div>
-                <div>Thumbnail Cache Count: <strong style="color: #fff;">${Object.keys(QJ.DD.Thumbnail.cache).length}</strong></div>
-                <div>Background Work Queue: <strong style="color: #fff;">${QJ.DD.Thumbnail.queue.length} jobs</strong></div>
-                <div>Undo History Depth: <strong style="color: #fff;">${QJ.DD.Undo.undoStack.length} actions</strong></div>
+                <div>Total Indexed Assets: <strong style="color: #fff;">${DocsDoodads.AssetIndex.list.length}</strong></div>
+                <div>Thumbnail Cache Count: <strong style="color: #fff;">${Object.keys(DocsDoodads.Thumbnail.cache).length}</strong></div>
+                <div>Background Work Queue: <strong style="color: #fff;">${DocsDoodads.Thumbnail.queue.length} jobs</strong></div>
+                <div>Undo History Depth: <strong style="color: #fff;">${DocsDoodads.Undo.undoStack.length} actions</strong></div>
                 <div>Current Map ID: <strong style="color: #fff;">${$gameMap ? $gameMap.mapId() : 0}</strong></div>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 16px;">
-                <button class="qj-btn qj-btn-primary" id="qj-rebuild-idx-btn" style="flex: 1;">Rebuild Index</button>
-                <button class="qj-btn" id="qj-clear-cache-btn" style="flex: 1;">Clear Cache</button>
-                <button class="qj-btn" id="qj-close-diag-btn">Close</button>
+                <button class="dd-btn dd-btn-primary" id="dd-rebuild-idx-btn" style="flex: 1;">Rebuild Index</button>
+                <button class="dd-btn" id="dd-clear-cache-btn" style="flex: 1;">Clear Cache</button>
+                <button class="dd-btn" id="dd-close-diag-btn">Close</button>
             </div>
-            <button class="qj-btn" id="qj-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: #f59e0b; color: #fde68a;">Restore Project Backup…</button>
+            <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: #f59e0b; color: #fde68a;">Restore Project Backup…</button>
         `;
         document.body.appendChild(diag);
 
-        document.getElementById('qj-rebuild-idx-btn').onclick = async () => {
-            QJ.DD.AssetIndex.data.assets = {};
-            await QJ.DD.AssetIndex.scanAsync({ loadCache: false });
+        document.getElementById('dd-rebuild-idx-btn').onclick = async () => {
+            DocsDoodads.AssetIndex.data.assets = {};
+            await DocsDoodads.AssetIndex.scanAsync({ loadCache: false });
             this.refreshDrawerCards();
             this.showToast("Asset Library Rebuilt!");
             diag.parentNode.removeChild(diag);
         };
 
-        document.getElementById('qj-clear-cache-btn').onclick = () => {
-            QJ.DD.Thumbnail.cache = {};
+        document.getElementById('dd-clear-cache-btn').onclick = () => {
+            DocsDoodads.Thumbnail.cache = {};
             this.showToast("Thumbnail Cache Cleared!");
             diag.parentNode.removeChild(diag);
         };
 
-        document.getElementById('qj-restore-backup-btn').onclick = () => {
+        document.getElementById('dd-restore-backup-btn').onclick = () => {
             diag.parentNode.removeChild(diag);
             this.showBackupRestoreModal();
         };
 
-        document.getElementById('qj-close-diag-btn').onclick = () => {
+        document.getElementById('dd-close-diag-btn').onclick = () => {
             diag.parentNode.removeChild(diag);
         };
     },
@@ -6821,10 +7003,10 @@ QJ.DD.Workspace = {
         const targets = [
             { label: 'Current Map', path: mapFile },
             { label: 'Doodads', path: 'data/' + dataFileName },
-            { label: 'Asset Library', path: QJ.DD.AssetIndex.libraryPath }
+            { label: 'Asset Library', path: DocsDoodads.AssetIndex.libraryPath }
         ];
         const modal = document.createElement('div');
-        modal.className = 'qj-glass';
+        modal.className = 'dd-glass';
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 480px; padding: 20px; z-index: 10035; border: 1px solid #f59e0b;
@@ -6835,24 +7017,24 @@ QJ.DD.Workspace = {
                 Backups are validated before restore. The current file is backed up again first so this action remains reversible.
             </div>
             <label style="font-size: 11px; color: #94a3b8;">Project file</label>
-            <select id="qj-restore-target" style="width: 100%; margin: 5px 0 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <select id="dd-restore-target" style="width: 100%; margin: 5px 0 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
                 ${targets.map(target => `<option value="${target.path}">${target.label} — ${target.path}</option>`).join('')}
             </select>
             <label style="font-size: 11px; color: #94a3b8;">Backup snapshot</label>
-            <select id="qj-restore-source" style="width: 100%; margin: 5px 0 16px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;"></select>
+            <select id="dd-restore-source" style="width: 100%; margin: 5px 0 16px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;"></select>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                <button class="qj-btn" id="qj-restore-cancel">Cancel</button>
-                <button class="qj-btn" id="qj-restore-confirm" style="background: #b45309;">Restore Selected Backup</button>
+                <button class="dd-btn" id="dd-restore-cancel">Cancel</button>
+                <button class="dd-btn" id="dd-restore-confirm" style="background: #b45309;">Restore Selected Backup</button>
             </div>
         `;
         document.body.appendChild(modal);
 
-        const targetSelect = document.getElementById('qj-restore-target');
-        const backupSelect = document.getElementById('qj-restore-source');
-        const restoreButton = document.getElementById('qj-restore-confirm');
+        const targetSelect = document.getElementById('dd-restore-target');
+        const backupSelect = document.getElementById('dd-restore-source');
+        const restoreButton = document.getElementById('dd-restore-confirm');
         const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
         const refreshBackups = () => {
-            const backups = QJ.DD.FS.listBackups(targetSelect.value);
+            const backups = DocsDoodads.FS.listBackups(targetSelect.value);
             backupSelect.innerHTML = '';
             for (const backup of backups) {
                 const option = document.createElement('option');
@@ -6868,27 +7050,27 @@ QJ.DD.Workspace = {
             }
         };
         targetSelect.onchange = refreshBackups;
-        document.getElementById('qj-restore-cancel').onclick = close;
+        document.getElementById('dd-restore-cancel').onclick = close;
         restoreButton.onclick = () => {
             if (!backupSelect.value) return;
             const targetPath = targetSelect.value;
             if (!confirm(`Restore ${targetPath} from the selected backup?`)) return;
-            const result = QJ.DD.FS.restoreBackup(targetPath, backupSelect.value);
+            const result = DocsDoodads.FS.restoreBackup(targetPath, backupSelect.value);
             if (!result.ok) {
                 this.showToast(`Restore failed: ${result.error}`);
                 return;
             }
 
-            if (targetPath === QJ.DD.AssetIndex.libraryPath) {
-                QJ.DD.AssetIndex.init();
+            if (targetPath === DocsDoodads.AssetIndex.libraryPath) {
+                DocsDoodads.AssetIndex.init();
                 this.refreshDrawerCards();
             } else if (targetPath === 'data/' + dataFileName) {
-                window.$dataDoodadsQJ = QJ.DD.FS.readJson(targetPath) || {};
-                QJ.DD.migrateData(window.$dataDoodadsQJ, 'doodads');
+                window.$dataDocsDoodads = DocsDoodads.FS.readJson(targetPath) || {};
+                DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
                 this.refreshSpriteset();
             } else if (targetPath === mapFile && window.$gameMap) {
-                $gameMap._stagedMapData = QJ.DD.FS.readJson(targetPath);
-                QJ.DD.Persistence.captureSession();
+                $gameMap._stagedMapData = DocsDoodads.FS.readJson(targetPath);
+                DocsDoodads.Persistence.captureSession();
             }
             close();
             this.showToast('Backup restored. Reload the current map before continuing edits.');
@@ -6913,10 +7095,10 @@ QJ.DD.Workspace = {
     },
 
     updateUndoButtons() {
-        const uBtn = document.getElementById('qj-undo-btn');
-        const rBtn = document.getElementById('qj-redo-btn');
-        if (uBtn) uBtn.style.opacity = QJ.DD.Undo.undoStack.length > 0 ? '1' : '0.5';
-        if (rBtn) rBtn.style.opacity = QJ.DD.Undo.redoStack.length > 0 ? '1' : '0.5';
+        const uBtn = document.getElementById('dd-undo-btn');
+        const rBtn = document.getElementById('dd-redo-btn');
+        if (uBtn) uBtn.style.opacity = DocsDoodads.Undo.undoStack.length > 0 ? '1' : '0.5';
+        if (rBtn) rBtn.style.opacity = DocsDoodads.Undo.redoStack.length > 0 ? '1' : '0.5';
     }
 };
 
@@ -6928,30 +7110,66 @@ if (typeof Scene_Map !== 'undefined') {
     Scene_Map.prototype.initialize = function() {
         $.Scene_Map_initialize.call(this);
     };
+}
 
-    $.Scene_Map_updateScene = Scene_Map.prototype.updateScene;
-    Scene_Map.prototype.updateScene = function() {
-        $.Scene_Map_updateScene.call(this);
-        if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
+DocsDoodads.isEditableTarget = function(target) {
+    return Boolean(target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
+};
 
-        if (typeof Input !== 'undefined' && Input.isTriggered(editKey)) {
-            QJ.DD.Workspace.toggle();
-        }
+// While the workspace is open the game world is frozen: clicks in editor panels must not
+// walk the player, events must not wander or trigger, and the menu must stay closed.
+if (typeof Game_Player !== 'undefined') {
+    $.Game_Player_canMove = Game_Player.prototype.canMove;
+    Game_Player.prototype.canMove = function() {
+        if (DocsDoodads.Workspace.mounted) return false;
+        return $.Game_Player_canMove.call(this);
+    };
+}
+if (typeof Game_Event !== 'undefined') {
+    $.Game_Event_updateSelfMovement = Game_Event.prototype.updateSelfMovement;
+    Game_Event.prototype.updateSelfMovement = function() {
+        if (DocsDoodads.Workspace.mounted) return;
+        $.Game_Event_updateSelfMovement.call(this);
+    };
+}
+if (typeof Game_Map !== 'undefined') {
+    $.Game_Map_isEventRunning = Game_Map.prototype.isEventRunning;
+    Game_Map.prototype.isEventRunning = function() {
+        if (DocsDoodads.Workspace.mounted) return true;
+        return $.Game_Map_isEventRunning.call(this);
+    };
+}
+// MZ's TouchInput cancels every wheel event on the document, which stops the asset grid,
+// tab bar, and inspector lists from scrolling. The game has no use for the wheel while editing.
+if (typeof TouchInput !== 'undefined' && typeof TouchInput._onWheel === 'function') {
+    $.TouchInput__onWheel = TouchInput._onWheel;
+    TouchInput._onWheel = function(event) {
+        if (DocsDoodads.Workspace.mounted) return;
+        $.TouchInput__onWheel.call(this, event);
+    };
+}
+// MZ's Input listens on the whole document and prevents Backspace/arrows by default,
+// which breaks typing in workspace fields and lets keystrokes drive the game.
+if (typeof Input !== 'undefined' && typeof Input._onKeyDown === 'function') {
+    $.Input__onKeyDown = Input._onKeyDown;
+    Input._onKeyDown = function(event) {
+        if (DocsDoodads.Workspace.mounted && DocsDoodads.isEditableTarget(event.target)) return;
+        $.Input__onKeyDown.call(this, event);
     };
 }
 
 // Windows Explorer native drag and drop import listener with transactional options modal
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('dragover', (e) => {
-        if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
-        if (window.$gameSystem && window.$gameSystem.doodadsQJ && window.$gameSystem.doodadsQJ.editing) {
+        if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs()) return;
+        if (DocsDoodads.Workspace.mounted) {
             e.preventDefault();
         }
     });
 
     window.addEventListener('drop', (e) => {
-        if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
-        if (window.$gameSystem && window.$gameSystem.doodadsQJ && window.$gameSystem.doodadsQJ.editing) {
+        if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs()) return;
+        if (DocsDoodads.Workspace.mounted) {
             e.preventDefault();
             if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 const sourcePaths = [];
@@ -6959,55 +7177,60 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                     const f = e.dataTransfer.files[i];
                     if (f.path) sourcePaths.push(f.path);
                 }
-                if (sourcePaths.length > 0) QJ.DD.Workspace.showAssetImportModal(sourcePaths);
+                if (sourcePaths.length > 0) DocsDoodads.Workspace.showAssetImportModal(sourcePaths);
             }
         }
     });
 
     window.addEventListener('keydown', (e) => {
-        if (!editorMode || !QJ.DD.Compat.isTest() || !QJ.DD.Compat.isNwjs()) return;
-        if (!window.$gameSystem || !window.$gameSystem.doodadsQJ || !window.$gameSystem.doodadsQJ.editing) return;
+        if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs()) return;
+        // editKey is a KeyboardEvent.code ("F10"), which Input.keyMapper never reports, so opening is handled here.
         if (e.code === editKey) {
+            const onMap = typeof Scene_Map !== 'undefined' && typeof SceneManager !== 'undefined' && SceneManager._scene instanceof Scene_Map;
+            if (!DocsDoodads.Workspace.mounted && !onMap) return;
             e.preventDefault();
-            QJ.DD.Workspace.toggle();
-        } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+            DocsDoodads.Workspace.toggle();
+            return;
+        }
+        if (!DocsDoodads.Workspace.mounted || DocsDoodads.isEditableTarget(e.target)) return;
+        if (DocsDoodads.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
+        if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
             e.preventDefault();
-            QJ.DD.Undo.undo();
+            DocsDoodads.Undo.undo();
         } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
             e.preventDefault();
-            QJ.DD.Undo.redo();
+            DocsDoodads.Undo.redo();
         } else if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
             e.preventDefault();
-            QJ.DD.Persistence.saveAll();
+            DocsDoodads.Persistence.saveAll();
         } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
             e.preventDefault();
-            QJ.DD.Workspace.duplicateSelectedDoodad();
+            DocsDoodads.Workspace.duplicateSelectedDoodad();
         } else if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
             e.preventDefault();
-            QJ.DD.Workspace.copySelected();
+            DocsDoodads.Workspace.copySelected();
         } else if (e.ctrlKey && (e.key === 'v' || e.key === 'V')) {
             e.preventDefault();
-            QJ.DD.Workspace.pasteCopied();
+            DocsDoodads.Workspace.pasteCopied();
         } else if (e.key === 'Delete') {
-            if (QJ.DD.Workspace.selectedEvent) {
-                QJ.DD.Workspace.deleteSelectedEvent();
+            if (DocsDoodads.Workspace.selectedEvent) {
+                DocsDoodads.Workspace.deleteSelectedEvent();
             } else {
-                QJ.DD.Workspace.deleteSelectedDoodad();
+                DocsDoodads.Workspace.deleteSelectedDoodad();
             }
         } else if (e.key === 'g' || e.key === 'G') {
-            if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             e.preventDefault();
-            QJ.DD.Workspace.toggleGrid();
+            DocsDoodads.Workspace.toggleGrid();
         } else if (e.key === 'h' || e.key === 'H') {
             if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             e.preventDefault();
-            QJ.DD.Workspace.toggleInspector();
+            DocsDoodads.Workspace.toggleInspector();
         } else if (e.key === 'f' || e.key === 'F') {
             if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             e.preventDefault();
-            QJ.DD.Workspace.focusSearch();
+            DocsDoodads.Workspace.focusSearch();
         } else if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
-            const items = (QJ.DD.Workspace.selectedDoodads && QJ.DD.Workspace.selectedDoodads.length > 0 ? QJ.DD.Workspace.selectedDoodads : (QJ.DD.Workspace.selectedDoodad ? [QJ.DD.Workspace.selectedDoodad] : [])).filter(d => !d.locked);
+            const items = (DocsDoodads.Workspace.selectedDoodads && DocsDoodads.Workspace.selectedDoodads.length > 0 ? DocsDoodads.Workspace.selectedDoodads : (DocsDoodads.Workspace.selectedDoodad ? [DocsDoodads.Workspace.selectedDoodad] : [])).filter(d => !d.locked);
             if (items.length > 0) {
                 e.preventDefault();
                 const step = e.shiftKey ? 16 : 1;
@@ -7018,12 +7241,12 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                     if (e.key === 'ArrowDown') d.y += step;
                 });
                 if (SceneManager._scene && SceneManager._scene._spriteset) {
-                    SceneManager._scene._spriteset.sortDoodadsQJ();
+                    SceneManager._scene._spriteset.sortDocsDoodads();
                 }
-                QJ.DD.Workspace.refreshInspector();
-            } else if (QJ.DD.Workspace.selectedEvent) {
+                DocsDoodads.Workspace.refreshInspector();
+            } else if (DocsDoodads.Workspace.selectedEvent) {
                 e.preventDefault();
-                const evInfo = QJ.DD.Workspace.selectedEvent;
+                const evInfo = DocsDoodads.Workspace.selectedEvent;
                 const ge = evInfo.gameEvent;
                 const ev = evInfo.stagedEvent || (ge && ge.event());
                 if (ev) {
@@ -7035,25 +7258,25 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                     if (e.key === 'ArrowDown') ny++;
                     ev.x = nx; ev.y = ny;
                     if (ge) { ge._x = nx; ge._y = ny; ge._realX = nx; ge._realY = ny; }
-                    QJ.DD.Undo.execute({
+                    DocsDoodads.Undo.execute({
                         type: 'move_event',
                         apply: () => { ev.x = nx; ev.y = ny; if (ge) { ge._x = nx; ge._y = ny; ge._realX = nx; ge._realY = ny; } },
                         revert: () => { ev.x = oldX; ev.y = oldY; if (ge) { ge._x = oldX; ge._y = oldY; ge._realX = oldX; ge._realY = oldY; } }
                     });
-                    QJ.DD.Workspace.refreshInspector();
+                    DocsDoodads.Workspace.refreshInspector();
                 }
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            QJ.DD.Workspace.placementTool = null;
-            QJ.DD.Workspace.removeGhost();
-            QJ.DD.Workspace.selectDoodad(null);
-            const stampBtn = document.getElementById('qj-stamp-btn');
-            const brushBtn = document.getElementById('qj-brush-btn');
-            const eyeBtn = document.getElementById('qj-eyedropper-btn');
-            if (stampBtn) stampBtn.classList.remove('qj-btn-active');
-            if (brushBtn) brushBtn.classList.remove('qj-btn-active');
-            if (eyeBtn) eyeBtn.classList.remove('qj-btn-active');
+            DocsDoodads.Workspace.placementTool = null;
+            DocsDoodads.Workspace.removeGhost();
+            DocsDoodads.Workspace.selectDoodad(null);
+            const stampBtn = document.getElementById('dd-stamp-btn');
+            const brushBtn = document.getElementById('dd-brush-btn');
+            const eyeBtn = document.getElementById('dd-eyedropper-btn');
+            if (stampBtn) stampBtn.classList.remove('dd-btn-active');
+            if (brushBtn) brushBtn.classList.remove('dd-btn-active');
+            if (eyeBtn) eyeBtn.classList.remove('dd-btn-active');
         }
     });
 }
@@ -7061,14 +7284,14 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 // Auto-recovery heartbeat
 if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     const recoveryTimer = setInterval(() => {
-        if (editorMode && QJ.DD.Compat.isTest() && window.$gameMap && (QJ.DD.Persistence.dirtyMap || QJ.DD.Persistence.dirtyDoodads)) {
+        if (editorMode && DocsDoodads.Compat.isTest() && window.$gameMap && (DocsDoodads.Persistence.dirtyMap || DocsDoodads.Persistence.dirtyDoodads)) {
             const recoveryData = {
                 timestamp: Date.now(),
                 mapId: $gameMap.mapId(),
-                doodads: QJ.DD.doodads(),
+                doodads: DocsDoodads.doodads(),
                 stagedMap: $gameMap._stagedMapData
             };
-            QJ.DD.FS.atomicWriteJson('data/QJAssetWorkspaceRecovery.json', recoveryData);
+            DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', recoveryData);
         }
     }, autosaveRecoveryInterval * 1000);
     if (recoveryTimer && typeof recoveryTimer.unref === 'function') {
@@ -7076,4 +7299,4 @@ if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     }
 }
 
-})(QJ.DD.reWrite);
+})(DocsDoodads.reWrite);

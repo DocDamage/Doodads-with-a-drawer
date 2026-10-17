@@ -1,4 +1,4 @@
-// Performance & Scale Test Suite for QJ Doodads Asset Workspace
+// Performance & Scale Test Suite for Doc's Doodads
 const assert = require('assert');
 const fs = require('fs');
 
@@ -42,9 +42,9 @@ global.Image = class {
 global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: () => true };
 global.PluginManager = { parameters: () => ({}) };
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
-console.log("=== Testing QJ Doodads Performance, Scaling & LRU Cache ===");
+console.log("=== Testing Doc's Doodads Performance, Scaling & LRU Cache ===");
 
 // 1. Benchmark 10,000 and 25,000 assets indexing & searching
 console.log("Generating 25,000 synthetic assets...");
@@ -76,7 +76,7 @@ console.log(`✓ Created ${mockAssets.length} synthetic assets in memory.`);
 console.log("Benchmarking tokenized search on 25,000 assets...");
 const query1 = "prop_123 tag:tree -dead";
 const t0 = Date.now();
-const results1 = QJ.DD.Search.filter(mockAssets, query1);
+const results1 = DocsDoodads.Search.filter(mockAssets, query1);
 const dt1 = Date.now() - t0;
 const searchBudgetMs = process.env.NODE_V8_COVERAGE ? 150 : 50;
 console.log(`✓ Query '${query1}' returned ${results1.length} matches in ${dt1}ms (Target: < ${searchBudgetMs}ms).`);
@@ -84,15 +84,15 @@ assert(dt1 < searchBudgetMs, `Search took too long: ${dt1}ms`);
 
 const query2 = "category:Characters favorite:true";
 const t1 = Date.now();
-const results2 = QJ.DD.Search.filter(mockAssets, "type:character_sheet favorite:true");
+const results2 = DocsDoodads.Search.filter(mockAssets, "type:character_sheet favorite:true");
 const dt2 = Date.now() - t1;
 console.log(`✓ Query '${query2}' returned ${results2.length} matches in ${dt2}ms.`);
 assert(dt2 < 50, `Search took too long: ${dt2}ms`);
 
 // 3. Virtual grid calculation benchmark
 console.log("Testing virtual grid row-range computation for 25,000 items...");
-QJ.DD.Workspace.filteredAssets = mockAssets;
-QJ.DD.Workspace.thumbSize = 96;
+DocsDoodads.Workspace.filteredAssets = mockAssets;
+DocsDoodads.Workspace.thumbSize = 96;
 const containerW = 340;
 const gap = 8;
 const cols = Math.max(1, Math.floor((containerW + gap) / (96 + gap)));
@@ -117,22 +117,22 @@ const renderedCount = endIndex - startIndex;
 console.log(`✓ At scrollTop ${testScrollTop}px, virtual grid renders rows ${startRow}..${endRow} (${renderedCount} cards out of 25,000).`);
 assert(renderedCount <= 40, `Virtual grid should only render ~20-40 elements, but rendered ${renderedCount}`);
 
-// 4. LRU Cache & Size Buckets in QJ.DD.Thumbnail
+// 4. LRU Cache & Size Buckets in DocsDoodads.Thumbnail
 console.log("Testing Thumbnail LRU cache and bucket resolution...");
-assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(48), 64);
-assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(90), 96);
-assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(110), 96);
-assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(120), 128);
-assert.strictEqual(QJ.DD.Thumbnail.getBucketSize(200), 192);
+assert.strictEqual(DocsDoodads.Thumbnail.getBucketSize(48), 64);
+assert.strictEqual(DocsDoodads.Thumbnail.getBucketSize(90), 96);
+assert.strictEqual(DocsDoodads.Thumbnail.getBucketSize(110), 96);
+assert.strictEqual(DocsDoodads.Thumbnail.getBucketSize(120), 128);
+assert.strictEqual(DocsDoodads.Thumbnail.getBucketSize(200), 192);
 console.log("✓ Bucket resolution passed.");
 
-QJ.DD.Thumbnail.clearCache();
+DocsDoodads.Thumbnail.clearCache();
 for (let i = 0; i < 600; i++) {
-    QJ.DD.Thumbnail.setCache(`test_item_${i}`, `data:image/png;base64,${i}`);
+    DocsDoodads.Thumbnail.setCache(`test_item_${i}`, `data:image/png;base64,${i}`);
 }
-assert(Object.keys(QJ.DD.Thumbnail.cache).length <= 500, "Cache must not exceed maxCacheSize (500)");
-assert(!QJ.DD.Thumbnail.cache['test_item_0'], "Oldest item must have been evicted by LRU");
-assert(QJ.DD.Thumbnail.cache['test_item_599'], "Newest item must be retained in cache");
+assert(Object.keys(DocsDoodads.Thumbnail.cache).length <= 500, "Cache must not exceed maxCacheSize (500)");
+assert(!DocsDoodads.Thumbnail.cache['test_item_0'], "Oldest item must have been evicted by LRU");
+assert(DocsDoodads.Thumbnail.cache['test_item_599'], "Newest item must be retained in cache");
 console.log("✓ LRU eviction verified (capped strictly at 500 items).");
 
 // 5. Async Slicing with Progress & Cancellation
@@ -141,7 +141,7 @@ const cancelToken = { isCancelled: false };
 const progressEvents = [];
 const dummyImg = { naturalWidth: 256, naturalHeight: 256, width: 256, height: 256 };
 
-QJ.DD.Slicing.Visual.analyzeAsync(dummyImg, {}, (step, pct) => {
+DocsDoodads.Slicing.Visual.analyzeAsync(dummyImg, {}, (step, pct) => {
     progressEvents.push({ step, pct });
 }, cancelToken).then((result) => {
     assert(result !== null, "Analysis without cancellation should return result");
@@ -150,7 +150,7 @@ QJ.DD.Slicing.Visual.analyzeAsync(dummyImg, {}, (step, pct) => {
 
     // Test cancellation
     const cancelToken2 = { isCancelled: true };
-    QJ.DD.Slicing.Visual.analyzeAsync(dummyImg, {}, null, cancelToken2).then((res2) => {
+    DocsDoodads.Slicing.Visual.analyzeAsync(dummyImg, {}, null, cancelToken2).then((res2) => {
         assert.strictEqual(res2, null, "Cancelled analysis must return null immediately");
         console.log("✓ Cancellation token successfully aborted analysis.");
         console.log("=== All Performance & Scaling Tests Passed Successfully! ===");

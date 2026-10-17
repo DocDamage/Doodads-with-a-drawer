@@ -4,7 +4,7 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 ## Preflight
 
-- [ ] Copy `QJ-Doodads.js` into `js/plugins/` and enable it after UltraMode7, if used.
+- [ ] Copy `Docs-Doodads.js` into `js/plugins/` and enable it after UltraMode7, if used.
 - [ ] Confirm the project opens normally before enabling the plugin.
 - [ ] Start Playtest and confirm no console error appears before opening the workspace.
 

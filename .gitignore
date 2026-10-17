@@ -1,11 +1,11 @@
 # RPG Maker / workspace-generated caches and recovery data
-data/qj_asset_cache/
-data/QJAssetWorkspaceRecovery.json
+data/docs_doodads_cache/
+data/DocsDoodadsRecovery.json
 
 # Transaction scratch files (normally removed automatically)
 *.tmp
-*.qjimport-*
-*.qjtxn-*
+*.ddimport-*
+*.ddtxn-*
 
 # Local test fixtures
 scratch/*_fixture/

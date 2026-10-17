@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-console.log("=== Testing QJ Doodads Interactive Systems & Workspace Engine ===");
+console.log("=== Testing Doc's Doodads Interactive Systems & Workspace Engine ===");
 
 // 1. Mock engine globals
 global.window = global;
@@ -58,7 +58,7 @@ global.Graphics = { app: { view: { getBoundingClientRect: () => ({ left: 0, top:
 global.Input = { isTriggered: () => false };
 global.AudioManager = { playBgm: () => {}, playSe: () => {}, stopBgm: () => {}, stopSe: () => {} };
 global.SoundManager = { playOk: () => {}, playCancel: () => {} };
-global.SceneManager = { _scene: { _spriteset: { addDoodadsQJ: () => {}, sortDoodadsQJ: () => {} } } };
+global.SceneManager = { _scene: { _spriteset: { addDocsDoodads: () => {}, sortDocsDoodads: () => {} } } };
 global.PluginManager = { parameters: () => ({ editKey: "F10", editorMode: "true" }) };
 global.$gameMap = {
     mapId: () => 1,
@@ -70,21 +70,21 @@ global.$gameMap = {
     roundYWithDirection: (y, d) => y
 };
 global.$gamePlayer = { x: 5, y: 5 };
-global.$dataDoodadsQJ = { 1: [] };
+global.$dataDocsDoodads = { 1: [] };
 
 // Load plugin
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 const testStateDir = path.join(__dirname, 'interactive_systems_fixture');
 fs.rmSync(testStateDir, { recursive: true, force: true });
 fs.mkdirSync(testStateDir, { recursive: true });
 process.on('exit', () => fs.rmSync(testStateDir, { recursive: true, force: true }));
-QJ.DD.EventTemplates.filePath = path.join(testStateDir, 'QJEventTemplates.json');
-QJ.DD.EventTemplates.custom = {};
+DocsDoodads.EventTemplates.filePath = path.join(testStateDir, 'DocsDoodadsEventTemplates.json');
+DocsDoodads.EventTemplates.custom = {};
 
 // Test 1: Slicer Editor Snapping
 console.log("Testing Slicer Editor coordinate snapping...");
-const editor = QJ.DD.Slicing.Editor;
+const editor = DocsDoodads.Slicing.Editor;
 editor.img = { naturalWidth: 576, naturalHeight: 384 };
 editor.zoom = 1.0;
 editor.regions = [
@@ -114,7 +114,7 @@ console.log("✓ Slicer Split operations verified.");
 
 // Test 3: Screen to Map Coordinate Transformation
 console.log("Testing Screen to Map Coordinate Transformation...");
-const ws = QJ.DD.Workspace;
+const ws = DocsDoodads.Workspace;
 // Given displayX=2, displayY=1.5, tile=48x48
 // Click at screen (0, 0)
 const coords = ws.clientToMapCoords(0, 0);
@@ -139,25 +139,25 @@ const mockMapEvent = {
         ]
     }]
 };
-const templateKey = QJ.DD.EventTemplates.saveCustomTemplate("Guard Patrol", mockMapEvent, "Guards");
-assert(QJ.DD.EventTemplates.templates[templateKey], "Saved template must exist in registry");
-assert.strictEqual(QJ.DD.EventTemplates.templates[templateKey].name, "Guard Patrol");
-assert.strictEqual(QJ.DD.EventTemplates.templates[templateKey].category, "Guards");
-assert.strictEqual(QJ.DD.EventTemplates.templates[templateKey].directionFix, true);
-assert.strictEqual(QJ.DD.EventTemplates.templates[templateKey].list[1].parameters[0], "Halt! Who goes there?");
+const templateKey = DocsDoodads.EventTemplates.saveCustomTemplate("Guard Patrol", mockMapEvent, "Guards");
+assert(DocsDoodads.EventTemplates.templates[templateKey], "Saved template must exist in registry");
+assert.strictEqual(DocsDoodads.EventTemplates.templates[templateKey].name, "Guard Patrol");
+assert.strictEqual(DocsDoodads.EventTemplates.templates[templateKey].category, "Guards");
+assert.strictEqual(DocsDoodads.EventTemplates.templates[templateKey].directionFix, true);
+assert.strictEqual(DocsDoodads.EventTemplates.templates[templateKey].list[1].parameters[0], "Halt! Who goes there?");
 console.log("✓ Save Event as Template verified.");
 
 // Test 5: Pre-Save External Conflict Detection
 console.log("Testing External Conflict Detection...");
-const persist = QJ.DD.Persistence;
+const persist = DocsDoodads.Persistence;
 persist.sessionSnapshots['data/Map001.json'] = { mtimeMs: 1000, size: 5000 };
-// Mock QJ.DD.FS.stat to return different mtime
-const origStat = QJ.DD.FS.stat;
-QJ.DD.FS.stat = () => ({ mtimeMs: 1500, size: 5000 }); // external editor touched the file
+// Mock DocsDoodads.FS.stat to return different mtime
+const origStat = DocsDoodads.FS.stat;
+DocsDoodads.FS.stat = () => ({ mtimeMs: 1500, size: 5000 }); // external editor touched the file
 assert.strictEqual(persist.checkConflict(), true, "Conflict must be detected when mtime differs");
-QJ.DD.FS.stat = () => ({ mtimeMs: 1000, size: 5000 }); // untouched
+DocsDoodads.FS.stat = () => ({ mtimeMs: 1000, size: 5000 }); // untouched
 assert.strictEqual(persist.checkConflict(), false, "No conflict when file matches session snapshot");
-QJ.DD.FS.stat = origStat;
+DocsDoodads.FS.stat = origStat;
 console.log("✓ External Conflict Detection verified.");
 
 // Test 6: Scatter Brush Generation & Batch Undo
@@ -175,20 +175,20 @@ ws.currentBrushBatch = [];
 ws.scatterAt(100, 100);
 assert(ws.currentBrushBatch.length >= 3, "Scatter brush should generate configured density items");
 const batchCount = ws.currentBrushBatch.length;
-assert.strictEqual($dataDoodadsQJ[1].length, batchCount, "All batch items should be added to doodads list");
+assert.strictEqual($dataDocsDoodads[1].length, batchCount, "All batch items should be added to doodads list");
 
 // Simulate mouseup ending stroke
 ws._onCanvasMouseUp();
 assert.strictEqual(ws.isBrushActive, false);
-assert(QJ.DD.Undo.undoStack.length > 0, "Brush stroke must be pushed to Undo stack");
+assert(DocsDoodads.Undo.undoStack.length > 0, "Brush stroke must be pushed to Undo stack");
 
 // Perform Undo
-QJ.DD.Undo.undo();
-assert.strictEqual($dataDoodadsQJ[1].length, 0, "Undo must roll back entire scatter brush batch");
+DocsDoodads.Undo.undo();
+assert.strictEqual($dataDocsDoodads[1].length, 0, "Undo must roll back entire scatter brush batch");
 
 // Perform Redo
-QJ.DD.Undo.redo();
-assert.strictEqual($dataDoodadsQJ[1].length, batchCount, "Redo must restore entire scatter brush batch");
+DocsDoodads.Undo.redo();
+assert.strictEqual($dataDocsDoodads[1].length, batchCount, "Redo must restore entire scatter brush batch");
 console.log("✓ Scatter Brush and Batch Undo/Redo verified.");
 
 console.log("=== All Interactive System Tests Passed Successfully! ===");

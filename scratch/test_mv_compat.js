@@ -43,21 +43,21 @@ global.ImageManager = {
     }
 };
 
-delete require.cache[require.resolve('../QJ-Doodads.js')];
-require('../QJ-Doodads.js');
+delete require.cache[require.resolve('../Docs-Doodads.js')];
+require('../Docs-Doodads.js');
 
-assert(QJ.DD.Compat.isMZ(), "isMZ() must return true under MZ");
-assert(!QJ.DD.Compat.isMV(), "isMV() must return false under MZ");
-assert.strictEqual(QJ.DD.Compat.getCanvas(), global.Graphics.app.view);
-assert.strictEqual(QJ.DD.Compat.getStage(), global.Graphics.app.stage);
-assert.strictEqual(QJ.DD.Compat.getRenderer(), global.Graphics.app.renderer);
+assert(DocsDoodads.Compat.isMZ(), "isMZ() must return true under MZ");
+assert(!DocsDoodads.Compat.isMV(), "isMV() must return false under MZ");
+assert.strictEqual(DocsDoodads.Compat.getCanvas(), global.Graphics.app.view);
+assert.strictEqual(DocsDoodads.Compat.getStage(), global.Graphics.app.stage);
+assert.strictEqual(DocsDoodads.Compat.getRenderer(), global.Graphics.app.renderer);
 
-const mzWin = QJ.DD.Compat.createWindow(global.Window_Base_MZ, 10, 20, 300, 200);
+const mzWin = DocsDoodads.Compat.createWindow(global.Window_Base_MZ, 10, 20, 300, 200);
 assert.strictEqual(mzWin.x, 10);
 assert.strictEqual(mzWin.width, 300);
 console.log("✓ MZ Rectangle-based Window instantiation verified.");
 
-const mzBmp = QJ.DD.Compat.loadBitmap("img/characters/", "Hero.png");
+const mzBmp = DocsDoodads.Compat.loadBitmap("img/characters/", "Hero.png");
 assert.strictEqual(mzBmp.type, "MZ_Bitmap");
 console.log("✓ MZ ImageManager delegation verified.");
 
@@ -82,18 +82,18 @@ global.ImageManager = {
     }
 };
 
-assert(QJ.DD.Compat.isMV(), "isMV() must return true under MV");
-assert(!QJ.DD.Compat.isMZ(), "isMZ() must return false under MV");
-assert.strictEqual(QJ.DD.Compat.getCanvas(), global.Graphics._canvas);
-assert.strictEqual(QJ.DD.Compat.getStage(), global.Graphics._stage);
-assert.strictEqual(QJ.DD.Compat.getRenderer(), global.Graphics._renderer);
+assert(DocsDoodads.Compat.isMV(), "isMV() must return true under MV");
+assert(!DocsDoodads.Compat.isMZ(), "isMZ() must return false under MV");
+assert.strictEqual(DocsDoodads.Compat.getCanvas(), global.Graphics._canvas);
+assert.strictEqual(DocsDoodads.Compat.getStage(), global.Graphics._stage);
+assert.strictEqual(DocsDoodads.Compat.getRenderer(), global.Graphics._renderer);
 
-const mvWin = QJ.DD.Compat.createWindow(global.Window_Base_MV, 15, 25, 400, 250);
+const mvWin = DocsDoodads.Compat.createWindow(global.Window_Base_MV, 15, 25, 400, 250);
 assert.strictEqual(mvWin.x, 15);
 assert.strictEqual(mvWin.width, 400);
 console.log("✓ MV 4-argument (x, y, w, h) Window instantiation verified.");
 
-const mvBmp = QJ.DD.Compat.loadBitmap("img/doodads/", "Tree.png", 0, true);
+const mvBmp = DocsDoodads.Compat.loadBitmap("img/doodads/", "Tree.png", 0, true);
 assert.strictEqual(mvBmp.type, "MV_Bitmap");
 assert.strictEqual(mvBmp.smooth, true);
 console.log("✓ MV ImageManager delegation with hue & smooth verified.");
@@ -104,10 +104,10 @@ console.log("\n=== Testing Feature Matrix & Web Deployment Fallback ===");
 global.Utils.isNwjs = () => false;
 global.Utils.isOptionValid = () => false;
 
-assert(!QJ.DD.Compat.isNwjs(), "isNwjs() should be false in browser deployment");
-assert(!QJ.DD.Compat.isTest(), "isTest() should be false in release deployment");
+assert(!DocsDoodads.Compat.isNwjs(), "isNwjs() should be false in browser deployment");
+assert(!DocsDoodads.Compat.isTest(), "isTest() should be false in release deployment");
 
-const matrix = QJ.DD.Compat.featureMatrix;
+const matrix = DocsDoodads.Compat.featureMatrix;
 assert(matrix.assetDrawer.mz === true);
 assert(matrix.assetDrawer.mv === true);
 assert(matrix.collisionSAT.mz === true);

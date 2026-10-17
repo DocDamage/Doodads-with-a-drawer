@@ -14,7 +14,7 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: () => true };
 global.PluginManager = { parameters: () => ({}) };
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 function pixels(width, height, color = [0, 0, 0, 0]) {
     const data = new Uint8ClampedArray(width * height * 4);
@@ -29,13 +29,13 @@ function rect(data, width, x, y, w, h, color) {
 }
 
 console.log('=== Testing Visual Slicing Pipeline & Atlas Metadata ===');
-assert.strictEqual(typeof QJ.DD.Slicing.Visual.analyzePixels, 'function');
+assert.strictEqual(typeof DocsDoodads.Slicing.Visual.analyzePixels, 'function');
 
 const transparent = pixels(48, 24);
 rect(transparent, 48, 3, 4, 10, 15, [220, 30, 30, 255]);
 rect(transparent, 48, 31, 5, 11, 14, [30, 80, 220, 255]);
 transparent[(2 * 48 + 20) * 4 + 3] = 6; // faint alpha noise
-const transparentResult = QJ.DD.Slicing.Visual.analyzePixels(transparent, 48, 24, { minArea: 8, padding: 0 });
+const transparentResult = DocsDoodads.Slicing.Visual.analyzePixels(transparent, 48, 24, { minArea: 8, padding: 0 });
 assert.strictEqual(transparentResult.backgroundMode, 'transparent');
 assert.strictEqual(transparentResult.regions.length, 2);
 assert(transparentResult.confidence >= 0.75 && transparentResult.confidence <= 1);
@@ -43,7 +43,7 @@ assert(transparentResult.confidence >= 0.75 && transparentResult.confidence <= 1
 const opaque = pixels(52, 26, [248, 248, 248, 255]);
 rect(opaque, 52, 4, 5, 12, 16, [20, 40, 60, 255]);
 rect(opaque, 52, 34, 4, 13, 17, [80, 25, 90, 255]);
-const opaqueResult = QJ.DD.Slicing.Visual.analyzePixels(opaque, 52, 26, { minArea: 8, padding: 0 });
+const opaqueResult = DocsDoodads.Slicing.Visual.analyzePixels(opaque, 52, 26, { minArea: 8, padding: 0 });
 assert.strictEqual(opaqueResult.backgroundMode, 'opaque');
 assert.strictEqual(opaqueResult.regions.length, 2, 'border-connected opaque background must be removed');
 assert(opaqueResult.confidence >= 0.7);
@@ -52,14 +52,14 @@ const fragments = pixels(50, 30);
 rect(fragments, 50, 4, 9, 10, 16, [20, 180, 80, 255]);
 rect(fragments, 50, 16, 12, 2, 3, [20, 180, 80, 255]); // detached detail belonging to first sprite
 rect(fragments, 50, 35, 8, 10, 17, [180, 80, 20, 255]);
-const fragmentResult = QJ.DD.Slicing.Visual.analyzePixels(fragments, 50, 30, {
+const fragmentResult = DocsDoodads.Slicing.Visual.analyzePixels(fragments, 50, 30, {
     minArea: 3, padding: 0, fragmentMaxAreaRatio: 0.2, fragmentAttachDistance: 5
 });
 assert.strictEqual(fragmentResult.regions.length, 2, 'unambiguous detached detail should attach to its nearest sprite');
 assert(fragmentResult.regions[0].w >= 14, 'attached detail must expand the first sprite bounds');
 
 const empty = pixels(20, 20);
-const emptyResult = QJ.DD.Slicing.Visual.analyzePixels(empty, 20, 20, { padding: 0 });
+const emptyResult = DocsDoodads.Slicing.Visual.analyzePixels(empty, 20, 20, { padding: 0 });
 assert.strictEqual(emptyResult.regions.length, 0);
 assert(emptyResult.confidence < 0.5, 'empty or ambiguous results must not claim high confidence');
 
@@ -84,7 +84,7 @@ try {
         meta: { frameTags: [{ name: 'idle', from: 0, to: 1, direction: 'pingpong' }] }
     }));
 
-    const metadata = QJ.DD.Slicing.Metadata.parse(imagePath);
+    const metadata = DocsDoodads.Slicing.Metadata.parse(imagePath);
     assert.strictEqual(metadata.regions.length, 2);
     assert.strictEqual(metadata.regions[0].trimmed, true);
     assert.deepStrictEqual(metadata.regions[0].sourceSize, { w: 24, h: 30 });
@@ -94,16 +94,16 @@ try {
         name: 'idle', direction: 'pingpong', frames: ['idle_0.png', 'idle_1.png']
     });
 
-    assert.strictEqual(typeof QJ.DD.Export.getRegionGeometry, 'function');
-    assert.deepStrictEqual(QJ.DD.Export.getRegionGeometry(metadata.regions[0]), {
+    assert.strictEqual(typeof DocsDoodads.Export.getRegionGeometry, 'function');
+    assert.deepStrictEqual(DocsDoodads.Export.getRegionGeometry(metadata.regions[0]), {
         atlasW: 16, atlasH: 20, contentW: 16, contentH: 20,
         outputW: 24, outputH: 30, destinationX: 3, destinationY: 4, rotated: false
     });
-    assert.deepStrictEqual(QJ.DD.Export.getRegionGeometry(metadata.regions[1]), {
+    assert.deepStrictEqual(DocsDoodads.Export.getRegionGeometry(metadata.regions[1]), {
         atlasW: 20, atlasH: 16, contentW: 16, contentH: 20,
         outputW: 16, outputH: 20, destinationX: 0, destinationY: 0, rotated: true
     });
-    assert.strictEqual(QJ.DD.Export.safeFileName('../../bad:name?.png'), 'bad_name_.png');
+    assert.strictEqual(DocsDoodads.Export.safeFileName('../../bad:name?.png'), 'bad_name_.png');
 } finally {
     fs.rmSync(fixtureDir, { recursive: true, force: true });
 }

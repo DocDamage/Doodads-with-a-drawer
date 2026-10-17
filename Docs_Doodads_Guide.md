@@ -1,14 +1,14 @@
-# QJ Doodads Asset Workspace — User Guide & Technical Reference
+# Doc's Doodads — User Guide & Technical Reference
 
-**Plugin:** `QJ-Doodads.js` (v2.0)  
+**Plugin:** `Docs-Doodads.js` (v2.0)  
 **Compatibility:** RPG Maker MZ (Primary) & RPG Maker MV  
-**License:** MIT License (Copyright (c) Qiu Jiu / Upgrades by Antigravity)  
+**License:** MIT License. Based on QJ-Doodads by Qiu Jiu.  
 
 ---
 
 ## 1. Overview & Vision
 
-**QJ Doodads Asset Workspace** transforms the traditional RPG Maker in-game doodad editor into a high-performance visual asset management, placement, slicing, and event-authoring workspace. 
+**Doc's Doodads** transforms the traditional RPG Maker in-game doodad editor into a high-performance visual asset management, placement, slicing, and event-authoring workspace. 
 
 It eliminates the friction of traditional sprite-sheet pickers and multi-click file dialogue boxes by providing:
 - **Instant visual browsing** with virtualized cards capable of smoothly scrolling 10,000+ assets.
@@ -18,17 +18,19 @@ It eliminates the friction of traditional sprite-sheet pickers and multi-click f
 - **Direct SAT physical collision** with interactive relative collision editing.
 - **Modern editor operations**: Marquee selection box, Shift+Click multi-select, alignment, distribution, grouping, locking, hiding, Z-order layering, copy/paste, and 300-level command undo/redo.
 - **Windows Explorer native file/folder drop import** with intelligent categorization and collision renaming.
-- **Enterprise-grade project safety**: session snapshots, pre-save external conflict protection, timestamped backups in `data/qj_asset_cache/backups/`, atomic writes, and crash autosave recovery.
+- **Enterprise-grade project safety**: session snapshots, pre-save external conflict protection, timestamped backups in `data/docs_doodads_cache/backups/`, atomic writes, and crash autosave recovery.
 
 ---
 
 ## 2. Quick Installation & Setup
 
-1. Copy [`QJ-Doodads.js`](file:///C:/Users/Doc/Desktop/doodads/QJ-Doodads.js) into your RPG Maker project directory:
+> **Coming from QJ-Doodads?** Remove `QJ-Doodads.js` from Plugin Manager and add `Docs-Doodads.js` in its place. Your existing `DoodadsQJ.json`, asset library, templates, layouts, backups, and plugin settings are read automatically and saved under the new names the next time you save.
+
+1. Copy [`Docs-Doodads.js`](Docs-Doodads.js) into your RPG Maker project directory:
    ```text
-   js/plugins/QJ-Doodads.js
+   js/plugins/Docs-Doodads.js
    ```
-2. Open RPG Maker MZ (or MV), go to **Plugin Manager**, and activate **`QJ-Doodads`**.
+2. Open RPG Maker MZ (or MV), go to **Plugin Manager**, and activate **`Docs-Doodads`**.
 3. Launch Playtest (**F5**).
 4. Press **F10** (or your configured `editKey`) while on any map to open the Asset Workspace!
 
@@ -46,14 +48,14 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Editor Toggle Key** (`editKey`) | Select | `F10` | Key to open/close the workspace (`F1`, `F6`-`F10`). |
 | **Editor Enabled** (`editorMode`) | Boolean | `true` | Enables in-game asset workspace during playtest. |
 | **Doodads Image Folder** (`folderName`) | Text | `doodads/` | Subfolder inside `img/` for standalone doodads. |
-| **Doodads Data File Name** (`dataFileName`) | Text | `DoodadsQJ` | JSON filename in `data/` (without `.json`). |
+| **Doodads Data File Name** (`dataFileName`) | Text | `DocsDoodads` | JSON filename in `data/` (without `.json`). |
 | **Texture Scaling Mode** (`doodadScaleMode`) | Boolean | `true` | `true` for Smooth / Linear, `false` for Pixelated / Nearest. |
 | **Default Workspace Layout** (`defaultLayout`) | Select | `Mapping` | Startup layout preset (`Mapping`, `Events`, `Characters`, `Tiles`, `Compact`). |
 | **Default Thumbnail Size** (`defaultThumbnailSize`) | Number | `96` | Initial card size in pixels (32 to 256). |
 | **Asset Cache Enabled** (`cacheEnabled`) | Boolean | `true` | Caches metadata & disk thumbnails for instant opening. |
 | **Background Work Budget** (`backgroundWorkBudget`) | Number | `4` | Milliseconds per frame dedicated to background scanning. |
 | **Autosave Interval** (`autosaveRecoveryInterval`) | Number | `60` | Heartbeat interval (seconds) for crash recovery snapshots. |
-| **Backup Retention Count** (`backupRetentionCount`) | Number | `10` | Number of timestamped backups retained in `data/qj_asset_cache/backups/`. |
+| **Backup Retention Count** (`backupRetentionCount`) | Number | `10` | Number of timestamped backups retained in `data/docs_doodads_cache/backups/`. |
 | **Enable MV Compatibility** (`enableMVCompatibility`) | Boolean | `true` | Enables compatibility layer when running under RPG Maker MV. |
 | **Developer Diagnostics** (`devDiagnostics`) | Boolean | `false` | Enables detailed console logging in DevTools. |
 
@@ -93,14 +95,14 @@ Type directly into the search bar (press **F** to focus). Search is evaluated dy
 The workspace features a multi-tiered slicing engine that segments composite sheets into individual reusable assets:
 
 1. **Known MZ Format Detector**: Automatically detects `$Single` character sheets (3x4), standard 8-character sheets (12x8), Face sheets (4x2), IconSet grids (32x32), and Sideview Battlers without manual configuration.
-2. **Sidecar Atlas Parsers**: Reads Aseprite JSON, TexturePacker JSON, and Sprite Atlas Forge (`.saf.json`) metadata when placed alongside the image.
+2. **Sidecar Atlas Parsers**: Reads Aseprite JSON, TexturePacker JSON, and `.saf.json` metadata when placed alongside the image.
 3. **Canvas Visual Auto-Slicer**: Uses Otsu adaptive alpha thresholding, 4-connected component labeling, border flood background removal, morphological noise cleanup, and gutter splitting to isolate irregular sprites.
 4. **Interactive Slicer Modal**:
    - Double-click any asset or click **Auto Slice** to open the 1600% zoomable slicer editor.
    - **8-Handle Drag & Resize**: Adjust region boundaries with sub-pixel precision.
    - **Smart Snapping**: Automatically snaps region edges to pixel gutters and nearby regions.
    - **Tools**: Split, Merge, Align, Distribute, Rename, and Set Pivots.
-   - **Persistence**: Region definitions are saved non-destructively in `data/QJAssetLibrary.json`. The original source PNG is never modified.
+   - **Persistence**: Region definitions are saved non-destructively in `data/DocsDoodadsLibrary.json`. The original source PNG is never modified.
    - **Export**: Export sliced regions as standalone PNGs or animation strips directly to `img/doodads/` with one click.
 
 ---
@@ -174,7 +176,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 ### Map Event Inspection & Custom Template Saving
 - **Select Map Event**: Clicking any tile containing an MZ Event selects it and populates the Inspector.
 - **Inspect & Edit**: Inspect and edit event Name, ID, Tile X/Y coordinates, Trigger type (Action Button, Player Touch, Event Touch, Autorun, Parallel), and Priority.
-- **Save Event as Template**: Click **💾 Save as Event Template** in the Inspector (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/QJEventTemplates.json` for reuse across any map in your project.
+- **Save Event as Template**: Click **💾 Save as Event Template** in the Inspector (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/DocsDoodadsEventTemplates.json` for reuse across any map in your project.
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 
 ---
@@ -235,7 +237,7 @@ Switch workspace layout presets in the top toolbar:
 - **Tiles Preset**: Visual grid layout for decorative tiles.
 - **Compact Preset**: Minimal UI footprint for small laptop screens.
 - **Draggable Splitters**: Click and drag the vertical divider between the Drawer and Map or Inspector and Map to resize panels in real time (200px to 800px).
-- **Save Custom Layouts**: Click **+ Layout** in the toolbar to save your current panel dimensions and thumbnail zoom as a named preset in `data/QJWorkspaceLayouts.json`.
+- **Save Custom Layouts**: Click **+ Layout** in the toolbar to save your current panel dimensions and thumbnail zoom as a named preset in `data/DocsDoodadsLayouts.json`.
 
 ---
 
@@ -243,15 +245,15 @@ Switch workspace layout presets in the top toolbar:
 
 Editing real map data in playtest mode requires rigorous file protection:
 
-1. **Pre-Save Conflict Detection**: Before writing to `data/MapXXX.json` or `data/DoodadsQJ.json`, the plugin checks whether the file was modified externally in RPG Maker MZ. If an external change occurred, it prompts you to review or reload instead of blindly overwriting.
+1. **Pre-Save Conflict Detection**: Before writing to `data/MapXXX.json` or `data/DocsDoodads.json`, the plugin checks whether the file was modified externally in RPG Maker MZ. If an external change occurred, it prompts you to review or reload instead of blindly overwriting.
 2. **Timestamped Backups**: Every explicit save automatically writes a backup copy to:
    ```text
-   data/qj_asset_cache/backups/<filename>.<timestamp>.bak
+   data/docs_doodads_cache/backups/<filename>.<timestamp>.bak
    ```
    Retains the last 10 backups by default (configurable).
 3. **Atomic Writes**: Data is serialized to `<filename>.tmp` and validated before performing an atomic filesystem rename, eliminating half-written corrupt files.
-4. **Corrupt JSON Auto-Recovery**: If any project file is corrupted (e.g., due to an abrupt power cut), `QJ.DD.FS` automatically identifies and restores the latest valid backup snapshot.
-5. **Autosave Crash Recovery**: A background heartbeat writes current session staging data to `data/QJAssetWorkspaceRecovery.json` every 60 seconds. If playtest is closed unexpectedly, the workspace offers to resume your unsaved changes upon restart.
+4. **Corrupt JSON Auto-Recovery**: If any project file is corrupted (e.g., due to an abrupt power cut), `DocsDoodads.FS` automatically identifies and restores the latest valid backup snapshot.
+5. **Autosave Crash Recovery**: A background heartbeat writes current session staging data to `data/DocsDoodadsRecovery.json` every 60 seconds. If playtest is closed unexpectedly, the workspace offers to resume your unsaved changes upon restart.
 6. **Transactional Multi-File Save**: Map, doodad, and asset-library changes are staged and validated together. If a later file cannot commit, earlier files are restored and the workspace remains dirty so the save can be retried.
 7. **Manual Backup Restore**: Open **Diagnostics → Restore Project Backup…**, select the current map, doodad data, or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
 
@@ -287,20 +289,18 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
-- Verify in **Plugin Manager** that `QJ-Doodads` is turned **ON** and `Editor Enabled` is set to `true`.
+- Verify in **Plugin Manager** that `Docs-Doodads` is turned **ON** and `Editor Enabled` is set to `true`.
 - Check if another plugin intercepts `F10`; you can change the `editKey` parameter to `F6`, `F7`, `F8`, or `F9`.
 
 ### Q: Can I safely deploy my game to players?
 - **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads and collision render seamlessly with zero memory overhead.
 
 ### Q: Will updating my maps in the RPG Maker MZ editor erase my doodads?
-- **No.** Doodads are stored in `data/DoodadsQJ.json` keyed by map ID (`$gameMap.mapId()`). They persist independently of map geometry changes.
+- **No.** Doodads are stored in `data/DocsDoodads.json` keyed by map ID (`$gameMap.mapId()`). They persist independently of map geometry changes.
 - For events created through the workspace, remember to press **Ctrl + S** inside the workspace to commit them to `MapXXX.json`. Then reload the map in the RPG Maker MZ editor to view the new event nodes.
 
 ---
 
 ## 15. Credits & Licensing
 
-- **Core Plugin**: QJ-Doodads by Qiu Jiu (MIT License).
-- **Workspace Architecture & Enhancements**: Built by Antigravity (MIT License).
-- **Slicing Algorithms**: Inspired by and adapted from Sprite Atlas Forge (MIT License).
+- **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.

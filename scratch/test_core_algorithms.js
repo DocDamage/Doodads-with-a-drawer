@@ -1,9 +1,9 @@
-// Test script for core QJ Doodads Asset Workspace algorithms
+// Test script for core Doc's Doodads algorithms
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
-console.log("=== Testing QJ Doodads Asset Workspace Algorithms ===");
+console.log("=== Testing Doc's Doodads Algorithms ===");
 
 // 1. Search Token Parser Test
 function parseSearchQuery(query) {

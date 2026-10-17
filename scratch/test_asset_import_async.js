@@ -15,11 +15,11 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: () => true };
 global.PluginManager = { parameters: () => ({}) };
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 async function main() {
     console.log('=== Testing Responsive Asset Import ===');
-    assert.strictEqual(typeof QJ.DD.Import.executeBatchAsync, 'function');
+    assert.strictEqual(typeof DocsDoodads.Import.executeBatchAsync, 'function');
 
     const sandbox = path.join(__dirname, 'asset_import_async_fixture');
     const source = path.join(sandbox, 'source');
@@ -35,14 +35,14 @@ async function main() {
             sources.push(file);
         }
 
-        const plan = QJ.DD.Import.planBatch(sources, {
+        const plan = DocsDoodads.Import.planBatch(sources, {
             projectRoot: project,
             destination: 'img/doodads',
             collisionPolicy: 'rename'
         });
         const cancellationToken = { cancelled: false };
         const progress = [];
-        const result = await QJ.DD.Import.executeBatchAsync(plan, {
+        const result = await DocsDoodads.Import.executeBatchAsync(plan, {
             cancellationToken,
             onProgress(update) {
                 progress.push(update);
