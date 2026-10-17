@@ -251,7 +251,58 @@ Saves the whole map as one PNG in the project's `screenshots` folder and opens i
 
 ---
 
-## 10. Genuine RPG Maker MZ Event Creation & Templates
+## 10. Particles, VFX & Character Animation
+
+### Particles on doodads
+Select a doodad and open **Particles** in the Inspector.
+- **Emitter presets**: Smoke, Embers, Fire, Fireflies, Falling Leaves, Mist, Dust Motes, Sparkles, Snow, Bubbles and Magic.
+- **Amount** scales the preset's rate.
+- **Draw** places the particles above characters, or below them for ground mist.
+- **Offsets** move the emitter from the doodad's centre.
+- **Attached VFX** loops any effect from the VFX builder on the doodad, for example a magic circle on an altar.
+
+Fire and embers combine well with a Light set to *After dark* (section 8).
+
+### Grass that reacts
+**Interaction → Bend when walked through** makes grass, bushes and reeds lean away from whoever passes and spring back. Faster walkers push harder. **Drop leaves when disturbed** shakes out a few leaves each time someone enters.
+
+### VFX builder
+Click **VFX** in the toolbar.
+- An effect is a list of layers:
+  - **Particles**: start from a preset, then adjust rate, burst, life, speed, direction, spread, gravity, wind, size, opacity, colours, blend, shape, spawn area, flutter, twinkle and stretch (elongates particles along their motion, for flames and sparks).
+  - **Sprite sheet**: any image split into columns and rows, with frames per second, loop, scale, rotation, blend, tint and opacity.
+- Each layer can start later than the others and sit at its own offset.
+- **Emits for** sets how long emitters run. One-shot effects end once their particles have faded.
+- **Built-in effects**: Explosion, Heal, Level Up, Smoke Puff, Magic Burst and Water Splash. Duplicate one to change it.
+- **Preview at Player** plays the effect on the map. **Replay on change** plays it after every edit.
+- Effects are saved with the project and ship with the game.
+
+**Play VFX** (plugin command) plays an effect by name:
+- on the player, this event, an event by ID, a map tile, or the screen centre;
+- optionally following the character;
+- optionally waiting until it finishes.
+
+### Character animation
+- **Sheet names set the layout**, so no notetags are needed:
+  - `Hero[f8]`: 8 frames per row (any number up to 64). `%(8)` also works.
+  - `Slime[f6][d1]`: a single row facing right, mirrored when facing left.
+  - `Knight[d8][f4]`: 8 rows. Down, left, right and up come first, then down-left, down-right, up-left and up-right.
+  - Tagged sheets hold one character, like `$` sheets.
+- **Idle and run cycles**: open the map panel's **Characters** section.
+  - Add a character's sheet name. Sheets named `Name_idle` and `Name_run` beside it are found automatically, or **Add All Detected** finds every pair at once.
+  - Set how long a character must stand still before idling, and the idle and run frame rates.
+  - Run plays while dashing, and for events with move speed 5 or more.
+  - Variant sheets are preloaded when the map loads, so switching never blinks.
+- **Diagonal movement (8 directions)** lets the player move diagonally with two keys held, sliding along walls. 8-direction sheets then show the diagonal rows.
+- **Play Character Action** plays a sheet on the player or an event, such as drinking, sleeping, farming or a sword swing.
+  - Set the frames per second and how many times it plays (0 = until cleared).
+  - **Hold the Last Frame** keeps it there for sitting or sleeping.
+  - The event can **wait** until the action finishes.
+  - **Clear Character Action** returns the character to normal.
+
+---
+
+## 11. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -286,7 +337,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 11. Direct SAT Physical Collision System
+## 12. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -304,7 +355,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 12. Audio Drawer Integration
+## 13. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -314,7 +365,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 13. Windows Explorer Native Drag-and-Drop Ingestion
+## 14. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -334,7 +385,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 14. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 15. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -346,7 +397,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 15. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 16. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -357,7 +408,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 16. Workspace Layouts & Custom Layout Persistence
+## 17. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -370,7 +421,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 17. Project Safety, Conflict Detection & Crash Recovery
+## 18. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -388,7 +439,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 18. Complete Keyboard Shortcuts Cheat Sheet
+## 19. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -417,7 +468,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 19. Troubleshooting & FAQ
+## 20. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -433,12 +484,15 @@ Editing real map data in playtest mode requires rigorous file protection:
 ### Q: Post-processing makes my game slow on older PCs or phones.
 - Set **Quality** to *Low* in the Post FX builder (it skips tilt-shift and lightens bloom), use fewer effects, or let players pick a lower **Effects Quality** in Options.
 
+### Q: My character sheet with more frames shows the wrong part of the image.
+- Put the layout in the file name: `[f8]` for frames per row and `[d1]`/`[d8]` for rows. A tagged sheet holds one character and is split evenly, so every frame must be the same size.
+
 ### Q: Will updating my maps in the RPG Maker MZ editor erase my doodads?
 - **No.** Doodads are stored in `data/DocsDoodads.json` keyed by map ID (`$gameMap.mapId()`). They persist independently of map geometry changes.
 - For events created through the workspace, remember to press **Ctrl + S** inside the workspace to commit them to `MapXXX.json`. Then reload the map in the RPG Maker MZ editor to view the new event nodes.
 
 ---
 
-## 20. Credits & Licensing
+## 21. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
