@@ -73,6 +73,17 @@ Test these on an exterior map and on a looping world map.
 - [ ] Export a map image at 100% and 50%, with and without characters; open it and check there are no seams.
 - [ ] Close the editor with Post FX and Asset Tools open; both close too.
 
+## Particles, VFX and character animation
+
+- [ ] Give doodads each particle preset; check Above/Below, Amount and offsets; delete and undo one.
+- [ ] Turn on Bend when walked through for a grass patch; walk, dash and stand in it; Drop leaves.
+- [ ] In VFX, duplicate Explosion, add a sprite-sheet layer, change values with Replay on change, rename and delete; undo.
+- [ ] Play VFX on the player (following), an event, a tile and the screen centre, with and without wait. Open the menu mid-effect.
+- [ ] Use a [f8] walking sheet, Name_idle and Name_run variants (Add All Detected), and dash; no blinking when switching.
+- [ ] Turn on diagonal movement with a [d8] sheet; walk diagonally and into corners.
+- [ ] Play Character Action with loops, hold and wait; Clear Character Action. Save and load mid-action.
+- [ ] Check a character in tall grass with a tagged sheet (bush depth) and its shadow and reflection.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
