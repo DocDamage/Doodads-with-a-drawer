@@ -60,7 +60,21 @@
  *    - Drag audio onto map to create sound-trigger events (play BGM / SE).
  *    - Drag audio onto existing event to append sound commands.
  *
- * 7. Modern Operations & Safety:
+ * 7. Depth, Effects & Lighting:
+ *    - Doodads sort in front of or behind characters by their base line.
+ *    - Tint, hue, blend, blur, flip, motion (sway/bob/pulse/flicker/shimmer),
+ *      shadows from sprite transparency, lights and map ambient darkness.
+ *    - Switch/condition visibility; Set/Reset Ambient Light plugin commands.
+ *
+ * 8. Placement Tools & Maps:
+ *    - Path tool, prefabs with sync, rule-based scatter, drag with smart guides.
+ *    - Go to Map, cross-map clipboard, Copy/Move to Map, edge mirroring, World View.
+ *
+ * 9. Asset Management:
+ *    - Where Used, safe Rename/Move, unused files, duplicates and look-alikes,
+ *      live reload, and per-map art packing for deployed games.
+ *
+ * 10. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -81,6 +95,8 @@
  * - Alt + Click      : Eyedropper (pick placed object on map)
  * - G                : Toggle Grid display
  * - Escape           : Cancel current placement tool / close modals
+ * - Enter/Backspace  : Path tool: place along the path / remove last point
+ * - Drag a doodad    : Move with smart guides (Alt: free, Shift: tile grid)
  *
  * THIRD-PARTY NOTICES:
  * - Based on QJ-Doodads by Qiu Jiu, MIT License. Copyright (c) 2022 Qiu Jiu.

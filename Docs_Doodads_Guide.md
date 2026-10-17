@@ -85,6 +85,7 @@ Type directly into the search bar (press **F** to focus). Search is evaluated dy
 - `category:Audio`: Filters for sound files.
 - `favorite:true`: Shows only starred/favorite assets.
 - `animated:true`: Shows only multi-frame or animated assets.
+- `used:no` / `used:yes`: Files no map, event, database entry, doodad, or prefab uses (or that something does use).
 - `-tree`: Negative search; excludes any asset matching "tree".
 - **Combined Example**: `prop_123 tag:tree -dead category:Doodads collection:"Castle Set"`
 
@@ -113,11 +114,14 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Drag & Drop**: Drag any asset or slice from the Drawer directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
 - **Snapping**: Snaps to 48px tile coordinates by default. **Hold Alt** while dragging or dropping for free pixel-perfect placement.
 - **Stamp Mode**: Click the **Stamp** tool in the toolbar to click-to-place repeated props (grass, barrels, trees) across the map. Press **Escape** or right-click to exit.
-- **Scatter Brush & Settings**: Click the **Scatter Brush** tool to paint scattered props. A floating settings popover lets you tune **Radius** (20px to 250px), **Density** (1 to 10 props), **Scale Jitter** (0% to 50%), and **Rotation Jitter** (0° to 180°) in real time.
+- **Scatter Brush & Settings**: Click the **Scatter Brush** tool to paint scattered props. A floating settings popover lets you tune **Radius**, **Density**, **Scale** and **Rotation Variation**, **Min Spacing** (props never land closer than this, including to props already there), **Flip Chance**, and **Hue Variation**. Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls).
+- **Path Tool**: Click **Path**, then click points on the map (tile-snapped; hold **Alt** for free points). Double-click or press **Enter** to place the selected asset evenly along the line; **Backspace** removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate **End** and **Corner** pieces from the drawer for fences, walls, and rows of lamps.
+- **Prefabs**: Select doodads and click **Save Prefab** in the Inspector. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the **Prefabs** tab by dragging, with **Stamp**, or **Place at Player**. Copies are grouped. Edit one copy and click **Update Prefab**, then **Sync Copies** to rebuild every copy on every map from the master. **Detach** unlinks a copy.
 - **Eyedropper**: Hold **Alt and click** any placed doodad or MZ event on the map (or click the **Eyedropper** toolbar button) to automatically find and select that asset or event template in the Drawer.
 
 ### Selection, Multi-Selection & Right-Click Context Menu
 - **Click**: Select a placed doodad or genuine MZ Event on the map.
+- **Drag to Move**: Press on a doodad and drag. Pink **smart guides** snap its edges and centre to nearby doodads; orange guides show equal spacing between neighbours. Hold **Alt** to move freely or **Shift** to snap to the tile grid. A drag is one undo step.
 - **Right-Click Canvas Context Menu**:
   - *On Doodad*: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Delete (Del).
   - *On MZ Event*: Save as Event Template..., Duplicate Event, Delete Event.
@@ -146,7 +150,22 @@ When 2 or more doodads are selected, the Inspector exposes one-click alignment t
 
 ---
 
-## 7. Genuine RPG Maker MZ Event Creation & Templates
+## 7. Depth, Appearance, Motion, Shadows & Lights
+
+Select a placed doodad (or several) and open the Inspector's collapsible sections. Every change can be undone, and dragging a slider counts as a single step.
+
+- **Depth**: *Below characters* (rugs, puddles, paths), *Sorted with characters* (trees, pillars, statues: the player walks behind them above the base line and in front below it), or *Above characters* (overhangs, canopies). **Base line offset** moves the sort line up or down. New placements guess from the file name, and each asset can set its own **Default Depth**. QJ-Doodads projects keep their old layering: z 0-2 maps to below, 3 to sorted, and 4+ to above.
+- **Appearance**: opacity, blend mode (Normal, Add, Multiply, Screen), hue shift, colour tone, greyscale, blur, and horizontal/vertical flip.
+- **Motion**: Sway (wind), Bob (float), Pulse, Flicker (flame), or Shimmer (water/heat), with amount and speed. Neighbouring props are offset in time so a forest doesn't sway in lockstep.
+- **Shadow**: a soft silhouette built from the sprite's own transparency, with strength, length, lean, softness, and offset. It falls over floor decals and under characters.
+- **Light**: colour, radius, intensity, flicker, a daylight glow, and offset. Lights shine through the map's ambient darkness.
+- **Visibility**: show only while switches are set (`5:on, 6:off`) and/or while a JavaScript condition is true. The editor always shows conditional doodads, faded when their condition is false.
+
+**Map lighting**: with nothing selected, the Inspector shows the map's settings. Set **Ambient Darkness** and colour, optionally only while a switch is ON (a night switch), and toggle **Preview lighting while editing**. During play, the plugin commands **Set Ambient Light** (darkness %, colour, fade frames) and **Reset Ambient Light** fade between moods.
+
+---
+
+## 8. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -181,7 +200,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 8. Direct SAT Physical Collision System
+## 9. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -194,11 +213,12 @@ Doodads do not require invisible blocker events to obstruct the player. The work
   - `Thin Wall`: Horizontal or vertical barrier.
   - `Wide Wall`: Thick horizontal barrier.
   - `Custom`: Interactive relative box.
+- **Trace from Art**: Fits a custom collision box to the solid base of the image (a tree's trunk, a wall's foot), ignoring soft shadows. It works on placed doodads (one or many) and on drawer assets, so every new placement starts with it.
 - **Visual Collision Editor**: When `Custom` is chosen, the Inspector displays a live 64x64 interactive canvas preview. Adjust `Rel X`, `Rel Y`, `Rel W`, and `Rel H` (0.0 to 1.0) to fit collision precisely to your art regardless of scaling.
 
 ---
 
-## 9. Audio Drawer Integration
+## 10. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -208,7 +228,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 10. Windows Explorer Native Drag-and-Drop Ingestion
+## 11. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -228,7 +248,30 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 11. Workspace Layouts & Custom Layout Persistence
+## 12. Maps: Switching, Cross-Map Editing, Neighbours & World View
+
+The **Maps** section of the map panel (shown when nothing is selected):
+- **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
+- **Copy / Paste across maps**: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy.
+- **Copy to Map / Move to Map** (Inspector): send the selection to any map in one undoable step.
+- **Neighbouring maps**: link maps north/south/east/west. **Mirror Edge Doodads** copies doodads hanging over an edge onto the neighbouring map as locked mirrors, so a tree on a border shows on both sides. Running it again replaces the old mirrors.
+- **World View** draws the map and its linked neighbours to scale with their doodads; edge-crossing doodads are orange. Click a map to go there.
+- Looping (world) maps wrap doodads, lights, outlines and clicks with the camera, the same way MZ's characters wrap.
+
+---
+
+## 13. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+
+- **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
+- **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
+- **Asset Tools → Find Unused Files** lists files nothing references (engine system files are never listed). Plugins and scripts can also load files by name, so check before deleting.
+- **Asset Tools → Find Duplicates** finds byte-identical files and near-identical images (resized or re-saved). **More Like This** shows the images that look most like the selected one. Image fingerprints are computed once and cached in the library.
+- **Live Reload**: while the workspace is open, saving an image or sound in another program updates the drawer, thumbnails, and placed doodads within a moment.
+- **Pack Map Art** (map panel → Performance): copies the art the map's doodads use into a few sheets in `img/doodads/_packed/` so deployed games load fewer textures. Playtests keep using the original files unless you tick **Use packed art in this playtest**. The panel warns when a source image has changed since packing; pack again before deploying.
+
+---
+
+## 14. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -241,7 +284,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 12. Project Safety, Conflict Detection & Crash Recovery
+## 15. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -259,7 +302,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 13. Complete Keyboard Shortcuts Cheat Sheet
+## 16. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -279,13 +322,16 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **G** | Toggle 48px Tile Grid visual overlay | Workspace |
 | **H** | Toggle Inspector panel visibility | Workspace |
 | **F** | Focus Drawer search input | Workspace |
-| **Escape** | Cancel active tool (Stamp/Brush/Eyedropper) / Deselect / Close Modals | Workspace |
+| **Escape** | Cancel active tool (Stamp/Brush/Path/Eyedropper) / Deselect / Close Modals | Workspace |
+| **Enter** / **Double-click** | Place props along the path being drawn | Path tool |
+| **Backspace** | Remove the last path point | Path tool |
+| **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map Canvas |
 | **Mouse Wheel** | Scroll Asset Drawer / Pan Slicer | Drawer / Slicer |
 | **Ctrl + Wheel** | Zoom Slicer Modal canvas (100% to 1600%) | Slicer Modal |
 
 ---
 
-## 14. Troubleshooting & FAQ
+## 17. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -293,7 +339,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 - Check if another plugin intercepts `F10`; you can change the `editKey` parameter to `F6`, `F7`, `F8`, or `F9`.
 
 ### Q: Can I safely deploy my game to players?
-- **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads and collision render seamlessly with zero memory overhead.
+- **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads, effects, lights and collision render normally. If you packed map art, pack again after changing source images; a pack built before a change keeps the old art.
 
 ### Q: Will updating my maps in the RPG Maker MZ editor erase my doodads?
 - **No.** Doodads are stored in `data/DocsDoodads.json` keyed by map ID (`$gameMap.mapId()`). They persist independently of map geometry changes.
@@ -301,6 +347,6 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 15. Credits & Licensing
+## 18. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.

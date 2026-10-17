@@ -2,6 +2,19 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Doodads render in the tilemap again and sort with characters by their base line (below / sorted / above). QJ z values migrate to the matching layer.
+- Tint, hue, blur, contrast, sepia, brightness, blend mode, and switch/condition visibility are applied at runtime again; they were stored but ignored since the rewrite.
+- Added per-doodad motion (sway, bob, pulse, flicker, shimmer), shadows from sprite transparency, lights with map ambient darkness, and the Set/Reset Ambient Light plugin commands.
+- Added Trace from Art collision, and undoable inspector sections for all doodad properties (multi-selection too).
+- Added the path tool, prefabs with update/sync, a rule-based scatter brush (spacing, regions, terrain tags, impassable tiles, flip, hue), and drag-to-move with smart guides.
+- Added Go to Map, a disk-backed cross-map clipboard, Copy/Move to Map, neighbouring maps with edge mirroring, and World View.
+- Added Where Used, transactional Rename/Move that updates every reference, Find Unused Files, duplicate and look-alike finding, live reload, and per-map art packing.
+- Fixed unsaved event edits from one map being written into another map's file after changing maps; staged edits are now tagged with their map and each map saves to its own file.
+- Fixed crash recovery restoring doodads into whichever map was open instead of the map they came from; staged event edits are now recovered too.
+- Fixed doodads disappearing on looping maps when the camera crossed the seam.
+- Fixed a game-stopping PIXI texture error when a doodad's image is replaced by a smaller one.
+- Fixed stale thumbnails for files changed while the game was closed, a drag that kept going after a missed mouse-up, the toolbar overflowing narrow windows, and the transaction-artifact check in `verify-project.js` never reporting anything.
+
 - Fixed re-indexing discarding hand-edited ("manual") slices whenever an image changed or the index was upgraded.
 - Sidecar atlas metadata (Aseprite, TexturePacker, `.saf.json`) is now actually used for slicing, and rotated frames follow PIXI's convention so they crop and export correctly.
 - Fixed audio previews stopping the map's BGM/BGS; previews now leave or restore background audio.

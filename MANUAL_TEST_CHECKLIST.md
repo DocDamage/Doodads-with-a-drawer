@@ -29,6 +29,25 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 - [ ] Save, close Playtest, restart, and verify slices, tags, favorites, layouts, templates, events, and doodads persist.
 - [ ] Open the project in RPG Maker MZ and edit the generated events normally.
 
+## Rendering, placement and asset tools
+
+Test these on an exterior map and on a looping world map, not only on interiors.
+
+- [ ] Walk the player behind and in front of a tree set to *Sorted with characters*; check below/above layers with a rug and a canopy.
+- [ ] Give doodads sway, flicker and shimmer, a shadow, and a light; set map ambient darkness and fade it with Set/Reset Ambient Light.
+- [ ] Hide a doodad behind a switch and a condition; toggle the switch during play.
+- [ ] Trace collision from art on a tree and a wall, and walk into both.
+- [ ] Draw a fence with the path tool using end and corner pieces; undo it in one step.
+- [ ] Save a prefab with an event under it, place copies, update the master from one copy, and sync all copies.
+- [ ] Scatter with min spacing, a region rule, and Skip impassable tiles along a shoreline.
+- [ ] Drag doodads with smart guides, Alt and Shift; undo.
+- [ ] Go to another map, paste, Copy/Move to Map, link neighbours, mirror an edge tree, and open World View.
+- [ ] On a looping map, stand near the seam and confirm doodads and lights stay put while the camera wraps.
+- [ ] Where Used and Rename/Move a character sheet used by events; open the project in MZ and confirm events still show it.
+- [ ] Find Unused Files and Find Duplicates; check More Like This.
+- [ ] Edit an image in another program while the workspace is open; the drawer and placed doodad update. Replace it with a smaller image and confirm the game keeps running.
+- [ ] Pack a map's art, preview it in Playtest, change a source image, and confirm the stale warning.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
@@ -36,6 +55,7 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 - [ ] Force overwrite only in the disposable project and confirm a timestamped backup exists.
 - [ ] Restore the latest map backup from Diagnostics and reload the map.
 - [ ] Terminate Playtest with unsaved work, restart, and accept recovery.
+- [ ] Make unsaved event edits on one map, change maps, save, and confirm each map file only contains its own edits.
 - [ ] Make a recovery/metadata JSON file invalid and confirm fallback is safe and visible.
 - [ ] Make the data directory temporarily read-only and confirm save failure leaves the workspace dirty.
 
