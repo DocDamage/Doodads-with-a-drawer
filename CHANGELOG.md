@@ -2,6 +2,10 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added post-processing: bloom, colour grading, vignette, film grain, chromatic aberration, lens distortion, CRT, pixelate, sharpen and tilt-shift, with nine presets, a live builder (Post FX), a game-wide look plus per-map looks, hold-to-compare, quality levels and an Effects Quality option for players. Plugin commands: Set Post-Processing Look (fades) and Play Screen Effect (impact zoom, shockwave, chromatic punch, bloom flash).
+- Added Export Map Image: the whole map as one PNG, at 100/50/25%, with or without characters and colour effects.
+- Fixed editor panels opened from the toolbar (Asset Tools, World View) using the page's default serif font and staying on screen, unstyled, after the editor closed.
+- Fixed the crash-recovery prompt reappearing each time the editor opened after it had been answered.
 - Added world atmosphere settings: a day/night clock (running or from variables) with darkness keyframes and lamps that switch on after dark; a sun that turns shadows through the day; character shadows shaped like each sprite (correct in tall grass, cut short under roof regions); see-through tall doodads (fade or outline); water reflections; motion blur with an Options toggle; seasonal art swaps and season-only doodads; and animated appear/disappear (fade, pop, rise, dissolve, crumble). Plugin commands: Set Time of Day, Pass Time, Clock Control, Set Season, Set Atmosphere Effect. Event tags: <shadow>, <no shadow>, <motion blur>, <no motion blur>, <no reflection>.
 - Fixed the Shimmer motion drawing nothing: its shader used a different precision for inputSize than PIXI's vertex shader, so WebGL refused to link it.
 - Doodads render in the tilemap again and sort with characters by their base line (below / sorted / above). QJ z values migrate to the matching layer.

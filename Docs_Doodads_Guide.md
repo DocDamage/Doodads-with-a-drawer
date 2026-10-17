@@ -215,7 +215,43 @@ Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**,
 
 ---
 
-## 9. Genuine RPG Maker MZ Event Creation & Templates
+## 9. Post-Processing, Screen Effects & Map Image Export
+
+Click **Post FX** in the toolbar to open the builder. Changes show live on the map behind it, and every edit can be undone (a slider drag counts as one step).
+
+### Effects
+- **Bloom**: bright areas glow. *Threshold* sets how bright a pixel must be to glow.
+- **Colour Grading**: exposure (in stops), contrast, saturation, temperature, tint, and split toning (one colour in the shadows, another in the highlights).
+- **Vignette**: darkens, or tints, the screen edges.
+- **Film Grain**: animated or still.
+- **Chromatic Aberration**: colour fringing towards the edges.
+- **Lens Distortion**: barrel or pincushion.
+- **CRT**: scanlines, screen curvature, and an RGB mask.
+- **Pixelate**
+- **Sharpen**
+- **Tilt-Shift**: blurs above and below a sharp band, for a miniature look.
+
+### Looks and presets
+- **Editing: Game-wide look** applies to every map and to battles. **Editing: This map** chooses what the current map uses: *The game-wide look*, *No effects*, or *Its own look*. A map's own look starts as a copy of the game-wide one.
+- **Presets**: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it.
+- **Hold to Compare** shows the map without effects while the button is held. **Show while editing** turns effects off in the editor only.
+- **Affect pictures**: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected.
+- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it.
+
+### During play
+- **Set Post-Processing Look** fades to a preset, to no effects, or back to the map's own look, over a number of frames. Use it for flashbacks, poison, night vision or boss rooms.
+- **Play Screen Effect** plays **Impact Zoom**, **Shockwave**, **Chromatic Punch** or **Bloom Flash**, centred on the player, an event, or the screen. Try them in the builder with **Play**.
+- **Set Atmosphere Effect → Post-Processing** turns all looks off for the current playthrough.
+
+### Export Map Image
+Saves the whole map as one PNG in the project's `screenshots` folder and opens it in Explorer.
+- **Scale**: 100%, 50% or 25%. The largest image is 16384 pixels on a side; the editor suggests a smaller scale if needed.
+- **Characters**: include the player and events.
+- **Lighting & colour**: include lighting, bloom and colour grading. Effects shaped by the screen (vignette, CRT, lens, aberration, grain, tilt-shift) are always left out, because they would repeat across the stitched image.
+
+---
+
+## 10. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -250,7 +286,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 10. Direct SAT Physical Collision System
+## 11. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -268,7 +304,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 11. Audio Drawer Integration
+## 12. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -278,7 +314,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 12. Windows Explorer Native Drag-and-Drop Ingestion
+## 13. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -298,7 +334,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 13. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 14. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -310,7 +346,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 14. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 15. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -321,7 +357,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 15. Workspace Layouts & Custom Layout Persistence
+## 16. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -334,7 +370,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 16. Project Safety, Conflict Detection & Crash Recovery
+## 17. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -352,7 +388,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 17. Complete Keyboard Shortcuts Cheat Sheet
+## 18. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -381,7 +417,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 18. Troubleshooting & FAQ
+## 19. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -394,12 +430,15 @@ Editing real map data in playtest mode requires rigorous file protection:
 ### Q: Why do my house interiors get dark at night?
 - The day/night clock applies to every map that doesn't set its own darkness. In the map panel, set **Day and night on this map** to *Ignore (indoors)* for interiors, or give the map its own ambient darkness.
 
+### Q: Post-processing makes my game slow on older PCs or phones.
+- Set **Quality** to *Low* in the Post FX builder (it skips tilt-shift and lightens bloom), use fewer effects, or let players pick a lower **Effects Quality** in Options.
+
 ### Q: Will updating my maps in the RPG Maker MZ editor erase my doodads?
 - **No.** Doodads are stored in `data/DocsDoodads.json` keyed by map ID (`$gameMap.mapId()`). They persist independently of map geometry changes.
 - For events created through the workspace, remember to press **Ctrl + S** inside the workspace to commit them to `MapXXX.json`. Then reload the map in the RPG Maker MZ editor to view the new event nodes.
 
 ---
 
-## 19. Credits & Licensing
+## 20. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
