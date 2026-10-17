@@ -93,6 +93,16 @@ Test these on an exterior map and on a looping world map.
 - [ ] Paint a region, give it a background sound with a fade; walk in and out on a map with and without its own BGS.
 - [ ] Use Play SE At on an event and a tile.
 
+## Editor tools
+
+- [ ] Add layers; place on the active layer; hide in editor, lock (click and box-select skip it), hide in game; move doodads between layers; delete a layer; undo each.
+- [ ] Symmetry left/right, top/bottom and four ways with the stamp, scatter brush and biome brush; move the axis; undo.
+- [ ] Build a biome from two or three assets (Add to Biome), paint, adjust spacing, edge thinning and patchiness.
+- [ ] Make dressing rules for water edges, wall bases and a path region; Dress Map, Re-roll, Clear; check events and blank tiles are skipped.
+- [ ] Save, change doodads and events, open History, compare, and restore single items.
+- [ ] Hover character, door and sliced-strip assets in the drawer.
+- [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
