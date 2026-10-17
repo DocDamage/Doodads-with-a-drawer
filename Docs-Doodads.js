@@ -74,7 +74,16 @@
  *    - Where Used, safe Rename/Move, unused files, duplicates and look-alikes,
  *      live reload, and per-map art packing for deployed games.
  *
- * 10. Modern Operations & Safety:
+ * 10. World Atmosphere (map panel in the editor, with nothing selected):
+ *    - Day/night clock (running or from variables) with darkness keyframes,
+ *      lamps that switch on after dark, and a sun that turns every shadow.
+ *    - Character shadows shaped like each sprite, cut short under roof regions.
+ *    - See-through tall doodads (fade or outline), water reflections, motion blur
+ *      (with an Options toggle), seasonal art swaps, animated appear/disappear.
+ *    - Event tags (note or page comment): <shadow>, <shadow: length 0.8, opacity 0.4>,
+ *      <no shadow>, <motion blur>, <no motion blur>, <no reflection>.
+ *
+ * 11. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -261,6 +270,104 @@
  * @type number
  * @min 0
  * @default 60
+ *
+ * @command setTime
+ * @text Set Time of Day
+ * @desc Jumps the day/night clock (or its variables) to a time.
+ *
+ * @arg hour
+ * @text Hour
+ * @type number
+ * @min 0
+ * @max 23
+ * @default 8
+ *
+ * @arg minute
+ * @text Minute
+ * @type number
+ * @min 0
+ * @max 59
+ * @default 0
+ *
+ * @command addTime
+ * @text Pass Time
+ * @desc Moves the clock forward (for sleeping, waiting, travelling).
+ *
+ * @arg hours
+ * @text Hours
+ * @type number
+ * @min 0
+ * @default 1
+ *
+ * @arg minutes
+ * @text Minutes
+ * @type number
+ * @min 0
+ * @max 59
+ * @default 0
+ *
+ * @command clockControl
+ * @text Clock Control
+ * @desc Pause, resume or change the speed of the running clock.
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Pause
+ * @value pause
+ * @option Resume
+ * @value resume
+ * @option Set Speed
+ * @value speed
+ * @option Back to Project Speed
+ * @value defaultSpeed
+ * @default pause
+ *
+ * @arg speed
+ * @text Speed (game minutes per second)
+ * @type number
+ * @decimals 1
+ * @min 0
+ * @default 1
+ *
+ * @command setSeason
+ * @text Set Season
+ * @desc Changes the season (0 = first season in the editor's list).
+ *
+ * @arg season
+ * @text Season
+ * @type select
+ * @option Spring (1st)
+ * @value 0
+ * @option Summer (2nd)
+ * @value 1
+ * @option Autumn (3rd)
+ * @value 2
+ * @option Winter (4th)
+ * @value 3
+ * @default 0
+ *
+ * @command setFeature
+ * @text Set Atmosphere Effect
+ * @desc Turns an effect on or off for this playthrough (saved with the game).
+ *
+ * @arg feature
+ * @text Effect
+ * @type select
+ * @option Character Shadows
+ * @value characterShadows
+ * @option Motion Blur
+ * @value motionBlur
+ * @option Water Reflections
+ * @value reflections
+ * @option See-Through
+ * @value seeThrough
+ * @default characterShadows
+ *
+ * @arg enabled
+ * @text Enabled
+ * @type boolean
+ * @default true
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -948,12 +1055,17 @@ DocsDoodads.Appearance = {
         for (const [id, value] of this.parseSwitches(d.switch)) {
             if (Boolean(switchValue(id)) !== value) return false;
         }
+        if (Array.isArray(d.seasons) && d.seasons.length > 0) {
+            const season = ctx.season !== undefined ? ctx.season : DocsDoodads.Atmosphere.season();
+            if (!DocsDoodads.Seasons.visibleIn(d, season)) return false;
+        }
         return this.conditionPasses(d.condition);
     },
 
     // Only conditional doodads need a per-frame visibility check.
     isConditional(d) {
-        return this.parseSwitches(d.switch).length > 0 || Boolean(String(d.condition || '').trim());
+        return this.parseSwitches(d.switch).length > 0 || Boolean(String(d.condition || '').trim())
+            || (Array.isArray(d.seasons) && d.seasons.length > 0);
     },
 
     needsColorFilter(d) {
@@ -966,6 +1078,9 @@ DocsDoodads.Appearance = {
         return [d.r, d.g, d.b, d.grey, d.hue, d.blur, d.contrast, d.sepia, d.bright, d.blend, m].join('|');
     }
 };
+
+// PIXI's vertex shader declares inputSize as highp; a fragment shader reading it must match or WebGL refuses to link.
+const fragmentPrecision = '#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif';
 
 DocsDoodads.Motion = {
     types: [
@@ -1003,6 +1118,7 @@ DocsDoodads.Motion = {
 
     // Horizontal ripple for "shimmer"; inputSize is supplied by PIXI v5 filters.
     shimmerFragment: [
+        fragmentPrecision,
         'varying vec2 vTextureCoord;',
         'uniform sampler2D uSampler;',
         'uniform vec4 inputSize;',
@@ -1017,23 +1133,31 @@ DocsDoodads.Motion = {
 };
 
 DocsDoodads.Shadow = {
-    defaults: { enabled: false, opacity: 0.35, length: 0.45, angle: -35, blur: 2, offsetX: 0, offsetY: 0 },
+    defaults: { enabled: false, opacity: 0.35, length: 0.45, angle: -35, blur: 2, offsetX: 0, offsetY: 0, followSun: false },
 
     normalize(s) {
         return Object.assign({}, this.defaults, s || {});
     },
 
-    // A black silhouette of the same frame, squashed and leaning away from the camera.
-    transform(d) {
+    // A black silhouette of the same frame, squashed and leaning away from the camera, or, when it
+    // follows the sun ({ angle, lengthMul, strength } from DocsDoodads.Sun), lying on the ground away from it.
+    transform(d, sun) {
         if (!d || !d.shadow || !d.shadow.enabled) return null;
         const s = this.normalize(d.shadow);
         const sx = d.scaleX !== undefined ? d.scaleX : 1;
         const sy = d.scaleY !== undefined ? d.scaleY : 1;
+        const opacity = d.opacity !== undefined ? d.opacity : 1;
+        if (s.followSun && sun) {
+            const t = DocsDoodads.Sun.transform(sun, s);
+            return { scaleX: sx, scaleY: Math.abs(sy) * t.scaleY, skewX: 0, rotation: t.rotation, alpha: t.alpha * opacity,
+                offsetX: t.offsetX, offsetY: t.offsetY, blur: t.blur, followsSun: true };
+        }
         return {
+            rotation: 0,
             scaleX: sx,
             scaleY: sy * Math.max(0.05, Math.min(1.5, Number(s.length) || 0)),
             skewX: (Number(s.angle) || 0) * Math.PI / 180,
-            alpha: Math.max(0, Math.min(1, Number(s.opacity) || 0)) * (d.opacity !== undefined ? d.opacity : 1),
+            alpha: Math.max(0, Math.min(1, Number(s.opacity) || 0)) * opacity,
             offsetX: Number(s.offsetX) || 0,
             offsetY: Number(s.offsetY) || 0,
             blur: Math.max(0, Number(s.blur) || 0)
@@ -1042,7 +1166,8 @@ DocsDoodads.Shadow = {
 };
 
 DocsDoodads.Lighting = {
-    lightDefaults: { enabled: false, color: '#ffd27f', radius: 144, intensity: 0.85, flicker: 0, glow: 0.25, offsetX: 0, offsetY: -24 },
+    lightDefaults: { enabled: false, color: '#ffd27f', radius: 144, intensity: 0.85, flicker: 0, glow: 0.25, offsetX: 0, offsetY: -24, when: 'always' },
+    whenOptions: [{ value: 'always', label: 'Always on' }, { value: 'dark', label: 'After dark (lamps, windows)' }],
     ambientDefaults: { darkness: 0, color: '#101830', switchId: 0 },
 
     parseColor(value, fallback = 0xffffff) {
@@ -1080,6 +1205,26 @@ DocsDoodads.Lighting = {
         return { darkness: gated ? 0 : Math.max(0, Math.min(1, Number(ambient.darkness) || 0)), color: ambient.color };
     },
 
+    // Plugin command fade > day/night clock (on maps that follow it) > the map's own ambient.
+    resolveAmbient({ world, minutes, mapSettings, override, switchValue } = {}) {
+        if (override) return this.ambientFor(null, override);
+        const time = world && world.time;
+        if (time && time.source && time.source !== 'off' && minutes !== null && minutes !== undefined
+            && DocsDoodads.TimeOfDay.appliesToMap(mapSettings)) {
+            const a = DocsDoodads.TimeOfDay.ambientAt(minutes, time.keyframes);
+            return { darkness: Math.max(0, Math.min(1, a.darkness)), color: a.color };
+        }
+        return this.ambientFor(mapSettings, null, switchValue);
+    },
+
+    lampTarget(light, darkness, threshold) {
+        if (!light || light.when !== 'dark') return 1;
+        return (Number(darkness) || 0) >= (threshold === undefined ? 0.3 : Number(threshold)) ? 1 : 0;
+    },
+
+    // Fade levels for "after dark" lamps, kept outside the doodad so they are never saved.
+    _lampLevels: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+
     // The lightmap multiplies the scene: white where lit, the ambient colour where fully dark.
     lightmapBase(ambient) {
         const k = Math.max(0, Math.min(1, Number(ambient && ambient.darkness) || 0));
@@ -1093,12 +1238,23 @@ DocsDoodads.Lighting = {
     },
 
     // display: the map's scroll in pixels ({ x, y }) or a map-to-screen function, so lights land in screen space.
-    collect(doodads, display = { x: 0, y: 0 }) {
+    // ctx ({ darkness, threshold, step }) switches "after dark" lamps; without it every light shows (editor previews).
+    collect(doodads, display = { x: 0, y: 0 }, ctx) {
         const toScreen = typeof display === 'function' ? display : (x, y) => ({ x: x - display.x, y: y - display.y });
         const out = [];
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
             const l = Object.assign({}, this.lightDefaults, d.light);
+            let level = 1;
+            if (ctx) {
+                const target = this.lampTarget(l, ctx.darkness, ctx.threshold);
+                const levels = this._lampLevels;
+                level = levels && levels.has(d) ? levels.get(d) : target;
+                const step = ctx.step > 0 ? ctx.step : 1;
+                level = level < target ? Math.min(target, level + step) : Math.max(target, level - step);
+                if (levels) levels.set(d, level);
+                if (level <= 0) continue;
+            }
             const at = d.posMode !== 0 ? toScreen(d.x, d.y) : { x: d.x, y: d.y };
             out.push({
                 doodad: d,
@@ -1106,7 +1262,7 @@ DocsDoodads.Lighting = {
                 y: at.y + (Number(l.offsetY) || 0),
                 radius: Math.max(8, Number(l.radius) || 144),
                 color: this.parseColor(l.color, 0xffd27f),
-                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)),
+                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level,
                 flicker: Number(l.flicker) || 0,
                 glow: Math.max(0, Math.min(1, Number(l.glow) || 0)),
                 seed: (d.x || 0) + (d.y || 0)
@@ -1135,6 +1291,670 @@ DocsDoodads.Lighting = {
         const a = Number(fade.from.darkness) || 0, b = Number(fade.to.darkness) || 0;
         fade.current = { darkness: fade.framesLeft === 0 ? b : a + (b - a) * p, color: this.mixColor(fade.from.color, fade.to.color, p) };
         return fade;
+    }
+};
+
+//==========================================================
+// SECTION 5C: WORLD ATMOSPHERE (DAY/NIGHT, SUN, CHARACTER FX, SEE-THROUGH, SEASONS, WATER)
+//==========================================================
+const cloneJson = value => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+const clamp01 = value => Math.max(0, Math.min(1, Number(value) || 0));
+
+// Project-wide settings, stored as $dataDocsDoodads.world beside the maps and the per-map settings.
+DocsDoodads.World = {
+    defaults: {
+        time: {
+            source: 'off', variableId: 0, minuteVariableId: 0, minutesPerSecond: 1, startHour: 8, lampThreshold: 0.3,
+            keyframes: [
+                { hour: 4, darkness: 0.65, color: '#0c1030' },
+                { hour: 6, darkness: 0.3, color: '#ff8a50' },
+                { hour: 8, darkness: 0, color: '#ffffff' },
+                { hour: 17, darkness: 0, color: '#ffffff' },
+                { hour: 19, darkness: 0.3, color: '#ff6a3a' },
+                { hour: 21, darkness: 0.65, color: '#0c1030' }
+            ]
+        },
+        sun: { source: 'time', angle: 30, variableId: 0 },
+        characterShadows: { enabled: false, mode: 'all', includePlayer: true, opacity: 0.35, length: 0.6, blur: 1, offsetX: 0, offsetY: 0, occlusionRegions: [] },
+        motionBlur: { enabled: false, mode: 'all', strength: 1 },
+        seeThrough: { enabled: true, mode: 'fade', opacity: 0.4, speed: 0.1, silhouetteColor: '#7dd3fc' },
+        reflections: { enabled: false, opacity: 0.4, ripple: 0.5, regionId: 0, shoreInset: 12 },
+        seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] }
+    },
+
+    _cache: null,
+    _version: 0,
+
+    data() {
+        return typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+    },
+
+    // Merged with the defaults one group deep. The result is shared and cached: read it, never change it.
+    settings() {
+        const data = this.data();
+        const stored = data && data.world && typeof data.world === 'object' ? data.world : null;
+        const c = this._cache;
+        if (c && c.data === data && c.stored === stored && c.version === this._version) return c.value;
+        const value = {};
+        for (const group of Object.keys(this.defaults)) {
+            value[group] = Object.assign(cloneJson(this.defaults[group]), stored && stored[group] ? cloneJson(stored[group]) : {});
+        }
+        this._cache = { data, stored, version: this._version, value };
+        return value;
+    },
+
+    get(path) {
+        return String(path).split('.').reduce((node, key) => (node === undefined || node === null ? undefined : node[key]), this.settings());
+    },
+
+    // The value saved in the project, or undefined when the default applies.
+    raw(path) {
+        const data = this.data();
+        const [group, field] = String(path).split('.');
+        const stored = data && data.world && data.world[group];
+        return stored ? stored[field] : undefined;
+    },
+
+    // undefined removes the field (and empty groups) so the default applies again.
+    set(path, value) {
+        const data = this.data();
+        if (!data) return;
+        const [group, field] = String(path).split('.');
+        if (value === undefined) {
+            if (data.world && data.world[group]) {
+                delete data.world[group][field];
+                if (Object.keys(data.world[group]).length === 0) delete data.world[group];
+                if (Object.keys(data.world).length === 0) delete data.world;
+            }
+        } else {
+            data.world = data.world || {};
+            data.world[group] = data.world[group] || {};
+            data.world[group][field] = value;
+        }
+        this._version++;
+    },
+
+    invalidate() {
+        this._version++;
+    }
+};
+
+DocsDoodads.TimeOfDay = {
+    sources: [
+        { value: 'off', label: 'Off' },
+        { value: 'clock', label: 'Running clock (saved with the game)' },
+        { value: 'variable', label: 'Read from variables' }
+    ],
+
+    wrap(minutes) {
+        return ((Number(minutes) % 1440) + 1440) % 1440;
+    },
+
+    format(minutes) {
+        const m = Math.floor(this.wrap(minutes));
+        return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    },
+
+    parse(text) {
+        const match = String(text || '').trim().match(/^(\d+)(?::(\d+))?$/);
+        if (!match) return null;
+        return this.wrap(parseInt(match[1], 10) * 60 + (match[2] ? parseInt(match[2], 10) : 0));
+    },
+
+    // Ambient darkness and colour between the two keyframes around the time, wrapping through midnight.
+    ambientAt(minutes, keyframes) {
+        const keys = (keyframes || [])
+            .filter(k => k && isFinite(Number(k.hour)))
+            .map(k => ({ m: this.wrap(Number(k.hour) * 60), darkness: clamp01(k.darkness), color: k.color || '#000000' }))
+            .sort((a, b) => a.m - b.m);
+        if (keys.length === 0) return { darkness: 0, color: '#ffffff' };
+        if (keys.length === 1) return { darkness: keys[0].darkness, color: keys[0].color };
+        const t = this.wrap(minutes);
+        let prev = keys[keys.length - 1], next = keys[0];
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i].m <= t) {
+                prev = keys[i];
+                next = keys[(i + 1) % keys.length];
+            }
+        }
+        const span = this.wrap(next.m - prev.m) || 1440;
+        const p = this.wrap(t - prev.m) / span;
+        return {
+            darkness: prev.darkness + (next.darkness - prev.darkness) * p,
+            color: DocsDoodads.Lighting.mixColor(prev.color, next.color, p)
+        };
+    },
+
+    newClock(minutes) {
+        return { minutes: this.wrap(minutes || 0), day: 0, paused: false, speed: null };
+    },
+
+    advance(clock, frames, minutesPerSecond) {
+        if (!clock || clock.paused) return clock;
+        clock.minutes += (Number(frames) || 0) * (Number(minutesPerSecond) || 0) / 60;
+        while (clock.minutes >= 1440) {
+            clock.minutes -= 1440;
+            clock.day = (clock.day || 0) + 1;
+        }
+        while (clock.minutes < 0) {
+            clock.minutes += 1440;
+            clock.day = Math.max(0, (clock.day || 0) - 1);
+        }
+        return clock;
+    },
+
+    // env: { variable(id), clock }. null means day/night is off.
+    minutesNow(settings, env = {}) {
+        const time = settings && settings.time;
+        if (!time) return null;
+        if (time.source === 'clock') return env.clock ? this.wrap(env.clock.minutes) : null;
+        if (time.source === 'variable') {
+            const read = id => (Number(id) > 0 && env.variable ? Number(env.variable(Number(id))) || 0 : 0);
+            return this.wrap(read(time.variableId) * 60 + read(time.minuteVariableId));
+        }
+        return null;
+    },
+
+    // The running clock writes the hour (and minute) for events to read.
+    syncVariables(settings, minutes, setVariable) {
+        const time = settings && settings.time;
+        if (!time || time.source !== 'clock' || !setVariable) return;
+        const m = Math.floor(this.wrap(minutes));
+        if (Number(time.variableId) > 0) setVariable(Number(time.variableId), Math.floor(m / 60));
+        if (Number(time.minuteVariableId) > 0) setVariable(Number(time.minuteVariableId), m % 60);
+    },
+
+    mapModes: [
+        { value: 'auto', label: 'Auto (unless the map sets its own darkness)' },
+        { value: 'on', label: 'Follow the clock' },
+        { value: 'off', label: 'Ignore (indoors)' }
+    ],
+
+    appliesToMap(mapSettings) {
+        const mode = mapSettings && mapSettings.dayNight;
+        if (mode === 'on') return true;
+        if (mode === 'off') return false;
+        return !(mapSettings && mapSettings.ambient && Number(mapSettings.ambient.darkness) > 0);
+    }
+};
+
+// The sun crosses the sky from east to west: morning shadows point west, noon shadows point north
+// (up the screen) and are shortest, evening shadows point east. A faint moon does the same at night.
+DocsDoodads.Sun = {
+    sources: [
+        { value: 'time', label: 'Time of day' },
+        { value: 'fixed', label: 'Fixed direction' },
+        { value: 'variable', label: 'A variable (degrees)' }
+    ],
+
+    at(minutes) {
+        const h = DocsDoodads.TimeOfDay.wrap(minutes) / 60;
+        const day = h >= 6 && h < 18;
+        const t = day ? (h - 6) / 12 : ((h + 6) % 24) / 12;
+        const elevation = Math.sin(Math.PI * t);
+        return {
+            angle: (270 + 180 * t) % 360,
+            lengthMul: 0.5 + 1.1 * (1 - elevation),
+            strength: (day ? 1 : 0.3) * Math.min(1, elevation * 4)
+        };
+    },
+
+    current(world, minutes, variable) {
+        const s = Object.assign({ source: 'time', angle: 30, variableId: 0 }, world && world.sun);
+        const wrap360 = a => ((Number(a) || 0) % 360 + 360) % 360;
+        if (s.source === 'variable' && Number(s.variableId) > 0 && variable) {
+            return { angle: wrap360(variable(Number(s.variableId))), lengthMul: 1, strength: 1 };
+        }
+        if (s.source === 'time' && minutes !== null && minutes !== undefined) return this.at(minutes);
+        return { angle: wrap360(s.angle), lengthMul: 1, strength: 1 };
+    },
+
+    // A silhouette anchored at its base (feet) and rotated to lie along the shadow direction.
+    transform(sun, style) {
+        style = style || {};
+        const length = Math.max(0.05, Math.min(2, (Number(style.length) || 0) * (Number(sun.lengthMul) || 1)));
+        return {
+            rotation: (Number(sun.angle) || 0) * Math.PI / 180,
+            scaleY: length,
+            alpha: clamp01(style.opacity) * clamp01(sun.strength),
+            offsetX: Number(style.offsetX) || 0,
+            offsetY: Number(style.offsetY) || 0,
+            blur: Math.max(0, Number(style.blur) || 0)
+        };
+    }
+};
+
+// <shadow>, <shadow: length 0.8, opacity 0.4>, <no shadow>, <motion blur>, <no motion blur>, <no reflection>
+// in an event's note or in comments on its active page.
+DocsDoodads.CharacterTags = {
+    _cache: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+
+    parse(text) {
+        const out = {};
+        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection)\s*(?::([^>]*))?>/gi;
+        let match;
+        while ((match = re.exec(String(text || '')))) {
+            const on = !match[1];
+            const kind = match[2].toLowerCase().replace(/\s+/g, '');
+            if (kind === 'shadow') {
+                out.shadow = on;
+                if (on && match[3]) {
+                    const length = /length\s*[:=]?\s*([\d.]+)/i.exec(match[3]);
+                    const opacity = /opacity\s*[:=]?\s*([\d.]+)/i.exec(match[3]);
+                    if (length) out.shadowLength = parseFloat(length[1]);
+                    if (opacity) out.shadowOpacity = parseFloat(opacity[1]);
+                }
+            } else if (kind === 'motionblur') {
+                out.motionBlur = on;
+            } else if (kind === 'reflection') {
+                out.reflect = on;
+            }
+        }
+        return out;
+    },
+
+    forCharacter(character) {
+        if (!character || typeof character.eventId !== 'function' || typeof character.event !== 'function') return {};
+        const cache = this._cache;
+        const page = character._pageIndex;
+        const hit = cache ? cache.get(character) : null;
+        if (hit && hit.page === page) return hit.tags;
+        const data = character.event() || {};
+        const lines = [data.note || ''];
+        const list = typeof character.page === 'function' && character.page() ? character.page().list : null;
+        for (const cmd of list || []) {
+            if (cmd && (cmd.code === 108 || cmd.code === 408) && cmd.parameters) lines.push(String(cmd.parameters[0] || ''));
+        }
+        const tags = this.parse(lines.join('\n'));
+        if (cache) cache.set(character, { page, tags });
+        return tags;
+    }
+};
+
+DocsDoodads.CharacterShadow = {
+    modes: [{ value: 'all', label: 'Every event that stands up' }, { value: 'tagged', label: 'Only events tagged <shadow>' }],
+
+    // info: { playerLike, priorityType, hasImage }
+    enabledFor(settings, tags, info) {
+        if (!settings || !settings.enabled || !info || !info.hasImage) return false;
+        tags = tags || {};
+        if (tags.shadow === false) return false;
+        if (tags.shadow === true) return true;
+        if (info.playerLike) return settings.includePlayer !== false;
+        if (settings.mode === 'tagged') return false;
+        return info.priorityType === 1;
+    },
+
+    styleFor(settings, tags) {
+        tags = tags || {};
+        return {
+            opacity: tags.shadowOpacity !== undefined ? tags.shadowOpacity : settings.opacity,
+            length: tags.shadowLength !== undefined ? tags.shadowLength : settings.length,
+            blur: settings.blur,
+            offsetX: settings.offsetX,
+            offsetY: settings.offsetY
+        };
+    },
+
+    // The character's whole frame. In tall grass MZ splits it into two half sprites and gives the main
+    // sprite a zero-width frame, which would otherwise show the entire sheet.
+    frameFor(sprite) {
+        const f = sprite && sprite._frame;
+        if (!f) return null;
+        if (sprite._bushDepth > 0 && sprite._upperBody && sprite._upperBody._frame) {
+            const u = sprite._upperBody._frame;
+            const l = sprite._lowerBody && sprite._lowerBody._frame;
+            if (u.width > 0) return { x: u.x, y: u.y, w: u.width, h: u.height + (l ? l.height : 0) };
+        }
+        if (!(f.width > 0) || !(f.height > 0)) return null;
+        return { x: f.x, y: f.y, w: f.width, h: f.height };
+    },
+
+    // The shadow stops before it would run into a blocked point (roof regions), so it is never sliced by upper tiles.
+    clipLength(footX, footY, angleDeg, lengthPx, isBlocked, step = 4) {
+        if (!isBlocked || !(lengthPx > 0)) return Math.max(0, lengthPx || 0);
+        if (isBlocked(footX, footY)) return 0;
+        const rad = (Number(angleDeg) || 0) * Math.PI / 180;
+        const dx = Math.sin(rad), dy = -Math.cos(rad);
+        for (let d = step; d < lengthPx + step; d += step) {
+            const dist = Math.min(d, lengthPx);
+            if (isBlocked(footX + dx * dist, footY + dy * dist)) return Math.max(0, dist - step);
+        }
+        return lengthPx;
+    }
+};
+
+DocsDoodads.MotionBlur = {
+    maxLength: 24,
+    modes: [{ value: 'all', label: 'Everyone who moves' }, { value: 'tagged', label: 'Only events tagged <motion blur>' }],
+
+    // Blur vector (screen pixels) from one frame's movement in tiles.
+    target(dxTiles, dyTiles, tileW, tileH, strength) {
+        if (Math.abs(dxTiles) > 1 || Math.abs(dyTiles) > 1) return { x: 0, y: 0 };
+        const vx = dxTiles * tileW, vy = dyTiles * tileH;
+        const speed = Math.hypot(vx, vy);
+        if (speed < 0.5) return { x: 0, y: 0 };
+        const length = Math.min(this.maxLength, speed * 2 * Math.max(0, Number(strength) || 0));
+        return { x: vx / speed * length, y: vy / speed * length };
+    },
+
+    step(current, target, rate = 0.5) {
+        const x = current.x + (target.x - current.x) * rate;
+        const y = current.y + (target.y - current.y) * rate;
+        if (Math.abs(x) < 0.25 && Math.abs(y) < 0.25) return { x: 0, y: 0 };
+        return { x, y };
+    },
+
+    enabledFor(settings, tags, playerLike, optionOn) {
+        if (!settings || !settings.enabled || optionOn === false) return false;
+        tags = tags || {};
+        if (tags.motionBlur === false) return false;
+        if (tags.motionBlur === true) return true;
+        return settings.mode !== 'tagged';
+    },
+
+    // Samples trail behind the sprite along the movement; uVelocity is in pixels.
+    fragment: [
+        fragmentPrecision,
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform vec4 inputSize;',
+        'uniform vec2 uVelocity;',
+        'void main(void) {',
+        '    vec2 stepUv = uVelocity * inputSize.zw / 8.0;',
+        '    vec4 color = texture2D(uSampler, vTextureCoord) * 0.24;',
+        '    float total = 0.24;',
+        '    for (int i = 1; i <= 8; i++) {',
+        '        float w = 0.2 * (1.0 - float(i) / 9.0);',
+        '        color += texture2D(uSampler, vTextureCoord + stepUv * float(i)) * w;',
+        '        total += w;',
+        '    }',
+        '    gl_FragColor = color / total;',
+        '}'
+    ].join('\n')
+};
+
+DocsDoodads.SeeThrough = {
+    modes: [
+        { value: 'fade', label: 'Fade the doodad' },
+        { value: 'silhouette', label: 'Show the player as an outline' },
+        { value: 'both', label: 'Both' }
+    ],
+    options: [
+        { value: 'auto', label: 'Auto (tall standing doodads)' },
+        { value: 'on', label: 'Always' },
+        { value: 'off', label: 'Never' }
+    ],
+
+    appliesTo(d, settings, tileH) {
+        if (!settings || !settings.enabled || !d) return false;
+        if (d.seeThrough === 'off') return false;
+        if (d.seeThrough === 'on') return true;
+        if (DocsDoodads.Depth.resolve(d) === 'below') return false;
+        return (d.frameH || 0) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1) >= 1.5 * (tileH || 48);
+    },
+
+    // Hidden when at least a quarter of the player overlaps and the doodad draws over them.
+    occludes(rect, baseY, depth, player, playerBaseY) {
+        if (!rect || !player) return false;
+        const ox = Math.min(rect.x + rect.w, player.x + player.w) - Math.max(rect.x, player.x);
+        const oy = Math.min(rect.y + rect.h, player.y + player.h) - Math.max(rect.y, player.y);
+        if (ox <= 0 || oy <= 0 || ox * oy < 0.25 * player.w * player.h) return false;
+        if (depth === 'above') return true;
+        return playerBaseY < baseY;
+    },
+
+    step(current, target, speed) {
+        speed = Math.max(0.001, Number(speed) || 0.1);
+        if (Math.abs(target - current) <= speed) return target;
+        return current + (target > current ? speed : -speed);
+    },
+
+    silhouetteFragment: [
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform vec3 uColor;',
+        'uniform float uAlpha;',
+        'void main(void) {',
+        '    float a = texture2D(uSampler, vTextureCoord).a;',
+        '    gl_FragColor = vec4(uColor, 1.0) * a * uAlpha;',
+        '}'
+    ].join('\n')
+};
+
+// Animated show/hide for doodads controlled by switches, conditions or seasons. p runs 0 (hidden) to 1 (shown).
+DocsDoodads.Transition = {
+    types: [
+        { value: 'none', label: 'Instant' }, { value: 'fade', label: 'Fade' }, { value: 'pop', label: 'Pop' },
+        { value: 'rise', label: 'Rise' }, { value: 'dissolve', label: 'Dissolve' }, { value: 'crumble', label: 'Crumble' }
+    ],
+    defaults: { type: 'none', frames: 30 },
+
+    sample(type, p) {
+        p = clamp01(p);
+        const out = { alphaMul: 1, scaleMul: 1, offsetY: 0, dissolve: 0 };
+        switch (type) {
+            case 'fade':
+                out.alphaMul = p;
+                break;
+            case 'pop': {
+                const c1 = 1.70158, c3 = c1 + 1;
+                out.scaleMul = p <= 0 ? 0 : 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+                out.alphaMul = Math.min(1, p * 2);
+                break;
+            }
+            case 'rise':
+                out.offsetY = 16 * (1 - p);
+                out.alphaMul = p;
+                break;
+            case 'dissolve':
+                out.dissolve = 1 - p;
+                break;
+            case 'crumble':
+                out.dissolve = 1 - p;
+                out.offsetY = 10 * (1 - p);
+                break;
+            default:
+                out.alphaMul = p >= 1 ? 1 : 0;
+        }
+        return out;
+    },
+
+    advance(progress, visible, frames) {
+        const total = Math.round(Number(frames) || 0);
+        if (total <= 0) return visible ? 1 : 0;
+        const step = 1 / total;
+        return visible ? Math.min(1, progress + step) : Math.max(0, progress - step);
+    },
+
+    // Pixels vanish in noisy order (blocks for crumble, which also drop as they go).
+    dissolveFragment: [
+        fragmentPrecision,
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform vec4 inputSize;',
+        'uniform float uAmount;',
+        'uniform float uBlock;',
+        'uniform float uFall;',
+        'float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }',
+        'void main(void) {',
+        '    vec2 cell = floor(vTextureCoord * inputSize.xy / uBlock);',
+        '    float n = hash(cell);',
+        '    vec2 uv = vTextureCoord;',
+        '    uv.y -= uAmount * uFall * (0.5 + n) * inputSize.w;',
+        '    vec4 color = texture2D(uSampler, uv);',
+        '    gl_FragColor = n < uAmount ? vec4(0.0) : color;',
+        '}'
+    ].join('\n')
+};
+
+// One table swaps art for every season across the whole game: each row lists the same prop per season.
+DocsDoodads.Seasons = {
+    sources: [
+        { value: 'off', label: 'Off' },
+        { value: 'variable', label: 'A variable (0 = first season)' },
+        { value: 'system', label: 'Plugin command "Set Season"' }
+    ],
+
+    normalize(path) {
+        return String(path || '').replace(/\\/g, '/');
+    },
+
+    resolve(path, season, sets) {
+        if (!(season >= 0) || !Array.isArray(sets) || !path) return path;
+        const key = this.normalize(path);
+        for (const set of sets) {
+            if (!set) continue;
+            const members = Object.keys(set).map(k => this.normalize(set[k]));
+            if (!members.includes(key)) continue;
+            return set[season] ? this.normalize(set[season]) : key;
+        }
+        return path;
+    },
+
+    visibleIn(d, season) {
+        if (!(season >= 0)) return true;
+        const list = d && d.seasons;
+        if (!Array.isArray(list) || list.length === 0) return true;
+        return list.includes(season);
+    },
+
+    // env: { variable(id), system }
+    current(settings, env = {}) {
+        if (!settings) return -1;
+        const count = Array.isArray(settings.names) && settings.names.length > 0 ? settings.names.length : 4;
+        const wrap = v => ((Math.floor(Number(v) || 0) % count) + count) % count;
+        if (settings.source === 'variable' && Number(settings.variableId) > 0 && env.variable) return wrap(env.variable(Number(settings.variableId)));
+        if (settings.source === 'system') return wrap(env.system);
+        return -1;
+    }
+};
+
+DocsDoodads.Reflection = {
+    options: [
+        { value: 'auto', label: 'Auto (standing doodads)' },
+        { value: 'on', label: 'Always' },
+        { value: 'off', label: 'Never' }
+    ],
+
+    // layers: tile ids for z 0-3. Water on the ground layers with nothing else drawn over it, or the chosen region.
+    // Coastlines put the sand/grass edge on layer 1 over the sea on layer 0; those tiles are shore, not water.
+    isWaterAt(layers, regionId, settings, isWaterTile) {
+        const region = Number(settings && settings.regionId) || 0;
+        if (region > 0 && regionId === region) return true;
+        if (!layers || !isWaterTile) return false;
+        if (layers[2] || layers[3]) return false;
+        if (layers[1]) return Boolean(isWaterTile(layers[1]));
+        return Boolean(isWaterTile(layers[0]));
+    },
+
+    // Mask rectangles (pixels, relative to tile 0,0) for the water tiles on screen. Each side next to dry
+    // land is pulled in by `inset`, because water autotiles draw their shore border inside the water tile.
+    // isWaterAt is also asked about the tiles just outside the area. Neighbours with matching edges merge.
+    maskRects(cols, rows, isWaterAt, tw, th, inset) {
+        inset = Math.max(0, Math.min(Math.floor(Math.min(tw, th) / 2), Number(inset) || 0));
+        const rects = [];
+        for (let r = 0; r < rows; r++) {
+            let open = null;
+            for (let c = 0; c < cols; c++) {
+                if (!isWaterAt(c, r)) {
+                    open = null;
+                    continue;
+                }
+                const top = isWaterAt(c, r - 1) ? 0 : inset;
+                const bottom = isWaterAt(c, r + 1) ? 0 : inset;
+                const left = isWaterAt(c - 1, r) ? 0 : inset;
+                const right = isWaterAt(c + 1, r) ? 0 : inset;
+                if (open && left === 0 && open.top === top && open.bottom === bottom) {
+                    open.rect.w += tw - right;
+                } else {
+                    open = { top, bottom, rect: { x: c * tw + left, y: r * th + top, w: tw - left - right, h: th - top - bottom } };
+                    rects.push(open.rect);
+                }
+                if (right > 0) open = null;
+            }
+        }
+        return rects;
+    },
+
+    appliesTo(d, settings) {
+        if (!settings || !settings.enabled || !d) return false;
+        if (d.reflect === 'off') return false;
+        if (d.reflect === 'on') return true;
+        return DocsDoodads.Depth.resolve(d) !== 'below';
+    },
+
+    mapEnabled(settings, mapSettings) {
+        return Boolean(settings && settings.enabled) && !(mapSettings && mapSettings.reflections === false);
+    }
+};
+
+// Runtime state shared by sprites each frame: time, season, sun, and where the player is.
+DocsDoodads.Atmosphere = {
+    _playerRect: null,
+    _playerHidden: false,
+
+    env() {
+        const vars = typeof $gameVariables !== 'undefined' ? $gameVariables : null;
+        const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        return {
+            variable: id => (vars && id > 0 ? vars.value(id) : 0),
+            clock: this.clock(),
+            system: system ? system._docsSeason || 0 : 0
+        };
+    },
+
+    clock() {
+        const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        if (!system) return null;
+        if (!system._docsClock) {
+            system._docsClock = DocsDoodads.TimeOfDay.newClock((Number(DocsDoodads.World.settings().time.startHour) || 0) * 60);
+        }
+        return system._docsClock;
+    },
+
+    editorPreview(field) {
+        const ws = DocsDoodads.Workspace;
+        return ws && ws.mounted && ws[field] !== null && ws[field] !== undefined ? ws[field] : null;
+    },
+
+    minutes() {
+        const preview = this.editorPreview('previewMinutes');
+        if (preview !== null) return preview;
+        return DocsDoodads.TimeOfDay.minutesNow(DocsDoodads.World.settings(), this.env());
+    },
+
+    season() {
+        const preview = this.editorPreview('previewSeason');
+        if (preview !== null) return preview;
+        return DocsDoodads.Seasons.current(DocsDoodads.World.settings().seasons, this.env());
+    },
+
+    sun() {
+        return DocsDoodads.Sun.current(DocsDoodads.World.settings(), this.minutes(), this.env().variable);
+    },
+
+    // "Set Feature" plugin command switches effects off for this save without touching the project.
+    featureOn(name) {
+        const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        return !(system && system._docsFeatureOff && system._docsFeatureOff[name]);
+    },
+
+    // Runs with $gameMap.update: the clock only moves on the map, never while the editor is open.
+    update(sceneActive) {
+        const world = DocsDoodads.World.settings();
+        if (world.time.source !== 'clock' || sceneActive === false) return;
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return;
+        const clock = this.clock();
+        if (!clock) return;
+        const speed = clock.speed !== null && clock.speed !== undefined ? clock.speed : world.time.minutesPerSecond;
+        DocsDoodads.TimeOfDay.advance(clock, 1, speed);
+        const vars = typeof $gameVariables !== 'undefined' ? $gameVariables : null;
+        if (vars) {
+            DocsDoodads.TimeOfDay.syncVariables(world, clock.minutes, (id, value) => {
+                if (vars.value(id) !== value) vars.setValue(id, value);
+            });
+        }
     }
 };
 
@@ -1213,11 +2033,13 @@ if (typeof PIXI !== 'undefined') {
                 bmp = ImageManager.loadTileset(tileset.tilesetNames[bit[1]]);
             }
         } else if (bit[0] === 3) {
-            const packed = DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
+            const path = this.seasonPath();
+            this._loadedPath = path;
+            const packed = path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
                 ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
             this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;
             this._regionSize = packed ? { w: packed.w, h: packed.h } : null;
-            bmp = DocsDoodads.loadBitmap(packed ? packed.sheet : bit[1]);
+            bmp = DocsDoodads.loadBitmap(packed ? packed.sheet : path);
         }
         if (bmp) {
             if (bmp.isReady()) {
@@ -1226,6 +2048,21 @@ if (typeof PIXI !== 'undefined') {
                 bmp.addLoadListener(() => this.setupBitmap(bmp));
             }
         }
+    };
+
+    // The art for the current season, re-resolved only when the season or the table changes.
+    Sprite_DocsDoodad.prototype.seasonPath = function() {
+        const bit = this._data && this._data.bit;
+        if (!bit || bit[0] !== 3) return null;
+        const season = DocsDoodads.Atmosphere.season();
+        const sets = DocsDoodads.World.settings().seasons.sets;
+        if (this._seasonKey !== season || this._seasonSets !== sets || this._seasonSource !== bit[1]) {
+            this._seasonKey = season;
+            this._seasonSets = sets;
+            this._seasonSource = bit[1];
+            this._seasonResolved = DocsDoodads.Seasons.resolve(bit[1], season, sets);
+        }
+        return this._seasonResolved;
     };
 
     Sprite_DocsDoodad.prototype.setupBitmap = function(bmp) {
@@ -1258,6 +2095,7 @@ if (typeof PIXI !== 'undefined') {
                 this.updateFrameAnimation();
             }
         }
+        if (d.bit && d.bit[0] === 3 && this._loadedPath !== undefined && this.seasonPath() !== this._loadedPath) this.loadTexture();
         this.updatePlacement();
     };
 
@@ -1294,21 +2132,97 @@ if (typeof PIXI !== 'undefined') {
 
         let visible = true;
         let dim = 1;
+        let fx = null;
         if (editing) {
             visible = !d.editorHidden;
+            this._transitionP = null;
             // Conditional doodads stay editable but look faded while their condition is false.
             if (visible && DocsDoodads.Appearance.isConditional(d) && !DocsDoodads.Appearance.isVisible(d, {})) dim = 0.45;
-        } else if (DocsDoodads.Appearance.isConditional(d)) {
-            visible = DocsDoodads.Appearance.isVisible(d, {});
+        } else {
+            const shown = DocsDoodads.Appearance.isConditional(d) ? DocsDoodads.Appearance.isVisible(d, {}) : true;
+            const type = d.transition && d.transition.type;
+            if (type && type !== 'none') {
+                const frames = d.transition.frames !== undefined ? d.transition.frames : DocsDoodads.Transition.defaults.frames;
+                // The first frame starts settled, so maps never open mid-transition.
+                if (this._transitionP === null || this._transitionP === undefined) this._transitionP = shown ? 1 : 0;
+                this._transitionP = DocsDoodads.Transition.advance(this._transitionP, shown, frames);
+                fx = DocsDoodads.Transition.sample(type, this._transitionP);
+                visible = this._transitionP > 0;
+            } else {
+                this._transitionP = null;
+                visible = shown;
+            }
         }
+        if (fx) {
+            this.y += fx.offsetY;
+            this.scale.x *= fx.scaleMul;
+            this.scale.y *= fx.scaleMul;
+        }
+        this._transitionAlpha = fx ? fx.alphaMul : 1;
         this.visible = visible;
-        this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim;
+        this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim * this._transitionAlpha * this.updateSeeThrough(editing);
 
         this.refreshAppearance();
+        this.updateDissolve(fx);
         if (this._shimmerFilter) {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
         }
         this.updateShadow();
+    };
+
+    // Screen rectangle of the drawn frame.
+    Sprite_DocsDoodad.prototype.screenRect = function() {
+        const d = this._data;
+        const w = (d.frameW || (this.texture ? this.texture.frame.width : 48)) * Math.abs(this.scale.x);
+        const h = (d.frameH || (this.texture ? this.texture.frame.height : 48)) * Math.abs(this.scale.y);
+        return { x: this.x - this.anchor.x * w, y: this.y - this.anchor.y * h, w, h };
+    };
+
+    // Fades a tall doodad while the player is hidden behind it (and flags the player for the silhouette).
+    Sprite_DocsDoodad.prototype.updateSeeThrough = function(editing) {
+        const settings = DocsDoodads.World.settings().seeThrough;
+        const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        let target = 1;
+        if (!editing && this.visible !== false && DocsDoodads.Atmosphere.featureOn('seeThrough') && DocsDoodads.SeeThrough.appliesTo(this._data, settings, th)) {
+            const player = DocsDoodads.Atmosphere._playerRect;
+            if (player && DocsDoodads.SeeThrough.occludes(this.screenRect(), this._docsSortY, DocsDoodads.Depth.resolve(this._data), player, player.baseY)) {
+                DocsDoodads.Atmosphere._playerHidden = true;
+                if (settings.mode !== 'silhouette') target = Math.max(0.05, Math.min(1, Number(settings.opacity)));
+            }
+        }
+        const current = this._seeAlpha !== undefined ? this._seeAlpha : 1;
+        this._seeAlpha = DocsDoodads.SeeThrough.step(current, target, settings.speed);
+        return this._seeAlpha;
+    };
+
+    // Dissolve and crumble transitions add a noise filter only while they run.
+    Sprite_DocsDoodad.prototype.updateDissolve = function(fx) {
+        const active = Boolean(fx && fx.dissolve > 0 && fx.dissolve < 1);
+        const filters = this.filters ? this.filters.slice() : [];
+        const index = this._dissolveFilter ? filters.indexOf(this._dissolveFilter) : -1;
+        if (!active) {
+            if (index >= 0) {
+                filters.splice(index, 1);
+                this.filters = filters.length ? filters : null;
+            }
+            return;
+        }
+        if (!this._dissolveFilter) {
+            try {
+                this._dissolveFilter = new PIXI.Filter(undefined, DocsDoodads.Transition.dissolveFragment, { uAmount: 0, uBlock: 1, uFall: 0 });
+                this._dissolveFilter.padding = 12;
+            } catch (error) {
+                return;
+            }
+        }
+        const crumble = this._data.transition && this._data.transition.type === 'crumble';
+        this._dissolveFilter.uniforms.uAmount = fx.dissolve;
+        this._dissolveFilter.uniforms.uBlock = crumble ? 4 : 1;
+        this._dissolveFilter.uniforms.uFall = crumble ? 10 : 0;
+        if (index < 0) {
+            filters.push(this._dissolveFilter);
+            this.filters = filters;
+        }
     };
 
     // Rebuilds the filter stack only when tint, hue, blur, blend or shimmer settings change.
@@ -1362,7 +2276,8 @@ if (typeof PIXI !== 'undefined') {
 
     // The shadow is a black silhouette sprite beside the doodad in the same tilemap.
     Sprite_DocsDoodad.prototype.updateShadow = function() {
-        const t = DocsDoodads.Shadow.transform(this._data);
+        const followSun = this._data.shadow && this._data.shadow.followSun;
+        const t = DocsDoodads.Shadow.transform(this._data, followSun ? DocsDoodads.Atmosphere.sun() : null);
         if (!t) {
             this.destroyShadow();
             return;
@@ -1378,14 +2293,19 @@ if (typeof PIXI !== 'undefined') {
         if (shadow.parent !== this.parent) this.parent.addChild(shadow);
         shadow.texture = this.texture;
         shadow.anchor.x = this.anchor.x;
-        shadow.anchor.y = this.anchor.y;
+        // Sun shadows pivot on the doodad's base so they lie along the ground.
+        shadow.anchor.y = t.followsSun ? 1 : this.anchor.y;
         const pos = this.screenPosition();
+        const d = this._data;
+        const baseShift = t.followsSun
+            ? (d.frameH || this.texture.frame.height) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1) * (1 - this.anchor.y) : 0;
         shadow.x = pos.x + t.offsetX;
-        shadow.y = pos.y + t.offsetY;
+        shadow.y = pos.y + baseShift + t.offsetY;
         shadow.scale.x = t.scaleX;
         shadow.scale.y = t.scaleY;
-        shadow.skew.x = t.skewX + this.skew.x;
-        shadow.alpha = t.alpha;
+        shadow.skew.x = t.followsSun ? 0 : t.skewX + this.skew.x;
+        shadow.rotation = t.rotation || 0;
+        shadow.alpha = t.alpha * (this._transitionAlpha !== undefined ? this._transitionAlpha : 1);
         shadow.z = DocsDoodads.Depth.shadowZ;
         shadow._docsSortY = shadow.y;
         shadow.visible = this.visible;
@@ -1483,6 +2403,7 @@ if (typeof Spriteset_Map !== 'undefined') {
 
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
+        this.captureDocsPlayer();
         $.Spriteset_Map_update.call(this);
         if (this._docsDoodadSprites) {
             for (let i = 0; i < this._docsDoodadSprites.length; i++) {
@@ -1490,7 +2411,162 @@ if (typeof Spriteset_Map !== 'undefined') {
             }
         }
         this.updateDocsLighting();
+        this.updateDocsReflections();
+        this.updateDocsSilhouette();
         this.updateDocsEditorOverlay();
+    };
+
+    Spriteset_Map.prototype.docsPlayerSprite = function() {
+        if (typeof $gamePlayer === 'undefined' || !this._characterSprites) return null;
+        if (!this._docsPlayerSprite || this._docsPlayerSprite._character !== $gamePlayer) {
+            this._docsPlayerSprite = this._characterSprites.find(s => s._character === $gamePlayer) || null;
+        }
+        return this._docsPlayerSprite;
+    };
+
+    // Where the player was drawn last frame, for see-through. Doodads flag _playerHidden as they update.
+    Spriteset_Map.prototype.captureDocsPlayer = function() {
+        const Atmosphere = DocsDoodads.Atmosphere;
+        Atmosphere._playerHidden = false;
+        Atmosphere._playerRect = null;
+        const sprite = this.docsPlayerSprite();
+        if (!sprite || !sprite.visible || !sprite._docsFrame) return;
+        const w = sprite._docsFrame.w * Math.abs(sprite.scale.x), h = sprite._docsFrame.h * Math.abs(sprite.scale.y);
+        Atmosphere._playerRect = { x: sprite.x - w * 0.5, y: sprite.y - h, w, h, baseY: sprite.y };
+    };
+
+    // Water reflections: mirrored copies of characters and doodads, masked to water tiles, with a ripple.
+    Spriteset_Map.prototype.updateDocsReflections = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || !this._tilemap || typeof PIXI === 'undefined') return;
+        const settings = DocsDoodads.World.settings().reflections;
+        const on = DocsDoodads.Atmosphere.featureOn('reflections')
+            && DocsDoodads.Reflection.mapEnabled(settings, DocsDoodads.Lighting.mapSettings($gameMap.mapId()));
+        if (!on) {
+            if (this._docsReflectLayer) this._docsReflectLayer.visible = false;
+            return;
+        }
+        let layer = this._docsReflectLayer;
+        if (!layer) {
+            layer = this._docsReflectLayer = new PIXI.Container();
+            layer.z = 0.2;
+            layer._docsSortY = -1e9;
+            layer._docsMask = new PIXI.Graphics();
+            layer.addChild(layer._docsMask);
+            layer.mask = layer._docsMask;
+            layer._docsPool = [];
+            try {
+                layer._docsRipple = new PIXI.Filter(undefined, DocsDoodads.Motion.shimmerFragment, { time: 0, amount: 0.5 });
+                layer._docsRipple.padding = 4;
+                layer.filters = [layer._docsRipple];
+            } catch (error) {
+                layer._docsRipple = null;
+            }
+        }
+        if (layer.parent !== this._tilemap) this._tilemap.addChild(layer);
+        const water = this.updateDocsWaterMask(layer, settings);
+        layer.visible = water;
+        if (!water) return;
+        if (layer._docsRipple) {
+            layer._docsRipple.uniforms.time = DocsDoodads.frameCount() / 60;
+            layer._docsRipple.uniforms.amount = Math.max(0, Math.min(1, Number(settings.ripple) || 0));
+        }
+
+        const sources = [];
+        for (const sprite of this._characterSprites || []) {
+            const ch = sprite._character;
+            if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
+            if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
+            const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
+            sources.push({ texture: sprite._docsFrameTexture, x: sprite.x, y: sprite.y + jump * 2, sx: sprite.scale.x, sy: sprite.scale.y,
+                anchorX: 0.5, alpha: sprite.opacity / 255, rotation: 0 });
+        }
+        for (const sprite of this._docsDoodadSprites || []) {
+            const d = sprite._data;
+            if (!sprite.visible || !sprite.texture || !sprite.texture.valid || !DocsDoodads.Reflection.appliesTo(d, settings)) continue;
+            const h = sprite.texture.frame.height * Math.abs(sprite.scale.y);
+            sources.push({ texture: sprite.texture, x: sprite.x, y: sprite.y + h * (1 - sprite.anchor.y), sx: sprite.scale.x, sy: Math.abs(sprite.scale.y),
+                anchorX: sprite.anchor.x, alpha: sprite.alpha, rotation: -sprite.rotation });
+        }
+        const pool = layer._docsPool;
+        while (pool.length < sources.length) {
+            const s = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            layer.addChild(s);
+            pool.push(s);
+        }
+        const opacity = Math.max(0, Math.min(1, Number(settings.opacity) || 0));
+        pool.forEach((s, i) => {
+            const src = sources[i];
+            s.visible = Boolean(src);
+            if (!src) return;
+            s.texture = src.texture;
+            s.anchor.set(src.anchorX, 1);
+            s.x = src.x;
+            s.y = src.y;
+            s.scale.set(src.sx, -src.sy);
+            s.rotation = src.rotation;
+            s.alpha = src.alpha * opacity;
+        });
+    };
+
+    // Rebuilds the water mask when the camera moves; false when no water is on screen.
+    Spriteset_Map.prototype.updateDocsWaterMask = function(layer, settings) {
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const key = [$gameMap.mapId(), $gameMap.displayX(), $gameMap.displayY(), settings.regionId, settings.shoreInset, Math.floor(DocsDoodads.frameCount() / 30)].join('|');
+        if (layer._docsMaskKey === key) return layer._docsHasWater;
+        layer._docsMaskKey = key;
+        const ox = Math.floor($gameMap.displayX()), oy = Math.floor($gameMap.displayY());
+        const fx = ($gameMap.displayX() - ox) * tw, fy = ($gameMap.displayY() - oy) * th;
+        const width = typeof Graphics !== 'undefined' ? Graphics.width : 816;
+        const height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const cols = Math.ceil(width / tw) + 1, rows = Math.ceil(height / th) + 1;
+        const isWaterTile = id => (typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false);
+        const rects = DocsDoodads.Reflection.maskRects(cols, rows, (c, r) => {
+            const x = $gameMap.roundX(ox + c), y = $gameMap.roundY(oy + r);
+            if (!$gameMap.isValid(x, y)) return false;
+            const layers = [0, 1, 2, 3].map(z => $gameMap.tileId(x, y, z));
+            return DocsDoodads.Reflection.isWaterAt(layers, $gameMap.regionId(x, y), settings, isWaterTile);
+        }, tw, th, settings.shoreInset);
+        const g = layer._docsMask;
+        g.clear();
+        g.beginFill(0xffffff, 1);
+        for (const rect of rects) g.drawRect(rect.x - fx, rect.y - fy, rect.w, rect.h);
+        g.endFill();
+        layer._docsHasWater = rects.length > 0;
+        return layer._docsHasWater;
+    };
+
+    // The player drawn as a tinted outline above everything while hidden behind a doodad.
+    Spriteset_Map.prototype.updateDocsSilhouette = function() {
+        if (!this._baseSprite || typeof PIXI === 'undefined') return;
+        const settings = DocsDoodads.World.settings().seeThrough;
+        const sprite = this.docsPlayerSprite();
+        const show = DocsDoodads.Atmosphere._playerHidden && settings.mode !== 'fade' && sprite && sprite._docsFrameTexture
+            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        let ghost = this._docsSilhouette;
+        if (!show) {
+            if (ghost) ghost.visible = false;
+            return;
+        }
+        if (!ghost) {
+            ghost = this._docsSilhouette = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            ghost.anchor.set(0.5, 1);
+            try {
+                ghost._docsFilter = new PIXI.Filter(undefined, DocsDoodads.SeeThrough.silhouetteFragment, { uColor: [0.5, 0.8, 1], uAlpha: 0.55 });
+                ghost.filters = [ghost._docsFilter];
+            } catch (error) {
+                ghost.tint = 0x7dd3fc;
+                ghost.alpha = 0.5;
+            }
+        }
+        if (ghost.parent !== this._baseSprite) this._baseSprite.addChild(ghost);
+        const parent = ghost.parent;
+        if (this._tilemap && parent.children.indexOf(ghost) < parent.children.indexOf(this._tilemap)) parent.addChild(ghost);
+        if (ghost._docsFilter) ghost._docsFilter.uniforms.uColor = DocsDoodads.Lighting.channels(settings.silhouetteColor);
+        ghost.texture = sprite._docsFrameTexture;
+        ghost.x = sprite.x;
+        ghost.y = sprite.y;
+        ghost.scale.set(sprite.scale.x, sprite.scale.y);
+        ghost.visible = true;
     };
 
     // Lighting: a lightmap (ambient colour plus additive lights) is rendered off-screen and
@@ -1549,13 +2625,16 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (fade.framesLeft <= 0 && fade.clearWhenDone) $gameSystem._docsAmbientFade = null;
         }
         const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
-        let ambient = Lighting.ambientFor(Lighting.mapSettings($gameMap.mapId()), fade ? fade.current : null, switchValue);
+        const world = DocsDoodads.World.settings();
+        let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
+            override: fade ? fade.current : null, switchValue });
         if (workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         const visibleData = (this._docsDoodadSprites || []).filter(s => s.visible).map(s => s._data);
-        const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y));
+        const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
+            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
@@ -1639,7 +2718,7 @@ DocsDoodads.setAmbient = function(target, frames, clearWhenDone) {
     const Lighting = DocsDoodads.Lighting;
     const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
     const current = $gameSystem._docsAmbientFade ? $gameSystem._docsAmbientFade.current
-        : Lighting.ambientFor(Lighting.mapSettings($gameMap.mapId()), null, switchValue);
+        : DocsDoodads.currentAmbient(switchValue);
     const fade = Lighting.startFade(current, target, frames);
     fade.clearWhenDone = Boolean(clearWhenDone);
     $gameSystem._docsAmbientFade = fade;
@@ -1655,9 +2734,233 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
     PluginManager.registerCommand(pluginName, 'resetAmbient', args => {
         const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
-        const mapAmbient = DocsDoodads.Lighting.ambientFor(DocsDoodads.Lighting.mapSettings($gameMap.mapId()), null, switchValue);
-        DocsDoodads.setAmbient(mapAmbient, Number(args.duration) || 0, true);
+        DocsDoodads.setAmbient(DocsDoodads.currentAmbient(switchValue), Number(args.duration) || 0, true);
     });
+
+    // Time of day, seasons and effect switches.
+    PluginManager.registerCommand(pluginName, 'setTime', args => {
+        DocsDoodads.setTimeOfDay((Number(args.hour) || 0) * 60 + (Number(args.minute) || 0));
+    });
+    PluginManager.registerCommand(pluginName, 'addTime', args => {
+        const now = DocsDoodads.Atmosphere.minutes();
+        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + (Number(args.hours) || 0) * 60 + (Number(args.minutes) || 0));
+    });
+    PluginManager.registerCommand(pluginName, 'clockControl', args => {
+        const clock = DocsDoodads.Atmosphere.clock();
+        if (!clock) return;
+        if (args.action === 'pause') clock.paused = true;
+        else if (args.action === 'resume') clock.paused = false;
+        else if (args.action === 'speed') clock.speed = Math.max(0, Number(args.speed) || 0);
+        else if (args.action === 'defaultSpeed') clock.speed = null;
+    });
+    PluginManager.registerCommand(pluginName, 'setSeason', args => {
+        DocsDoodads.setSeason(Number(args.season) || 0);
+    });
+    PluginManager.registerCommand(pluginName, 'setFeature', args => {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return;
+        const off = $gameSystem._docsFeatureOff = $gameSystem._docsFeatureOff || {};
+        if (String(args.enabled) === 'false') off[args.feature] = true;
+        else delete off[args.feature];
+    });
+}
+
+// The ambient the map has right now without any plugin-command fade.
+DocsDoodads.currentAmbient = function(switchValue) {
+    const Lighting = DocsDoodads.Lighting;
+    return Lighting.resolveAmbient({ world: DocsDoodads.World.settings(), minutes: DocsDoodads.Atmosphere.minutes(),
+        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue });
+};
+
+// Variable mode writes the variables; otherwise the running clock jumps.
+DocsDoodads.setTimeOfDay = function(minutes) {
+    const Time = DocsDoodads.TimeOfDay;
+    const world = DocsDoodads.World.settings();
+    const m = Time.wrap(minutes);
+    if (world.time.source === 'variable' && typeof $gameVariables !== 'undefined' && $gameVariables) {
+        if (Number(world.time.variableId) > 0) $gameVariables.setValue(Number(world.time.variableId), Math.floor(m / 60));
+        if (Number(world.time.minuteVariableId) > 0) $gameVariables.setValue(Number(world.time.minuteVariableId), Math.floor(m % 60));
+        return;
+    }
+    const clock = DocsDoodads.Atmosphere.clock();
+    if (!clock) return;
+    if (m < clock.minutes) clock.day = (clock.day || 0) + 1;
+    clock.minutes = m;
+    Time.syncVariables(world, m, (id, value) => { if ($gameVariables.value(id) !== value) $gameVariables.setValue(id, value); });
+};
+
+DocsDoodads.setSeason = function(season) {
+    const settings = DocsDoodads.World.settings().seasons;
+    if (settings.source === 'variable' && Number(settings.variableId) > 0 && typeof $gameVariables !== 'undefined' && $gameVariables) {
+        $gameVariables.setValue(Number(settings.variableId), season);
+    } else if (typeof $gameSystem !== 'undefined' && $gameSystem) {
+        $gameSystem._docsSeason = season;
+    }
+};
+
+// The clock moves with the map.
+if (typeof Game_Map !== 'undefined') {
+    $.Game_Map_update = Game_Map.prototype.update;
+    Game_Map.prototype.update = function(sceneActive) {
+        $.Game_Map_update.call(this, sceneActive);
+        DocsDoodads.Atmosphere.update(sceneActive);
+    };
+}
+
+// Players and events: sun shadows shaped like the sprite, and motion blur.
+if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
+    $.Sprite_Character_update = Sprite_Character.prototype.update;
+    Sprite_Character.prototype.update = function() {
+        $.Sprite_Character_update.call(this);
+        this.updateDocsCharacterFx();
+    };
+
+    Sprite_Character.prototype.updateDocsCharacterFx = function() {
+        const ch = this._character;
+        if (!ch || typeof $gameMap === 'undefined' || !$gameMap) return;
+        this.updateDocsFrameTexture();
+        const world = DocsDoodads.World.settings();
+        const isVehicle = typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle;
+        const playerLike = (typeof Game_Player !== 'undefined' && ch instanceof Game_Player)
+            || (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower);
+        const tags = DocsDoodads.CharacterTags.forCharacter(ch);
+        const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+        const hasImage = Boolean(this._docsFrameTexture) && this.visible && !(ch.isTransparent && ch.isTransparent())
+            && Boolean((ch.characterName && ch.characterName()) || (ch.tileId && ch.tileId() > 0));
+        const castShadow = !isVehicle && Boolean(this.parent) && DocsDoodads.Atmosphere.featureOn('characterShadows')
+            && !(mapSettings && mapSettings.characterShadows === false)
+            && DocsDoodads.CharacterShadow.enabledFor(world.characterShadows, tags, { playerLike, priorityType: ch._priorityType, hasImage });
+        if (castShadow) this.updateDocsShadow(world.characterShadows, tags);
+        else if (this._docsShadow) this._docsShadow.visible = false;
+        this.updateDocsMotionBlur(world.motionBlur, tags, playerLike && !isVehicle);
+    };
+
+    // A texture for the whole current frame (the main sprite's frame is empty in tall grass).
+    Sprite_Character.prototype.updateDocsFrameTexture = function() {
+        const bitmap = this.bitmap;
+        const frame = bitmap && bitmap.isReady() ? DocsDoodads.CharacterShadow.frameFor(this) : null;
+        const base = bitmap ? (bitmap.baseTexture || bitmap._baseTexture) : null;
+        if (!frame || !base) {
+            this._docsFrame = null;
+            this._docsFrameTexture = null;
+            return;
+        }
+        const last = this._docsFrame;
+        if (this._docsFrameTexture && last && this._docsFrameBase === base
+            && last.x === frame.x && last.y === frame.y && last.w === frame.w && last.h === frame.h) return;
+        const safe = DocsDoodads.safeFrame(frame, bitmap.width, bitmap.height);
+        this._docsFrame = frame;
+        this._docsFrameBase = base;
+        this._docsFrameTexture = new PIXI.Texture(base, new PIXI.Rectangle(safe.x, safe.y, safe.w, safe.h));
+    };
+
+    Sprite_Character.prototype.updateDocsShadow = function(settings, tags) {
+        let shadow = this._docsShadow;
+        if (!shadow) {
+            shadow = this._docsShadow = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            shadow.anchor.set(0.5, 1);
+            shadow.tint = 0x000000;
+            shadow.spriteId = this.spriteId;
+        }
+        if (shadow.parent !== this.parent) this.parent.addChild(shadow);
+        const sun = DocsDoodads.Atmosphere.sun();
+        const t = DocsDoodads.Sun.transform(sun, DocsDoodads.CharacterShadow.styleFor(settings, tags));
+        const ch = this._character;
+        const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
+        const footX = this.x + t.offsetX;
+        const footY = this.y + jump + t.offsetY;
+        let scaleY = t.scaleY;
+        const regions = (settings.occlusionRegions || []).map(Number).filter(n => n > 0);
+        if (regions.length > 0 && this._docsFrame) {
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const blocked = (x, y) => {
+                const at = DocsDoodads.screenToMap(x, y);
+                return regions.includes($gameMap.regionId(Math.floor(at.x / tw), Math.floor(at.y / th)));
+            };
+            const full = this._docsFrame.h * scaleY;
+            scaleY = DocsDoodads.CharacterShadow.clipLength(footX, footY, sun.angle, full, blocked) / this._docsFrame.h;
+        }
+        shadow.texture = this._docsFrameTexture;
+        shadow.x = footX;
+        shadow.y = footY;
+        shadow.rotation = t.rotation;
+        shadow.scale.set(this.scale.x, scaleY * this.scale.y);
+        shadow.alpha = t.alpha * (this.opacity / 255);
+        shadow.visible = scaleY > 0.02 && shadow.alpha > 0.005;
+        shadow.z = DocsDoodads.Depth.shadowZ;
+        shadow._docsSortY = footY;
+        if (shadow._docsBlur !== t.blur) {
+            shadow._docsBlur = t.blur;
+            shadow.filters = t.blur > 0 && PIXI.filters && PIXI.filters.BlurFilter ? [new PIXI.filters.BlurFilter(Math.min(16, t.blur))] : null;
+        }
+    };
+
+    Sprite_Character.prototype.updateDocsMotionBlur = function(settings, tags, playerLike) {
+        const ch = this._character;
+        const optionOn = typeof ConfigManager === 'undefined' || ConfigManager.docsMotionBlur !== false;
+        const enabled = DocsDoodads.Atmosphere.featureOn('motionBlur') && DocsDoodads.MotionBlur.enabledFor(settings, tags, playerLike, optionOn)
+            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const real = { x: ch._realX, y: ch._realY };
+        let target = { x: 0, y: 0 };
+        if (enabled && this._docsLastReal) {
+            target = DocsDoodads.MotionBlur.target(real.x - this._docsLastReal.x, real.y - this._docsLastReal.y,
+                $gameMap.tileWidth(), $gameMap.tileHeight(), settings.strength);
+        }
+        this._docsLastReal = real;
+        const blur = this._docsBlurVector = DocsDoodads.MotionBlur.step(this._docsBlurVector || { x: 0, y: 0 }, target, 0.5);
+        const active = blur.x !== 0 || blur.y !== 0;
+        // MZ replaces the filter list when it adds its colour filter, so membership is checked every frame.
+        const filters = this.filters ? this.filters.slice() : [];
+        const index = this._docsBlurFilter ? filters.indexOf(this._docsBlurFilter) : -1;
+        if (!active) {
+            if (index >= 0) {
+                filters.splice(index, 1);
+                this.filters = filters.length ? filters : null;
+            }
+            return;
+        }
+        if (!this._docsBlurFilter) {
+            try {
+                this._docsBlurFilter = new PIXI.Filter(undefined, DocsDoodads.MotionBlur.fragment, { uVelocity: [0, 0] });
+                this._docsBlurFilter.padding = DocsDoodads.MotionBlur.maxLength + 2;
+            } catch (error) {
+                return;
+            }
+        }
+        this._docsBlurFilter.uniforms.uVelocity = [blur.x, blur.y];
+        if (index < 0) {
+            filters.push(this._docsBlurFilter);
+            this.filters = filters;
+        }
+    };
+}
+
+// Options menu: players can switch motion blur off.
+if (typeof ConfigManager !== 'undefined') {
+    ConfigManager.docsMotionBlur = true;
+    $.ConfigManager_makeData = ConfigManager.makeData;
+    ConfigManager.makeData = function() {
+        const config = $.ConfigManager_makeData.call(this);
+        config.docsMotionBlur = this.docsMotionBlur;
+        return config;
+    };
+    $.ConfigManager_applyData = ConfigManager.applyData;
+    ConfigManager.applyData = function(config) {
+        $.ConfigManager_applyData.call(this, config);
+        this.docsMotionBlur = config && 'docsMotionBlur' in config ? Boolean(config.docsMotionBlur) : true;
+    };
+}
+if (typeof Window_Options !== 'undefined') {
+    $.Window_Options_addGeneralOptions = Window_Options.prototype.addGeneralOptions;
+    Window_Options.prototype.addGeneralOptions = function() {
+        $.Window_Options_addGeneralOptions.call(this);
+        if (DocsDoodads.World.settings().motionBlur.enabled) this.addCommand('Motion Blur', 'docsMotionBlur');
+    };
+}
+if (typeof Scene_Options !== 'undefined' && Scene_Options.prototype.maxCommands) {
+    $.Scene_Options_maxCommands = Scene_Options.prototype.maxCommands;
+    Scene_Options.prototype.maxCommands = function() {
+        return $.Scene_Options_maxCommands.call(this) + (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0);
+    };
 }
 
 //==========================================================
@@ -2566,6 +3869,12 @@ DocsDoodads.Usage = {
                 if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'doodads', `${mapLabel(id)} · doodad #${i + 1}`);
             });
         }
+        // Seasonal variants may only be reachable through the season table.
+        const world = sources.doodads && sources.doodads.world;
+        const seasonSets = world && world.seasons && Array.isArray(world.seasons.sets) ? world.seasons.sets : [];
+        seasonSets.forEach((set, row) => {
+            for (const season of Object.keys(set || {})) pathRef(set, season, 'doodads', `Season table row ${row + 1}`);
+        });
         for (const prefab of sources.prefabs || []) {
             const label = `Prefab "${prefab.name}"`;
             (prefab.doodads || []).forEach(d => { if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'prefabs', label); });
@@ -6390,6 +7699,9 @@ DocsDoodads.Import = {
 //==========================================================
 DocsDoodads.Workspace = {
     mounted: false,
+    // Editor-only previews of the time of day and the season (null = what the game says).
+    previewMinutes: null,
+    previewSeason: null,
     container: null,
     drawerEl: null,
     inspectorEl: null,
@@ -6486,6 +7798,10 @@ DocsDoodads.Workspace = {
             DocsDoodads.Persistence.dirtyDoodads = true;
         }
         if (recovery.mapSettings) data.mapSettings = recovery.mapSettings;
+        if (recovery.world) {
+            data.world = recovery.world;
+            DocsDoodads.World.invalidate();
+        }
         if (recovery.stagedMap) {
             if (mapId === this.currentMapId()) {
                 $gameMap._stagedMapData = recovery.stagedMap;
@@ -7685,6 +9001,7 @@ DocsDoodads.Workspace = {
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
+            ${this.renderAssetSeasonControl(a)}
             ${this.renderUsagePanel(a)}
             <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                 <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place on Map Center</button>
@@ -7742,6 +9059,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
+        this.bindAssetSeasonControl(a);
         this.bindUsagePanel(a);
     },
 
@@ -7750,15 +9068,21 @@ DocsDoodads.Workspace = {
         return {
             shadow: DocsDoodads.Shadow.defaults,
             light: DocsDoodads.Lighting.lightDefaults,
-            motion: { type: 'none', amount: 0.5, speed: 1 }
+            motion: { type: 'none', amount: 0.5, speed: 1 },
+            transition: DocsDoodads.Transition.defaults
         };
     },
+
+    // Shown when a doodad has no value of its own.
+    propertyFallbacks: { seeThrough: 'auto', reflect: 'auto' },
 
     getDoodadProperty(d, key) {
         if (key === 'flipX') return (d.scaleX !== undefined ? d.scaleX : 1) < 0;
         if (key === 'flipY') return (d.scaleY !== undefined ? d.scaleY : 1) < 0;
         if (key === 'switchText') return DocsDoodads.Appearance.formatSwitches(d.switch);
         if (key === 'depth') return DocsDoodads.Depth.resolve(d);
+        if (key.indexOf('seasonIn.') === 0) return Array.isArray(d.seasons) && d.seasons.includes(Number(key.slice(9)));
+        if (d[key] === undefined && this.propertyFallbacks[key] !== undefined) return this.propertyFallbacks[key];
         const dot = key.indexOf('.');
         if (dot > 0) {
             const group = key.slice(0, dot), field = key.slice(dot + 1);
@@ -7776,6 +9100,15 @@ DocsDoodads.Workspace = {
         }
         if (key === 'switchText') {
             d.switch = DocsDoodads.Appearance.parseSwitchText(value);
+            return;
+        }
+        // Season checkboxes: none ticked means every season.
+        if (key.indexOf('seasonIn.') === 0) {
+            const season = Number(key.slice(9));
+            const list = new Set(Array.isArray(d.seasons) ? d.seasons : []);
+            if (value) list.add(season); else list.delete(season);
+            if (list.size > 0) d.seasons = Array.from(list).sort((a, b) => a - b);
+            else delete d.seasons;
             return;
         }
         const dot = key.indexOf('.');
@@ -7876,11 +9209,13 @@ DocsDoodads.Workspace = {
                 range('shadow.length', 'Length', 0.1, 1.2, 0.05),
                 range('shadow.angle', 'Lean (degrees)', -80, 80, 1),
                 range('shadow.blur', 'Softness', 0, 10, 0.5),
+                { key: 'shadow.followSun', label: 'Follow the sun (time of day)', type: 'checkbox' },
                 number('shadow.offsetX', 'Offset X'),
                 number('shadow.offsetY', 'Offset Y')
             ] },
             { title: 'Light', fields: [
                 { key: 'light.enabled', label: 'Emit light', type: 'checkbox' },
+                { key: 'light.when', label: 'When', type: 'select', options: D.Lighting.whenOptions },
                 { key: 'light.color', label: 'Color', type: 'color' },
                 range('light.radius', 'Radius', 16, 600, 4),
                 range('light.intensity', 'Intensity', 0, 1, 0.05),
@@ -7892,34 +9227,46 @@ DocsDoodads.Workspace = {
             { title: 'Visibility', fields: [
                 { key: 'switchText', label: 'Switches (e.g. 5:on, 6:off)', type: 'text' },
                 { key: 'condition', label: 'Condition (JavaScript, e.g. $gameVariables.value(3) > 2)', type: 'text' }
-            ] }
+            ] },
+            { title: 'Atmosphere', fields: [
+                { key: 'seeThrough', label: 'See-through when the player is behind', type: 'select', options: D.SeeThrough.options },
+                { key: 'reflect', label: 'Reflect in water', type: 'select', options: D.Reflection.options },
+                { key: 'transition.type', label: 'Appear / disappear', type: 'select', options: D.Transition.types },
+                number('transition.frames', 'Transition length (frames)')
+            ].concat(D.World.settings().seasons.names.map((name, i) => ({
+                key: `seasonIn.${i}`, label: `Only in ${name}${i === 0 ? ' (none ticked = all seasons)' : ''}`, type: 'checkbox'
+            }))) }
         ];
+    },
+
+    fieldHtml(id, f, value) {
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px; border-radius: 3px; font-size: 11px;';
+        const label = `<label for="${id}" style="font-size: 10px; color: #94a3b8;">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: #e2e8f0;">${escapeHtml(String(value))}</span>` : ''}</label>`;
+        if (f.type === 'checkbox') {
+            return `<label style="font-size: 11px; color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
+        }
+        if (f.type === 'select') {
+            const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+            return `<div>${label}<select id="${id}" style="${inputStyle}">${options}</select></div>`;
+        }
+        if (f.type === 'range') {
+            return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
+        }
+        if (f.type === 'color') {
+            return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>`;
+        }
+        const type = f.type === 'number' ? 'number' : 'text';
+        return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
     },
 
     renderEffectSections(items) {
         const first = items[0];
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px; border-radius: 3px; font-size: 11px;';
         this._openEffectSections = this._openEffectSections || {};
         return this.effectSections().map((section, si) => {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;
                 const value = this.getDoodadProperty(first, f.key);
-                const label = `<label for="${id}" style="font-size: 10px; color: #94a3b8;">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: #e2e8f0;">${escapeHtml(String(value))}</span>` : ''}</label>`;
-                if (f.type === 'checkbox') {
-                    return `<label style="font-size: 11px; color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
-                }
-                if (f.type === 'select') {
-                    const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
-                    return `<div>${label}<select id="${id}" style="${inputStyle}">${options}</select></div>`;
-                }
-                if (f.type === 'range') {
-                    return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
-                }
-                if (f.type === 'color') {
-                    return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>`;
-                }
-                const type = f.type === 'number' ? 'number' : 'text';
-                return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
+                return this.fieldHtml(id, f, value);
             }).join('');
             return `
                 <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
@@ -7963,28 +9310,376 @@ DocsDoodads.Workspace = {
         return window.$gameMap && typeof window.$gameMap.mapId === 'function' ? window.$gameMap.mapId() : 0;
     },
 
+    writeMapSettings(mapId, value) {
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        if (value && Object.keys(value).length > 0) {
+            data.mapSettings = data.mapSettings || {};
+            data.mapSettings[mapId] = JSON.parse(JSON.stringify(value));
+        } else if (data.mapSettings) {
+            delete data.mapSettings[mapId];
+            if (Object.keys(data.mapSettings).length === 0) delete data.mapSettings;
+        }
+        DocsDoodads.Persistence.dirtyDoodads = true;
+    },
+
     setMapAmbient(ambient, before) {
         const mapId = this.currentMapId();
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
         const previous = before !== undefined ? before
             : (data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null);
         const next = Object.assign({}, previous || {}, { ambient: Object.assign({}, ambient) });
-        const write = (value) => {
-            if (value) {
-                data.mapSettings = data.mapSettings || {};
-                data.mapSettings[mapId] = JSON.parse(JSON.stringify(value));
-            } else if (data.mapSettings) {
-                delete data.mapSettings[mapId];
-                if (Object.keys(data.mapSettings).length === 0) delete data.mapSettings;
-            }
+        DocsDoodads.Undo.execute({ type: 'map_ambient', apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
+    },
+
+    // One per-map option (undefined restores the default).
+    setMapSetting(key, value) {
+        const mapId = this.currentMapId();
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        const previous = data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null;
+        const next = Object.assign({}, previous || {});
+        if (value === undefined) delete next[key];
+        else next[key] = value;
+        DocsDoodads.Undo.execute({ type: 'map_setting', apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
+    },
+
+    // ---- World (project-wide) settings ----
+    // previous: { value } when a live preview already changed the setting.
+    setWorldSetting(key, value, previous) {
+        const World = DocsDoodads.World;
+        const copy = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+        const before = previous ? copy(previous.value) : copy(World.raw(key));
+        const after = copy(value);
+        const write = v => {
+            World.set(key, copy(v));
             DocsDoodads.Persistence.dirtyDoodads = true;
         };
-        DocsDoodads.Undo.execute({ type: 'map_ambient', apply: () => write(next), revert: () => write(previous) });
+        DocsDoodads.Undo.execute({ type: 'world_setting', apply: () => write(after), revert: () => write(before) });
+    },
+
+    addSeasonSet() {
+        const sets = JSON.parse(JSON.stringify(DocsDoodads.World.get('seasons.sets') || []));
+        sets.push({});
+        this.setWorldSetting('seasons.sets', sets);
+        return sets.length - 1;
+    },
+
+    setSeasonCell(row, season, path) {
+        const sets = JSON.parse(JSON.stringify(DocsDoodads.World.get('seasons.sets') || []));
+        if (!sets[row]) return;
+        const value = DocsDoodads.Seasons.normalize(path).trim();
+        if (value) sets[row][season] = value;
+        else delete sets[row][season];
+        this.setWorldSetting('seasons.sets', sets);
+    },
+
+    removeSeasonSet(row) {
+        const sets = JSON.parse(JSON.stringify(DocsDoodads.World.get('seasons.sets') || []));
+        if (!sets[row]) return;
+        sets.splice(row, 1);
+        this.setWorldSetting('seasons.sets', sets);
+    },
+
+    // One undo step: put an asset into a season cell, optionally in a new row.
+    addAssetToSeasons(path, season, row) {
+        const sets = JSON.parse(JSON.stringify(DocsDoodads.World.get('seasons.sets') || []));
+        if (row === 'new' || !sets[row]) {
+            sets.push({});
+            row = sets.length - 1;
+        }
+        sets[row][season] = DocsDoodads.Seasons.normalize(path);
+        this.setWorldSetting('seasons.sets', sets);
+        return row;
+    },
+
+    worldSections() {
+        const D = DocsDoodads;
+        const range = (key, label, min, max, step) => ({ key, label, type: 'range', min, max, step });
+        const number = (key, label, step = 1) => ({ key, label, type: 'number', step });
+        const check = (key, label) => ({ key, label, type: 'checkbox' });
+        const select = (key, label, options) => ({ key, label, type: 'select', options });
+        return [
+            { title: 'Day and Night', extra: 'keyframes', fields: [
+                select('time.source', 'Clock', D.TimeOfDay.sources),
+                number('time.variableId', 'Hour variable (the clock writes it; variable mode reads it)'),
+                number('time.minuteVariableId', 'Minute variable (optional)'),
+                range('time.minutesPerSecond', 'Game minutes per real second', 0.1, 60, 0.1),
+                number('time.startHour', 'Starting hour for new games', 0.5),
+                range('time.lampThreshold', 'Lamps switch on at darkness', 0, 1, 0.05)
+            ] },
+            { title: 'Sun and Shadows', fields: [
+                select('sun.source', 'Shadow direction from', D.Sun.sources),
+                range('sun.angle', 'Fixed direction (degrees, 0 = up, 90 = right)', 0, 359, 1),
+                number('sun.variableId', 'Direction variable (degrees)'),
+                check('characterShadows.enabled', 'Characters cast shadows'),
+                select('characterShadows.mode', 'Which events', D.CharacterShadow.modes),
+                check('characterShadows.includePlayer', 'Include the party'),
+                range('characterShadows.opacity', 'Strength', 0, 1, 0.05),
+                range('characterShadows.length', 'Length', 0.1, 1.5, 0.05),
+                range('characterShadows.blur', 'Softness', 0, 8, 0.5),
+                number('characterShadows.offsetX', 'Offset X'),
+                number('characterShadows.offsetY', 'Offset Y'),
+                { key: 'characterShadows.occlusionRegions', label: 'Stop shadows at regions (roofs, e.g. 5, 6)', type: 'text',
+                    format: v => (v || []).join(', '), parse: t => String(t || '').split(/[^0-9]+/).map(Number).filter(n => n > 0) }
+            ] },
+            { title: 'Seasons', extra: 'seasons', fields: [
+                select('seasons.source', 'Current season from', D.Seasons.sources),
+                number('seasons.variableId', 'Season variable')
+            ] },
+            { title: 'Water Reflections', fields: [
+                check('reflections.enabled', 'Reflect characters and doodads in water'),
+                range('reflections.opacity', 'Strength', 0, 1, 0.05),
+                range('reflections.ripple', 'Ripple', 0, 1, 0.05),
+                number('reflections.regionId', 'Also treat this region as water (0 = none)'),
+                number('reflections.shoreInset', 'Shore margin (px kept clear along the waterline)')
+            ] },
+            { title: 'See-Through', fields: [
+                check('seeThrough.enabled', 'Reveal the player behind tall doodads'),
+                select('seeThrough.mode', 'How', D.SeeThrough.modes),
+                range('seeThrough.opacity', 'Faded opacity', 0.05, 1, 0.05),
+                range('seeThrough.speed', 'Fade speed', 0.02, 0.5, 0.02),
+                { key: 'seeThrough.silhouetteColor', label: 'Outline colour', type: 'color' }
+            ] },
+            { title: 'Motion Blur', fields: [
+                check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
+                select('motionBlur.mode', 'Who', D.MotionBlur.modes),
+                range('motionBlur.strength', 'Strength', 0.1, 3, 0.1)
+            ] }
+        ];
+    },
+
+    renderWorldSections() {
+        const World = DocsDoodads.World;
+        this._openWorldSections = this._openWorldSections || {};
+        return this.worldSections().map((section, si) => {
+            const fields = section.fields.map((f, fi) => {
+                const raw = World.get(f.key);
+                return this.fieldHtml(`dd-world-${si}-${fi}`, f, f.format ? f.format(raw) : raw);
+            }).join('');
+            const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor() : '';
+            return `
+                <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
+                    <div style="font-size: 10px; color: #64748b; margin-top: 4px;">All maps</div>
+                    <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}${extra}</div>
+                </details>`;
+        }).join('');
+    },
+
+    bindWorldSections() {
+        const World = DocsDoodads.World;
+        this.worldSections().forEach((section, si) => {
+            const details = document.getElementById(`dd-world-sec-${si}`);
+            if (details) details.ontoggle = () => { this._openWorldSections[section.title] = details.open; };
+            section.fields.forEach((f, fi) => {
+                const input = document.getElementById(`dd-world-${si}-${fi}`);
+                if (!input) return;
+                const read = () => {
+                    if (f.type === 'checkbox') return Boolean(input.checked);
+                    if (f.type === 'range' || f.type === 'number') return parseFloat(input.value) || 0;
+                    return f.parse ? f.parse(input.value) : input.value;
+                };
+                if (f.type === 'range') {
+                    let previous = null;
+                    const label = document.getElementById(`dd-world-${si}-${fi}-val`);
+                    input.oninput = () => {
+                        if (!previous) previous = { value: World.raw(f.key) === undefined ? undefined : JSON.parse(JSON.stringify(World.raw(f.key))) };
+                        World.set(f.key, read());
+                        if (label) label.textContent = String(read());
+                    };
+                    input.onchange = () => {
+                        this.setWorldSetting(f.key, read(), previous || undefined);
+                        previous = null;
+                    };
+                } else {
+                    input.onchange = () => {
+                        this.setWorldSetting(f.key, read());
+                        // Season names label the season checkboxes and columns.
+                        if (f.key === 'seasons.source' || f.key === 'time.source') this.refreshInspector();
+                    };
+                }
+            });
+        });
+        this.bindKeyframeEditor();
+        this.bindSeasonEditor();
+    },
+
+    renderKeyframeEditor() {
+        const Time = DocsDoodads.TimeOfDay;
+        const keys = DocsDoodads.World.get('time.keyframes') || [];
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 11px;';
+        const rows = keys.map((k, i) => `
+            <div style="display: grid; grid-template-columns: 48px 1fr 34px 24px; gap: 4px; align-items: center;">
+                <input type="number" id="dd-kf-hour-${i}" min="0" max="23.75" step="0.25" value="${escapeHtml(String(k.hour))}" title="Hour" style="${inputStyle}" />
+                <input type="range" id="dd-kf-dark-${i}" min="0" max="1" step="0.05" value="${escapeHtml(String(k.darkness))}" title="Darkness" />
+                <input type="color" id="dd-kf-color-${i}" value="${escapeHtml(k.color || '#000000')}" title="Colour" style="width: 100%; height: 20px; background: #0f172a; border: 1px solid #334155;" />
+                <button class="dd-btn" id="dd-kf-del-${i}" title="Remove this keyframe" style="padding: 0 4px;">&times;</button>
+            </div>`).join('');
+        const preview = this.previewMinutes !== null && this.previewMinutes !== undefined ? this.previewMinutes : 12 * 60;
+        return `
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Darkness through the day (hour, darkness, colour):</div>
+            ${rows}
+            <button class="dd-btn" id="dd-kf-add">Add Keyframe</button>
+            <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                <input type="checkbox" id="dd-time-preview-on" ${this.previewMinutes !== null && this.previewMinutes !== undefined ? 'checked' : ''} /> Preview a time while editing</label>
+            <div style="font-size: 10px; color: #94a3b8;">Preview: <span id="dd-time-preview-val" style="color: #e2e8f0;">${Time.format(preview)}</span>
+                <input type="range" id="dd-time-preview" min="0" max="1425" step="15" value="${preview}" style="width: 100%;" /></div>`;
+    },
+
+    bindKeyframeEditor() {
+        const World = DocsDoodads.World;
+        const current = () => JSON.parse(JSON.stringify(World.get('time.keyframes') || []));
+        const commit = (next, previous) => this.setWorldSetting('time.keyframes', next, previous);
+        current().forEach((k, i) => {
+            const hour = document.getElementById(`dd-kf-hour-${i}`);
+            if (hour) hour.onchange = () => {
+                const next = current();
+                next[i].hour = Math.max(0, Math.min(23.75, parseFloat(hour.value) || 0));
+                commit(next);
+            };
+            const dark = document.getElementById(`dd-kf-dark-${i}`);
+            if (dark) {
+                let previous = null;
+                dark.oninput = () => {
+                    if (!previous) previous = { value: World.raw('time.keyframes') === undefined ? undefined : JSON.parse(JSON.stringify(World.raw('time.keyframes'))) };
+                    const next = current();
+                    next[i].darkness = parseFloat(dark.value) || 0;
+                    World.set('time.keyframes', next);
+                };
+                dark.onchange = () => {
+                    const next = current();
+                    next[i].darkness = parseFloat(dark.value) || 0;
+                    commit(next, previous || undefined);
+                    previous = null;
+                };
+            }
+            const color = document.getElementById(`dd-kf-color-${i}`);
+            if (color) color.onchange = () => {
+                const next = current();
+                next[i].color = color.value;
+                commit(next);
+            };
+            const del = document.getElementById(`dd-kf-del-${i}`);
+            if (del) del.onclick = () => {
+                const next = current();
+                next.splice(i, 1);
+                commit(next);
+                this.refreshInspector();
+            };
+        });
+        const add = document.getElementById('dd-kf-add');
+        if (add) add.onclick = () => {
+            commit(current().concat([{ hour: 12, darkness: 0, color: '#ffffff' }]));
+            this.refreshInspector();
+        };
+        const toggle = document.getElementById('dd-time-preview-on');
+        const slider = document.getElementById('dd-time-preview');
+        const label = document.getElementById('dd-time-preview-val');
+        if (toggle && slider) {
+            toggle.onchange = () => { this.previewMinutes = toggle.checked ? (parseInt(slider.value, 10) || 0) : null; };
+            slider.oninput = () => {
+                const minutes = parseInt(slider.value, 10) || 0;
+                if (label) label.textContent = DocsDoodads.TimeOfDay.format(minutes);
+                if (toggle.checked) this.previewMinutes = minutes;
+            };
+        }
+    },
+
+    renderSeasonEditor() {
+        const seasons = DocsDoodads.World.settings().seasons;
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const names = seasons.names.map((name, k) => `<input type="text" id="dd-season-name-${k}" value="${escapeHtml(name)}" style="${inputStyle}" />`).join('');
+        const cols = `grid-template-columns: repeat(${seasons.names.length}, 1fr) 22px;`;
+        const rows = seasons.sets.map((set, r) => `
+            <div style="display: grid; ${cols} gap: 3px; align-items: center;">
+                ${seasons.names.map((name, k) => `<input type="text" list="dd-season-assets" id="dd-season-cell-${r}-${k}" placeholder="${escapeHtml(name)}" title="${escapeHtml(name)}: ${escapeHtml(set[k] || '(unchanged)')}" value="${escapeHtml(set[k] || '')}" style="${inputStyle}" />`).join('')}
+                <button class="dd-btn" id="dd-season-del-${r}" title="Remove this row" style="padding: 0 4px;">&times;</button>
+            </div>`).join('');
+        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets
+            ? Object.values(DocsDoodads.AssetIndex.data.assets).filter(a => a && a.path && /\.png$/i.test(a.path)).slice(0, 2000) : [];
+        const preview = this.previewSeason !== null && this.previewSeason !== undefined ? this.previewSeason : -1;
+        return `
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Season names:</div>
+            <div style="display: grid; grid-template-columns: repeat(${seasons.names.length}, 1fr); gap: 3px;">${names}</div>
+            <div style="font-size: 10px; color: #94a3b8;">Art swaps (each row is one prop; empty cells keep the original). Tip: select an asset and use "Season Variant".</div>
+            ${rows}
+            <datalist id="dd-season-assets">${assets.map(a => `<option value="${escapeHtml(a.path)}"></option>`).join('')}</datalist>
+            <button class="dd-btn" id="dd-season-add">Add Row</button>
+            <div style="font-size: 10px; color: #94a3b8;">Preview while editing
+                <select id="dd-season-preview" style="${inputStyle}">
+                    <option value="-1" ${preview < 0 ? 'selected' : ''}>As in the game</option>
+                    ${seasons.names.map((name, k) => `<option value="${k}" ${preview === k ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+                </select></div>`;
+    },
+
+    bindSeasonEditor() {
+        const seasons = DocsDoodads.World.settings().seasons;
+        seasons.names.forEach((name, k) => {
+            const input = document.getElementById(`dd-season-name-${k}`);
+            if (input) input.onchange = () => {
+                const names = DocsDoodads.World.get('seasons.names').slice();
+                names[k] = input.value.trim() || name;
+                this.setWorldSetting('seasons.names', names);
+            };
+        });
+        seasons.sets.forEach((set, r) => {
+            seasons.names.forEach((name, k) => {
+                const input = document.getElementById(`dd-season-cell-${r}-${k}`);
+                if (input) input.onchange = () => this.setSeasonCell(r, k, input.value);
+            });
+            const del = document.getElementById(`dd-season-del-${r}`);
+            if (del) del.onclick = () => {
+                this.removeSeasonSet(r);
+                this.refreshInspector();
+            };
+        });
+        const add = document.getElementById('dd-season-add');
+        if (add) add.onclick = () => {
+            this.addSeasonSet();
+            this.refreshInspector();
+        };
+        const preview = document.getElementById('dd-season-preview');
+        if (preview) preview.onchange = () => {
+            const value = parseInt(preview.value, 10);
+            this.previewSeason = value >= 0 ? value : null;
+        };
+    },
+
+    renderAssetSeasonControl(a) {
+        if (!a || !a.path || !/\.png$/i.test(a.path)) return '';
+        const seasons = DocsDoodads.World.settings().seasons;
+        const selectStyle = 'flex: 1; min-width: 0; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const rowLabel = (set, r) => {
+            const first = Object.keys(set || {}).map(k => set[k])[0];
+            return `Row ${r + 1}${first ? ' (' + String(first).split('/').pop() + ')' : ''}`;
+        };
+        return `
+            <div style="margin-top: 8px;">
+                <label style="display: block; font-size: 11px; margin-bottom: 3px;">Season Variant:</label>
+                <div style="display: flex; gap: 4px;">
+                    <select id="dd-asset-season" style="${selectStyle}">${seasons.names.map((n, k) => `<option value="${k}">${escapeHtml(n)}</option>`).join('')}</select>
+                    <select id="dd-asset-season-row" style="${selectStyle}"><option value="new">New row</option>${seasons.sets.map((set, r) => `<option value="${r}">${escapeHtml(rowLabel(set, r))}</option>`).join('')}</select>
+                    <button class="dd-btn" id="dd-asset-season-add" title="Use this image for that season in the season table">Add</button>
+                </div>
+            </div>`;
+    },
+
+    bindAssetSeasonControl(a) {
+        const button = document.getElementById('dd-asset-season-add');
+        if (!button) return;
+        button.onclick = () => {
+            const season = parseInt(document.getElementById('dd-asset-season').value, 10) || 0;
+            const rowValue = document.getElementById('dd-asset-season-row').value;
+            const row = this.addAssetToSeasons(a.path, season, rowValue === 'new' ? 'new' : parseInt(rowValue, 10));
+            const name = DocsDoodads.World.settings().seasons.names[season] || 'that season';
+            this.showToast(`Added as the ${name} art in season row ${row + 1}.`, 'success');
+            this.refreshInspector();
+        };
     },
 
     renderMapPanel(content) {
         const mapId = this.currentMapId();
         const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
+        const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
         content.innerHTML = `
             <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP ${mapId} SETTINGS</div>
             <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Select an asset in the drawer or click an object on the map.</div>
@@ -7998,9 +9693,18 @@ DocsDoodads.Workspace = {
                         <input type="number" id="dd-map-switch" min="0" value="${Number(ambient.switchId) || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
                     <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
                         <input type="checkbox" id="dd-map-preview" ${this.lightingPreview === false ? '' : 'checked'} /> Preview lighting while editing</label>
+                    <div>Day and night on this map
+                        <select id="dd-map-daynight" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;">
+                            ${DocsDoodads.TimeOfDay.mapModes.map(m => `<option value="${m.value}" ${(mapSettings.dayNight || 'auto') === m.value ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
+                        </select></div>
+                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                        <input type="checkbox" id="dd-map-reflections" ${mapSettings.reflections === false ? '' : 'checked'} /> Water reflections on this map</label>
+                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                        <input type="checkbox" id="dd-map-charshadows" ${mapSettings.characterShadows === false ? '' : 'checked'} /> Character shadows on this map</label>
                     <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
             </details>
+            ${this.renderWorldSections()}
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}`;
 
@@ -8027,6 +9731,10 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-color').onchange = () => this.setMapAmbient(read());
         document.getElementById('dd-map-switch').onchange = () => this.setMapAmbient(read());
         document.getElementById('dd-map-preview').onchange = (e) => { this.lightingPreview = Boolean(e.target.checked); };
+        document.getElementById('dd-map-daynight').onchange = (e) => this.setMapSetting('dayNight', e.target.value === 'auto' ? undefined : e.target.value);
+        document.getElementById('dd-map-reflections').onchange = (e) => this.setMapSetting('reflections', e.target.checked ? undefined : false);
+        document.getElementById('dd-map-charshadows').onchange = (e) => this.setMapSetting('characterShadows', e.target.checked ? undefined : false);
+        this.bindWorldSections();
         this.bindMapNavigation();
         this.bindPackingPanel();
     },
@@ -10997,6 +12705,7 @@ if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
                 mapId: $gameMap.mapId(),
                 doodads: DocsDoodads.doodads(),
                 mapSettings: window.$dataDocsDoodads ? window.$dataDocsDoodads.mapSettings : undefined,
+                world: window.$dataDocsDoodads ? window.$dataDocsDoodads.world : undefined,
                 stagedMap: $gameMap._stagedMapData
             };
             DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', recoveryData);
