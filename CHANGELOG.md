@@ -2,6 +2,8 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added world atmosphere settings: a day/night clock (running or from variables) with darkness keyframes and lamps that switch on after dark; a sun that turns shadows through the day; character shadows shaped like each sprite (correct in tall grass, cut short under roof regions); see-through tall doodads (fade or outline); water reflections; motion blur with an Options toggle; seasonal art swaps and season-only doodads; and animated appear/disappear (fade, pop, rise, dissolve, crumble). Plugin commands: Set Time of Day, Pass Time, Clock Control, Set Season, Set Atmosphere Effect. Event tags: <shadow>, <no shadow>, <motion blur>, <no motion blur>, <no reflection>.
+- Fixed the Shimmer motion drawing nothing: its shader used a different precision for inputSize than PIXI's vertex shader, so WebGL refused to link it.
 - Doodads render in the tilemap again and sort with characters by their base line (below / sorted / above). QJ z values migrate to the matching layer.
 - Tint, hue, blur, contrast, sepia, brightness, blend mode, and switch/condition visibility are applied at runtime again; they were stored but ignored since the rewrite.
 - Added per-doodad motion (sway, bob, pulse, flicker, shimmer), shadows from sprite transparency, lights with map ambient darkness, and the Set/Reset Ambient Light plugin commands.

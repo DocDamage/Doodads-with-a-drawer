@@ -2,7 +2,7 @@
 
 A visual asset workspace and doodad engine for RPG Maker MZ/MV. It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads plugin and has grown into its own tool. It adds a visual, virtualized asset drawer, sprite-sheet detection and slicing, modern map-editing tools, real MZ event authoring, transactional asset import, and protected project saves.
 
-Placed doodads sort in front of or behind the player by their base line and can sway, flicker, cast shadows, and give off light under a map's ambient darkness. The editor adds a path tool, prefabs, a rule-based scatter brush, drag-to-move with smart guides, cross-map copy/move, neighbouring-map edge mirroring, and a World View. For managing assets it adds where-used, safe rename/move, duplicate and look-alike finding, live reload, and per-map art packing for deployed games.
+Placed doodads sort in front of or behind the player by their base line and can sway, flicker, cast shadows, and give off light under a map's ambient darkness. The editor adds a path tool, prefabs, a rule-based scatter brush, drag-to-move with smart guides, cross-map copy/move, neighbouring-map edge mirroring, and a World View. A world layer adds a day/night clock with lamps that switch on after dark, sun shadows for characters and doodads, see-through trees and roofs, water reflections, motion blur, seasons, and animated appear/disappear effects. For managing assets it adds where-used, safe rename/move, duplicate and look-alike finding, live reload, and per-map art packing for deployed games.
 
 ## Install
 
