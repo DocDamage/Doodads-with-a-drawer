@@ -91,7 +91,14 @@
  *    - Quality setting, an Effects Quality option for players, and full-map
  *      PNG export to the screenshots folder.
  *
- * 12. Modern Operations & Safety:
+ * 12. Particles, VFX & Character Animation (toolbar: VFX):
+ *    - Particle emitters on doodads (smoke, embers, fire, fireflies, leaves,
+ *      mist, dust, sparkles, snow, bubbles, magic); grass that bends when walked through.
+ *    - VFX builder: particle and sprite-sheet layers; Play VFX plugin command.
+ *    - Character sheets: [f8] frames per row, [d1] single row, [d8] 8 directions;
+ *      Name_idle / Name_run cycles; Play Character Action; optional diagonal movement.
+ *
+ * 13. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -459,6 +466,130 @@
  *
  * @arg eventId
  * @text Event ID (when centred on an event)
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @command playVfx
+ * @text Play VFX
+ * @desc Plays an effect from the VFX builder (by name), on a character or a map tile.
+ *
+ * @arg effect
+ * @text Effect Name
+ * @type text
+ * @default Explosion
+ * @desc The name shown in the VFX builder. Built-ins: Explosion, Heal, Level Up, Smoke Puff, Magic Burst, Water Splash.
+ *
+ * @arg target
+ * @text Where
+ * @type select
+ * @option Player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @option Map tile
+ * @value tile
+ * @option Screen centre
+ * @value screen
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg x
+ * @text Tile X
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg y
+ * @text Tile Y
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg follow
+ * @text Follow the Character
+ * @type boolean
+ * @default true
+ *
+ * @arg wait
+ * @text Wait for Completion
+ * @type boolean
+ * @default false
+ *
+ * @command characterAction
+ * @text Play Character Action
+ * @desc Plays a sheet (e.g. Hero_drink[f4]) on a character: drinking, sleeping, farming, swinging.
+ *
+ * @arg target
+ * @text Character
+ * @type select
+ * @option Player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg sheet
+ * @text Sheet (img/characters)
+ * @type file
+ * @dir img/characters/
+ * @require 1
+ *
+ * @arg fps
+ * @text Frames per Second
+ * @type number
+ * @min 1
+ * @default 8
+ *
+ * @arg loops
+ * @text Times to Play (0 = until cleared)
+ * @type number
+ * @min 0
+ * @default 1
+ *
+ * @arg hold
+ * @text Hold the Last Frame
+ * @type boolean
+ * @default false
+ * @desc Stays on the last frame until "Clear Character Action" (sleeping, sitting).
+ *
+ * @arg wait
+ * @text Wait for Completion
+ * @type boolean
+ * @default true
+ *
+ * @command clearCharacterAction
+ * @text Clear Character Action
+ * @desc Returns a character to walking and idling.
+ *
+ * @arg target
+ * @text Character
+ * @type select
+ * @option Player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
  * @type number
  * @min 0
  * @default 0
@@ -1414,7 +1545,9 @@ DocsDoodads.World = {
         seeThrough: { enabled: true, mode: 'fade', opacity: 0.4, speed: 0.1, silhouetteColor: '#7dd3fc' },
         reflections: { enabled: false, opacity: 0.4, ripple: 0.5, regionId: 0, shoreInset: 12 },
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
-        postfx: { enabled: true, quality: 'high', includePictures: false, look: {} }
+        postfx: { enabled: true, quality: 'high', includePictures: false, look: {} },
+        vfx: { library: [] },
+        characterAnim: { diagonal: false, sets: [] }
     },
 
     _cache: null,
@@ -2531,6 +2664,409 @@ DocsDoodads.MapExport = {
         const d = date || new Date();
         const p = (v, n = 2) => String(v).padStart(n, '0');
         return `Map${p(mapId, 3)}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
+    }
+};
+
+//==========================================================
+// SECTION 5E: PARTICLES, VFX, REACTIVE DOODADS & CHARACTER ANIMATION
+//==========================================================
+// Particles are simulated in pixels relative to their emitter, with a seeded random source so previews
+// and tests repeat exactly. Rendering (pooled sprites) lives in Section 7.
+DocsDoodads.Particles = {
+    shapes: ['soft', 'circle', 'square', 'spark', 'leaf', 'star'],
+    blends: ['normal', 'add', 'screen'],
+    layers: [{ value: 'above', label: 'Above characters' }, { value: 'below', label: 'Below characters (ground)' }],
+    defaults: {
+        rate: 10, burst: 0, max: 120, lifetime: [1, 2], speed: [10, 30], angle: -90, spread: 30,
+        gravity: 0, wind: 0, drag: 0, size: [6, 2], alpha: [1, 0], colorStart: '#ffffff', colorEnd: '#ffffff',
+        blend: 'normal', shape: 'soft', area: [0, 0], spin: [0, 0], flutter: 0, twinkle: 0, stretch: 0
+    },
+    presets: [
+        { id: 'smoke', label: 'Smoke', config: { rate: 6, lifetime: [2.5, 4], speed: [10, 22], spread: 20, gravity: -4, wind: 6, size: [8, 28], alpha: [0.45, 0], colorStart: '#9a9a9a', colorEnd: '#5a5a5a', area: [8, 4] } },
+        { id: 'embers', label: 'Embers', config: { rate: 10, lifetime: [1, 2], speed: [25, 60], spread: 35, gravity: -10, size: [4, 1.5], stretch: 1.5, alpha: [1, 0], colorStart: '#ffd060', colorEnd: '#ff4010', blend: 'add', flutter: 6, area: [12, 4] } },
+        { id: 'fire', label: 'Fire', config: { rate: 28, lifetime: [0.5, 0.9], speed: [35, 70], spread: 12, size: [12, 2], alpha: [0.55, 0], colorStart: '#ffb040', colorEnd: '#ff2000', blend: 'add', area: [16, 4], stretch: 1.2 } },
+        { id: 'fireflies', label: 'Fireflies', config: { rate: 1.2, max: 20, lifetime: [4, 7], speed: [3, 10], spread: 360, size: [4, 4], alpha: [0.9, 0.9], colorStart: '#d8ff70', colorEnd: '#a0ff40', blend: 'add', area: [96, 64], flutter: 10, twinkle: 0.8 } },
+        { id: 'leaves', label: 'Falling Leaves', config: { rate: 1.5, max: 30, lifetime: [4, 6], speed: [10, 25], angle: 100, spread: 30, gravity: 6, wind: 8, size: [7, 7], alpha: [1, 0], colorStart: '#d08a2a', colorEnd: '#a05010', shape: 'leaf', spin: [-120, 120], flutter: 14, area: [80, 10] } },
+        { id: 'mist', label: 'Mist', config: { rate: 2, max: 40, lifetime: [5, 8], speed: [3, 8], angle: 0, spread: 30, size: [60, 90], alpha: [0.18, 0], area: [140, 30] } },
+        { id: 'dust', label: 'Dust Motes', config: { rate: 3, max: 40, lifetime: [3, 5], speed: [2, 6], spread: 360, size: [2, 2], alpha: [0.6, 0], colorStart: '#fff4d0', colorEnd: '#fff4d0', blend: 'add', area: [80, 80], twinkle: 0.5 } },
+        { id: 'sparkles', label: 'Sparkles', config: { rate: 8, lifetime: [0.4, 0.9], speed: [5, 20], spread: 360, size: [5, 0], alpha: [1, 0], colorStart: '#ffffff', colorEnd: '#a0e0ff', blend: 'add', shape: 'star', area: [24, 24], spin: [-180, 180] } },
+        { id: 'snow', label: 'Snow', config: { rate: 6, max: 80, lifetime: [5, 8], speed: [15, 30], angle: 95, spread: 10, size: [3, 3], alpha: [0.9, 0], flutter: 10, area: [400, 0] } },
+        { id: 'bubbles', label: 'Bubbles', config: { rate: 3, lifetime: [1.5, 3], speed: [12, 24], spread: 10, size: [3, 5], alpha: [0.8, 0], colorStart: '#c0f0ff', colorEnd: '#c0f0ff', shape: 'circle', flutter: 4, area: [20, 4] } },
+        { id: 'magic', label: 'Magic', config: { rate: 14, lifetime: [0.8, 1.5], speed: [10, 30], spread: 360, gravity: -15, size: [6, 0], alpha: [1, 0], colorStart: '#c080ff', colorEnd: '#4060ff', blend: 'add', shape: 'star', spin: [-200, 200], area: [16, 16] } }
+    ],
+
+    normalize(config) {
+        const src = config && typeof config === 'object' ? config : {};
+        const preset = src.preset ? this.presets.find(p => p.id === src.preset) : null;
+        const merged = Object.assign({}, this.defaults, preset ? preset.config : {}, src);
+        const d = this.defaults;
+        const num = (v, def, min, max) => { const n = Number(v); return v === '' || v === null || v === undefined || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
+        const pair = (v, def, min, max) => {
+            if (typeof v === 'number') v = [v, v];
+            if (!Array.isArray(v) || v.length === 0) return def.slice();
+            const a = num(v[0], def[0], min, max);
+            return [a, v.length > 1 ? num(v[1], a, min, max) : a];
+        };
+        const color = (v, def) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : def);
+        return {
+            preset: preset ? preset.id : null,
+            rate: num(merged.rate, d.rate, 0, 500),
+            burst: Math.round(num(merged.burst, 0, 0, 1000)),
+            max: Math.round(num(merged.max, d.max, 1, 1000)),
+            lifetime: pair(merged.lifetime, d.lifetime, 0.05, 60),
+            speed: pair(merged.speed, d.speed, 0, 2000),
+            angle: num(merged.angle, d.angle, -360, 360),
+            spread: num(merged.spread, d.spread, 0, 360),
+            gravity: num(merged.gravity, 0, -2000, 2000),
+            wind: num(merged.wind, 0, -2000, 2000),
+            drag: num(merged.drag, 0, 0, 10),
+            size: pair(merged.size, d.size, 0, 512),
+            alpha: pair(merged.alpha, d.alpha, 0, 1),
+            colorStart: color(merged.colorStart, d.colorStart),
+            colorEnd: color(merged.colorEnd, color(merged.colorStart, d.colorEnd)),
+            blend: this.blends.includes(merged.blend) ? merged.blend : d.blend,
+            shape: this.shapes.includes(merged.shape) ? merged.shape : d.shape,
+            area: pair(merged.area, d.area, 0, 4000),
+            spin: pair(merged.spin, d.spin, -3600, 3600),
+            flutter: num(merged.flutter, 0, 0, 200),
+            twinkle: num(merged.twinkle, 0, 0, 1),
+            // Elongates particles along their motion: flame tongues, spark streaks, rain.
+            stretch: num(merged.stretch, 0, 0, 5)
+        };
+    },
+
+    createState(config, seed) {
+        return { config, particles: [], acc: 0, time: 0, rng: DocsDoodads.Scatter.rng(Number(seed) || 1) };
+    },
+
+    spawn(state) {
+        const c = state.config, r = state.rng;
+        if (state.particles.length >= c.max) return null;
+        const between = range => range[0] + (range[1] - range[0]) * r();
+        const angle = (c.angle + (r() - 0.5) * c.spread) * Math.PI / 180;
+        const speed = between(c.speed);
+        const p = {
+            x: (r() - 0.5) * c.area[0], y: (r() - 0.5) * c.area[1],
+            vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+            age: 0, life: between(c.lifetime),
+            rotation: r() * Math.PI * 2, spin: between(c.spin) * Math.PI / 180,
+            phase: r() * Math.PI * 2
+        };
+        state.particles.push(p);
+        return p;
+    },
+
+    burst(state, count) {
+        for (let i = 0; i < count; i++) if (!this.spawn(state)) break;
+        return state;
+    },
+
+    step(state, dt, emitting) {
+        const c = state.config;
+        state.time += dt;
+        for (let i = state.particles.length - 1; i >= 0; i--) {
+            const p = state.particles[i];
+            p.age += dt;
+            if (p.age >= p.life) {
+                state.particles.splice(i, 1);
+                continue;
+            }
+            p.vx += c.wind * dt;
+            p.vy += c.gravity * dt;
+            if (c.drag > 0) {
+                const k = Math.max(0, 1 - c.drag * dt);
+                p.vx *= k;
+                p.vy *= k;
+            }
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.rotation += p.spin * dt;
+        }
+        if (emitting && c.rate > 0) {
+            state.acc += c.rate * dt;
+            while (state.acc >= 1) {
+                state.acc -= 1;
+                if (!this.spawn(state)) {
+                    state.acc = 0;
+                    break;
+                }
+            }
+        }
+        return state;
+    },
+
+    isIdle(state) {
+        return !state || state.particles.length === 0;
+    },
+
+    // What each particle looks like now: size, alpha and colour blend over its life.
+    view(state) {
+        const c = state.config;
+        const start = DocsDoodads.Lighting.parseColor(c.colorStart), end = DocsDoodads.Lighting.parseColor(c.colorEnd);
+        const mix = (t) => {
+            if (start === end) return start;
+            const ch = (shift) => Math.round(((start >> shift) & 255) + ((((end >> shift) & 255) - ((start >> shift) & 255)) * t));
+            return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+        };
+        return state.particles.map(p => {
+            const t = Math.min(1, p.age / p.life);
+            let alpha = c.alpha[0] + (c.alpha[1] - c.alpha[0]) * t;
+            if (c.twinkle > 0) alpha *= 1 - c.twinkle * (0.5 + 0.5 * Math.sin(p.age * 5 + p.phase));
+            return {
+                x: p.x + (c.flutter ? Math.sin(p.age * 3.8 + p.phase) * c.flutter : 0),
+                y: p.y,
+                size: c.size[0] + (c.size[1] - c.size[0]) * t,
+                alpha: Math.max(0, Math.min(1, alpha)),
+                rotation: c.stretch > 0 ? Math.atan2(p.vy, p.vx) + Math.PI / 2 : p.rotation,
+                stretch: c.stretch,
+                color: mix(t)
+            };
+        });
+    }
+};
+
+// A VFX is a list of layers (particle emitters and sprite-sheet animations) with a shared clock.
+DocsDoodads.Vfx = {
+    layerTypes: [{ value: 'particles', label: 'Particles' }, { value: 'sheet', label: 'Sprite sheet' }],
+
+    normalizeLayer(layer) {
+        if (!layer || !this.layerTypes.some(t => t.value === layer.type)) return null;
+        const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
+        const common = { type: layer.type, start: num(layer.start, 0, 0, 60), offsetX: num(layer.offsetX, 0, -2000, 2000), offsetY: num(layer.offsetY, 0, -2000, 2000) };
+        if (layer.type === 'particles') {
+            const emitter = Object.assign({}, layer.emitter || {});
+            return Object.assign(common, { emitter: Object.assign({}, emitter, { burst: Math.round(num(emitter.burst, 0, 0, 1000)) }) });
+        }
+        const cols = Math.round(num(layer.cols, 5, 1, 64)), rows = Math.round(num(layer.rows, 1, 1, 64));
+        return Object.assign(common, {
+            image: String(layer.image || ''), cols, rows,
+            frames: Math.round(num(layer.frames, cols * rows, 1, cols * rows)),
+            fps: num(layer.fps, 15, 1, 120), loop: layer.loop === true,
+            scale: num(layer.scale, 1, 0.05, 10), rotation: num(layer.rotation, 0, -360, 360),
+            blend: DocsDoodads.Particles.blends.includes(layer.blend) ? layer.blend : 'normal',
+            tint: /^#[0-9a-f]{6}$/i.test(String(layer.tint || '')) ? String(layer.tint).toLowerCase() : '#ffffff',
+            alpha: num(layer.alpha, 1, 0, 1)
+        });
+    },
+
+    normalize(def) {
+        def = def || {};
+        const num = Number(def.duration);
+        return {
+            id: String(def.id || ''),
+            name: String(def.name || def.id || 'Effect'),
+            duration: isFinite(num) && num > 0 ? Math.min(60, num) : 1,
+            loop: def.loop === true,
+            layers: (Array.isArray(def.layers) ? def.layers : []).map(l => this.normalizeLayer(l)).filter(Boolean)
+        };
+    },
+
+    sheetLength(layer) {
+        return layer.frames / layer.fps;
+    },
+
+    // Frame index at time t (seconds since the layer started), or -1 once a one-shot sheet has ended.
+    sheetFrame(layer, t) {
+        const index = Math.floor(Math.max(0, t) * layer.fps + 1e-9);
+        if (index >= layer.frames) return layer.loop ? index % layer.frames : -1;
+        return index;
+    },
+
+    emitting(def, layer, t) {
+        if (t < layer.start) return false;
+        return def.loop || t < def.duration;
+    },
+
+    isFinished(def, t, particlesAlive) {
+        if (def.loop) return false;
+        if (t < def.duration || particlesAlive > 0) return false;
+        return def.layers.every(l => l.type !== 'sheet' || l.loop || t >= l.start + this.sheetLength(l));
+    },
+
+    builtIns: [],
+
+    // The project's library first, then built-ins; matched by id, or by name ignoring case.
+    find(key, library) {
+        if (!key) return null;
+        const k = String(key).toLowerCase();
+        const all = (library || []).concat(this.builtIns);
+        return all.find(d => d.id === key) || all.find(d => d.id.toLowerCase() === k || d.name.toLowerCase() === k) || null;
+    },
+
+    library() {
+        return (DocsDoodads.World.get('vfx.library') || []).map(d => this.normalize(d));
+    },
+
+    _playing: [],
+
+    // spec: { id, x, y (map pixels), follow (character), loop }. Rendering picks these up each frame.
+    play(spec) {
+        const def = this.find(spec && spec.id, this.library());
+        if (!def) return null;
+        const instance = { def: spec.loop ? Object.assign({}, def, { loop: true }) : def, x: Number(spec.x) || 0, y: Number(spec.y) || 0,
+            follow: spec.follow || null, time: 0, seed: Math.floor(Math.random() * 1e9), done: false };
+        this._playing.push(instance);
+        return instance;
+    }
+};
+
+DocsDoodads.Vfx.builtIns = [
+    { id: 'explosion', name: 'Explosion', duration: 0.3, layers: [
+        { type: 'particles', emitter: { preset: 'fire', rate: 0, burst: 40, speed: [60, 160], spread: 360, lifetime: [0.4, 0.9], size: [18, 2] } },
+        { type: 'particles', emitter: { preset: 'smoke', rate: 0, burst: 14, speed: [20, 60], spread: 360, lifetime: [0.8, 1.6], size: [12, 36] } },
+        { type: 'particles', emitter: { preset: 'embers', rate: 0, burst: 20, speed: [80, 200], spread: 360, gravity: 120 } }
+    ] },
+    { id: 'heal', name: 'Heal', duration: 0.8, layers: [
+        { type: 'particles', emitter: { preset: 'sparkles', rate: 40, angle: -90, spread: 30, speed: [30, 60], colorStart: '#d0ffd0', colorEnd: '#40ff80', area: [40, 10], lifetime: [0.6, 1.2] } },
+        { type: 'particles', emitter: { rate: 0, burst: 16, shape: 'soft', size: [10, 20], alpha: [0.6, 0], speed: [10, 30], spread: 360, colorStart: '#80ff90', blend: 'add', lifetime: [0.5, 0.9] } }
+    ] },
+    { id: 'levelup', name: 'Level Up', duration: 1, layers: [
+        { type: 'particles', emitter: { preset: 'sparkles', rate: 50, angle: -90, spread: 20, speed: [60, 120], colorStart: '#fff3a0', colorEnd: '#ffb000', area: [36, 6], lifetime: [0.6, 1.1], size: [7, 0] } },
+        { type: 'particles', emitter: { rate: 0, burst: 30, shape: 'star', speed: [80, 120], spread: 360, size: [6, 0], alpha: [1, 0], colorStart: '#ffffff', colorEnd: '#ffd040', blend: 'add', lifetime: [0.5, 0.8] } }
+    ] },
+    { id: 'smokepuff', name: 'Smoke Puff', duration: 0.2, layers: [
+        { type: 'particles', emitter: { preset: 'smoke', rate: 0, burst: 12, speed: [15, 40], spread: 360, lifetime: [0.8, 1.4], size: [10, 30], alpha: [0.6, 0] } }
+    ] },
+    { id: 'magic', name: 'Magic Burst', duration: 0.6, layers: [
+        { type: 'particles', emitter: { preset: 'magic', rate: 30, area: [30, 30] } },
+        { type: 'particles', emitter: { preset: 'magic', rate: 0, burst: 24, speed: [60, 110], gravity: 0 } }
+    ] },
+    { id: 'splash', name: 'Water Splash', duration: 0.2, layers: [
+        { type: 'particles', emitter: { rate: 0, burst: 26, shape: 'circle', angle: -90, spread: 120, speed: [60, 140], gravity: 320, size: [4, 2], alpha: [0.9, 0], colorStart: '#e0f8ff', colorEnd: '#80c8ff', lifetime: [0.4, 0.8] } }
+    ] }
+].map(def => DocsDoodads.Vfx.normalize(def));
+
+// Grass and bushes that bend away from whoever walks through them, then spring back.
+DocsDoodads.React = {
+    defaults: { enabled: false, amount: 0.5, leaves: false },
+    maxBend: 0.6,
+
+    touching(d, charX, charBaseY, tileH) {
+        const halfW = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1) * 0.5;
+        const ax = d.anchorX !== undefined ? d.anchorX : 0.5;
+        const centerX = d.x + (0.5 - ax) * halfW * 2;
+        return Math.abs(charX - centerX) < halfW && Math.abs(charBaseY - DocsDoodads.Depth.baseY(d)) < (tileH || 48) * 0.6;
+    },
+
+    // Bend impulse (skew) pushing away from the walker; faster walkers push harder.
+    push(d, charX, speedPx) {
+        const amount = d.react && d.react.amount !== undefined ? Number(d.react.amount) || 0 : this.defaults.amount;
+        const away = d.x >= charX ? 1 : -1;
+        return away * amount * (0.03 + Math.abs(Number(speedPx) || 0) * 0.012);
+    },
+
+    step(state, impulse, stiffness = 0.12, damping = 0.18) {
+        let vel = state.vel + (Number(impulse) || 0);
+        vel += -stiffness * state.bend - damping * vel;
+        const bend = Math.max(-this.maxBend, Math.min(this.maxBend, state.bend + vel));
+        if (Math.abs(bend) < 1e-4 && Math.abs(vel) < 1e-4) return { bend: 0, vel: 0 };
+        return { bend, vel };
+    }
+};
+
+// Character sheets beyond MZ's 3 frames x 4 directions, idle/run cycles and one-shot actions.
+DocsDoodads.CharacterAnim = {
+    _parsed: {},
+
+    // Cached: called several times per character per frame. Callers must not change the result.
+    parseName(name) {
+        name = String(name || '');
+        if (this._parsed[name]) return this._parsed[name];
+        const parsed = this.parseNameUncached(name);
+        if (Object.keys(this._parsed).length > 2000) this._parsed = {};
+        this._parsed[name] = parsed;
+        return parsed;
+    },
+
+    parseNameUncached(name) {
+        let frames = 3, dirs = 4, tagged = false;
+        const f = name.match(/\[f(\d+)\]|%\((\d+)\)/i);
+        if (f) {
+            const n = parseInt(f[1] || f[2], 10);
+            frames = n > 0 ? Math.min(64, n) : 3;
+            tagged = true;
+        }
+        const d = name.match(/\[d([148])\]/i);
+        if (d) {
+            dirs = parseInt(d[1], 10);
+            tagged = true;
+        }
+        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]/gi, '');
+        return { base, frames, dirs, tagged };
+    },
+
+    // Row in the sheet for a direction (1-9 numpad layout), and whether to mirror (single-row sheets face right).
+    rowFor(dir, dirs) {
+        const horizontalOf = { 1: 4, 7: 4, 3: 6, 9: 6 };
+        if (dirs === 1) return { row: 0, mirror: [1, 4, 7].includes(dir) };
+        if (dirs === 8) {
+            const diag = { 1: 4, 3: 5, 7: 6, 9: 7 };
+            if (diag[dir] !== undefined) return { row: diag[dir], mirror: false };
+        }
+        const d = horizontalOf[dir] || dir;
+        return { row: Math.max(0, Math.min(3, (d - 2) / 2)), mirror: false };
+    },
+
+    walkFrame(pattern, frames) {
+        if (frames === 3) return [0, 1, 2, 1][((pattern % 4) + 4) % 4];
+        return ((pattern % frames) + frames) % frames;
+    },
+
+    standingFrame(frames) {
+        return frames === 3 ? 1 : 0;
+    },
+
+    cycleFrame(elapsedFrames, fps, frames) {
+        return Math.floor(Math.max(0, elapsedFrames) / 60 * fps + 1e-9) % Math.max(1, frames);
+    },
+
+    setFor(characterName, sets) {
+        if (!characterName || !Array.isArray(sets)) return null;
+        return sets.find(s => s && s.character === characterName) || null;
+    },
+
+    // info: { moving, dashing, stillFrames, action }
+    stateFor(info, set) {
+        if (info.action) return 'action';
+        if (info.moving) return info.dashing && set && set.run ? 'run' : 'walk';
+        if (set && set.idle && info.stillFrames >= (set.idleDelay !== undefined ? set.idleDelay : 90)) return 'idle';
+        return 'stand';
+    },
+
+    sheetFor(state, characterName, set) {
+        if (set && state === 'idle' && set.idle) return set.idle;
+        if (set && state === 'run' && set.run) return set.run;
+        return characterName;
+    },
+
+    // Finds "<base>_idle" and "<base>_run" sheets among the character files.
+    autoDetect(characterName, fileNames) {
+        const base = this.parseName(characterName).base;
+        const pick = suffix => (fileNames || []).find(n => this.parseName(n).base.toLowerCase() === (base + suffix).toLowerCase()) || '';
+        return { character: characterName, idle: pick('_idle'), run: pick('_run') };
+    },
+
+    newAction(spec) {
+        const sheet = String(spec.sheet || '');
+        const loops = Math.max(0, Math.round(Number(spec.loops !== undefined ? spec.loops : 1)));
+        return { sheet, frames: this.parseName(sheet).frames, fps: Math.max(1, Number(spec.fps) || 8), loops, hold: spec.hold === true, elapsed: 0 };
+    },
+
+    // done: the action has finished (never for held or endlessly looping actions).
+    actionFrame(action, elapsedFrames) {
+        const index = Math.floor(Math.max(0, elapsedFrames) / 60 * action.fps + 1e-9);
+        const total = action.frames * action.loops;
+        if (action.loops === 0 || index < total) return { frame: index % action.frames, done: false };
+        return { frame: action.frames - 1, done: !action.hold };
+    },
+
+    dir8(horz, vert) {
+        return (vert === 2 ? 0 : 6) + (horz === 4 ? 1 : 3);
+    },
+
+    split8(dir) {
+        const map = { 1: [4, 2], 3: [6, 2], 7: [4, 8], 9: [6, 8] };
+        return map[dir] ? { horz: map[dir][0], vert: map[dir][1] } : null;
     }
 };
 
@@ -3787,6 +4323,650 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
     }
     return { canvas, plan };
 };
+
+// ---- Particles, VFX and reactive doodads on the map ----
+// Small white textures (one per shape), tinted per particle.
+DocsDoodads.ParticleTextures = {
+    _cache: {},
+    size: 32,
+
+    get(shape) {
+        if (this._cache[shape]) return this._cache[shape];
+        if (typeof document === 'undefined' || typeof PIXI === 'undefined') return null;
+        const n = this.size, c = document.createElement('canvas');
+        c.width = n;
+        c.height = n;
+        const g = c.getContext('2d');
+        g.fillStyle = '#ffffff';
+        const mid = n / 2;
+        if (shape === 'soft') {
+            const grad = g.createRadialGradient(mid, mid, 0, mid, mid, mid);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.5, 'rgba(255,255,255,0.5)');
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            g.fillStyle = grad;
+            g.fillRect(0, 0, n, n);
+        } else if (shape === 'circle') {
+            g.beginPath();
+            g.arc(mid, mid, mid - 2, 0, Math.PI * 2);
+            g.fill();
+        } else if (shape === 'square') {
+            g.fillRect(4, 4, n - 8, n - 8);
+        } else if (shape === 'spark') {
+            g.beginPath();
+            g.ellipse(mid, mid, mid - 1, mid / 5, 0, 0, Math.PI * 2);
+            g.fill();
+        } else if (shape === 'leaf') {
+            g.beginPath();
+            g.moveTo(2, mid);
+            g.quadraticCurveTo(mid, 2, n - 2, mid);
+            g.quadraticCurveTo(mid, n - 2, 2, mid);
+            g.fill();
+        } else {
+            g.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const r = i % 2 === 0 ? mid - 1 : mid / 4;
+                const a = i * Math.PI / 4;
+                g.lineTo(mid + Math.cos(a) * r, mid + Math.sin(a) * r);
+            }
+            g.closePath();
+            g.fill();
+        }
+        this._cache[shape] = PIXI.Texture.from(c);
+        return this._cache[shape];
+    }
+};
+
+if (typeof PIXI !== 'undefined' && PIXI.Container) {
+    // One particle emitter drawn with pooled sprites, positioned relative to its container.
+    window.Sprite_DocsParticles = function() { this.initialize(...arguments); };
+    Sprite_DocsParticles.prototype = Object.create(PIXI.Container.prototype);
+    Sprite_DocsParticles.prototype.constructor = Sprite_DocsParticles;
+
+    Sprite_DocsParticles.prototype.initialize = function(config, seed) {
+        PIXI.Container.call(this);
+        this._pool = [];
+        this.setConfig(config, seed);
+    };
+
+    Sprite_DocsParticles.prototype.setConfig = function(config, seed) {
+        this._config = config;
+        this._state = DocsDoodads.Particles.createState(config, seed || 1);
+        this._bursted = false;
+    };
+
+    Sprite_DocsParticles.prototype.burstNow = function(count) {
+        DocsDoodads.Particles.burst(this._state, count === undefined ? this._config.burst : count);
+    };
+
+    Sprite_DocsParticles.prototype.alive = function() {
+        return this._state.particles.length;
+    };
+
+    Sprite_DocsParticles.prototype.stepAndDraw = function(dt, emitting) {
+        const P = DocsDoodads.Particles;
+        if (emitting && !this._bursted) {
+            this._bursted = true;
+            if (this._config.burst) this.burstNow();
+        }
+        P.step(this._state, dt, emitting);
+        const views = P.view(this._state);
+        const texture = DocsDoodads.ParticleTextures.get(this._config.shape);
+        const blend = this._config.blend === 'add' ? PIXI.BLEND_MODES.ADD : this._config.blend === 'screen' ? PIXI.BLEND_MODES.SCREEN : PIXI.BLEND_MODES.NORMAL;
+        while (this._pool.length < views.length) {
+            const s = new PIXI.Sprite(texture || PIXI.Texture.WHITE);
+            s.anchor.set(0.5, 0.5);
+            this.addChild(s);
+            this._pool.push(s);
+        }
+        const unit = DocsDoodads.ParticleTextures.size;
+        for (let i = 0; i < this._pool.length; i++) {
+            const s = this._pool[i], v = views[i];
+            s.visible = Boolean(v);
+            if (!v) continue;
+            if (texture && s.texture !== texture) s.texture = texture;
+            s.x = v.x;
+            s.y = v.y;
+            s.scale.set(Math.max(0.001, v.size / unit), Math.max(0.001, v.size / unit) * (1 + v.stretch));
+            s.alpha = v.alpha;
+            s.rotation = v.rotation;
+            s.tint = v.color;
+            s.blendMode = blend;
+        }
+    };
+
+    // A whole VFX: particle layers and sprite-sheet layers on one clock.
+    window.Sprite_DocsVfx = function() { this.initialize(...arguments); };
+    Sprite_DocsVfx.prototype = Object.create(PIXI.Container.prototype);
+    Sprite_DocsVfx.prototype.constructor = Sprite_DocsVfx;
+
+    Sprite_DocsVfx.prototype.initialize = function(def, seed) {
+        PIXI.Container.call(this);
+        this._def = def;
+        this._time = 0;
+        this._layers = def.layers.map((layer, i) => {
+            if (layer.type === 'particles') {
+                const view = new Sprite_DocsParticles(DocsDoodads.Particles.normalize(layer.emitter), (seed || 1) + i * 7919);
+                view.x = layer.offsetX;
+                view.y = layer.offsetY;
+                this.addChild(view);
+                return { layer, view };
+            }
+            const sprite = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            sprite.anchor.set(0.5, 0.5);
+            sprite.x = layer.offsetX;
+            sprite.y = layer.offsetY;
+            sprite.scale.set(layer.scale);
+            sprite.rotation = layer.rotation * Math.PI / 180;
+            sprite.alpha = layer.alpha;
+            sprite.tint = DocsDoodads.Lighting.parseColor(layer.tint, 0xffffff);
+            sprite.blendMode = layer.blend === 'add' ? PIXI.BLEND_MODES.ADD : layer.blend === 'screen' ? PIXI.BLEND_MODES.SCREEN : PIXI.BLEND_MODES.NORMAL;
+            this.addChild(sprite);
+            const entry = { layer, view: sprite, bitmap: layer.image ? DocsDoodads.loadBitmap(layer.image) : null };
+            return entry;
+        });
+    };
+
+    Sprite_DocsVfx.prototype.alive = function() {
+        return this._layers.reduce((n, l) => n + (l.layer.type === 'particles' ? l.view.alive() : 0), 0);
+    };
+
+    Sprite_DocsVfx.prototype.isFinished = function() {
+        return DocsDoodads.Vfx.isFinished(this._def, this._time, this.alive());
+    };
+
+    Sprite_DocsVfx.prototype.step = function(dt) {
+        const V = DocsDoodads.Vfx;
+        this._time += dt;
+        // Looping effects restart their clock (and bursts) each cycle.
+        if (this._def.loop && this._time >= this._def.duration) {
+            this._time -= this._def.duration;
+            for (const l of this._layers) if (l.layer.type === 'particles') l.view._bursted = false;
+        }
+        for (const l of this._layers) {
+            const t = this._time - l.layer.start;
+            if (l.layer.type === 'particles') {
+                l.view.stepAndDraw(dt, V.emitting(this._def, l.layer, this._time));
+                continue;
+            }
+            const frame = t >= 0 ? V.sheetFrame(l.layer, t) : -1;
+            const bmp = l.bitmap;
+            if (frame < 0 || !bmp || !bmp.isReady() || !(bmp.baseTexture || bmp._baseTexture)) {
+                l.view.visible = false;
+                continue;
+            }
+            const w = bmp.width / l.layer.cols, h = bmp.height / l.layer.rows;
+            const rect = DocsDoodads.safeFrame({ x: (frame % l.layer.cols) * w, y: Math.floor(frame / l.layer.cols) * h, w, h }, bmp.width, bmp.height);
+            if (!l.texture) l.texture = new PIXI.Texture(bmp.baseTexture || bmp._baseTexture, new PIXI.Rectangle(rect.x, rect.y, rect.w, rect.h));
+            else l.texture.frame = new PIXI.Rectangle(rect.x, rect.y, rect.w, rect.h);
+            l.view.texture = l.texture;
+            l.view.visible = true;
+        }
+    };
+}
+
+// Where each walker is (map pixels) this frame, for grass and bushes that react.
+DocsDoodads.React.walkers = function() {
+    const frame = DocsDoodads.frameCount();
+    if (this._walkersFrame === frame && this._walkers) return this._walkers;
+    this._walkersFrame = frame;
+    const out = [];
+    if (typeof $gameMap !== 'undefined' && $gameMap && typeof $gamePlayer !== 'undefined' && $gamePlayer) {
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const add = ch => {
+            if (!ch || (ch.isTransparent && ch.isTransparent())) return;
+            const moving = ch.isMoving && ch.isMoving();
+            out.push({ x: (ch._realX + 0.5) * tw, baseY: (ch._realY + 1) * th, speed: moving && ch.distancePerFrame ? ch.distancePerFrame() * tw : 0 });
+        };
+        add($gamePlayer);
+        if ($gamePlayer.followers) $gamePlayer.followers().visibleFollowers().forEach(add);
+        for (const ev of $gameMap.events()) if (ev.characterName() || ev.tileId() > 0) add(ev);
+    }
+    this._walkers = out;
+    return out;
+};
+
+if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && Sprite_DocsDoodad.prototype.updatePlacement) {
+    $.Sprite_DocsDoodad_updatePlacement = Sprite_DocsDoodad.prototype.updatePlacement;
+    Sprite_DocsDoodad.prototype.updatePlacement = function() {
+        $.Sprite_DocsDoodad_updatePlacement.call(this);
+        this.updateDocsReact();
+        this.updateDocsParticles();
+    };
+
+    // Bending: walkers inside the doodad's base push it away; a spring brings it back.
+    Sprite_DocsDoodad.prototype.updateDocsReact = function() {
+        const d = this._data;
+        if (!d.react || !d.react.enabled) {
+            this._react = null;
+            return;
+        }
+        const R = DocsDoodads.React;
+        const frame = DocsDoodads.frameCount();
+        // The spring moves once per frame; the bend is applied on every placement pass.
+        if (this._lastReactFrame !== frame || !this._react) {
+            this._lastReactFrame = frame;
+            const th = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.tileHeight() : 48;
+            let impulse = 0, touching = false;
+            for (const w of R.walkers()) {
+                if (!R.touching(d, w.x, w.baseY, th)) continue;
+                touching = true;
+                if (w.speed > 0) impulse += R.push(d, w.x, w.speed) * 0.6;
+            }
+            if (touching && !this._reactTouching) {
+                impulse += R.push(d, d.x - 1, 4) * 1.5 * (Math.random() < 0.5 ? -1 : 1);
+                if (d.react.leaves) this.dropDocsLeaves();
+            }
+            this._reactTouching = touching;
+            this._react = R.step(this._react || { bend: 0, vel: 0 }, impulse);
+        }
+        // A positive bend leans the top to the right; PIXI skews the top left for positive skew.x.
+        this.skew.x -= this._react.bend;
+    };
+
+    Sprite_DocsDoodad.prototype.dropDocsLeaves = function() {
+        if (!this.parent) return;
+        if (!this._docsLeaves) {
+            const d = this._data;
+            const config = DocsDoodads.Particles.normalize({ preset: 'leaves', rate: 0, area: [(d.frameW || 48) * 0.6, 8], lifetime: [0.8, 1.4], speed: [20, 40], angle: -60, spread: 80, gravity: 60 });
+            this._docsLeaves = new Sprite_DocsParticles(config, (d.x || 1) + (d.y || 1));
+            this._docsLeaves.z = 5.5;
+            this._docsLeaves._docsSortY = 0;
+        }
+        if (this._docsLeaves.parent !== this.parent) this.parent.addChild(this._docsLeaves);
+        this._docsLeaves.burstNow(3);
+    };
+
+    // Emitters and attached VFX follow the doodad; "below" sits under characters, "above" over them.
+    Sprite_DocsDoodad.prototype.updateDocsParticles = function() {
+        const d = this._data;
+        if (this._lastParticleFrame === DocsDoodads.frameCount() && DocsDoodads.frameCount() !== 0) return;
+        this._lastParticleFrame = DocsDoodads.frameCount();
+        const pos = this.screenPosition();
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+        const centerY = pos.y + h * (0.5 - (d.anchorY !== undefined ? d.anchorY : 1));
+        const parent = this.parent;
+        const wanted = d.particles && d.particles.preset && d.particles.preset !== 'none' ? d.particles : null;
+        const sig = wanted ? JSON.stringify(wanted) : '';
+        if (sig !== this._particleSig) {
+            this._particleSig = sig;
+            this.destroyDocsParticles();
+            if (wanted && typeof Sprite_DocsParticles !== 'undefined') {
+                const config = DocsDoodads.Particles.normalize(Object.assign({}, wanted, { preset: wanted.preset }));
+                config.rate *= wanted.rateScale !== undefined ? Math.max(0, Number(wanted.rateScale) || 0) : 1;
+                this._docsEmitter = new Sprite_DocsParticles(config, Math.round((d.x || 0) * 7 + (d.y || 0) * 13) + 1);
+            }
+        }
+        if (this._docsEmitter && parent) {
+            const e = this._docsEmitter;
+            if (e.parent !== parent) parent.addChild(e);
+            e.z = wanted && wanted.layer === 'below' ? 0.6 : 5.5;
+            e._docsSortY = 0;
+            e.x = pos.x + (Number(wanted.offsetX) || 0);
+            e.y = centerY + (Number(wanted.offsetY) || 0);
+            e.visible = this.visible;
+            e.stepAndDraw(1 / 60, this.visible);
+        }
+        const vfxId = d.vfx || '';
+        if (vfxId !== this._vfxId) {
+            this._vfxId = vfxId;
+            if (this._docsVfx) {
+                if (this._docsVfx.parent) this._docsVfx.parent.removeChild(this._docsVfx);
+                this._docsVfx.destroy({ children: true });
+                this._docsVfx = null;
+            }
+            const def = vfxId ? DocsDoodads.Vfx.find(vfxId, DocsDoodads.Vfx.library()) : null;
+            if (def && typeof Sprite_DocsVfx !== 'undefined') this._docsVfx = new Sprite_DocsVfx(Object.assign({}, def, { loop: true }), (d.x || 1) + (d.y || 1));
+        }
+        if (this._docsVfx && parent) {
+            const v = this._docsVfx;
+            if (v.parent !== parent) parent.addChild(v);
+            v.z = 5.5;
+            v._docsSortY = 0;
+            v.x = pos.x;
+            v.y = centerY;
+            v.visible = this.visible;
+            v.step(1 / 60);
+        }
+        if (this._docsLeaves && this._docsLeaves.parent) {
+            this._docsLeaves.x = pos.x;
+            this._docsLeaves.y = centerY;
+            this._docsLeaves.stepAndDraw(1 / 60, false);
+        }
+    };
+
+    Sprite_DocsDoodad.prototype.destroyDocsParticles = function() {
+        if (this._docsEmitter) {
+            if (this._docsEmitter.parent) this._docsEmitter.parent.removeChild(this._docsEmitter);
+            this._docsEmitter.destroy({ children: true });
+            this._docsEmitter = null;
+        }
+    };
+
+    // Effects living beside the doodad in the tilemap go with it when the layer is rebuilt.
+    Sprite_DocsDoodad.prototype.destroyDocsFx = function() {
+        this.destroyDocsParticles();
+        for (const key of ['_docsVfx', '_docsLeaves']) {
+            if (this[key]) {
+                if (this[key].parent) this[key].parent.removeChild(this[key]);
+                this[key].destroy({ children: true });
+                this[key] = null;
+            }
+        }
+        this._particleSig = undefined;
+        this._vfxId = undefined;
+    };
+}
+
+if (typeof Spriteset_Map !== 'undefined') {
+    $.Spriteset_Map_removeDocsDoodadSprites = Spriteset_Map.prototype.removeDocsDoodadSprites;
+    Spriteset_Map.prototype.removeDocsDoodadSprites = function() {
+        for (const sprite of this._docsDoodadSprites || []) if (sprite.destroyDocsFx) sprite.destroyDocsFx();
+        $.Spriteset_Map_removeDocsDoodadSprites.call(this);
+    };
+
+    // Effects started by "Play VFX" belong to the map they started on; they survive the menu.
+    $.Spriteset_Map_createCharacters = Spriteset_Map.prototype.createCharacters;
+    Spriteset_Map.prototype.createCharacters = function() {
+        $.Spriteset_Map_createCharacters.call(this);
+        const mapId = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0;
+        if (DocsDoodads.Vfx._mapId !== mapId) DocsDoodads.Vfx._playing = [];
+        DocsDoodads.Vfx._mapId = mapId;
+        for (const instance of DocsDoodads.Vfx._playing) instance.view = null;
+        this._docsVfxViews = [];
+        DocsDoodads.CharacterAnim.preload();
+    };
+
+    $.Spriteset_Map_update_vfx = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        $.Spriteset_Map_update_vfx.call(this);
+        this.updateDocsVfx();
+    };
+
+    Spriteset_Map.prototype.updateDocsVfx = function() {
+        if (!this._tilemap || typeof Sprite_DocsVfx === 'undefined') return;
+        this._docsVfxViews = this._docsVfxViews || [];
+        const playing = DocsDoodads.Vfx._playing;
+        for (const instance of playing) {
+            if (!instance.view) {
+                instance.view = new Sprite_DocsVfx(instance.def, instance.seed);
+                instance.view.z = 5.5;
+                instance.view._docsSortY = 0;
+                this._docsVfxViews.push(instance.view);
+            }
+            if (instance.view.parent !== this._tilemap) this._tilemap.addChild(instance.view);
+            let at;
+            const ch = instance.follow;
+            if (ch && typeof ch.screenX === 'function') {
+                at = { x: ch.screenX(), y: ch.screenY() - 24 };
+            } else {
+                at = DocsDoodads.mapToScreen(instance.x, instance.y);
+            }
+            instance.view.x = at.x;
+            instance.view.y = at.y;
+            instance.view.step(1 / 60);
+            instance.time = instance.view._time;
+            if (instance.view.isFinished()) instance.done = true;
+        }
+        for (let i = playing.length - 1; i >= 0; i--) {
+            const instance = playing[i];
+            if (!instance.done) continue;
+            if (instance.view.parent) instance.view.parent.removeChild(instance.view);
+            instance.view.destroy({ children: true });
+            playing.splice(i, 1);
+        }
+    };
+}
+
+// ---- Character animation ----
+DocsDoodads.CharacterAnim.sets = function() {
+    return DocsDoodads.World.settings().characterAnim.sets || [];
+};
+
+// Loads idle and run sheets for characters on the map before they are needed, so switching never blinks.
+DocsDoodads.CharacterAnim.preload = function() {
+    if (typeof ImageManager === 'undefined' || typeof $gameMap === 'undefined' || !$gameMap) return;
+    const sets = this.sets();
+    if (!sets.length) return;
+    const names = new Set();
+    const add = ch => { if (ch && ch.characterName && ch.characterName()) names.add(ch.characterName()); };
+    if (typeof $gamePlayer !== 'undefined' && $gamePlayer) {
+        add($gamePlayer);
+        if ($gamePlayer.followers) $gamePlayer.followers().data().forEach(add);
+    }
+    for (const ev of $gameMap.events()) add(ev);
+    for (const name of names) {
+        const set = this.setFor(name, sets);
+        if (!set) continue;
+        if (set.idle) ImageManager.loadCharacter(set.idle);
+        if (set.run) ImageManager.loadCharacter(set.run);
+    }
+};
+
+if (typeof Game_CharacterBase !== 'undefined') {
+    const C = DocsDoodads.CharacterAnim;
+    const walkFrames = ch => C.parseName(ch.characterName ? ch.characterName() : '').frames;
+
+    $.Game_CharacterBase_update = Game_CharacterBase.prototype.update;
+    Game_CharacterBase.prototype.update = function() {
+        $.Game_CharacterBase_update.call(this);
+        if (this.isMoving() || this.isJumping()) this._docsStill = 0;
+        else this._docsStill = Math.min(100000, (this._docsStill || 0) + 1);
+        this._docsAnimTimer = ((this._docsAnimTimer || 0) + 1) % 1000000;
+        if (this._docsAction) {
+            this._docsAction.elapsed++;
+            if (C.actionFrame(this._docsAction, this._docsAction.elapsed).done) this._docsAction = null;
+        }
+    };
+
+    // Sheets with more than 3 frames loop through every frame.
+    $.Game_CharacterBase_maxPattern = Game_CharacterBase.prototype.maxPattern;
+    Game_CharacterBase.prototype.maxPattern = function() {
+        const frames = walkFrames(this);
+        return frames === 3 ? $.Game_CharacterBase_maxPattern.call(this) : frames;
+    };
+    $.Game_CharacterBase_pattern = Game_CharacterBase.prototype.pattern;
+    Game_CharacterBase.prototype.pattern = function() {
+        const frames = walkFrames(this);
+        return frames === 3 ? $.Game_CharacterBase_pattern.call(this) : ((this._pattern % frames) + frames) % frames;
+    };
+    $.Game_CharacterBase_resetPattern = Game_CharacterBase.prototype.resetPattern;
+    Game_CharacterBase.prototype.resetPattern = function() {
+        if (walkFrames(this) === 3) $.Game_CharacterBase_resetPattern.call(this);
+        else this.setPattern(0);
+    };
+    $.Game_CharacterBase_isOriginalPattern = Game_CharacterBase.prototype.isOriginalPattern;
+    Game_CharacterBase.prototype.isOriginalPattern = function() {
+        return walkFrames(this) === 3 ? $.Game_CharacterBase_isOriginalPattern.call(this) : this.pattern() === 0;
+    };
+
+    // The facing used by 8-direction sheets (1, 3, 7, 9 after diagonal moves).
+    $.Game_CharacterBase_setDirection = Game_CharacterBase.prototype.setDirection;
+    Game_CharacterBase.prototype.setDirection = function(d) {
+        $.Game_CharacterBase_setDirection.call(this, d);
+        this._docsDir8 = this.direction();
+    };
+    $.Game_CharacterBase_moveDiagonally = Game_CharacterBase.prototype.moveDiagonally;
+    Game_CharacterBase.prototype.moveDiagonally = function(horz, vert) {
+        $.Game_CharacterBase_moveDiagonally.call(this, horz, vert);
+        if (!this.isDirectionFixed()) this._docsDir8 = C.dir8(horz, vert);
+    };
+    Game_CharacterBase.prototype.docsFacing = function() {
+        return this._docsDir8 || this.direction();
+    };
+}
+
+// Optional diagonal movement for the player (and so 8-direction sheets show their diagonals).
+if (typeof Game_Player !== 'undefined') {
+    $.Game_Player_getInputDirection = Game_Player.prototype.getInputDirection;
+    Game_Player.prototype.getInputDirection = function() {
+        if (DocsDoodads.World.settings().characterAnim.diagonal && typeof Input !== 'undefined') return Input.dir8;
+        return $.Game_Player_getInputDirection.call(this);
+    };
+    $.Game_Player_executeMove = Game_Player.prototype.executeMove;
+    Game_Player.prototype.executeMove = function(direction) {
+        const split = DocsDoodads.CharacterAnim.split8(direction);
+        if (!split) return $.Game_Player_executeMove.call(this, direction);
+        this.moveDiagonally(split.horz, split.vert);
+        // Blocked diagonally: slide along whichever side is open.
+        if (!this.isMovementSucceeded()) {
+            this.moveStraight(split.horz);
+            if (!this.isMovementSucceeded()) this.moveStraight(split.vert);
+        }
+    };
+}
+
+if (typeof Sprite_Character !== 'undefined') {
+    const C = DocsDoodads.CharacterAnim;
+
+    // Which sheet and frame a character shows, or null to let MZ draw it the usual way.
+    Sprite_Character.prototype.docsAnimFrame = function() {
+        const ch = this._character;
+        if (!ch || !ch.characterName || ch.tileId() > 0) return null;
+        const name = ch.characterName();
+        if (!name) return null;
+        const set = C.setFor(name, C.sets());
+        const action = ch._docsAction;
+        const parsedName = C.parseName(name);
+        if (!action && !set && !parsedName.tagged) return null;
+        const moving = ch.isMoving();
+        const dashing = moving && ch.realMoveSpeed && ch.realMoveSpeed() >= 5;
+        const state = C.stateFor({ moving, dashing, stillFrames: ch._docsStill || 0, action }, set);
+        const sheet = state === 'action' ? action.sheet : C.sheetFor(state, name, set);
+        const layout = C.parseName(sheet);
+        let frame;
+        if (state === 'action') frame = C.actionFrame(action, action.elapsed).frame;
+        else if (state === 'idle') frame = C.cycleFrame(ch._docsStill - (set.idleDelay || 0), set.idleFps || 6, layout.frames);
+        else if (state === 'run' && layout.frames !== parsedName.frames) frame = C.cycleFrame(ch._docsAnimTimer || 0, set.runFps || 12, layout.frames);
+        else frame = layout.frames === 3 ? C.walkFrame(ch._pattern, 3) : ch.pattern() % layout.frames;
+        const single = layout.tagged || sheet.startsWith('$') || (sheet.length > 1 && sheet[0] === '!' && sheet[1] === '$');
+        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: ch.docsFacing ? ch.docsFacing() : ch.direction() };
+    };
+
+    $.Sprite_Character_updateBitmap = Sprite_Character.prototype.updateBitmap;
+    Sprite_Character.prototype.updateBitmap = function() {
+        const anim = this.docsAnimFrame();
+        this._docsAnim = anim;
+        if (!anim) {
+            if (this._docsAnimSheet) {
+                // Back to a normal sheet: make MZ reload it.
+                this._docsAnimSheet = null;
+                this._characterName = '';
+                this.scale.x = Math.abs(this.scale.x);
+            }
+            return $.Sprite_Character_updateBitmap.call(this);
+        }
+        if (this._docsAnimSheet !== anim.sheet) {
+            const bmp = ImageManager.loadCharacter(anim.sheet);
+            // Keep the old frame on screen until the new sheet has loaded.
+            if (bmp.isReady() || !this.bitmap) {
+                this._docsAnimSheet = anim.sheet;
+                this.bitmap = bmp;
+                this._characterName = this._character.characterName();
+                this._tileId = 0;
+            }
+        }
+    };
+
+    $.Sprite_Character_updateCharacterFrame = Sprite_Character.prototype.updateCharacterFrame;
+    Sprite_Character.prototype.updateCharacterFrame = function() {
+        const anim = this._docsAnim;
+        if (!anim || !this.bitmap || !this.bitmap.isReady() || this._docsAnimSheet !== anim.sheet) {
+            if (!anim) return $.Sprite_Character_updateCharacterFrame.call(this);
+            return;
+        }
+        const W = this.bitmap.width, H = this.bitmap.height;
+        const block = anim.single ? { x: 0, y: 0, w: W, h: H } : { x: (anim.index % 4) * W / 4, y: Math.floor(anim.index / 4) * H / 2, w: W / 4, h: H / 2 };
+        const pw = Math.floor(block.w / anim.frames), ph = Math.floor(block.h / anim.dirs);
+        const facing = C.rowFor(anim.facing, anim.dirs);
+        const sx = block.x + Math.min(anim.frame, anim.frames - 1) * pw;
+        const sy = block.y + Math.min(facing.row, anim.dirs - 1) * ph;
+        this.scale.x = Math.abs(this.scale.x) * (facing.mirror ? -1 : 1);
+        this.updateHalfBodySprites();
+        if (this._bushDepth > 0) {
+            const d = Math.min(this._bushDepth, ph);
+            this._upperBody.setFrame(sx, sy, pw, ph - d);
+            this._lowerBody.setFrame(sx, sy + ph - d, pw, d);
+            this.setFrame(sx, sy, 0, ph);
+        } else {
+            this.setFrame(sx, sy, pw, ph);
+        }
+    };
+}
+
+// The interpreter can wait for an action or a VFX to finish.
+if (typeof Game_Interpreter !== 'undefined') {
+    $.Game_Interpreter_updateWaitMode = Game_Interpreter.prototype.updateWaitMode;
+    Game_Interpreter.prototype.updateWaitMode = function() {
+        if (this._waitMode === 'docsAction') {
+            const waiting = Boolean(this._docsWaitCharacter && this._docsWaitCharacter._docsAction);
+            if (!waiting) {
+                this._waitMode = '';
+                this._docsWaitCharacter = null;
+            }
+            return waiting;
+        }
+        if (this._waitMode === 'docsVfx') {
+            const waiting = Boolean(this._docsWaitVfx && !this._docsWaitVfx.done && DocsDoodads.Vfx._playing.includes(this._docsWaitVfx));
+            if (!waiting) {
+                this._waitMode = '';
+                this._docsWaitVfx = null;
+            }
+            return waiting;
+        }
+        return $.Game_Interpreter_updateWaitMode.call(this);
+    };
+}
+
+// "this" event, the player, or an event by ID.
+DocsDoodads.characterFor = function(interpreter, target, eventId) {
+    if (target === 'player') return typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+    if (typeof $gameMap === 'undefined' || !$gameMap) return null;
+    if (target === 'this') return interpreter && interpreter.eventId ? $gameMap.event(interpreter.eventId()) : null;
+    return $gameMap.event(Number(eventId) || 0) || null;
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'characterAction', function(args) {
+        const ch = DocsDoodads.characterFor(this, args.target, args.eventId);
+        if (!ch) return;
+        const action = DocsDoodads.CharacterAnim.newAction({ sheet: args.sheet, fps: Number(args.fps) || 8, loops: Number(args.loops), hold: String(args.hold) === 'true' });
+        ch._docsAction = action;
+        if (typeof ImageManager !== 'undefined') ImageManager.loadCharacter(action.sheet);
+        if (String(args.wait) === 'true' && !action.hold && action.loops > 0 && this && this.setWaitMode) {
+            this._docsWaitCharacter = ch;
+            this.setWaitMode('docsAction');
+        }
+    });
+    PluginManager.registerCommand(pluginName, 'clearCharacterAction', function(args) {
+        const ch = DocsDoodads.characterFor(this, args.target, args.eventId);
+        if (ch) ch._docsAction = null;
+    });
+    PluginManager.registerCommand(pluginName, 'playVfx', function(args) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const spec = { id: String(args.effect || '').trim() };
+        if (args.target === 'tile') {
+            spec.x = ((Number(args.x) || 0) + 0.5) * tw;
+            spec.y = ((Number(args.y) || 0) + 0.5) * th;
+        } else if (args.target === 'screen') {
+            const at = DocsDoodads.screenToMap(Graphics.width / 2, Graphics.height / 2);
+            spec.x = at.x;
+            spec.y = at.y;
+        } else {
+            const ch = DocsDoodads.characterFor(this, args.target, args.eventId);
+            if (!ch) return;
+            if (String(args.follow) !== 'false') spec.follow = ch;
+            spec.x = (ch._realX + 0.5) * tw;
+            spec.y = (ch._realY + 0.5) * th;
+        }
+        const instance = DocsDoodads.Vfx.play(spec);
+        if (instance && String(args.wait) === 'true' && this && this.setWaitMode) {
+            this._docsWaitVfx = instance;
+            this.setWaitMode('docsVfx');
+        }
+    });
+}
 
 //==========================================================
 // SECTION 8: DocsDoodads.CORE & DIAGNOSTICS
@@ -8828,6 +10008,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
                 <button class="dd-btn" id="dd-tools-btn" title="Find duplicate and unused files">Asset Tools</button>
                 <button class="dd-btn" id="dd-postfx-btn" title="Post-processing looks, screen effects and map image export">Post FX</button>
+                <button class="dd-btn" id="dd-vfx-btn" title="Build particle and sprite-sheet effects">VFX</button>
                 <button class="dd-btn" id="dd-diag-btn" title="Diagnostics">Diagnostics</button>
                 <button class="dd-btn dd-btn-primary" id="dd-save-btn">Save Changes</button>
                 <button class="dd-btn" id="dd-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
@@ -9075,6 +10256,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
         document.getElementById('dd-tools-btn').onclick = () => this.showAssetTools();
         document.getElementById('dd-postfx-btn').onclick = () => this.showPostFxBuilder();
+        document.getElementById('dd-vfx-btn').onclick = () => this.showVfxBuilder();
 
         document.getElementById('dd-stop-audio-btn').onclick = () => {
             DocsDoodads.Audio.stopPreview();
@@ -9916,12 +11098,14 @@ DocsDoodads.Workspace = {
             shadow: DocsDoodads.Shadow.defaults,
             light: DocsDoodads.Lighting.lightDefaults,
             motion: { type: 'none', amount: 0.5, speed: 1 },
-            transition: DocsDoodads.Transition.defaults
+            transition: DocsDoodads.Transition.defaults,
+            particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
+            react: DocsDoodads.React.defaults
         };
     },
 
     // Shown when a doodad has no value of its own.
-    propertyFallbacks: { seeThrough: 'auto', reflect: 'auto' },
+    propertyFallbacks: { seeThrough: 'auto', reflect: 'auto', vfx: '' },
 
     getDoodadProperty(d, key) {
         if (key === 'flipX') return (d.scaleX !== undefined ? d.scaleX : 1) < 0;
@@ -9947,6 +11131,15 @@ DocsDoodads.Workspace = {
         }
         if (key === 'switchText') {
             d.switch = DocsDoodads.Appearance.parseSwitchText(value);
+            return;
+        }
+        // "None" removes the emitter or attached effect rather than storing an empty one.
+        if (key === 'particles.preset' && value === 'none') {
+            delete d.particles;
+            return;
+        }
+        if (key === 'vfx' && !value) {
+            delete d.vfx;
             return;
         }
         // Season checkboxes: none ticked means every season.
@@ -10075,6 +11268,20 @@ DocsDoodads.Workspace = {
                 { key: 'switchText', label: 'Switches (e.g. 5:on, 6:off)', type: 'text' },
                 { key: 'condition', label: 'Condition (JavaScript, e.g. $gameVariables.value(3) > 2)', type: 'text' }
             ] },
+            { title: 'Particles', fields: [
+                { key: 'particles.preset', label: 'Emitter', type: 'select', options: [{ value: 'none', label: 'None' }].concat(D.Particles.presets.map(p => ({ value: p.id, label: p.label }))) },
+                range('particles.rateScale', 'Amount (x preset rate)', 0, 5, 0.1),
+                { key: 'particles.layer', label: 'Draw', type: 'select', options: D.Particles.layers },
+                number('particles.offsetX', 'Offset X (from the centre)'),
+                number('particles.offsetY', 'Offset Y (from the centre)'),
+                { key: 'vfx', label: 'Attached VFX (loops)', type: 'select', options: [{ value: '', label: 'None' }]
+                    .concat(D.Vfx.library().concat(D.Vfx.builtIns).map(v => ({ value: v.id, label: v.name }))) }
+            ] },
+            { title: 'Interaction', fields: [
+                { key: 'react.enabled', label: 'Bend when walked through (grass, bushes, reeds)', type: 'checkbox' },
+                range('react.amount', 'Strength', 0, 2, 0.05),
+                { key: 'react.leaves', label: 'Drop leaves when disturbed', type: 'checkbox' }
+            ] },
             { title: 'Atmosphere', fields: [
                 { key: 'seeThrough', label: 'See-through when the player is behind', type: 'select', options: D.SeeThrough.options },
                 { key: 'reflect', label: 'Reflect in water', type: 'select', options: D.Reflection.options },
@@ -10202,6 +11409,352 @@ DocsDoodads.Workspace = {
             DocsDoodads.Persistence.dirtyDoodads = true;
         };
         DocsDoodads.Undo.execute({ type: 'world_setting', apply: () => write(after), revert: () => write(before) });
+    },
+
+    // ---- VFX library (stored in the project's world settings) ----
+    vfxLibraryRaw() {
+        return JSON.parse(JSON.stringify(DocsDoodads.World.get('vfx.library') || []));
+    },
+
+    newVfx(name) {
+        const list = this.vfxLibraryRaw();
+        const id = DocsDoodads.Prefabs.newId('vfx_');
+        list.push({ id, name: String(name || 'New Effect'), duration: 1, loop: false, layers: [{ type: 'particles', emitter: { preset: 'sparkles' } }] });
+        this.setWorldSetting('vfx.library', list);
+        return id;
+    },
+
+    duplicateVfx(id) {
+        const source = DocsDoodads.Vfx.find(id, this.vfxLibraryRaw());
+        if (!source) return null;
+        const list = this.vfxLibraryRaw();
+        const copy = JSON.parse(JSON.stringify(source));
+        copy.id = DocsDoodads.Prefabs.newId('vfx_');
+        copy.name = source.name + ' copy';
+        list.push(copy);
+        this.setWorldSetting('vfx.library', list);
+        return copy.id;
+    },
+
+    renameVfx(id, name) {
+        this.editVfx(id, def => { def.name = String(name || def.name); });
+    },
+
+    deleteVfx(id) {
+        const list = this.vfxLibraryRaw();
+        const index = list.findIndex(d => d.id === id);
+        if (index < 0) return false;
+        list.splice(index, 1);
+        this.setWorldSetting('vfx.library', list);
+        return true;
+    },
+
+    editVfx(id, mutate) {
+        const list = this.vfxLibraryRaw();
+        const def = list.find(d => d.id === id);
+        if (!def) return false;
+        mutate(def);
+        this.setWorldSetting('vfx.library', list);
+        return true;
+    },
+
+    addVfxLayer(id, type) {
+        this.editVfx(id, def => {
+            def.layers = def.layers || [];
+            def.layers.push(type === 'sheet' ? { type: 'sheet', image: '', cols: 5, rows: 1, fps: 15 } : { type: 'particles', emitter: { preset: 'sparkles' } });
+        });
+    },
+
+    removeVfxLayer(id, index) {
+        this.editVfx(id, def => { (def.layers || []).splice(index, 1); });
+    },
+
+    // The effect with every layer's emitter filled in, for showing current values.
+    vfxView(def) {
+        const view = DocsDoodads.Vfx.normalize(def);
+        view.layers = view.layers.map(l => (l.type === 'particles' ? Object.assign({}, l, { emitter: DocsDoodads.Particles.normalize(l.emitter) }) : l));
+        return view;
+    },
+
+    getVfxValue(id, path) {
+        const def = DocsDoodads.Vfx.find(id, this.vfxLibraryRaw());
+        if (!def) return undefined;
+        return String(path).split('.').reduce((node, key) => (node === undefined || node === null ? undefined : node[key]), this.vfxView(def));
+    },
+
+    // path like "layers.0.emitter.rate" or "layers.0.emitter.size.1"; missing parts are filled from current values.
+    setVfxField(id, path, value) {
+        return this.editVfx(id, def => {
+            const view = this.vfxView(def);
+            const keys = String(path).split('.');
+            let node = def, shown = view;
+            for (let i = 0; i < keys.length - 1; i++) {
+                const key = keys[i];
+                if (node[key] === undefined || node[key] === null) node[key] = JSON.parse(JSON.stringify(shown ? shown[key] : {}));
+                node = node[key];
+                shown = shown ? shown[key] : undefined;
+            }
+            node[keys[keys.length - 1]] = value;
+        });
+    },
+
+    previewVfx(id) {
+        let x = 0, y = 0;
+        if (typeof $gamePlayer !== 'undefined' && $gamePlayer && window.$gameMap) {
+            x = ($gamePlayer._realX + 0.5) * $gameMap.tileWidth();
+            y = ($gamePlayer._realY + 0.5) * $gameMap.tileHeight();
+        }
+        return DocsDoodads.Vfx.play({ id, x, y });
+    },
+
+    vfxLayerFields(layer) {
+        const range = (key, label, min, max, step) => ({ key, label, type: 'range', min, max, step });
+        const number = (key, label, step = 1) => ({ key, label, type: 'number', step });
+        const select = (key, label, options) => ({ key, label, type: 'select', options });
+        const P = DocsDoodads.Particles;
+        const common = [number('start', 'Starts after (s)', 0.1), number('offsetX', 'Offset X'), number('offsetY', 'Offset Y')];
+        if (layer.type === 'sheet') {
+            return [
+                { key: 'image', label: 'Image (e.g. img/animations/Fire1.png)', type: 'text' },
+                number('cols', 'Columns'), number('rows', 'Rows'), number('frames', 'Frames used'),
+                range('fps', 'Frames per second', 1, 60, 1), { key: 'loop', label: 'Loop', type: 'checkbox' },
+                range('scale', 'Scale', 0.1, 4, 0.05), range('rotation', 'Rotation', -180, 180, 1),
+                select('blend', 'Blend', P.blends.map(b => ({ value: b, label: b }))), { key: 'tint', label: 'Tint', type: 'color' },
+                range('alpha', 'Opacity', 0, 1, 0.05)
+            ].concat(common);
+        }
+        const e = key => 'emitter.' + key;
+        return [
+            select(e('preset'), 'Based on preset', P.presets.map(p => ({ value: p.id, label: p.label }))),
+            range(e('rate'), 'Rate (per second)', 0, 200, 1), number(e('burst'), 'Burst at start'),
+            number(e('lifetime.0'), 'Life min (s)', 0.1), number(e('lifetime.1'), 'Life max (s)', 0.1),
+            number(e('speed.0'), 'Speed min'), number(e('speed.1'), 'Speed max'),
+            range(e('angle'), 'Direction (degrees, -90 = up)', -180, 180, 1), range(e('spread'), 'Spread', 0, 360, 1),
+            number(e('gravity'), 'Gravity'), number(e('wind'), 'Wind'),
+            number(e('size.0'), 'Size start'), number(e('size.1'), 'Size end'),
+            range(e('alpha.0'), 'Opacity start', 0, 1, 0.05), range(e('alpha.1'), 'Opacity end', 0, 1, 0.05),
+            { key: e('colorStart'), label: 'Colour start', type: 'color' }, { key: e('colorEnd'), label: 'Colour end', type: 'color' },
+            select(e('blend'), 'Blend', P.blends.map(b => ({ value: b, label: b }))),
+            select(e('shape'), 'Shape', P.shapes.map(s => ({ value: s, label: s }))),
+            number(e('area.0'), 'Spawn area width'), number(e('area.1'), 'Spawn area height'),
+            range(e('flutter'), 'Flutter', 0, 60, 1), range(e('twinkle'), 'Twinkle', 0, 1, 0.05),
+            range(e('stretch'), 'Stretch along motion', 0, 4, 0.1)
+        ].concat(common);
+    },
+
+    renderVfxBuilder() {
+        const V = DocsDoodads.Vfx;
+        const library = V.library();
+        const all = library.concat(V.builtIns);
+        if (!this.vfxSelected || !V.find(this.vfxSelected, this.vfxLibraryRaw())) this.vfxSelected = all.length ? all[0].id : '';
+        const isBuiltIn = !library.some(d => d.id === this.vfxSelected);
+        const def = V.find(this.vfxSelected, this.vfxLibraryRaw());
+        const selectStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const option = d => `<option value="${escapeHtml(d.id)}" ${d.id === this.vfxSelected ? 'selected' : ''}>${escapeHtml(d.name)}</option>`;
+        const view = def ? this.vfxView(def) : null;
+        const layers = view ? view.layers.map((layer, i) => {
+            const fields = this.vfxLayerFields(layer).map((f, j) => {
+                const value = String(f.key).split('.').reduce((n, k) => (n === undefined ? undefined : n[k]), layer);
+                return this.fieldHtml(`dd-vfx-l${i}-${j}`, f, value);
+            }).join('');
+            const title = layer.type === 'sheet' ? `Sprite sheet ${escapeHtml(String(layer.image || '').split('/').pop() || '(no image)')}` : `Particles (${escapeHtml(layer.emitter.preset || 'custom')})`;
+            return `
+                <details ${this._openVfxLayer === i ? 'open' : ''} id="dd-vfx-sec-${i}" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 5px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${i + 1}. ${title}</summary>
+                    <fieldset ${isBuiltIn ? 'disabled' : ''} style="border: none; padding: 0; margin: 5px 0 0; display: flex; flex-direction: column; gap: 5px;">
+                        ${fields}
+                        <button class="dd-btn" id="dd-vfx-remove-${i}">Remove Layer</button>
+                    </fieldset>
+                </details>`;
+        }).join('') : '';
+        return `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">VFX BUILDER</div>
+                <button class="dd-btn" id="dd-vfx-close">Close</button>
+            </div>
+            <select id="dd-vfx-pick" style="${selectStyle}">
+                <optgroup label="Project">${library.map(option).join('')}</optgroup>
+                <optgroup label="Built-in">${V.builtIns.map(option).join('')}</optgroup>
+            </select>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+                <button class="dd-btn" id="dd-vfx-new">New</button>
+                <button class="dd-btn" id="dd-vfx-dup">Duplicate</button>
+                <button class="dd-btn" id="dd-vfx-rename" ${isBuiltIn ? 'disabled' : ''}>Rename</button>
+                <button class="dd-btn" id="dd-vfx-delete" ${isBuiltIn ? 'disabled' : ''}>Delete</button>
+            </div>
+            ${isBuiltIn ? '<div style="font-size: 11px; color: #94a3b8;">Built-in effects are read-only. Duplicate one to change it.</div>' : ''}
+            ${view ? `
+            <fieldset ${isBuiltIn ? 'disabled' : ''} style="border: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: end;">
+                ${this.fieldHtml('dd-vfx-duration', { label: 'Emits for (s)', type: 'number', step: 0.1 }, view.duration)}
+                ${this.fieldHtml('dd-vfx-loop', { label: 'Loop', type: 'checkbox' }, view.loop)}
+            </fieldset>
+            <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">${layers}</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                <button class="dd-btn" id="dd-vfx-add-particles" ${isBuiltIn ? 'disabled' : ''}>+ Particles</button>
+                <button class="dd-btn" id="dd-vfx-add-sheet" ${isBuiltIn ? 'disabled' : ''}>+ Sprite Sheet</button>
+            </div>` : ''}
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="dd-btn dd-btn-primary" id="dd-vfx-preview">Preview at Player</button>
+                <label style="font-size: 11px; color: #cbd5e1; display: flex; gap: 5px; align-items: center;"><input type="checkbox" id="dd-vfx-autoplay" ${this.vfxAutoPlay !== false ? 'checked' : ''} /> Replay on change</label>
+            </div>
+            <div style="font-size: 10px; color: #64748b; line-height: 1.4;">Play effects with the "Play VFX" plugin command (by name), or attach one to a doodad in its Particles section.</div>`;
+    },
+
+    showVfxBuilder() {
+        const existing = document.getElementById('dd-vfx');
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        const panel = document.createElement('div');
+        panel.id = 'dd-vfx';
+        panel.className = 'dd-glass';
+        panel.style.cssText = 'position: fixed; top: 64px; right: 12px; width: 330px; max-height: calc(100vh - 90px); padding: 14px; z-index: 10030; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;';
+        panel.innerHTML = this.renderVfxBuilder();
+        document.body.appendChild(panel);
+        this._vfxPanel = panel;
+        this.bindVfxBuilder();
+    },
+
+    refreshVfxBuilder() {
+        if (!this._vfxPanel || !this._vfxPanel.parentNode) return;
+        this._vfxPanel.innerHTML = this.renderVfxBuilder();
+        this.bindVfxBuilder();
+    },
+
+    bindVfxBuilder() {
+        const byId = id => document.getElementById(id);
+        const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
+        const id = this.vfxSelected;
+        const changed = () => {
+            this.refreshVfxBuilder();
+            if (this.vfxAutoPlay !== false) this.previewVfx(id);
+        };
+        on('dd-vfx-close', 'onclick', () => { if (this._vfxPanel && this._vfxPanel.parentNode) this._vfxPanel.parentNode.removeChild(this._vfxPanel); });
+        on('dd-vfx-pick', 'onchange', e => { this.vfxSelected = e.target.value; this._openVfxLayer = null; this.refreshVfxBuilder(); });
+        on('dd-vfx-new', 'onclick', () => { this.vfxSelected = this.newVfx('New Effect'); this.refreshVfxBuilder(); });
+        on('dd-vfx-dup', 'onclick', () => { const copy = this.duplicateVfx(id); if (copy) this.vfxSelected = copy; this.refreshVfxBuilder(); });
+        on('dd-vfx-rename', 'onclick', () => {
+            const current = DocsDoodads.Vfx.find(id, this.vfxLibraryRaw());
+            const name = prompt('Effect name:', current ? current.name : '');
+            if (name) { this.renameVfx(id, name); this.refreshVfxBuilder(); }
+        });
+        on('dd-vfx-delete', 'onclick', () => { if (this.deleteVfx(id)) { this.vfxSelected = ''; this.refreshVfxBuilder(); } });
+        on('dd-vfx-duration', 'onchange', e => { this.setVfxField(id, 'duration', parseFloat(e.target.value) || 1); changed(); });
+        on('dd-vfx-loop', 'onchange', e => { this.setVfxField(id, 'loop', Boolean(e.target.checked)); changed(); });
+        on('dd-vfx-add-particles', 'onclick', () => { this.addVfxLayer(id, 'particles'); this._openVfxLayer = (this.getVfxValue(id, 'layers') || []).length - 1; changed(); });
+        on('dd-vfx-add-sheet', 'onclick', () => { this.addVfxLayer(id, 'sheet'); this._openVfxLayer = (this.getVfxValue(id, 'layers') || []).length - 1; changed(); });
+        on('dd-vfx-preview', 'onclick', () => this.previewVfx(id));
+        on('dd-vfx-autoplay', 'onchange', e => { this.vfxAutoPlay = Boolean(e.target.checked); });
+        const layers = this.getVfxValue(id, 'layers') || [];
+        layers.forEach((layer, i) => {
+            const details = byId(`dd-vfx-sec-${i}`);
+            if (details) details.ontoggle = () => { if (details.open) this._openVfxLayer = i; };
+            on(`dd-vfx-remove-${i}`, 'onclick', () => { this.removeVfxLayer(id, i); this._openVfxLayer = null; changed(); });
+            this.vfxLayerFields(layer).forEach((f, j) => {
+                const input = byId(`dd-vfx-l${i}-${j}`);
+                if (!input) return;
+                input.onchange = () => {
+                    const value = f.type === 'checkbox' ? Boolean(input.checked) : (f.type === 'range' || f.type === 'number') ? (parseFloat(input.value) || 0) : input.value;
+                    this._openVfxLayer = i;
+                    this.setVfxField(id, `layers.${i}.${f.key}`, value);
+                    changed();
+                };
+            });
+        });
+    },
+
+    // ---- Character animation sets ----
+    characterFileNames() {
+        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data ? Object.values(DocsDoodads.AssetIndex.data.assets || {}) : [];
+        return assets.filter(a => a && /^img\/characters\//i.test(a.path || '') && /\.png$/i.test(a.path))
+            .map(a => a.path.replace(/^img\/characters\//i, '').replace(/\.png$/i, '')).sort();
+    },
+
+    animationSetsRaw() {
+        return JSON.parse(JSON.stringify(DocsDoodads.World.get('characterAnim.sets') || []));
+    },
+
+    addAnimationSet(characterName) {
+        const name = String(characterName || '').trim();
+        if (!name) return;
+        const sets = this.animationSetsRaw();
+        const found = DocsDoodads.CharacterAnim.autoDetect(name, this.characterFileNames());
+        sets.push(Object.assign(found, { idleDelay: 90, idleFps: 6, runFps: 12 }));
+        this.setWorldSetting('characterAnim.sets', sets);
+    },
+
+    // One step: a set for every sheet that has _idle or _run variants beside it.
+    addDetectedAnimationSets() {
+        const files = this.characterFileNames();
+        const sets = this.animationSetsRaw();
+        const have = new Set(sets.map(s => s.character));
+        let added = 0;
+        for (const name of files) {
+            const base = DocsDoodads.CharacterAnim.parseName(name).base;
+            if (/_(idle|run)$/i.test(base) || have.has(name)) continue;
+            const found = DocsDoodads.CharacterAnim.autoDetect(name, files);
+            if (!found.idle && !found.run) continue;
+            sets.push(Object.assign(found, { idleDelay: 90, idleFps: 6, runFps: 12 }));
+            added++;
+        }
+        if (added) this.setWorldSetting('characterAnim.sets', sets);
+        return added;
+    },
+
+    setAnimationSetField(row, field, value) {
+        const sets = this.animationSetsRaw();
+        if (!sets[row]) return;
+        sets[row][field] = value;
+        this.setWorldSetting('characterAnim.sets', sets);
+    },
+
+    removeAnimationSet(row) {
+        const sets = this.animationSetsRaw();
+        if (!sets[row]) return;
+        sets.splice(row, 1);
+        this.setWorldSetting('characterAnim.sets', sets);
+    },
+
+    renderAnimSetEditor() {
+        const sets = DocsDoodads.World.get('characterAnim.sets') || [];
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const cell = (r, field, value, type) => `<input type="${type || 'text'}" ${type ? '' : 'list="dd-char-files"'} id="dd-anim-${r}-${field}" value="${escapeHtml(String(value === undefined ? '' : value))}" title="${field}" style="${inputStyle}" />`;
+        const rows = sets.map((s, r) => `
+            <div style="border: 1px solid #334155; border-radius: 4px; padding: 4px; display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; align-items: center;">
+                ${cell(r, 'character', s.character)}${cell(r, 'idle', s.idle)}${cell(r, 'run', s.run)}
+                <button class="dd-btn" id="dd-anim-del-${r}" title="Remove" style="padding: 0 4px;">&times;</button>
+                <span style="font-size: 9px; color: #64748b;">idle after / idle fps / run fps</span>
+                ${cell(r, 'idleDelay', s.idleDelay, 'number')}${cell(r, 'idleFps', s.idleFps, 'number')}${cell(r, 'runFps', s.runFps, 'number')}
+            </div>`).join('');
+        return `
+            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Sheet names set the layout: <b>[f8]</b> = 8 frames per row, <b>[d1]</b> = one row (mirrored for left), <b>[d8]</b> = 8 direction rows. Name variants <b>Name_idle</b> and <b>Name_run</b> and they are found automatically.</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; font-size: 9px; color: #64748b;"><span>Character</span><span>Idle sheet</span><span>Run sheet</span><span></span></div>
+            ${rows}
+            <datalist id="dd-char-files">${this.characterFileNames().map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+            <div style="display: grid; grid-template-columns: 1fr auto; gap: 4px;">
+                <input type="text" list="dd-char-files" id="dd-anim-new" placeholder="Character sheet name" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-anim-add">Add</button>
+            </div>
+            <button class="dd-btn" id="dd-anim-detect">Add All Detected</button>`;
+    },
+
+    bindAnimSetEditor() {
+        const sets = DocsDoodads.World.get('characterAnim.sets') || [];
+        sets.forEach((s, r) => {
+            for (const field of ['character', 'idle', 'run', 'idleDelay', 'idleFps', 'runFps']) {
+                const input = document.getElementById(`dd-anim-${r}-${field}`);
+                if (!input) continue;
+                input.onchange = () => this.setAnimationSetField(r, field, ['idleDelay', 'idleFps', 'runFps'].includes(field) ? Math.max(0, parseFloat(input.value) || 0) : input.value.trim());
+            }
+            const del = document.getElementById(`dd-anim-del-${r}`);
+            if (del) del.onclick = () => { this.removeAnimationSet(r); this.refreshInspector(); };
+        });
+        const add = document.getElementById('dd-anim-add');
+        if (add) add.onclick = () => { this.addAnimationSet(document.getElementById('dd-anim-new').value); this.refreshInspector(); };
+        const detect = document.getElementById('dd-anim-detect');
+        if (detect) detect.onclick = () => {
+            const n = this.addDetectedAnimationSets();
+            this.showToast(n ? `Added ${n} animation set(s).` : 'No _idle or _run sheets found beside your characters.', n ? 'success' : 'info');
+            this.refreshInspector();
+        };
     },
 
     // ---- Post-processing builder ----
@@ -10537,6 +12090,9 @@ DocsDoodads.Workspace = {
                 range('seeThrough.speed', 'Fade speed', 0.02, 0.5, 0.02),
                 { key: 'seeThrough.silhouetteColor', label: 'Outline colour', type: 'color' }
             ] },
+            { title: 'Characters', extra: 'animsets', fields: [
+                check('characterAnim.diagonal', 'Diagonal movement (8 directions)')
+            ] },
             { title: 'Motion Blur', fields: [
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
@@ -10553,7 +12109,8 @@ DocsDoodads.Workspace = {
                 const raw = World.get(f.key);
                 return this.fieldHtml(`dd-world-${si}-${fi}`, f, f.format ? f.format(raw) : raw);
             }).join('');
-            const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor() : '';
+            const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor()
+                : section.extra === 'animsets' ? this.renderAnimSetEditor() : '';
             return `
                 <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                     <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
@@ -10599,6 +12156,7 @@ DocsDoodads.Workspace = {
         });
         this.bindKeyframeEditor();
         this.bindSeasonEditor();
+        this.bindAnimSetEditor();
     },
 
     renderKeyframeEditor() {
