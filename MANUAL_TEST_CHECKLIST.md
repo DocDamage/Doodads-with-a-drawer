@@ -48,6 +48,21 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Edit an image in another program while the workspace is open; the drawer and placed doodad update. Replace it with a smaller image and confirm the game keeps running.
 - [ ] Pack a map's art, preview it in Playtest, change a source image, and confirm the stale warning.
 
+## World atmosphere
+
+Test these on an exterior map and on a looping world map.
+
+- [ ] Turn on the running clock; scrub Preview a time from dawn to night and back. Lamps set to After dark fade on and off; shadows turn and lengthen.
+- [ ] Set an interior map to Ignore (indoors); confirm it stays lit at night. A cave with its own darkness stays dark by day.
+- [ ] Use Set Time of Day, Pass Time and Clock Control; save, load, and confirm the time is kept.
+- [ ] Turn on character shadows; walk through tall grass (one shadow, not the whole sheet), jump, and stand under a roof region listed in Stop shadows at regions.
+- [ ] Walk behind a tall tree in Fade, Outline and Both modes.
+- [ ] Stand on a beach and next to a pond; the reflection starts at the waterline, not on the sand, and bridges stay dry.
+- [ ] Turn on motion blur; walk and dash in all four directions; switch it off in Options.
+- [ ] Add a season row with Season Variant, preview each season in the editor, switch seasons during play with Set Season, and limit a doodad to one season.
+- [ ] Give a switch-controlled doodad each appear/disappear effect and toggle the switch.
+- [ ] Disable each effect with Set Atmosphere Effect and re-enable it.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.

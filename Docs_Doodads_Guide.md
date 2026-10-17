@@ -165,7 +165,57 @@ Select a placed doodad (or several) and open the Inspector's collapsible section
 
 ---
 
-## 8. Genuine RPG Maker MZ Event Creation & Templates
+## 8. World Atmosphere: Day & Night, Sun Shadows, See-Through, Water, Seasons, Motion Blur
+
+These settings apply to the whole game. With nothing selected, the Inspector shows the map panel. Its sections marked **All maps** hold them, and the Lighting section has three per-map switches. Everything is undoable and saved in `data/DocsDoodads.json`.
+
+### Day and Night
+- **Clock**: *Off*, *Running clock* (game minutes pass while the player is on a map; saved with the game), or *Read from variables* (your own events set the hour and minute variables).
+- The running clock writes the hour (and minute) into the variables you choose, so events can check the time.
+- **Darkness through the day** is a list of keyframes (hour, darkness, colour). The map's darkness is blended between them, wrapping through midnight. The defaults go dark blue at night, orange at dawn and dusk, and clear by day.
+- **Lamps**: set a doodad's Light to *After dark* and it fades on once darkness passes **Lamps switch on at darkness**, and off again in the morning.
+- **Preview a time while editing** scrubs the clock without changing the game.
+- **Per map**: *Day and night on this map* is *Auto* (follow the clock unless the map sets its own darkness, so caves stay dark), *Follow the clock*, or *Ignore (indoors)*.
+- Plugin commands: **Set Time of Day**, **Pass Time**, **Clock Control** (pause, resume, speed), and **Set/Reset Ambient Light**, which still win over the clock while they are active.
+
+### Sun and Shadows
+- The sun rises in the east and sets in the west. Morning shadows point west, noon shadows are short and point up the screen, evening shadows point east, and a faint moon does the same at night. You can use a fixed direction or a variable (degrees) instead.
+- **Characters cast shadows** gives the player, followers and events a soft shadow cut from their own sprite. It follows the sun, stays on the ground while jumping, and is correct in tall grass.
+- **Which events**: every event that stands up (same priority as characters), or only tagged ones.
+- **Stop shadows at regions**: list roof or overhang region IDs, and shadows end at their edge instead of being sliced by upper tiles.
+- Doodad shadows can **Follow the sun** (Shadow section) instead of keeping a fixed lean.
+- Event tags, in the note box or a comment on the active page: `<shadow>`, `<shadow: length 0.8, opacity 0.4>`, `<no shadow>`.
+- Per map: *Character shadows on this map*.
+
+### See-Through
+When the player walks behind a tall doodad (a tree, a roof, a tower), it fades so the player stays visible. Or the player is drawn as a coloured outline, or both.
+- **Auto** applies to standing doodads at least 1.5 tiles tall.
+- Set **See-through** to *Always* or *Never* per doodad in its Atmosphere section.
+
+### Water Reflections
+- Characters and standing doodads get a rippling mirrored copy on the water tiles below them. Bridges over water are left alone.
+- Add a **region** to treat painted areas (ponds drawn with B-E tiles) as water.
+- **Shore margin** keeps a strip along the waterline clear, because MZ water tiles draw their own sand or grass edge. Reflections start where the water visibly begins.
+- Turn it off per map, per doodad (**Reflect in water**), or per event with `<no reflection>`.
+
+### Motion Blur
+Moving characters blur along their direction, more when dashing; transfers and jumps never smear. Choose everyone or events tagged `<motion blur>` (`<no motion blur>` opts out). When it is on, players get a **Motion Blur** switch in the Options menu.
+
+### Seasons
+- **Current season from**: a variable, or the **Set Season** plugin command. Season names are editable.
+- **Art swaps**: each row lists one prop's art per season, and every doodad using any image in the row shows the current season's version. Empty cells keep the original. Fill rows from the map panel, or select an asset in the drawer and use **Season Variant** to add it.
+- **Preview while editing** shows any season in the editor.
+- A doodad's **Only in ...** checkboxes limit it to some seasons (flowers in spring and summer, snowmen in winter).
+
+### Appear and Disappear
+Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**, **Dissolve** or **Crumble** in and out over a set number of frames, instead of blinking.
+
+### Turning effects off during play
+**Set Atmosphere Effect** switches character shadows, motion blur, water reflections or see-through on or off for the current playthrough.
+
+---
+
+## 9. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -200,7 +250,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 9. Direct SAT Physical Collision System
+## 10. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -218,7 +268,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 10. Audio Drawer Integration
+## 11. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -228,7 +278,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 11. Windows Explorer Native Drag-and-Drop Ingestion
+## 12. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -248,7 +298,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 12. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 13. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -260,7 +310,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 13. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 14. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -271,7 +321,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 14. Workspace Layouts & Custom Layout Persistence
+## 15. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -284,7 +334,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 15. Project Safety, Conflict Detection & Crash Recovery
+## 16. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -302,7 +352,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 16. Complete Keyboard Shortcuts Cheat Sheet
+## 17. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -331,7 +381,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 17. Troubleshooting & FAQ
+## 18. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -341,12 +391,15 @@ Editing real map data in playtest mode requires rigorous file protection:
 ### Q: Can I safely deploy my game to players?
 - **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads, effects, lights and collision render normally. If you packed map art, pack again after changing source images; a pack built before a change keeps the old art.
 
+### Q: Why do my house interiors get dark at night?
+- The day/night clock applies to every map that doesn't set its own darkness. In the map panel, set **Day and night on this map** to *Ignore (indoors)* for interiors, or give the map its own ambient darkness.
+
 ### Q: Will updating my maps in the RPG Maker MZ editor erase my doodads?
 - **No.** Doodads are stored in `data/DocsDoodads.json` keyed by map ID (`$gameMap.mapId()`). They persist independently of map geometry changes.
 - For events created through the workspace, remember to press **Ctrl + S** inside the workspace to commit them to `MapXXX.json`. Then reload the map in the RPG Maker MZ editor to view the new event nodes.
 
 ---
 
-## 18. Credits & Licensing
+## 19. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
