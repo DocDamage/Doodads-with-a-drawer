@@ -33,6 +33,13 @@ assert.strictEqual(persistence.recoverableSnapshot(), null, "this run's own auto
 write(persistence.bootedAt - 2 * 86400000);
 assert.strictEqual(persistence.recoverableSnapshot(), null, "snapshots older than a day are not offered");
 
+// Once accepted or declined, the same snapshot is not offered again each time the workspace opens.
+write(persistence.bootedAt - 60000);
+persistence.markRecoveryAnswered(persistence.recoverableSnapshot());
+assert.strictEqual(persistence.recoverableSnapshot(), null, 'an answered snapshot is not offered again in this run');
+write(persistence.bootedAt - 30000);
+assert.ok(persistence.recoverableSnapshot(), 'a different snapshot still is');
+
 fs.unlinkSync('data/DocsDoodadsRecovery.json');
 assert.strictEqual(persistence.recoverableSnapshot(), null);
 
