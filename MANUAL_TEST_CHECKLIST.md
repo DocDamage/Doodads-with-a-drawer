@@ -84,6 +84,15 @@ Test these on an exterior map and on a looping world map.
 - [ ] Play Character Action with loops, hold and wait; Clear Character Action. Save and load mid-action.
 - [ ] Check a character in tall grass with a tagged sheet (bush depth) and its shadow and reflection.
 
+## Spatial sound
+
+- [ ] Walk around an event that plays a sound effect in a parallel process; it fades with distance and pans left and right. Tag it <no spatial> and compare.
+- [ ] Give a doodad a looping background sound and another a repeating sound effect; walk in and out of range; open the menu and return.
+- [ ] Tag an event <sound: River, 80, 8>.
+- [ ] Turn on echo for a cave map; check menu sounds and music do not echo.
+- [ ] Paint a region, give it a background sound with a fade; walk in and out on a map with and without its own BGS.
+- [ ] Use Play SE At on an event and a tile.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.

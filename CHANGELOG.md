@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added spatial sound: event and move-route sound effects get quieter with distance and pan by direction, with automatic pitch and volume variation; ambient loops and repeating sound effects on doodads and events (<sound: ...>); per-map echo; background sounds by region with fades; <spatial>/<no spatial> tags; and the Play SE At plugin command.
 - Added particle emitters on doodads (11 presets, adjustable amount, layer and offset), grass and bushes that bend when walked through and can drop leaves, and a VFX builder: effects made of particle and sprite-sheet layers, six built-ins, saved with the project, played with the Play VFX plugin command or looped on a doodad.
 - Added character animation: sheet names set frames per row ([f8] or %(8)), single-row ([d1], mirrored) and 8-direction ([d8]) layouts; idle and run cycles from Name_idle / Name_run sheets with auto-detect and preloading; Play/Clear Character Action with hold, loops and wait; and optional diagonal movement for the player.
 - Added post-processing: bloom, colour grading, vignette, film grain, chromatic aberration, lens distortion, CRT, pixelate, sharpen and tilt-shift, with nine presets, a live builder (Post FX), a game-wide look plus per-map looks, hold-to-compare, quality levels and an Effects Quality option for players. Plugin commands: Set Post-Processing Look (fades) and Play Screen Effect (impact zoom, shockwave, chromatic punch, bloom flash).

@@ -302,7 +302,34 @@ Click **VFX** in the toolbar.
 
 ---
 
-## 11. Genuine RPG Maker MZ Event Creation & Templates
+## 11. Spatial Sound
+
+### Event sounds in the world
+With **Spatial Sound** on (map panel, *All maps*), every **Play SE** run by a map event, and every SE in a movement route, is heard from where the event stands:
+- Quieter with distance: full volume within *Full volume within* tiles, silent past *Silent beyond*.
+- Panned left or right by direction: fully to one side at *Full left/right at* tiles.
+- Slightly varied in pitch and volume each time (*Pitch variation*, *Volume variation*), so repeated footsteps, doors and barks never sound identical.
+
+Sounds from the party stay centred. Choose *Only events tagged &lt;spatial&gt;* to opt events in one by one, or tag an event `<no spatial>` to opt it out. Nothing needs setting up on each event.
+
+**Play SE At** (plugin command) plays a sound effect from the player, this event, an event by ID, or a map tile.
+
+### Ambient sounds on doodads and events
+A doodad's **Sound** section attaches a sound:
+- **Background sounds** (rivers, fire, wind, machinery) loop.
+- **Sound effects** (birds, drips, bells) repeat about every *N* seconds, at slightly irregular intervals.
+
+Each has a volume, a pitch and a **Heard within** radius in tiles. Volume and pan follow the player as they move, and a sound stops when it is out of range. Events can do the same with a tag in their note or a page comment: `<sound: River, 80, 8>` (name, volume, radius) or `<sound: se/Bird1, 60, 10, 5>` (a sound effect repeating every 5 seconds).
+
+### Echo
+**Sound (this map) → Echo** adds an echo to the map's sound effects and background sounds, for caves, halls and canyons. Set the delay, how many times it repeats, and how loud it is. Music, jingles and menu sounds never echo.
+
+### Background sound by region
+Also in **Sound (this map)**: give a region ID a background sound with a volume and a fade time. When the player walks into the region the sound fades in. Walking out brings back whatever the map was playing. Use it for a waterfall's roar, a windy cliff, or the hum of a shop.
+
+---
+
+## 12. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -337,7 +364,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 12. Direct SAT Physical Collision System
+## 13. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -355,7 +382,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 13. Audio Drawer Integration
+## 14. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -365,7 +392,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 14. Windows Explorer Native Drag-and-Drop Ingestion
+## 15. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -385,7 +412,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 15. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 16. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -397,7 +424,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 16. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 17. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -408,7 +435,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 17. Workspace Layouts & Custom Layout Persistence
+## 18. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -421,7 +448,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 18. Project Safety, Conflict Detection & Crash Recovery
+## 19. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -439,7 +466,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 19. Complete Keyboard Shortcuts Cheat Sheet
+## 20. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -468,7 +495,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 20. Troubleshooting & FAQ
+## 21. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -493,6 +520,6 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 21. Credits & Licensing
+## 22. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
