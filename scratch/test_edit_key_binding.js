@@ -24,14 +24,14 @@ function Scene_Title() {}
 global.Scene_Map = Scene_Map;
 global.SceneManager = { _scene: new Scene_Map() };
 global.PluginManager = { parameters: () => ({ editKey: "F10", editorMode: "true" }) };
-// A fresh New Game: Game_System carries no doodadsQJ editor state.
+// A fresh New Game: Game_System carries no docsDoodads editor state.
 global.$gameSystem = {};
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 let toggles = 0;
-QJ.DD.Workspace.mounted = false;
-QJ.DD.Workspace.toggle = function() { toggles++; this.mounted = !this.mounted; };
+DocsDoodads.Workspace.mounted = false;
+DocsDoodads.Workspace.toggle = function() { toggles++; this.mounted = !this.mounted; };
 
 function pressKey(code) {
     const event = { code, key: code, ctrlKey: false, target: null, preventDefault() { this.prevented = true; } };
@@ -47,11 +47,11 @@ assert.ok(event.prevented, "F10 should be consumed so NW.js does not also handle
 
 // Editor shortcuts and Explorer drops are live once the workspace is mounted.
 let undos = 0;
-QJ.DD.Undo.undo = () => { undos++; };
+DocsDoodads.Undo.undo = () => { undos++; };
 for (const fn of listeners.keydown) fn({ code: 'KeyZ', key: 'z', ctrlKey: true, target: null, preventDefault() {} });
 assert.strictEqual(undos, 1, "Ctrl+Z should reach Undo while the workspace is open");
 let imported = null;
-QJ.DD.Workspace.showAssetImportModal = (paths) => { imported = paths; };
+DocsDoodads.Workspace.showAssetImportModal = (paths) => { imported = paths; };
 const dropEvent = { dataTransfer: { files: [{ path: 'C:/art/tree.png' }] }, preventDefault() { this.prevented = true; } };
 for (const fn of listeners.drop) fn(dropEvent);
 assert.deepStrictEqual(imported, ['C:/art/tree.png'], "Explorer drops should open the import modal while editing");
@@ -59,7 +59,7 @@ assert.deepStrictEqual(imported, ['C:/art/tree.png'], "Explorer drops should ope
 // Closing while editing toggles exactly once.
 pressKey('F10');
 assert.strictEqual(toggles, 2, "F10 while editing should toggle exactly once");
-assert.strictEqual(QJ.DD.Workspace.mounted, false);
+assert.strictEqual(DocsDoodads.Workspace.mounted, false);
 
 // Shortcuts stay inert while closed.
 for (const fn of listeners.keydown) fn({ code: 'KeyZ', key: 'z', ctrlKey: true, target: null, preventDefault() {} });

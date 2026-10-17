@@ -16,16 +16,16 @@ global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: (opt) =
 global.PluginManager = { parameters: () => ({ editKey: "F10", editorMode: "true" }) };
 global.$gameMap = { mapId: () => 1 };
 
-require('../QJ-Doodads.js');
-const ws = QJ.DD.Workspace;
+require('../Docs-Doodads.js');
+const ws = DocsDoodads.Workspace;
 let selected = null;
 ws.selectDoodad = (d) => { selected = d; };
 ws.selectEvent = () => {};
 
-const warrior = Object.assign(QJ.DD.standardStruct(), { x: 360, y: 432, frameW: 224, frameH: 228 });
-const coin = Object.assign(QJ.DD.standardStruct(), { x: 600, y: 600, frameW: 16, frameH: 16 });
-const big = Object.assign(QJ.DD.standardStruct(), { x: 900, y: 900, frameW: 100, frameH: 100, scaleX: 2, scaleY: 2 });
-global.$dataDoodadsQJ = { 1: [warrior, coin, big] };
+const warrior = Object.assign(DocsDoodads.standardStruct(), { x: 360, y: 432, frameW: 224, frameH: 228 });
+const coin = Object.assign(DocsDoodads.standardStruct(), { x: 600, y: 600, frameW: 16, frameH: 16 });
+const big = Object.assign(DocsDoodads.standardStruct(), { x: 900, y: 900, frameW: 100, frameH: 100, scaleX: 2, scaleY: 2 });
+global.$dataDocsDoodads = { 1: [warrior, coin, big] };
 
 function click(x, y) {
     selected = undefined;

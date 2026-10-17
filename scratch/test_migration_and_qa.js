@@ -22,8 +22,8 @@ global.Scene_Map = class {
     updateScene() {}
 };
 
-delete require.cache[require.resolve('../QJ-Doodads.js')];
-require('../QJ-Doodads.js');
+delete require.cache[require.resolve('../Docs-Doodads.js')];
+require('../Docs-Doodads.js');
 
 console.log("=== Testing Migration, QA, Fallback & Production Isolation ===");
 
@@ -46,7 +46,7 @@ const legacyData = {
     ]
 };
 
-QJ.DD.migrateData(legacyData, 'doodads');
+DocsDoodads.migrateData(legacyData, 'doodads');
 const d1 = legacyData[1][0];
 assert(d1.collision && d1.collision.preset === 'none', "Collision preset should be backfilled");
 assert.strictEqual(d1.scaleX, 1, "scaleX should default to 1");
@@ -81,10 +81,10 @@ const intactBackup = { recoveredSuccessfully: true, timestamp: Date.now() };
 fs.writeFileSync(backupFile, JSON.stringify(intactBackup), 'utf8');
 
 // Attempt readJson on the corrupt file
-const originalFindLatestBackup = QJ.DD.FS.findLatestBackup;
-QJ.DD.FS.findLatestBackup = () => backupFile;
-const result = QJ.DD.FS.readJson(corruptFile);
-QJ.DD.FS.findLatestBackup = originalFindLatestBackup;
+const originalFindLatestBackup = DocsDoodads.FS.findLatestBackup;
+DocsDoodads.FS.findLatestBackup = () => backupFile;
+const result = DocsDoodads.FS.readJson(corruptFile);
+DocsDoodads.FS.findLatestBackup = originalFindLatestBackup;
 assert(result !== null, "readJson should not return null when intact backup exists");
 assert.strictEqual(result.recoveredSuccessfully, true, "Data should be seamlessly recovered from latest backup");
 console.log("✓ Corrupt JSON automatically detected and recovered from backup!");
@@ -97,10 +97,10 @@ try { fs.unlinkSync(backupFile); } catch(e) {}
 console.log("\nTesting Production Deployment Isolation (test mode false)...");
 global.Utils.isOptionValid = (opt) => false; // Simulating exported game
 
-assert(!QJ.DD.Compat.isTest(), "isTest() must be false in exported production game");
+assert(!DocsDoodads.Compat.isTest(), "isTest() must be false in exported production game");
 
 let workspaceOpened = false;
-QJ.DD.Workspace.open = () => { workspaceOpened = true; };
+DocsDoodads.Workspace.open = () => { workspaceOpened = true; };
 
 // Simulate Scene_Map updateScene in production with F10 pressed
 global.Input = { isTriggered: () => true };

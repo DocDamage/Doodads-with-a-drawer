@@ -12,7 +12,7 @@ global.document = { createElement: () => ({ style: {} }), getElementById: () => 
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: () => true };
 global.PluginManager = { parameters: () => ({}) };
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 function crc32(buf) {
     let c, crc = 0xffffffff;
@@ -50,7 +50,7 @@ async function main() {
 
     // A cached face entry written by an older index keeps its mtime/size but has the guessed size.
     const faceStat = fs.statSync(path.join(sandbox, 'img/faces/Actor1.png'));
-    QJ.DD.AssetIndex.data = {
+    DocsDoodads.AssetIndex.data = {
         version: 1, projectId: 'test', generatedAt: 0,
         assets: {
             'img/faces/actor1.png': {
@@ -61,8 +61,8 @@ async function main() {
         }, collections: {}, settings: {}
     };
 
-    await QJ.DD.AssetIndex.scanAsync({ projectRoot: sandbox, roots: ['img/faces', 'img/system', 'img/characters'], loadCache: false, save: false });
-    const assets = QJ.DD.AssetIndex.data.assets;
+    await DocsDoodads.AssetIndex.scanAsync({ projectRoot: sandbox, roots: ['img/faces', 'img/system', 'img/characters'], loadCache: false, save: false });
+    const assets = DocsDoodads.AssetIndex.data.assets;
 
     const face = assets['img/faces/actor1.png'];
     assert.deepStrictEqual([face.width, face.height], [576, 288], 'face sheet should record its real size');

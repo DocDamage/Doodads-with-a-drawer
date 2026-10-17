@@ -15,11 +15,11 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: (opt) => opt === "test" };
 global.PluginManager = { parameters: () => ({}) };
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 const cases = [['!Door1.png', '!Door1'], ['$BigMonster.PNG', '$BigMonster'], ['Actor1', 'Actor1'], ['', '']];
 for (const [input, expected] of cases) {
-    const ev = QJ.DD.Events.createEventObject(1, 2, 3, { characterName: input });
+    const ev = DocsDoodads.Events.createEventObject(1, 2, 3, { characterName: input });
     assert.strictEqual(ev.pages[0].image.characterName, expected, `characterName ${JSON.stringify(input)}`);
 }
 

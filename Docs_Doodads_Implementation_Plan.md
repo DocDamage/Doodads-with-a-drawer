@@ -1,12 +1,13 @@
-# QJ Doodads Asset Workspace
+# Doc's Doodads
 ## Highly Detailed Phased Implementation Plan
 
-**Project:** RPG Maker MZ QJ-Doodads enhancement  
-**Primary source plugin:** `QJ-Doodads.js`  
+**Project:** Doc's Doodads (began as an RPG Maker MZ enhancement of Qiu Jiu's QJ-Doodads)  
+**Naming note:** This plan predates the rename. References to QJ-Doodads describe the upstream baseline the project grew from.  
+**Primary source plugin:** `Docs-Doodads.js`  
 **Primary target:** RPG Maker MZ  
 **Secondary target:** RPG Maker MV where compatibility is practical and does not compromise MZ  
 **Delivery model:** One installable JavaScript plugin file, with project-side JSON/cache files generated automatically  
-**Working name:** **QJ Doodads Asset Workspace**  
+**Working name:** **Doc's Doodads**  
 **Document purpose:** Build-ready implementation handoff and phased development plan
 
 ---
@@ -56,7 +57,7 @@ The project must remain focused. It is **not** intended to become a replacement 
 
 ## 2.1 Product statement
 
-> **QJ Doodads Asset Workspace** is a visual asset-driven mapping and event-placement workspace for RPG Maker MZ that lets the user browse, search, preview, slice, organize, drag, drop, place, and configure project assets without relying on MZ's traditional sprite-sheet selection workflow.
+> **Doc's Doodads** is a visual asset-driven mapping and event-placement workspace for RPG Maker MZ that lets the user browse, search, preview, slice, organize, drag, drop, place, and configure project assets without relying on MZ's traditional sprite-sheet selection workflow.
 
 The target experience should feel like **RPG Maker MZ with a much better asset browser and placement workflow**, not like Unity or Godot transplanted wholesale into RPG Maker.
 
@@ -66,7 +67,7 @@ The target experience should feel like **RPG Maker MZ with a much better asset b
 
 ## 3.1 In scope
 
-- QJ doodad placement and editing
+- Doodad placement and editing
 - normal MZ project asset folders
 - visual asset browsing
 - sprite-sheet detection
@@ -125,7 +126,7 @@ Important existing capabilities include:
 
 - editor activation through a hotkey
 - editor-only behavior
-- QJ doodad data structures
+- Upstream QJ-Doodads data structures
 - recursive image-folder scanning
 - Node `fs` usage
 - doodad JSON save/load
@@ -160,7 +161,7 @@ The user wants one self-contained tool.
 Therefore the deliverable should remain:
 
 ```text
-js/plugins/QJ-Doodads.js
+js/plugins/Docs-Doodads.js
 ```
 
 or a renamed successor if migration is desired later.
@@ -170,36 +171,36 @@ However, internally the file should be organized into clear logical modules.
 Recommended namespace structure:
 
 ```text
-QJ.DD
-QJ.DD.Core
-QJ.DD.Compat
-QJ.DD.FS
-QJ.DD.AssetIndex
-QJ.DD.AssetCache
-QJ.DD.Metadata
-QJ.DD.Thumbnail
-QJ.DD.Search
-QJ.DD.Workspace
-QJ.DD.Layout
-QJ.DD.Drawer
-QJ.DD.Inspector
-QJ.DD.DragDrop
-QJ.DD.Placement
-QJ.DD.Events
-QJ.DD.EventTemplates
-QJ.DD.Collision
-QJ.DD.Slicing
-QJ.DD.Slicing.Metadata
-QJ.DD.Slicing.Grid
-QJ.DD.Slicing.Visual
-QJ.DD.Slicing.Editor
-QJ.DD.Audio
-QJ.DD.Import
-QJ.DD.Export
-QJ.DD.Undo
-QJ.DD.Persistence
-QJ.DD.Recovery
-QJ.DD.Diagnostics
+DocsDoodads
+DocsDoodads.Core
+DocsDoodads.Compat
+DocsDoodads.FS
+DocsDoodads.AssetIndex
+DocsDoodads.AssetCache
+DocsDoodads.Metadata
+DocsDoodads.Thumbnail
+DocsDoodads.Search
+DocsDoodads.Workspace
+DocsDoodads.Layout
+DocsDoodads.Drawer
+DocsDoodads.Inspector
+DocsDoodads.DragDrop
+DocsDoodads.Placement
+DocsDoodads.Events
+DocsDoodads.EventTemplates
+DocsDoodads.Collision
+DocsDoodads.Slicing
+DocsDoodads.Slicing.Metadata
+DocsDoodads.Slicing.Grid
+DocsDoodads.Slicing.Visual
+DocsDoodads.Slicing.Editor
+DocsDoodads.Audio
+DocsDoodads.Import
+DocsDoodads.Export
+DocsDoodads.Undo
+DocsDoodads.Persistence
+DocsDoodads.Recovery
+DocsDoodads.Diagnostics
 ```
 
 The final JS may remain one physical file, but development should treat these as isolated subsystems.
@@ -214,17 +215,17 @@ Recommended generated files:
 
 ```text
 data/
-  DoodadsQJ.json
-  QJAssetLibrary.json
-  QJEventTemplates.json
-  QJWorkspaceLayouts.json
-  QJAssetWorkspaceRecovery.json
+  DocsDoodads.json
+  DocsDoodadsLibrary.json
+  DocsDoodadsEventTemplates.json
+  DocsDoodadsLayouts.json
+  DocsDoodadsRecovery.json
 ```
 
 Optional cache directory:
 
 ```text
-.qjassetcache/
+data/docs_doodads_cache/
   thumbnails/
   analysis/
   temp/
@@ -233,7 +234,7 @@ Optional cache directory:
 If hidden folders create compatibility problems, use:
 
 ```text
-data/qj_asset_cache/
+data/docs_doodads_cache/
 ```
 
 The cache must be disposable. Deleting it must not destroy authoring work.
@@ -242,7 +243,7 @@ The cache must be disposable. Deleting it must not destroy authoring work.
 
 # 7. Asset Library Data Model
 
-## 7.1 `QJAssetLibrary.json`
+## 7.1 `DocsDoodadsLibrary.json`
 
 This becomes the central project metadata index.
 
@@ -791,7 +792,7 @@ Initial support targets:
 - Aseprite JSON array/hash
 - TexturePacker JSON array/hash
 - generic atlas JSON when recognizable
-- Sprite Atlas Forge `.saf.json` optionally
+- `.saf.json` optionally
 - Phaser-style JSON optionally
 
 ## 16.1 Metadata may provide
@@ -845,9 +846,9 @@ Confidence: 96%
 
 ---
 
-# 18. Sprite Atlas Forge-Inspired Visual Detector
+# 18. Visual Detector
 
-The main visual detector should adapt proven concepts from Sprite Atlas Forge into JavaScript/Canvas-compatible logic.
+The main visual detector should use proven image-analysis techniques implemented in JavaScript/Canvas-compatible logic.
 
 Do not blindly port SkiaSharp code.
 
@@ -1054,9 +1055,9 @@ Attach only if ownership is unambiguous and detail size is reasonable.
 
 ## 19.12 Step 12: gutter splitting
 
-Sprite Atlas Forge uses vertical low-occupancy gutters in difficult connected regions.
+Vertical low-occupancy gutters can separate difficult connected regions.
 
-Our implementation should extend this to:
+Our implementation should use this for:
 
 - vertical gutters
 - horizontal gutters
@@ -1103,7 +1104,7 @@ For strong grid inference, preserve row/column order.
 
 Some sprite detection tools contain color-specific glow recovery.
 
-The QJ implementation must remain general.
+The implementation must remain general.
 
 Use:
 
@@ -1470,7 +1471,7 @@ Does this object need an event?
 If No:
 
 ```text
-create QJ doodad
+create doodad
 ```
 
 If Yes:
@@ -1657,7 +1658,7 @@ Custom templates can be exported/imported.
 
 ## 33.1 Core rule
 
-Non-event doodads should use direct QJ collision rather than invisible blocker events.
+Non-event doodads should use direct doodad collision rather than invisible blocker events.
 
 Example:
 
@@ -1959,7 +1960,7 @@ Map001.json.bak.1
 or timestamped backup folder:
 
 ```text
-.qjassetcache/backups/2026-09-03_193000/
+data/docs_doodads_cache/backups/2026-09-03_193000/
 ```
 
 Prefer timestamped backups.
@@ -1989,7 +1990,7 @@ Workspace edits live in memory, but periodic recovery snapshots should be writte
 Example:
 
 ```text
-data/QJAssetWorkspaceRecovery.json
+data/DocsDoodadsRecovery.json
 ```
 
 or cache folder.
@@ -2059,7 +2060,7 @@ MZ is primary.
 MV compatibility should be isolated behind:
 
 ```text
-QJ.DD.Compat
+DocsDoodads.Compat
 ```
 
 Do not scatter version checks everywhere.
@@ -2203,8 +2204,6 @@ Nearest bucket can be scaled for display.
 
 QJ-Doodads identifies itself as MIT licensed.
 
-Sprite Atlas Forge is MIT licensed.
-
 If implementation copies substantial code rather than only algorithmic ideas, preserve the required copyright/license notices.
 
 Recommended approach:
@@ -2262,7 +2261,7 @@ Create a safe foundation without changing user-visible behavior.
 - IconSet works
 - tileset selection works
 - UltraMode7 hook remains intact
-- old DoodadsQJ data requires no manual conversion
+- old DocsDoodads data requires no manual conversion
 
 ---
 
@@ -2278,7 +2277,7 @@ Replace the limited doodads-folder listing with a scalable project asset index.
 2. Build incremental scanner.
 3. Add path normalization.
 4. Create stable asset IDs.
-5. Build `QJAssetLibrary.json`.
+5. Build `DocsDoodadsLibrary.json`.
 6. Add mtime/size cache invalidation.
 7. Add auto-tag generation.
 8. Add categories.
@@ -2429,7 +2428,7 @@ Use exact data when available instead of heuristics.
 
 ## Objective
 
-Implement the Sprite Atlas Forge-inspired detector.
+Implement the visual detector.
 
 ## Tasks
 
@@ -2634,7 +2633,7 @@ Bring the in-game editor up to modern workflow standards.
 
 Eliminate unnecessary external file-management steps.
 
-**Implementation status (2026-09-03): Complete.** Explorer drops now pass through the reusable `QJ.DD.Import` transaction layer. The workspace presents batch-wide destination and collision choices, supports optional slicer launch, reports incremental progress, permits cancellation, re-indexes successful imports, detects exact duplicates, and rolls back all earlier copies when a batch fails or is cancelled. Automated coverage is in `scratch/test_asset_import.js` and `scratch/test_asset_import_async.js`.
+**Implementation status (2026-09-03): Complete.** Explorer drops now pass through the reusable `DocsDoodads.Import` transaction layer. The workspace presents batch-wide destination and collision choices, supports optional slicer launch, reports incremental progress, permits cancellation, re-indexes successful imports, detects exact duplicates, and rolls back all earlier copies when a batch fails or is cancelled. Automated coverage is in `scratch/test_asset_import.js` and `scratch/test_asset_import_async.js`.
 
 ## Tasks
 
@@ -2804,7 +2803,7 @@ Ship without breaking existing projects.
 
 1. plugin parameter cleanup.
 2. migration versioning.
-3. old DoodadsQJ compatibility.
+3. old DocsDoodads compatibility.
 4. old plugin setting migration.
 5. corrupt metadata fallback.
 6. empty project tests.
@@ -2928,7 +2927,7 @@ If scope needs to be controlled, the minimum version worth shipping is:
 4. search
 5. known MZ slicing
 6. grid slicing
-7. Sprite Atlas Forge-inspired auto-slicing
+7. visual auto-slicing
 8. slicer correction UI
 9. non-destructive regions
 10. drag/drop doodads
@@ -3238,28 +3237,28 @@ Advanced slicer settings belong inside the slicer.
 Examples:
 
 ```js
-QJ.DD.AssetIndex.scan()
-QJ.DD.AssetIndex.refreshPath(path)
+DocsDoodads.AssetIndex.scan()
+DocsDoodads.AssetIndex.refreshPath(path)
 
-QJ.DD.Search.query(text)
+DocsDoodads.Search.query(text)
 
-QJ.DD.Slicing.analyze(asset, options)
-QJ.DD.Slicing.loadSaved(asset)
-QJ.DD.Slicing.saveRegions(asset, regions)
+DocsDoodads.Slicing.analyze(asset, options)
+DocsDoodads.Slicing.loadSaved(asset)
+DocsDoodads.Slicing.saveRegions(asset, regions)
 
-QJ.DD.Placement.begin(asset, mode)
-QJ.DD.Placement.commit(position)
+DocsDoodads.Placement.begin(asset, mode)
+DocsDoodads.Placement.commit(position)
 
-QJ.DD.Events.createFromAsset(asset, position, template)
-QJ.DD.Events.stage(event)
-QJ.DD.Events.commitMap()
+DocsDoodads.Events.createFromAsset(asset, position, template)
+DocsDoodads.Events.stage(event)
+DocsDoodads.Events.commitMap()
 
-QJ.DD.Persistence.saveAssetLibrary()
-QJ.DD.Persistence.saveWorkspace()
+DocsDoodads.Persistence.saveAssetLibrary()
+DocsDoodads.Persistence.saveWorkspace()
 
-QJ.DD.Undo.execute(command)
-QJ.DD.Undo.undo()
-QJ.DD.Undo.redo()
+DocsDoodads.Undo.execute(command)
+DocsDoodads.Undo.undo()
+DocsDoodads.Undo.redo()
 ```
 
 A clean internal API will prevent the single physical JS file from becoming unmaintainable.
@@ -3300,7 +3299,7 @@ The project is complete when the following workflow is reliable:
 9. Drag one logical sprite to the map.
 10. Tool previews placement.
 11. For decorative objects, it asks whether an event is needed unless a remembered decision exists.
-12. Doodad placement creates the correct QJ structure.
+12. Doodad placement creates the correct doodad structure.
 13. Event placement creates a real MZ event.
 14. Collision can be assigned simply.
 15. Undo/redo works.
@@ -3415,7 +3414,7 @@ Release only after map-file safety and recovery are proven.
 
 ## QJ-Doodads
 
-Primary user-provided plugin:
+Primary user-provided plugin (upstream V1.2, kept as `QJ-Doodads.original.js`):
 
 ```text
 QJ-Doodads.js
@@ -3447,35 +3446,11 @@ Useful primarily as reference for:
 
 It is not the main reference for automatic region detection.
 
-## Sprite Atlas Forge
-
-Repository:
-
-```text
-https://github.com/Driftya/sprite-atlas-forge
-```
-
-Primary reference for advanced visual detection concepts:
-
-- adaptive alpha analysis
-- transparent vs opaque background handling
-- border-connected background removal
-- morphological cleanup
-- connected-component detection
-- nearby component grouping
-- seeded refinement
-- detached detail recovery
-- gutter splitting
-- manual region resizing/snapping
-- safe source-size limits
-
-The QJ implementation should adapt these ideas to JavaScript, Canvas, PIXI, NW.js, and RPG Maker MZ rather than porting its .NET/SkiaSharp architecture directly.
-
 ---
 
 # 67. Final Handoff Summary
 
-The implementation should preserve the identity of QJ-Doodads while replacing its most dated workflow: asset discovery and sprite selection.
+The implementation should build on the strengths of QJ-Doodads while replacing its most dated workflow: asset discovery and sprite selection.
 
 The final system should feel like this:
 

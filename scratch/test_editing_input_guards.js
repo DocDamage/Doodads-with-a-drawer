@@ -44,8 +44,8 @@ Object.assign(global, { Game_Player, Game_Event, Game_Map, Scene_Map });
 global.SceneManager = { _scene: new Scene_Map() };
 global.$gameSystem = {};
 
-require('../QJ-Doodads.js');
-const ws = QJ.DD.Workspace;
+require('../Docs-Doodads.js');
+const ws = DocsDoodads.Workspace;
 
 const player = new Game_Player();
 const npc = new Game_Event();
@@ -106,11 +106,11 @@ for (const fn of listeners.keydown) fn(keyEvent(86, { key: 'v', ctrlKey: true, t
 assert.strictEqual(pasted, 1, "Ctrl+V on the canvas pastes copied doodads");
 
 // Slicer: reopening must not stack key listeners, and its fields keep Backspace.
-const editor = QJ.DD.Slicing.Editor;
+const editor = DocsDoodads.Slicing.Editor;
 let regionDeletes = 0, mapUndos = 0;
-QJ.DD.Undo.undo = () => { mapUndos++; };
+DocsDoodads.Undo.undo = () => { mapUndos++; };
 const stubElement = () => ({ style: {}, onclick: null, addEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }), click() {} });
-document.getElementById = (id) => id === 'qj-slicer-del-btn' ? Object.assign(stubElement(), { click() { regionDeletes++; } }) : stubElement();
+document.getElementById = (id) => id === 'dd-slicer-del-btn' ? Object.assign(stubElement(), { click() { regionDeletes++; } }) : stubElement();
 editor.bindEvents();
 editor.bindEvents();
 editor.modal = {};

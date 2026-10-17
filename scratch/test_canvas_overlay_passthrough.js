@@ -24,8 +24,8 @@ global.PluginManager = { parameters: () => ({ editKey: "F10", editorMode: "true"
 const canvasEvents = [];
 global.Graphics = { _canvas: { addEventListener: (type) => canvasEvents.push(type), removeEventListener() {} } };
 
-require('../QJ-Doodads.js');
-const ws = QJ.DD.Workspace;
+require('../Docs-Doodads.js');
+const ws = DocsDoodads.Workspace;
 
 ws.attachCanvasListeners();
 assert.ok(canvasEvents.includes('drop'), "drop is handled on the canvas");

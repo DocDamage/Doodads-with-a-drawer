@@ -81,7 +81,7 @@ global.PluginManager = {
         defaultLayout: "Mapping",
         cacheEnabled: "true",
         saveMode: "false",
-        devDiagnostics: "global.__qjParameterCodeExecuted = true"
+        devDiagnostics: "global.__ddParameterCodeExecuted = true"
     })
 };
 
@@ -159,7 +159,7 @@ global.Scene_Map = function() {};
 global.Scene_Map.prototype.initialize = function() {};
 global.Scene_Map.prototype.updateScene = function() {};
 
-global.Spriteset_Map = function() { this._doodadsQJ = []; };
+global.Spriteset_Map = function() { this._docsDoodads = []; };
 global.Spriteset_Map.prototype.createLowerLayer = function() {};
 global.Spriteset_Map.prototype.update = function() {};
 
@@ -179,36 +179,36 @@ global.Game_Map.prototype.roundYWithDirection = (y, d) => y + (d === 2 ? 1 : d =
 
 global.$gameMap = new global.Game_Map();
 global.$gamePlayer = new global.Game_Player();
-global.$gameSystem = { doodadsQJ: { editing: false, selecting: null } };
+global.$gameSystem = { docsDoodads: { editing: false, selecting: null } };
 
 // Mock addEventListener on window
 global.window.addEventListener = () => {};
 
 // Now load the generated plugin!
-console.log("Loading QJ-Doodads.js into mock engine...");
-require(path.join(__dirname, '..', 'QJ-Doodads.js'));
+console.log("Loading Docs-Doodads.js into mock engine...");
+require(path.join(__dirname, '..', 'Docs-Doodads.js'));
 
 console.log("✓ Plugin loaded cleanly without runtime errors.");
-assert.strictEqual(global.__qjParameterCodeExecuted, undefined, 'plugin parameters must never execute JavaScript');
+assert.strictEqual(global.__ddParameterCodeExecuted, undefined, 'plugin parameters must never execute JavaScript');
 assert.strictEqual(
-    QJ.DD.Security.escapeHtml('<img src=x onerror="bad">&'),
+    DocsDoodads.Security.escapeHtml('<img src=x onerror="bad">&'),
     '&lt;img src=x onerror=&quot;bad&quot;&gt;&amp;',
     'workspace HTML interpolations must escape untrusted labels'
 );
 console.log("✓ Plugin parameter execution and HTML injection defenses verified.");
 
-// Verify QJ namespaces
-assert(QJ.DD, "QJ.DD must exist");
-assert(QJ.DD.AssetIndex, "QJ.DD.AssetIndex must exist");
-assert(QJ.DD.Search, "QJ.DD.Search must exist");
-assert(QJ.DD.Slicing, "QJ.DD.Slicing must exist");
-assert(QJ.DD.Events, "QJ.DD.Events must exist");
-assert(QJ.DD.EventTemplates, "QJ.DD.EventTemplates must exist");
-assert(QJ.DD.Collision, "QJ.DD.Collision must exist");
-assert(QJ.DD.Undo, "QJ.DD.Undo must exist");
-assert(QJ.DD.Persistence, "QJ.DD.Persistence must exist");
-assert(QJ.DD.Workspace, "QJ.DD.Workspace must exist");
-console.log("✓ All QJ.DD namespaces verified.");
+// Verify plugin namespaces
+assert(DocsDoodads, "DocsDoodads must exist");
+assert(DocsDoodads.AssetIndex, "DocsDoodads.AssetIndex must exist");
+assert(DocsDoodads.Search, "DocsDoodads.Search must exist");
+assert(DocsDoodads.Slicing, "DocsDoodads.Slicing must exist");
+assert(DocsDoodads.Events, "DocsDoodads.Events must exist");
+assert(DocsDoodads.EventTemplates, "DocsDoodads.EventTemplates must exist");
+assert(DocsDoodads.Collision, "DocsDoodads.Collision must exist");
+assert(DocsDoodads.Undo, "DocsDoodads.Undo must exist");
+assert(DocsDoodads.Persistence, "DocsDoodads.Persistence must exist");
+assert(DocsDoodads.Workspace, "DocsDoodads.Workspace must exist");
+console.log("✓ All DocsDoodads namespaces verified.");
 
 // Test Slicing Known Formats
 const mock8CharAsset = {
@@ -218,7 +218,7 @@ const mock8CharAsset = {
     width: 576,
     height: 384
 };
-const knownResult = QJ.DD.Slicing.Known.detect(mock8CharAsset);
+const knownResult = DocsDoodads.Slicing.Known.detect(mock8CharAsset);
 assert(knownResult, "8-character sheet must be detected");
 assert.strictEqual(knownResult.regions.length, 8, "Must produce 8 logical sub-characters");
 assert.strictEqual(knownResult.regions[0].cellW, 48);
@@ -227,10 +227,10 @@ console.log("✓ Standard 8-Character sheet recognition verified (8 characters e
 
 // Test Event Creation & All 20 Built-in Templates
 const mockMapData = { events: [null, { id: 1, name: "EV001" }] };
-const nextId = QJ.DD.Events.allocateSafeId(mockMapData);
+const nextId = DocsDoodads.Events.allocateSafeId(mockMapData);
 assert.strictEqual(nextId, 2);
 
-const templateKeys = Object.keys(QJ.DD.EventTemplates.templates);
+const templateKeys = Object.keys(DocsDoodads.EventTemplates.templates);
 console.log(`Found ${templateKeys.length} built-in event templates.`);
 assert(templateKeys.length >= 20, "Must contain all 20 built-in event templates");
 assert(templateKeys.includes("npc"));
@@ -245,11 +245,11 @@ assert(templateKeys.includes("light_source"));
 assert(templateKeys.includes("ladder_stairs"));
 assert(templateKeys.includes("decoration_event"));
 
-const newEvent = QJ.DD.Events.createEventObject(nextId, 10, 15, {
+const newEvent = DocsDoodads.Events.createEventObject(nextId, 10, 15, {
     name: "Chest_01",
     characterName: "Chest",
     characterIndex: 0,
-    list: QJ.DD.EventTemplates.get("chest").list
+    list: DocsDoodads.EventTemplates.get("chest").list
 });
 assert.strictEqual(newEvent.id, 2);
 assert.strictEqual(newEvent.x, 10);
@@ -258,15 +258,15 @@ assert.strictEqual(newEvent.pages[0].image.characterName, "Chest");
 console.log("✓ Genuine MZ Event Creation & all 20 Event Templates verified.");
 
 // Test Layout Engine
-assert(QJ.DD.Layout.presets.Mapping);
-assert(QJ.DD.Layout.presets.Events);
-assert(QJ.DD.Layout.presets.Characters);
-assert(QJ.DD.Layout.presets.Tiles);
-assert(QJ.DD.Layout.presets.Compact);
+assert(DocsDoodads.Layout.presets.Mapping);
+assert(DocsDoodads.Layout.presets.Events);
+assert(DocsDoodads.Layout.presets.Characters);
+assert(DocsDoodads.Layout.presets.Tiles);
+assert(DocsDoodads.Layout.presets.Compact);
 console.log("✓ All 5 workspace layout presets verified.");
 
 // Test Slice PNG Exporter
-assert(QJ.DD.Export && typeof QJ.DD.Export.exportSlices === 'function');
+assert(DocsDoodads.Export && typeof DocsDoodads.Export.exportSlices === 'function');
 console.log("✓ Slice PNG Exporter subsystem verified.");
 
 // Test Direct Collision Passability Check
@@ -275,7 +275,7 @@ const player = new global.Game_Player();
 assert.strictEqual(player.canPass(5, 5, 2), true);
 
 // Add a solid doodad directly in front at (5, 6)
-window.$dataDoodadsQJ = {
+window.$dataDocsDoodads = {
     1: [
         {
             x: 5 * 48 + 24,
@@ -297,16 +297,16 @@ assert.strictEqual(player.canPass(5, 5, 6), true, "Passability should be clear t
 console.log("✓ Direct Physical Doodad SAT Collision passability verified.");
 
 // Test Undo / Redo
-assert.strictEqual(QJ.DD.Undo.undoStack.length, 0);
+assert.strictEqual(DocsDoodads.Undo.undoStack.length, 0);
 let testVal = 10;
-QJ.DD.Undo.execute({
+DocsDoodads.Undo.execute({
     apply: () => { testVal = 50; },
     revert: () => { testVal = 10; }
 });
 assert.strictEqual(testVal, 50);
-QJ.DD.Undo.undo();
+DocsDoodads.Undo.undo();
 assert.strictEqual(testVal, 10);
-QJ.DD.Undo.redo();
+DocsDoodads.Undo.redo();
 assert.strictEqual(testVal, 50);
 console.log("✓ Command-based Undo / Redo verified.");
 

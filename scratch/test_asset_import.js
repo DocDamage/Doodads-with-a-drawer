@@ -19,12 +19,12 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: () => true };
 global.PluginManager = { parameters: () => ({}) };
 
-require('../QJ-Doodads.js');
+require('../Docs-Doodads.js');
 
 console.log('=== Testing Phase 12 Asset Import Transactions ===');
-assert(QJ.DD.Import, 'QJ.DD.Import subsystem must be exposed');
-assert.strictEqual(QJ.DD.AssetIndex.isSupportedAssetFile('portrait.webp'), true, 'imported WebP assets must be indexable');
-assert.strictEqual(QJ.DD.AssetIndex.isSupportedAssetFile('portrait.jpeg'), true, 'imported JPEG assets must be indexable');
+assert(DocsDoodads.Import, 'DocsDoodads.Import subsystem must be exposed');
+assert.strictEqual(DocsDoodads.AssetIndex.isSupportedAssetFile('portrait.webp'), true, 'imported WebP assets must be indexable');
+assert.strictEqual(DocsDoodads.AssetIndex.isSupportedAssetFile('portrait.jpeg'), true, 'imported JPEG assets must be indexable');
 
 const sandbox = path.join(__dirname, 'asset_import_fixture');
 const source = path.join(sandbox, 'source');
@@ -48,7 +48,7 @@ try {
     fs.mkdirSync(path.dirname(existingTree), { recursive: true });
     fs.writeFileSync(existingTree, 'original tree bytes');
 
-    const plan = QJ.DD.Import.planBatch([source], {
+    const plan = DocsDoodads.Import.planBatch([source], {
         projectRoot: project,
         destination: 'auto',
         collisionPolicy: 'rename'
@@ -60,13 +60,13 @@ try {
     assert(plan.operations.some(op => op.destination.endsWith(path.join('audio', 'bgm', 'music_theme_bgm.ogg'))));
     assert(plan.operations.some(op => op.destination.endsWith(path.join('img', 'characters', '$Hero.png'))));
 
-    const result = QJ.DD.Import.executeBatch(plan);
+    const result = DocsDoodads.Import.executeBatch(plan);
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.imported.length, 3);
     assert.strictEqual(fs.readFileSync(existingTree, 'utf8'), 'original tree bytes', 'default import must not overwrite');
     assert.strictEqual(fs.readFileSync(path.join(project, 'img', 'doodads', 'tree_1.png'), 'utf8'), 'new tree bytes');
 
-    const duplicatePlan = QJ.DD.Import.planBatch([tree], {
+    const duplicatePlan = DocsDoodads.Import.planBatch([tree], {
         projectRoot: project,
         destination: 'img/doodads',
         collisionPolicy: 'rename'
@@ -76,14 +76,14 @@ try {
 
     const rollbackA = write('rollback-a.png', 'rollback a');
     const rollbackB = write('rollback-b.png', 'rollback b');
-    const rollbackPlan = QJ.DD.Import.planBatch([rollbackA, rollbackB], {
+    const rollbackPlan = DocsDoodads.Import.planBatch([rollbackA, rollbackB], {
         projectRoot: project,
         destination: 'img/pictures',
         collisionPolicy: 'rename'
     });
     fs.unlinkSync(rollbackB);
 
-    const failed = QJ.DD.Import.executeBatch(rollbackPlan);
+    const failed = DocsDoodads.Import.executeBatch(rollbackPlan);
     assert.strictEqual(failed.ok, false, 'a failed copy should fail the transaction');
     assert.strictEqual(failed.rolledBack, true, 'a failed batch should roll back earlier copies');
     assert.strictEqual(fs.existsSync(path.join(project, 'img', 'pictures', 'rollback-a.png')), false);
@@ -93,13 +93,13 @@ try {
     const overwriteTarget = path.join(project, 'img', 'faces', '00-overwrite.png');
     fs.mkdirSync(path.dirname(overwriteTarget), { recursive: true });
     fs.writeFileSync(overwriteTarget, 'original bytes');
-    const overwritePlan = QJ.DD.Import.planBatch([overwriteSource, laterFailure], {
+    const overwritePlan = DocsDoodads.Import.planBatch([overwriteSource, laterFailure], {
         projectRoot: project,
         destination: 'img/faces',
         collisionPolicy: 'overwrite'
     });
     fs.unlinkSync(laterFailure);
-    const overwriteFailure = QJ.DD.Import.executeBatch(overwritePlan);
+    const overwriteFailure = DocsDoodads.Import.executeBatch(overwritePlan);
     assert.strictEqual(overwriteFailure.ok, false);
     assert.strictEqual(fs.readFileSync(overwriteTarget, 'utf8'), 'original bytes', 'rollback must restore overwritten files');
 
@@ -109,7 +109,7 @@ try {
         operations: [{ source: tree, destination: escapedTarget, overwrite: false, kind: 'image' }],
         duplicates: [], skipped: [], unsupported: [], errors: []
     };
-    const escapedResult = QJ.DD.Import.executeBatch(forgedPlan);
+    const escapedResult = DocsDoodads.Import.executeBatch(forgedPlan);
     assert.strictEqual(escapedResult.ok, false, 'execution must reject a destination outside the planned project root');
     assert.strictEqual(fs.existsSync(escapedTarget), false, 'a forged plan must not write outside the project root');
 

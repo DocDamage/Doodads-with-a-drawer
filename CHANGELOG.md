@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Renamed the project to Doc's Doodads (`Docs-Doodads.js`, `DocsDoodads` namespace, `DocsDoodads*.json` data files, `dd-` UI ids). Projects saved by QJ-Doodads keep working: legacy plugin settings, `DoodadsQJ.json`, the asset library, templates, layouts, backups, and recovery snapshots are read automatically and saved under the new names.
 - Added the virtualized visual asset workspace and tokenized search.
 - Added known-format, grid, metadata, transparent, and opaque sprite slicing.
 - Added trimmed and rotated atlas-frame export support.

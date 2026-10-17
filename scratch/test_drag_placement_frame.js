@@ -15,11 +15,11 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: (opt) => opt === "test" };
 global.PluginManager = { parameters: () => ({ editKey: "F10", editorMode: "true" }) };
 global.$gameMap = { mapId: () => 1 };
-global.$dataDoodadsQJ = { 1: [] };
+global.$dataDocsDoodads = { 1: [] };
 global.SceneManager = { _scene: null };
 
-require('../QJ-Doodads.js');
-const ws = QJ.DD.Workspace;
+require('../Docs-Doodads.js');
+const ws = DocsDoodads.Workspace;
 ws.showToast = () => {};
 
 const payload = {
@@ -29,7 +29,7 @@ const payload = {
 };
 ws.commitPlacement(payload, { x: 456, y: 432, tileX: 9, tileY: 8 }, payload.placementMode);
 
-const placed = $dataDoodadsQJ[1][0];
+const placed = $dataDocsDoodads[1][0];
 assert.ok(placed, "dropping a card places a doodad");
 assert.deepStrictEqual([placed.frameW, placed.frameH], [224, 228], "the placed doodad shows the whole image");
 

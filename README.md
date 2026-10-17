@@ -1,14 +1,16 @@
-# QJ Doodads Asset Workspace
+# Doc's Doodads
 
-An RPG Maker MZ/MV upgrade of Qiu Jiu's MIT-licensed QJ-Doodads plugin. It adds a visual, virtualized asset drawer, sprite-sheet detection and slicing, modern map-editing tools, real MZ event authoring, transactional asset import, and protected project saves.
+A visual asset workspace and doodad engine for RPG Maker MZ/MV. It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads plugin and has grown into its own tool. It adds a visual, virtualized asset drawer, sprite-sheet detection and slicing, modern map-editing tools, real MZ event authoring, transactional asset import, and protected project saves.
 
 ## Install
 
-1. Copy `QJ-Doodads.js` to your RPG Maker project's `js/plugins/` directory.
-2. Enable **QJ-Doodads** in Plugin Manager.
+1. Copy `Docs-Doodads.js` to your RPG Maker project's `js/plugins/` directory.
+2. Enable **Docs-Doodads** in Plugin Manager.
 3. Start a playtest and press **F10** to open the workspace.
 
-See [QJ_Doodads_Asset_Workspace_Guide.md](QJ_Doodads_Asset_Workspace_Guide.md) for usage and [QJ_Doodads_Asset_Workspace_Implementation_Plan.md](QJ_Doodads_Asset_Workspace_Implementation_Plan.md) for architecture and milestone status.
+Coming from QJ-Doodads? Replace `QJ-Doodads.js` with `Docs-Doodads.js` in Plugin Manager. Existing doodads, the asset library, templates, layouts, backups, and plugin settings are picked up automatically and saved under the new names on your next save.
+
+See [Docs_Doodads_Guide.md](Docs_Doodads_Guide.md) for usage and [Docs_Doodads_Implementation_Plan.md](Docs_Doodads_Implementation_Plan.md) for architecture and milestone status.
 
 ## Verification
 
@@ -24,4 +26,4 @@ The regression tests themselves use only Node.js. The coverage command uses `c8`
 
 Use [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) for the final RPG Maker MZ/MV playtest.
 
-`QJ-Doodads.original.js` is retained as the upstream baseline for compatibility comparison.
+`QJ-Doodads.original.js` is Qiu Jiu's original V1.2 plugin, retained as the upstream baseline for compatibility comparison.

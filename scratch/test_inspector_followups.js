@@ -21,8 +21,8 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: (opt) => opt === "test" };
 global.PluginManager = { parameters: () => ({ editKey: "F10", editorMode: "true" }) };
 
-require('../QJ-Doodads.js');
-const index = QJ.DD.AssetIndex;
+require('../Docs-Doodads.js');
+const index = DocsDoodads.AssetIndex;
 index.save = () => {};
 
 // 1. Categories
@@ -49,14 +49,14 @@ index.data = { version: 1, assets: {
 index.rebuildList();
 index.setTags('img/pictures/tree.png', ' Forest, prop ,forest,, Big Tree ');
 assert.deepStrictEqual(index.data.assets['img/pictures/tree.png'].tags, ['forest', 'prop', 'big tree']);
-const parsed = QJ.DD.Search.parseQuery('tag:forest');
-assert.ok(QJ.DD.Search.matches(index.data.assets['img/pictures/tree.png'], parsed), "manual tags are searchable");
+const parsed = DocsDoodads.Search.parseQuery('tag:forest');
+assert.ok(DocsDoodads.Search.matches(index.data.assets['img/pictures/tree.png'], parsed), "manual tags are searchable");
 
 // 3. Events from an 8-character sheet use the chosen character.
 global.$gameMap = { mapId: () => 1, _stagedMapData: { events: [null] } };
-const ws = QJ.DD.Workspace;
+const ws = DocsDoodads.Workspace;
 ws.showToast = () => {};
-el('qj-event-template').value = 'npc';
+el('dd-event-template').value = 'npc';
 const sheet = { id: 'img/characters/people1.png', path: 'img/characters/People1.png', fileName: 'People1.png', type: 'character_sheet', category: 'Characters', placement: { defaultMode: 'event', characterIndex: 5 }, collision: { preset: 'none' } };
 ws.commitPlacement(sheet, { x: 0, y: 0, tileX: 3, tileY: 4 }, 'event');
 const created = $gameMap._stagedMapData.events.filter(Boolean)[0];
@@ -67,21 +67,21 @@ ws.commitPlacement({ ...sheet, placement: undefined, placementMode: 'event', cha
 assert.strictEqual($gameMap._stagedMapData.events.filter(Boolean)[1].pages[0].image.characterIndex, 2, "drag payload character index is used");
 
 // 4. Slicer pivots accept 0.
-const editor = QJ.DD.Slicing.Editor;
+const editor = DocsDoodads.Slicing.Editor;
 editor.regions = [{ id: 'r', name: 'R', x: 0, y: 0, w: 48, h: 48, pivotX: 0.5, pivotY: 1 }];
 editor.selectedRegionIdx = 0;
 editor.render = () => {};
 editor.updateInspectorValues();
-Object.assign(el('qj-insp-rx'), { value: '0' }); Object.assign(el('qj-insp-ry'), { value: '0' });
-Object.assign(el('qj-insp-rw'), { value: '48' }); Object.assign(el('qj-insp-rh'), { value: '48' });
-Object.assign(el('qj-insp-name'), { value: 'R' });
-el('qj-insp-pivx').value = '0';
-el('qj-insp-pivy').value = '0';
-el('qj-insp-pivy').onchange();
+Object.assign(el('dd-insp-rx'), { value: '0' }); Object.assign(el('dd-insp-ry'), { value: '0' });
+Object.assign(el('dd-insp-rw'), { value: '48' }); Object.assign(el('dd-insp-rh'), { value: '48' });
+Object.assign(el('dd-insp-name'), { value: 'R' });
+el('dd-insp-pivx').value = '0';
+el('dd-insp-pivy').value = '0';
+el('dd-insp-pivy').onchange();
 assert.strictEqual(editor.regions[0].pivotX, 0, "Pivot X 0 (left edge) is kept");
 assert.strictEqual(editor.regions[0].pivotY, 0, "Pivot Y 0 (top edge) is kept");
-el('qj-insp-pivy').value = '';
-el('qj-insp-pivy').onchange();
+el('dd-insp-pivy').value = '';
+el('dd-insp-pivy').onchange();
 assert.strictEqual(editor.regions[0].pivotY, 1, "an empty pivot falls back to the default");
 
 console.log("✓ Categories, manual tags, character choice, and zero pivots verified.");
