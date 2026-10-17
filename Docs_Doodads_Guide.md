@@ -329,7 +329,58 @@ Also in **Sound (this map)**: give a region ID a background sound with a volume 
 
 ---
 
-## 12. Genuine RPG Maker MZ Event Creation & Templates
+## 12. Editor Tools: Layers, Symmetry, Biomes, Dressing, History, Command Palette
+
+### Layers
+Every map has a **Main** layer. Add layers in the map panel under **Layers** (for example Ground Decor, Props, Canopy, Lights, Markers).
+- The layer selected with the round button receives new doodads.
+- **Ed** shows or hides a layer in the editor only, to work underneath a canopy.
+- **Lk** locks a layer so its doodads can't be clicked, box-selected or dragged.
+- **Gm** shows or hides a layer in the game. Use it for markers and notes you only want while editing.
+- Move doodads between layers with **Editor layer** in their inspector (Depth section). Deleting a layer moves its doodads to Main.
+- Everything is undoable.
+
+### Symmetry
+**Symmetry** (toolbar) mirrors placements left/right, top/bottom, or four ways, around axes at the map's centre or at any tile line you type. Stamps, the scatter brush and the biome brush all place the mirrored copies, flipped for left/right mirroring, in the same undo step. The axes show on the map as purple lines.
+
+### Biome brush
+A biome is a weighted mix of props: for example a forest of 3 oaks : 1 pine : 2 bushes, each with its own scale range.
+- Make biomes in the map panel under **Biomes**, or select an asset and use **Add to Biome**.
+- Each biome sets its **spacing**, how many props each dab tries, **thin at edge** (sparser at the rim of the brush) and **patchiness** (natural clumps and clearings).
+- Choose **Biome** in the toolbar, pick a biome and a radius, and drag on the map.
+- Impassable tiles can be skipped. A stroke is one undo step.
+
+### Dressing rules
+Rules read the map's tiles and place props where they belong. Each rule has a place, a chance per tile, spacing, and a list of art:
+- **Along water edges**: reeds, rocks, lily pads.
+- **At the foot of walls and cliffs**: barrels, crates, rubble.
+- **Beside a region**: paint your paths with a region, and flowers or stones line them.
+- **Inside a region**.
+- **On a terrain tag**.
+- **Open ground**.
+
+Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing Rule** on an asset. **Dress Map** applies every rule in one undo step. **Re-roll** clears the dressing and tries again, and **Clear** removes it. Dressed props are ordinary doodads you can move or delete. Dressing never stacks on top of existing props, and skips events and blank tiles.
+
+### Save history
+**History** (toolbar) lists the timestamped backups made each time you save.
+- Pick a doodads backup to see this map's doodads that are new, changed or deleted since then. They are outlined on the map in green, amber and red.
+- Pick a map backup to see its events.
+- **Restore** puts back a deleted doodad or event, undoes a change, or removes something new. Each restore is a single undo step. Event restores are saved with Save Changes.
+
+### Command palette (Ctrl+K)
+Type a few letters of anything and press Enter:
+- tools, panels, Save, Undo and Redo, Toggle Grid
+- symmetry modes, Post FX presets, Play VFX for any effect
+- layers, Go to map, and any asset by file name
+
+Letters can be skipped (`ptfx` finds *Open Post FX*). Use the arrow keys to move through the results.
+
+### Animated thumbnails
+Hover a character sheet in the drawer to watch it walk, and a door or chest sheet to see it open. An image sliced into equal frames (an animation strip) plays its frames too.
+
+---
+
+## 13. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -364,7 +415,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 13. Direct SAT Physical Collision System
+## 14. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -382,7 +433,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 14. Audio Drawer Integration
+## 15. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -392,7 +443,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 15. Windows Explorer Native Drag-and-Drop Ingestion
+## 16. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -412,7 +463,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 16. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 17. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -424,7 +475,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 17. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 18. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -435,7 +486,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 18. Workspace Layouts & Custom Layout Persistence
+## 19. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -448,7 +499,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 19. Project Safety, Conflict Detection & Crash Recovery
+## 20. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -466,7 +517,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 20. Complete Keyboard Shortcuts Cheat Sheet
+## 21. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -477,6 +528,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **Ctrl + D** | Duplicate selected doodad(s) (+16px offset) | Workspace |
 | **Ctrl + C** | Copy selected doodad(s) to clipboard | Workspace |
 | **Ctrl + V** | Paste copied doodad(s) | Workspace |
+| **Ctrl + K** | Command palette: tools, panels, maps, assets, looks | Workspace |
 | **Delete** | Delete selected doodad(s) | Workspace |
 | **Arrow Keys** | Nudge selected doodad(s) by 1 pixel | Workspace |
 | **Shift + Arrow Keys**| Nudge selected doodad(s) by 16 pixels | Workspace |
@@ -495,7 +547,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 21. Troubleshooting & FAQ
+## 22. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -520,6 +572,6 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 22. Credits & Licensing
+## 23. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
