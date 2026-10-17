@@ -210,6 +210,41 @@
  * @type boolean
  * @default false
  * @desc Enable diagnostics logging in Developer Tools console.
+ *
+ * @command setAmbient
+ * @text Set Ambient Light
+ * @desc Fades the map's darkness (for night, caves, storms). Doodad lights shine through it.
+ *
+ * @arg darkness
+ * @text Darkness (%)
+ * @type number
+ * @min 0
+ * @max 100
+ * @default 60
+ * @desc 0 is full daylight, 100 is fully dark.
+ *
+ * @arg color
+ * @text Ambient Color
+ * @type text
+ * @default #101830
+ * @desc Colour of the darkness as #rrggbb (deep blue for night, brown for caves).
+ *
+ * @arg duration
+ * @text Fade Duration (frames)
+ * @type number
+ * @min 0
+ * @default 60
+ * @desc 60 frames is one second.
+ *
+ * @command resetAmbient
+ * @text Reset Ambient Light
+ * @desc Fades back to the ambient light set for this map in the editor.
+ *
+ * @arg duration
+ * @text Fade Duration (frames)
+ * @type number
+ * @min 0
+ * @default 60
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -326,6 +361,8 @@ DocsDoodads.standardStructData = {
     x: 0,
     y: 0,
     z: 0,
+    depth: "sorted",
+    sortOffsetY: 0,
     scaleX: 1,
     scaleY: 1,
     blend: 0,
@@ -638,6 +675,7 @@ DocsDoodads.migrateData = function(data, type) {
                     if (d.rotateSpeed === undefined) d.rotateSpeed = 0;
                     if (!d.switch) d.switch = [];
                     if (d.condition === undefined) d.condition = "";
+                    if (!DocsDoodads.Depth.modes.includes(d.depth)) d.depth = DocsDoodads.Depth.fromLegacyZ(d.z);
                 }
             }
         }
@@ -744,8 +782,329 @@ DocsDoodads.loadBitmap = function(path) {
 };
 
 //==========================================================
+// SECTION 5B: RENDER EFFECTS (DEPTH, APPEARANCE, MOTION, SHADOWS, LIGHTS)
+//==========================================================
+// Doodads live in the tilemap beside the characters (as in QJ-Doodads), so the tilemap's
+// z-then-y sort puts a "sorted" doodad in front of or behind the player by its base line.
+DocsDoodads.Depth = {
+    modes: ['below', 'sorted', 'above'],
+    labels: { below: 'Below characters (floor decal)', sorted: 'Sorted with characters', above: 'Above characters (overhang)' },
+    // Ground tiles are z 0, below/same/above-priority characters 1/3/5, upper tiles 4.
+    bands: { below: 0.5, sorted: 3, above: 4.5 },
+    shadowZ: 0.59,
+    bandSpread: 0.08,
+
+    // QJ-Doodads used z directly as the tilemap layer.
+    fromLegacyZ(z) {
+        z = Number(z) || 0;
+        if (z < 3) return 'below';
+        if (z === 3) return 'sorted';
+        return 'above';
+    },
+
+    resolve(d) {
+        return d && this.modes.includes(d.depth) ? d.depth : this.fromLegacyZ(d && d.z);
+    },
+
+    spriteZ(d) {
+        const mode = this.resolve(d);
+        if (mode === 'sorted') return this.bands.sorted;
+        const order = Math.max(-this.bandSpread, Math.min(this.bandSpread, (Number(d.z) || 0) * 1e-4));
+        return this.bands[mode] + order;
+    },
+
+    // Bottom edge of the image (map or screen space, same as d.y) plus the user's base-line offset.
+    baseY(d) {
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+        const ay = d.anchorY !== undefined ? d.anchorY : 1;
+        return d.y + h * (1 - ay) + (Number(d.sortOffsetY) || 0);
+    },
+
+    compareChildren(a, b) {
+        if (a.z !== b.z) return a.z - b.z;
+        const ay = a._docsSortY !== undefined ? a._docsSortY : a.y;
+        const by = b._docsSortY !== undefined ? b._docsSortY : b.y;
+        if (ay !== by) return ay - by;
+        return (a.spriteId || 0) - (b.spriteId || 0);
+    },
+
+    // Flat things (rugs, puddles, paths) belong under the player; everything else stands up.
+    suggestFor(asset) {
+        const words = [String(asset && asset.fileName || '')].concat((asset && asset.tags) || [], (asset && asset.autoTags) || []).join(' ').toLowerCase();
+        return /(^|[^a-z])(rugs?|carpets?|mats?|floor|decals?|puddles?|paths?|roads?|shadows?|stains?|cracks?|ground)([^a-z]|$)/.test(words) ? 'below' : 'sorted';
+    }
+};
+
+DocsDoodads.Appearance = {
+    // PIXI.BLEND_MODES values: NORMAL 0, ADD 1, MULTIPLY 2, SCREEN 3.
+    blendModes: [
+        { value: 0, label: 'Normal' }, { value: 1, label: 'Add (glow)' },
+        { value: 2, label: 'Multiply (shade)' }, { value: 3, label: 'Screen (light)' }
+    ],
+
+    blendMode(d) {
+        const value = Number(d && d.blend) || 0;
+        return this.blendModes.some(mode => mode.value === value) ? value : 0;
+    },
+
+    // QJ stored "5|true~6|false"; newer data stores [[5, true]] or [{ id, value }].
+    parseSwitches(input) {
+        if (!input) return [];
+        const out = [];
+        const push = (id, value) => {
+            id = parseInt(id, 10);
+            if (id > 0) out.push([id, value]);
+        };
+        const truthy = value => value === true || /^(true|on|1)$/i.test(String(value).trim());
+        if (typeof input === 'string') {
+            for (const part of input.split('~')) {
+                if (!part.trim()) continue;
+                const [id, value] = part.split('|');
+                push(id, value === undefined ? true : truthy(value));
+            }
+        } else if (Array.isArray(input)) {
+            for (const item of input) {
+                if (Array.isArray(item)) push(item[0], item[1] === undefined ? true : truthy(item[1]));
+                else if (item && typeof item === 'object') push(item.id, item.value === undefined ? true : truthy(item.value));
+                else push(item, true);
+            }
+        }
+        return out;
+    },
+
+    // Inspector text such as "5:on, 6 off, 7".
+    parseSwitchText(text) {
+        const out = [];
+        for (const part of String(text || '').split(/[,;]+/)) {
+            const match = part.trim().match(/^(\d+)\s*[:=|\s]?\s*(on|off|true|false|1|0)?$/i);
+            if (!match) continue;
+            const id = parseInt(match[1], 10);
+            if (id > 0) out.push([id, match[2] === undefined ? true : /^(on|true|1)$/i.test(match[2])]);
+        }
+        return out;
+    },
+
+    formatSwitches(list) {
+        return this.parseSwitches(list).map(([id, value]) => `${id}:${value ? 'on' : 'off'}`).join(', ');
+    },
+
+    _conditionCache: {},
+
+    // Conditions are JavaScript from the project's own data file, like QJ-Doodads; errors never hide a doodad.
+    conditionPasses(condition) {
+        const source = String(condition || '').trim();
+        if (!source) return true;
+        let fn = this._conditionCache[source];
+        if (fn === undefined) {
+            try { fn = new Function(`return (${source});`); } catch (error) { fn = null; }
+            this._conditionCache[source] = fn;
+        }
+        if (!fn) return true;
+        try { return Boolean(fn()); } catch (error) { return true; }
+    },
+
+    isVisible(d, ctx = {}) {
+        if (ctx.editing) return true;
+        const switchValue = ctx.switchValue || (id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false));
+        for (const [id, value] of this.parseSwitches(d.switch)) {
+            if (Boolean(switchValue(id)) !== value) return false;
+        }
+        return this.conditionPasses(d.condition);
+    },
+
+    // Only conditional doodads need a per-frame visibility check.
+    isConditional(d) {
+        return this.parseSwitches(d.switch).length > 0 || Boolean(String(d.condition || '').trim());
+    },
+
+    needsColorFilter(d) {
+        return Boolean(Number(d.r) || Number(d.g) || Number(d.b) || Number(d.grey) || Number(d.hue));
+    },
+
+    // Fields that change the filter stack; position and scale are excluded so moving stays cheap.
+    signature(d) {
+        const m = d.motion && d.motion.type === 'shimmer' ? 'shimmer' + (d.motion.amount || 0) : '';
+        return [d.r, d.g, d.b, d.grey, d.hue, d.blur, d.contrast, d.sepia, d.bright, d.blend, m].join('|');
+    }
+};
+
+DocsDoodads.Motion = {
+    types: [
+        { value: 'none', label: 'None' }, { value: 'sway', label: 'Sway (wind)' }, { value: 'bob', label: 'Bob (float)' },
+        { value: 'pulse', label: 'Pulse (breathe)' }, { value: 'flicker', label: 'Flicker (flame)' }, { value: 'shimmer', label: 'Shimmer (water/heat)' }
+    ],
+
+    normalize(m) {
+        const type = m && this.types.some(t => t.value === m.type) ? m.type : 'none';
+        const amount = m && m.amount !== undefined ? Math.max(0, Math.min(1, Number(m.amount) || 0)) : 0.5;
+        const speed = m && m.speed !== undefined ? Math.max(0.05, Math.min(5, Number(m.speed) || 1)) : 1;
+        return { type, amount, speed, phase: m && m.phase !== undefined ? Number(m.phase) || 0 : null };
+    },
+
+    // Smooth 1D value noise in [0, 1].
+    noise(x) {
+        const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+        const i = Math.floor(x), f = x - i;
+        const t = f * f * (3 - 2 * f);
+        return hash(i) * (1 - t) + hash(i + 1) * t;
+    },
+
+    // seed (usually the doodad's x + y) staggers the phase so neighbouring props don't move in lockstep.
+    sample(m, time, seed) {
+        const out = { skewX: 0, offsetY: 0, alphaMul: 1, scaleMul: 1 };
+        if (!m || m.type === 'none' || !m.type) return out;
+        const phase = m.phase !== null && m.phase !== undefined ? m.phase : (Number(seed) || 0) * 0.013;
+        const wave = Math.sin(Math.PI * 2 * m.speed * 0.5 * time + phase);
+        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12;
+        else if (m.type === 'bob') out.offsetY = wave * m.amount * 6;
+        else if (m.type === 'pulse') out.scaleMul = 1 + wave * m.amount * 0.06;
+        else if (m.type === 'flicker') out.alphaMul = 1 - m.amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);
+        return out;
+    },
+
+    // Horizontal ripple for "shimmer"; inputSize is supplied by PIXI v5 filters.
+    shimmerFragment: [
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform vec4 inputSize;',
+        'uniform float time;',
+        'uniform float amount;',
+        'void main(void) {',
+        '    vec2 uv = vTextureCoord;',
+        '    uv.x += sin(uv.y * inputSize.y / 7.0 + time * 3.0) * amount * 2.0 * inputSize.z;',
+        '    gl_FragColor = texture2D(uSampler, uv);',
+        '}'
+    ].join('\n')
+};
+
+DocsDoodads.Shadow = {
+    defaults: { enabled: false, opacity: 0.35, length: 0.45, angle: -35, blur: 2, offsetX: 0, offsetY: 0 },
+
+    normalize(s) {
+        return Object.assign({}, this.defaults, s || {});
+    },
+
+    // A black silhouette of the same frame, squashed and leaning away from the camera.
+    transform(d) {
+        if (!d || !d.shadow || !d.shadow.enabled) return null;
+        const s = this.normalize(d.shadow);
+        const sx = d.scaleX !== undefined ? d.scaleX : 1;
+        const sy = d.scaleY !== undefined ? d.scaleY : 1;
+        return {
+            scaleX: sx,
+            scaleY: sy * Math.max(0.05, Math.min(1.5, Number(s.length) || 0)),
+            skewX: (Number(s.angle) || 0) * Math.PI / 180,
+            alpha: Math.max(0, Math.min(1, Number(s.opacity) || 0)) * (d.opacity !== undefined ? d.opacity : 1),
+            offsetX: Number(s.offsetX) || 0,
+            offsetY: Number(s.offsetY) || 0,
+            blur: Math.max(0, Number(s.blur) || 0)
+        };
+    }
+};
+
+DocsDoodads.Lighting = {
+    lightDefaults: { enabled: false, color: '#ffd27f', radius: 144, intensity: 0.85, flicker: 0, glow: 0.25, offsetX: 0, offsetY: -24 },
+    ambientDefaults: { darkness: 0, color: '#101830', switchId: 0 },
+
+    parseColor(value, fallback = 0xffffff) {
+        if (typeof value === 'number' && isFinite(value)) return value & 0xffffff;
+        const match = String(value || '').trim().match(/^#?([0-9a-f]{6})$/i);
+        return match ? parseInt(match[1], 16) : fallback;
+    },
+
+    channels(color) {
+        const c = this.parseColor(color, 0);
+        return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
+    },
+
+    // Per-map settings sit beside the numeric map keys in $dataDocsDoodads.
+    mapSettings(mapId) {
+        const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+        if (!data || !data.mapSettings) return null;
+        return data.mapSettings[mapId] || null;
+    },
+
+    setMapSettings(mapId, settings) {
+        if (typeof window === 'undefined' || !window.$dataDocsDoodads) return null;
+        const all = window.$dataDocsDoodads.mapSettings = window.$dataDocsDoodads.mapSettings || {};
+        all[mapId] = Object.assign({}, all[mapId] || {}, settings);
+        return all[mapId];
+    },
+
+    // runtimeOverride comes from the "Set Ambient Light" plugin command and wins over the map setting.
+    ambientFor(settings, runtimeOverride, switchValue) {
+        if (runtimeOverride) {
+            return { darkness: Math.max(0, Math.min(1, Number(runtimeOverride.darkness) || 0)), color: runtimeOverride.color || this.ambientDefaults.color };
+        }
+        const ambient = Object.assign({}, this.ambientDefaults, settings && settings.ambient);
+        const gated = Number(ambient.switchId) > 0 && !(switchValue && switchValue(Number(ambient.switchId)));
+        return { darkness: gated ? 0 : Math.max(0, Math.min(1, Number(ambient.darkness) || 0)), color: ambient.color };
+    },
+
+    // The lightmap multiplies the scene: white where lit, the ambient colour where fully dark.
+    lightmapBase(ambient) {
+        const k = Math.max(0, Math.min(1, Number(ambient && ambient.darkness) || 0));
+        return this.channels(ambient && ambient.color).map(c => (1 - k) + k * c);
+    },
+
+    flicker(time, seed, amount) {
+        amount = Math.max(0, Math.min(1, Number(amount) || 0));
+        if (!amount) return 1;
+        return 1 - amount * DocsDoodads.Motion.noise(time * 6 + (Number(seed) || 0) * 3.7);
+    },
+
+    // display: the map's scroll in pixels ({ x, y }), so lights land in screen space.
+    collect(doodads, display = { x: 0, y: 0 }) {
+        const out = [];
+        for (const d of doodads || []) {
+            if (!d || !d.light || !d.light.enabled) continue;
+            const l = Object.assign({}, this.lightDefaults, d.light);
+            const mapSpace = d.posMode !== 0;
+            out.push({
+                doodad: d,
+                x: d.x - (mapSpace ? display.x : 0) + (Number(l.offsetX) || 0),
+                y: d.y - (mapSpace ? display.y : 0) + (Number(l.offsetY) || 0),
+                radius: Math.max(8, Number(l.radius) || 144),
+                color: this.parseColor(l.color, 0xffd27f),
+                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)),
+                flicker: Number(l.flicker) || 0,
+                glow: Math.max(0, Math.min(1, Number(l.glow) || 0)),
+                seed: (d.x || 0) + (d.y || 0)
+            });
+        }
+        return out;
+    },
+
+    mixColor(from, to, p) {
+        const a = this.channels(from), b = this.channels(to);
+        const mixed = a.map((c, i) => Math.round((c + (b[i] - c) * p) * 255));
+        return '#' + mixed.map(c => c.toString(16).padStart(2, '0')).join('');
+    },
+
+    startFade(from, to, frames) {
+        const total = Math.max(0, Math.round(Number(frames) || 0));
+        const fade = { from: Object.assign({}, from), to: Object.assign({}, to), framesTotal: total, framesLeft: total, current: Object.assign({}, total ? from : to) };
+        if (!total) fade.current = Object.assign({}, to);
+        return fade;
+    },
+
+    stepFade(fade) {
+        if (!fade || fade.framesLeft <= 0) return fade;
+        fade.framesLeft--;
+        const p = 1 - fade.framesLeft / fade.framesTotal;
+        const a = Number(fade.from.darkness) || 0, b = Number(fade.to.darkness) || 0;
+        fade.current = { darkness: fade.framesLeft === 0 ? b : a + (b - a) * p, color: this.mixColor(fade.from.color, fade.to.color, p) };
+        return fade;
+    }
+};
+
+//==========================================================
 // SECTION 6: SPRITE_DOCSDOODAD RUNTIME ENGINE
 //==========================================================
+DocsDoodads.frameCount = function() {
+    return typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : 0;
+};
+
 if (typeof PIXI !== 'undefined') {
     Sprite_DocsDoodad.prototype = Object.create(PIXI.Sprite.prototype);
     Sprite_DocsDoodad.prototype.constructor = Sprite_DocsDoodad;
@@ -754,18 +1113,16 @@ if (typeof PIXI !== 'undefined') {
         PIXI.Sprite.call(this);
         this._data = data;
         this._spriteset = spriteset;
-        this.anchor.x = data.anchorX !== undefined ? data.anchorX : 0.5;
-        this.anchor.y = data.anchorY !== undefined ? data.anchorY : 1.0;
-        this.x = data.x || 0;
-        this.y = data.y || 0;
-        this.z = data.z || 0;
-        this.scale.x = data.scaleX !== undefined ? data.scaleX : 1;
-        this.scale.y = data.scaleY !== undefined ? data.scaleY : 1;
-        this.rotation = (data.rotation || 0) * Math.PI / 180;
-        this.alpha = data.opacity !== undefined ? data.opacity : 1;
+        // The tilemap breaks z/y ties by spriteId, like Sprite_Character.
+        this.spriteId = typeof Sprite !== 'undefined' && Sprite._counter !== undefined ? Sprite._counter++ : 0;
         this._frameTimer = 0;
         this._currentFrame = 0;
+        this._spin = 0;
+        this._lastUpdateFrame = -1;
+        this._appearanceSig = null;
+        this._shadowSprite = null;
         this.loadTexture();
+        this.updatePlacement();
     };
 
     Sprite_DocsDoodad.prototype.loadTexture = function() {
@@ -799,33 +1156,168 @@ if (typeof PIXI !== 'undefined') {
         const fx = this._data.frameX || 0;
         const fy = this._data.frameY || 0;
         this.texture = new PIXI.Texture(bmp._baseTexture, new PIXI.Rectangle(fx, fy, fw, fh));
+        if (this._shadowSprite) this._shadowSprite.texture = this.texture;
     };
 
+    // Called by the tilemap (which updates its children) and by Spriteset_Map; runs once per frame.
     Sprite_DocsDoodad.prototype.update = function() {
         if (!this._data) return;
-        if (this._data.rotateSpeed) {
-            this.rotation += (this._data.rotateSpeed * Math.PI / 180);
-        }
-        if (this._data.frameUpdate && (this._data.xFrame > 1 || this._data.yFrame > 1)) {
+        const frame = DocsDoodads.frameCount();
+        if (frame === this._lastUpdateFrame && frame !== 0) return;
+        this._lastUpdateFrame = frame;
+        const d = this._data;
+        if (d.rotateSpeed) this._spin += d.rotateSpeed * Math.PI / 180;
+        if (d.frameUpdate && (d.xFrame > 1 || d.yFrame > 1)) {
             this._frameTimer++;
-            if (this._frameTimer >= this._data.frameUpdate) {
+            if (this._frameTimer >= d.frameUpdate) {
                 this._frameTimer = 0;
                 this.updateFrameAnimation();
             }
         }
-        if (this._data.posMode === 1 && typeof $gameMap !== 'undefined') {
+        this.updatePlacement();
+    };
+
+    Sprite_DocsDoodad.prototype.screenPosition = function() {
+        const d = this._data;
+        if (d.posMode === 1 && typeof $gameMap !== 'undefined' && $gameMap) {
             const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
             const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-            const screenX = this._data.x - $gameMap.displayX() * tw;
-            const screenY = this._data.y - $gameMap.displayY() * th;
-            this.x = screenX;
-            this.y = screenY;
+            return { x: d.x - $gameMap.displayX() * tw, y: d.y - $gameMap.displayY() * th };
         }
-        if (this._data.editorHidden && DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) {
-            this.visible = false;
-        } else {
-            this.visible = true;
+        return { x: d.x || 0, y: d.y || 0 };
+    };
+
+    Sprite_DocsDoodad.prototype.updatePlacement = function() {
+        const d = this._data;
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        if (this._motionSource !== d.motion || editing) {
+            this._motionSource = d.motion;
+            this._motion = DocsDoodads.Motion.normalize(d.motion);
         }
+        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0));
+        const pos = this.screenPosition();
+        const sx = d.scaleX !== undefined ? d.scaleX : 1;
+        const sy = d.scaleY !== undefined ? d.scaleY : 1;
+
+        this.anchor.x = d.anchorX !== undefined ? d.anchorX : 0.5;
+        this.anchor.y = d.anchorY !== undefined ? d.anchorY : 1.0;
+        this.x = pos.x;
+        this.y = pos.y + motion.offsetY;
+        this.scale.x = sx * motion.scaleMul;
+        this.scale.y = sy * motion.scaleMul;
+        this.skew.x = motion.skewX;
+        this.rotation = (d.rotation || 0) * Math.PI / 180 + this._spin;
+        this.z = DocsDoodads.Depth.spriteZ(d);
+        this._docsSortY = pos.y + (DocsDoodads.Depth.baseY(d) - d.y);
+
+        let visible = true;
+        let dim = 1;
+        if (editing) {
+            visible = !d.editorHidden;
+            // Conditional doodads stay editable but look faded while their condition is false.
+            if (visible && DocsDoodads.Appearance.isConditional(d) && !DocsDoodads.Appearance.isVisible(d, {})) dim = 0.45;
+        } else if (DocsDoodads.Appearance.isConditional(d)) {
+            visible = DocsDoodads.Appearance.isVisible(d, {});
+        }
+        this.visible = visible;
+        this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim;
+
+        this.refreshAppearance();
+        if (this._shimmerFilter) {
+            this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
+        }
+        this.updateShadow();
+    };
+
+    // Rebuilds the filter stack only when tint, hue, blur, blend or shimmer settings change.
+    Sprite_DocsDoodad.prototype.refreshAppearance = function() {
+        const d = this._data;
+        const sig = DocsDoodads.Appearance.signature(d);
+        if (sig === this._appearanceSig) return;
+        this._appearanceSig = sig;
+        this.blendMode = DocsDoodads.Appearance.blendMode(d);
+        const filters = [];
+        try {
+            if (DocsDoodads.Appearance.needsColorFilter(d)) {
+                const tone = [Number(d.r) || 0, Number(d.g) || 0, Number(d.b) || 0, Number(d.grey) || 0];
+                if (typeof ColorFilter !== 'undefined') {
+                    const filter = new ColorFilter();
+                    filter.setColorTone(tone);
+                    filter.setHue(Number(d.hue) || 0);
+                    filters.push(filter);
+                } else if (typeof ToneFilter !== 'undefined') {
+                    const filter = new ToneFilter();
+                    filter.adjustHue(Number(d.hue) || 0);
+                    filter.adjustTone(tone[0], tone[1], tone[2]);
+                    filter.adjustSaturation(-tone[3]);
+                    filters.push(filter);
+                }
+            }
+            if (Number(d.blur) > 0 && PIXI.filters && PIXI.filters.BlurFilter) {
+                filters.push(new PIXI.filters.BlurFilter(Math.min(20, Number(d.blur))));
+            }
+            if ((Number(d.contrast) > 0 || d.sepia || d.bright) && PIXI.filters && PIXI.filters.ColorMatrixFilter) {
+                const matrix = new PIXI.filters.ColorMatrixFilter();
+                let multiply = false;
+                if (Number(d.contrast) > 0) { matrix.contrast(Number(d.contrast) * 0.01, multiply); multiply = true; }
+                if (d.sepia) { matrix.sepia(multiply); multiply = true; }
+                if (d.bright) { matrix.brightness(1.6, multiply); multiply = true; }
+                filters.push(matrix);
+            }
+            this._shimmerFilter = null;
+            if (d.motion && d.motion.type === 'shimmer' && PIXI.Filter) {
+                const motion = DocsDoodads.Motion.normalize(d.motion);
+                const shimmer = new PIXI.Filter(undefined, DocsDoodads.Motion.shimmerFragment, { time: 0, amount: motion.amount });
+                shimmer.padding = 4;
+                this._shimmerFilter = shimmer;
+                filters.push(shimmer);
+            }
+        } catch (error) {
+            DocsDoodads.Core.log('Doodad filters could not be built; drawing without them.', error);
+        }
+        this.filters = filters.length > 0 ? filters : null;
+    };
+
+    // The shadow is a black silhouette sprite beside the doodad in the same tilemap.
+    Sprite_DocsDoodad.prototype.updateShadow = function() {
+        const t = DocsDoodads.Shadow.transform(this._data);
+        if (!t) {
+            this.destroyShadow();
+            return;
+        }
+        if (!this.parent) return;
+        let shadow = this._shadowSprite;
+        if (!shadow) {
+            shadow = this._shadowSprite = new PIXI.Sprite(this.texture);
+            shadow.tint = 0x000000;
+            shadow.spriteId = this.spriteId;
+            this.parent.addChild(shadow);
+        }
+        if (shadow.parent !== this.parent) this.parent.addChild(shadow);
+        shadow.texture = this.texture;
+        shadow.anchor.x = this.anchor.x;
+        shadow.anchor.y = this.anchor.y;
+        const pos = this.screenPosition();
+        shadow.x = pos.x + t.offsetX;
+        shadow.y = pos.y + t.offsetY;
+        shadow.scale.x = t.scaleX;
+        shadow.scale.y = t.scaleY;
+        shadow.skew.x = t.skewX + this.skew.x;
+        shadow.alpha = t.alpha;
+        shadow.z = DocsDoodads.Depth.shadowZ;
+        shadow._docsSortY = shadow.y;
+        shadow.visible = this.visible;
+        if (shadow._docsBlur !== t.blur) {
+            shadow._docsBlur = t.blur;
+            shadow.filters = t.blur > 0 && PIXI.filters && PIXI.filters.BlurFilter ? [new PIXI.filters.BlurFilter(Math.min(16, t.blur))] : null;
+        }
+    };
+
+    Sprite_DocsDoodad.prototype.destroyShadow = function() {
+        if (!this._shadowSprite) return;
+        if (this._shadowSprite.parent) this._shadowSprite.parent.removeChild(this._shadowSprite);
+        this._shadowSprite.destroy();
+        this._shadowSprite = null;
     };
 
     Sprite_DocsDoodad.prototype.updateFrameAnimation = function() {
@@ -846,26 +1338,50 @@ if (typeof PIXI !== 'undefined') {
 //==========================================================
 // SECTION 7: SPRITESET_MAP DOODAD LAYER HOOKS
 //==========================================================
+// Doodads with a base line need the tilemap's z/y sort; plain sprites keep MZ's default order.
+if (typeof Tilemap !== 'undefined' && Tilemap.prototype._compareChildOrder) {
+    $.Tilemap__compareChildOrder = Tilemap.prototype._compareChildOrder;
+    Tilemap.prototype._compareChildOrder = function(a, b) {
+        if (a._docsSortY === undefined && b._docsSortY === undefined) return $.Tilemap__compareChildOrder.call(this, a, b);
+        return DocsDoodads.Depth.compareChildren(a, b);
+    };
+}
+
 if (typeof Spriteset_Map !== 'undefined') {
     $.Spriteset_Map_createLowerLayer = Spriteset_Map.prototype.createLowerLayer;
     Spriteset_Map.prototype.createLowerLayer = function() {
         $.Spriteset_Map_createLowerLayer.call(this);
         this.createDocsDoodadsLayer();
+        this.createDocsLighting();
     };
 
     Spriteset_Map.prototype.createDocsDoodadsLayer = function() {
-        this._docsDoodadsContainer = new PIXI.Container();
         this._docsDoodadSprites = [];
-        this._baseSprite.addChild(this._docsDoodadsContainer);
+        // Sprites go into the tilemap with the characters; a plain container is the fallback.
+        if (this._tilemap && typeof this._tilemap.addChild === 'function') {
+            this._docsDoodadsContainer = this._tilemap;
+        } else {
+            this._docsDoodadsContainer = new PIXI.Container();
+            this._baseSprite.addChild(this._docsDoodadsContainer);
+        }
         this.addDocsDoodads();
+    };
+
+    Spriteset_Map.prototype.removeDocsDoodadSprites = function() {
+        for (const sprite of this._docsDoodadSprites || []) {
+            sprite.destroyShadow();
+            if (sprite.parent) sprite.parent.removeChild(sprite);
+            sprite.destroy();
+        }
+        this._docsDoodadSprites = [];
     };
 
     Spriteset_Map.prototype.addDocsDoodads = function() {
         if (!this._docsDoodadsContainer) return;
-        this._docsDoodadsContainer.removeChildren();
-        this._docsDoodadSprites = [];
+        this.removeDocsDoodadSprites();
         const list = DocsDoodads.doodads();
         for (const data of list) {
+            if (!data) continue;
             const spr = new Sprite_DocsDoodad(data, this);
             this._docsDoodadsContainer.addChild(spr);
             this._docsDoodadSprites.push(spr);
@@ -875,10 +1391,11 @@ if (typeof Spriteset_Map !== 'undefined') {
 
     Spriteset_Map.prototype.sortDocsDoodads = function() {
         if (!this._docsDoodadsContainer) return;
-        this._docsDoodadsContainer.children.sort((a, b) => {
-            if (a.z !== b.z) return a.z - b.z;
-            return a.y - b.y;
-        });
+        for (const sprite of this._docsDoodadSprites || []) sprite.updatePlacement();
+        // The tilemap re-sorts itself every frame; the fallback container needs an explicit sort.
+        if (this._docsDoodadsContainer !== this._tilemap) {
+            this._docsDoodadsContainer.children.sort(DocsDoodads.Depth.compareChildren);
+        }
     };
 
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
@@ -889,10 +1406,120 @@ if (typeof Spriteset_Map !== 'undefined') {
                 this._docsDoodadSprites[i].update();
             }
         }
+        this.updateDocsLighting();
         this.updateDocsEditorOverlay();
     };
 
-    // Editor-only overlay above the doodad layer: placement grid and selection outlines.
+    // Lighting: a lightmap (ambient colour plus additive lights) is rendered off-screen and
+    // multiplied over the tilemap, under weather and pictures. Glows add a halo in daylight too.
+    Spriteset_Map.prototype.createDocsLighting = function() {
+        if (typeof PIXI === 'undefined' || !PIXI.RenderTexture || !this._baseSprite) return;
+        this._docsLightScene = new PIXI.Container();
+        this._docsLightBase = new PIXI.Sprite(PIXI.Texture.WHITE);
+        this._docsLightScene.addChild(this._docsLightBase);
+        this._docsLightSprites = [];
+        this._docsGlowLayer = new PIXI.Container();
+        this._docsGlowSprites = [];
+        this._docsLightOverlay = new PIXI.Sprite(PIXI.Texture.EMPTY);
+        this._docsLightOverlay.blendMode = PIXI.BLEND_MODES.MULTIPLY;
+        this._docsLightOverlay.visible = false;
+        this._baseSprite.addChild(this._docsLightOverlay);
+        this._baseSprite.addChild(this._docsGlowLayer);
+    };
+
+    Spriteset_Map.prototype.docsLightTexture = function() {
+        if (!DocsDoodads._lightGradient && typeof document !== 'undefined') {
+            const size = 128;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+            gradient.addColorStop(0, 'rgba(255,255,255,1)');
+            gradient.addColorStop(0.45, 'rgba(255,255,255,0.55)');
+            gradient.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            DocsDoodads._lightGradient = PIXI.Texture.from(canvas);
+        }
+        return DocsDoodads._lightGradient;
+    };
+
+    Spriteset_Map.prototype.docsSpritePool = function(pool, layer, count) {
+        while (pool.length < count) {
+            const sprite = new PIXI.Sprite(this.docsLightTexture());
+            sprite.anchor.set(0.5, 0.5);
+            sprite.blendMode = PIXI.BLEND_MODES.ADD;
+            layer.addChild(sprite);
+            pool.push(sprite);
+        }
+        for (let i = 0; i < pool.length; i++) pool[i].visible = i < count;
+    };
+
+    Spriteset_Map.prototype.updateDocsLighting = function() {
+        if (!this._docsLightOverlay || typeof $gameMap === 'undefined' || !$gameMap) return;
+        const Lighting = DocsDoodads.Lighting;
+        const workspace = DocsDoodads.Workspace;
+        const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
+        if (fade) {
+            Lighting.stepFade(fade);
+            if (fade.framesLeft <= 0 && fade.clearWhenDone) $gameSystem._docsAmbientFade = null;
+        }
+        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+        let ambient = Lighting.ambientFor(Lighting.mapSettings($gameMap.mapId()), fade ? fade.current : null, switchValue);
+        if (workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
+
+        const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const visibleData = (this._docsDoodadSprites || []).filter(s => s.visible).map(s => s._data);
+        const lights = Lighting.collect(visibleData, { x: $gameMap.displayX() * tw, y: $gameMap.displayY() * th });
+        const time = DocsDoodads.frameCount() / 60;
+
+        const glowing = lights.filter(l => l.glow > 0);
+        this.docsSpritePool(this._docsGlowSprites, this._docsGlowLayer, glowing.length);
+        glowing.forEach((l, i) => {
+            const s = this._docsGlowSprites[i];
+            s.x = l.x; s.y = l.y;
+            s.scale.set((l.radius * 2) / 128);
+            s.tint = l.color;
+            s.alpha = l.glow * l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+        });
+
+        const renderer = DocsDoodads.Compat.getRenderer();
+        if (ambient.darkness <= 0.001 || !renderer) {
+            this._docsLightOverlay.visible = false;
+            return;
+        }
+        const w = typeof Graphics !== 'undefined' ? Graphics.width : 816;
+        const h = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        if (!this._docsLightTexture || this._docsLightTexture.width !== w || this._docsLightTexture.height !== h) {
+            if (this._docsLightTexture) this._docsLightTexture.destroy(true);
+            this._docsLightTexture = PIXI.RenderTexture.create({ width: w, height: h });
+            this._docsLightOverlay.texture = this._docsLightTexture;
+        }
+        const base = Lighting.lightmapBase(ambient);
+        this._docsLightBase.width = w;
+        this._docsLightBase.height = h;
+        this._docsLightBase.tint = (Math.round(base[0] * 255) << 16) | (Math.round(base[1] * 255) << 8) | Math.round(base[2] * 255);
+        this.docsSpritePool(this._docsLightSprites, this._docsLightScene, lights.length);
+        lights.forEach((l, i) => {
+            const s = this._docsLightSprites[i];
+            s.x = l.x; s.y = l.y;
+            s.scale.set((l.radius * 2) / 128);
+            s.tint = l.color;
+            s.alpha = l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+        });
+        renderer.render(this._docsLightScene, this._docsLightTexture, true);
+        this._docsLightOverlay.visible = true;
+        // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
+        const parent = this._docsLightOverlay.parent;
+        if (parent && this._tilemap && parent.children.indexOf(this._docsLightOverlay) < parent.children.indexOf(this._tilemap)) {
+            parent.addChild(this._docsLightOverlay);
+            parent.addChild(this._docsGlowLayer);
+        }
+    };
+
+    // Editor-only overlay above the doodad layer: placement grid, selection outlines and guides.
     Spriteset_Map.prototype.updateDocsEditorOverlay = function() {
         if (!this._docsDoodadsContainer || typeof PIXI === 'undefined' || !PIXI.Graphics) return;
         if (!this._docsSelectionOutline) {
@@ -919,9 +1546,36 @@ if (typeof Spriteset_Map !== 'undefined') {
             outline.lineStyle(2, 0x38bdf8, 1);
             outline.drawRect(rect.x, rect.y, rect.w, rect.h);
         }
+        if (typeof workspace.drawEditorOverlayExtras === 'function') workspace.drawEditorOverlayExtras(outline);
     };
 }
 
+// "Set Ambient Light" / "Reset Ambient Light" plugin commands fade the map's darkness.
+DocsDoodads.setAmbient = function(target, frames, clearWhenDone) {
+    if (typeof $gameSystem === 'undefined' || !$gameSystem || typeof $gameMap === 'undefined' || !$gameMap) return null;
+    const Lighting = DocsDoodads.Lighting;
+    const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+    const current = $gameSystem._docsAmbientFade ? $gameSystem._docsAmbientFade.current
+        : Lighting.ambientFor(Lighting.mapSettings($gameMap.mapId()), null, switchValue);
+    const fade = Lighting.startFade(current, target, frames);
+    fade.clearWhenDone = Boolean(clearWhenDone);
+    $gameSystem._docsAmbientFade = fade;
+    return fade;
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'setAmbient', args => {
+        DocsDoodads.setAmbient({
+            darkness: Math.max(0, Math.min(100, Number(args.darkness) || 0)) / 100,
+            color: args.color || DocsDoodads.Lighting.ambientDefaults.color
+        }, Number(args.duration) || 0, false);
+    });
+    PluginManager.registerCommand(pluginName, 'resetAmbient', args => {
+        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+        const mapAmbient = DocsDoodads.Lighting.ambientFor(DocsDoodads.Lighting.mapSettings($gameMap.mapId()), null, switchValue);
+        DocsDoodads.setAmbient(mapAmbient, Number(args.duration) || 0, true);
+    });
+}
 
 //==========================================================
 // SECTION 8: DocsDoodads.CORE & DIAGNOSTICS
@@ -3845,6 +4499,49 @@ DocsDoodads.Collision = {
 
     getPresetShape(presetName) {
         return this.presets[presetName] || null;
+    },
+
+    // The solid footprint at the bottom of a sprite (a tree's trunk, a wall's base) as a shape
+    // relative to the frame. Faint pixels such as soft shadows and anti-aliasing are ignored.
+    footprintFromAlpha(data, width, height, options = {}) {
+        const frame = options.frame || { x: 0, y: 0, w: width, h: height };
+        const threshold = options.alphaThreshold !== undefined ? options.alphaThreshold : 48;
+        const fw = Math.max(1, Math.min(frame.w, width - frame.x));
+        const fh = Math.max(1, Math.min(frame.h, height - frame.y));
+        const solid = (px, py) => data[((frame.y + py) * width + frame.x + px) * 4 + 3] >= threshold;
+
+        let top = -1, bottom = -1;
+        for (let py = 0; py < fh; py++) {
+            for (let px = 0; px < fw; px++) {
+                if (solid(px, py)) {
+                    if (top < 0) top = py;
+                    bottom = py;
+                    break;
+                }
+            }
+        }
+        if (bottom < 0) return null;
+
+        const contentH = bottom - top + 1;
+        const ratio = options.bandRatio !== undefined ? options.bandRatio : 0.25;
+        const minBand = options.minBandPx !== undefined ? options.minBandPx : 4;
+        const maxBand = options.maxBandPx !== undefined ? options.maxBandPx : 32;
+        const band = Math.max(1, Math.min(contentH, Math.max(minBand, Math.min(maxBand, Math.round(contentH * ratio)))));
+        const bandTop = bottom - band + 1;
+        const columnFill = options.columnFill !== undefined ? options.columnFill : 0.3;
+
+        let minCol = -1, maxCol = -1;
+        for (let px = 0; px < fw; px++) {
+            let count = 0;
+            for (let py = bandTop; py <= bottom; py++) if (solid(px, py)) count++;
+            if (count / band >= columnFill) {
+                if (minCol < 0) minCol = px;
+                maxCol = px;
+            }
+        }
+        if (minCol < 0) return null;
+        const round = v => Math.round(v * 10000) / 10000;
+        return { x: round(minCol / fw), y: round(bandTop / fh), w: round((maxCol - minCol + 1) / fw), h: round(band / fh) };
     }
 };
 
@@ -3913,6 +4610,7 @@ DocsDoodads.Undo = {
         cmd.revert();
         this.redoStack.push(cmd);
         DocsDoodads.Workspace.updateUndoButtons();
+        if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
         if (typeof SoundManager !== 'undefined') SoundManager.playCancel();
         return true;
     },
@@ -3923,6 +4621,7 @@ DocsDoodads.Undo = {
         cmd.apply();
         this.undoStack.push(cmd);
         DocsDoodads.Workspace.updateUndoButtons();
+        if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
         if (typeof SoundManager !== 'undefined') SoundManager.playOk();
         return true;
     }
@@ -4637,6 +5336,7 @@ DocsDoodads.Workspace = {
             if (confirm(`Unfinished session from ${dateStr} found. Would you like to recover it?`)) {
                 if (recovery.doodads && window.$gameMap) {
                     window.$dataDocsDoodads[$gameMap.mapId()] = recovery.doodads;
+                    if (recovery.mapSettings) window.$dataDocsDoodads.mapSettings = recovery.mapSettings;
                     if (SceneManager._scene && SceneManager._scene._spriteset) {
                         SceneManager._scene._spriteset.addDocsDoodads();
                     }
@@ -4867,6 +5567,7 @@ DocsDoodads.Workspace = {
 
         this.bindEvents();
         this.refreshDrawerCards();
+        this.refreshInspector();
     },
 
     refreshLayoutSelector() {
@@ -5218,6 +5919,9 @@ DocsDoodads.Workspace = {
                 frameH: asset.height || 48,
                 collision: asset.collision || { preset: "none" },
                 characterIndex: asset.placement.characterIndex || 0,
+                depth: asset.placement.depth,
+                tags: asset.tags || [],
+                autoTags: asset.autoTags || [],
                 placementMode: asset.placement.defaultMode || (asset.type === 'character_sheet' ? 'event' : 'ask')
             };
             e.dataTransfer.setData('text/plain', JSON.stringify(this.activeDragPayload));
@@ -5412,6 +6116,10 @@ DocsDoodads.Workspace = {
                     </div>
                 </div>
 
+                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
+                    <button class="dd-btn" id="dd-multi-trace-col" style="width: 100%;" title="Fit each doodad's collision to the solid base of its image">Trace Collision from Art</button>
+                </div>
+                ${this.renderEffectSections(items)}
                 <div style="margin-top: 12px;">
                     <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: #991b1b;">Delete Selection (${items.length})</button>
                 </div>
@@ -5443,6 +6151,8 @@ DocsDoodads.Workspace = {
                 this.hideSelected(hiddenCount !== items.length);
             };
             document.getElementById('dd-dup-all-btn').onclick = () => this.duplicateSelectedDoodad();
+            document.getElementById('dd-multi-trace-col').onclick = () => this.traceCollision(items);
+            this.bindEffectSections(items);
             document.getElementById('dd-del-all-btn').onclick = () => this.deleteSelectedDoodad();
             return;
         }
@@ -5503,6 +6213,7 @@ DocsDoodads.Workspace = {
                         <option value="wideWall">Wide Wall</option>
                         <option value="custom">Custom Rectangle</option>
                     </select>
+                    <button class="dd-btn" id="dd-prop-trace-col" style="width: 100%; margin-top: 4px;" title="Fit the collision to the solid base of the image">Trace from Art</button>
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
@@ -5540,6 +6251,7 @@ DocsDoodads.Workspace = {
                         <button class="dd-btn" id="dd-prop-to-back" title="Send to Back">To Back</button>
                     </div>
                 </div>
+                ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
                     <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: #991b1b;">Delete</button>
@@ -5627,6 +6339,8 @@ DocsDoodads.Workspace = {
                 document.getElementById(id).onchange = applyDoodadInputs;
             });
 
+            this.bindEffectSections([d]);
+            document.getElementById('dd-prop-trace-col').onclick = () => this.traceCollision([d]);
             document.getElementById('dd-prop-forward').onclick = () => this.bringForward([d]);
             document.getElementById('dd-prop-backward').onclick = () => this.sendBackward([d]);
             document.getElementById('dd-prop-to-front').onclick = () => this.bringToFront([d]);
@@ -5642,7 +6356,7 @@ DocsDoodads.Workspace = {
 
         // Case 2: Drawer Asset Selected
         if (!this.selectedAsset) {
-            content.innerHTML = "Select an asset in the drawer or click an object on the map.";
+            this.renderMapPanel(content);
             return;
         }
 
@@ -5698,6 +6412,14 @@ DocsDoodads.Workspace = {
                     <option value="trunk">Tree Trunk</option>
                     <option value="thinWall">Thin Wall</option>
                     <option value="wideWall">Wide Wall</option>
+                    <option value="custom">Custom (traced)</option>
+                </select>
+                <button class="dd-btn" id="dd-asset-trace-col" style="width: 100%; margin-top: 4px;" title="Fit the collision to the solid base of the image">Trace from Art</button>
+            </div>
+            <div style="margin-top: 8px;">
+                <label style="display: block; font-size: 11px; margin-bottom: 3px;">Default Depth:</label>
+                <select id="dd-asset-depth" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                    ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
             <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
@@ -5730,7 +6452,18 @@ DocsDoodads.Workspace = {
 
         const colSel = document.getElementById('dd-col-preset');
         colSel.value = a.collision.preset || "none";
-        colSel.onchange = (e) => { a.collision.preset = e.target.value; };
+        colSel.onchange = (e) => {
+            const shape = e.target.value === 'custom' ? (a.collision.shape || { x: 0.2, y: 0.6, w: 0.6, h: 0.4 }) : null;
+            a.collision = { preset: e.target.value, shape };
+            DocsDoodads.AssetIndex.save();
+        };
+        document.getElementById('dd-asset-trace-col').onclick = () => this.traceAssetCollision(a);
+        const depthSel = document.getElementById('dd-asset-depth');
+        depthSel.value = DocsDoodads.Depth.modes.includes(a.placement.depth) ? a.placement.depth : DocsDoodads.Depth.suggestFor(a);
+        depthSel.onchange = (e) => {
+            a.placement.depth = e.target.value;
+            DocsDoodads.AssetIndex.save();
+        };
 
         document.getElementById('dd-fav-toggle').onclick = () => {
             DocsDoodads.AssetIndex.toggleFavorite(a.id);
@@ -5745,6 +6478,369 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
+    },
+
+    // ---- Undoable doodad property editing (inspector sections, tools) ----
+    propertyDefaults() {
+        return {
+            shadow: DocsDoodads.Shadow.defaults,
+            light: DocsDoodads.Lighting.lightDefaults,
+            motion: { type: 'none', amount: 0.5, speed: 1 }
+        };
+    },
+
+    getDoodadProperty(d, key) {
+        if (key === 'flipX') return (d.scaleX !== undefined ? d.scaleX : 1) < 0;
+        if (key === 'flipY') return (d.scaleY !== undefined ? d.scaleY : 1) < 0;
+        if (key === 'switchText') return DocsDoodads.Appearance.formatSwitches(d.switch);
+        if (key === 'depth') return DocsDoodads.Depth.resolve(d);
+        const dot = key.indexOf('.');
+        if (dot > 0) {
+            const group = key.slice(0, dot), field = key.slice(dot + 1);
+            const value = d[group] ? d[group][field] : undefined;
+            return value !== undefined ? value : (this.propertyDefaults()[group] || {})[field];
+        }
+        return d[key] !== undefined ? d[key] : DocsDoodads.standardStructData[key];
+    },
+
+    applyDoodadProperty(d, key, value) {
+        if (key === 'flipX' || key === 'flipY') {
+            const axis = key === 'flipX' ? 'scaleX' : 'scaleY';
+            d[axis] = Math.abs(d[axis] !== undefined ? d[axis] : 1) * (value ? -1 : 1);
+            return;
+        }
+        if (key === 'switchText') {
+            d.switch = DocsDoodads.Appearance.parseSwitchText(value);
+            return;
+        }
+        const dot = key.indexOf('.');
+        if (dot > 0) {
+            const group = key.slice(0, dot), field = key.slice(dot + 1);
+            const next = Object.assign({}, this.propertyDefaults()[group] || {}, d[group] || {});
+            next[field] = value;
+            d[group] = next;
+            return;
+        }
+        d[key] = value;
+    },
+
+    snapshotDoodads(items) {
+        return items.map(d => JSON.parse(JSON.stringify(d)));
+    },
+
+    // Restores in place so selections and sprites keep pointing at the same objects.
+    restoreDoodad(d, snapshot) {
+        for (const key of Object.keys(d)) delete d[key];
+        Object.assign(d, JSON.parse(JSON.stringify(snapshot)));
+    },
+
+    afterDoodadEdit() {
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        this.refreshSpriteset(true);
+    },
+
+    // One undo step returning every item to its "before" snapshot (the change is already applied).
+    recordDoodadEdit(items, before, type = 'edit_doodads') {
+        const after = this.snapshotDoodads(items);
+        DocsDoodads.Undo.execute({
+            type,
+            apply: () => { items.forEach((d, i) => this.restoreDoodad(d, after[i])); this.afterDoodadEdit(); },
+            revert: () => { items.forEach((d, i) => this.restoreDoodad(d, before[i])); this.afterDoodadEdit(); }
+        });
+    },
+
+    editDoodads(items, mutate, type) {
+        items = (items || []).filter(Boolean);
+        if (items.length === 0) return;
+        const before = this.snapshotDoodads(items);
+        items.forEach(mutate);
+        this.recordDoodadEdit(items, before, type);
+    },
+
+    setDoodadProperty(items, key, value) {
+        this.editDoodads(items, d => this.applyDoodadProperty(d, key, value), 'set_' + key);
+    },
+
+    // Slider drags preview live and become a single undo step when released.
+    beginPropertyPreview(items) {
+        this._propertyPreview = { items: items.slice(), before: this.snapshotDoodads(items) };
+    },
+
+    previewDoodadProperty(items, key, value) {
+        if (!this._propertyPreview) this.beginPropertyPreview(items);
+        items.forEach(d => this.applyDoodadProperty(d, key, value));
+        this.refreshSpriteset(true);
+    },
+
+    commitPropertyPreview() {
+        const preview = this._propertyPreview;
+        this._propertyPreview = null;
+        if (preview) this.recordDoodadEdit(preview.items, preview.before, 'adjust_doodads');
+    },
+
+    effectSections() {
+        const D = DocsDoodads;
+        const range = (key, label, min, max, step) => ({ key, label, type: 'range', min, max, step });
+        const number = (key, label, step = 1) => ({ key, label, type: 'number', step });
+        return [
+            { title: 'Depth', fields: [
+                { key: 'depth', label: 'Layer', type: 'select', options: D.Depth.modes.map(m => ({ value: m, label: D.Depth.labels[m] })) },
+                number('sortOffsetY', 'Base line offset (px, negative = higher)')
+            ] },
+            { title: 'Appearance', fields: [
+                range('opacity', 'Opacity', 0, 1, 0.05),
+                { key: 'blend', label: 'Blend', type: 'select', options: D.Appearance.blendModes },
+                range('hue', 'Hue shift', -180, 180, 1),
+                range('r', 'Tone red', -255, 255, 1),
+                range('g', 'Tone green', -255, 255, 1),
+                range('b', 'Tone blue', -255, 255, 1),
+                range('grey', 'Greyscale', 0, 255, 1),
+                range('blur', 'Blur', 0, 20, 0.5),
+                { key: 'flipX', label: 'Flip horizontally', type: 'checkbox' },
+                { key: 'flipY', label: 'Flip vertically', type: 'checkbox' }
+            ] },
+            { title: 'Motion', fields: [
+                { key: 'motion.type', label: 'Type', type: 'select', options: D.Motion.types },
+                range('motion.amount', 'Amount', 0, 1, 0.05),
+                range('motion.speed', 'Speed', 0.1, 3, 0.1),
+                number('rotateSpeed', 'Spin (degrees per frame)', 0.5)
+            ] },
+            { title: 'Shadow', fields: [
+                { key: 'shadow.enabled', label: 'Cast shadow', type: 'checkbox' },
+                range('shadow.opacity', 'Strength', 0, 1, 0.05),
+                range('shadow.length', 'Length', 0.1, 1.2, 0.05),
+                range('shadow.angle', 'Lean (degrees)', -80, 80, 1),
+                range('shadow.blur', 'Softness', 0, 10, 0.5),
+                number('shadow.offsetX', 'Offset X'),
+                number('shadow.offsetY', 'Offset Y')
+            ] },
+            { title: 'Light', fields: [
+                { key: 'light.enabled', label: 'Emit light', type: 'checkbox' },
+                { key: 'light.color', label: 'Color', type: 'color' },
+                range('light.radius', 'Radius', 16, 600, 4),
+                range('light.intensity', 'Intensity', 0, 1, 0.05),
+                range('light.flicker', 'Flicker', 0, 1, 0.05),
+                range('light.glow', 'Daylight glow', 0, 1, 0.05),
+                number('light.offsetX', 'Offset X'),
+                number('light.offsetY', 'Offset Y')
+            ] },
+            { title: 'Visibility', fields: [
+                { key: 'switchText', label: 'Switches (e.g. 5:on, 6:off)', type: 'text' },
+                { key: 'condition', label: 'Condition (JavaScript, e.g. $gameVariables.value(3) > 2)', type: 'text' }
+            ] }
+        ];
+    },
+
+    renderEffectSections(items) {
+        const first = items[0];
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px; border-radius: 3px; font-size: 11px;';
+        this._openEffectSections = this._openEffectSections || {};
+        return this.effectSections().map((section, si) => {
+            const fields = section.fields.map((f, fi) => {
+                const id = `dd-fx-${si}-${fi}`;
+                const value = this.getDoodadProperty(first, f.key);
+                const label = `<label for="${id}" style="font-size: 10px; color: #94a3b8;">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: #e2e8f0;">${escapeHtml(String(value))}</span>` : ''}</label>`;
+                if (f.type === 'checkbox') {
+                    return `<label style="font-size: 11px; color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
+                }
+                if (f.type === 'select') {
+                    const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+                    return `<div>${label}<select id="${id}" style="${inputStyle}">${options}</select></div>`;
+                }
+                if (f.type === 'range') {
+                    return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
+                }
+                if (f.type === 'color') {
+                    return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>`;
+                }
+                const type = f.type === 'number' ? 'number' : 'text';
+                return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
+            }).join('');
+            return `
+                <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
+                    <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
+                </details>`;
+        }).join('');
+    },
+
+    bindEffectSections(items) {
+        this.effectSections().forEach((section, si) => {
+            const details = document.getElementById(`dd-fx-sec-${si}`);
+            if (details) details.ontoggle = () => { this._openEffectSections[section.title] = details.open; };
+            section.fields.forEach((f, fi) => {
+                const input = document.getElementById(`dd-fx-${si}-${fi}`);
+                if (!input) return;
+                const read = () => {
+                    if (f.type === 'checkbox') return Boolean(input.checked);
+                    if (f.type === 'range' || f.type === 'number') return parseFloat(input.value) || 0;
+                    return input.value;
+                };
+                if (f.type === 'range') {
+                    const label = document.getElementById(`dd-fx-${si}-${fi}-val`);
+                    input.oninput = () => {
+                        this.previewDoodadProperty(items, f.key, read());
+                        if (label) label.textContent = String(read());
+                    };
+                    input.onchange = () => {
+                        this.previewDoodadProperty(items, f.key, read());
+                        this.commitPropertyPreview();
+                    };
+                } else {
+                    input.onchange = () => this.setDoodadProperty(items, f.key, read());
+                }
+            });
+        });
+    },
+
+    // ---- Map settings (lighting) ----
+    currentMapId() {
+        return window.$gameMap && typeof window.$gameMap.mapId === 'function' ? window.$gameMap.mapId() : 0;
+    },
+
+    setMapAmbient(ambient, before) {
+        const mapId = this.currentMapId();
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        const previous = before !== undefined ? before
+            : (data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null);
+        const next = Object.assign({}, previous || {}, { ambient: Object.assign({}, ambient) });
+        const write = (value) => {
+            if (value) {
+                data.mapSettings = data.mapSettings || {};
+                data.mapSettings[mapId] = JSON.parse(JSON.stringify(value));
+            } else if (data.mapSettings) {
+                delete data.mapSettings[mapId];
+                if (Object.keys(data.mapSettings).length === 0) delete data.mapSettings;
+            }
+            DocsDoodads.Persistence.dirtyDoodads = true;
+        };
+        DocsDoodads.Undo.execute({ type: 'map_ambient', apply: () => write(next), revert: () => write(previous) });
+    },
+
+    renderMapPanel(content) {
+        const mapId = this.currentMapId();
+        const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
+        content.innerHTML = `
+            <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP ${mapId} SETTINGS</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Select an asset in the drawer or click an object on the map.</div>
+            <details open style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Lighting</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+                    <div>Ambient Darkness: <span id="dd-map-dark-val" style="color: #e2e8f0;">${Math.round(ambient.darkness * 100)}%</span>
+                        <input type="range" id="dd-map-dark" min="0" max="1" step="0.05" value="${ambient.darkness}" style="width: 100%;" /></div>
+                    <div>Ambient Color <input type="color" id="dd-map-color" value="${escapeHtml(ambient.color)}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>
+                    <div>Only while switch # is ON (0 = always)
+                        <input type="number" id="dd-map-switch" min="0" value="${Number(ambient.switchId) || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
+                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                        <input type="checkbox" id="dd-map-preview" ${this.lightingPreview === false ? '' : 'checked'} /> Preview lighting while editing</label>
+                    <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
+                </div>
+            </details>`;
+
+        const read = () => ({
+            darkness: parseFloat(document.getElementById('dd-map-dark').value) || 0,
+            color: document.getElementById('dd-map-color').value || ambient.color,
+            switchId: Math.max(0, parseInt(document.getElementById('dd-map-switch').value, 10) || 0)
+        });
+        let previewBefore;
+        const darkInput = document.getElementById('dd-map-dark');
+        darkInput.oninput = () => {
+            if (previewBefore === undefined) {
+                const current = DocsDoodads.Lighting.mapSettings(mapId);
+                previewBefore = current ? JSON.parse(JSON.stringify(current)) : null;
+            }
+            DocsDoodads.Lighting.setMapSettings(mapId, { ambient: read() });
+            const label = document.getElementById('dd-map-dark-val');
+            if (label) label.textContent = Math.round(read().darkness * 100) + '%';
+        };
+        darkInput.onchange = () => {
+            this.setMapAmbient(read(), previewBefore);
+            previewBefore = undefined;
+        };
+        document.getElementById('dd-map-color').onchange = () => this.setMapAmbient(read());
+        document.getElementById('dd-map-switch').onchange = () => this.setMapAmbient(read());
+        document.getElementById('dd-map-preview').onchange = (e) => { this.lightingPreview = Boolean(e.target.checked); };
+    },
+
+    // ---- Collision traced from the art ----
+    loadPixels(path) {
+        return new Promise((resolve, reject) => {
+            if (typeof Image === 'undefined' || typeof document === 'undefined') return reject(new Error('Images cannot be read here.'));
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth || img.width;
+                canvas.height = img.naturalHeight || img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                resolve({ data: ctx.getImageData(0, 0, canvas.width, canvas.height).data, width: canvas.width, height: canvas.height });
+            };
+            img.onerror = () => reject(new Error(`Could not load ${path}`));
+            img.src = path;
+        });
+    },
+
+    async traceCollision(items, loader = (path) => this.loadPixels(path)) {
+        const targets = (items || []).filter(d => d && d.bit && d.bit[0] === 3 && !d.locked);
+        if (targets.length === 0) return 0;
+        const before = this.snapshotDoodads(targets);
+        const cache = {};
+        let traced = 0;
+        for (const d of targets) {
+            try {
+                const path = d.bit[1];
+                const px = cache[path] || (cache[path] = await loader(path));
+                const shape = DocsDoodads.Collision.footprintFromAlpha(px.data, px.width, px.height, {
+                    frame: { x: d.frameX || 0, y: d.frameY || 0, w: d.frameW || px.width, h: d.frameH || px.height }
+                });
+                if (shape) {
+                    d.collision = { preset: 'custom', shape };
+                    traced++;
+                }
+            } catch (error) {
+                DocsDoodads.Core.log('Collision tracing failed', error);
+            }
+        }
+        if (traced > 0) this.recordDoodadEdit(targets, before, 'trace_collision');
+        this.showToast(traced > 0 ? `Traced collision for ${traced} doodad(s) from their art.` : 'No solid footprint found in the art; collision unchanged.');
+        if (traced > 0) this.refreshInspector();
+        return traced;
+    },
+
+    // Saves the traced footprint on the library asset so every new placement starts with it.
+    async traceAssetCollision(asset, loader = (path) => this.loadPixels(path)) {
+        try {
+            const px = await loader(asset.path);
+            const shape = DocsDoodads.Collision.footprintFromAlpha(px.data, px.width, px.height);
+            if (!shape) {
+                this.showToast('No solid footprint found in the art.');
+                return null;
+            }
+            asset.collision = { preset: 'custom', shape };
+            DocsDoodads.AssetIndex.save();
+            this.showToast(`Collision traced for ${asset.fileName}; new placements will use it.`);
+            this.refreshInspector();
+            return shape;
+        } catch (error) {
+            this.showToast(`Could not trace collision: ${error.message || error}`);
+            return null;
+        }
+    },
+
+    // A new doodad for an asset (library entry or drag payload) at a map position.
+    newDoodadFromAsset(asset, x, y) {
+        const d = DocsDoodads.standardStruct();
+        d.bit = [3, asset.path];
+        d.x = x;
+        d.y = y;
+        // Drag payloads carry frameW/frameH; library assets carry width/height.
+        d.frameW = asset.frameW || asset.width || 48;
+        d.frameH = asset.frameH || asset.height || 48;
+        const preferredDepth = (asset.placement && asset.placement.depth) || asset.depth;
+        d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
+        const collision = asset.collision || {};
+        d.collision = { preset: collision.preset || "none", shape: collision.shape ? JSON.parse(JSON.stringify(collision.shape)) : null };
+        return d;
     },
 
     updateIndexStatus(removed) {
@@ -5838,31 +6934,20 @@ DocsDoodads.Workspace = {
             DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
-            const d = DocsDoodads.standardStruct();
-            d.bit = [3, asset.path];
-            d.x = coords.x;
-            d.y = coords.y;
-            // Drag payloads carry frameW/frameH; library assets carry width/height.
-            d.frameW = asset.frameW || asset.width || 48;
-            d.frameH = asset.frameH || asset.height || 48;
-            d.collision = { preset: asset.collision.preset || "none", shape: null };
+            const d = this.newDoodadFromAsset(asset, coords.x, coords.y);
 
             const cmd = {
                 apply: () => {
                     window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
                     window.$dataDocsDoodads[$gameMap.mapId()].push(d);
                     DocsDoodads.Persistence.dirtyDoodads = true;
-                    if (SceneManager._scene && SceneManager._scene._spriteset) {
-                        SceneManager._scene._spriteset.addDocsDoodads();
-                    }
+                    this.refreshSpriteset();
                 },
                 revert: () => {
                     const list = window.$dataDocsDoodads[$gameMap.mapId()] || [];
                     const idx = list.indexOf(d);
                     if (idx > -1) list.splice(idx, 1);
-                    if (SceneManager._scene && SceneManager._scene._spriteset) {
-                        SceneManager._scene._spriteset.addDocsDoodads();
-                    }
+                    this.refreshSpriteset();
                 }
             };
             DocsDoodads.Undo.execute(cmd);
@@ -6636,16 +7721,10 @@ DocsDoodads.Workspace = {
             const scaleJitter = 1.0 + (Math.random() * 2 - 1) * b.scaleJitter;
             const rotJitter = (Math.random() * 2 - 1) * b.rotateJitter;
 
-            const d = DocsDoodads.standardStruct();
-            d.bit = [3, asset.path];
-            d.x = Math.round(px);
-            d.y = Math.round(py);
-            d.frameW = asset.width || 48;
-            d.frameH = asset.height || 48;
+            const d = this.newDoodadFromAsset(asset, Math.round(px), Math.round(py));
             d.scaleX = parseFloat(scaleJitter.toFixed(2));
             d.scaleY = parseFloat(scaleJitter.toFixed(2));
             d.rotation = Math.round(rotJitter);
-            d.collision = { preset: asset.collision.preset || "none", shape: null };
 
             list.push(d);
             this.currentBrushBatch.push(d);
@@ -7492,6 +8571,7 @@ if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
                 timestamp: Date.now(),
                 mapId: $gameMap.mapId(),
                 doodads: DocsDoodads.doodads(),
+                mapSettings: window.$dataDocsDoodads ? window.$dataDocsDoodads.mapSettings : undefined,
                 stagedMap: $gameMap._stagedMapData
             };
             DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', recoveryData);
