@@ -83,7 +83,15 @@
  *    - Event tags (note or page comment): <shadow>, <shadow: length 0.8, opacity 0.4>,
  *      <no shadow>, <motion blur>, <no motion blur>, <no reflection>.
  *
- * 11. Modern Operations & Safety:
+ * 11. Post-Processing (toolbar: Post FX):
+ *    - Bloom, colour grading, vignette, film grain, chromatic aberration, lens
+ *      distortion, CRT, pixelate, sharpen and tilt-shift, with presets.
+ *    - A game-wide look plus per-map looks; Set Post-Processing Look fades between
+ *      them; Play Screen Effect for impact zoom, shockwaves and flashes.
+ *    - Quality setting, an Effects Quality option for players, and full-map
+ *      PNG export to the screenshots folder.
+ *
+ * 12. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -362,12 +370,98 @@
  * @value reflections
  * @option See-Through
  * @value seeThrough
+ * @option Post-Processing
+ * @value postfx
  * @default characterShadows
  *
  * @arg enabled
  * @text Enabled
  * @type boolean
  * @default true
+ *
+ * @command setLook
+ * @text Set Post-Processing Look
+ * @desc Fades to a preset look, to no effects, or back to the map's own look.
+ *
+ * @arg look
+ * @text Look
+ * @type select
+ * @option Back to the map's look
+ * @value map
+ * @option No effects
+ * @value none
+ * @option Cinematic
+ * @value cinematic
+ * @option Golden Hour
+ * @value golden
+ * @option Dreamy
+ * @value dreamy
+ * @option Retro CRT
+ * @value retro
+ * @option Noir
+ * @value noir
+ * @option Horror
+ * @value horror
+ * @option Underwater
+ * @value underwater
+ * @option Miniature
+ * @value miniature
+ * @option Pixel Art
+ * @value pixel
+ * @default map
+ *
+ * @arg duration
+ * @text Fade Duration (frames)
+ * @type number
+ * @min 0
+ * @default 60
+ *
+ * @command playScreenEffect
+ * @text Play Screen Effect
+ * @desc A short effect for impacts, spells and reveals.
+ *
+ * @arg effect
+ * @text Effect
+ * @type select
+ * @option Impact Zoom
+ * @value zoomPunch
+ * @option Shockwave
+ * @value shockwave
+ * @option Chromatic Punch
+ * @value chromaticPunch
+ * @option Bloom Flash
+ * @value bloomFlash
+ * @default shockwave
+ *
+ * @arg strength
+ * @text Strength
+ * @type number
+ * @decimals 2
+ * @min 0
+ * @default 1
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @min 1
+ * @default 40
+ *
+ * @arg origin
+ * @text Centred On
+ * @type select
+ * @option Player
+ * @value player
+ * @option Event
+ * @value event
+ * @option Screen centre
+ * @value screen
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID (when centred on an event)
+ * @type number
+ * @min 0
+ * @default 0
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -1319,7 +1413,8 @@ DocsDoodads.World = {
         motionBlur: { enabled: false, mode: 'all', strength: 1 },
         seeThrough: { enabled: true, mode: 'fade', opacity: 0.4, speed: 0.1, silhouetteColor: '#7dd3fc' },
         reflections: { enabled: false, opacity: 0.4, ripple: 0.5, regionId: 0, shoreInset: 12 },
-        seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] }
+        seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
+        postfx: { enabled: true, quality: 'high', includePictures: false, look: {} }
     },
 
     _cache: null,
@@ -1955,6 +2050,487 @@ DocsDoodads.Atmosphere = {
                 if (vars.value(id) !== value) vars.setValue(id, value);
             });
         }
+    }
+};
+
+//==========================================================
+// SECTION 5D: POST-PROCESSING (LOOKS, PRESETS, PASSES, SCREEN EFFECTS, MAP IMAGE EXPORT)
+//==========================================================
+// A "look" is one setting per effect. The map layer (or the whole spriteset with pictures) is drawn
+// through up to three passes: bloom, tilt-shift (two blur directions), then one "grade" pass that does
+// colour, vignette, grain, aberration, lens, CRT, pixelate, sharpen, impact zoom and shockwaves at once.
+DocsDoodads.PostFX = {
+    // neutral: the value at which a parameter does nothing (used when blending an effect in or out).
+    effects: [
+        { id: 'bloom', label: 'Bloom', params: [
+            { key: 'threshold', label: 'Threshold', min: 0, max: 1, step: 0.05, def: 0.7, neutral: 1 },
+            { key: 'intensity', label: 'Intensity', min: 0, max: 3, step: 0.05, def: 0.8, neutral: 0 },
+            { key: 'radius', label: 'Radius', min: 1, max: 30, step: 1, def: 8, neutral: 8 }
+        ] },
+        { id: 'color', label: 'Colour Grading', params: [
+            { key: 'exposure', label: 'Exposure (stops)', min: -2, max: 2, step: 0.05, def: 0, neutral: 0 },
+            { key: 'contrast', label: 'Contrast', min: 0.5, max: 2, step: 0.05, def: 1, neutral: 1 },
+            { key: 'saturation', label: 'Saturation', min: 0, max: 2, step: 0.05, def: 1, neutral: 1 },
+            { key: 'temperature', label: 'Temperature (cool - warm)', min: -1, max: 1, step: 0.05, def: 0, neutral: 0 },
+            { key: 'tint', label: 'Tint (magenta - green)', min: -1, max: 1, step: 0.05, def: 0, neutral: 0 },
+            { key: 'shadows', label: 'Shadow colour', type: 'color', def: '#808080', neutral: '#808080' },
+            { key: 'highlights', label: 'Highlight colour', type: 'color', def: '#808080', neutral: '#808080' },
+            { key: 'split', label: 'Split toning', min: 0, max: 1, step: 0.05, def: 0, neutral: 0 }
+        ] },
+        { id: 'vignette', label: 'Vignette', screenSpace: true, params: [
+            { key: 'amount', label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.4, neutral: 0 },
+            { key: 'softness', label: 'Softness', min: 0.05, max: 1, step: 0.05, def: 0.45, neutral: 0.45 },
+            { key: 'color', label: 'Colour', type: 'color', def: '#000000' }
+        ] },
+        { id: 'grain', label: 'Film Grain', screenSpace: true, params: [
+            { key: 'amount', label: 'Amount', min: 0, max: 1, step: 0.05, def: 0.15, neutral: 0 },
+            { key: 'size', label: 'Size', min: 1, max: 4, step: 0.5, def: 1.5, neutral: 1.5 },
+            { key: 'animated', label: 'Animated', type: 'checkbox', def: true }
+        ] },
+        { id: 'aberration', label: 'Chromatic Aberration', screenSpace: true, params: [
+            { key: 'amount', label: 'Amount', min: 0, max: 3, step: 0.05, def: 0.5, neutral: 0 }
+        ] },
+        { id: 'lens', label: 'Lens Distortion', screenSpace: true, params: [
+            { key: 'distortion', label: 'Barrel (+) / pincushion (-)', min: -0.5, max: 0.5, step: 0.01, def: 0.15, neutral: 0 }
+        ] },
+        { id: 'crt', label: 'CRT', screenSpace: true, params: [
+            { key: 'scanlines', label: 'Scanlines', min: 0, max: 1, step: 0.05, def: 0.5, neutral: 0 },
+            { key: 'curvature', label: 'Curvature', min: 0, max: 0.5, step: 0.01, def: 0.12, neutral: 0 },
+            { key: 'mask', label: 'RGB mask', min: 0, max: 1, step: 0.05, def: 0.3, neutral: 0 }
+        ] },
+        { id: 'pixelate', label: 'Pixelate', params: [
+            { key: 'size', label: 'Pixel size', min: 1, max: 12, step: 1, def: 3, neutral: 1 }
+        ] },
+        { id: 'sharpen', label: 'Sharpen', params: [
+            { key: 'amount', label: 'Amount', min: 0, max: 2, step: 0.05, def: 0.4, neutral: 0 }
+        ] },
+        { id: 'tiltShift', label: 'Tilt-Shift (miniature)', screenSpace: true, params: [
+            { key: 'blur', label: 'Blur', min: 0, max: 12, step: 0.5, def: 6, neutral: 0 },
+            { key: 'focus', label: 'Focus line (0 top - 1 bottom)', min: 0, max: 1, step: 0.01, def: 0.55, neutral: 0.55 },
+            { key: 'band', label: 'Sharp band', min: 0, max: 0.5, step: 0.01, def: 0.12, neutral: 0.12 }
+        ] }
+    ],
+
+    presets: [
+        { id: 'cinematic', label: 'Cinematic', look: {
+            color: { enabled: true, contrast: 1.12, saturation: 0.92, shadows: '#1f6f8b', highlights: '#f0a35e', split: 0.35 },
+            vignette: { enabled: true, amount: 0.35, softness: 0.5 }, grain: { enabled: true, amount: 0.06 } } },
+        { id: 'golden', label: 'Golden Hour', look: {
+            bloom: { enabled: true, threshold: 0.72, intensity: 0.7, radius: 10 },
+            color: { enabled: true, temperature: 0.55, exposure: 0.15, saturation: 1.1 },
+            vignette: { enabled: true, amount: 0.3, color: '#2a1200' } } },
+        { id: 'dreamy', label: 'Dreamy', look: {
+            bloom: { enabled: true, threshold: 0.6, intensity: 1, radius: 16 },
+            color: { enabled: true, saturation: 1.15, contrast: 0.92, exposure: 0.1 },
+            vignette: { enabled: true, amount: 0.25, softness: 0.7, color: '#fff0f8' } } },
+        { id: 'retro', label: 'Retro CRT', look: {
+            crt: { enabled: true, scanlines: 0.55, curvature: 0.12, mask: 0.35 }, aberration: { enabled: true, amount: 0.6 },
+            grain: { enabled: true, amount: 0.12 }, vignette: { enabled: true, amount: 0.3 } } },
+        { id: 'noir', label: 'Noir', look: {
+            color: { enabled: true, saturation: 0, contrast: 1.35 }, grain: { enabled: true, amount: 0.2 },
+            vignette: { enabled: true, amount: 0.55 } } },
+        { id: 'horror', label: 'Horror', look: {
+            color: { enabled: true, saturation: 0.45, tint: -0.35, contrast: 1.15, exposure: -0.25 },
+            vignette: { enabled: true, amount: 0.7, color: '#200000' }, grain: { enabled: true, amount: 0.18 },
+            aberration: { enabled: true, amount: 0.4 } } },
+        { id: 'underwater', label: 'Underwater', look: {
+            color: { enabled: true, temperature: -0.6, tint: 0.15, saturation: 0.9 }, lens: { enabled: true, distortion: 0.08 },
+            aberration: { enabled: true, amount: 0.3 }, vignette: { enabled: true, amount: 0.4, color: '#001830' } } },
+        { id: 'miniature', label: 'Miniature', look: {
+            tiltShift: { enabled: true, blur: 7, focus: 0.55, band: 0.1 }, color: { enabled: true, saturation: 1.35, contrast: 1.1 },
+            sharpen: { enabled: true, amount: 0.3 } } },
+        { id: 'pixel', label: 'Pixel Art', look: {
+            pixelate: { enabled: true, size: 3 }, color: { enabled: true, saturation: 1.1 } } }
+    ],
+
+    qualities: [
+        { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' }, { value: 'low', label: 'Low (no tilt-shift)' }, { value: 'off', label: 'Off' }
+    ],
+
+    normalizeParam(p, value) {
+        if (p.type === 'color') return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : p.def;
+        if (p.type === 'checkbox') return typeof value === 'boolean' ? value : p.def;
+        const n = Number(value);
+        if (value === undefined || value === null || value === '' || !isFinite(n)) return p.def;
+        return Math.max(p.min, Math.min(p.max, n));
+    },
+
+    normalizeLook(look) {
+        const out = {};
+        for (const effect of this.effects) {
+            const src = look && look[effect.id] && typeof look[effect.id] === 'object' ? look[effect.id] : {};
+            const e = { enabled: src.enabled === true };
+            for (const p of effect.params) e[p.key] = this.normalizeParam(p, src[p.key]);
+            out[effect.id] = e;
+        }
+        return out;
+    },
+
+    defaultLook() {
+        return this.normalizeLook(null);
+    },
+
+    isActive(look) {
+        return Boolean(look) && this.effects.some(e => look[e.id] && look[e.id].enabled);
+    },
+
+    presetLook(id) {
+        const preset = this.presets.find(p => p.id === id);
+        return preset ? this.normalizeLook(cloneJson(preset.look)) : null;
+    },
+
+    // An effect missing on one side blends from/to its neutral value; it stays on until the blend ends.
+    lerpLook(a, b, t) {
+        a = this.normalizeLook(a);
+        b = this.normalizeLook(b);
+        t = clamp01(t);
+        const out = {};
+        for (const effect of this.effects) {
+            const ea = a[effect.id], eb = b[effect.id];
+            if (!ea.enabled && !eb.enabled) {
+                out[effect.id] = eb;
+                continue;
+            }
+            const e = { enabled: t >= 1 ? eb.enabled : t <= 0 ? ea.enabled : true };
+            for (const p of effect.params) {
+                // Parameters without a neutral value (a vignette's colour) borrow the enabled side's value.
+                const side = (src, other) => (src.enabled ? src[p.key] : p.neutral !== undefined ? p.neutral : other[p.key]);
+                const va = side(ea, eb), vb = side(eb, ea);
+                if (p.type === 'color') e[p.key] = DocsDoodads.Lighting.mixColor(va, vb, t);
+                else if (p.type === 'checkbox') e[p.key] = t < 0.5 ? va : vb;
+                else e[p.key] = va + (vb - va) * t;
+            }
+            out[effect.id] = e;
+        }
+        return out;
+    },
+
+    fadeStart(from, to, frames) {
+        const total = Math.max(0, Math.round(Number(frames) || 0));
+        const fade = { from: this.normalizeLook(from), to: this.normalizeLook(to), framesTotal: total, framesLeft: total };
+        fade.current = total ? cloneJson(fade.from) : cloneJson(fade.to);
+        return fade;
+    },
+
+    fadeStep(fade) {
+        if (!fade || fade.framesLeft <= 0) return fade;
+        fade.framesLeft--;
+        fade.current = this.lerpLook(fade.from, fade.to, 1 - fade.framesLeft / fade.framesTotal);
+        return fade;
+    },
+
+    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look.
+    resolveLook({ world, mapSettings, runtime } = {}) {
+        if (runtime) {
+            const look = this.normalizeLook(runtime);
+            return this.isActive(look) ? look : null;
+        }
+        const pf = world && world.postfx;
+        if (!pf || pf.enabled === false) return null;
+        const mine = mapSettings && mapSettings.postfx;
+        if (mine && mine.mode === 'off') return null;
+        const look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        return this.isActive(look) ? look : null;
+    },
+
+    // The player's Options choice (0 high .. 3 off) can lower the project's quality, never raise it.
+    effectiveQuality(project, playerOption) {
+        const levels = ['high', 'medium', 'low', 'off'];
+        const index = Math.max(Math.max(0, levels.indexOf(project)), Math.max(0, Math.min(3, Number(playerOption) || 0)));
+        return levels[index];
+    },
+
+    bloomBlurQuality(quality) {
+        return quality === 'low' ? 2 : quality === 'medium' ? 3 : 4;
+    },
+
+    gradeIds: ['color', 'vignette', 'grain', 'aberration', 'lens', 'crt', 'pixelate', 'sharpen'],
+
+    passes(look, quality, anim) {
+        if (quality === 'off') return [];
+        const out = [];
+        if ((look && look.bloom.enabled) || (anim && anim.bloom > 0)) out.push('bloom');
+        if (look && look.tiltShift.enabled && quality !== 'low') out.push('tiltShift');
+        const animated = anim && ((anim.zoom !== undefined && anim.zoom !== 1) || (anim.shock && anim.shock[3] > 0) || anim.aberration > 0);
+        if ((look && this.gradeIds.some(id => look[id].enabled)) || animated) out.push('grade');
+        return out;
+    },
+
+    // Grade-pass uniforms; disabled effects use their neutral values.
+    uniforms(look, anim, time) {
+        look = look || this.defaultLook();
+        const v = (id, key) => {
+            const effect = this.effects.find(e => e.id === id);
+            const p = effect.params.find(q => q.key === key);
+            return look[id].enabled || p.neutral === undefined ? look[id][key] : p.neutral;
+        };
+        const ch = c => DocsDoodads.Lighting.channels(c);
+        return {
+            uExposure: Math.pow(2, v('color', 'exposure')),
+            uContrast: v('color', 'contrast'),
+            uSaturation: v('color', 'saturation'),
+            uTemperature: v('color', 'temperature'),
+            uTint: v('color', 'tint'),
+            uShadowColor: ch(v('color', 'shadows')),
+            uHighlightColor: ch(v('color', 'highlights')),
+            uSplit: v('color', 'split'),
+            uVignette: v('vignette', 'amount'),
+            uVignetteSoft: v('vignette', 'softness'),
+            uVignetteColor: ch(look.vignette.color),
+            uGrain: v('grain', 'amount'),
+            uGrainSize: v('grain', 'size'),
+            uTime: look.grain.animated ? (Number(time) || 0) : 0,
+            uAberration: v('aberration', 'amount') + (anim && anim.aberration ? anim.aberration : 0),
+            uDistortion: v('lens', 'distortion'),
+            uScanlines: v('crt', 'scanlines'),
+            uCurvature: v('crt', 'curvature'),
+            uMask: v('crt', 'mask'),
+            uPixel: v('pixelate', 'size'),
+            uSharpen: v('sharpen', 'amount'),
+            uZoom: anim && anim.zoom ? anim.zoom : 1,
+            uZoomCenter: anim && anim.zoomCenter ? anim.zoomCenter : [0.5, 0.5],
+            uShock: anim && anim.shock ? anim.shock : [0.5, 0.5, 0, 0]
+        };
+    },
+
+    // Effects shaped by the screen would repeat on every screen-sized piece of an exported map image.
+    exportLook(look) {
+        const out = this.normalizeLook(look);
+        for (const effect of this.effects) if (effect.screenSpace) out[effect.id].enabled = false;
+        return out;
+    },
+
+    // Screen effects started by the "Play Screen Effect" command; positions are 0-1 across the screen.
+    Animations: {
+        types: [
+            { value: 'zoomPunch', label: 'Impact Zoom' },
+            { value: 'shockwave', label: 'Shockwave' },
+            { value: 'chromaticPunch', label: 'Chromatic Punch' },
+            { value: 'bloomFlash', label: 'Bloom Flash' }
+        ],
+
+        start(list, spec, frame) {
+            if (!spec || !this.types.some(t => t.value === spec.type)) return null;
+            const anim = {
+                type: spec.type,
+                strength: spec.strength !== undefined && isFinite(Number(spec.strength)) ? Number(spec.strength) : 1,
+                duration: Math.max(1, Math.round(Number(spec.duration) || 30)),
+                center: Array.isArray(spec.center) ? spec.center.slice(0, 2) : [0.5, 0.5],
+                start: Number(frame) || 0
+            };
+            list.push(anim);
+            return anim;
+        },
+
+        sample(list, frame) {
+            const out = { zoom: 1, zoomCenter: [0.5, 0.5], shock: [0.5, 0.5, 0, 0], aberration: 0, bloom: 0 };
+            for (let i = list.length - 1; i >= 0; i--) {
+                const a = list[i];
+                const t = (frame - a.start) / a.duration;
+                if (t >= 1) {
+                    list.splice(i, 1);
+                    continue;
+                }
+                if (t < 0) continue;
+                const fall = (1 - t) * (1 - t);
+                if (a.type === 'zoomPunch') {
+                    const env = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+                    out.zoom *= 1 + a.strength * env * env * (3 - 2 * env);
+                    out.zoomCenter = a.center;
+                } else if (a.type === 'shockwave') {
+                    out.shock = [a.center[0], a.center[1], t * 0.9, a.strength * 0.06 * (1 - t)];
+                } else if (a.type === 'chromaticPunch') {
+                    out.aberration += a.strength * 3 * fall;
+                } else if (a.type === 'bloomFlash') {
+                    out.bloom += a.strength * 2 * fall;
+                }
+            }
+            return out;
+        }
+    },
+
+    gradeFragment: [
+        fragmentPrecision,
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform vec4 inputSize;',
+        'uniform vec4 outputFrame;',
+        'uniform vec4 inputClamp;',
+        'uniform float uTime;',
+        'uniform float uExposure; uniform float uContrast; uniform float uSaturation; uniform float uTemperature; uniform float uTint;',
+        'uniform vec3 uShadowColor; uniform vec3 uHighlightColor; uniform float uSplit;',
+        'uniform float uVignette; uniform float uVignetteSoft; uniform vec3 uVignetteColor;',
+        'uniform float uGrain; uniform float uGrainSize;',
+        'uniform float uAberration; uniform float uDistortion;',
+        'uniform float uScanlines; uniform float uCurvature; uniform float uMask;',
+        'uniform float uPixel; uniform float uSharpen;',
+        'uniform float uZoom; uniform vec2 uZoomCenter; uniform vec4 uShock;',
+        'float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }',
+        'vec2 toUv(vec2 n) { return clamp(n * outputFrame.zw * inputSize.zw, inputClamp.xy, inputClamp.zw); }',
+        'vec4 tex(vec2 n) { return texture2D(uSampler, toUv(n)); }',
+        'void main(void) {',
+        '    vec2 screen = vTextureCoord * inputSize.xy / outputFrame.zw;',
+        '    vec2 n = screen;',
+        '    float aspect = outputFrame.z / outputFrame.w;',
+        '    n = uZoomCenter + (n - uZoomCenter) / uZoom;',
+        '    if (uShock.w > 0.0) {',
+        '        vec2 d = (n - uShock.xy) * vec2(aspect, 1.0);',
+        '        float dist = length(d);',
+        '        float ring = 1.0 - smoothstep(0.0, 0.08, abs(dist - uShock.z));',
+        '        if (dist > 0.0001) n -= normalize(d) / vec2(aspect, 1.0) * ring * uShock.w;',
+        '    }',
+        '    vec2 c = n - 0.5;',
+        '    float r2 = dot(c, c);',
+        '    n = 0.5 + c * (1.0 + (uDistortion + uCurvature) * r2 * 2.0);',
+        '    bool outside = uCurvature > 0.0 && (n.x < 0.0 || n.x > 1.0 || n.y < 0.0 || n.y > 1.0);',
+        '    if (uPixel > 1.0) { vec2 cells = outputFrame.zw / uPixel; n = (floor(n * cells) + 0.5) / cells; }',
+        '    vec4 color = tex(n);',
+        '    if (uAberration > 0.0) {',
+        '        vec2 off = (n - 0.5) * uAberration * 0.012;',
+        '        color.r = tex(n + off).r;',
+        '        color.b = tex(n - off).b;',
+        '    }',
+        '    if (uSharpen > 0.0) {',
+        '        vec2 px = 1.0 / outputFrame.zw;',
+        '        vec4 around = (tex(n + vec2(px.x, 0.0)) + tex(n - vec2(px.x, 0.0)) + tex(n + vec2(0.0, px.y)) + tex(n - vec2(0.0, px.y))) * 0.25;',
+        '        color.rgb += (color.rgb - around.rgb) * uSharpen;',
+        '    }',
+        '    float a = color.a;',
+        '    vec3 rgb = a > 0.0 ? color.rgb / a : color.rgb;',
+        '    rgb *= uExposure;',
+        '    rgb *= vec3(1.0 + uTemperature * 0.2, 1.0 + uTint * 0.2, 1.0 - uTemperature * 0.2);',
+        '    rgb = (rgb - 0.5) * uContrast + 0.5;',
+        '    float luma = dot(rgb, vec3(0.299, 0.587, 0.114));',
+        '    rgb = mix(vec3(luma), rgb, uSaturation);',
+        '    rgb += ((uShadowColor - 0.5) * (1.0 - luma) + (uHighlightColor - 0.5) * luma) * uSplit;',
+        '    vec2 vc = (screen - 0.5) * vec2(aspect, 1.0) / sqrt(aspect * aspect * 0.25 + 0.25);',
+        '    float vig = 1.0 - smoothstep(max(0.0, 1.0 - uVignetteSoft * 1.2), 1.05, length(vc));',
+        '    rgb = mix(uVignetteColor, rgb, mix(1.0, vig, uVignette));',
+        '    vec2 pix = screen * outputFrame.zw;',
+        '    if (uScanlines > 0.0) rgb *= 1.0 - uScanlines * 0.4 * mod(floor(pix.y), 2.0);',
+        '    if (uMask > 0.0) {',
+        '        float m = mod(floor(pix.x), 3.0);',
+        '        vec3 mask = m < 1.0 ? vec3(1.0, 0.7, 0.7) : (m < 2.0 ? vec3(0.7, 1.0, 0.7) : vec3(0.7, 0.7, 1.0));',
+        '        rgb *= mix(vec3(1.0), mask, uMask);',
+        '    }',
+        '    if (uGrain > 0.0) rgb += (hash(floor(pix / uGrainSize) + fract(uTime * 7.31) * 113.0) - 0.5) * uGrain * 0.35;',
+        '    if (outside) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }',
+        '    gl_FragColor = vec4(clamp(rgb, 0.0, 1.0) * a, a);',
+        '}'
+    ].join('\n'),
+
+    bloomExtractFragment: [
+        fragmentPrecision,
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform float uThreshold;',
+        'void main(void) {',
+        '    vec4 c = texture2D(uSampler, vTextureCoord);',
+        '    float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));',
+        // Only the light above the threshold glows, so mid-tones (grass, paving) stay as they are.
+        '    float excess = max(l - uThreshold, 0.0) / max(1.0 - uThreshold, 0.0001);',
+        '    gl_FragColor = c * clamp(excess, 0.0, 1.0);',
+        '}'
+    ].join('\n'),
+
+    bloomCombineFragment: [
+        fragmentPrecision,
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform sampler2D uBloom;',
+        'uniform float uIntensity;',
+        'void main(void) {',
+        '    vec4 base = texture2D(uSampler, vTextureCoord);',
+        '    vec4 glow = texture2D(uBloom, vTextureCoord);',
+        // Screen blend: the glow brightens without clipping everything to white.
+        '    vec3 g = clamp(glow.rgb * uIntensity, 0.0, 1.0) * base.a;',
+        '    gl_FragColor = vec4(base.rgb + g - base.rgb * g / max(base.a, 0.0001), base.a);',
+        '}'
+    ].join('\n'),
+
+    // One blur direction per pass; the radius grows away from the sharp band.
+    tiltFragment: [
+        fragmentPrecision,
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform vec4 inputSize;',
+        'uniform vec4 outputFrame;',
+        'uniform vec4 inputClamp;',
+        'uniform vec2 uDir;',
+        'uniform float uBlur;',
+        'uniform float uFocus;',
+        'uniform float uBand;',
+        'void main(void) {',
+        '    vec2 screen = vTextureCoord * inputSize.xy / outputFrame.zw;',
+        '    float d = max(0.0, abs(screen.y - uFocus) - uBand);',
+        '    float r = clamp(d / 0.25, 0.0, 1.0) * uBlur;',
+        '    vec4 sum = vec4(0.0);',
+        '    float total = 0.0;',
+        '    for (int i = -4; i <= 4; i++) {',
+        '        float w = 1.0 - abs(float(i)) / 5.0;',
+        '        vec2 uv = clamp(vTextureCoord + uDir * float(i) * r * 0.25 * inputSize.zw, inputClamp.xy, inputClamp.zw);',
+        '        sum += texture2D(uSampler, uv) * w;',
+        '        total += w;',
+        '    }',
+        '    gl_FragColor = sum / total;',
+        '}'
+    ].join('\n'),
+
+    // Runtime: the plugin-command look fades once per frame.
+    _anims: [],
+    _runtimeFrame: -1,
+
+    runtimeLook() {
+        const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        const fade = system ? system._docsLook : null;
+        if (!fade) return null;
+        const frame = DocsDoodads.frameCount();
+        if (frame !== this._runtimeFrame) {
+            this._runtimeFrame = frame;
+            this.fadeStep(fade);
+            if (fade.framesLeft <= 0 && fade.clearWhenDone) {
+                system._docsLook = null;
+                return null;
+            }
+        }
+        return fade.current;
+    }
+};
+
+// Full-map image: the camera visits screen-sized pieces of the map and each is copied into one picture.
+DocsDoodads.MapExport = {
+    maxSide: 16384,
+
+    plan(mapW, mapH, tileW, tileH, screenW, screenH, scale) {
+        scale = Number(scale) || 1;
+        const W = mapW * tileW, H = mapH * tileH;
+        const width = Math.round(W * scale), height = Math.round(H * scale);
+        if (width > this.maxSide || height > this.maxSide) {
+            const fit = Math.floor(this.maxSide / Math.max(W, H) * 100) / 100;
+            return { width, height, chunks: [], error: `The image would be ${width} x ${height} pixels; the limit is ${this.maxSide}. Choose a scale of ${fit} or less.` };
+        }
+        const axis = (total, view) => {
+            const out = [];
+            for (let at = 0; at < total; at += view) {
+                const camera = Math.min(at, Math.max(0, total - view));
+                const offset = at - camera;
+                out.push({ camera, offset, size: Math.min(view - offset, total - at), at });
+            }
+            return out;
+        };
+        const chunks = [];
+        for (const y of axis(H, screenH)) {
+            for (const x of axis(W, screenW)) {
+                chunks.push({ displayX: x.camera / tileW, displayY: y.camera / tileH, sx: x.offset, sy: y.offset, w: x.size, h: y.size, dx: x.at, dy: y.at });
+            }
+        }
+        return { width, height, scale, chunks };
+    },
+
+    fileName(mapId, date) {
+        const d = date || new Date();
+        const p = (v, n = 2) => String(v).padStart(n, '0');
+        return `Map${p(mapId, 3)}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.png`;
     }
 };
 
@@ -2934,34 +3510,283 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
     };
 }
 
-// Options menu: players can switch motion blur off.
+// Post-processing is offered in Options only when the project uses it.
+DocsDoodads.PostFX.offeredInOptions = function() {
+    const pf = DocsDoodads.World.settings().postfx;
+    if (!pf.enabled) return false;
+    if (this.isActive(this.normalizeLook(pf.look))) return true;
+    const maps = (typeof window !== 'undefined' && window.$dataDocsDoodads && window.$dataDocsDoodads.mapSettings) || {};
+    return Object.keys(maps).some(id => maps[id] && maps[id].postfx && maps[id].postfx.mode === 'custom' && this.isActive(this.normalizeLook(maps[id].postfx.look)));
+};
+
+// Options menu: players can switch motion blur off and lower the effects quality.
+DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off'];
 if (typeof ConfigManager !== 'undefined') {
     ConfigManager.docsMotionBlur = true;
+    ConfigManager.docsFxQuality = 0;
     $.ConfigManager_makeData = ConfigManager.makeData;
     ConfigManager.makeData = function() {
         const config = $.ConfigManager_makeData.call(this);
         config.docsMotionBlur = this.docsMotionBlur;
+        config.docsFxQuality = this.docsFxQuality;
         return config;
     };
     $.ConfigManager_applyData = ConfigManager.applyData;
     ConfigManager.applyData = function(config) {
         $.ConfigManager_applyData.call(this, config);
         this.docsMotionBlur = config && 'docsMotionBlur' in config ? Boolean(config.docsMotionBlur) : true;
+        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(3, Number(config.docsFxQuality) || 0)) : 0;
     };
 }
+DocsDoodads.extraOptionCount = function() {
+    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.PostFX.offeredInOptions() ? 1 : 0);
+};
 if (typeof Window_Options !== 'undefined') {
     $.Window_Options_addGeneralOptions = Window_Options.prototype.addGeneralOptions;
     Window_Options.prototype.addGeneralOptions = function() {
         $.Window_Options_addGeneralOptions.call(this);
         if (DocsDoodads.World.settings().motionBlur.enabled) this.addCommand('Motion Blur', 'docsMotionBlur');
+        if (DocsDoodads.PostFX.offeredInOptions()) this.addCommand('Effects Quality', 'docsFxQuality');
+    };
+    // Effects Quality cycles High > Medium > Low > Off.
+    $.Window_Options_statusText = Window_Options.prototype.statusText;
+    Window_Options.prototype.statusText = function(index) {
+        if (this.commandSymbol(index) === 'docsFxQuality') return DocsDoodads.fxQualityLabels[this.getConfigValue('docsFxQuality') || 0];
+        return $.Window_Options_statusText.call(this, index);
+    };
+    const shiftQuality = (win, delta, wrap) => {
+        const value = (win.getConfigValue('docsFxQuality') || 0) + delta;
+        win.changeValue('docsFxQuality', wrap ? (value + 4) % 4 : Math.max(0, Math.min(3, value)));
+    };
+    $.Window_Options_processOk = Window_Options.prototype.processOk;
+    Window_Options.prototype.processOk = function() {
+        if (this.commandSymbol(this.index()) === 'docsFxQuality') return shiftQuality(this, 1, true);
+        $.Window_Options_processOk.call(this);
+    };
+    $.Window_Options_cursorRight = Window_Options.prototype.cursorRight;
+    Window_Options.prototype.cursorRight = function() {
+        if (this.commandSymbol(this.index()) === 'docsFxQuality') return shiftQuality(this, 1, false);
+        $.Window_Options_cursorRight.apply(this, arguments);
+    };
+    $.Window_Options_cursorLeft = Window_Options.prototype.cursorLeft;
+    Window_Options.prototype.cursorLeft = function() {
+        if (this.commandSymbol(this.index()) === 'docsFxQuality') return shiftQuality(this, -1, false);
+        $.Window_Options_cursorLeft.apply(this, arguments);
     };
 }
 if (typeof Scene_Options !== 'undefined' && Scene_Options.prototype.maxCommands) {
     $.Scene_Options_maxCommands = Scene_Options.prototype.maxCommands;
     Scene_Options.prototype.maxCommands = function() {
-        return $.Scene_Options_maxCommands.call(this) + (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0);
+        return $.Scene_Options_maxCommands.call(this) + DocsDoodads.extraOptionCount();
     };
 }
+
+// Post-processing runs on the map layer (or the whole spriteset with pictures), in battle too.
+if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
+    $.Spriteset_Base_update = Spriteset_Base.prototype.update;
+    Spriteset_Base.prototype.update = function() {
+        $.Spriteset_Base_update.call(this);
+        this.updateDocsPostFx();
+    };
+
+    Spriteset_Base.prototype.createDocsPostFxFilters = function() {
+        const P = DocsDoodads.PostFX;
+        const f = {};
+        try {
+            f.grade = new PIXI.Filter(undefined, P.gradeFragment, P.uniforms(null, null, 0));
+            f.tiltH = new PIXI.Filter(undefined, P.tiltFragment, { uDir: [1, 0], uBlur: 0, uFocus: 0.55, uBand: 0.12 });
+            f.tiltV = new PIXI.Filter(undefined, P.tiltFragment, { uDir: [0, 1], uBlur: 0, uFocus: 0.55, uBand: 0.12 });
+            const extract = new PIXI.Filter(undefined, P.bloomExtractFragment, { uThreshold: 0.6 });
+            const blur = PIXI.filters && PIXI.filters.BlurFilter ? new PIXI.filters.BlurFilter(8, 4) : null;
+            const combine = new PIXI.Filter(undefined, P.bloomCombineFragment, { uBloom: PIXI.Texture.EMPTY, uIntensity: 0.8 });
+            const bloom = new PIXI.Filter(undefined, P.bloomExtractFragment, { uThreshold: 0.6 });
+            // Bright parts are extracted, blurred and added back on top.
+            bloom.apply = function(filterManager, input, output, clearMode) {
+                const bright = filterManager.getFilterTexture(input);
+                extract.apply(filterManager, input, bright, PIXI.CLEAR_MODES ? PIXI.CLEAR_MODES.CLEAR : true);
+                if (blur) blur.apply(filterManager, bright, bright, PIXI.CLEAR_MODES ? PIXI.CLEAR_MODES.CLEAR : true);
+                combine.uniforms.uBloom = bright;
+                combine.apply(filterManager, input, output, clearMode);
+                filterManager.returnFilterTexture(bright);
+            };
+            bloom._docsParts = { extract, blur, combine };
+            f.bloom = bloom;
+        } catch (error) {
+            DocsDoodads.Core.log('Post-processing filters could not be built; the game is shown without them.', error);
+            return null;
+        }
+        return f;
+    };
+
+    Spriteset_Base.prototype.updateDocsPostFx = function() {
+        const P = DocsDoodads.PostFX;
+        const world = DocsDoodads.World.settings();
+        const ws = DocsDoodads.Workspace;
+        const editing = Boolean(ws && ws.mounted);
+        const hidden = (editing && (ws.postFxCompare || ws.postFxPreview === false)) || !DocsDoodads.Atmosphere.featureOn('postfx');
+        const mapSettings = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        const runtime = P.runtimeLook();
+        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime });
+        let anim = P.Animations.sample(P._anims, DocsDoodads.frameCount());
+        if (this._docsExportLook !== undefined) {
+            look = this._docsExportLook;
+            anim = null;
+        }
+        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        const quality = P.effectiveQuality(world.postfx.quality, option);
+        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim);
+        const target = world.postfx.includePictures ? this : this._baseSprite;
+        const other = target === this ? this._baseSprite : this;
+        if (!target) return;
+        if (passes.length && !this._docsPostFx) this._docsPostFx = this.createDocsPostFxFilters();
+        const f = this._docsPostFx;
+        const ours = [];
+        if (f) {
+            if (passes.includes('bloom')) {
+                const bloom = P.normalizeLook(look).bloom;
+                const parts = f.bloom._docsParts;
+                parts.extract.uniforms.uThreshold = bloom.enabled ? bloom.threshold : 0.7;
+                parts.combine.uniforms.uIntensity = (bloom.enabled ? bloom.intensity : 0) + (anim ? anim.bloom : 0);
+                if (parts.blur) {
+                    parts.blur.blur = bloom.enabled ? bloom.radius : 10;
+                    parts.blur.quality = P.bloomBlurQuality(quality);
+                }
+                ours.push(f.bloom);
+            }
+            if (passes.includes('tiltShift')) {
+                for (const tilt of [f.tiltH, f.tiltV]) {
+                    tilt.uniforms.uBlur = look.tiltShift.blur;
+                    tilt.uniforms.uFocus = look.tiltShift.focus;
+                    tilt.uniforms.uBand = look.tiltShift.band;
+                    ours.push(tilt);
+                }
+            }
+            if (passes.includes('grade')) {
+                const u = P.uniforms(look, anim, DocsDoodads.frameCount() / 60);
+                for (const key of Object.keys(u)) f.grade.uniforms[key] = u[key];
+                ours.push(f.grade);
+            }
+        }
+        const all = f ? [f.bloom, f.tiltH, f.tiltV, f.grade] : [];
+        const strip = list => (list || []).filter(filter => !all.includes(filter));
+        // The other container may still hold our filters from before "Affect pictures" changed.
+        if (other && other.filters && other.filters.some(filter => all.includes(filter))) other.filters = strip(other.filters);
+        const kept = strip(target.filters);
+        // Ours go after MZ's tone filter on the map layer, and before the fade/flash filter on the whole spriteset.
+        const desired = target === this ? ours.concat(kept) : kept.concat(ours);
+        const current = target.filters || [];
+        if (desired.length !== current.length || desired.some((filter, i) => filter !== current[i])) {
+            target.filters = desired.length ? desired : null;
+        }
+        if (ours.length) {
+            const w = typeof Graphics !== 'undefined' ? Graphics.width : 816;
+            const h = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+            if (!target.filterArea || target.filterArea.width !== w || target.filterArea.height !== h) target.filterArea = new PIXI.Rectangle(0, 0, w, h);
+        }
+    };
+}
+
+// Where a character is on screen, 0-1, for screen effects centred on it.
+DocsDoodads.PostFX.screenCenterOf = function(character) {
+    if (!character || typeof Graphics === 'undefined') return [0.5, 0.5];
+    const x = character.screenX() / Graphics.width;
+    const y = (character.screenY() - 24) / Graphics.height;
+    return [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))];
+};
+
+DocsDoodads.PostFX.play = function(spec) {
+    return this.Animations.start(this._anims, spec, DocsDoodads.frameCount());
+};
+
+// "Set Look" fades from what is on screen now to a preset, to no effects, or back to the map's own look.
+DocsDoodads.PostFX.setLook = function(id, frames) {
+    if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
+    const world = DocsDoodads.World.settings();
+    const mapSettings = typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+    const mapLook = this.resolveLook({ world, mapSettings }) || this.defaultLook();
+    const current = $gameSystem._docsLook ? $gameSystem._docsLook.current : mapLook;
+    const target = id === 'map' ? mapLook : id === 'none' ? this.defaultLook() : this.presetLook(id);
+    if (!target) return null;
+    const fade = this.fadeStart(current, target, frames);
+    fade.clearWhenDone = id === 'map';
+    $gameSystem._docsLook = fade;
+    return fade;
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'setLook', args => {
+        DocsDoodads.PostFX.setLook(String(args.look || 'map'), Number(args.duration) || 0);
+    });
+    PluginManager.registerCommand(pluginName, 'playScreenEffect', args => {
+        const P = DocsDoodads.PostFX;
+        let center = [0.5, 0.5];
+        if (args.origin === 'player' && typeof $gamePlayer !== 'undefined') center = P.screenCenterOf($gamePlayer);
+        else if (args.origin === 'event' && typeof $gameMap !== 'undefined' && $gameMap) center = P.screenCenterOf($gameMap.event(Number(args.eventId) || 0));
+        P.play({ type: args.effect, strength: Number(args.strength), duration: Number(args.duration) || 30, center });
+    });
+}
+
+// Full-map image export: renders each screen-sized piece with the camera moved there, then restores everything.
+DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
+    const renderer = DocsDoodads.Compat.getRenderer();
+    if (!renderer || !spriteset || typeof $gameMap === 'undefined' || !$gameMap) throw new Error('The map is not ready.');
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const plan = this.plan($gameMap.width(), $gameMap.height(), tw, th, Graphics.width, Graphics.height, options.scale || 1);
+    if (plan.error) throw new Error(plan.error);
+    const canvas = document.createElement('canvas');
+    canvas.width = plan.width;
+    canvas.height = plan.height;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = plan.scale !== 1;
+    const saved = { x: $gameMap._displayX, y: $gameMap._displayY, px: $gameMap._parallaxX, py: $gameMap._parallaxY };
+    const P = DocsDoodads.PostFX;
+    const look = options.includeEffects
+        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook() }))
+        : null;
+    spriteset._docsExportLook = look;
+    const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
+    try {
+        for (const chunk of plan.chunks) {
+            $gameMap.setDisplayPos(chunk.displayX, chunk.displayY);
+            spriteset.update();
+            spriteset.scale.set(1, 1);
+            spriteset.x = 0;
+            spriteset.y = 0;
+            if (spriteset._docsSelectionOutline) spriteset._docsSelectionOutline.visible = false;
+            if (spriteset._docsSilhouette) spriteset._docsSilhouette.visible = false;
+            if (spriteset._weather) spriteset._weather.visible = false;
+            if (!options.includeEffects) {
+                if (spriteset._docsLightOverlay) spriteset._docsLightOverlay.visible = false;
+                if (spriteset._docsGlowLayer) spriteset._docsGlowLayer.visible = false;
+            }
+            if (!options.includeCharacters) {
+                for (const sprite of spriteset._characterSprites || []) {
+                    sprite.visible = false;
+                    if (sprite._docsShadow) sprite._docsShadow.visible = false;
+                }
+                if (spriteset._docsReflectLayer) spriteset._docsReflectLayer.visible = false;
+                if (spriteset._shadowSprite) spriteset._shadowSprite.visible = false;
+            }
+            renderer.render(spriteset, rt, true);
+            const piece = renderer.extract.canvas(rt);
+            // MZ centres maps smaller than the screen, so read where the camera really is.
+            const sx = Math.round(chunk.dx - $gameMap.displayX() * tw), sy = Math.round(chunk.dy - $gameMap.displayY() * th);
+            ctx.drawImage(piece, sx, sy, chunk.w, chunk.h,
+                Math.round(chunk.dx * plan.scale), Math.round(chunk.dy * plan.scale), Math.round(chunk.w * plan.scale), Math.round(chunk.h * plan.scale));
+        }
+    } finally {
+        rt.destroy(true);
+        delete spriteset._docsExportLook;
+        $gameMap._displayX = saved.x;
+        $gameMap._displayY = saved.y;
+        $gameMap._parallaxX = saved.px;
+        $gameMap._parallaxY = saved.py;
+        if (spriteset._weather) spriteset._weather.visible = true;
+        if (spriteset._docsGlowLayer) spriteset._docsGlowLayer.visible = true;
+        spriteset.update();
+    }
+    return { canvas, plan };
+};
 
 //==========================================================
 // SECTION 8: DocsDoodads.CORE & DIAGNOSTICS
@@ -7117,7 +7942,13 @@ DocsDoodads.Persistence = {
         if (!recovery || !recovery.timestamp) return null;
         if (recovery.timestamp >= this.bootedAt) return null;
         if (this.bootedAt - recovery.timestamp >= 86400000) return null;
+        if (recovery.timestamp === this.answeredRecovery) return null;
         return recovery;
+    },
+
+    // Accepted or declined: don't ask again about the same snapshot while this Playtest runs.
+    markRecoveryAnswered(recovery) {
+        this.answeredRecovery = recovery ? recovery.timestamp : null;
     },
 
     clearRecovery() {
@@ -7702,6 +8533,10 @@ DocsDoodads.Workspace = {
     // Editor-only previews of the time of day and the season (null = what the game says).
     previewMinutes: null,
     previewSeason: null,
+    // Post-processing builder: which look is edited, hold-to-compare, and showing effects while editing.
+    postFxTarget: 'world',
+    postFxCompare: false,
+    postFxPreview: true,
     container: null,
     drawerEl: null,
     inspectorEl: null,
@@ -7762,6 +8597,7 @@ DocsDoodads.Workspace = {
         const recovery = DocsDoodads.Persistence.recoverableSnapshot();
         if (recovery) {
             const dateStr = new Date(recovery.timestamp).toLocaleTimeString();
+            DocsDoodads.Persistence.markRecoveryAnswered(recovery);
             if (confirm(`Unfinished session from ${dateStr} found. Would you like to recover it?`)) {
                 this.applyRecovery(recovery);
                 this.showToast(recovery.mapId && recovery.mapId !== this.currentMapId()
@@ -7779,6 +8615,13 @@ DocsDoodads.Workspace = {
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
         }
+        // Floating panels (Post FX, Asset Tools, World View...) are attached to the page, not the workspace.
+        if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
+            for (const panel of Array.from(document.querySelectorAll('body > .dd-glass'))) {
+                if (panel.parentNode) panel.parentNode.removeChild(panel);
+            }
+        }
+        this.postFxCompare = false;
         this.mounted = false;
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = false;
@@ -7856,6 +8699,8 @@ DocsDoodads.Workspace = {
                 color: #e2e8f0;
                 box-shadow: 0 12px 36px rgba(0,0,0,0.65);
                 pointer-events: auto;
+                /* Panels appended to the page (Asset Tools, Post FX) sit outside the workspace root. */
+                font-family: 'Segoe UI', Roboto, sans-serif;
             }
             .dd-btn {
                 background: #1f2937; color: #f1f5f9; border: 1px solid #374151;
@@ -7982,6 +8827,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
                 <button class="dd-btn" id="dd-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
                 <button class="dd-btn" id="dd-tools-btn" title="Find duplicate and unused files">Asset Tools</button>
+                <button class="dd-btn" id="dd-postfx-btn" title="Post-processing looks, screen effects and map image export">Post FX</button>
                 <button class="dd-btn" id="dd-diag-btn" title="Diagnostics">Diagnostics</button>
                 <button class="dd-btn dd-btn-primary" id="dd-save-btn">Save Changes</button>
                 <button class="dd-btn" id="dd-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
@@ -8228,6 +9074,7 @@ DocsDoodads.Workspace = {
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
         document.getElementById('dd-tools-btn').onclick = () => this.showAssetTools();
+        document.getElementById('dd-postfx-btn').onclick = () => this.showPostFxBuilder();
 
         document.getElementById('dd-stop-audio-btn').onclick = () => {
             DocsDoodads.Audio.stopPreview();
@@ -9331,11 +10178,12 @@ DocsDoodads.Workspace = {
         DocsDoodads.Undo.execute({ type: 'map_ambient', apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
     },
 
-    // One per-map option (undefined restores the default).
-    setMapSetting(key, value) {
+    // One per-map option (undefined restores the default). previousSettings: the map's settings before a live preview.
+    setMapSetting(key, value, previousSettings) {
         const mapId = this.currentMapId();
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
-        const previous = data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null;
+        const previous = previousSettings !== undefined ? previousSettings
+            : (data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null);
         const next = Object.assign({}, previous || {});
         if (value === undefined) delete next[key];
         else next[key] = value;
@@ -9354,6 +10202,256 @@ DocsDoodads.Workspace = {
             DocsDoodads.Persistence.dirtyDoodads = true;
         };
         DocsDoodads.Undo.execute({ type: 'world_setting', apply: () => write(after), revert: () => write(before) });
+    },
+
+    // ---- Post-processing builder ----
+    storedLook(target) {
+        if (target === 'map') {
+            const mine = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).postfx;
+            if (mine && mine.look) return mine.look;
+        }
+        return DocsDoodads.World.get('postfx.look');
+    },
+
+    getLookValue(target, key) {
+        const look = DocsDoodads.PostFX.normalizeLook(this.storedLook(target));
+        const [id, field] = key.split('.');
+        return look[id] ? look[id][field] : undefined;
+    },
+
+    lookWith(target, key, value) {
+        const look = DocsDoodads.PostFX.normalizeLook(this.storedLook(target));
+        const [id, field] = key.split('.');
+        if (look[id]) look[id][field] = value;
+        return look;
+    },
+
+    writeLook(target, look, previous) {
+        if (target === 'map') {
+            const mine = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).postfx || {};
+            this.setMapSetting('postfx', Object.assign({}, mine, { mode: 'custom', look }), previous);
+        } else {
+            this.setWorldSetting('postfx.look', look, previous);
+        }
+    },
+
+    setLookValue(target, key, value) {
+        this.writeLook(target, this.lookWith(target, key, value));
+    },
+
+    // Slider drags change the look live; commitLookPreview records one undo step.
+    previewLookValue(target, key, value) {
+        const look = this.lookWith(target, key, value);
+        if (!this._lookPreview) {
+            const mapId = this.currentMapId();
+            const settings = DocsDoodads.Lighting.mapSettings(mapId);
+            this._lookPreview = target === 'map'
+                ? { target, before: settings ? JSON.parse(JSON.stringify(settings)) : null }
+                : { target, before: { value: DocsDoodads.World.raw('postfx.look') === undefined ? undefined : JSON.parse(JSON.stringify(DocsDoodads.World.raw('postfx.look'))) } };
+        }
+        if (target === 'map') {
+            const mapId = this.currentMapId();
+            const settings = Object.assign({}, DocsDoodads.Lighting.mapSettings(mapId) || {});
+            settings.postfx = Object.assign({}, settings.postfx || {}, { mode: 'custom', look });
+            this.writeMapSettings(mapId, settings);
+        } else {
+            DocsDoodads.World.set('postfx.look', look);
+        }
+    },
+
+    commitLookPreview() {
+        const preview = this._lookPreview;
+        this._lookPreview = null;
+        if (!preview) return;
+        this.writeLook(preview.target, DocsDoodads.PostFX.normalizeLook(this.storedLook(preview.target)), preview.before);
+    },
+
+    applyPreset(target, id) {
+        const look = DocsDoodads.PostFX.presetLook(id);
+        if (look) this.writeLook(target, look);
+    },
+
+    mapPostFxMode() {
+        const mine = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).postfx;
+        return mine && mine.mode ? mine.mode : 'global';
+    },
+
+    // 'global' (the game-wide look), 'off', or 'custom' (seeded from the game-wide look the first time).
+    setMapPostFxMode(mode) {
+        const mine = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).postfx;
+        const look = mine && mine.look ? mine.look : (mode === 'custom' ? DocsDoodads.PostFX.normalizeLook(DocsDoodads.World.get('postfx.look')) : null);
+        if (mode === 'global' && !look) this.setMapSetting('postfx', undefined);
+        else this.setMapSetting('postfx', look ? { mode, look } : { mode });
+    },
+
+    setPostFxCompare(on) {
+        this.postFxCompare = Boolean(on);
+    },
+
+    renderPostFxBuilder() {
+        const P = DocsDoodads.PostFX;
+        const target = this.postFxTarget === 'map' ? 'map' : 'world';
+        const pf = DocsDoodads.World.settings().postfx;
+        const mode = this.mapPostFxMode();
+        const selectStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const option = (value, label, current) => `<option value="${escapeHtml(String(value))}" ${String(value) === String(current) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+        const check = (id, label, on, title) => `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1;" ${title ? `title="${escapeHtml(title)}"` : ''}><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
+        this._openPostFx = this._openPostFx || {};
+        const editable = target === 'world' || mode === 'custom';
+        const effects = editable ? P.effects.map((effect, i) => {
+            const on = this.getLookValue(target, effect.id + '.enabled');
+            const fields = [{ key: effect.id + '.enabled', label: 'On', type: 'checkbox' }].concat(effect.params.map(p => Object.assign({ type: 'range' }, p, { key: effect.id + '.' + p.key })));
+            return `
+                <details id="dd-pfx-sec-${i}" ${this._openPostFx[effect.id] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 5px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: ${on ? '#4ade80' : '#94a3b8'};">${escapeHtml(effect.label)}${on ? ' &middot; on' : ''}</summary>
+                    <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 5px;">
+                        ${fields.map((f, j) => this.fieldHtml(`dd-pfx-${i}-${j}`, f, this.getLookValue(target, f.key))).join('')}
+                    </div>
+                </details>`;
+        }).join('') : `<div style="font-size: 11px; color: #94a3b8;">This map ${mode === 'off' ? 'shows no effects' : 'uses the game-wide look'}. Choose "Its own look" to give it a look of its own.</div>`;
+        return `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">POST-PROCESSING</div>
+                <button class="dd-btn" id="dd-pfx-close">Close</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                <div style="font-size: 10px; color: #94a3b8;">Editing
+                    <select id="dd-pfx-target" style="${selectStyle}">${option('world', 'Game-wide look', target)}${option('map', 'This map', target)}</select></div>
+                <div style="font-size: 10px; color: #94a3b8; ${target === 'map' ? '' : 'visibility: hidden;'}">This map uses
+                    <select id="dd-pfx-mapmode" style="${selectStyle}">${option('global', 'The game-wide look', mode)}${option('off', 'No effects', mode)}${option('custom', 'Its own look', mode)}</select></div>
+            </div>
+            <div style="display: flex; gap: 6px; align-items: flex-end;">
+                <div style="flex: 1; font-size: 10px; color: #94a3b8;">Preset
+                    <select id="dd-pfx-preset" style="${selectStyle}">${P.presets.map(p => option(p.id, p.label, '')).join('')}</select></div>
+                <button class="dd-btn dd-btn-primary" id="dd-pfx-apply" ${editable ? '' : 'disabled'}>Apply</button>
+                <button class="dd-btn" id="dd-pfx-compare" title="Hold to see the map without effects">Hold to Compare</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px;">
+                ${check('dd-pfx-enabled', 'Post-processing on', pf.enabled, 'Switches every look off for the whole game')}
+                ${check('dd-pfx-pictures', 'Affect pictures', pf.includePictures, 'Off: pictures and the timer are drawn without effects')}
+                ${check('dd-pfx-preview', 'Show while editing', this.postFxPreview !== false)}
+                <div style="font-size: 10px; color: #94a3b8;">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
+            </div>
+            <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px;">${effects}</div>
+            <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
+                <div style="flex: 1; font-size: 10px; color: #94a3b8;">Screen effect (test)
+                    <select id="dd-pfx-anim" style="${selectStyle}">${P.Animations.types.map(t => option(t.value, t.label, '')).join('')}</select></div>
+                <button class="dd-btn" id="dd-pfx-play">Play</button>
+            </div>
+            <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                <div style="font-size: 11px; font-weight: bold; color: #94a3b8;">Export Map Image</div>
+                <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #cbd5e1;">
+                    Scale <select id="dd-pfx-export-scale" style="${selectStyle} width: auto;">${option(1, '100%', 1)}${option(0.5, '50%', 1)}${option(0.25, '25%', 1)}</select>
+                    ${check('dd-pfx-export-chars', 'Characters', true)}
+                    ${check('dd-pfx-export-fx', 'Lighting & colour', true)}
+                </div>
+                <button class="dd-btn dd-btn-primary" id="dd-pfx-export" title="Saves the whole map as one PNG in the project's screenshots folder">Export Map Image</button>
+            </div>`;
+    },
+
+    showPostFxBuilder() {
+        const existing = document.getElementById('dd-postfx');
+        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        const panel = document.createElement('div');
+        panel.id = 'dd-postfx';
+        panel.className = 'dd-glass';
+        panel.style.cssText = 'position: fixed; top: 64px; right: 12px; width: 330px; max-height: calc(100vh - 90px); padding: 14px; z-index: 10030; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;';
+        panel.innerHTML = this.renderPostFxBuilder();
+        document.body.appendChild(panel);
+        this._postFxPanel = panel;
+        this.bindPostFxBuilder();
+    },
+
+    refreshPostFxBuilder() {
+        const panel = this._postFxPanel;
+        if (!panel || !panel.parentNode) return;
+        panel.innerHTML = this.renderPostFxBuilder();
+        this.bindPostFxBuilder();
+    },
+
+    bindPostFxBuilder() {
+        const P = DocsDoodads.PostFX;
+        const byId = id => document.getElementById(id);
+        const target = this.postFxTarget === 'map' ? 'map' : 'world';
+        const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
+        on('dd-pfx-close', 'onclick', () => {
+            this.setPostFxCompare(false);
+            if (this._postFxPanel && this._postFxPanel.parentNode) this._postFxPanel.parentNode.removeChild(this._postFxPanel);
+        });
+        on('dd-pfx-target', 'onchange', e => { this.postFxTarget = e.target.value; this.refreshPostFxBuilder(); });
+        on('dd-pfx-mapmode', 'onchange', e => { this.setMapPostFxMode(e.target.value); this.refreshPostFxBuilder(); });
+        on('dd-pfx-apply', 'onclick', () => { this.applyPreset(target, byId('dd-pfx-preset').value); this.refreshPostFxBuilder(); });
+        const compare = byId('dd-pfx-compare');
+        if (compare) {
+            compare.onmousedown = () => this.setPostFxCompare(true);
+            compare.onmouseup = compare.onmouseleave = () => this.setPostFxCompare(false);
+        }
+        on('dd-pfx-enabled', 'onchange', e => this.setWorldSetting('postfx.enabled', Boolean(e.target.checked)));
+        on('dd-pfx-pictures', 'onchange', e => this.setWorldSetting('postfx.includePictures', Boolean(e.target.checked)));
+        on('dd-pfx-preview', 'onchange', e => { this.postFxPreview = Boolean(e.target.checked); });
+        on('dd-pfx-quality', 'onchange', e => this.setWorldSetting('postfx.quality', e.target.value));
+        on('dd-pfx-play', 'onclick', () => {
+            const center = typeof $gamePlayer !== 'undefined' ? P.screenCenterOf($gamePlayer) : [0.5, 0.5];
+            P.play({ type: byId('dd-pfx-anim').value, strength: 1, duration: 40, center });
+        });
+        on('dd-pfx-export', 'onclick', () => {
+            this.exportMapImage({
+                scale: parseFloat(byId('dd-pfx-export-scale').value) || 1,
+                includeCharacters: Boolean(byId('dd-pfx-export-chars').checked),
+                includeEffects: Boolean(byId('dd-pfx-export-fx').checked)
+            });
+        });
+        if (target === 'map' && this.mapPostFxMode() !== 'custom') return;
+        P.effects.forEach((effect, i) => {
+            const details = byId(`dd-pfx-sec-${i}`);
+            if (details) details.ontoggle = () => { this._openPostFx[effect.id] = details.open; };
+            const fields = [{ key: effect.id + '.enabled', type: 'checkbox' }].concat(effect.params.map(p => Object.assign({ type: 'range' }, p, { key: effect.id + '.' + p.key })));
+            fields.forEach((f, j) => {
+                const input = byId(`dd-pfx-${i}-${j}`);
+                if (!input) return;
+                const read = () => (f.type === 'checkbox' ? Boolean(input.checked) : f.type === 'color' ? input.value : parseFloat(input.value) || 0);
+                if (f.type === 'range') {
+                    const label = byId(`dd-pfx-${i}-${j}-val`);
+                    input.oninput = () => {
+                        this.previewLookValue(target, f.key, read());
+                        if (label) label.textContent = String(read());
+                    };
+                    input.onchange = () => {
+                        this.previewLookValue(target, f.key, read());
+                        this.commitLookPreview();
+                    };
+                } else {
+                    input.onchange = () => {
+                        this.setLookValue(target, f.key, read());
+                        if (f.key.endsWith('.enabled')) this.refreshPostFxBuilder();
+                    };
+                }
+            });
+        });
+    },
+
+    exportMapImage(options) {
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
+        const spriteset = scene && scene._spriteset;
+        if (!spriteset || typeof require === 'undefined') {
+            this.showToast('Open a map in Playtest to export it.', 'error');
+            return null;
+        }
+        try {
+            const fsMod = require('fs');
+            const pathMod = require('path');
+            this.showToast('Rendering the map...', 'info');
+            const { canvas, plan } = DocsDoodads.MapExport.capture(spriteset, options);
+            fsMod.mkdirSync('screenshots', { recursive: true });
+            const out = pathMod.join('screenshots', DocsDoodads.MapExport.fileName($gameMap.mapId()));
+            fsMod.writeFileSync(out, Buffer.from(canvas.toDataURL('image/png').split(',')[1], 'base64'));
+            this.showToast(`Saved ${plan.width} x ${plan.height} image: ${out}`, 'success');
+            try { if (typeof nw !== 'undefined' && nw.Shell) nw.Shell.showItemInFolder(pathMod.resolve(out)); } catch (error) {}
+            return out;
+        } catch (error) {
+            this.showToast(error.message || String(error), 'error');
+            return null;
+        }
     },
 
     addSeasonSet() {

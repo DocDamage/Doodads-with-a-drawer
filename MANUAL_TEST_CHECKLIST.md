@@ -63,6 +63,16 @@ Test these on an exterior map and on a looping world map.
 - [ ] Give a switch-controlled doodad each appear/disappear effect and toggle the switch.
 - [ ] Disable each effect with Set Atmosphere Effect and re-enable it.
 
+## Post-processing
+
+- [ ] Open Post FX, apply each preset, and adjust sliders; undo a slider drag in one step. Hold to Compare.
+- [ ] Give one map its own look and another No effects; walk between them. Confirm battles use the game-wide look.
+- [ ] Turn Affect pictures off and show a picture; it stays crisp. Message windows are never affected.
+- [ ] Use Set Post-Processing Look with a fade, then Back to the map's look. Play each screen effect centred on the player and on an event.
+- [ ] Set Quality to Low, and Effects Quality in Options to each value; Off removes every effect.
+- [ ] Export a map image at 100% and 50%, with and without characters; open it and check there are no seams.
+- [ ] Close the editor with Post FX and Asset Tools open; both close too.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
