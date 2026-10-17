@@ -98,7 +98,13 @@
  *    - Character sheets: [f8] frames per row, [d1] single row, [d8] 8 directions;
  *      Name_idle / Name_run cycles; Play Character Action; optional diagonal movement.
  *
- * 13. Modern Operations & Safety:
+ * 13. Spatial Sound (map panel: Spatial Sound, Sound (this map)):
+ *    - Event and move-route sound effects are quieter far away and panned left/right,
+ *      with slight random pitch/volume variation. <no spatial> opts an event out.
+ *    - Ambient sounds on doodads and events (<sound: River, 80, 8>), cave echo,
+ *      background sounds by region, and the Play SE At plugin command.
+ *
+ * 14. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -572,6 +578,61 @@
  * @text Wait for Completion
  * @type boolean
  * @default true
+ *
+ * @command playSeAt
+ * @text Play SE At
+ * @desc Plays a sound effect heard from a character or a map tile (quieter with distance, panned).
+ *
+ * @arg name
+ * @text Sound Effect
+ * @type file
+ * @dir audio/se/
+ * @require 1
+ *
+ * @arg volume
+ * @text Volume
+ * @type number
+ * @min 0
+ * @max 100
+ * @default 90
+ *
+ * @arg pitch
+ * @text Pitch
+ * @type number
+ * @min 50
+ * @max 150
+ * @default 100
+ *
+ * @arg target
+ * @text Where
+ * @type select
+ * @option Player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @option Map tile
+ * @value tile
+ * @default this
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg x
+ * @text Tile X
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg y
+ * @text Tile Y
+ * @type number
+ * @min 0
+ * @default 0
  *
  * @command clearCharacterAction
  * @text Clear Character Action
@@ -1547,7 +1608,8 @@ DocsDoodads.World = {
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
         postfx: { enabled: true, quality: 'high', includePictures: false, look: {} },
         vfx: { library: [] },
-        characterAnim: { diagonal: false, sets: [] }
+        characterAnim: { diagonal: false, sets: [] },
+        sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 }
     },
 
     _cache: null,
@@ -1759,7 +1821,7 @@ DocsDoodads.CharacterTags = {
 
     parse(text) {
         const out = {};
-        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection)\s*(?::([^>]*))?>/gi;
+        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection|spatial)\s*(?::([^>]*))?>/gi;
         let match;
         while ((match = re.exec(String(text || '')))) {
             const on = !match[1];
@@ -1776,6 +1838,18 @@ DocsDoodads.CharacterTags = {
                 out.motionBlur = on;
             } else if (kind === 'reflection') {
                 out.reflect = on;
+            } else if (kind === 'spatial') {
+                out.spatial = on;
+            }
+        }
+        const sound = /<\s*sound\s*:\s*([^>]+)>/i.exec(String(text || ''));
+        if (sound) {
+            const [name, volume, radius, every] = sound[1].split(',').map(p => p.trim());
+            if (name) {
+                out.sound = { file: /\//.test(name) ? name : 'bgs/' + name };
+                if (volume) out.sound.volume = Number(volume);
+                if (radius) out.sound.radius = Number(radius);
+                if (every) out.sound.every = Number(every);
             }
         }
         return out;
@@ -3067,6 +3141,138 @@ DocsDoodads.CharacterAnim = {
     split8(dir) {
         const map = { 1: [4, 2], 3: [6, 2], 7: [4, 8], 9: [6, 8] };
         return map[dir] ? { horz: map[dir][0], vert: map[dir][1] } : null;
+    }
+};
+
+//==========================================================
+// SECTION 5F: SPATIAL SOUND (DISTANCE, PAN, VARIATION, EMITTERS, ECHO, REGION SOUNDS)
+//==========================================================
+// Distances are in tiles from the player. MZ pans with -100 (left) .. 100 (right).
+DocsDoodads.SpatialSound = {
+    modes: [
+        { value: 'auto', label: 'Every event sound (not the party)' },
+        { value: 'tagged', label: 'Only events tagged <spatial>' },
+        { value: 'off', label: 'Off' }
+    ],
+    emitterDefaults: { file: '', volume: 80, pitch: 100, radius: 8, every: 4 },
+    echoDefaults: { enabled: false, delay: 0.18, feedback: 0.35, mix: 0.3 },
+
+    get defaults() {
+        return DocsDoodads.World.defaults.sound;
+    },
+
+    gainAt(distance, s) {
+        const near = Math.max(0, Number(s.near) || 0);
+        const far = Math.max(near + 0.001, Number(s.far) || 14);
+        if (distance <= near) return 1;
+        if (distance >= far) return 0;
+        const t = (distance - near) / (far - near);
+        return (1 - t) * (1 - t);
+    },
+
+    panFor(dx, s) {
+        const width = Math.max(0.5, Number(s.panWidth) || 8);
+        return Math.round(Math.max(-1, Math.min(1, dx / width)) * 100);
+    },
+
+    // A copy of the sound as heard from dx, dy tiles away, or null when out of earshot.
+    apply(se, dx, dy, s) {
+        if (!se || !s || s.mode === 'off') return se;
+        const gain = this.gainAt(Math.hypot(dx, dy), s);
+        const volume = Math.round((Number(se.volume) || 0) * gain);
+        if (gain <= 0 || volume <= 0) return null;
+        const pan = Math.max(-100, Math.min(100, (Number(se.pan) || 0) + this.panFor(dx, s)));
+        return { name: se.name, volume, pitch: se.pitch, pan };
+    },
+
+    // Pitch drifts both ways; volume only dips, so nothing gets louder than authored.
+    vary(se, s, rng) {
+        const pv = Math.max(0, Number(s && s.pitchVariance) || 0), vv = Math.max(0, Number(s && s.volumeVariance) || 0);
+        if (!se || (!pv && !vv)) return se;
+        const r = rng || Math.random;
+        return Object.assign({}, se, {
+            pitch: Math.round((Number(se.pitch) || 100) * (1 + (r() * 2 - 1) * pv / 100)),
+            volume: Math.round((Number(se.volume) || 0) * (1 - r() * vv / 100))
+        });
+    },
+
+    shouldSpatialize(s, tags, isPlayerLike) {
+        if (!s || s.mode === 'off') return false;
+        tags = tags || {};
+        if (tags.spatial === false) return false;
+        if (tags.spatial === true) return true;
+        if (isPlayerLike) return false;
+        return s.mode !== 'tagged';
+    },
+
+    // "bgs/River" or "se/Bird1"; a bare name is a background sound.
+    splitFile(file) {
+        const text = String(file || '').trim();
+        if (!text) return null;
+        const match = text.match(/^(bgs|se)\/(.+)$/i);
+        return match ? { folder: match[1].toLowerCase(), name: match[2] } : { folder: 'bgs', name: text };
+    },
+
+    normalizeEmitter(src) {
+        if (!src) return null;
+        const file = this.splitFile(src.file);
+        if (!file) return null;
+        const d = this.emitterDefaults;
+        const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
+        return {
+            file: file.folder + '/' + file.name, folder: file.folder, name: file.name,
+            volume: num(src.volume, d.volume, 0, 100), pitch: num(src.pitch, d.pitch, 50, 150),
+            radius: num(src.radius, d.radius, 1, 60), every: num(src.every, d.every, 0.5, 120),
+            loop: file.folder === 'bgs'
+        };
+    },
+
+    // Gain and pan for each emitter; an emitter is silent beyond its own radius.
+    planEmitters(list, s) {
+        const out = {};
+        for (const item of list || []) {
+            if (!item || !item.emitter) continue;
+            const near = Math.min(Number(s.near) || 0, item.emitter.radius * 0.25);
+            out[item.key] = {
+                gain: this.gainAt(Math.hypot(item.dx, item.dy), { near, far: item.emitter.radius }),
+                pan: this.panFor(item.dx, s)
+            };
+        }
+        return out;
+    },
+
+    // Repeating sound effects (birds, drips) wander around their interval.
+    nextDelay(every, rng) {
+        return Math.max(0.1, (Number(every) || 4) * (0.5 + (rng || Math.random)()));
+    },
+
+    echoFor(mapSettings) {
+        const echo = mapSettings && mapSettings.echo;
+        if (!echo || !echo.enabled) return null;
+        const d = this.echoDefaults;
+        const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
+        return { delay: num(echo.delay, d.delay, 0.02, 1), feedback: num(echo.feedback, d.feedback, 0, 0.9), mix: num(echo.mix, d.mix, 0, 1) };
+    },
+
+    regionSoundFor(list, regionId) {
+        if (!(regionId > 0) || !Array.isArray(list)) return null;
+        return list.find(e => e && Number(e.regionId) === regionId && e.name) || null;
+    },
+
+    regionStart() {
+        return { key: null, saved: false, fade: 1 };
+    },
+
+    // What to do as the player's region changes: play a region's sound (remembering the map's own
+    // first), or restore the map's sound on leaving.
+    regionStep(state, list, regionId) {
+        const entry = this.regionSoundFor(list, regionId);
+        const key = entry ? entry.regionId + ':' + entry.name : null;
+        if (key === state.key) return { state, action: null };
+        if (entry) {
+            return { state: { key, saved: true, fade: Number(entry.fade) || 1 }, action: { type: 'play', entry, save: !state.saved } };
+        }
+        return { state: this.regionStart(), action: state.key ? { type: 'restore', fade: state.fade } : null };
     }
 };
 
@@ -4965,6 +5171,253 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
             this._docsWaitVfx = instance;
             this.setWaitMode('docsVfx');
         }
+    });
+}
+
+// ---- Spatial sound ----
+DocsDoodads.SpatialSound.settings = function() {
+    return DocsDoodads.World.settings().sound;
+};
+
+// A sound effect from a character, varied and placed relative to the player.
+DocsDoodads.SpatialSound.forCharacter = function(se, ch) {
+    if (!se || !se.name) return se;
+    const s = this.settings();
+    const out = this.vary(se, s, Math.random);
+    if (!ch || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return out;
+    const playerLike = ch === $gamePlayer || (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower);
+    if (!this.shouldSpatialize(s, DocsDoodads.CharacterTags.forCharacter(ch), playerLike)) return out;
+    return this.apply(out, $gameMap.deltaX(ch._realX, $gamePlayer._realX), $gameMap.deltaY(ch._realY, $gamePlayer._realY), s);
+};
+
+DocsDoodads.SpatialSound.forTile = function(se, x, y) {
+    if (!se || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return se;
+    const s = this.settings();
+    return this.apply(this.vary(se, s, Math.random), $gameMap.deltaX(x, $gamePlayer._realX), $gameMap.deltaY(y, $gamePlayer._realY), s);
+};
+
+if (typeof Game_Interpreter !== 'undefined') {
+    // Play SE from a map event is heard from where the event stands.
+    Game_Interpreter.prototype.command250 = function(params) {
+        const sameMap = typeof $gameMap !== 'undefined' && $gameMap && this._mapId === $gameMap.mapId();
+        const ch = sameMap && this.eventId() > 0 ? $gameMap.event(this.eventId()) : null;
+        const se = DocsDoodads.SpatialSound.forCharacter(params[0], ch);
+        if (se) AudioManager.playSe(se);
+        return true;
+    };
+}
+
+if (typeof Game_Character !== 'undefined') {
+    // Move-route SE (footsteps, door creaks) too.
+    $.Game_Character_processMoveCommand = Game_Character.prototype.processMoveCommand;
+    Game_Character.prototype.processMoveCommand = function(command) {
+        if (command && command.code === Game_Character.ROUTE_PLAY_SE) {
+            const se = DocsDoodads.SpatialSound.forCharacter(command.parameters[0], this);
+            if (se) AudioManager.playSe(se);
+            return;
+        }
+        $.Game_Character_processMoveCommand.call(this, command);
+    };
+}
+
+// Looping and repeating sounds on doodads and on events tagged <sound: ...>.
+DocsDoodads.SoundEmitters = {
+    _active: typeof Map !== 'undefined' ? new Map() : null,
+    _mapId: null,
+
+    sources() {
+        const out = [];
+        if (typeof $gameMap === 'undefined' || !$gameMap) return out;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        for (const d of DocsDoodads.doodads()) {
+            if (!d || !d.sound || !d.sound.file) continue;
+            if (DocsDoodads.Appearance.isConditional(d) && !DocsDoodads.Appearance.isVisible(d, {})) continue;
+            const emitter = DocsDoodads.SpatialSound.normalizeEmitter(d.sound);
+            // Doodads sit on their base line; characters' realY is their tile, feet at (realY + 1).
+            if (emitter) out.push({ owner: d, emitter, x: d.x / tw - 0.5, y: d.y / th - 1 });
+        }
+        for (const ev of $gameMap.events()) {
+            const tag = DocsDoodads.CharacterTags.forCharacter(ev).sound;
+            const emitter = tag ? DocsDoodads.SpatialSound.normalizeEmitter(tag) : null;
+            if (emitter) out.push({ owner: ev, emitter, x: ev._realX, y: ev._realY });
+        }
+        return out;
+    },
+
+    stop(owner) {
+        const state = this._active.get(owner);
+        if (state && state.buffer) state.buffer.stop();
+        this._active.delete(owner);
+    },
+
+    stopAll() {
+        if (!this._active) return;
+        for (const owner of Array.from(this._active.keys())) this.stop(owner);
+    },
+
+    update() {
+        if (!this._active || typeof AudioManager === 'undefined' || typeof $gamePlayer === 'undefined' || !$gamePlayer || !$gameMap) return;
+        if (this._mapId !== $gameMap.mapId()) {
+            this.stopAll();
+            this._mapId = $gameMap.mapId();
+        }
+        const SS = DocsDoodads.SpatialSound;
+        const s = SS.settings();
+        const sources = this.sources();
+        const plan = SS.planEmitters(sources.map((src, i) => ({ key: i, emitter: src.emitter,
+            dx: $gameMap.deltaX(src.x, $gamePlayer._realX), dy: $gameMap.deltaY(src.y, $gamePlayer._realY) })), s);
+        const seen = new Set();
+        sources.forEach((src, i) => {
+            const p = plan[i];
+            const e = src.emitter;
+            const sig = e.file + '|' + e.loop;
+            let state = this._active.get(src.owner);
+            if (state && state.sig !== sig) {
+                this.stop(src.owner);
+                state = null;
+            }
+            if (!state) {
+                state = { sig, buffer: null, timer: SS.nextDelay(e.every) * Math.random() };
+                this._active.set(src.owner, state);
+            }
+            seen.add(src.owner);
+            if (e.loop) {
+                if (p.gain > 0.001) {
+                    if (!state.buffer) {
+                        state.buffer = AudioManager.createBuffer('bgs/', e.name);
+                        state.buffer.play(true, 0);
+                    }
+                    AudioManager.updateBufferParameters(state.buffer, AudioManager._bgsVolume, { volume: e.volume * p.gain, pitch: e.pitch, pan: p.pan });
+                } else if (state.buffer) {
+                    state.buffer.stop();
+                    state.buffer = null;
+                }
+                return;
+            }
+            state.timer -= 1 / 60;
+            if (state.timer > 0) return;
+            state.timer = SS.nextDelay(e.every);
+            if (p.gain > 0.001) AudioManager.playSe(SS.vary({ name: e.name, volume: Math.round(e.volume * p.gain), pitch: e.pitch, pan: p.pan }, s, Math.random));
+        });
+        for (const owner of Array.from(this._active.keys())) if (!seen.has(owner)) this.stop(owner);
+    }
+};
+
+// Region background sounds: the map's own BGS comes back when the player leaves the region.
+DocsDoodads.RegionSounds = {
+    _state: null,
+    _mapId: null,
+    _saved: null,
+
+    update() {
+        if (typeof AudioManager === 'undefined' || typeof $gamePlayer === 'undefined' || !$gamePlayer || !$gameMap) return;
+        const SS = DocsDoodads.SpatialSound;
+        if (this._mapId !== $gameMap.mapId() || !this._state) {
+            this._mapId = $gameMap.mapId();
+            this._state = SS.regionStart();
+            this._saved = null;
+        }
+        const list = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).regionSounds;
+        if (!Array.isArray(list) || list.length === 0) {
+            if (!this._state.key) return;
+        }
+        const step = SS.regionStep(this._state, list || [], $gameMap.regionId($gamePlayer.x, $gamePlayer.y));
+        this._state = step.state;
+        const action = step.action;
+        if (!action) return;
+        if (action.type === 'play') {
+            if (action.save) this._saved = AudioManager.saveBgs();
+            AudioManager.playBgs({ name: action.entry.name, volume: Number(action.entry.volume) || 90, pitch: Number(action.entry.pitch) || 100, pan: 0 });
+            AudioManager.fadeInBgs(Math.max(0, Number(action.entry.fade) || 0));
+        } else if (action.type === 'restore') {
+            if (this._saved && this._saved.name) {
+                AudioManager.playBgs(this._saved, this._saved.pos);
+                AudioManager.fadeInBgs(Math.max(0, Number(action.fade) || 0));
+            } else {
+                AudioManager.fadeOutBgs(Math.max(0, Number(action.fade) || 0));
+            }
+            this._saved = null;
+        }
+    }
+};
+
+// Cave echo: a shared delay line that map sound effects and background sounds feed into.
+DocsDoodads.SpatialSound.echoBus = function() {
+    if (typeof WebAudio === 'undefined' || !WebAudio._context || !WebAudio._masterGainNode) return null;
+    if (!this._bus) {
+        const c = WebAudio._context;
+        const input = c.createGain(), delay = c.createDelay(1.5), feedback = c.createGain();
+        input.gain.value = 0;
+        input.connect(delay);
+        delay.connect(feedback);
+        feedback.connect(delay);
+        delay.connect(WebAudio._masterGainNode);
+        this._bus = { input, delay, feedback };
+    }
+    return this._bus;
+};
+
+DocsDoodads.SpatialSound.updateEcho = function() {
+    const params = typeof $gameMap !== 'undefined' && $gameMap ? this.echoFor(DocsDoodads.Lighting.mapSettings($gameMap.mapId())) : null;
+    const sig = params ? params.delay + '|' + params.feedback + '|' + params.mix : 'off';
+    if (sig === this._echoSig) return;
+    const bus = this.echoBus();
+    if (!bus) return;
+    this._echoSig = sig;
+    bus.input.gain.value = params ? params.mix : 0;
+    bus.feedback.gain.value = params ? params.feedback : 0;
+    bus.delay.delayTime.value = params ? params.delay : 0.2;
+};
+
+if (typeof AudioManager !== 'undefined') {
+    // Map sound effects and background sounds may echo; music, jingles and menu sounds never do.
+    $.AudioManager_createBuffer = AudioManager.createBuffer;
+    AudioManager.createBuffer = function(folder, name) {
+        const buffer = $.AudioManager_createBuffer.call(this, folder, name);
+        if (buffer) buffer._docsEchoable = folder === 'se/' || folder === 'bgs/';
+        return buffer;
+    };
+    $.AudioManager_loadStaticSe = AudioManager.loadStaticSe;
+    AudioManager.loadStaticSe = function(se) {
+        $.AudioManager_loadStaticSe.call(this, se);
+        for (const buffer of this._staticBuffers || []) buffer._docsEchoable = false;
+    };
+}
+if (typeof WebAudio !== 'undefined' && WebAudio.prototype._createPannerNode) {
+    $.WebAudio__createPannerNode = WebAudio.prototype._createPannerNode;
+    WebAudio.prototype._createPannerNode = function() {
+        $.WebAudio__createPannerNode.call(this);
+        const bus = this._docsEchoable ? DocsDoodads.SpatialSound.echoBus() : null;
+        if (bus && this._pannerNode) this._pannerNode.connect(bus.input);
+    };
+}
+
+if (typeof Game_Map !== 'undefined') {
+    $.Game_Map_update_sound = Game_Map.prototype.update;
+    Game_Map.prototype.update = function(sceneActive) {
+        $.Game_Map_update_sound.call(this, sceneActive);
+        DocsDoodads.SoundEmitters.update();
+        DocsDoodads.RegionSounds.update();
+        DocsDoodads.SpatialSound.updateEcho();
+    };
+}
+if (typeof Scene_Map !== 'undefined') {
+    // Emitters stop for menus and battles and start again on the map.
+    $.Scene_Map_terminate_sound = Scene_Map.prototype.terminate;
+    Scene_Map.prototype.terminate = function() {
+        $.Scene_Map_terminate_sound.call(this);
+        DocsDoodads.SoundEmitters.stopAll();
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'playSeAt', function(args) {
+        const se = { name: String(args.name || ''), volume: Number(args.volume) || 90, pitch: Number(args.pitch) || 100, pan: 0 };
+        if (!se.name) return;
+        let out;
+        if (args.target === 'tile') out = DocsDoodads.SpatialSound.forTile(se, Number(args.x) || 0, Number(args.y) || 0);
+        else out = DocsDoodads.SpatialSound.forCharacter(se, DocsDoodads.characterFor(this, args.target, args.eventId));
+        if (out) AudioManager.playSe(out);
     });
 }
 
@@ -11100,6 +11553,7 @@ DocsDoodads.Workspace = {
             motion: { type: 'none', amount: 0.5, speed: 1 },
             transition: DocsDoodads.Transition.defaults,
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
+            sound: DocsDoodads.SpatialSound.emitterDefaults,
             react: DocsDoodads.React.defaults
         };
     },
@@ -11140,6 +11594,10 @@ DocsDoodads.Workspace = {
         }
         if (key === 'vfx' && !value) {
             delete d.vfx;
+            return;
+        }
+        if (key === 'sound.file' && !value) {
+            delete d.sound;
             return;
         }
         // Season checkboxes: none ticked means every season.
@@ -11276,6 +11734,14 @@ DocsDoodads.Workspace = {
                 number('particles.offsetY', 'Offset Y (from the centre)'),
                 { key: 'vfx', label: 'Attached VFX (loops)', type: 'select', options: [{ value: '', label: 'None' }]
                     .concat(D.Vfx.library().concat(D.Vfx.builtIns).map(v => ({ value: v.id, label: v.name }))) }
+            ] },
+            { title: 'Sound', fields: [
+                { key: 'sound.file', label: 'Sound (background sounds loop; sound effects repeat)', type: 'select',
+                    options: [{ value: '', label: 'None' }].concat(this.audioFileOptions()) },
+                range('sound.volume', 'Volume', 0, 100, 1),
+                range('sound.pitch', 'Pitch', 50, 150, 1),
+                range('sound.radius', 'Heard within (tiles)', 1, 40, 1),
+                number('sound.every', 'Sound effects: about every (seconds)', 0.5)
             ] },
             { title: 'Interaction', fields: [
                 { key: 'react.enabled', label: 'Bend when walked through (grass, bushes, reeds)', type: 'checkbox' },
@@ -11659,6 +12125,94 @@ DocsDoodads.Workspace = {
                 };
             });
         });
+    },
+
+    // Background sounds and sound effects in the asset index, as "bgs/Name" and "se/Name".
+    audioFileOptions() {
+        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data ? Object.values(DocsDoodads.AssetIndex.data.assets || {}) : [];
+        const pick = folder => assets
+            .filter(a => a && new RegExp('^audio/' + folder + '/', 'i').test(a.path || ''))
+            .map(a => folder + '/' + a.path.replace(new RegExp('^audio/' + folder + '/', 'i'), '').replace(/\.[^/.]+$/, ''))
+            .filter((v, i, all) => all.indexOf(v) === i)
+            .sort();
+        return pick('bgs').concat(pick('se')).map(v => ({ value: v, label: v }));
+    },
+
+    // ---- Map sound: echo and region background sounds ----
+    mapRegionSounds() {
+        const list = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).regionSounds;
+        return JSON.parse(JSON.stringify(Array.isArray(list) ? list : []));
+    },
+
+    addRegionSound() {
+        const list = this.mapRegionSounds();
+        list.push({ regionId: 1, name: '', volume: 90, pitch: 100, fade: 1 });
+        this.setMapSetting('regionSounds', list);
+    },
+
+    setRegionSoundField(row, field, value) {
+        const list = this.mapRegionSounds();
+        if (!list[row]) return;
+        list[row][field] = value;
+        this.setMapSetting('regionSounds', list);
+    },
+
+    removeRegionSound(row) {
+        const list = this.mapRegionSounds();
+        if (!list[row]) return;
+        list.splice(row, 1);
+        this.setMapSetting('regionSounds', list);
+    },
+
+    renderMapSoundPanel(mapSettings) {
+        const echo = Object.assign({}, DocsDoodads.SpatialSound.echoDefaults, mapSettings.echo || {});
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const bgs = this.audioFileOptions().filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
+        const rows = (Array.isArray(mapSettings.regionSounds) ? mapSettings.regionSounds : []).map((r, i) => `
+            <div style="display: grid; grid-template-columns: 38px 1fr 40px 36px 22px; gap: 3px; align-items: center;">
+                <input type="number" min="1" max="255" id="dd-region-${i}-regionId" value="${escapeHtml(String(r.regionId))}" title="Region" style="${inputStyle}" />
+                <input type="text" list="dd-bgs-files" id="dd-region-${i}-name" value="${escapeHtml(r.name || '')}" title="Background sound" placeholder="BGS name" style="${inputStyle}" />
+                <input type="number" min="0" max="100" id="dd-region-${i}-volume" value="${escapeHtml(String(r.volume))}" title="Volume" style="${inputStyle}" />
+                <input type="number" min="0" step="0.5" id="dd-region-${i}-fade" value="${escapeHtml(String(r.fade))}" title="Fade (seconds)" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-region-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
+            </div>`).join('');
+        return `
+            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Sound (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                        <input type="checkbox" id="dd-map-echo" ${echo.enabled ? 'checked' : ''} /> Echo (caves, halls)</label>
+                    <div>Delay: ${echo.delay}s <input type="range" id="dd-map-echo-delay" min="0.05" max="1" step="0.01" value="${echo.delay}" style="width: 100%;" /></div>
+                    <div>Repeats: ${echo.feedback} <input type="range" id="dd-map-echo-feedback" min="0" max="0.9" step="0.05" value="${echo.feedback}" style="width: 100%;" /></div>
+                    <div>Echo volume: ${echo.mix} <input type="range" id="dd-map-echo-mix" min="0" max="1" step="0.05" value="${echo.mix}" style="width: 100%;" /></div>
+                    <div style="margin-top: 4px;">Background sound by region (region, BGS, volume, fade s):</div>
+                    ${rows}
+                    <datalist id="dd-bgs-files">${bgs.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+                    <button class="dd-btn" id="dd-region-add">Add Region Sound</button>
+                </div>
+            </details>`;
+    },
+
+    bindMapSoundPanel(mapSettings) {
+        const echo = () => Object.assign({}, DocsDoodads.SpatialSound.echoDefaults, (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).echo || {});
+        const byId = id => document.getElementById(id);
+        const toggle = byId('dd-map-echo');
+        if (toggle) toggle.onchange = () => this.setMapSetting('echo', Object.assign(echo(), { enabled: Boolean(toggle.checked) }));
+        for (const field of ['delay', 'feedback', 'mix']) {
+            const input = byId('dd-map-echo-' + field);
+            if (input) input.onchange = () => { this.setMapSetting('echo', Object.assign(echo(), { [field]: parseFloat(input.value) || 0 })); this.refreshInspector(); };
+        }
+        const list = Array.isArray(mapSettings.regionSounds) ? mapSettings.regionSounds : [];
+        list.forEach((r, i) => {
+            for (const field of ['regionId', 'name', 'volume', 'fade']) {
+                const input = byId(`dd-region-${i}-${field}`);
+                if (input) input.onchange = () => this.setRegionSoundField(i, field, field === 'name' ? input.value.trim() : Math.max(0, parseFloat(input.value) || 0));
+            }
+            const del = byId(`dd-region-del-${i}`);
+            if (del) del.onclick = () => { this.removeRegionSound(i); this.refreshInspector(); };
+        });
+        const add = byId('dd-region-add');
+        if (add) add.onclick = () => { this.addRegionSound(); this.refreshInspector(); };
     },
 
     // ---- Character animation sets ----
@@ -12093,6 +12647,14 @@ DocsDoodads.Workspace = {
             { title: 'Characters', extra: 'animsets', fields: [
                 check('characterAnim.diagonal', 'Diagonal movement (8 directions)')
             ] },
+            { title: 'Spatial Sound', fields: [
+                select('sound.mode', 'Event sounds heard from where they happen', D.SpatialSound.modes),
+                number('sound.near', 'Full volume within (tiles)', 0.5),
+                number('sound.far', 'Silent beyond (tiles)', 0.5),
+                number('sound.panWidth', 'Full left/right at (tiles)', 0.5),
+                range('sound.pitchVariance', 'Pitch variation (%)', 0, 30, 1),
+                range('sound.volumeVariance', 'Volume variation (%)', 0, 50, 1)
+            ] },
             { title: 'Motion Blur', fields: [
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
@@ -12360,6 +12922,7 @@ DocsDoodads.Workspace = {
                     <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
             </details>
+            ${this.renderMapSoundPanel(mapSettings)}
             ${this.renderWorldSections()}
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}`;
@@ -12390,6 +12953,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-daynight').onchange = (e) => this.setMapSetting('dayNight', e.target.value === 'auto' ? undefined : e.target.value);
         document.getElementById('dd-map-reflections').onchange = (e) => this.setMapSetting('reflections', e.target.checked ? undefined : false);
         document.getElementById('dd-map-charshadows').onchange = (e) => this.setMapSetting('characterShadows', e.target.checked ? undefined : false);
+        this.bindMapSoundPanel(mapSettings);
         this.bindWorldSections();
         this.bindMapNavigation();
         this.bindPackingPanel();
