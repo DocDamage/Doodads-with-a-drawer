@@ -530,6 +530,9 @@ Terrain height shows only in the 3D view. It works on round worlds too.
   - Dragging moves the doodad's base along the ground.
   - The grid, paths and guides are drawn on the ground.
 
+### Battles on 3D maps
+Tick **Battles show this map in 3D behind the fight** in the 3D View panel to use the map itself as the battle background: when a battle starts, the 3D view around the encounter is drawn again from a low camera looking the same way, without characters, pictures or the minimap, and replaces the battlebacks for that battle. Enemies and side-view actors are drawn over it as usual.
+
 ### Minimap and world map
 Tick **Minimap in the corner** in the 3D View panel to show a small map of the whole map in the top-right corner during play, with an arrow for the player. Tiles are coloured by what they are: water, blocked ground (mountains, walls), forest, objects and open ground, lighter where the ground is raised.
 

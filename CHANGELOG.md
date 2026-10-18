@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added 3D battle backgrounds (per map): a battle started on a 3D map can show the map around the encounter, from a low camera, behind the fight.
 - Added a minimap for 3D maps and a Show World Map plugin command; planet-shaped maps show a globe that turns with the arrow keys.
 - Added height-aware movement on raised terrain: jump down off ledges and hop up small steps (per map), plus a Store Ground Height plugin command and a script helper for event conditions.
 - Added a settings search to the map panel: only the sections that mention every word typed are shown, opened.

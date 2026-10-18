@@ -4637,7 +4637,7 @@ DocsDoodads.Perspective = {
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
-        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false
+        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
     },
 
     curves: [
@@ -4688,7 +4688,8 @@ DocsDoodads.Perspective = {
             cloudSpeed: num(s.cloudSpeed, d.cloudSpeed, 0, 5),
             mist: num(s.mist, d.mist, 0, 1),
             mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10),
-            minimap: s.minimap === true
+            minimap: s.minimap === true,
+            battleBack: s.battleBack === true
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4774,6 +4775,11 @@ DocsDoodads.Perspective = {
             asset: stand(tile, asset.w, asset.h, s.doodadScale),
             doodadScale: s.doodadScale, characterScale: s.characterScale
         };
+    },
+
+    // The camera for a battle background: low over the ground, looking the way the map's camera looks.
+    battleCamera(s) {
+        return { pitch: Math.min(s.pitch, 22), yaw: s.yaw, zoom: Math.max(1.2, s.zoom) };
     },
 
     // How far the cloud pattern has drifted after t seconds (pattern units: one is a cloud's size).
@@ -10594,6 +10600,70 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         arrow.x = ($gamePlayer._realX + 0.5) * sc;
         arrow.y = ($gamePlayer._realY + 0.5) * sc;
         arrow.rotation = { 2: Math.PI, 4: -Math.PI / 2, 6: Math.PI / 2, 8: 0 }[$gamePlayer.direction()] || 0;
+    };
+}
+
+// Battles on 3D maps can use the map itself as the background: when MZ takes its snapshot for the
+// battle, the 3D view is drawn again from a low camera, without characters, pictures or the minimap.
+if (typeof Spriteset_Map !== 'undefined' && typeof Bitmap !== 'undefined' && Bitmap.snap) {
+    Spriteset_Map.prototype.docsBattleSnapshot = function(s) {
+        const hidden = [];
+        const hide = obj => { if (obj && obj.visible) { obj.visible = false; hidden.push(obj); } };
+        for (const sp of this._characterSprites || []) {
+            hide(sp);
+            hide(sp._docsShadow);
+            for (const layer of sp._docsVisualSprites || []) hide(layer);
+        }
+        hide(this._pictureContainer);
+        hide(this._timerSprite);
+        hide(this._docsMinimap);
+        hide(this._destinationSprite);
+        const saved = $gameMap._docsCamera;
+        $gameMap._docsCamera = Object.assign({}, saved, DocsDoodads.Perspective.battleCamera(s));
+        let bitmap = null;
+        try {
+            this.updateDocsPerspective();
+            bitmap = Bitmap.snap(this);
+        } finally {
+            $gameMap._docsCamera = saved;
+            for (const obj of hidden) obj.visible = true;
+            this.updateDocsPerspective();
+        }
+        return bitmap;
+    };
+}
+
+if (typeof Scene_Map !== 'undefined') {
+    $.Scene_Map_snapForBattleBackground_3d = Scene_Map.prototype.snapForBattleBackground;
+    Scene_Map.prototype.snapForBattleBackground = function() {
+        $.Scene_Map_snapForBattleBackground_3d.call(this);
+        if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
+        $gameTemp._docsBattleBack = null;
+        const s = DocsDoodads.Perspective.active();
+        if (s && s.battleBack && this._spriteset && this._spriteset.docsBattleSnapshot) {
+            $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s);
+        }
+    };
+}
+
+if (typeof Sprite_Battleback !== 'undefined') {
+    $.Sprite_Battleback_battleback1Bitmap_3d = Sprite_Battleback.prototype.battleback1Bitmap;
+    Sprite_Battleback.prototype.battleback1Bitmap = function() {
+        const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
+        return back || $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
+    };
+    $.Sprite_Battleback_battleback2Bitmap_3d = Sprite_Battleback.prototype.battleback2Bitmap;
+    Sprite_Battleback.prototype.battleback2Bitmap = function() {
+        const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
+        return back ? new Bitmap(1, 1) : $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
+    };
+}
+
+if (typeof Scene_Battle !== 'undefined') {
+    $.Scene_Battle_terminate_3d = Scene_Battle.prototype.terminate;
+    Scene_Battle.prototype.terminate = function() {
+        $.Scene_Battle_terminate_3d.call(this);
+        if (typeof $gameTemp !== 'undefined' && $gameTemp) $gameTemp._docsBattleBack = null;
     };
 }
 
@@ -18468,6 +18538,7 @@ DocsDoodads.Workspace = {
             range('mist', 'Low fog (in valleys on raised ground)', 0, 1, 0.05),
             range('mistHeight', 'Low fog height (tiles)', 0.25, 10, 0.25),
             check('minimap', 'Minimap in the corner (Show World Map opens the whole map)'),
+            check('battleBack', 'Battles show this map in 3D behind the fight'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },
