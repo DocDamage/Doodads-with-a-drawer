@@ -1,6 +1,6 @@
 # Doc's Doodads: Recommendations
 
-Status as of 18 October 2026. The list from 17 October has been worked through on the `feat/recommendations` branch: every item is done or partly done. What is still open is at the bottom.
+Status as of 18 October 2026. Every item on the 17 October list is done or partly done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)). What's left is at the bottom.
 
 **S** = an afternoon, **M** = a PR like terrain or water, **L** = several PRs.
 
@@ -63,12 +63,16 @@ Status as of 18 October 2026. The list from 17 October has been worked through o
 
 ---
 
-## Still open
+## What's left
+
+Roughly in order: the first two are what a release needs; the rest wait for real maps to show what matters.
 
 | # | What | Why | Size |
 |---|---|---|---|
-| A | **Run the whole manual checklist on a real game**, including the parts the sampled run skipped (slicing, import, prefabs, dressing, packing, sound, seasons, collision, events, conflict and backup flows, scale), and with MZ's own Deploy dialog. | The sampled run found four bugs in an afternoon; the rest of the checklist will likely find more. | M |
-| B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps); check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
-| C | **Models: the next steps.** Editor picking uses the doodad's picture, not the model; no animation, skinning or PBR materials; every model is drawn on the CPU each frame, so keep them to a few hundred triangles. | The first version is deliberately small. | M–L |
-| D | **Standing tiles and walls: edge cases.** Roof edges drawn with ☆ tiles stand up too; interiors need the Stepped shape; wall faces always face south. | Maps vary; real maps will show which cases matter. | S–M |
-| E | **MV**, only if MV support is wanted again. | Nothing since 2.0 has been tested there. | M |
+| A | **Run the whole manual checklist on a real game.** That means the parts the sampled run skipped (slicing, import, prefabs, dressing, packing, sound, seasons, collision, events, the conflict and backup flows, 10,000-asset scale, a 30-minute session), and a build made with MZ's own Deploy dialog. | The sampled run found four bugs in an afternoon, and the review of that branch found more. The rest of the checklist will likely find more again. | M |
+| B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps). Check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
+| C | **Models: the next steps.** Editor picking uses the doodad's picture, not the model. There is no animation, skinning or PBR material. A model is drawn on the CPU whenever the camera moves (a still view reuses the last frame), so keep models to a few hundred triangles. | The first version is deliberately small. | M–L |
+| D | **Models: reload after editing.** A loaded model stays cached until the game restarts, so re-exporting a `.glb` from Blender doesn't show until then. Pictures already reload live. Hook models into the same file watcher. | It's the one asset type without live reload. | S |
+| E | **A silhouette in the 3D view.** In 3D, Silhouette mode fades things instead, because the flat silhouette is drawn where the flat-map sprite would be, not where the player is drawn. Draw the player again, tinted, after everything in the billboard pass. | It makes Silhouette and Both behave the same on flat and 3D maps. | S–M |
+| F | **Standing tiles and walls: edge cases.** Roof edges drawn with ☆ tiles stand up too. Interiors need the Stepped shape. Wall faces always face south. Doodads taller than a wall (seen with 224-pixel test battlers in an interior) are cut off where the wall stands in front of them. | Maps vary; real maps will show which cases matter. | S–M |
+| G | **MV**, only if MV support is wanted again. | Nothing since 2.0 has been tested there. | M |
