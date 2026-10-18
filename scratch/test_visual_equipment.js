@@ -24,10 +24,11 @@ const V = DocsDoodads.VisualEquip;
 
 // 1. Notetags.
 assert.deepStrictEqual(V.parseNote('<visual: Cape_Red, z -1, part cape>').layers,
-    [{ image: 'Cape_Red', z: -1, part: 'cape', index: null, sv: '' }]);
-assert.deepStrictEqual(V.parseNote('<visual: Helm_Iron>').layers, [{ image: 'Helm_Iron', z: 1, part: 'Helm_Iron', index: null, sv: '' }], "front by default; the part is the image name");
+    [{ image: 'Cape_Red', z: -1, up: null, part: 'cape', index: null, sv: '' }]);
+assert.deepStrictEqual(V.parseNote('<visual: Helm_Iron>').layers, [{ image: 'Helm_Iron', z: 1, up: null, part: 'Helm_Iron', index: null, sv: '' }], "front by default; the part is the image name");
 assert.deepStrictEqual(V.parseNote('<visual: Armor_{alias}, z 2, sv SV_Armor_{alias}, index 3>').layers[0],
-    { image: 'Armor_{alias}', z: 2, part: 'Armor_{alias}', index: 3, sv: 'SV_Armor_{alias}' });
+    { image: 'Armor_{alias}', z: 2, up: null, part: 'Armor_{alias}', index: 3, sv: 'SV_Armor_{alias}' });
+assert.strictEqual(V.parseNote('<visual: Cape, z -1, up 3>').layers[0].up, 3, "order while facing up");
 const helm = V.parseNote('<visual: Helm_Iron, part helmet>\n<visual hide: hair, ears>');
 assert.deepStrictEqual(helm.hides, ['hair', 'ears']);
 const actorNote = V.parseNote('<visual alias: M>\n<visual base: Hair_Short, part hair, z 2>\n<visual color: hair, switch 12, hue 120>\n<visual color: hair, variable 7>\n<visual color: cape, switch 13, tint #ff8800>');
@@ -62,6 +63,26 @@ assert.deepStrictEqual(V.resolve({ actorNote: '', equipNotes: [null, '', 'nothin
 const npc = V.resolve({ actorNote: '<visual base: Hair, part hair>', equipNotes: ['<visual: Hat, part hat>'], extraNotes: ['<visual: Beard, z 2>\n<visual hide: hat>'] }, env);
 assert.deepStrictEqual(npc.map(l => l.image), ['Hair', 'Beard']);
 assert.ok(V.signature(layers) !== V.signature(helmeted), "signature changes with the look");
+
+// Parts are slots: gear naming a part the body already has replaces it (no hide tag needed).
+const doll = '<visual base: Shirt, part clothes, z 1>\n<visual base: Hair, part hair, z 3>';
+assert.deepStrictEqual(V.resolve({ actorNote: doll, equipNotes: [] }, env).map(l => l.image), ['Shirt', 'Hair'], "the bare look");
+assert.deepStrictEqual(V.resolve({ actorNote: doll, equipNotes: ['<visual: Armor, part clothes, z 1>'] }, env).map(l => l.image), ['Armor', 'Hair'], "armor replaces the shirt");
+assert.deepStrictEqual(V.resolve({ actorNote: doll, equipNotes: ['<visual: Robe, part clothes>', '<visual: Armor, part clothes>'] }, env).map(l => l.image), ['Armor', 'Hair'], "the later item wins a slot");
+// One item can fill a slot with several pieces (a cape's back and its collar).
+const cape = V.resolve({ actorNote: '<visual base: Scarf, part cape>', equipNotes: ['<visual: Cape_Back, part cape, z -1>\n<visual: Cape_Collar, part cape, z 2>'] }, env);
+assert.deepStrictEqual(cape.map(l => l.image), ['Cape_Back', 'Cape_Collar']);
+// Without a part name, layers never replace each other.
+assert.deepStrictEqual(V.resolve({ actorNote: '<visual base: Hair>', equipNotes: ['<visual: Ring>', '<visual: Ring>'] }, env).map(l => l.image), ['Hair', 'Ring', 'Ring']);
+// Draw order can change while facing up: a cape is behind the body, except from behind.
+const capeUp = { image: 'Cape', z: -1, up: 3 }, shield = { image: 'Shield', z: 2, up: -2 }, hat = { image: 'Hat', z: 4, up: null };
+assert.deepStrictEqual([V.zFor(capeUp, 2), V.zFor(capeUp, 8), V.zFor(capeUp, 7), V.zFor(hat, 8)], [-1, 3, 3, 4]);
+const down = V.orderFor([capeUp, shield, hat], 2), upOrder = V.orderFor([capeUp, shield, hat], 8);
+assert.ok(down[0] < 0 && down[1] > 0 && down[2] > down[1], "facing down: cape behind, shield then hat in front");
+assert.ok(upOrder[1] < 0 && upOrder[0] > 0 && upOrder[2] > upOrder[0], "facing up: shield behind, cape then hat in front");
+assert.ok([...down, ...upOrder].every(o => o > -1 && o < 1), "stays between neighbouring sprites");
+// Hides still apply to whatever fills the slot.
+assert.deepStrictEqual(V.resolve({ actorNote: doll, equipNotes: ['<visual: Wig, part hair>', '<visual: Hood, part head>\n<visual hide: hair>'] }, env).map(l => l.image), ['Shirt', 'Hood']);
 
 // 3. Which part of a layer sheet matches the character's current frame.
 // 8-character sheets (576x384): block by index, 3 frames x 4 rows of 48x48.

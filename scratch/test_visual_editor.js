@@ -66,6 +66,7 @@ assert.ok(html.includes('dd-ve-canvas') && html.includes('Iron Helm') && html.in
 assert.strictEqual(ws.visualNotetag({ image: 'Cape_Red', z: '-1', part: 'cape', hide: '', sv: '' }), '<visual: Cape_Red, z -1, part cape>');
 assert.strictEqual(ws.visualNotetag({ image: 'Helm', z: '1', part: 'helmet', hide: 'hair, ears', sv: 'SV_Helm' }), '<visual: Helm, part helmet, sv SV_Helm>\n<visual hide: hair, ears>');
 assert.strictEqual(ws.visualNotetag({ image: '' }), '');
+assert.strictEqual(ws.visualNotetag({ image: 'Cape', z: '-1', up: '3', part: 'cape' }), '<visual: Cape, z -1, up 3, part cape>');
 // What the builder writes reads back the same.
 const parsed = DocsDoodads.VisualEquip.parseNote(ws.visualNotetag({ image: 'Cape_Red', z: '-1', part: 'cape' }));
 assert.deepStrictEqual([parsed.layers[0].image, parsed.layers[0].z, parsed.layers[0].part], ['Cape_Red', -1, 'cape']);

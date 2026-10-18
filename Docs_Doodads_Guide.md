@@ -383,18 +383,23 @@ Hover a character sheet in the drawer to watch it walk, and a door or chest shee
 ## 13. Visual Equipment & the Map Destination Marker
 
 ### Visual equipment
-Gear can be drawn on characters as extra sprite layers. A layer sheet has the same layout as a character sheet: 8 characters (or `$` for one), 3 frames, 4 directions, or the `[fN]` / `[dN]` tags from section 10. Draw only the piece of gear, in the same frames as the body, on a transparent background. Put the sheets in `img/characters`.
+Characters can be built from layered parts, like a paper doll. Give the actor a bare body as its character image, or no image and a `<visual base: Body>` layer. Then add hair, eyes and clothes as base parts, and let equipment swap them out.
+
+A part sheet has the same layout as a character sheet: 8 characters (or `$` for one), 3 frames, 4 directions, or the `[fN]` / `[dN]` tags from section 10. Draw only that part, in the same frames as the body, on a transparent background, and put the sheets in `img/characters`. Layers can also go over a finished character sprite, for capes, hats or auras.
+
+**Parts are slots.** When an item names a part the body already has, it replaces it. For example, a shirt (`part clothes`) on the actor is replaced by armor tagged `part clothes`. If two items fill the same slot, the one equipped in the later slot wins. Pieces from one item can share a slot (a cape's back and its collar). Layers without a part name never replace anything.
 
 Notetags go on weapons, armors, states, actors and classes:
 
 | Tag | What it does |
 | :--- | :--- |
 | `<visual: Cape_Red, z -1>` | Draws the layer. A negative `z` is behind the body; 0 or more is in front. Higher numbers are drawn over lower ones. |
-| `<visual: Helm, part helmet>` | Names the part, for hide and colour tags. Without it, the part is the image name. |
+| `<visual: Armor_Iron, part clothes>` | Names the part (slot). Replaces whatever else fills that slot, and is used by hide and colour tags. |
+| `<visual: Cape, z -1, up 2>` | `up` is the order while facing up: behind the body from the front, over the back from behind. Also useful for shields and quivers. |
 | `<visual: Armor_{alias}, sv SV_Armor_{alias}>` | `sv` is the matching side-view battler sheet in `img/sv_actors`. Layers without one don't show in battle. |
 | `<visual: Wings, index 3>` | Uses character 3 of an 8-character layer sheet, instead of the body's index. |
 | `<visual base: Hair_Short, part hair, z 2>` | On actors and classes: a layer the actor always wears (hair, ears, a tail). |
-| `<visual hide: hair, ears>` | Hides those parts while this item is worn, so hair doesn't poke through a helmet. |
+| `<visual hide: hair, ears>` | Hides other parts while this item is worn, so hair doesn't poke through a helmet. |
 | `<visual alias: Elf>` | On actors: fills `{alias}` in image names. One armor tag then shows the right art for each body type. |
 | `<visual color: hair, switch 12, hue 120>` | Shifts a part's hue while a switch is on. `variable 7` instead reads the hue from a variable. `tint #ff8800` multiplies the colour. |
 

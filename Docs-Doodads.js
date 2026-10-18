@@ -110,8 +110,10 @@
  *      animated drawer thumbnails, and the Ctrl+K command palette.
  *
  * 15. Visual Equipment & Destination Marker (map panel):
- *    - <visual: Sheet, z -1> on weapons/armors/states draws gear layers on the
- *      player, followers, events and side-view battlers (sv SheetName). Also
+ *    - Paper-doll characters: a bare body plus parts. <visual: Sheet, z -1, part clothes>
+ *      on weapons/armors/states draws a layer and replaces the body's part of the same
+ *      name; "up N" is the order while facing up. Shows on the player, followers,
+ *      events and side-view battlers (sv SheetName). Also
  *      <visual base: ...>, <visual hide: hair>, <visual color: hair, switch 12, hue 120>,
  *      <visual alias: Elf> ({alias} in image names) and <visual actor: N> on events.
  *    - The equip screen previews the highlighted item; save files show the gear.
@@ -3890,12 +3892,13 @@ DocsDoodads.VisualEquip = {
     parseLayer(text) {
         const parts = String(text || '').split(',').map(p => p.trim()).filter(Boolean);
         const image = parts.shift() || '';
-        const layer = { image, z: 1, part: image, index: null, sv: '' };
+        const layer = { image, z: 1, up: null, part: image, index: null, sv: '' };
         for (const p of parts) {
-            const m = /^(z|part|index|sv)\s*[:=]?\s*(.+)$/i.exec(p);
+            const m = /^(z|up|part|index|sv)\s*[:=]?\s*(.+)$/i.exec(p);
             if (!m) continue;
             const key = m[1].toLowerCase(), value = m[2].trim();
             if (key === 'z') layer.z = Number(value) || 0;
+            else if (key === 'up') layer.up = Number(value) || 0;
             else if (key === 'index') {
                 const n = parseInt(value, 10);
                 layer.index = n >= 0 && n < 8 ? n : null;
@@ -3955,19 +3958,26 @@ DocsDoodads.VisualEquip = {
         const hides = new Set();
         const rules = [];
         const all = [];
-        for (const s of sources) {
+        sources.forEach((s, source) => {
             s.hides.forEach(h => hides.add(h.toLowerCase()));
             rules.push(...s.colors);
-            all.push(...s.base, ...s.layers);
+            for (const layer of s.base.concat(s.layers)) all.push({ layer, source });
+        });
+        // Named parts are slots: the last item naming a part replaces earlier ones (a shirt by armor).
+        // Pieces from the same item share a slot, and unnamed layers (part = image) never replace.
+        const owner = {};
+        for (const { layer, source } of all) {
+            if (layer.part && layer.part !== layer.image) owner[String(layer.part).toLowerCase()] = source;
         }
         const fill = v => String(v || '').replace(/\{alias\}/gi, alias);
         const switchOn = id => (typeof env.switch === 'function' ? Boolean(env.switch(id)) : false);
         const variable = id => (typeof env.variable === 'function' ? Number(env.variable(id)) || 0 : 0);
         const overrides = ctx.colors || {};
         const out = [];
-        for (const layer of all) {
+        for (const { layer, source } of all) {
             const part = String(layer.part || '').toLowerCase();
             if (!layer.image || hides.has(part)) continue;
+            if (layer.part !== layer.image && owner[part] !== source) continue;
             let hue = 0, tint = null;
             for (const rule of rules) {
                 if (String(rule.part).toLowerCase() !== part) continue;
@@ -3981,13 +3991,28 @@ DocsDoodads.VisualEquip = {
                 if (overrides[set].hue !== undefined && overrides[set].hue !== null) hue = Number(overrides[set].hue) || 0;
                 if (overrides[set].tint !== undefined) tint = overrides[set].tint;
             }
-            out.push({ image: fill(layer.image), z: layer.z, part: layer.part, index: layer.index, sv: fill(layer.sv), hue, tint });
+            out.push({ image: fill(layer.image), z: layer.z, up: layer.up, part: layer.part, index: layer.index, sv: fill(layer.sv), hue, tint });
         }
         return out.sort((a, b) => a.z - b.z);
     },
 
     signature(layers) {
-        return (layers || []).map(l => [l.image, l.z, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
+        return (layers || []).map(l => [l.image, l.z, l.up, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
+    },
+
+    // The draw order for a facing: "up" replaces z while facing up (a cape goes in front of the back).
+    zFor(layer, facing) {
+        return [7, 8, 9].includes(facing) && layer.up !== null && layer.up !== undefined ? layer.up : layer.z;
+    },
+
+    // Tie-break offsets around the body's spriteId, back to front: behind from -0.5, in front from +0.01.
+    orderFor(layers, facing) {
+        const zs = layers.map(l => this.zFor(l, facing));
+        const sorted = layers.map((_, i) => i).sort((a, b) => zs[a] - zs[b] || a - b);
+        const out = new Array(layers.length);
+        let behind = 0, front = 0;
+        for (const i of sorted) out[i] = zs[i] < 0 ? -0.5 + (behind++) * 0.001 : 0.01 + (front++) * 0.001;
+        return out;
     },
 
     // The cell of a layer sheet for frame column `col` and row `row`, laid out like a character sheet
@@ -4738,9 +4763,9 @@ if (typeof Spriteset_Map !== 'undefined') {
                 const texture = sprite.docsVisualTexture(l);
                 if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint }));
             };
-            gear.filter(l => l._docsLayer.z < 0).forEach(layer);
+            gear.filter(l => l._docsZ < 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
             sources.push(Object.assign({}, at, { texture: sprite._docsFrameTexture, sx: sprite.scale.x }));
-            gear.filter(l => l._docsLayer.z >= 0).forEach(layer);
+            gear.filter(l => l._docsZ >= 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
         }
         for (const sprite of this._docsDoodadSprites || []) {
             const d = sprite._data;
@@ -6499,14 +6524,11 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
 
     Sprite_Character.prototype.rebuildDocsVisual = function(layers) {
         this.removeDocsVisual();
-        let behind = 0, front = 0;
         for (const layer of layers) {
             const sprite = new Sprite(ImageManager.loadCharacter(layer.image));
             sprite.anchor.set(0.5, 1);
             sprite.setHue(layer.hue || 0);
             if (layer.tint !== null && layer.tint !== undefined) sprite.tint = layer.tint;
-            // Ties in the tilemap sort break by spriteId: just under or just over the body.
-            sprite._docsOrder = layer.z < 0 ? -0.5 + (behind++) * 0.001 : 0.01 + (front++) * 0.001;
             sprite._docsLayer = layer;
             this._docsVisualSprites.push(sprite);
         }
@@ -6532,6 +6554,9 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
         const facing = anim ? anim.facing : ch.direction();
         const col = anim ? anim.frame : this.characterPatternX();
         const visible = this.visible && !ch.isTransparent();
+        // Ties in the tilemap sort break by spriteId: just under or just over the body.
+        const order = VE.orderFor(this._docsVisualSprites.map(sp => sp._docsLayer), facing);
+        this._docsVisualSprites.forEach((sp, i) => { sp._docsOrder = order[i]; sp._docsZ = VE.zFor(sp._docsLayer, facing); });
         for (const sprite of this._docsVisualSprites) {
             if (sprite.parent !== this.parent) this.parent.addChild(sprite);
             const layer = sprite._docsLayer;
@@ -14802,6 +14827,7 @@ DocsDoodads.Workspace = {
         const bits = [image];
         const z = Number(spec.z);
         if (Number.isFinite(z) && z !== 1) bits.push('z ' + z);
+        if (String(spec.up === undefined ? '' : spec.up).trim() !== '' && Number.isFinite(Number(spec.up))) bits.push('up ' + Number(spec.up));
         if (String(spec.part || '').trim()) bits.push('part ' + String(spec.part).trim());
         if (String(spec.sv || '').trim()) bits.push('sv ' + String(spec.sv).trim());
         const tags = [`<visual: ${bits.join(', ')}>`];
@@ -14821,7 +14847,7 @@ DocsDoodads.Workspace = {
         const layers = this.visualTryOnLayers(t.actorId, t.keys);
         const list = layers.map(l => `${escapeHtml(l.image)} <span style="color: #64748b;">z ${l.z}${l.hue ? ', hue ' + l.hue : ''}${l.tint !== null ? ', tint #' + ('000000' + l.tint.toString(16)).slice(-6) : ''}</span>`).join('<br>');
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1&gt;</b>. Layers are drawn over the body (negative z draws behind it). Layer sheets use the same layout as the body's sheet.</div>
+            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1, part clothes&gt;</b>. Negative z draws behind the body. An item with the same part as the body's base part replaces it (armor over a shirt). Part sheets use the same layout as the body's sheet.</div>
             <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Try on:</div>
             <select id="dd-ve-actor" style="${inputStyle}">${actors.map(a => `<option value="${a.id}" ${a.id === t.actorId ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}</select>
             <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: start;">
@@ -14838,8 +14864,8 @@ DocsDoodads.Workspace = {
             <div style="display: grid; grid-template-columns: 1fr 44px; gap: 3px;">
                 <input type="text" list="dd-char-files" id="dd-ve-tag-image" placeholder="Layer sheet" style="${inputStyle}" />
                 <input type="number" id="dd-ve-tag-z" value="1" title="Order (negative = behind)" style="${inputStyle}" />
-                <input type="text" id="dd-ve-tag-part" placeholder="Part (e.g. helmet)" style="${inputStyle}" />
-                <span></span>
+                <input type="text" id="dd-ve-tag-part" placeholder="Part / slot (e.g. clothes, hair)" title="Gear with the same part replaces it" style="${inputStyle}" />
+                <input type="number" id="dd-ve-tag-up" placeholder="up" title="Order while facing up (blank = same)" style="${inputStyle}" />
                 <input type="text" id="dd-ve-tag-hide" placeholder="Hides parts (e.g. hair)" style="${inputStyle}" />
                 <span></span>
                 <input type="text" id="dd-ve-tag-sv" placeholder="Side-view sheet (optional)" style="${inputStyle}" />
@@ -14872,9 +14898,9 @@ DocsDoodads.Workspace = {
         const read = id => (document.getElementById(id) || {}).value || '';
         const out = document.getElementById('dd-ve-tag-out');
         const update = () => {
-            if (out) out.value = this.visualNotetag({ image: read('dd-ve-tag-image'), z: read('dd-ve-tag-z'), part: read('dd-ve-tag-part'), hide: read('dd-ve-tag-hide'), sv: read('dd-ve-tag-sv') });
+            if (out) out.value = this.visualNotetag({ image: read('dd-ve-tag-image'), z: read('dd-ve-tag-z'), up: read('dd-ve-tag-up'), part: read('dd-ve-tag-part'), hide: read('dd-ve-tag-hide'), sv: read('dd-ve-tag-sv') });
         };
-        for (const id of ['dd-ve-tag-image', 'dd-ve-tag-z', 'dd-ve-tag-part', 'dd-ve-tag-hide', 'dd-ve-tag-sv']) {
+        for (const id of ['dd-ve-tag-image', 'dd-ve-tag-z', 'dd-ve-tag-up', 'dd-ve-tag-part', 'dd-ve-tag-hide', 'dd-ve-tag-sv']) {
             const input = document.getElementById(id);
             if (input) input.oninput = update;
         }
@@ -14914,7 +14940,9 @@ DocsDoodads.Workspace = {
         ctx.imageSmoothingEnabled = false;
         const layers = this.visualTryOnLayers(t.actorId, t.keys);
         const body = data && data.characterName ? { image: data.characterName, index: data.characterIndex, hue: 0, tint: null } : null;
-        const sheets = layers.filter(l => l.z < 0).concat(body ? [body] : [], layers.filter(l => l.z >= 0));
+        const z = l => VE.zFor(l, t.dir);
+        const byZ = list => list.slice().sort((a, b) => z(a) - z(b));
+        const sheets = byZ(layers.filter(l => z(l) < 0)).concat(body ? [body] : [], byZ(layers.filter(l => z(l) >= 0)));
         for (const sheet of sheets) {
             const bitmap = VE.windowBitmap(sheet, null);
             if (!bitmap) continue;
