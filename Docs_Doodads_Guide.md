@@ -455,6 +455,9 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 | World radius | How tight the curve is, in tiles. 0 sizes a planet so one lap is the map's width: on a looping world map, walking all the way round brings you back. |
 | Things lean with the curve | Standing things lean outwards with the ground. Turn it off to keep them upright. |
 | Q / W turn the camera 90° | Players can turn the view. The arrow keys follow the camera (up walks away from it), and characters show the side facing it. |
+| Rippling water | Water tiles move with gentle waves that bend what shows through them (including water reflections) and catch the light. Shores stay dry. |
+| Ripple strength / speed / sparkle | How far the waves bend the water, how fast they move, and how bright the glints are. Glints dim at night. |
+| Wakes behind boats and waders | Boats, ships and anything moving through water leave spreading rings with a little foam. |
 | Smooth distant ground | Blends distant pixels instead of keeping them crisp. |
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.

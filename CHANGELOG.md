@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added rippling water to the 3D view: moving waves bend what shows through water tiles and catch the light (dimmer at night), shores stay dry, and boats, ships and anything moving through water leave spreading wake rings with foam. Works on flat ground, round worlds and raised terrain, and across the seam of looping maps. Strength, speed, sparkle and wakes are set per map.
 - Added terrain height to the 3D view: mountains and forests rise automatically on world tilesets, with heights by terrain tag, by region, or painted with a Terrain brush (raise, lower, flatten, set, erase; one undo step per stroke). Smooth (rounded hills and ranges) or stepped (cliffs) ground, slope shading, hills hiding what's behind them, characters standing on the ground, doodads kept to level ground (red boxes mark any left on a mountain), clicks on slopes, optional blocking of steep steps, and round worlds supported.
 - Added curvature control for round worlds: a Curvature slider in the 3D View panel (0 flat to 100 tiny planet) and curvature and shape on Set Camera, eased with the camera, so a cutscene can turn a flat map into a planet and back. Ray tests now stay accurate for nearly flat curves.
 - Added round worlds to the 3D view: a planet (curves away all round, with a radius that can fit a looping map so one lap is the map's width) or a rolling log (curves away ahead), with things past the horizon hidden, optional leaning with the curve, and clicks, fog and editor boxes on the curve.

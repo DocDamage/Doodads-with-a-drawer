@@ -35,7 +35,7 @@ ws.currentMapId = () => 1;
 // 1. The panel and its settings (undoable).
 assert.strictEqual(P.active(), null, "flat until turned on");
 const keys = ws.perspectiveFields().map(f => f.key);
-for (const k of ['enabled', 'pitch', 'yaw', 'fov', 'zoom', 'viewTiles', 'fogStart', 'fogEnd', 'fogColor', 'skyColor', 'voidColor', 'rotate', 'smoothGround', 'curve', 'curveRadius', 'lean']) assert.ok(keys.includes(k), k);
+for (const k of ['enabled', 'pitch', 'yaw', 'fov', 'zoom', 'viewTiles', 'fogStart', 'fogEnd', 'fogColor', 'skyColor', 'voidColor', 'rotate', 'smoothGround', 'curve', 'curveRadius', 'lean', 'water', 'waterStrength', 'waterSpeed', 'waterShine', 'waterWakes']) assert.ok(keys.includes(k), k);
 assert.ok(ws.renderPerspectivePanel().includes('3D View (this map)'));
 ws.setPerspectiveField('enabled', true);
 assert.ok(P.active(), "on");
