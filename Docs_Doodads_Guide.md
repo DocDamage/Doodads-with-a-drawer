@@ -418,6 +418,8 @@ In the editor, open **Visual Equipment** in the map panel to turn each place on 
 
 Character shadows include gear layers: a cape, hat or shield changes the shadow's shape.
 
+**Layer sheets from Aseprite.** Draw the character once in Aseprite with a layer per part (body, hair, clothes...) and the walk cycle as frames: either tag the frames `down`, `left`, `right` and `up`, or put them in that order (three frames each). In the map panel's Visual Equipment section, **Make Layer Sheets from .aseprite…** writes one sheet per visible layer to `img/characters`, already in MZ's layout: `$Name_Body.png`, `$Name_Hair.png` and so on (single-character sheets; rows with other than three frames get `[fN]` in the name). Hidden layers and empty layers are skipped. RGB, grayscale and indexed files work.
+
 ### Destination marker
 The marker MZ shows where the player clicks or taps to walk can be restyled under **Destination Marker** in the map panel:
 - **Marker:** MZ's square, a rounded square, circle, ring, diamond, cross or arrow drawn in any colour. It can also be an image from `img/system` (`Marker[f4]` plays four frames side by side), a database animation that loops, a VFX effect, or hidden.

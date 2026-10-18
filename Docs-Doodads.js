@@ -4168,6 +4168,202 @@ DocsDoodads.VisualEquip = {
 };
 
 // The marker where the player clicks or taps to walk.
+// Visual equipment sheets from Aseprite: one character sheet per layer (body, hair, clothes...) in MZ's
+// layout, from a layered .aseprite file whose frames are the walk cycle. Frames come from tags named
+// down, left, right and up (in any order), or else the first frames in that order. inflate / deflate are
+// zlib's (passed in, so the parts stay testable outside NW.js).
+DocsDoodads.AsepriteSheets = {
+    directions: ['down', 'left', 'right', 'up'],
+
+    parse(buffer, inflate) {
+        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const u8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        let pos = 0;
+        const byte = () => u8[pos++];
+        const word = () => { const v = view.getUint16(pos, true); pos += 2; return v; };
+        const short = () => { const v = view.getInt16(pos, true); pos += 2; return v; };
+        const dword = () => { const v = view.getUint32(pos, true); pos += 4; return v; };
+        const string = () => { const n = word(); const t = new TextDecoder('utf-8').decode(u8.subarray(pos, pos + n)); pos += n; return t; };
+        dword();
+        if (word() !== 0xa5e0) throw new Error('Not an Aseprite file.');
+        const frameCount = word(), width = word(), height = word(), depth = word();
+        dword(); word(); dword(); dword();
+        const transparentIndex = byte();
+        pos = 128;
+        if (![32, 16, 8].includes(depth)) throw new Error('Unsupported colour depth: ' + depth);
+        const out = { width, height, depth, transparentIndex, layers: [], frames: [], tags: [], palette: [] };
+        for (let f = 0; f < frameCount; f++) {
+            const frameStart = pos;
+            const frameBytes = dword();
+            if (word() !== 0xf1fa) throw new Error('Bad frame ' + f + '.');
+            const oldChunks = word(), duration = word();
+            pos += 2;
+            const newChunks = dword();
+            const chunks = newChunks || oldChunks;
+            const frame = { duration, cels: [] };
+            for (let c = 0; c < chunks; c++) {
+                const chunkStart = pos;
+                const size = dword(), type = word();
+                if (type === 0x2004) {
+                    const flags = word(), layerType = word(), level = word();
+                    word(); word();
+                    const blend = word(), opacity = byte();
+                    pos += 3;
+                    out.layers.push({ name: string(), visible: (flags & 1) === 1, type: layerType, level, blend, opacity });
+                } else if (type === 0x2005) {
+                    const layer = word(), x = short(), y = short(), opacity = byte(), celType = word();
+                    pos += 7;
+                    if (celType === 1) frame.cels.push({ layer, x, y, opacity, link: word() });
+                    else if (celType === 0 || celType === 2) {
+                        const w = word(), h = word();
+                        const bpp = depth / 8;
+                        const raw = celType === 0 ? u8.slice(pos, pos + w * h * bpp) : new Uint8Array(inflate(u8.subarray(pos, chunkStart + size)));
+                        frame.cels.push({ layer, x, y, opacity, w, h, pixels: raw });
+                    }
+                } else if (type === 0x2018) {
+                    const n = word();
+                    pos += 8;
+                    for (let t = 0; t < n; t++) {
+                        const from = word(), to = word();
+                        pos += 1 + 2 + 6 + 3 + 1;
+                        out.tags.push({ from, to, name: string() });
+                    }
+                } else if (type === 0x2019) {
+                    dword();
+                    const first = dword(), last = dword();
+                    pos += 8;
+                    for (let i = first; i <= last; i++) {
+                        const flags = word();
+                        out.palette[i] = [byte(), byte(), byte(), byte()];
+                        if (flags & 1) string();
+                    }
+                } else if (type === 0x0004 && !out.palette.length) {
+                    const packets = word();
+                    let index = 0;
+                    for (let k = 0; k < packets; k++) {
+                        index += byte();
+                        let count = byte() || 256;
+                        while (count--) out.palette[index++] = [byte(), byte(), byte(), 255];
+                    }
+                }
+                pos = chunkStart + size;
+            }
+            out.frames.push(frame);
+            pos = frameStart + frameBytes;
+        }
+        return out;
+    },
+
+    // One layer's picture in one frame, as RGBA (width x height).
+    layerFrame(ase, layerIndex, frameIndex) {
+        const { width, height, depth } = ase;
+        const rgba = new Uint8ClampedArray(width * height * 4);
+        let cel = ase.frames[frameIndex] && ase.frames[frameIndex].cels.find(c => c.layer === layerIndex);
+        if (cel && cel.link !== undefined) {
+            const linked = ase.frames[cel.link] && ase.frames[cel.link].cels.find(c => c.layer === layerIndex);
+            cel = linked ? Object.assign({}, linked, { opacity: cel.opacity }) : null;
+        }
+        if (!cel || !cel.pixels) return rgba;
+        const layer = ase.layers[layerIndex] || { opacity: 255 };
+        const alphaScale = (cel.opacity / 255) * ((layer.opacity === undefined ? 255 : layer.opacity) / 255);
+        for (let y = 0; y < cel.h; y++) {
+            for (let x = 0; x < cel.w; x++) {
+                const tx = cel.x + x, ty = cel.y + y;
+                if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
+                const i = y * cel.w + x;
+                let r, g, b, a;
+                if (depth === 32) { r = cel.pixels[i * 4]; g = cel.pixels[i * 4 + 1]; b = cel.pixels[i * 4 + 2]; a = cel.pixels[i * 4 + 3]; }
+                else if (depth === 16) { r = g = b = cel.pixels[i * 2]; a = cel.pixels[i * 2 + 1]; }
+                else {
+                    const index = cel.pixels[i];
+                    const c = ase.palette[index] || [0, 0, 0, 0];
+                    [r, g, b, a] = index === ase.transparentIndex ? [0, 0, 0, 0] : c;
+                }
+                const o = (ty * width + tx) * 4;
+                rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = Math.round(a * alphaScale);
+            }
+        }
+        return rgba;
+    },
+
+    // Which frames make each row (down, left, right, up) and how many frames a row has.
+    plan(ase) {
+        const named = {};
+        for (const t of ase.tags) {
+            const key = String(t.name || '').trim().toLowerCase();
+            if (this.directions.includes(key) && !named[key]) named[key] = t;
+        }
+        if (this.directions.every(d => named[d])) {
+            const rows = this.directions.map(d => { const t = named[d]; const r = []; for (let f = t.from; f <= t.to; f++) r.push(f); return r; });
+            const perRow = Math.min(...rows.map(r => r.length));
+            return { rows: rows.map(r => r.slice(0, perRow)), perRow };
+        }
+        const perRow = Math.max(1, Math.floor(ase.frames.length / 4));
+        if (ase.frames.length < 4) throw new Error('Needs at least 4 frames, or tags named down, left, right and up.');
+        return { rows: this.directions.map((d, i) => Array.from({ length: perRow }, (_, k) => i * perRow + k)), perRow };
+    },
+
+    // A sheet per visible image layer: { name, fileName, width, height, rgba }. Single-character sheets
+    // ('$' prefix); rows of more or fewer than 3 frames say so in the name ([f4]).
+    sheets(ase, baseName) {
+        const plan = this.plan(ase);
+        const fw = ase.width, fh = ase.height;
+        const width = fw * plan.perRow, height = fh * 4;
+        const safe = n => String(n).replace(/[\\/:*?"<>|\[\]$!]/g, '').replace(/\s+/g, '_') || 'Layer';
+        const out = [];
+        ase.layers.forEach((layer, index) => {
+            if (layer.type !== 0 || !layer.visible) return;
+            const rgba = new Uint8ClampedArray(width * height * 4);
+            plan.rows.forEach((frames, row) => frames.forEach((frame, col) => {
+                const picture = this.layerFrame(ase, index, frame);
+                for (let y = 0; y < fh; y++) {
+                    const from = y * fw * 4;
+                    rgba.set(picture.subarray(from, from + fw * 4), ((row * fh + y) * width + col * fw) * 4);
+                }
+            }));
+            if (!rgba.some((v, i) => i % 4 === 3 && v > 0)) return;
+            const tag = plan.perRow === 3 ? '' : `[f${plan.perRow}]`;
+            out.push({ name: layer.name, fileName: `$${safe(baseName)}_${safe(layer.name)}${tag}.png`, width, height, rgba });
+        });
+        return out;
+    },
+
+    crc32(bytes) {
+        if (!this._crc) {
+            this._crc = new Uint32Array(256);
+            for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; this._crc[n] = c >>> 0; }
+        }
+        let c = 0xffffffff;
+        for (let i = 0; i < bytes.length; i++) c = this._crc[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+        return (c ^ 0xffffffff) >>> 0;
+    },
+
+    // A PNG file (RGBA, 8 bits) for an image.
+    encodePng(width, height, rgba, deflate) {
+        const raw = new Uint8Array((width * 4 + 1) * height);
+        for (let y = 0; y < height; y++) raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
+        const chunk = (type, data) => {
+            const out = new Uint8Array(12 + data.length);
+            const dv = new DataView(out.buffer);
+            dv.setUint32(0, data.length);
+            for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+            out.set(data, 8);
+            dv.setUint32(8 + data.length, this.crc32(out.subarray(4, 8 + data.length)));
+            return out;
+        };
+        const ihdr = new Uint8Array(13);
+        const dv = new DataView(ihdr.buffer);
+        dv.setUint32(0, width); dv.setUint32(4, height);
+        ihdr[8] = 8; ihdr[9] = 6;
+        const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', new Uint8Array(deflate(raw))), chunk('IEND', new Uint8Array(0))];
+        const total = parts.reduce((n, p) => n + p.length, 0);
+        const png = new Uint8Array(total);
+        let at = 0;
+        for (const part of parts) { png.set(part, at); at += part.length; }
+        return png;
+    }
+};
+
 DocsDoodads.Destination = {
     styles: [
         { value: 'default', label: 'MZ square' },
@@ -18390,7 +18586,36 @@ DocsDoodads.Workspace = {
                 <span></span>
             </div>
             <textarea id="dd-ve-tag-out" readonly rows="2" style="${inputStyle} resize: vertical;"></textarea>
-            <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>`;
+            <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Layer sheets from Aseprite: one sheet per layer, in MZ's walking layout (tags down, left, right, up, or frames in that order).</div>
+            <button class="dd-btn" id="dd-ve-ase">Make Layer Sheets from .aseprite…</button>
+            <input type="file" id="dd-ve-ase-file" accept=".aseprite,.ase" style="display: none;" />`;
+    },
+
+    // Writes one character sheet per layer of an Aseprite file to img/characters.
+    makeLayerSheets(filePath) {
+        const FS = DocsDoodads.FS;
+        if (!FS.fs || typeof require === 'undefined') return this.showToast('Needs the desktop playtest.', 'error');
+        try {
+            const zlib = require('zlib');
+            const A = DocsDoodads.AsepriteSheets;
+            const ase = A.parse(FS.fs.readFileSync(filePath), data => zlib.inflateSync(data));
+            const base = FS.path.basename(filePath).replace(/\.(aseprite|ase)$/i, '');
+            const sheets = A.sheets(ase, base);
+            if (!sheets.length) return this.showToast('No visible layers with pictures in that file.', 'info');
+            FS.mkdirp('img/characters');
+            const written = sheets.map(sheet => {
+                const out = FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
+                FS.fs.writeFileSync(out, A.encodePng(sheet.width, sheet.height, sheet.rgba, data => zlib.deflateSync(data)));
+                return out;
+            });
+            DocsDoodads.LiveReload.process(written, DocsDoodads.LiveReload.defaultHandlers());
+            this.showToast(`Made ${written.length} layer sheet(s): ${sheets.map(sh => sh.fileName).join(', ')}`, 'success');
+            return written;
+        } catch (e) {
+            this.showToast('Could not read that file: ' + e.message, 'error');
+            return null;
+        }
     },
 
     bindVisualTryOn() {
@@ -18421,6 +18646,15 @@ DocsDoodads.Workspace = {
         for (const id of ['dd-ve-tag-image', 'dd-ve-tag-z', 'dd-ve-tag-up', 'dd-ve-tag-part', 'dd-ve-tag-hide', 'dd-ve-tag-sv']) {
             const input = document.getElementById(id);
             if (input) input.oninput = update;
+        }
+        const aseButton = document.getElementById('dd-ve-ase'), aseFile = document.getElementById('dd-ve-ase-file');
+        if (aseButton && aseFile) {
+            aseButton.onclick = () => aseFile.click();
+            aseFile.onchange = () => {
+                const file = aseFile.files && aseFile.files[0];
+                if (file) this.makeLayerSheets(file.path || file.name);
+                aseFile.value = '';
+            };
         }
         const copy = document.getElementById('dd-ve-tag-copy');
         if (copy) copy.onclick = () => {
