@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added 3D-only height settings for standing doodads and characters, so tall tileset art can be brought in proportion in the 3D view without changing the 2D map; editor picking and boxes match.
 - Added day and night to the 3D view: a sky that follows the clock (day blue, warm sunrise and sunset, night with twinkling stars), a sun and moon crossing the sky on the shadows' path, hill shading and water glints from the current sun or moon, and fog that fades into the sky.
 - Added 3D weather: MZ's Set Weather Effect (rain, storm, snow) falls through the 3D world around the camera, with wind-slanted rain that splashes on the ground and raised terrain, raindrop ripples on water, drifting snow, fog fading, night dimming and MZ's weather darkening. Per map: on/off and density.
 - Added rippling water to the 3D view: moving waves bend what shows through water tiles and catch the light (dimmer at night), shores stay dry, and boats, ships and anything moving through water leave spreading wake rings with foam. Works on flat ground, round worlds and raised terrain, and across the seam of looping maps. Strength, speed, sparkle and wakes are set per map.

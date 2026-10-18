@@ -4344,7 +4344,7 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1, dayNight: true
+        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1
     },
 
     curves: [
@@ -4385,7 +4385,9 @@ DocsDoodads.Perspective = {
             waterWakes: s.waterWakes !== false,
             weather: s.weather !== false,
             weatherDensity: num(s.weatherDensity, d.weatherDensity, 0, 3),
-            dayNight: s.dayNight !== false
+            dayNight: s.dayNight !== false,
+            doodadScale: num(s.doodadScale, d.doodadScale, 0.25, 2),
+            characterScale: num(s.characterScale, d.characterScale, 0.25, 2)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4561,6 +4563,13 @@ DocsDoodads.Perspective = {
         const s = p.scale, cos = Math.cos(angle), sin = Math.sin(angle);
         const a = s * cos, b = s * sin, c = -s * sin, d = s * cos;
         return { a, b, c, d, tx: p.x - (a * pivot.x + c * pivot.y), ty: p.y - (b * pivot.x + d * pivot.y), depth: p.depth };
+    },
+
+    // A billboard's transform scaled by k about its foot (pivot), so it stays standing on the same spot.
+    scaleAbout(m, pivot, k) {
+        if (k === 1 || !m) return m;
+        return { a: m.a * k, b: m.b * k, c: m.c * k, d: m.d * k,
+            tx: m.tx + (1 - k) * (m.a * pivot.x + m.c * pivot.y), ty: m.ty + (1 - k) * (m.b * pivot.x + m.d * pivot.y), depth: m.depth };
     },
 
     compareBillboards(a, b) {
@@ -8377,6 +8386,18 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         return child.z !== undefined && child.z < 1;
     };
 
+    // The 3D-only height setting that applies to something standing up: doodads (and their particles and
+    // effects) or characters (and their gear, balloons and animations).
+    Spriteset_Map.prototype.docsBillboardScale = function(obj, s) {
+        let base = obj;
+        for (let i = 0; i < 4 && base; i++) {
+            if (typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad) return s.doodadScale;
+            if (typeof Sprite_Character !== 'undefined' && base instanceof Sprite_Character) return s.characterScale;
+            base = base._docsBillboardOwner || base._target || (base._targets && base._targets[0]) || null;
+        }
+        return 1;
+    };
+
     // Doodads (and their particles and effects) follow the level-ground rule; characters climb hills.
     Spriteset_Map.prototype.docsStandsOnDoodadRule = function(obj) {
         const base = obj._docsBillboardOwner || obj;
@@ -8573,7 +8594,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (terrain) pivot.h = this.docsStandsOnDoodadRule(obj)
                 ? DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, halfWidth)
                 : DocsDoodads.Terrain.footHeightPxAtFlat(pivot.x, pivot.y, halfWidth);
-            const m = P.billboardMatrix(cam, pivot);
+            const m = P.scaleAbout(P.billboardMatrix(cam, pivot), pivot, this.docsBillboardScale(obj, s));
             if (!m) continue;
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
             if (fog >= 1) continue;
@@ -17011,6 +17032,8 @@ DocsDoodads.Workspace = {
             range('waterSpeed', 'Ripple speed', 0, 3, 0.05),
             range('waterShine', 'Sparkle', 0, 1, 0.05),
             check('waterWakes', 'Wakes behind boats and waders'),
+            range('doodadScale', 'Standing doodads: height in 3D', 0.25, 2, 0.05),
+            range('characterScale', 'Characters: height in 3D', 0.25, 2, 0.05),
             check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
             check('weather', '3D rain and snow (from Set Weather Effect)'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
@@ -20496,6 +20519,15 @@ DocsDoodads.Workspace = {
         const rect = { x: at.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5), y: at.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0), w, h };
         const pivot = { x: at.x, y: at.y + (DocsDoodads.Depth.baseY(d) - d.y) };
         pivot.h = DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, w / 2);
+        // In 3D, standing doodads can be drawn smaller or larger; picking and boxes match.
+        const p3d = DocsDoodads.Perspective.active();
+        const k = p3d ? p3d.doodadScale : 1;
+        if (k !== 1) {
+            rect.x = pivot.x + (rect.x - pivot.x) * k;
+            rect.y = pivot.y + (rect.y - pivot.y) * k;
+            rect.w *= k;
+            rect.h *= k;
+        }
         return { rect, pivot };
     },
 
