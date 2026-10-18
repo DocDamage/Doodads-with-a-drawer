@@ -103,6 +103,18 @@ Test these on an exterior map and on a looping world map.
 - [ ] Hover character, door and sliced-strip assets in the drawer.
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
 
+## Visual equipment and destination marker
+
+- [ ] Tag an armor <visual: ...> with z behind and in front; equip it; walk in all directions, dash, stand in tall grass, and check the follower.
+- [ ] Add a base hair layer to an actor and a helmet with <visual hide: hair>; equip and unequip.
+- [ ] Build a paper-doll actor (bare body, base shirt and hair); equip armor with the same part name and check it replaces the shirt; give a cape "up 2" and walk up.
+- [ ] Recolour a part with a switch and with a variable; use Set Visual Colour and Set Visual Alias.
+- [ ] Give an event <visual actor: N> and another its own <visual:> tags; switch to a page without an image.
+- [ ] Open the equip screen and move through items with and without tags; save and check the save screen.
+- [ ] Fight a side-view battle with layers that have sv sheets; check attack, guard, damage and victory motions.
+- [ ] Try each destination marker style, pulse, spin, bob and layer; path dots; a database animation and a VFX; Set Destination Marker mid-game, save and load.
+- [ ] Use the try-on preview and the notetag builder in the map panel.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
