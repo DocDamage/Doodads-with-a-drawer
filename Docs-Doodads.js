@@ -126,6 +126,7 @@
  *    - Camera tilt, turn, field of view, zoom, fog and sky; the parallax becomes the sky.
  *    - Round world: a planet or a rolling log; radius 0 fits a looping map in one lap.
  *    - Rippling water with glints and wakes behind boats and waders.
+ *    - 3D rain, storms and snow from Set Weather Effect, splashing on the ground and water.
  *    - Terrain height (map panel and the Terrain brush): automatic mountains and forests on
  *      world tilesets, heights by region or terrain tag, smooth or stepped, optional blocking.
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
@@ -4341,7 +4342,8 @@ DocsDoodads.Perspective = {
         enabled: false, pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
-        water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true
+        water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
+        weather: true, weatherDensity: 1
     },
 
     curves: [
@@ -4379,7 +4381,9 @@ DocsDoodads.Perspective = {
             waterStrength: num(s.waterStrength, d.waterStrength, 0, 2),
             waterSpeed: num(s.waterSpeed, d.waterSpeed, 0, 3),
             waterShine: num(s.waterShine, d.waterShine, 0, 1),
-            waterWakes: s.waterWakes !== false
+            waterWakes: s.waterWakes !== false,
+            weather: s.weather !== false,
+            weatherDensity: num(s.weatherDensity, d.weatherDensity, 0, 3)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -5164,6 +5168,77 @@ DocsDoodads.Water3D.applyGlsl = [
     '        }',
     '    }'
 ].join('\n');
+
+// Weather in the 3D view: MZ's rain, storm and snow as particles falling through the space around the
+// camera (map pixels, z = height above the ground in pixels).
+DocsDoodads.Weather3D = {
+    maxParticles: 2000,
+    maxSplashes: 160,
+    splashLife: 0.35,
+
+    // The look of each kind of weather at MZ's power (1-9), times the map's density.
+    params(type, power, density) {
+        power = Math.max(0, Math.min(9, Number(power) || 0));
+        if (!power || !['rain', 'storm', 'snow'].includes(type)) return null;
+        const d = Math.max(0, Number(density === undefined ? 1 : density) || 0);
+        const base = {
+            rain: { kind: 'streak', per: 90, speed: 900, length: 30, wind: 0.12, color: 0xd8e6ff, alpha: 0.7, size: 2 },
+            storm: { kind: 'streak', per: 130, speed: 1300, length: 44, wind: 0.45, color: 0xd8e6ff, alpha: 0.75, size: 2.2 },
+            snow: { kind: 'flake', per: 80, speed: 70, length: 0, wind: 0.08, color: 0xffffff, alpha: 0.9, size: 3.5, sway: 22 }
+        }[type];
+        return Object.assign({ type, power, sway: 0 }, base, {
+            count: Math.min(this.maxParticles, Math.round(base.per * power * d)),
+            dim: Math.floor(power * 6) / 255
+        });
+    },
+
+    spawn(box, rng, top) {
+        return {
+            x: box.x + (rng() * 2 - 1) * box.radius,
+            y: box.y + (rng() * 2 - 1) * box.radius,
+            z: top ? box.height * (0.85 + rng() * 0.15) : rng() * box.height,
+            seed: rng()
+        };
+    },
+
+    // Grows or shrinks the set of particles as the weather's power changes.
+    resize(particles, count, box, rng) {
+        const out = particles.slice(0, count);
+        while (out.length < count) out.push(this.spawn(box, rng, false));
+        return out;
+    },
+
+    // Moves particles on by dt seconds. ground(x, y) is the ground's height (pixels) under a map point.
+    // Returns the moved particles and the splashes made where rain hit the ground.
+    step(particles, dt, params, box, rng, now, ground) {
+        const splashes = [];
+        const wrap = (v, centre) => {
+            const span = box.radius * 2;
+            return v - span * Math.round((v - centre) / span);
+        };
+        const out = particles.map(p => {
+            let { x, y, z } = p;
+            const fall = params.speed * (0.85 + 0.3 * p.seed) * dt;
+            z -= fall;
+            x += params.wind * fall;
+            if (params.sway) x += Math.cos(now * 1.7 + p.seed * 20) * params.sway * 1.7 * dt;
+            x = wrap(x, box.x);
+            y = wrap(y, box.y);
+            const g = ground(x, y);
+            if (z <= g) {
+                if (params.kind === 'streak') splashes.push({ x, y, z: g, born: now });
+                const fresh = this.spawn(box, rng, true);
+                return Object.assign(fresh, { z: g + fresh.z });
+            }
+            return { x, y, z, seed: p.seed };
+        });
+        return { particles: out, splashes };
+    },
+
+    pruneSplashes(list, now) {
+        return list.filter(s => now - s.born <= this.splashLife).slice(-this.maxSplashes);
+    }
+};
 
 // A frame clipped to the image. Images replaced by smaller ones would otherwise make PIXI throw
 // "frame does not fit inside the base Texture" and stop the game.
@@ -8279,6 +8354,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.exitDocsPerspective = function() {
         this._docs3d = false;
+        if (this._weather) this._weather.visible = true;
+        this._docs3dWeather = null;
+        this._docsWeatherParts = [];
+        this._docsSplashes = [];
         P._cam = null;
         if (this._docs3dView) {
             if (this._docs3dView.parent) this._docs3dView.parent.removeChild(this._docs3dView);
@@ -8434,6 +8513,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         items.sort(P.compareBillboards);
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
+        this.updateDocsWeather(s, cam, fogRange);
         this.updateDocsGizmos(cam);
     };
 
@@ -8522,6 +8602,178 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this._docsWakes = wakes;
     };
 
+    // Map pixels of flat (tilemap) point 0,0. On looping maps the camera's position wraps; this follows
+    // it continuously (once per frame), so waves and weather don't jump at the seam.
+    Spriteset_Map.prototype.docsMapOrigin = function() {
+        const frame = DocsDoodads.frameCount();
+        const o = this._docsOrigin && this._docsOrigin.mapId === $gameMap.mapId() ? this._docsOrigin : null;
+        if (o && o.frame === frame) return o;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
+        if (!o) return (this._docsOrigin = { mapId: $gameMap.mapId(), x: ox, y: oy, rx: ox, ry: oy, frame });
+        const mw = $gameMap.isLoopHorizontal() ? $gameMap.width() * tw : 0, mh = $gameMap.isLoopVertical() ? $gameMap.height() * th : 0;
+        o.x += DocsDoodads.Water3D.unwrap(ox - o.rx, mw);
+        o.y += DocsDoodads.Water3D.unwrap(oy - o.ry, mh);
+        o.rx = ox;
+        o.ry = oy;
+        o.frame = frame;
+        return o;
+    };
+
+    // ---- Weather ----
+    DocsDoodads.Weather3D.textures = function() {
+        if (this._textures) return this._textures;
+        const make = (w, h, draw) => {
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            draw(c.getContext('2d'), w, h);
+            return PIXI.Texture.from(c);
+        };
+        this._textures = {
+            streak: make(4, 32, (g, w, h) => {
+                const grad = g.createLinearGradient(0, 0, 0, h);
+                grad.addColorStop(0, 'rgba(255,255,255,0)');
+                grad.addColorStop(1, 'rgba(255,255,255,1)');
+                g.fillStyle = grad;
+                g.fillRect(1, 0, 2, h);
+            }),
+            flake: make(16, 16, (g) => {
+                const grad = g.createRadialGradient(8, 8, 0, 8, 8, 8);
+                grad.addColorStop(0, 'rgba(255,255,255,1)');
+                grad.addColorStop(0.5, 'rgba(255,255,255,0.8)');
+                grad.addColorStop(1, 'rgba(255,255,255,0)');
+                g.fillStyle = grad;
+                g.fillRect(0, 0, 16, 16);
+            }),
+            splash: make(32, 12, (g) => {
+                g.strokeStyle = 'rgba(255,255,255,1)';
+                g.lineWidth = 2;
+                g.beginPath();
+                g.ellipse(16, 6, 14, 4.5, 0, 0, Math.PI * 2);
+                g.stroke();
+            })
+        };
+        return this._textures;
+    };
+
+    // Rain, storms and snow from MZ's Set Weather Effect, falling through the space around the camera.
+    Spriteset_Map.prototype.updateDocsWeather = function(s, cam, fogRange) {
+        const W = DocsDoodads.Weather3D;
+        if (this._weather) this._weather.visible = !s.weather;
+        const params = s.weather ? W.params($gameScreen.weatherType(), $gameScreen.weatherPower(), s.weatherDensity) : null;
+        let layer = this._docs3dWeather;
+        if (!params) {
+            if (layer) layer.visible = false;
+            this._docsWeatherParts = [];
+            this._docsSplashes = [];
+            return;
+        }
+        if (!layer) {
+            layer = this._docs3dWeather = new PIXI.Container();
+            this._docs3dWeatherDim = new PIXI.Sprite(PIXI.Texture.WHITE);
+            this._docs3dWeatherDim.tint = 0x000000;
+            layer.addChild(this._docs3dWeatherDim);
+            this._docs3dWeatherPool = [];
+        }
+        const view = this._docs3dView;
+        if (layer.parent !== view || view.children.indexOf(layer) !== view.children.indexOf(this._docs3dGizmo) - 1) {
+            view.addChildAt(layer, view.children.indexOf(this._docs3dGizmo));
+        }
+        layer.visible = true;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const origin = this.docsMapOrigin();
+        const box = { x: cam.target.x + origin.x, y: cam.target.y + origin.y, radius: Math.min(s.viewTiles, 24) * tw / 2,
+            height: (params.kind === 'flake' ? 8 : 10) * th };
+        const now = DocsDoodads.frameCount() / 60;
+        this._docsWeatherRng = this._docsWeatherRng || DocsDoodads.Scatter.rng(Date.now());
+        const ground = (x, y) => DocsDoodads.Terrain.heightPxAtFlat(x - origin.x, y - origin.y);
+        const moved = W.step(W.resize(this._docsWeatherParts || [], params.count, box, this._docsWeatherRng), 1 / 60, params, box, this._docsWeatherRng, now, ground);
+        this._docsWeatherParts = moved.particles;
+        // Some raindrops on water ripple it.
+        if (s.water && this._docsWater) {
+            for (const sp of moved.splashes) {
+                if (this._docsWeatherRng() > 0.15) continue;
+                if (this.docsOnWater(Math.floor(sp.x / tw), Math.floor(sp.y / th))) {
+                    this._docsWakes = DocsDoodads.Water3D.addWake(this._docsWakes || [], sp.x, sp.y, now, 0.35);
+                }
+            }
+        }
+        this._docsSplashes = W.pruneSplashes((this._docsSplashes || []).concat(moved.splashes), now);
+
+        const tex = W.textures();
+        const base = this._docsLightInfo ? this._docsLightInfo.base : null;
+        const light = base ? Math.max(0.25, (base[0] + base[1] + base[2]) / 3) : 1;
+        const shade = c => {
+            const ch = sh => Math.round(((c >> sh) & 255) * light);
+            return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+        };
+        const dim = this._docs3dWeatherDim;
+        dim.width = Graphics.width;
+        dim.height = Graphics.height;
+        dim.alpha = params.dim;
+        const pool = this._docs3dWeatherPool;
+        let used = 0;
+        const sprite = texture => {
+            if (used >= pool.length) {
+                const sp = new PIXI.Sprite(texture);
+                layer.addChild(sp);
+                pool.push(sp);
+            }
+            const sp = pool[used++];
+            sp.texture = texture;
+            sp.visible = true;
+            return sp;
+        };
+        const at = (x, y, z) => {
+            const fx = x - origin.x, fy = y - origin.y;
+            const g = P.groundPoint(cam, fx, fy, z);
+            if (!g.visible) return null;
+            const p = P.project(cam, g.x, g.y, g.z);
+            if (!p) return null;
+            p.fog = P.fogAt(Math.hypot(fx - cam.target.x, fy - cam.target.y), fogRange[0], fogRange[1]);
+            return p;
+        };
+        const color = shade(params.color);
+        for (const pt of this._docsWeatherParts) {
+            const head = at(pt.x, pt.y, pt.z);
+            if (!head || head.fog >= 1) continue;
+            if (params.kind === 'streak') {
+                const tail = at(pt.x - params.wind * params.length, pt.y, pt.z + params.length);
+                if (!tail) continue;
+                const dx = tail.x - head.x, dy = tail.y - head.y, len = Math.hypot(dx, dy);
+                if (len < 0.5) continue;
+                const sp = sprite(tex.streak);
+                sp.anchor.set(0.5, 1);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = Math.atan2(dx, -dy);
+                sp.scale.set(Math.max(0.25, params.size * head.scale) / 2, len / 32);
+                sp.tint = color;
+                sp.alpha = params.alpha * (1 - head.fog);
+            } else {
+                const sp = sprite(tex.flake);
+                sp.anchor.set(0.5, 0.5);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = 0;
+                sp.scale.set(Math.max(0.1, params.size * head.scale * (0.7 + 0.6 * pt.seed) / 8));
+                sp.tint = color;
+                sp.alpha = params.alpha * (1 - head.fog);
+            }
+        }
+        for (const spl of this._docsSplashes) {
+            const p = at(spl.x, spl.y, spl.z);
+            if (!p || p.fog >= 1) continue;
+            const age = (now - spl.born) / W.splashLife;
+            const sp = sprite(tex.splash);
+            sp.anchor.set(0.5, 0.5);
+            sp.x = p.x; sp.y = p.y;
+            sp.rotation = 0;
+            sp.scale.set(p.scale * (0.25 + 0.5 * age));
+            sp.tint = color;
+            sp.alpha = 0.6 * (1 - age) * (1 - p.fog);
+        }
+        for (let i = used; i < pool.length; i++) pool[i].visible = false;
+    };
+
     // The water uniforms both ground shaders share.
     Spriteset_Map.prototype.docsWaterUniforms = function(u, s, cam) {
         const mask = this._docsWater;
@@ -8534,15 +8786,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uWaterMask = mask ? mask.texture : PIXI.Texture.EMPTY;
         u.uMapTiles = [$gameMap.width(), $gameMap.height()];
         u.uTile = [tw, th];
-        // On looping maps the camera's position wraps; the waves follow it without jumping at the seam.
-        const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
-        const mw = $gameMap.isLoopHorizontal() ? $gameMap.width() * tw : 0, mh = $gameMap.isLoopVertical() ? $gameMap.height() * th : 0;
-        const o = this._docsWaterOrigin && this._docsWaterOrigin.mapId === $gameMap.mapId() ? this._docsWaterOrigin
-            : (this._docsWaterOrigin = { mapId: $gameMap.mapId(), x: ox, y: oy, rx: ox, ry: oy });
-        o.x += DocsDoodads.Water3D.unwrap(ox - o.rx, mw);
-        o.y += DocsDoodads.Water3D.unwrap(oy - o.ry, mh);
-        o.rx = ox;
-        o.ry = oy;
+        const o = this.docsMapOrigin();
         u.uOrigin = [o.x, o.y];
         u.uLoop = [$gameMap.isLoopHorizontal() ? 1 : 0, $gameMap.isLoopVertical() ? 1 : 0];
         u.uWakes = DocsDoodads.Water3D.pack(this._docsWakes || [], now);
@@ -16610,7 +16854,9 @@ DocsDoodads.Workspace = {
             range('waterStrength', 'Ripple strength', 0, 2, 0.05),
             range('waterSpeed', 'Ripple speed', 0, 3, 0.05),
             range('waterShine', 'Sparkle', 0, 1, 0.05),
-            check('waterWakes', 'Wakes behind boats and waders')
+            check('waterWakes', 'Wakes behind boats and waders'),
+            check('weather', '3D rain and snow (from Set Weather Effect)'),
+            range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },
 
