@@ -429,7 +429,53 @@ The **Set Destination Marker** plugin command changes any of these mid-game. The
 
 ---
 
-## 14. Genuine RPG Maker MZ Event Creation & Templates
+## 14. 3D View
+
+Any map can be shown in 3D. Open **3D View (this map)** in the map panel and tick **Show this map in 3D**.
+- The map's tiles lie on a ground plane seen in perspective.
+- Characters, their gear and standing doodads (trees, lamps, statues, buildings) stand up as billboards. They shrink with distance and are drawn far to near.
+- Floor doodads (the **Below characters** layer), shadows, water reflections, the click-to-walk marker and the editor grid lie on the ground with the tiles.
+
+Tileset tiles always lie flat, including tree tops and roofs from the B–E tiles. To make something stand up in 3D, place it as a doodad.
+
+### Camera
+| Setting | What it does |
+| :--- | :--- |
+| Camera tilt | Degrees down from level: 89 looks straight down, 30 looks across the land. |
+| Camera turn | Which way the camera faces: 0 looks north, 90 looks east. |
+| Field of view | Wider shows more and exaggerates depth. |
+| Zoom | The size of things at the middle of the screen. |
+| View distance | How much ground is drawn, in tiles. More costs more each frame. |
+| Fog starts / ends | Distant ground and billboards fade out between these distances, in tiles from the camera's target. The ground's edge never shows. |
+| Fog colour | Fade into a colour instead of into the sky. |
+| Sky colour | The colour above the horizon. A map's parallax becomes the sky instead, and turns with the camera. |
+| Beyond the map edge | The colour of ground past the map's edges. |
+| Q / W turn the camera 90° | Players can turn the view. The arrow keys follow the camera (up walks away from it), and characters show the side facing it. |
+| Smooth distant ground | Blends distant pixels instead of keeping them crisp. |
+
+### What works in 3D
+- **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
+- **Sun and doodad shadows** lie on the ground.
+- **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play at their target's spot on screen but don't shrink with distance; MV-style animations do.
+- **Post-processing and day/night tint** apply to the whole view.
+- **Touch and mouse:** clicking the ground walks there.
+- **Editor:**
+  - Clicks go through to the ground.
+  - Clicking a tree or lamp picks the nearest one drawn under the mouse.
+  - The selection shows as a yellow box.
+  - Dragging moves the doodad's base along the ground.
+  - The grid, paths and guides are drawn on the ground.
+
+### Plugin commands
+- **Set Camera (3D):** tilt, turn, zoom and field of view, absolute or added to the current values, eased over a number of frames, with optional wait. Use it for cutscenes.
+- **Reset Camera (3D):** returns to the map's own camera.
+- **Set 3D View:** turns 3D on or off for the current map, or back to the map's setting.
+
+Camera changes last until the party leaves the map. Changing the 3D View settings in the editor clears them, so the preview always shows the map's own camera.
+
+---
+
+## 15. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -464,7 +510,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 15. Direct SAT Physical Collision System
+## 16. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -482,7 +528,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 16. Audio Drawer Integration
+## 17. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -492,7 +538,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 17. Windows Explorer Native Drag-and-Drop Ingestion
+## 18. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -512,7 +558,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 18. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 19. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -524,7 +570,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 19. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -535,7 +581,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 20. Workspace Layouts & Custom Layout Persistence
+## 21. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -548,7 +594,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 21. Project Safety, Conflict Detection & Crash Recovery
+## 22. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -566,7 +612,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 22. Complete Keyboard Shortcuts Cheat Sheet
+## 23. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -596,7 +642,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 23. Troubleshooting & FAQ
+## 24. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -621,6 +667,6 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 24. Credits & Licensing
+## 25. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.

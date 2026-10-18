@@ -120,7 +120,15 @@
  *    - The click-to-walk marker: shapes, images, animations or VFX, pulse, spin,
  *      bob, path dots; Set Destination Marker changes it mid-game.
  *
- * 16. Modern Operations & Safety:
+ * 16. 3D View (map panel: 3D View (this map)):
+ *    - Tiles, floor doodads, shadows and lighting lie on a perspective ground plane;
+ *      characters, gear and standing doodads stand up as billboards, sorted by distance.
+ *    - Camera tilt, turn, field of view, zoom, fog and sky; the parallax becomes the sky.
+ *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
+ *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
+ *      through the ground; selected doodads show 3D boxes.
+ *
+ * 17. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -939,6 +947,71 @@
  * @text Back to the Project's Marker
  * @type boolean
  * @default false
+ *
+ * @command setCamera
+ * @text Set Camera (3D)
+ * @desc Moves the 3D camera. Blank fields keep their value.
+ *
+ * @arg pitch
+ * @text Tilt (degrees down, 20-89)
+ * @type string
+ * @default
+ *
+ * @arg yaw
+ * @text Turn (degrees, 0 = looking north)
+ * @type string
+ * @default
+ *
+ * @arg zoom
+ * @text Zoom
+ * @type string
+ * @default
+ *
+ * @arg fov
+ * @text Field of View
+ * @type string
+ * @default
+ *
+ * @arg relative
+ * @text Add to the Current Tilt / Turn / Field of View
+ * @type boolean
+ * @default false
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @min 0
+ * @default 30
+ *
+ * @arg wait
+ * @text Wait for Completion
+ * @type boolean
+ * @default false
+ *
+ * @command resetCamera
+ * @text Reset Camera (3D)
+ * @desc Returns the camera to this map's 3D View settings.
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @min 0
+ * @default 30
+ *
+ * @command setPerspective
+ * @text Set 3D View
+ * @desc Turns the 3D view on or off for the current map, or back to the map's setting.
+ *
+ * @arg mode
+ * @text 3D View
+ * @type select
+ * @option Use the map's setting
+ * @value map
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @default map
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -4235,6 +4308,197 @@ DocsDoodads.Destination = {
     }
 };
 
+//==========================================================
+// SECTION 5I: PERSPECTIVE (3D) MODE
+//==========================================================
+// The flat map (map pixels as drawn by the tilemap, "flat" space) is laid on a ground plane and seen
+// by a camera. World axes: x east, y south (flat pixels), z up. Things that stand up are drawn as
+// upright billboards at the projection of their foot point.
+DocsDoodads.Perspective = {
+    defaults: {
+        enabled: false, pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
+        fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false
+    },
+
+    normalize(s) {
+        s = s || {};
+        const d = this.defaults;
+        const num = (v, fallback, min, max) => {
+            const n = Number(v);
+            return v === undefined || v === null || v === '' || !Number.isFinite(n) ? fallback : Math.max(min, Math.min(max, n));
+        };
+        const color = (v, fallback) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : fallback);
+        const out = {
+            enabled: s.enabled === true,
+            pitch: num(s.pitch, d.pitch, 20, 89),
+            yaw: ((num(s.yaw, d.yaw, -100000, 100000) % 360) + 360) % 360,
+            fov: num(s.fov, d.fov, 20, 100),
+            zoom: num(s.zoom, d.zoom, 0.25, 4),
+            viewTiles: Math.round(num(s.viewTiles, d.viewTiles, 12, 80)),
+            fogStart: num(s.fogStart, d.fogStart, 0, 200),
+            fogEnd: num(s.fogEnd, d.fogEnd, 0, 400),
+            fogColor: color(s.fogColor, d.fogColor),
+            skyColor: color(s.skyColor, d.skyColor),
+            voidColor: color(s.voidColor, d.voidColor),
+            rotate: s.rotate === true,
+            smoothGround: s.smoothGround === true
+        };
+        if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
+        return out;
+    },
+
+    // The map's camera with mid-game changes on top, or null when the map is flat.
+    resolve(mapSettings, override) {
+        const merged = Object.assign({}, mapSettings || {});
+        for (const key of Object.keys(override || {})) {
+            if (override[key] !== undefined && override[key] !== null) merged[key] = override[key];
+        }
+        const s = this.normalize(merged);
+        return s.enabled ? s : null;
+    },
+
+    // spec: { target: {x, y} (flat pixels), pitch, yaw (degrees), fov (vertical, degrees), zoom, width, height }
+    camera(spec) {
+        const rad = Math.PI / 180;
+        const th = spec.pitch * rad, ps = spec.yaw * rad;
+        const ct = Math.cos(th), st = Math.sin(th), cp = Math.cos(ps), sp = Math.sin(ps);
+        const F = { x: ct * sp, y: -ct * cp, z: -st };
+        const R = { x: cp, y: sp, z: 0 };
+        const U = { x: st * sp, y: -st * cp, z: ct };
+        const focal = (spec.height / 2) / Math.tan(spec.fov * rad / 2);
+        const dist = focal / (spec.zoom || 1);
+        const C = { x: spec.target.x - F.x * dist, y: spec.target.y - F.y * dist, z: -F.z * dist };
+        return { C, F, R, U, focal, dist, width: spec.width, height: spec.height, target: spec.target };
+    },
+
+    project(cam, x, y, z) {
+        const vx = x - cam.C.x, vy = y - cam.C.y, vz = (z || 0) - cam.C.z;
+        const depth = vx * cam.F.x + vy * cam.F.y + vz * cam.F.z;
+        if (depth < 1) return null;
+        const scale = cam.focal / depth;
+        return {
+            x: cam.width / 2 + (vx * cam.R.x + vy * cam.R.y + vz * cam.R.z) * scale,
+            y: cam.height / 2 - (vx * cam.U.x + vy * cam.U.y + vz * cam.U.z) * scale,
+            depth, scale
+        };
+    },
+
+    // The ground point under a screen point, or null above the horizon.
+    unproject(cam, sx, sy) {
+        const a = (sx - cam.width / 2) / cam.focal, b = (cam.height / 2 - sy) / cam.focal;
+        const dx = cam.F.x + a * cam.R.x + b * cam.U.x;
+        const dy = cam.F.y + a * cam.R.y + b * cam.U.y;
+        const dz = cam.F.z + a * cam.R.z + b * cam.U.z;
+        if (dz > -1e-6) return null;
+        const t = -cam.C.z / dz;
+        return { x: cam.C.x + t * dx, y: cam.C.y + t * dy };
+    },
+
+    horizonY(cam) {
+        if (Math.abs(cam.U.z) < 1e-9) return -Infinity;
+        return cam.height / 2 - cam.focal * (-cam.F.z / cam.U.z);
+    },
+
+    // A point `height` pixels up from a foot point, drawn upright like a billboard.
+    billboardTop(cam, x, y, height) {
+        const p = this.project(cam, x, y, 0);
+        return p ? { x: p.x, y: p.y - height * p.scale, scale: p.scale } : null;
+    },
+
+    // Flat space to screen for something standing at `pivot`: scale around the projected foot.
+    billboardMatrix(cam, pivot) {
+        const p = this.project(cam, pivot.x, pivot.y, 0);
+        if (!p) return null;
+        return { a: p.scale, b: 0, c: 0, d: p.scale, tx: p.x - p.scale * pivot.x, ty: p.y - p.scale * pivot.y, depth: p.depth };
+    },
+
+    compareBillboards(a, b) {
+        if (a.depth !== b.depth) return b.depth - a.depth;
+        if (a.z !== b.z) return a.z - b.z;
+        return (a.spriteId || 0) - (b.spriteId || 0);
+    },
+
+    fogAt(distance, start, end) {
+        if (distance <= start) return 0;
+        if (distance >= end) return 1;
+        const t = (distance - start) / (end - start);
+        return t * t * (3 - 2 * t);
+    },
+
+    // Which way the camera faces, in quarter turns (0 = looking north).
+    quarter(yaw) {
+        return ((Math.round(yaw / 90) % 4) + 4) % 4;
+    },
+
+    _ring: [8, 9, 6, 3, 2, 1, 4, 7],
+
+    // The facing to draw for a character: turning the camera turns what you see.
+    viewDirection(dir, yaw) {
+        const i = this._ring.indexOf(dir);
+        if (i < 0) return dir;
+        return this._ring[(((i - 2 * this.quarter(yaw)) % 8) + 8) % 8];
+    },
+
+    // Arrow keys relative to the camera: up walks away from it.
+    inputDirection(dir, yaw) {
+        const i = this._ring.indexOf(dir);
+        if (i < 0) return dir;
+        return this._ring[(i + 2 * this.quarter(yaw)) % 8];
+    },
+
+    // Eased camera moves. Yaw turns the short way round.
+    startTween(from, to, frames) {
+        const keys = ['pitch', 'yaw', 'zoom', 'fov'];
+        const start = {}, end = {};
+        for (const k of keys) {
+            start[k] = from[k];
+            end[k] = to[k] !== undefined && to[k] !== null ? Number(to[k]) : from[k];
+        }
+        if (Number.isFinite(start.yaw) && Number.isFinite(end.yaw)) {
+            let delta = ((end.yaw - start.yaw) % 360 + 540) % 360 - 180;
+            end.yaw = start.yaw + delta;
+        }
+        return { from: start, to: end, frames: Math.max(1, Math.round(frames) || 1), t: 0, done: false };
+    },
+
+    stepTween(tween) {
+        tween.t = Math.min(tween.frames, tween.t + 1);
+        if (tween.t >= tween.frames) {
+            tween.done = true;
+            return Object.assign({}, tween.to);
+        }
+        const x = tween.t / tween.frames, e = x * x * (3 - 2 * x);
+        const out = {};
+        for (const k of Object.keys(tween.to)) {
+            const a = tween.from[k], b = tween.to[k];
+            out[k] = Number.isFinite(a) && Number.isFinite(b) ? a + (b - a) * e : b;
+        }
+        return out;
+    },
+
+    // A flat rectangle (the sprite's image) drawn as a billboard standing at `pivot`, in screen pixels.
+    screenRect(cam, rect, pivot) {
+        const m = this.billboardMatrix(cam, pivot);
+        if (!m) return null;
+        return { x: m.a * rect.x + m.tx, y: m.d * rect.y + m.ty, w: m.a * rect.w, h: m.d * rect.h, depth: m.depth };
+    },
+
+    // The 12 edges of a box around a billboard: its footprint on the ground and its upright height.
+    gizmoBox(cam, rect, pivot) {
+        const half = rect.w / 4, height = Math.max(1, pivot.y - rect.y);
+        const ground = [[rect.x, pivot.y - half], [rect.x + rect.w, pivot.y - half], [rect.x + rect.w, pivot.y + half], [rect.x, pivot.y + half]];
+        const bottom = ground.map(([x, y]) => this.project(cam, x, y, 0));
+        if (bottom.some(p => !p)) return null;
+        const top = bottom.map(p => ({ x: p.x, y: p.y - height * p.scale }));
+        const edges = [];
+        for (let i = 0; i < 4; i++) {
+            const j = (i + 1) % 4;
+            edges.push([bottom[i], bottom[j]], [top[i], top[j]], [bottom[i], top[i]]);
+        }
+        return edges;
+    }
+};
+
 // A frame clipped to the image. Images replaced by smaller ones would otherwise make PIXI throw
 // "frame does not fit inside the base Texture" and stop the game.
 DocsDoodads.safeFrame = function(rect, width, height) {
@@ -4923,6 +5187,10 @@ if (typeof Spriteset_Map !== 'undefined') {
         const visibleData = (this._docsDoodadSprites || []).filter(s => s.visible).map(s => s._data);
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
             { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
+        // In 3D the ground is lit around the lamp's base: the height offset would land the pool behind it.
+        if (this._docs3d) {
+            for (const l of lights) l.y -= Number(Object.assign({}, Lighting.lightDefaults, l.doodad && l.doodad.light).offsetY) || 0;
+        }
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
@@ -4938,16 +5206,19 @@ if (typeof Spriteset_Map !== 'undefined') {
         const renderer = DocsDoodads.Compat.getRenderer();
         if (ambient.darkness <= 0.001 || !renderer) {
             this._docsLightOverlay.visible = false;
+            this._docsLightInfo = null;
             return;
         }
-        const w = typeof Graphics !== 'undefined' ? Graphics.width : 816;
-        const h = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const size = this._docs3dSize;
+        const w = size ? size.width : typeof Graphics !== 'undefined' ? Graphics.width : 816;
+        const h = size ? size.height : typeof Graphics !== 'undefined' ? Graphics.height : 624;
         if (!this._docsLightTexture || this._docsLightTexture.width !== w || this._docsLightTexture.height !== h) {
             if (this._docsLightTexture) this._docsLightTexture.destroy(true);
             this._docsLightTexture = PIXI.RenderTexture.create({ width: w, height: h });
             this._docsLightOverlay.texture = this._docsLightTexture;
         }
         const base = Lighting.lightmapBase(ambient);
+        this._docsLightInfo = { base, lights };
         this._docsLightBase.width = w;
         this._docsLightBase.height = h;
         this._docsLightBase.tint = (Math.round(base[0] * 255) << 16) | (Math.round(base[1] * 255) << 8) | Math.round(base[2] * 255);
@@ -4985,14 +5256,15 @@ if (typeof Spriteset_Map !== 'undefined') {
         }
         const workspace = DocsDoodads.Workspace;
         if (workspace.gridSnapShow) {
-            const width = typeof Graphics !== 'undefined' ? Graphics.width : 816;
-            const height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+            const size = this._docs3dSize;
+            const width = size ? size.width : typeof Graphics !== 'undefined' ? Graphics.width : 816;
+            const height = size ? size.height : typeof Graphics !== 'undefined' ? Graphics.height : 624;
             const grid = workspace.placementGridLines(width, height);
             outline.lineStyle(1, 0xffffff, 0.25);
             for (const x of grid.xs) { outline.moveTo(x, 0); outline.lineTo(x, height); }
             for (const y of grid.ys) { outline.moveTo(0, y); outline.lineTo(width, y); }
         }
-        for (const rect of workspace.selectionScreenRects()) {
+        for (const rect of this._docs3d ? [] : workspace.selectionScreenRects()) {
             outline.lineStyle(2, 0x38bdf8, 1);
             outline.drawRect(rect.x, rect.y, rect.w, rect.h);
         }
@@ -5401,8 +5673,10 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
 // Where a character is on screen, 0-1, for screen effects centred on it.
 DocsDoodads.PostFX.screenCenterOf = function(character) {
     if (!character || typeof Graphics === 'undefined') return [0.5, 0.5];
-    const x = character.screenX() / Graphics.width;
-    const y = (character.screenY() - 24) / Graphics.height;
+    const at = DocsDoodads.Perspective && DocsDoodads.Perspective.liveCamera()
+        ? DocsDoodads.Perspective.flatToScreen(character.screenX(), character.screenY()) : { x: character.screenX(), y: character.screenY(), scale: 1 };
+    const x = at.x / Graphics.width;
+    const y = (at.y - 24 * (at.scale || 1)) / Graphics.height;
     return [Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y))];
 };
 
@@ -5747,6 +6021,7 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
             const config = DocsDoodads.Particles.normalize({ preset: 'leaves', rate: 0, area: [(d.frameW || 48) * 0.6, 8], lifetime: [0.8, 1.4], speed: [20, 40], angle: -60, spread: 80, gravity: 60 });
             this._docsLeaves = new Sprite_DocsParticles(config, (d.x || 1) + (d.y || 1));
             this._docsLeaves.z = 5.5;
+            this._docsLeaves._docsBillboardOwner = this;
             this._docsLeaves._docsSortY = 0;
         }
         if (this._docsLeaves.parent !== this.parent) this.parent.addChild(this._docsLeaves);
@@ -5771,6 +6046,7 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
                 const config = DocsDoodads.Particles.normalize(Object.assign({}, wanted, { preset: wanted.preset }));
                 config.rate *= wanted.rateScale !== undefined ? Math.max(0, Number(wanted.rateScale) || 0) : 1;
                 this._docsEmitter = new Sprite_DocsParticles(config, Math.round((d.x || 0) * 7 + (d.y || 0) * 13) + 1);
+                this._docsEmitter._docsBillboardOwner = this;
             }
         }
         if (this._docsEmitter && parent) {
@@ -5792,7 +6068,10 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
                 this._docsVfx = null;
             }
             const def = vfxId ? DocsDoodads.Vfx.find(vfxId, DocsDoodads.Vfx.library()) : null;
-            if (def && typeof Sprite_DocsVfx !== 'undefined') this._docsVfx = new Sprite_DocsVfx(Object.assign({}, def, { loop: true }), (d.x || 1) + (d.y || 1));
+            if (def && typeof Sprite_DocsVfx !== 'undefined') {
+                this._docsVfx = new Sprite_DocsVfx(Object.assign({}, def, { loop: true }), (d.x || 1) + (d.y || 1));
+                this._docsVfx._docsBillboardOwner = this;
+            }
         }
         if (this._docsVfx && parent) {
             const v = this._docsVfx;
@@ -5867,6 +6146,8 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (!instance.view) {
                 instance.view = new Sprite_DocsVfx(instance.def, instance.seed);
                 instance.view.z = 5.5;
+                // Effects on a character are drawn 24px up; in 3D they stand on its foot.
+                instance.view._docsPivotDy = instance.follow ? 24 : 0;
                 instance.view._docsSortY = 0;
                 this._docsVfxViews.push(instance.view);
             }
@@ -6016,7 +6297,7 @@ if (typeof Sprite_Character !== 'undefined') {
         else if (state === 'run' && layout.frames !== parsedName.frames) frame = C.cycleFrame(ch._docsAnimTimer || 0, set.runFps || 12, layout.frames);
         else frame = layout.frames === 3 ? C.walkFrame(ch._pattern, 3) : ch.pattern() % layout.frames;
         const single = layout.tagged || sheet.startsWith('$') || (sheet.length > 1 && sheet[0] === '!' && sheet[1] === '$');
-        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: ch.docsFacing ? ch.docsFacing() : ch.direction() };
+        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: DocsDoodads.Perspective.displayFacing(ch.docsFacing ? ch.docsFacing() : ch.direction()) };
     };
 
     $.Sprite_Character_updateBitmap = Sprite_Character.prototype.updateBitmap;
@@ -6126,7 +6407,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
             spec.x = ((Number(args.x) || 0) + 0.5) * tw;
             spec.y = ((Number(args.y) || 0) + 0.5) * th;
         } else if (args.target === 'screen') {
-            const at = DocsDoodads.screenToMap(Graphics.width / 2, Graphics.height / 2);
+            const at = DocsDoodads.screenPointToMap(Graphics.width / 2, Graphics.height / 2) || DocsDoodads.screenToMap(Graphics.width / 2, Graphics.height / 2);
             spec.x = at.x;
             spec.y = at.y;
         } else {
@@ -6530,6 +6811,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
             sprite.setHue(layer.hue || 0);
             if (layer.tint !== null && layer.tint !== undefined) sprite.tint = layer.tint;
             sprite._docsLayer = layer;
+            sprite._docsBillboardOwner = this;
             this._docsVisualSprites.push(sprite);
         }
     };
@@ -6551,7 +6833,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
     Sprite_Character.prototype.updateDocsVisualSprites = function() {
         const ch = this._character;
         const anim = this._docsAnim;
-        const facing = anim ? anim.facing : ch.direction();
+        const facing = anim ? anim.facing : DocsDoodads.Perspective.displayFacing(ch.direction());
         const col = anim ? anim.frame : this.characterPatternX();
         const visible = this.visible && !ch.isTransparent();
         // Ties in the tilemap sort break by spriteId: just under or just over the body.
@@ -7034,6 +7316,514 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         if (args.pathDots === 'on' || args.pathDots === 'off') next.pathDots = args.pathDots === 'on';
         // A new object, so the cached marker settings refresh.
         $gameSystem._docsDestination = next;
+    });
+}
+
+//==========================================================
+// SECTION 7I: PERSPECTIVE (3D) RUNTIME
+//==========================================================
+// Each frame the tilemap's flat things (tiles, floor doodads, shadows, reflections, the lightmap and
+// the editor grid) are drawn into a ground texture, which a shader lays on a ground plane. Everything
+// that stands up is drawn as an upright billboard at its projected foot point, far to near.
+
+// The map's 3D settings now (with plugin-command camera changes), or null when the map is flat.
+DocsDoodads.Perspective.active = function() {
+    if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
+    if (this._suspended) return null;
+    const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
+    return this.resolve(mine, $gameMap._docsCamera || null);
+};
+
+// The camera used for the last frame drawn (null when the map is flat).
+DocsDoodads.Perspective.liveCamera = function() {
+    return this.active() ? this._cam || null : null;
+};
+
+// The facing to draw for a character, turned with the camera.
+DocsDoodads.Perspective.displayFacing = function(dir) {
+    const s = this.active();
+    return s ? this.viewDirection(dir, s.yaw) : dir;
+};
+
+// Flat pixels to screen pixels (ground level), for things drawn in screen space.
+DocsDoodads.Perspective.flatToScreen = function(x, y) {
+    const cam = this.liveCamera();
+    if (!cam) return { x, y, scale: 1 };
+    return this.project(cam, x, y, 0) || { x: -10000, y: -10000, scale: 0 };
+};
+
+// A screen point to flat pixels on the ground (null above the horizon).
+DocsDoodads.Perspective.screenToFlat = function(sx, sy) {
+    const cam = this.liveCamera();
+    return cam ? this.unproject(cam, sx, sy) : { x: sx, y: sy };
+};
+
+// Screen pixels to map pixels, through the ground when the map is in 3D.
+DocsDoodads.screenPointToMap = function(sx, sy) {
+    const flat = DocsDoodads.Perspective.screenToFlat(sx, sy);
+    return flat ? DocsDoodads.screenToMap(flat.x, flat.y) : null;
+};
+
+DocsDoodads.Perspective.groundVertex = [
+    'precision highp float;',
+    'attribute vec2 aVertexPosition;',
+    'uniform mat3 projectionMatrix;',
+    'uniform mat3 translationMatrix;',
+    'varying vec2 vScreen;',
+    'void main() {',
+    '    vScreen = aVertexPosition;',
+    '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
+    '}'
+].join('\n');
+
+DocsDoodads.Perspective.groundFragment = [
+    fragmentPrecision,
+    'varying vec2 vScreen;',
+    'uniform sampler2D uSampler;',
+    'uniform vec3 uCam;',
+    'uniform vec3 uF;',
+    'uniform vec3 uR;',
+    'uniform vec3 uU;',
+    'uniform float uFocal;',
+    'uniform vec2 uHalf;',
+    'uniform vec2 uGround;',
+    'uniform vec4 uFog;',
+    'uniform vec2 uFogRange;',
+    'uniform vec2 uTarget;',
+    'uniform vec3 uVoid;',
+    'uniform float uAlpha;',
+    'void main() {',
+    '    vec3 dir = uF + ((vScreen.x - uHalf.x) / uFocal) * uR + ((uHalf.y - vScreen.y) / uFocal) * uU;',
+    '    if (dir.z > -0.00001) discard;',
+    '    float t = -uCam.z / dir.z;',
+    '    vec2 p = uCam.xy + t * dir.xy;',
+    '    vec2 uv = p / uGround;',
+    '    vec4 c = vec4(0.0);',
+    '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
+    '    vec3 rgb = c.rgb + uVoid * (1.0 - c.a);',
+    // Fog by distance along the ground from the camera's target, so it hides the ground's edges all round.
+    '    float f = smoothstep(uFogRange.x, uFogRange.y, length(p - uTarget));',
+    // uFog.a = 1: blend into the fog colour; 0: fade out so the sky shows through.
+    '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
+    '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
+    '    gl_FragColor = vec4(rgb * a, a);',
+    '}'
+].join('\n');
+
+DocsDoodads.Perspective.hexToRgb = function(hex) {
+    const n = parseInt(String(hex || '#000000').slice(1), 16) || 0;
+    return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+};
+
+// What light falls on a point: the ambient multiply colour plus nearby lights (like the lightmap).
+DocsDoodads.Perspective.lightAt = function(info, x, y) {
+    if (!info || !info.base) return null;
+    const rgb = info.base.slice(0, 3);
+    for (const l of info.lights || []) {
+        const dist = Math.hypot(l.x - x, l.y - y) / Math.max(1, l.radius);
+        if (dist >= 1) continue;
+        const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
+        const c = DocsDoodads.Perspective.hexToRgb('#' + ('000000' + (l.color >>> 0).toString(16)).slice(-6));
+        const k = fall * (l.intensity || 0);
+        rgb[0] += c[0] * k; rgb[1] += c[1] * k; rgb[2] += c[2] * k;
+    }
+    const to = v => Math.max(0, Math.min(255, Math.round(v * 255)));
+    return (to(rgb[0]) << 16) | (to(rgb[1]) << 8) | to(rgb[2]);
+};
+
+DocsDoodads.Perspective.multiplyTint = function(a, b) {
+    const ch = (v, s) => (v >> s) & 255;
+    const m = s => Math.round(ch(a, s) * ch(b, s) / 255);
+    return (m(16) << 16) | (m(8) << 8) | m(0);
+};
+
+if (typeof PIXI !== 'undefined' && PIXI.Container) {
+    // Draws billboards: each item renders its display object with a flat-to-screen transform.
+    window.Sprite_DocsBillboards = function() {
+        PIXI.Container.call(this);
+        this.items = [];
+        this._temp = new PIXI.Container();
+    };
+    Sprite_DocsBillboards.prototype = Object.create(PIXI.Container.prototype);
+    Sprite_DocsBillboards.prototype.constructor = Sprite_DocsBillboards;
+
+    Sprite_DocsBillboards.prototype.render = function(renderer) {
+        if (!this.visible || !this.renderable || this.worldAlpha <= 0) return;
+        const temp = this._temp;
+        const wt = this.worldTransform;
+        const tinted = [];
+        const tint = (obj, color) => {
+            if (obj && obj.tint !== undefined && obj instanceof PIXI.Sprite) {
+                tinted.push([obj, obj.tint]);
+                obj.tint = DocsDoodads.Perspective.multiplyTint(obj.tint, color);
+            }
+            for (const child of (obj && obj.children) || []) tint(child, color);
+        };
+        for (const it of this.items) {
+            const obj = it.obj;
+            if (!obj || obj._destroyed || !obj.parent || !obj.visible) continue;
+            const m = it.matrix;
+            const world = temp.transform.worldTransform;
+            if (m) world.set(wt.a * m.a + wt.c * m.b, wt.b * m.a + wt.d * m.b, wt.a * m.c + wt.c * m.d, wt.b * m.c + wt.d * m.d,
+                wt.a * m.tx + wt.c * m.ty + wt.tx, wt.b * m.tx + wt.d * m.ty + wt.ty);
+            else world.copyFrom(wt);
+            temp.transform._worldID++;
+            temp.worldAlpha = this.worldAlpha * it.alpha;
+            const parent = obj.parent;
+            obj.parent = temp;
+            obj.updateTransform();
+            if (it.tint !== null && it.tint !== undefined) tint(obj, it.tint);
+            obj.render(renderer);
+            for (const [o, old] of tinted) o.tint = old;
+            tinted.length = 0;
+            obj.parent = parent;
+            // Recompute against the real parent next frame, even if transform ids happen to match.
+            obj.transform._parentID = -1;
+        }
+    };
+}
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    const P = DocsDoodads.Perspective;
+
+    Spriteset_Map.prototype.docsIsGround = function(child) {
+        const t = this._tilemap;
+        if (child === t._lowerLayer || child === t._upperLayer || child._docsGround) return true;
+        if (typeof Sprite_Destination !== 'undefined' && child instanceof Sprite_Destination) return true;
+        return child.z !== undefined && child.z < 1;
+    };
+
+    // The foot point a billboard stands on, in flat pixels.
+    Spriteset_Map.prototype.docsPivotOf = function(obj, depth) {
+        if (depth > 4) return { x: obj.x, y: obj.y };
+        const owner = obj._docsBillboardOwner || obj._target || (obj._targets && obj._targets[0]) || null;
+        if (owner && owner !== obj && owner.parent) return this.docsPivotOf(owner, (depth || 0) + 1);
+        if (typeof Sprite_Character !== 'undefined' && obj instanceof Sprite_Character && obj._character) {
+            const jump = typeof obj._character.jumpHeight === 'function' ? obj._character.jumpHeight() : 0;
+            return { x: obj.x, y: obj.y + jump };
+        }
+        if (typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad && obj._docsSortY !== undefined) return { x: obj.x, y: obj._docsSortY };
+        return { x: obj.x, y: obj.y + (obj._docsPivotDy || 0) };
+    };
+
+    Spriteset_Map.prototype.enterDocsPerspective = function() {
+        const view = this._docs3dView = new PIXI.Container();
+        this._docs3dSky = new PIXI.Sprite(PIXI.Texture.WHITE);
+        this._docs3dBillboards = new Sprite_DocsBillboards();
+        this._docs3dGizmo = new PIXI.Graphics();
+        view.addChild(this._docs3dSky);
+        this._docs3dGround = null;
+        view.addChild(this._docs3dBillboards);
+        view.addChild(this._docs3dGizmo);
+        this._baseSprite.addChild(view);
+        this._docs3d = true;
+    };
+
+    Spriteset_Map.prototype.exitDocsPerspective = function() {
+        this._docs3d = false;
+        P._cam = null;
+        if (this._docs3dView) {
+            if (this._docs3dView.parent) this._docs3dView.parent.removeChild(this._docs3dView);
+            this._docs3dView.destroy({ children: true });
+            this._docs3dView = null;
+        }
+        if (this._docs3dTexture) {
+            this._docs3dTexture.destroy(true);
+            this._docs3dTexture = null;
+        }
+        this._docs3dGround = null;
+        this._docs3dSize = null;
+        const tilemap = this._tilemap;
+        if (tilemap) {
+            tilemap.renderable = true;
+            tilemap.width = Graphics.width;
+            tilemap.height = Graphics.height;
+            if (tilemap.refresh) tilemap.refresh();
+            for (const child of tilemap.children) child.renderable = true;
+        }
+        for (const o of [this._docsLightOverlay, this._docsGlowLayer, this._docsSelectionOutline]) if (o) o.renderable = true;
+        DocsDoodads.Perspective.recenter();
+    };
+
+    Spriteset_Map.prototype.docsGroundMesh = function(width, height) {
+        if (this._docs3dGround && this._docs3dGround._docsW === width && this._docs3dGround._docsH === height) return this._docs3dGround;
+        if (this._docs3dGround) {
+            this._docs3dGround.parent.removeChild(this._docs3dGround);
+            this._docs3dGround.destroy();
+        }
+        const geometry = new PIXI.Geometry()
+            .addAttribute('aVertexPosition', [0, 0, width, 0, width, height, 0, height], 2)
+            .addIndex([0, 1, 2, 0, 2, 3]);
+        const shader = PIXI.Shader.from(P.groundVertex, P.groundFragment, {
+            uSampler: PIXI.Texture.EMPTY, uCam: [0, 0, 1], uF: [0, 0, -1], uR: [1, 0, 0], uU: [0, -1, 0], uFocal: 1,
+            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uVoid: [0, 0, 0], uAlpha: 1
+        });
+        const mesh = new PIXI.Mesh(geometry, shader);
+        mesh._docsW = width;
+        mesh._docsH = height;
+        this._docs3dView.addChildAt(mesh, 1);
+        this._docs3dGround = mesh;
+        return mesh;
+    };
+
+    Spriteset_Map.prototype.updateDocsPerspective = function() {
+        const s = P.active();
+        const renderer = DocsDoodads.Compat.getRenderer();
+        if (!s || !renderer || !this._tilemap || !PIXI.Mesh || !PIXI.Shader) {
+            if (this._docs3d) this.exitDocsPerspective();
+            return;
+        }
+        if (!this._docs3d) this.enterDocsPerspective();
+        const tilemap = this._tilemap;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const gw = s.viewTiles * tw, gh = s.viewTiles * th;
+        this._docs3dSize = { width: gw, height: gh };
+        if (tilemap.width !== gw || tilemap.height !== gh) {
+            tilemap.width = gw;
+            tilemap.height = gh;
+            if (tilemap.refresh) tilemap.refresh();
+            P.recenter();
+        }
+        if (!this._docs3dTexture || this._docs3dTexture.width !== gw || this._docs3dTexture.height !== gh) {
+            if (this._docs3dTexture) this._docs3dTexture.destroy(true);
+            this._docs3dTexture = PIXI.RenderTexture.create({ width: gw, height: gh });
+        }
+        const rt = this._docs3dTexture;
+        rt.baseTexture.scaleMode = s.smoothGround ? PIXI.SCALE_MODES.LINEAR : PIXI.SCALE_MODES.NEAREST;
+        const W = Graphics.width, H = Graphics.height;
+        const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H });
+
+        // Ground pass: everything flat, with billboards switched off.
+        const billboards = [];
+        for (const child of tilemap.children) {
+            if (this.docsIsGround(child)) continue;
+            billboards.push(child);
+            child._docsWasRenderable = child.renderable;
+            child.renderable = false;
+        }
+        tilemap.renderable = true;
+        renderer.render(tilemap, rt, true);
+        for (const child of billboards) child.renderable = child._docsWasRenderable !== false;
+        tilemap.renderable = false;
+        for (const o of [this._docsLightOverlay, this._docsGlowLayer, this._docsSelectionOutline]) {
+            if (!o) continue;
+            o.renderable = true;
+            if (o.visible) renderer.render(o, rt, false);
+            o.renderable = false;
+        }
+
+        // The view sits where the tilemap was: above the sky (parallax), below weather and pictures.
+        const parent = tilemap.parent;
+        if (this._docs3dView.parent !== parent || parent.children.indexOf(this._docs3dView) !== parent.children.indexOf(tilemap) + 1) {
+            parent.addChildAt(this._docs3dView, parent.children.indexOf(tilemap) + 1);
+        }
+        const sky = this._docs3dSky;
+        sky.visible = !($gameMap.parallaxName && $gameMap.parallaxName());
+        sky.width = W;
+        sky.height = H;
+        sky.tint = parseInt(s.skyColor.slice(1), 16);
+
+        const mesh = this.docsGroundMesh(W, H);
+        const u = mesh.shader.uniforms;
+        u.uSampler = rt;
+        u.uCam = [cam.C.x, cam.C.y, cam.C.z];
+        u.uF = [cam.F.x, cam.F.y, cam.F.z];
+        u.uR = [cam.R.x, cam.R.y, cam.R.z];
+        u.uU = [cam.U.x, cam.U.y, cam.U.z];
+        u.uFocal = cam.focal;
+        u.uHalf = [W / 2, H / 2];
+        u.uGround = [gw, gh];
+        const fogRange = [s.fogStart * tw, s.fogEnd * tw];
+        u.uFogRange = fogRange;
+        u.uTarget = [cam.target.x, cam.target.y];
+        u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
+        u.uVoid = P.hexToRgb(s.voidColor);
+        u.uAlpha = 1;
+
+        // Billboards, far to near, faded by fog and lit like the ground.
+        const light = this._docsLightInfo || null;
+        const items = [];
+        for (const obj of billboards) {
+            if (!obj.visible) continue;
+            const pivot = this.docsPivotOf(obj);
+            const m = P.billboardMatrix(cam, pivot);
+            if (!m) continue;
+            const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
+            if (fog >= 1) continue;
+            const isEffekseer = typeof Sprite_Animation !== 'undefined' && obj instanceof Sprite_Animation;
+            items.push({ obj, depth: m.depth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
+                alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
+        }
+        items.sort(P.compareBillboards);
+        this._docs3dBillboards.items = items;
+        this.updateDocsGizmos(cam);
+    };
+
+    // Editor selection as boxes standing on the ground.
+    Spriteset_Map.prototype.updateDocsGizmos = function(cam) {
+        const g = this._docs3dGizmo;
+        g.clear();
+        const ws = DocsDoodads.Workspace;
+        if (!ws || !ws.mounted) return;
+        for (const item of ws.selection3d ? ws.selection3d() : []) {
+            const box = P.gizmoBox(cam, item.rect, item.pivot);
+            if (!box) continue;
+            g.lineStyle(1.5, 0xfacc15, 0.95);
+            for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
+        }
+    };
+
+    $.Spriteset_Map_update_3d = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        $.Spriteset_Map_update_3d.call(this);
+        this.updateDocsPerspective();
+    };
+
+    // In 3D the parallax is the sky: it turns with the camera and stays put as the party walks.
+    $.Spriteset_Map_updateParallax_3d = Spriteset_Map.prototype.updateParallax;
+    Spriteset_Map.prototype.updateParallax = function() {
+        $.Spriteset_Map_updateParallax_3d.call(this);
+        const s = P.active();
+        if (s && this._parallax && this._parallax.bitmap) {
+            this._parallax.origin.x = (s.yaw / 360) * this._parallax.bitmap.width * 2;
+            this._parallax.origin.y = 0;
+        }
+    };
+
+    $.Spriteset_Map_destroy_3d = Spriteset_Map.prototype.destroy;
+    Spriteset_Map.prototype.destroy = function(options) {
+        if (this._docs3dTexture) {
+            this._docs3dTexture.destroy(true);
+            this._docs3dTexture = null;
+        }
+        P._cam = null;
+        $.Spriteset_Map_destroy_3d.call(this, options);
+    };
+}
+
+// The ground texture covers viewTiles x viewTiles tiles around the camera, so MZ scrolls as if the
+// screen were that big; the camera looks at its middle.
+DocsDoodads.Perspective.recenter = function() {
+    if (typeof $gamePlayer !== 'undefined' && $gamePlayer && typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId()) {
+        $gamePlayer.center($gamePlayer.x, $gamePlayer.y);
+    }
+};
+
+if (typeof Game_Map !== 'undefined') {
+    const P = DocsDoodads.Perspective;
+    $.Game_Map_screenTileX_3d = Game_Map.prototype.screenTileX;
+    Game_Map.prototype.screenTileX = function() {
+        const s = P.active();
+        return s ? s.viewTiles : $.Game_Map_screenTileX_3d.call(this);
+    };
+    $.Game_Map_screenTileY_3d = Game_Map.prototype.screenTileY;
+    Game_Map.prototype.screenTileY = function() {
+        const s = P.active();
+        return s ? s.viewTiles : $.Game_Map_screenTileY_3d.call(this);
+    };
+
+    // Map touch: MZ asks for x and y separately, so both use the touch point.
+    $.Game_Map_canvasToMapX_3d = Game_Map.prototype.canvasToMapX;
+    Game_Map.prototype.canvasToMapX = function(x) {
+        if (!P.liveCamera()) return $.Game_Map_canvasToMapX_3d.call(this, x);
+        const at = DocsDoodads.screenPointToMap(x, typeof TouchInput !== 'undefined' ? TouchInput.y : 0);
+        return at ? this.roundX(Math.floor(at.x / this.tileWidth())) : -1;
+    };
+    $.Game_Map_canvasToMapY_3d = Game_Map.prototype.canvasToMapY;
+    Game_Map.prototype.canvasToMapY = function(y) {
+        if (!P.liveCamera()) return $.Game_Map_canvasToMapY_3d.call(this, y);
+        const at = DocsDoodads.screenPointToMap(typeof TouchInput !== 'undefined' ? TouchInput.x : 0, y);
+        return at ? this.roundY(Math.floor(at.y / this.tileHeight())) : -1;
+    };
+
+    // A new map starts with its own camera.
+    $.Game_Map_setup_3d = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        this._docsCamera = null;
+        this._docsCameraTween = null;
+        $.Game_Map_setup_3d.call(this, mapId);
+    };
+
+    // Camera moves from plugin commands, and Q / W turning on maps that allow it.
+    $.Game_Map_update_3d = Game_Map.prototype.update;
+    Game_Map.prototype.update = function(sceneActive) {
+        $.Game_Map_update_3d.call(this, sceneActive);
+        if (this._docsCameraTween) {
+            const now = P.stepTween(this._docsCameraTween);
+            this._docsCamera = Object.assign({}, this._docsCamera, now);
+            if (this._docsCameraTween.done) this._docsCameraTween = null;
+        }
+        const s = P.active();
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        if (s && s.rotate && sceneActive && !editing && typeof Input !== 'undefined' && !this._docsCameraTween
+            && !(typeof $gameMessage !== 'undefined' && $gameMessage.isBusy())) {
+            const turn = Input.isTriggered('pageup') ? -90 : Input.isTriggered('pagedown') ? 90 : 0;
+            if (turn) this.docsMoveCamera({ yaw: s.yaw + turn }, 20);
+        }
+        const key = s ? s.viewTiles : 0;
+        if (key !== this._docs3dKey) {
+            this._docs3dKey = key;
+            P.recenter();
+        }
+    };
+
+    Game_Map.prototype.docsMoveCamera = function(target, frames) {
+        const s = P.active() || P.normalize((DocsDoodads.Lighting.mapSettings(this.mapId()) || {}).perspective);
+        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov };
+        this._docsCamera = Object.assign({}, this._docsCamera, from);
+        if (!frames || frames <= 0) {
+            const tween = P.startTween(from, target, 1);
+            this._docsCamera = Object.assign({}, this._docsCamera, P.stepTween(tween));
+            this._docsCameraTween = null;
+        } else {
+            this._docsCameraTween = P.startTween(from, target, frames);
+        }
+    };
+}
+
+// Arrow keys are relative to the camera, and characters show the side that faces it.
+if (typeof Game_Player !== 'undefined') {
+    $.Game_Player_getInputDirection_3d = Game_Player.prototype.getInputDirection;
+    Game_Player.prototype.getInputDirection = function() {
+        const dir = $.Game_Player_getInputDirection_3d.call(this);
+        const s = DocsDoodads.Perspective.active();
+        return s && dir ? DocsDoodads.Perspective.inputDirection(dir, s.yaw) : dir;
+    };
+}
+if (typeof Sprite_Character !== 'undefined') {
+    $.Sprite_Character_characterPatternY_3d = Sprite_Character.prototype.characterPatternY;
+    Sprite_Character.prototype.characterPatternY = function() {
+        const s = DocsDoodads.Perspective.active();
+        if (!s) return $.Sprite_Character_characterPatternY_3d.call(this);
+        const dir = DocsDoodads.Perspective.viewDirection(this._character.direction(), s.yaw);
+        return (dir - 2) / 2;
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'setCamera', function(args) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const target = {};
+        const relative = String(args.relative) === 'true';
+        const s = DocsDoodads.Perspective.active() || DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
+        for (const key of ['pitch', 'yaw', 'zoom', 'fov']) {
+            const raw = String(args[key] === undefined ? '' : args[key]).trim();
+            if (raw === '') continue;
+            target[key] = relative && key !== 'zoom' ? s[key] + Number(raw) : Number(raw);
+        }
+        $gameMap.docsMoveCamera(target, Number(args.duration) || 0);
+        if (String(args.wait) === 'true' && Number(args.duration) > 0 && this && this.wait) this.wait(Number(args.duration));
+    });
+    PluginManager.registerCommand(pluginName, 'setPerspective', function(args) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const mode = String(args.mode || 'map');
+        $gameMap._docsCamera = Object.assign({}, $gameMap._docsCamera, { enabled: mode === 'map' ? null : mode === 'on' });
+        if (mode === 'map') delete $gameMap._docsCamera.enabled;
+    });
+    PluginManager.registerCommand(pluginName, 'resetCamera', function(args) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const mine = DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
+        $gameMap.docsMoveCamera({ pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov }, Number(args.duration) || 0);
     });
 }
 
@@ -14638,6 +15428,98 @@ DocsDoodads.Workspace = {
         this.setMapSetting('regionSounds', list);
     },
 
+    // ---- 3D view (per map) ----
+    perspectiveFields() {
+        const range = (key, label, min, max, step) => ({ key, label, type: 'range', min, max, step });
+        const number = (key, label, step = 1) => ({ key, label, type: 'number', step });
+        const check = (key, label) => ({ key, label, type: 'checkbox' });
+        return [
+            check('enabled', 'Show this map in 3D'),
+            range('pitch', 'Camera tilt (degrees down from level)', 20, 89, 1),
+            range('yaw', 'Camera turn (0 = looking north)', 0, 359, 1),
+            range('fov', 'Field of view', 20, 100, 1),
+            range('zoom', 'Zoom', 0.25, 4, 0.05),
+            number('viewTiles', 'View distance (tiles of ground drawn)'),
+            number('fogStart', 'Fog starts (tiles past the camera\'s target)', 0.5),
+            number('fogEnd', 'Fog ends (tiles)', 0.5),
+            check('fogUseColor', 'Fog is a colour (otherwise distant ground fades into the sky)'),
+            { key: 'fogColor', label: 'Fog colour', type: 'color' },
+            { key: 'skyColor', label: 'Sky colour (maps without a parallax)', type: 'color' },
+            { key: 'voidColor', label: 'Beyond the map edge', type: 'color' },
+            check('rotate', 'Q / W turn the camera 90°'),
+            check('smoothGround', 'Smooth distant ground (less pixelated)')
+        ];
+    },
+
+    // Turning with Q / W or Set Camera changes the camera for this visit; the panel shows the map's own camera.
+    clearCameraOverride() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        $gameMap._docsCamera = null;
+        $gameMap._docsCameraTween = null;
+    },
+
+    perspectiveRaw() {
+        return Object.assign({}, (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).perspective || {});
+    },
+
+    renderPerspectivePanel() {
+        const raw = this.perspectiveRaw();
+        const s = DocsDoodads.Perspective.normalize(raw);
+        const value = key => key === 'fogUseColor' ? Boolean(s.fogColor) : key === 'fogColor' ? (s.fogColor || '#000000') : s[key];
+        const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, value(f.key))).join('');
+        return `
+            <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
+                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Use doodads for trees and buildings.</div>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
+            </details>`;
+    },
+
+    // One undo step per change; sliders preview live and record the value from before the drag.
+    setPerspectiveField(key, value, previousSettings) {
+        this.clearCameraOverride();
+        const next = this.perspectiveRaw();
+        if (key === 'fogUseColor') next.fogColor = value ? (next.fogColor || '#000000') : '';
+        else next[key] = value;
+        this.setMapSetting('perspective', next, previousSettings);
+    },
+
+    bindPerspectivePanel() {
+        const details = document.getElementById('dd-p3d-section');
+        if (details) details.ontoggle = () => { this._open3d = details.open; };
+        for (const f of this.perspectiveFields()) {
+            const input = document.getElementById('dd-p3d-' + f.key);
+            if (!input) continue;
+            const read = () => f.type === 'checkbox' ? Boolean(input.checked) : (f.type === 'range' || f.type === 'number') ? parseFloat(input.value) || 0 : input.value;
+            if (f.type === 'range') {
+                let previous;
+                const label = document.getElementById('dd-p3d-' + f.key + '-val');
+                input.oninput = () => {
+                    this.clearCameraOverride();
+                    const mapId = this.currentMapId();
+                    const data = window.$dataDocsDoodads || {};
+                    if (previous === undefined) previous = data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null;
+                    const settings = Object.assign({}, previous || {});
+                    settings.perspective = Object.assign({}, settings.perspective || {}, this._p3dLive || {}, { [f.key]: read() });
+                    this._p3dLive = settings.perspective;
+                    this.writeMapSettings(mapId, settings);
+                    if (label) label.textContent = String(read());
+                };
+                input.onchange = () => {
+                    const prev = previous;
+                    previous = undefined;
+                    this._p3dLive = null;
+                    this.setPerspectiveField(f.key, read(), prev);
+                };
+            } else {
+                input.onchange = () => {
+                    this.setPerspectiveField(f.key, read());
+                    if (f.key === 'enabled' || f.key === 'fogUseColor') this.refreshInspector();
+                };
+            }
+        }
+    },
+
     renderMapSoundPanel(mapSettings) {
         const echo = Object.assign({}, DocsDoodads.SpatialSound.echoDefaults, mapSettings.echo || {});
         const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
@@ -15605,6 +16487,7 @@ DocsDoodads.Workspace = {
                     <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
             </details>
+            ${this.renderPerspectivePanel()}
             ${this.renderMapSoundPanel(mapSettings)}
             ${this.renderLayersPanel(mapSettings)}
             ${this.renderWorldSections()}
@@ -15637,6 +16520,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-daynight').onchange = (e) => this.setMapSetting('dayNight', e.target.value === 'auto' ? undefined : e.target.value);
         document.getElementById('dd-map-reflections').onchange = (e) => this.setMapSetting('reflections', e.target.checked ? undefined : false);
         document.getElementById('dd-map-charshadows').onchange = (e) => this.setMapSetting('characterShadows', e.target.checked ? undefined : false);
+        this.bindPerspectivePanel();
         this.bindMapSoundPanel(mapSettings);
         this.bindLayersPanel(mapSettings);
         this.bindWorldSections();
@@ -17086,8 +17970,20 @@ DocsDoodads.Workspace = {
         const items = (this.selectedDoodads && this.selectedDoodads.length ? this.selectedDoodads : [hit]).filter(d => !d.locked);
         if (items.length === 0) return false;
         const moving = new Set(items);
+        // In 3D the doodad's foot follows the mouse, keeping the offset from where it was grabbed.
+        let start = { x: point.x, y: point.y }, grab = null;
+        const cam = DocsDoodads.Perspective.liveCamera();
+        if (cam && this._lastScreenPoint) {
+            const box = this.doodadFlatBox(hit);
+            const foot = DocsDoodads.Perspective.project(cam, box.pivot.x, box.pivot.y, 0);
+            if (foot) {
+                grab = { x: this._lastScreenPoint.x - foot.x, y: this._lastScreenPoint.y - foot.y };
+                start = DocsDoodads.screenToMap(box.pivot.x, box.pivot.y);
+            }
+        }
         this._drag = {
-            start: { x: point.x, y: point.y },
+            grab,
+            start,
             primary: hit,
             items,
             origin: items.map(d => ({ x: d.x, y: d.y })),
@@ -17365,7 +18261,13 @@ DocsDoodads.Workspace = {
 
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const mapped = DocsDoodads.screenToMap(screenX, screenY);
+        this._lastScreenPoint = { x: screenX, y: screenY };
+        let mapped = DocsDoodads.screenToMap(screenX, screenY);
+        if (DocsDoodads.Perspective.liveCamera()) {
+            const grab = this._drag && this._drag.grab ? this._drag.grab : { x: 0, y: 0 };
+            mapped = DocsDoodads.screenPointToMap(screenX - grab.x, screenY - grab.y) || this._lastGroundPoint || mapped;
+            this._lastGroundPoint = mapped;
+        }
         const mapPixelX = mapped.x;
         const mapPixelY = mapped.y;
         const tileX = Math.floor(mapPixelX / tw);
@@ -17843,8 +18745,40 @@ DocsDoodads.Workspace = {
         });
     },
 
+    // A doodad's image rectangle and foot point in flat (tilemap) pixels.
+    doodadFlatBox(d) {
+        const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
+        const at = d.posMode === 1 && window.$gameMap ? DocsDoodads.mapToScreen(d.x, d.y) : { x: d.x, y: d.y };
+        const rect = { x: at.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5), y: at.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0), w, h };
+        return { rect, pivot: { x: at.x, y: at.y + (DocsDoodads.Depth.baseY(d) - d.y) } };
+    },
+
+    // The selection as boxes for the 3D view.
+    selection3d() {
+        const items = this.selectedDoodads && this.selectedDoodads.length > 0
+            ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
+        return items.filter(d => !d.editorHidden).map(d => this.doodadFlatBox(d));
+    },
+
+    // In 3D, the nearest standing doodad drawn under the last screen point.
+    doodadAtScreen(screen) {
+        const P = DocsDoodads.Perspective;
+        const cam = P.liveCamera();
+        let best = null, bestDepth = Infinity;
+        for (const d of DocsDoodads.doodads() || []) {
+            if (d.editorHidden || !this.layerAllowsEditing(d)) continue;
+            const box = this.doodadFlatBox(d);
+            const r = P.screenRect(cam, box.rect, box.pivot);
+            if (!r || screen.x < r.x || screen.x > r.x + r.w || screen.y < r.y || screen.y > r.y + r.h) continue;
+            if (r.depth < bestDepth) { best = d; bestDepth = r.depth; }
+        }
+        return best;
+    },
+
     // Topmost visible doodad whose image covers the map point.
     doodadAt(x, y) {
+        if (DocsDoodads.Perspective.liveCamera() && this._lastScreenPoint) return this.doodadAtScreen(this._lastScreenPoint);
         const list = DocsDoodads.doodads() || [];
         for (let i = list.length - 1; i >= 0; i--) {
             const d = list[i];
