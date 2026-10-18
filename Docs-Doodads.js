@@ -4346,7 +4346,7 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1
+        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off'
     },
 
     curves: [
@@ -4389,7 +4389,8 @@ DocsDoodads.Perspective = {
             weatherDensity: num(s.weatherDensity, d.weatherDensity, 0, 3),
             dayNight: s.dayNight !== false,
             doodadScale: num(s.doodadScale, d.doodadScale, 0.25, 2),
-            characterScale: num(s.characterScale, d.characterScale, 0.25, 2)
+            characterScale: num(s.characterScale, d.characterScale, 0.25, 2),
+            standTiles: s.standTiles === 'star' || s.standTiles === 'all' ? s.standTiles : 'off'
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -5065,6 +5066,89 @@ DocsDoodads.Terrain = {
             }
         }
         return out;
+    }
+};
+
+// Tileset objects standing up in the 3D view. Trees, signs and lamps drawn with B-E tiles normally lie
+// flat on the ground; these settings lift them into upright billboards, without changing the map.
+// 'star': objects with a star (above characters) tile, like tree tops, plus the tile under them (the
+// trunk). 'all': every B-E tile, grouped the same way.
+DocsDoodads.StandTiles = {
+    modes: [
+        { value: 'off', label: 'Lie flat' },
+        { value: 'star', label: 'Objects with ☆ tiles (tree tops and the tile under them)' },
+        { value: 'all', label: 'Every B–E tile' }
+    ],
+
+    isObjectTile(tileId) {
+        return tileId > 0 && tileId < 1024;
+    },
+
+    // Groups of tiles that stand as one billboard: { x, y, w, h } in tiles (x, y top left; the foot is
+    // the bottom edge), and cells: [{ dx, dy, tiles: [tileId by layer] }]. Also mask: which (x, y, z)
+    // tiles are lifted off the ground. map: { width, height, data }; flags: the tileset's flags.
+    groups(map, flags, mode) {
+        const w = map.width, h = map.height, data = map.data || [];
+        const mask = new Uint8Array(w * h * 4);
+        if (mode !== 'star' && mode !== 'all') return { list: [], mask };
+        const at = (x, y, z) => data[(z * h + y) * w + x] || 0;
+        const objects = (x, y) => {
+            const out = [];
+            for (let z = 0; z < 4; z++) { const id = at(x, y, z); if (this.isObjectTile(id)) out.push(z); }
+            return out;
+        };
+        const star = (x, y) => objects(x, y).some(z => ((flags && flags[at(x, y, z)]) || 0) & 0x10);
+        // Column pieces: a run of star cells plus the object cell under it (the base), or in 'all' mode
+        // any other object cell on its own.
+        const used = new Uint8Array(w * h);
+        const columns = [];
+        for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+                if (used[y * w + x] || !objects(x, y).length) continue;
+                if (star(x, y)) {
+                    let bottom = y;
+                    while (bottom + 1 < h && objects(x, bottom + 1).length && star(x, bottom + 1)) bottom++;
+                    if (bottom + 1 < h && objects(x, bottom + 1).length) bottom++;
+                    for (let yy = y; yy <= bottom; yy++) used[yy * w + x] = 1;
+                    columns.push({ x, y, h: bottom - y + 1 });
+                } else if (mode === 'all') {
+                    used[y * w + x] = 1;
+                    columns.push({ x, y, h: 1 });
+                }
+            }
+        }
+        // Side-by-side columns of the same height make one wide billboard (a 2-tile-wide tree).
+        const byKey = new Map();
+        for (const c of columns) byKey.set(c.x + ',' + c.y + ',' + c.h, c);
+        const list = [];
+        const taken = new Set();
+        for (const c of columns) {
+            const key = c.x + ',' + c.y + ',' + c.h;
+            if (taken.has(key)) continue;
+            let width = 1;
+            while (byKey.has((c.x + width) + ',' + c.y + ',' + c.h) && !taken.has((c.x + width) + ',' + c.y + ',' + c.h)) width++;
+            const group = { x: c.x, y: c.y, w: width, h: c.h, cells: [] };
+            for (let dx = 0; dx < width; dx++) {
+                taken.add((c.x + dx) + ',' + c.y + ',' + c.h);
+                for (let dy = 0; dy < c.h; dy++) {
+                    const zs = objects(c.x + dx, c.y + dy);
+                    for (const z of zs) mask[((z * h) + c.y + dy) * w + c.x + dx] = 1;
+                    group.cells.push({ dx, dy, tiles: zs.map(z => at(c.x + dx, c.y + dy, z)) });
+                }
+            }
+            group.key = group.w + 'x' + group.h + ':' + group.cells.map(cell => cell.tiles.join('.')).join('|');
+            list.push(group);
+        }
+        return { list, mask };
+    },
+
+    // Where a B-E tile's picture is in its tileset image (MZ's own layout).
+    source(tileId, tw, th) {
+        return {
+            set: 5 + Math.floor(tileId / 256),
+            x: ((Math.floor(tileId / 128) % 2) * 8 + (tileId % 8)) * tw,
+            y: (Math.floor((tileId % 256) / 8) % 16) * th
+        };
     }
 };
 
@@ -8485,7 +8569,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.docsBillboardScale = function(obj, s) {
         let base = obj;
         for (let i = 0; i < 4 && base; i++) {
-            if (typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad) return s.doodadScale;
+            if ((typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad) || base._docsStandTile) return s.doodadScale;
             if (typeof Sprite_Character !== 'undefined' && base instanceof Sprite_Character) return s.characterScale;
             base = base._docsBillboardOwner || base._target || (base._targets && base._targets[0]) || null;
         }
@@ -8534,6 +8618,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.exitDocsPerspective = function() {
         this._docs3d = false;
+        if (this.clearDocsStandTiles) this.clearDocsStandTiles();
         if (this._weather) this._weather.visible = true;
         this._docs3dWeather = null;
         this._docs3dSkyGrad = null;
@@ -8613,6 +8698,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         const rt = this._docs3dTexture;
         rt.baseTexture.scaleMode = s.smoothGround ? PIXI.SCALE_MODES.LINEAR : PIXI.SCALE_MODES.NEAREST;
+        this.updateDocsStandTiles(s);
         const W = Graphics.width, H = Graphics.height;
         const radius = s.curve === 'flat' ? 0 : (s.curveRadius > 0 ? s.curveRadius * tw : P.fitRadius($gameMap.width(), tw));
         const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H,
@@ -9485,6 +9571,87 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         return order;
     };
 
+    // ---- Tileset objects standing up ----
+    // The groups for the current map and mode (cached), and which tiles leave the ground.
+    Spriteset_Map.prototype.docsStandGroups = function(s) {
+        const mode = s ? s.standTiles : 'off';
+        if (this._docsStand && this._docsStand.map === $dataMap && this._docsStand.mode === mode) return this._docsStand;
+        const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+        const built = DocsDoodads.StandTiles.groups($dataMap || { width: 0, height: 0, data: [] }, tileset && tileset.flags, mode);
+        this._docsStand = { map: $dataMap, mode, list: built.list, mask: built.list.length ? built.mask : null };
+        if (this._tilemap) {
+            this._tilemap._docsStandMask = this._docsStand.mask;
+            if (this._tilemap.refresh) this._tilemap.refresh();
+        }
+        return this._docsStand;
+    };
+
+    // One picture per kind of group (a forest of the same tree shares one), drawn from the tilesets.
+    Spriteset_Map.prototype.docsStandBitmap = function(group) {
+        const cache = this._docsStandBitmaps = this._docsStandBitmaps || new Map();
+        if (cache.has(group.key)) return cache.get(group.key);
+        const sets = this._tilemap && this._tilemap._bitmaps;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const needed = new Set();
+        for (const cell of group.cells) for (const id of cell.tiles) needed.add(DocsDoodads.StandTiles.source(id, tw, th).set);
+        for (const set of needed) if (!sets || !sets[set] || !sets[set].isReady()) return null;
+        const bitmap = new Bitmap(group.w * tw, group.h * th);
+        for (const cell of group.cells) {
+            for (const id of cell.tiles) {
+                const src = DocsDoodads.StandTiles.source(id, tw, th);
+                bitmap.blt(sets[src.set], src.x, src.y, tw, th, cell.dx * tw, cell.dy * th);
+            }
+        }
+        cache.set(group.key, bitmap);
+        return bitmap;
+    };
+
+    // Groups near the camera get a billboard from a pool, standing on their foot line like a doodad.
+    Spriteset_Map.prototype.updateDocsStandTiles = function(s) {
+        const stand = this.docsStandGroups(s);
+        const pool = this._docsStandSprites = this._docsStandSprites || [];
+        let used = 0;
+        if (stand.list.length && this._docs3dSize) {
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const { width: gw, height: gh } = this._docs3dSize;
+            for (const g of stand.list) {
+                const x = $gameMap.adjustX(g.x + g.w / 2) * tw, y = $gameMap.adjustY(g.y + g.h) * th;
+                if (x < -g.w * tw || y < 0 || x > gw + g.w * tw || y > gh + g.h * th) continue;
+                const bitmap = this.docsStandBitmap(g);
+                if (!bitmap) continue;
+                let sprite = pool[used];
+                if (!sprite) {
+                    sprite = pool[used] = new Sprite();
+                    sprite.anchor.set(0.5, 1);
+                    sprite.z = 3;
+                    sprite._docsStandTile = true;
+                    this._tilemap.addChild(sprite);
+                }
+                if (sprite.bitmap !== bitmap) sprite.bitmap = bitmap;
+                sprite.x = x;
+                sprite.y = y;
+                sprite.spriteId = g.y * 100000 + g.x;
+                sprite.visible = true;
+                used++;
+            }
+        }
+        for (let i = used; i < pool.length; i++) pool[i].visible = false;
+    };
+
+    // Back to a flat map: the tiles return to the ground.
+    Spriteset_Map.prototype.clearDocsStandTiles = function() {
+        for (const sprite of this._docsStandSprites || []) {
+            if (sprite.parent) sprite.parent.removeChild(sprite);
+            sprite.destroy();
+        }
+        this._docsStandSprites = [];
+        this._docsStand = null;
+        if (this._tilemap && this._tilemap._docsStandMask) {
+            this._tilemap._docsStandMask = null;
+            if (this._tilemap.refresh) this._tilemap.refresh();
+        }
+    };
+
     // Billboards between the terrain's triangles, so hills hide what's behind them. Each billboard
     // goes after the ground around its feet (half a tile of slack).
     Spriteset_Map.prototype.docsInterleaveTerrain = function(items, order) {
@@ -9503,6 +9670,20 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         flush(-Infinity);
         return out;
+    };
+}
+
+if (typeof Tilemap !== 'undefined') {
+    // Tiles standing up in 3D are drawn as billboards, so the ground leaves them out.
+    $.Tilemap_readMapData_stand = Tilemap.prototype._readMapData;
+    Tilemap.prototype._readMapData = function(x, y, z) {
+        const mask = this._docsStandMask;
+        if (mask && z < 4 && this._mapData) {
+            const w = this._mapWidth, h = this._mapHeight;
+            const mx = this.horizontalWrap ? ((x % w) + w) % w : x, my = this.verticalWrap ? ((y % h) + h) % h : y;
+            if (mx >= 0 && my >= 0 && mx < w && my < h && mask[(z * h + my) * w + mx]) return 0;
+        }
+        return $.Tilemap_readMapData_stand.call(this, x, y, z);
     };
 }
 
@@ -17178,6 +17359,7 @@ DocsDoodads.Workspace = {
             range('waterSpeed', 'Ripple speed', 0, 3, 0.05),
             range('waterShine', 'Sparkle', 0, 1, 0.05),
             check('waterWakes', 'Wakes behind boats and waders'),
+            { key: 'standTiles', label: 'Tileset objects (B–E tiles)', type: 'select', options: DocsDoodads.StandTiles.modes },
             range('doodadScale', 'Standing doodads: height in 3D', 0.25, 2, 0.05),
             range('characterScale', 'Characters: height in 3D', 0.25, 2, 0.05),
             check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
@@ -17204,7 +17386,7 @@ DocsDoodads.Workspace = {
         return `
             <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
-                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Use doodads for trees and buildings.</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Tileset trees and objects can stand up too (Tileset objects).</div>
                 <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
             </details>`;
     },
