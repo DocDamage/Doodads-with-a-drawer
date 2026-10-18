@@ -285,9 +285,14 @@ DocsDoodads.Similarity = {
 };
 
 // Watches img/ and audio/ while the workspace is open, so saving in Aseprite or Photoshop
-// updates the drawer and the placed doodads without restarting.
+// updates the drawer and the placed doodads without restarting. Models (glTF) are watched in the
+// folders they and their files are in, so exporting again from Blender shows on the map.
 DocsDoodads.LiveReload = {
     watchers: [],
+    running: false,
+    modelWatchers: new Map(),
+    pendingModels: new Set(),
+    modelTimer: null,
     pending: new Set(),
     timer: null,
     delay: 300,
@@ -383,10 +388,46 @@ DocsDoodads.LiveReload = {
         return summary;
     },
 
+    // Watches each folder holding a model's files (once each); called whenever a model is loaded.
+    watchModels() {
+        const FS = DocsDoodads.FS;
+        if (!this.running || !FS.fs || typeof FS.fs.watch !== 'function' || !DocsDoodads.Models) return;
+        for (const dir of DocsDoodads.Models.directories()) {
+            if (this.modelWatchers.has(dir) || !FS.fs.existsSync(dir)) continue;
+            try {
+                this.modelWatchers.set(dir, FS.fs.watch(dir, (event, file) => { if (file) this.queueModel(FS.path.join(dir, String(file))); }));
+            } catch (error) {
+                DocsDoodads.Core.log(`Live reload unavailable for models in ${dir}`, error);
+            }
+        }
+    },
+
+    queueModel(file) {
+        if (/\.(tmp|bak)$|~$/i.test(file)) return;
+        this.pendingModels.add(file);
+        clearTimeout(this.modelTimer);
+        this.modelTimer = setTimeout(() => this.flushModels(), this.delay);
+    },
+
+    flushModels() {
+        const files = [...this.pendingModels];
+        this.pendingModels.clear();
+        if (!files.length || !DocsDoodads.Models) return [];
+        const reloaded = DocsDoodads.Models.reloadFiles(files);
+        const ws = DocsDoodads.Workspace;
+        if (reloaded.length && ws && ws.mounted) {
+            const names = reloaded.map(p => p.split('/').pop());
+            ws.showToast(`Reloaded ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`);
+        }
+        return reloaded;
+    },
+
     start() {
         this.stop();
         const fs = DocsDoodads.FS.fs;
         if (!fs || typeof fs.watch !== 'function') return false;
+        this.running = true;
+        this.watchModels();
         for (const root of ['img', 'audio']) {
             if (!fs.existsSync(root)) continue;
             try {
@@ -395,7 +436,7 @@ DocsDoodads.LiveReload = {
                 DocsDoodads.Core.log(`Live reload unavailable for ${root}`, error);
             }
         }
-        return this.watchers.length > 0;
+        return this.watchers.length > 0 || this.modelWatchers.size > 0;
     },
 
     stop() {
@@ -405,6 +446,13 @@ DocsDoodads.LiveReload = {
         this.watchers = [];
         clearTimeout(this.timer);
         this.pending.clear();
+        for (const watcher of this.modelWatchers.values()) {
+            try { watcher.close(); } catch (error) {}
+        }
+        this.modelWatchers.clear();
+        clearTimeout(this.modelTimer);
+        this.pendingModels.clear();
+        this.running = false;
     }
 };
 
