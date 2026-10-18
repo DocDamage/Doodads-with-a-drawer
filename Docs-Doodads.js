@@ -8646,6 +8646,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.docsIsGround = function(child) {
         const t = this._tilemap;
         if (child === t._lowerLayer || child === t._upperLayer || child._docsGround) return true;
+        // The airship's shadow lies on the ground.
+        if (child === this._shadowSprite) return true;
         if (typeof Sprite_Destination !== 'undefined' && child instanceof Sprite_Destination) return true;
         return child.z !== undefined && child.z < 1;
     };
@@ -8682,8 +8684,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const owner = obj._docsBillboardOwner || obj._target || (obj._targets && obj._targets[0]) || null;
         if (owner && owner !== obj && owner.parent) return this.docsPivotOf(owner, (depth || 0) + 1);
         if (typeof Sprite_Character !== 'undefined' && obj instanceof Sprite_Character && obj._character) {
-            const jump = typeof obj._character.jumpHeight === 'function' ? obj._character.jumpHeight() : 0;
-            return { x: obj.x, y: obj.y + jump };
+            // A jump or a flying airship stands on its own tile and is drawn higher up.
+            const ch = obj._character;
+            const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
+            const flying = typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle && ch.isAirship && ch.isAirship() ? ch._altitude || 0 : 0;
+            return { x: obj.x, y: obj.y + jump + flying };
         }
         if (typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad && obj._docsSortY !== undefined) return { x: obj.x, y: obj._docsSortY };
         return { x: obj.x, y: obj.y + (obj._docsPivotDy || 0) };

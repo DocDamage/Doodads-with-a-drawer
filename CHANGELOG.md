@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Fixed the airship in the 3D view: in flight it was sorted as if it stood a tile north, so trees beside the player hid it, and its shadow stood up instead of lying on the ground. Ship wakes on the open sea, flying and landing were checked.
 - Character sun shadows now include visual equipment layers, so capes, hats and shields change the shadow's shape.
 - 3D rain and snow are now drawn in depth bands sorted in with trees, characters and hills, so drops behind them no longer show through.
 - Fixed MZ's Effekseer animations in the 3D view: they played where the target would be on the flat map, off to one side, and didn't shrink with distance. They now play on the target as drawn, at its size.
