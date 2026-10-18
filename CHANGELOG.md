@@ -2,6 +2,9 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Faster 3D terrain: on a 200 × 200 world map with view distance 64, terrain and a storm went from 18 to 58 fps. The terrain no longer allocates per frame, sorts with a radix sort, is rebuilt every few tiles instead of every tile, and draws level ground and fully faded ground more cheaply; the 3D and terrain settings are worked out once a frame.
+- The README and guide now say RPG Maker MZ only: nothing since 2.0 has been tested in MV.
+
 - Added 3D quality levels: the players' Effects Quality option (High, Medium, Low, Off) now also scales the 3D view down for slower machines, with a shorter view distance (fog pulled in to match), fewer weather drops, no wakes on Low and simpler hills. The option now shows in Options whenever a map uses the 3D view. The editor always shows maps as set.
 
 - Added 3D-only height settings for standing doodads and characters, so tall tileset art can be brought in proportion in the 3D view without changing the 2D map; editor picking and boxes match.

@@ -2,7 +2,7 @@
   "name": "docs-doodads",
   "version": "2.0.0-alpha.1",
   "private": true,
-  "description": "Doc's Doodads: visual asset workspace and doodad editor for RPG Maker MZ/MV",
+  "description": "Doc's Doodads: visual asset workspace and doodad editor for RPG Maker MZ",
   "license": "MIT",
   "engines": {
     "node": ">=20.19"

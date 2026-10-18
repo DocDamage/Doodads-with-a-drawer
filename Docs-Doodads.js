@@ -4758,6 +4758,8 @@ DocsDoodads.Terrain = {
     // and round off at their edges with low foothills, and art isn't stretched up sharp spikes.
     smoothSamples: 4,
     smoothSigma: 0.25,
+    // Extra tiles the 3D terrain mesh is built with on each side, so walking rebuilds it less often.
+    meshMargin: 4,
     // How much the ground under a doodad's base may vary (tiles) and still count as level.
     levelTolerance: 0.35,
     // A light from the upper left, for shading slopes.
@@ -4923,13 +4925,16 @@ DocsDoodads.Terrain = {
             }
             return { vertices, triangles };
         }
-        // Smooth: tiles near raised ground are split 4 x 4 (or detail x detail, for lower quality) and
-        // follow the field; flat tiles are one quad.
+        // Smooth: tiles where the height changes are split 4 x 4 (or detail x detail, for lower quality)
+        // and follow the field; level tiles are one quad.
         const n = this.smoothSamples;
         const split = Math.max(1, Math.min(n, Math.round(Number(detail)) || n));
-        const near = (tx, ty) => {
-            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== 0) return true;
-            return false;
+        // The blur reaches less than a tile, so a tile whose neighbours all share its height is level
+        // at that height (open ground, the inside of a range or a forest): one quad is exact there.
+        const level = (tx, ty) => {
+            const h = this.tileHeight(grid, tx, ty);
+            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== h) return null;
+            return h;
         };
         const shadeAt = (x, y) => {
             const e = 1 / n;
@@ -4939,13 +4944,13 @@ DocsDoodads.Terrain = {
         };
         for (let ty = ty0; ty < ty0 + rows; ty++) {
             for (let tx = tx0; tx < tx0 + cols; tx++) {
-                const raised = near(tx, ty), steps = raised ? split : 1;
+                const flatAt = level(tx, ty), sloped = flatAt === null, steps = sloped ? split : 1;
                 const base = vertices.length;
                 for (let j = 0; j <= steps; j++) {
                     for (let i = 0; i <= steps; i++) {
                         const x = tx + i / steps, y = ty + j / steps;
-                        const h = raised ? this.heightAt(grid, x, y, 'smooth') : 0;
-                        add(x * tw, y * th, h, x * tw, y * th, raised ? shadeAt(x, y) : 1);
+                        const h = sloped ? this.heightAt(grid, x, y, 'smooth') : flatAt;
+                        add(x * tw, y * th, h, x * tw, y * th, sloped ? shadeAt(x, y) : 1);
                     }
                 }
                 for (let j = 0; j < steps; j++) {
@@ -4987,6 +4992,38 @@ DocsDoodads.Terrain = {
     footHeight(grid, x, y, halfWidth, style) {
         if (style === 'stepped') return this.heightAt(grid, x, y - 0.02, style);
         return this.groundUnder(grid, x, y, halfWidth, style).max;
+    },
+
+    // Buffers for sorting up to n triangles each frame without allocating.
+    sortBuffers(n) {
+        const depth = new Float32Array(n);
+        return { depth, bits: new Uint32Array(depth.buffer), keys: new Uint32Array(n), keys2: new Uint32Array(n),
+            idx: new Uint32Array(n), idx2: new Uint32Array(n), counts: new Uint32Array(256) };
+    },
+
+    // The first `count` entries of buf.depth, far to near: returns buf.idx holding their positions.
+    // A radix sort on the float bits (which keep their order for positive numbers), so a frame with tens
+    // of thousands of triangles needs no comparisons and no garbage.
+    sortFarToNear(buf, count) {
+        let keys = buf.keys, keys2 = buf.keys2, idx = buf.idx, idx2 = buf.idx2, swap;
+        const c = buf.counts, bits = buf.bits;
+        for (let i = 0; i < count; i++) {
+            keys[i] = 0xffffffff - bits[i];
+            idx[i] = i;
+        }
+        for (let shift = 0; shift < 32; shift += 8) {
+            c.fill(0);
+            for (let i = 0; i < count; i++) c[(keys[i] >>> shift) & 255]++;
+            for (let b = 0, sum = 0; b < 256; b++) { const t = c[b]; c[b] = sum; sum += t; }
+            for (let i = 0; i < count; i++) {
+                const k = keys[i], p = c[(k >>> shift) & 255]++;
+                keys2[p] = k;
+                idx2[p] = idx[i];
+            }
+            swap = keys; keys = keys2; keys2 = swap;
+            swap = idx; idx = idx2; idx2 = swap;
+        }
+        return idx;
     },
 
     canStep(fromHeight, toHeight, climb) {
@@ -8183,10 +8220,18 @@ DocsDoodads.Perspective.active = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
     if (this._suspended) return null;
     const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
-    const s = this.resolve(mine, $gameMap._docsCamera || null);
+    const editing = !!(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    const quality = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+    // Asked for many times a frame: kept for the rest of the frame while nothing it depends on changes.
+    const frame = typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
+    const memo = this._activeMemo;
+    if (frame !== null && memo && memo.frame === frame && memo.mine === mine && memo.camera === $gameMap._docsCamera
+        && memo.editing === editing && memo.quality === quality) return memo.s;
+    let s = this.resolve(mine, $gameMap._docsCamera || null);
     // The editor shows the map as it was set; the player's Effects Quality applies in play.
-    if (!s || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return s;
-    return this.withQuality(s, typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0);
+    if (s && !editing) s = this.withQuality(s, quality);
+    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, s };
+    return s;
 };
 
 // The camera used for the last frame drawn (null when the map is flat).
@@ -9193,6 +9238,16 @@ DocsDoodads.Terrain.active = function() {
 // Heights for the current map (cached). force: build even when the map isn't in 3D (the brush).
 DocsDoodads.Terrain.grid = function(force) {
     if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    // Asked for by every character and doodad each frame: the answer is kept for the rest of the frame.
+    const frame = !force && typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
+    const memo = this._gridMemo;
+    if (frame !== null && memo && memo.frame === frame && memo.mapId === $gameMap.mapId() && memo.data === $dataMap.data) return memo.grid;
+    const grid = this.buildGrid(force);
+    this._gridMemo = frame === null ? null : { frame, mapId: $gameMap.mapId(), data: $dataMap.data, grid };
+    return grid;
+};
+
+DocsDoodads.Terrain.buildGrid = function(force) {
     const s = force ? this.settingsFor($gameMap.mapId()) : this.active();
     if (!s) return null;
     const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
@@ -9289,22 +9344,35 @@ DocsDoodads.Terrain.fragment = [
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain;
 
-    // The terrain mesh's shape for the tiles around the camera, rebuilt when the view moves a tile.
+    // The tiles the terrain draws this frame: the view plus a tile and a half on each side.
+    Spriteset_Map.prototype.docsTerrainWindow = function(s) {
+        const x = Math.floor($gameMap.displayX()) - 1, y = Math.floor($gameMap.displayY()) - 1;
+        return { x, y, size: s.viewTiles + 3 };
+    };
+
+    // The terrain mesh's shape around the camera. It covers a few tiles more than the view, so walking
+    // rebuilds it only every few tiles; updateDocsTerrain draws just the part inside the view.
     Spriteset_Map.prototype.docsTerrainTopology = function(grid, s) {
-        const viewTiles = s.viewTiles;
-        const tx0 = Math.floor($gameMap.displayX()) - 1, ty0 = Math.floor($gameMap.displayY()) - 1;
+        const margin = DocsDoodads.Terrain.meshMargin;
+        const view = this.docsTerrainWindow(s);
         const light = this._docsSkyLight || T.light;
-        const key = [grid.sig, tx0, ty0, viewTiles, s.terrainSteps || 0, DocsDoodads.Sky3D.lightKey(light)].join('|');
-        if (this._docsTerrainKey === key && this._docsTerrainTopo) return this._docsTerrainTopo;
+        const key = [grid.sig, s.viewTiles, s.terrainSteps || 0, DocsDoodads.Sky3D.lightKey(light)].join('|');
+        const old = this._docsTerrainTopo;
+        if (old && this._docsTerrainKey === key && view.x >= old.tx0 && view.y >= old.ty0
+            && view.x + view.size <= old.tx0 + old.cols && view.y + view.size <= old.ty0 + old.rows) return old;
         this._docsTerrainKey = key;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style, light, s.terrainSteps);
+        const tx0 = view.x - margin, ty0 = view.y - margin, cols = view.size + margin * 2, rows = cols;
+        const mesh = T.buildMesh(grid, tx0, ty0, cols, rows, tw, th, grid.style, light, s.terrainSteps);
         const n = mesh.vertices.length;
         const topo = this._docsTerrainTopo = {
+            tx0, ty0, cols, rows,
             vertices: mesh.vertices, triangles: mesh.triangles,
             positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2),
             depth: new Float64Array(n), ok: new Uint8Array(n),
-            order: [], index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length)
+            index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length),
+            sort: T.sortBuffers(mesh.triangles.length / 3), triOf: new Uint32Array(mesh.triangles.length / 3),
+            order: { length: 0, depth: new Float64Array(mesh.triangles.length / 3) }
         };
         if (this._docsTerrainMesh) {
             this._docsTerrainMesh.destroy();
@@ -9323,47 +9391,76 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         return topo;
     };
 
-    // Projects the terrain for this frame and returns its triangles sorted far to near ({ depth } per triangle).
+    // Projects the terrain for this frame and returns its triangles sorted far to near
+    // ({ length, depth[i] }). It runs every frame over tens of thousands of points, so it allocates nothing.
     Spriteset_Map.prototype.updateDocsTerrain = function(cam, s, grid, rt, fogRange) {
         const topo = this.docsTerrainTopology(grid, s);
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
         const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
         const gw = rt.width, gh = rt.height;
         const V = topo.vertices;
+        const flat = cam.curve === 'flat';
+        const C = cam.C, F = cam.F, R = cam.R, U = cam.U, focal = cam.focal, hw = cam.width / 2, hh = cam.height / 2;
+        const tx = cam.target.x, ty = cam.target.y, fog0 = fogRange[0], fog1 = fogRange[1];
+        // Only the tiles in view are drawn; the rest of the mesh is margin for the next few steps.
+        const view = this.docsTerrainWindow(s);
+        const minX = view.x * tw, minY = view.y * th, maxX = (view.x + view.size) * tw, maxY = (view.y + view.size) * th;
         for (let i = 0; i < V.length; i++) {
             const v = V[i];
             const fx = v.x - ox, fy = v.y - oy;
-            const g = P.groundPoint(cam, fx, fy, v.h * th);
-            let ok = g.visible;
-            if (ok && cam.curve !== 'flat') {
-                const n = P.surfacePoint(cam, fx, fy);
-                ok = n.nx * (cam.C.x - g.x) + n.ny * (cam.C.y - g.y) + n.nz * (cam.C.z - g.z) > 0;
+            let ok = 0;
+            if (v.x < minX || v.y < minY || v.x > maxX || v.y > maxY) {
+                // Outside the view: never drawn.
+            } else if (flat) {
+                // Flat ground: the point is (fx, fy, height); projected inline.
+                const vx = fx - C.x, vy = fy - C.y, vz = v.h * th - C.z;
+                const depth = vx * F.x + vy * F.y + vz * F.z;
+                if (depth >= 1) {
+                    const scale = focal / depth;
+                    topo.positions[i * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * scale;
+                    topo.positions[i * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * scale;
+                    topo.depth[i] = depth;
+                    ok = 1;
+                }
+            } else {
+                const g = P.groundPoint(cam, fx, fy, v.h * th);
+                if (g.visible) {
+                    const n = P.surfacePoint(cam, fx, fy);
+                    const p = n.nx * (C.x - g.x) + n.ny * (C.y - g.y) + n.nz * (C.z - g.z) > 0 ? P.project(cam, g.x, g.y, g.z) : null;
+                    if (p) {
+                        topo.positions[i * 2] = p.x;
+                        topo.positions[i * 2 + 1] = p.y;
+                        topo.depth[i] = p.depth;
+                        ok = 1;
+                    }
+                }
             }
-            const p = ok ? P.project(cam, g.x, g.y, g.z) : null;
-            topo.ok[i] = p ? 1 : 0;
-            if (p) {
-                topo.positions[i * 2] = p.x;
-                topo.positions[i * 2 + 1] = p.y;
-                topo.depth[i] = p.depth;
-            }
+            topo.ok[i] = ok;
             topo.uvs[i * 2] = (v.u - ox) / gw;
             topo.uvs[i * 2 + 1] = (v.v - oy) / gh;
             topo.shades[i * 2] = v.shade;
-            topo.shades[i * 2 + 1] = 1 - P.fogAt(Math.hypot(fx - cam.target.x, fy - cam.target.y), fogRange[0], fogRange[1]);
+            topo.shades[i * 2 + 1] = 1 - P.fogAt(Math.hypot(fx - tx, fy - ty), fog0, fog1);
         }
-        const tris = topo.triangles, order = topo.order;
-        order.length = 0;
+        const tris = topo.triangles, buf = topo.sort, triOf = topo.triOf, order = topo.order;
+        // Without a fog colour, ground past the fog's end is fully transparent: skip it.
+        const fadeOut = !s.fogColor, shade = topo.shades;
+        let count = 0;
         for (let t = 0; t < tris.length; t += 3) {
             const a = tris[t], b = tris[t + 1], c = tris[t + 2];
             if (!topo.ok[a] || !topo.ok[b] || !topo.ok[c]) continue;
-            order.push({ t, depth: (topo.depth[a] + topo.depth[b] + topo.depth[c]) / 3 });
+            if (fadeOut && shade[a * 2 + 1] === 0 && shade[b * 2 + 1] === 0 && shade[c * 2 + 1] === 0) continue;
+            buf.depth[count] = (topo.depth[a] + topo.depth[b] + topo.depth[c]) / 3;
+            triOf[count++] = t;
         }
-        order.sort((x, y) => y.depth - x.depth);
-        order.forEach((o, i) => {
-            topo.index[i * 3] = tris[o.t];
-            topo.index[i * 3 + 1] = tris[o.t + 1];
-            topo.index[i * 3 + 2] = tris[o.t + 2];
-        });
+        const sorted = T.sortFarToNear(buf, count);
+        for (let i = 0; i < count; i++) {
+            const k = sorted[i], t = triOf[k];
+            topo.index[i * 3] = tris[t];
+            topo.index[i * 3 + 1] = tris[t + 1];
+            topo.index[i * 3 + 2] = tris[t + 2];
+            order.depth[i] = buf.depth[k];
+        }
+        order.length = count;
         const mesh = this._docsTerrainMesh;
         const geo = mesh.geometry;
         geo.getBuffer('aVertexPosition').update(topo.positions);
@@ -9388,7 +9485,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         let i = 0;
         const flush = until => {
             const start = i;
-            while (i < order.length && order[i].depth > until) i++;
+            while (i < order.length && order.depth[i] > until) i++;
             if (i > start) out.push({ terrain: true, mesh, start, count: i - start });
         };
         for (const item of items) {

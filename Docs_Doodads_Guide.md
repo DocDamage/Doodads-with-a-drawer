@@ -1,7 +1,7 @@
 # Doc's Doodads — User Guide & Technical Reference
 
 **Plugin:** `Docs-Doodads.js` (v2.0)  
-**Compatibility:** RPG Maker MZ (Primary) & RPG Maker MV  
+**Compatibility:** RPG Maker MZ. MV is untested since 2.0 and unsupported (see the README).  
 **License:** MIT License. Based on QJ-Doodads by Qiu Jiu.  
 
 ---
@@ -30,7 +30,7 @@ It eliminates the friction of traditional sprite-sheet pickers and multi-click f
    ```text
    js/plugins/Docs-Doodads.js
    ```
-2. Open RPG Maker MZ (or MV), go to **Plugin Manager**, and activate **`Docs-Doodads`**.
+2. Open RPG Maker MZ, go to **Plugin Manager**, and activate **`Docs-Doodads`**.
 3. Launch Playtest (**F5**).
 4. Press **F10** (or your configured `editKey`) while on any map to open the Asset Workspace!
 
@@ -56,7 +56,7 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Background Work Budget** (`backgroundWorkBudget`) | Number | `4` | Milliseconds per frame dedicated to background scanning. |
 | **Autosave Interval** (`autosaveRecoveryInterval`) | Number | `60` | Heartbeat interval (seconds) for crash recovery snapshots. |
 | **Backup Retention Count** (`backupRetentionCount`) | Number | `10` | Number of timestamped backups retained in `data/docs_doodads_cache/backups/`. |
-| **Enable MV Compatibility** (`enableMVCompatibility`) | Boolean | `true` | Enables compatibility layer when running under RPG Maker MV. |
+| **Enable MV Compatibility** (`enableMVCompatibility`) | Boolean | `true` | Enables the compatibility layer when running under RPG Maker MV. MV is untested since 2.0. |
 | **Developer Diagnostics** (`devDiagnostics`) | Boolean | `false` | Enables detailed console logging in DevTools. |
 
 ---
