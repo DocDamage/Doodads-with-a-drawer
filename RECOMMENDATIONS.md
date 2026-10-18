@@ -74,6 +74,7 @@ Roughly in order: the first three are what a release needs; the rest wait for re
 - Floor decals run under walls rather than up them.
 - A wall seen end-on borrows the face art of the nearest wall column.
 - MV is no longer a goal: Doc's Doodads is for MZ.
+- Models: animations, skinned models, materials (metal, roughness, glow, cut-out and see-through, unlit, vertex colours), picking by their shape in the editor, and selection boxes that fit them.
 
 
 | # | What | Why | Size |
@@ -81,4 +82,4 @@ Roughly in order: the first three are what a release needs; the rest wait for re
 | A | **Finish the manual checklist.** The skipped areas have now been run in a real playtest (see [the QA record](docs/QA_2026-10-18.md#checklist-run-part-2-the-areas-the-sampled-run-skipped)), and eight bugs were fixed. Still to do: a 30-minute editing session with memory watched, and a build made with MZ's own Deploy dialog. | The last two need a long run and the MZ editor. | S |
 | B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps). Check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
 | C | **The 3D camera stops following the player near map edges.** The 3D view makes MZ scroll as if the screen were View Distance tiles across (40 by default). On maps that don't loop, MZ stops scrolling within half that of an edge. On maps no bigger than it (Starting Town is 35×40), it doesn't scroll at all. The camera stays put, and the player can walk below the screen. In 3D, scrolling should keep the player in the middle, with the void past the edges. | Found while playtesting model live reload. Every map that doesn't loop is affected near its edges. | S |
-| D | **Models: the next steps.** Editor picking uses the doodad's picture, not the model. There is no animation, skinning or PBR material. A model is drawn on the CPU whenever the camera moves (a still view reuses the last frame), so keep models to a few hundred triangles. | The first version is deliberately small. | M–L |
+| D | **Models: what's still open.** Morph targets (shape keys) and normal maps aren't read. Light is worked out per vertex, so a highlight on a flat face brightens the whole face. Models are posed and drawn on the CPU (a still view of a still model reuses the last frame), so keep them to a few hundred triangles. The selection box follows the rest pose, not the animation. | Enough for props and small characters; real games will show whether moving models to the GPU is worth it. | M |

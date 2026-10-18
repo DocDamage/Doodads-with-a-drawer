@@ -138,6 +138,11 @@
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
  *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
  *      through the ground; selected doodads show 3D boxes.
+ *    - 3D models (glTF .glb/.gltf) on doodads (inspector: 3D Model): colours, textures and
+ *      vertex colours; metal, roughness, glow, cut-out and see-through materials, unlit;
+ *      animations (pick one by name or number, set the speed) and skinned (rigged) models.
+ *      They reload when re-exported while the editor is open, and the editor picks them by
+ *      their shape. Light is worked out per vertex: keep models to a few hundred triangles.
  *
  * 17. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
