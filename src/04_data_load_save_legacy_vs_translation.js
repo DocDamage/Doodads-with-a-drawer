@@ -93,6 +93,25 @@ if (typeof DataManager !== 'undefined') {
         if (!window.$dataDocsDoodads) window.$dataDocsDoodads = {};
         DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
         DataManager.loadDocsDoodadsPacked();
+        DataManager.loadDocsDoodadsAseprite();
+    };
+
+    // Which sheet each Aseprite layer in <visual:> tags became (written in playtests).
+    DataManager.loadDocsDoodadsAseprite = function() {
+        if (typeof XMLHttpRequest === 'undefined') return;
+        const AV = DocsDoodads.AsepriteVisuals;
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', AV.manifestPath);
+        xhr.overrideMimeType('application/json');
+        xhr.onload = function() {
+            if (xhr.status >= 400) return;
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data && data.refs) AV.manifest = { version: 1, refs: Object.assign({}, data.refs, AV.manifest.refs) };
+            } catch (e) {}
+        };
+        xhr.onerror = function() {};
+        xhr.send();
     };
 
     DataManager.saveDocsDoodadsData = function() {

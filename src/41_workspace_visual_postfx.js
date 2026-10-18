@@ -75,7 +75,8 @@
             <div id="dd-ve-layers" style="font-size: 10px; color: #cbd5e1;">${list || '<span style="color: #64748b;">No layers.</span>'}</div>
             <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Notetag builder:</div>
             <div style="display: grid; grid-template-columns: 1fr 44px; gap: 3px;">
-                <input type="text" list="dd-char-files" id="dd-ve-tag-image" placeholder="Layer sheet" style="${inputStyle}" />
+                <input type="text" list="dd-ve-files" id="dd-ve-tag-image" placeholder="Layer sheet, or File.aseprite#Layer" style="${inputStyle}" />
+                <datalist id="dd-ve-files">${this.characterFileNames().concat(DocsDoodads.AsepriteVisuals.refs()).map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
                 <input type="number" id="dd-ve-tag-z" value="1" title="Order (negative = behind)" style="${inputStyle}" />
                 <input type="text" id="dd-ve-tag-part" placeholder="Part / slot (e.g. clothes, hair)" title="Gear with the same part replaces it" style="${inputStyle}" />
                 <input type="number" id="dd-ve-tag-up" placeholder="up" title="Order while facing up (blank = same)" style="${inputStyle}" />
@@ -86,7 +87,7 @@
             </div>
             <textarea id="dd-ve-tag-out" readonly rows="2" style="${inputStyle} resize: vertical;"></textarea>
             <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Layer sheets from Aseprite: one sheet per layer, in MZ's walking layout (tags down, left, right, up, or frames in that order).</div>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">From Aseprite: put a layered .aseprite walk cycle in img/characters and tag gear with <b>&lt;visual: Hero.aseprite#Sword&gt;</b> (a layer name). Its sheet is made for you in a playtest and remade when you save the .aseprite again. Frames come from tags down, left, right and up, or the first frames in that order. Or make the sheets once:</div>
             <button class="dd-btn" id="dd-ve-ase">Make Layer Sheets from .aseprite…</button>
             <input type="file" id="dd-ve-ase-file" accept=".aseprite,.ase" style="display: none;" />`;
     },

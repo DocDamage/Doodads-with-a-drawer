@@ -28,6 +28,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `<visual: Cape, z -1, up 2>` | A different order while facing up (capes, shields, quivers). |
 | `<visual: Wings, index 3>` | Uses character 3 of an 8-character sheet. |
 | `<visual: Armor_{alias}, sv SV_Armor_{alias}>` | `{alias}` follows the actor's body type; `sv` is the side-view battler sheet. |
+| `<visual: Hero.aseprite#Sword, z 1>` | A layer of a layered `.aseprite` walk cycle (in `img/characters`, or a project path like `art/Hero.aseprite`). In a playtest its sheet is made for you, and remade when you save the `.aseprite` again, so the character changes while the game runs. |
 | `<visual base: Body>` | A base layer (paper doll), replaced by gear with the same part. |
 | `<visual base: Hair_Short, part hair, z 2>` | A base layer with a part and order. |
 | `<visual hide: hair, ears>` | Hides those parts while worn (helmets). |

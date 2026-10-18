@@ -116,6 +116,9 @@
  *      events and side-view battlers (sv SheetName). Also
  *      <visual base: ...>, <visual hide: hair>, <visual color: hair, switch 12, hue 120>,
  *      <visual alias: Elf> ({alias} in image names) and <visual actor: N> on events.
+ *    - Straight from Aseprite: <visual: Hero.aseprite#Sword> draws a layer of a layered
+ *      .aseprite walk cycle in img/characters. Its sheet is made in a playtest and
+ *      remade when the .aseprite is saved again, while the game runs.
  *    - The equip screen previews the highlighted item; save files show the gear.
  *    - The click-to-walk marker: shapes, images, animations or VFX, pulse, spin,
  *      bob, path dots; Set Destination Marker changes it mid-game.
