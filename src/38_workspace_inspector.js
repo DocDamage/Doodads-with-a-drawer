@@ -7,7 +7,7 @@
         return `
             <div style="margin: 6px 0;">
                 <canvas id="dd-asset-3d" width="232" height="140" style="width: 100%; border-radius: 4px; background: #0b1220;"></canvas>
-                <div id="dd-asset-3d-note" style="font-size: 10px; color: #64748b;">In 3D on this map, beside the party leader.</div>
+                <div id="dd-asset-3d-note" style="font-size: 10px; color: var(--dd-faint);">In 3D on this map, beside the party leader.</div>
             </div>`;
     },
 
@@ -108,9 +108,43 @@
         this.refreshInspector();
     },
 
+    // The details panel's heading (an icon and a name for what is shown) and the hint for it.
+    updateInspectorHead() {
+        const U = DocsDoodads.Ui;
+        let icon = 'map', title = 'Map', hint = null;
+        const name = path => String(path || '').split('/').pop().replace(/\.[^.]+$/, '');
+        if (this.selectedEvent) {
+            const ev = this.selectedEvent.stagedEvent || (this.selectedEvent.gameEvent && this.selectedEvent.gameEvent.event());
+            icon = 'person'; title = ev && ev.name ? ev.name : 'Event';
+            hint = 'Drag the event, or use the arrow keys, to move it. Right-click it for more.';
+        } else if (this.selectedDoodads && this.selectedDoodads.length > 1) {
+            icon = 'layers'; title = `${this.selectedDoodads.length} things`;
+            hint = 'Drag one to move them all. Delete removes them; right-click for more.';
+        } else if (this.selectedDoodad) {
+            icon = 'tree'; title = name(this.selectedDoodad.bit && this.selectedDoodad.bit[1]) || 'Doodad';
+            hint = 'Drag it to move it. Arrow keys nudge it; Delete removes it; right-click for more.';
+        } else if (this.selectedAsset) {
+            const a = this.selectedAsset;
+            icon = a.type === 'prefab' ? 'box' : a.category === 'Audio' ? 'music' : 'bag';
+            title = name(a.fileName) || 'Item';
+            hint = a.category === 'Audio' ? 'Drop it on the map to make a sound event, or right-click to listen.'
+                : 'Now click the map to place it. Stamp places it again and again.';
+        } else {
+            const mapId = this.currentMapId();
+            const info = typeof $dataMapInfos !== 'undefined' && $dataMapInfos ? $dataMapInfos[mapId] : null;
+            title = info && info.name ? info.name : `Map ${mapId}`;
+        }
+        const iconEl = document.getElementById('dd-inspector-icon');
+        if (iconEl) iconEl.innerHTML = U.icon(icon, 2);
+        const titleEl = document.getElementById('dd-inspector-title');
+        if (titleEl) { titleEl.textContent = title; titleEl.title = title; }
+        if (!this.placementTool) U.setHint(hint || U.hints.none);
+    },
+
     refreshInspector() {
         const content = document.getElementById('dd-inspector-content');
         if (!content) return;
+        this.updateInspectorHead();
 
         // Case 0: MZ Map Event Selected
         if (this.selectedEvent) {
@@ -122,34 +156,34 @@
             const priorityNames = ["Below Characters", "Same as Characters", "Above Characters"];
 
             content.innerHTML = `
-                <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP EVENT: ${escapeHtml(ev ? ev.name : ('EV' + evId))} (ID: ${evId})</div>
-                <div style="font-size: 11px; margin-bottom: 4px;">Tile Coordinates: <span style="color: #fff;">[${ge ? ge.x : (ev ? ev.x : 0)}, ${ge ? ge.y : (ev ? ev.y : 0)}]</span></div>
+                <div style="color: var(--dd-muted); margin-bottom: 6px;">Event ${evId} on this map.</div>
+                <div style="font-size: 11px; margin-bottom: 4px;">Tile Coordinates: <span style="color: var(--dd-text);">[${ge ? ge.x : (ev ? ev.x : 0)}, ${ge ? ge.y : (ev ? ev.y : 0)}]</span></div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Tile X:</label>
-                        <input type="number" id="dd-ev-x" value="${ge ? ge.x : (ev ? ev.x : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Tile X:</label>
+                        <input type="number" id="dd-ev-x" value="${ge ? ge.x : (ev ? ev.x : 0)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Tile Y:</label>
-                        <input type="number" id="dd-ev-y" value="${ge ? ge.y : (ev ? ev.y : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Tile Y:</label>
+                        <input type="number" id="dd-ev-y" value="${ge ? ge.y : (ev ? ev.y : 0)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                 </div>
                 <div style="margin-top: 6px;">
-                    <label style="display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">Trigger:</label>
-                    <select id="dd-ev-trigger" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
+                    <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Trigger:</label>
+                    <select id="dd-ev-trigger" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; font-size: 11px;">
                         ${triggerNames.map((t, idx) => `<option value="${idx}" ${(page0.trigger === idx) ? 'selected' : ''}>${t}</option>`).join('')}
                     </select>
                 </div>
                 <div style="margin-top: 6px;">
-                    <label style="display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">Priority:</label>
-                    <select id="dd-ev-priority" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
+                    <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Priority:</label>
+                    <select id="dd-ev-priority" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; font-size: 11px;">
                         ${priorityNames.map((p, idx) => `<option value="${idx}" ${(page0.priorityType === idx) ? 'selected' : ''}>${p}</option>`).join('')}
                     </select>
                 </div>
                 <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                     <button class="dd-btn dd-btn-primary" id="dd-ev-save-template-btn">💾 Save as Event Template</button>
                     <button class="dd-btn" id="dd-ev-dup-btn">Duplicate Event</button>
-                    <button class="dd-btn" id="dd-ev-del-btn" style="background: #991b1b;">Delete Event</button>
+                    <button class="dd-btn" id="dd-ev-del-btn" style="background: var(--dd-danger-soft);">Delete Event</button>
                 </div>
             `;
 
@@ -192,15 +226,15 @@
             const hasGroup = items.some(d => d.groupId);
 
             content.innerHTML = `
-                <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MULTI-SELECTION (${items.length} DOODADS)</div>
-                <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 8px;">
+                <div style="color: var(--dd-muted); margin-bottom: 6px;">${items.length} things picked: what you do here changes them all.</div>
+                <div style="font-size: 11px; color: var(--dd-text); margin-bottom: 8px;">
                     ${lockedCount > 0 ? `🔒 ${lockedCount} locked | ` : ''}
                     ${hiddenCount > 0 ? `👁 ${hiddenCount} hidden | ` : ''}
                     ${hasGroup ? `📦 Grouped` : ''}
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">ALIGN</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">Line up</div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
                         <button class="dd-btn" id="dd-align-left" title="Align Left">Left</button>
                         <button class="dd-btn" id="dd-align-center-x" title="Align Center X">Center X</button>
@@ -211,16 +245,16 @@
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">DISTRIBUTE</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">Space out evenly</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                         <button class="dd-btn" id="dd-dist-h" title="Distribute Horizontally">Horizontal</button>
                         <button class="dd-btn" id="dd-dist-v" title="Distribute Vertically">Vertical</button>
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">LAYERING (Z-ORDER)</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">In front or behind</div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
                         <button class="dd-btn" id="dd-multi-z-fwd" title="Bring Forward (+1 Z)">+1 Z</button>
                         <button class="dd-btn" id="dd-multi-z-back" title="Send Backward (-1 Z)">-1 Z</button>
@@ -229,8 +263,8 @@
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">ORGANIZATION</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">Group, lock and hide</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                         <button class="dd-btn" id="dd-grp-btn">${hasGroup ? 'Ungroup' : 'Group'}</button>
                         <button class="dd-btn" id="dd-lock-btn">${lockedCount === items.length ? 'Unlock All' : 'Lock All'}</button>
@@ -239,13 +273,13 @@
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
                     <button class="dd-btn" id="dd-multi-trace-col" style="width: 100%;" title="Fit each doodad's collision to the solid base of its image">Trace Collision from Art</button>
                 </div>
                 ${this.renderSelectionTools(items)}
                 ${this.renderEffectSections(items)}
                 <div style="margin-top: 12px;">
-                    <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: #991b1b;">Delete Selection (${items.length})</button>
+                    <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: var(--dd-danger-soft);">Delete Selection (${items.length})</button>
                 </div>
             `;
 
@@ -292,43 +326,43 @@
 
             content.innerHTML = `
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                    <div style="font-weight: bold; color: #38bdf8;">DOODAD PROPERTIES</div>
+                    <div style="color: var(--dd-muted);">Placed on the map.</div>
                     <div style="display: flex; gap: 4px;">
-                        <button class="dd-btn" id="dd-doodad-lock-toggle" style="padding: 2px 6px; font-size: 11px;">${isLocked ? '🔒 Locked' : '🔓 Lock'}</button>
-                        <button class="dd-btn" id="dd-doodad-hide-toggle" style="padding: 2px 6px; font-size: 11px;">${isHidden ? '👁 Hidden' : '👁 Hide'}</button>
+                        <button class="dd-btn${isLocked ? ' dd-btn-active' : ''}" id="dd-doodad-lock-toggle" title="Locked things can't be moved or deleted by mistake">${DocsDoodads.Ui.icon('lock', 1)} ${isLocked ? 'Locked' : 'Lock'}</button>
+                        <button class="dd-btn${isHidden ? ' dd-btn-active' : ''}" id="dd-doodad-hide-toggle" title="Hide it while editing (it still shows in the game)">${DocsDoodads.Ui.icon('eye', 1)} ${isHidden ? 'Hidden' : 'Hide'}</button>
                     </div>
                 </div>
-                <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: #fff;">${escapeHtml(d.bit ? d.bit[1] : 'Unknown')}</span></div>
-                ${d.groupId ? `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="dd-btn" id="dd-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
+                <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: var(--dd-text);">${escapeHtml(d.bit ? d.bit[1] : 'Unknown')}</span></div>
+                ${d.groupId ? `<div style="font-size: 10px; color: var(--dd-purple); margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="dd-btn" id="dd-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">X:</label>
-                        <input type="number" id="dd-prop-x" value="${d.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">X:</label>
+                        <input type="number" id="dd-prop-x" value="${d.x}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Y:</label>
-                        <input type="number" id="dd-prop-y" value="${d.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Y:</label>
+                        <input type="number" id="dd-prop-y" value="${d.y}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Z-Order:</label>
-                        <input type="number" id="dd-prop-z" value="${d.z || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Z-Order:</label>
+                        <input type="number" id="dd-prop-z" value="${d.z || 0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Rotation (°):</label>
-                        <input type="number" id="dd-prop-rot" value="${d.rotation || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Rotation (°):</label>
+                        <input type="number" id="dd-prop-rot" value="${d.rotation || 0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Scale X:</label>
-                        <input type="number" step="0.1" id="dd-prop-sx" value="${d.scaleX || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Scale X:</label>
+                        <input type="number" step="0.1" id="dd-prop-sx" value="${d.scaleX || 1}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Scale Y:</label>
-                        <input type="number" step="0.1" id="dd-prop-sy" value="${d.scaleY || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Scale Y:</label>
+                        <input type="number" step="0.1" id="dd-prop-sy" value="${d.scaleY || 1}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                 </div>
                 <div style="margin-top: 6px;">
                     <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
-                    <select id="dd-prop-col" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                    <select id="dd-prop-col" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                         <option value="none">None (Passable)</option>
                         <option value="full">Full Bounds</option>
                         <option value="bottomHalf">Bottom Half</option>
@@ -342,33 +376,33 @@
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
-                <div id="dd-custom-col-editor" style="display: ${isCustomCol ? 'block' : 'none'}; margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid #334155; padding: 8px; border-radius: 4px;">
-                    <div style="font-size: 10px; color: #38bdf8; margin-bottom: 4px; font-weight: bold;">CUSTOM COLLISION BOX</div>
+                <div id="dd-custom-col-editor" style="display: ${isCustomCol ? 'block' : 'none'}; margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--dd-line); padding: 8px; border-radius: 4px;">
+                    <div class="dd-label">Solid area</div>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <canvas id="dd-col-preview" width="64" height="64" style="background: #0b1120; border: 1px solid #475569; border-radius: 3px; flex-shrink: 0;"></canvas>
+                        <canvas id="dd-col-preview" width="64" height="64" style="background: var(--dd-field); border: 1px solid var(--dd-line); border-radius: 3px; flex-shrink: 0;"></canvas>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; flex: 1;">
                             <div>
-                                <label style="color: #94a3b8;">Rel X:</label>
-                                <input type="number" step="0.05" min="0" max="1" id="dd-col-x" value="${shape.x.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel X:</label>
+                                <input type="number" step="0.05" min="0" max="1" id="dd-col-x" value="${shape.x.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                             <div>
-                                <label style="color: #94a3b8;">Rel Y:</label>
-                                <input type="number" step="0.05" min="0" max="1" id="dd-col-y" value="${shape.y.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel Y:</label>
+                                <input type="number" step="0.05" min="0" max="1" id="dd-col-y" value="${shape.y.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                             <div>
-                                <label style="color: #94a3b8;">Rel W:</label>
-                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-w" value="${shape.w.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel W:</label>
+                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-w" value="${shape.w.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                             <div>
-                                <label style="color: #94a3b8;">Rel H:</label>
-                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-h" value="${shape.h.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel H:</label>
+                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-h" value="${shape.h.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 4px;">LAYERING (Z-ORDER)</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-top: 8px;">
+                    <div class="dd-label">In front or behind</div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
                         <button class="dd-btn" id="dd-prop-forward" title="Bring Forward (+1 Z)">+1 Z</button>
                         <button class="dd-btn" id="dd-prop-backward" title="Send Backward (-1 Z)">-1 Z</button>
@@ -380,7 +414,7 @@
                 ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
-                    <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: #991b1b;">Delete</button>
+                    <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: var(--dd-danger-soft);">Delete</button>
                 </div>
             `;
 
@@ -495,8 +529,8 @@
         }
 
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
-            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${escapeHtml(a.category)}</span></div>
+            <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: var(--dd-accent);">${escapeHtml(a.category)}</span></div>
             <div style="font-size: 11px; margin-bottom: 4px;">Dimensions: ${a.width} x ${a.height}</div>
             ${this.renderAsset3dPreview(a)}
             <div style="display: flex; gap: 6px; margin: 8px 0;">
@@ -504,12 +538,12 @@
             </div>
             <div style="margin-bottom: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
-                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. forest, prop" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
-                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
+                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. forest, prop" style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
             </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Placement Mode:</label>
-                <select id="dd-place-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-place-mode" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     <option value="doodad">Decorative Doodad</option>
                     <option value="event">Real MZ Event</option>
                     <option value="ask">Ask Each Time</option>
@@ -517,18 +551,18 @@
             </div>
             <div id="dd-template-group" style="margin-top: 8px; display: none;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Event Template:</label>
-                <select id="dd-event-template" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-event-template" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     ${templateOptions}
                 </select>
                 ${a.type === 'character_sheet' ? `
                 <label style="display: block; font-size: 11px; margin: 8px 0 3px;">Character on Sheet:</label>
-                <select id="dd-char-index" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-char-index" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}">#${i + 1} (${i < 4 ? 'top' : 'bottom'} row, ${(i % 4) + 1} of 4)</option>`).join('')}
                 </select>` : ''}
             </div>
             <div style="margin-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
-                <select id="dd-col-preset" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-col-preset" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     <option value="none">None (Passable)</option>
                     <option value="full">Full Bounds</option>
                     <option value="bottomHalf">Bottom Half</option>
@@ -542,7 +576,7 @@
             </div>
             <div style="margin-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Default Depth:</label>
-                <select id="dd-asset-depth" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-asset-depth" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
@@ -550,8 +584,8 @@
             ${this.renderAssetPlacementTools(a)}
             ${this.renderUsagePanel(a)}
             <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
-                <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place on Map Center</button>
-                <button class="dd-btn" id="dd-open-slicer-btn">Open Slicer</button>
+                <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place in the Middle of the Screen</button>
+                <button class="dd-btn" id="dd-open-slicer-btn">${DocsDoodads.Ui.icon('scissors', 1)} Cut Up Sheet</button>
             </div>
         `;
 
@@ -881,10 +915,10 @@
     },
 
     fieldHtml(id, f, value) {
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px; border-radius: 3px; font-size: 11px;';
-        const label = `<label for="${id}" style="font-size: 10px; color: #94a3b8;">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: #e2e8f0;">${escapeHtml(String(value))}</span>` : ''}</label>`;
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px; border-radius: 3px; font-size: 11px;';
+        const label = `<label for="${id}" style="font-size: 10px; color: var(--dd-muted);">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: var(--dd-text);">${escapeHtml(String(value))}</span>` : ''}</label>`;
         if (f.type === 'checkbox') {
-            return `<label style="font-size: 11px; color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
+            return `<label style="font-size: 11px; color: var(--dd-text); display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
         }
         if (f.type === 'select') {
             const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
@@ -894,7 +928,7 @@
             return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
         }
         if (f.type === 'color') {
-            return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>`;
+            return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: var(--dd-field); border: 1px solid var(--dd-line);" /></div>`;
         }
         const type = f.type === 'number' ? 'number' : 'text';
         return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
@@ -912,8 +946,8 @@
                 return this.fieldHtml(id, f, value);
             }).join('');
             return `
-                <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
+                <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${section.title}</summary>
                     <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
                 </details>`;
         }).join('');

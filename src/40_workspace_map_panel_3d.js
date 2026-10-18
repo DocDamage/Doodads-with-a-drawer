@@ -91,9 +91,9 @@
         const s = DocsDoodads.Perspective.normalize(this.perspectiveRaw());
         const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, this.perspectiveFieldValue(f.key, s))).join('');
         return `
-            <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
-                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Tileset trees and objects can stand up too (Tileset objects).</div>
+            <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">3D View (this map)</summary>
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Tileset trees and objects can stand up too (Tileset objects).</div>
                 <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
             </details>`;
     },
@@ -201,7 +201,7 @@
     renderTerrainPanel() {
         const raw = this.terrainRaw();
         const t = DocsDoodads.Terrain.normalize(raw);
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const fields = this.terrainFields().map(f => this.fieldHtml('dd-ter-' + f.key, f, t[f.key])).join('');
         const rows = (list, key, max) => list.map((r, i) => `
             <div style="display: grid; grid-template-columns: 1fr 1fr 22px; gap: 3px; align-items: center;">
@@ -211,15 +211,15 @@
             </div>`).join('');
         const painted = Object.keys(t.paint).length;
         return `
-            <details id="dd-ter-section" ${this._openTerrain ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Terrain Height (this map)</summary>
-                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Heights in tiles. The Terrain brush beats regions, regions beat terrain tags, and tags beat automatic heights.</div>
+            <details id="dd-ter-section" ${this._openTerrain ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Terrain Height (this map)</summary>
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 4px; line-height: 1.4;">Heights in tiles. The Terrain brush beats regions, regions beat terrain tags, and tags beat automatic heights.</div>
                 <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}
-                    <div style="font-size: 10px; color: #94a3b8;">Regions (region, height):</div>${rows(t.regions, 'region', 255)}
+                    <div style="font-size: 10px; color: var(--dd-muted);">Regions (region, height):</div>${rows(t.regions, 'region', 255)}
                     <button class="dd-btn" id="dd-ter-region-add">Add Region Height</button>
-                    <div style="font-size: 10px; color: #94a3b8;">Terrain tags (tag 1-7, height):</div>${rows(t.tags, 'tag', 7)}
+                    <div style="font-size: 10px; color: var(--dd-muted);">Terrain tags (tag 1-7, height):</div>${rows(t.tags, 'tag', 7)}
                     <button class="dd-btn" id="dd-ter-tag-add">Add Terrain Tag Height</button>
-                    <div style="font-size: 10px; color: #94a3b8;">Painted with the Terrain brush: ${painted} tile(s)</div>
+                    <div style="font-size: 10px; color: var(--dd-muted);">Painted with the Terrain brush: ${painted} tile(s)</div>
                     <button class="dd-btn" id="dd-ter-paint-clear" ${painted ? '' : 'disabled'}>Clear Painted Heights</button>
                 </div>
             </details>`;
@@ -317,7 +317,7 @@
 
     renderMapSoundPanel(mapSettings) {
         const echo = Object.assign({}, DocsDoodads.SpatialSound.echoDefaults, mapSettings.echo || {});
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const bgs = this.audioFileOptions().filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
         const rows = (Array.isArray(mapSettings.regionSounds) ? mapSettings.regionSounds : []).map((r, i) => `
             <div style="display: grid; grid-template-columns: 38px 1fr 40px 36px 22px; gap: 3px; align-items: center;">
@@ -328,10 +328,10 @@
                 <button class="dd-btn" id="dd-region-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
             </div>`).join('');
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Sound (this map)</summary>
-                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Sound (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-echo" ${echo.enabled ? 'checked' : ''} /> Echo (caves, halls)</label>
                     <div>Delay: ${echo.delay}s <input type="range" id="dd-map-echo-delay" min="0.05" max="1" step="0.01" value="${echo.delay}" style="width: 100%;" /></div>
                     <div>Repeats: ${echo.feedback} <input type="range" id="dd-map-echo-feedback" min="0" max="0.9" step="0.05" value="${echo.feedback}" style="width: 100%;" /></div>
@@ -429,18 +429,18 @@
 
     renderAnimSetEditor() {
         const sets = DocsDoodads.World.get('characterAnim.sets') || [];
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const cell = (r, field, value, type) => `<input type="${type || 'text'}" ${type ? '' : 'list="dd-char-files"'} id="dd-anim-${r}-${field}" value="${escapeHtml(String(value === undefined ? '' : value))}" title="${field}" style="${inputStyle}" />`;
         const rows = sets.map((s, r) => `
-            <div style="border: 1px solid #334155; border-radius: 4px; padding: 4px; display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; align-items: center;">
+            <div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 4px; display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; align-items: center;">
                 ${cell(r, 'character', s.character)}${cell(r, 'idle', s.idle)}${cell(r, 'run', s.run)}
                 <button class="dd-btn" id="dd-anim-del-${r}" title="Remove" style="padding: 0 4px;">&times;</button>
-                <span style="font-size: 9px; color: #64748b;">idle after / idle fps / run fps</span>
+                <span style="font-size: 9px; color: var(--dd-faint);">idle after / idle fps / run fps</span>
                 ${cell(r, 'idleDelay', s.idleDelay, 'number')}${cell(r, 'idleFps', s.idleFps, 'number')}${cell(r, 'runFps', s.runFps, 'number')}
             </div>`).join('');
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Sheet names set the layout: <b>[f8]</b> = 8 frames per row, <b>[d1]</b> = one row (mirrored for left), <b>[d8]</b> = 8 direction rows. Name variants <b>Name_idle</b> and <b>Name_run</b> and they are found automatically.</div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; font-size: 9px; color: #64748b;"><span>Character</span><span>Idle sheet</span><span>Run sheet</span><span></span></div>
+            <div style="font-size: 10px; color: var(--dd-muted); line-height: 1.4;">Sheet names set the layout: <b>[f8]</b> = 8 frames per row, <b>[d1]</b> = one row (mirrored for left), <b>[d8]</b> = 8 direction rows. Name variants <b>Name_idle</b> and <b>Name_run</b> and they are found automatically.</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span>Character</span><span>Idle sheet</span><span>Run sheet</span><span></span></div>
             ${rows}
             <datalist id="dd-char-files">${this.characterFileNames().map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 4px;">

@@ -53,27 +53,27 @@
         const actors = (typeof $dataActors !== 'undefined' && $dataActors ? $dataActors : []).filter(a => a && a.name);
         const t = this._veTry = this._veTry || { actorId: actors[0] ? actors[0].id : 0, dir: 2, keys: null };
         if (t.keys === null) t.keys = this.visualWornKeys(t.actorId);
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const items = this.visualItems();
-        const rows = items.map(i => `<label style="display: flex; gap: 6px; align-items: center; font-size: 10px; color: #cbd5e1;">
+        const rows = items.map(i => `<label style="display: flex; gap: 6px; align-items: center; font-size: 10px; color: var(--dd-text);">
                 <input type="checkbox" id="dd-ve-item-${escapeHtml(i.key)}" ${t.keys.includes(i.key) ? 'checked' : ''} /> <span title="${i.kind === 'w' ? 'Weapon' : 'Armor'} ${i.id}">${escapeHtml(i.name)}</span></label>`).join('');
         const layers = this.visualTryOnLayers(t.actorId, t.keys);
-        const list = layers.map(l => `${escapeHtml(l.image)} <span style="color: #64748b;">z ${l.z}${l.hue ? ', hue ' + l.hue : ''}${l.tint !== null ? ', tint #' + ('000000' + l.tint.toString(16)).slice(-6) : ''}</span>`).join('<br>');
+        const list = layers.map(l => `${escapeHtml(l.image)} <span style="color: var(--dd-faint);">z ${l.z}${l.hue ? ', hue ' + l.hue : ''}${l.tint !== null ? ', tint #' + ('000000' + l.tint.toString(16)).slice(-6) : ''}</span>`).join('<br>');
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1, part clothes&gt;</b>. Negative z draws behind the body. An item with the same part as the body's base part replaces it (armor over a shirt). Part sheets use the same layout as the body's sheet.</div>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Try on:</div>
+            <div style="font-size: 10px; color: var(--dd-muted); line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1, part clothes&gt;</b>. Negative z draws behind the body. An item with the same part as the body's base part replaces it (armor over a shirt). Part sheets use the same layout as the body's sheet.</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px;">Try on:</div>
             <select id="dd-ve-actor" style="${inputStyle}">${actors.map(a => `<option value="${a.id}" ${a.id === t.actorId ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}</select>
             <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: start;">
                 <div>
-                    <canvas id="dd-ve-canvas" width="96" height="96" style="width: 96px; height: 96px; image-rendering: pixelated; background: #0f172a; border: 1px solid #334155; border-radius: 4px;"></canvas>
+                    <canvas id="dd-ve-canvas" width="96" height="96" style="width: 96px; height: 96px; image-rendering: pixelated; background: var(--dd-field); border: 1px solid var(--dd-line); border-radius: 4px;"></canvas>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;">
                         ${[[4, '&#9664;'], [2, '&#9660;'], [8, '&#9650;'], [6, '&#9654;']].map(([d, s]) => `<button class="dd-btn" id="dd-ve-dir-${d}" style="padding: 0;">${s}</button>`).join('')}
                     </div>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow: auto;">${rows || '<span style="font-size: 10px; color: #64748b;">No weapons or armors have &lt;visual&gt; tags yet.</span>'}</div>
+                <div style="display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow: auto;">${rows || '<span style="font-size: 10px; color: var(--dd-faint);">No weapons or armors have &lt;visual&gt; tags yet.</span>'}</div>
             </div>
-            <div id="dd-ve-layers" style="font-size: 10px; color: #cbd5e1;">${list || '<span style="color: #64748b;">No layers.</span>'}</div>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Notetag builder:</div>
+            <div id="dd-ve-layers" style="font-size: 10px; color: var(--dd-text);">${list || '<span style="color: var(--dd-faint);">No layers.</span>'}</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">Notetag builder:</div>
             <div style="display: grid; grid-template-columns: 1fr 44px; gap: 3px;">
                 <input type="text" list="dd-ve-files" id="dd-ve-tag-image" placeholder="Layer sheet, or File.aseprite#Layer" style="${inputStyle}" />
                 <datalist id="dd-ve-files">${this.characterFileNames().concat(DocsDoodads.AsepriteVisuals.refs()).map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
@@ -87,7 +87,7 @@
             </div>
             <textarea id="dd-ve-tag-out" readonly rows="2" style="${inputStyle} resize: vertical;"></textarea>
             <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">From Aseprite: put a layered .aseprite walk cycle in img/characters and tag gear with <b>&lt;visual: Hero.aseprite#Sword&gt;</b> (a layer name). Its sheet is made for you in a playtest and remade when you save the .aseprite again. Frames come from tags down, left, right and up, or the first frames in that order. Or make the sheets once:</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">From Aseprite: put a layered .aseprite walk cycle in img/characters and tag gear with <b>&lt;visual: Hero.aseprite#Sword&gt;</b> (a layer name). Its sheet is made for you in a playtest and remade when you save the .aseprite again. Frames come from tags down, left, right and up, or the first frames in that order. Or make the sheets once:</div>
             <button class="dd-btn" id="dd-ve-ase">Make Layer Sheets from .aseprite…</button>
             <input type="file" id="dd-ve-ase-file" accept=".aseprite,.ase" style="display: none;" />`;
     },
@@ -312,35 +312,35 @@
         const target = this.postFxTarget === 'map' ? 'map' : 'world';
         const pf = DocsDoodads.World.settings().postfx;
         const mode = this.mapPostFxMode();
-        const selectStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const selectStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;';
         const option = (value, label, current) => `<option value="${escapeHtml(String(value))}" ${String(value) === String(current) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-        const check = (id, label, on, title) => `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1;" ${title ? `title="${escapeHtml(title)}"` : ''}><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
+        const check = (id, label, on, title) => `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dd-text);" ${title ? `title="${escapeHtml(title)}"` : ''}><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
         this._openPostFx = this._openPostFx || {};
         const editable = target === 'world' || mode === 'custom';
         const effects = editable ? P.effects.map((effect, i) => {
             const on = this.getLookValue(target, effect.id + '.enabled');
             const fields = [{ key: effect.id + '.enabled', label: 'On', type: 'checkbox' }].concat(effect.params.map(p => Object.assign({ type: 'range' }, p, { key: effect.id + '.' + p.key })));
             return `
-                <details id="dd-pfx-sec-${i}" ${this._openPostFx[effect.id] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 5px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: ${on ? '#4ade80' : '#94a3b8'};">${escapeHtml(effect.label)}${on ? ' &middot; on' : ''}</summary>
+                <details id="dd-pfx-sec-${i}" ${this._openPostFx[effect.id] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 5px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: ${on ? 'var(--dd-good-dark)' : 'var(--dd-text)'};">${escapeHtml(effect.label)}${on ? ' &middot; on' : ''}</summary>
                     <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 5px;">
                         ${fields.map((f, j) => this.fieldHtml(`dd-pfx-${i}-${j}`, f, this.getLookValue(target, f.key))).join('')}
                     </div>
                 </details>`;
-        }).join('') : `<div style="font-size: 11px; color: #94a3b8;">This map ${mode === 'off' ? 'shows no effects' : 'uses the game-wide look'}. Choose "Its own look" to give it a look of its own.</div>`;
+        }).join('') : `<div style="font-size: 11px; color: var(--dd-muted);">This map ${mode === 'off' ? 'shows no effects' : 'uses the game-wide look'}. Choose "Its own look" to give it a look of its own.</div>`;
         return `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">POST-PROCESSING</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('sun', 1)} Screen Looks</div>
                 <button class="dd-btn" id="dd-pfx-close">Close</button>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                <div style="font-size: 10px; color: #94a3b8;">Editing
+                <div style="font-size: 10px; color: var(--dd-muted);">Editing
                     <select id="dd-pfx-target" style="${selectStyle}">${option('world', 'Game-wide look', target)}${option('map', 'This map', target)}</select></div>
-                <div style="font-size: 10px; color: #94a3b8; ${target === 'map' ? '' : 'visibility: hidden;'}">This map uses
+                <div style="font-size: 10px; color: var(--dd-muted); ${target === 'map' ? '' : 'visibility: hidden;'}">This map uses
                     <select id="dd-pfx-mapmode" style="${selectStyle}">${option('global', 'The game-wide look', mode)}${option('off', 'No effects', mode)}${option('custom', 'Its own look', mode)}</select></div>
             </div>
             <div style="display: flex; gap: 6px; align-items: flex-end;">
-                <div style="flex: 1; font-size: 10px; color: #94a3b8;">Preset
+                <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Preset
                     <select id="dd-pfx-preset" style="${selectStyle}">${P.presets.map(p => option(p.id, p.label, '')).join('')}</select></div>
                 <button class="dd-btn dd-btn-primary" id="dd-pfx-apply" ${editable ? '' : 'disabled'}>Apply</button>
                 <button class="dd-btn" id="dd-pfx-compare" title="Hold to see the map without effects">Hold to Compare</button>
@@ -349,17 +349,17 @@
                 ${check('dd-pfx-enabled', 'Post-processing on', pf.enabled, 'Switches every look off for the whole game')}
                 ${check('dd-pfx-pictures', 'Affect pictures', pf.includePictures, 'Off: pictures and the timer are drawn without effects')}
                 ${check('dd-pfx-preview', 'Show while editing', this.postFxPreview !== false)}
-                <div style="font-size: 10px; color: #94a3b8;">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
+                <div style="font-size: 10px; color: var(--dd-muted);">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
             </div>
             <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px;">${effects}</div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
-                <div style="flex: 1; font-size: 10px; color: #94a3b8;">Screen effect (test)
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
+                <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Screen effect (test)
                     <select id="dd-pfx-anim" style="${selectStyle}">${P.Animations.types.map(t => option(t.value, t.label, '')).join('')}</select></div>
                 <button class="dd-btn" id="dd-pfx-play">Play</button>
             </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
-                <div style="font-size: 11px; font-weight: bold; color: #94a3b8;">Export Map Image</div>
-                <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #cbd5e1;">
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                <div style="font-size: 11px; font-weight: bold; color: var(--dd-muted);">Export Map Image</div>
+                <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--dd-text);">
                     Scale <select id="dd-pfx-export-scale" style="${selectStyle} width: auto;">${option(1, '100%', 1)}${option(0.5, '50%', 1)}${option(0.25, '25%', 1)}</select>
                     ${check('dd-pfx-export-chars', 'Characters', true)}
                     ${check('dd-pfx-export-fx', 'Lighting & colour', true)}
@@ -666,9 +666,9 @@
                 : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor()
                 : section.extra === 'ambience' ? this.renderAmbienceEditor() : '';
             return `
-                <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
-                    <div style="font-size: 10px; color: #64748b; margin-top: 4px;">All maps</div>
+                <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${section.title}</summary>
+                    <div style="font-size: 10px; color: var(--dd-faint); margin-top: 4px;">All maps</div>
                     <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}${extra}</div>
                 </details>`;
         }).join('');
@@ -720,22 +720,22 @@
     renderKeyframeEditor() {
         const Time = DocsDoodads.TimeOfDay;
         const keys = DocsDoodads.World.get('time.keyframes') || [];
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 11px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 11px;';
         const rows = keys.map((k, i) => `
             <div style="display: grid; grid-template-columns: 48px 1fr 34px 24px; gap: 4px; align-items: center;">
                 <input type="number" id="dd-kf-hour-${i}" min="0" max="23.75" step="0.25" value="${escapeHtml(String(k.hour))}" title="Hour" style="${inputStyle}" />
                 <input type="range" id="dd-kf-dark-${i}" min="0" max="1" step="0.05" value="${escapeHtml(String(k.darkness))}" title="Darkness" />
-                <input type="color" id="dd-kf-color-${i}" value="${escapeHtml(k.color || '#000000')}" title="Colour" style="width: 100%; height: 20px; background: #0f172a; border: 1px solid #334155;" />
+                <input type="color" id="dd-kf-color-${i}" value="${escapeHtml(k.color || '#000000')}" title="Colour" style="width: 100%; height: 20px; background: var(--dd-field); border: 1px solid var(--dd-line);" />
                 <button class="dd-btn" id="dd-kf-del-${i}" title="Remove this keyframe" style="padding: 0 4px;">&times;</button>
             </div>`).join('');
         const preview = this.previewMinutes !== null && this.previewMinutes !== undefined ? this.previewMinutes : 12 * 60;
         return `
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Darkness through the day (hour, darkness, colour):</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px;">Darkness through the day (hour, darkness, colour):</div>
             ${rows}
             <button class="dd-btn" id="dd-kf-add">Add Keyframe</button>
-            <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+            <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                 <input type="checkbox" id="dd-time-preview-on" ${this.previewMinutes !== null && this.previewMinutes !== undefined ? 'checked' : ''} /> Preview a time while editing</label>
-            <div style="font-size: 10px; color: #94a3b8;">Preview: <span id="dd-time-preview-val" style="color: #e2e8f0;">${Time.format(preview)}</span>
+            <div style="font-size: 10px; color: var(--dd-muted);">Preview: <span id="dd-time-preview-val" style="color: var(--dd-text);">${Time.format(preview)}</span>
                 <input type="range" id="dd-time-preview" min="0" max="1425" step="15" value="${preview}" style="width: 100%;" /></div>`;
     },
 
@@ -800,7 +800,7 @@
 
     renderSeasonEditor() {
         const seasons = DocsDoodads.World.settings().seasons;
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const names = seasons.names.map((name, k) => `<input type="text" id="dd-season-name-${k}" value="${escapeHtml(name)}" style="${inputStyle}" />`).join('');
         const cols = `grid-template-columns: repeat(${seasons.names.length}, 1fr) 22px;`;
         const rows = seasons.sets.map((set, r) => `
@@ -812,13 +812,13 @@
             ? Object.values(DocsDoodads.AssetIndex.data.assets).filter(a => a && a.path && /\.png$/i.test(a.path)).slice(0, 2000) : [];
         const preview = this.previewSeason !== null && this.previewSeason !== undefined ? this.previewSeason : -1;
         return `
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Season names:</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px;">Season names:</div>
             <div style="display: grid; grid-template-columns: repeat(${seasons.names.length}, 1fr); gap: 3px;">${names}</div>
-            <div style="font-size: 10px; color: #94a3b8;">Art swaps (each row is one prop; empty cells keep the original). Tip: select an asset and use "Season Variant".</div>
+            <div style="font-size: 10px; color: var(--dd-muted);">Art swaps (each row is one prop; empty cells keep the original). Tip: select an asset and use "Season Variant".</div>
             ${rows}
             <datalist id="dd-season-assets">${assets.map(a => `<option value="${escapeHtml(a.path)}"></option>`).join('')}</datalist>
             <button class="dd-btn" id="dd-season-add">Add Row</button>
-            <div style="font-size: 10px; color: #94a3b8;">Preview while editing
+            <div style="font-size: 10px; color: var(--dd-muted);">Preview while editing
                 <select id="dd-season-preview" style="${inputStyle}">
                     <option value="-1" ${preview < 0 ? 'selected' : ''}>As in the game</option>
                     ${seasons.names.map((name, k) => `<option value="${k}" ${preview === k ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
@@ -828,13 +828,13 @@
     // ---- Ambience layers and footstep sounds (World > Zoom and Sound Focus) ----
     renderAmbienceEditor() {
         const W = DocsDoodads.World, SS = DocsDoodads.SpatialSound;
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const files = this.audioFileOptions();
         const bgs = files.filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
         const se = files.filter(o => o.value.indexOf('se/') === 0).map(o => o.value.slice(3));
         const select = (id, value, options) => `<select id="${id}" style="${inputStyle}">${options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
         const layers = (W.get('ambience.layers') || []).map((l, i) => `
-            <div style="display: grid; grid-template-columns: 1fr 52px; gap: 3px; border-top: 1px dashed #334155; padding-top: 3px;">
+            <div style="display: grid; grid-template-columns: 1fr 52px; gap: 3px; border-top: 1px dashed var(--dd-line); padding-top: 3px;">
                 ${select(`dd-amb-${i}-kind`, l.kind, SS.ambienceKinds)}
                 <input type="text" id="dd-amb-${i}-id" value="${escapeHtml(String(l.id === undefined ? '' : l.id))}" title="Region or terrain tag number, or text in the doodads' picture names" placeholder="id / text" style="${inputStyle}" />
                 <input type="text" list="dd-amb-bgs" id="dd-amb-${i}-sound" value="${escapeHtml(l.sound || '')}" placeholder="Background sound" style="${inputStyle}" />
@@ -855,11 +855,11 @@
                 <button class="dd-btn" id="dd-step-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
             </div>`).join('');
         return `
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Ambience: background sounds that rise with what's around the player (volume, heard within, share at normal zoom, pitch). They swell as you zoom in.</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px; line-height: 1.4;">Ambience: background sounds that rise with what's around the player (volume, heard within, share at normal zoom, pitch). They swell as you zoom in.</div>
             ${layers}
             <datalist id="dd-amb-bgs">${bgs.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
             <button class="dd-btn" id="dd-amb-add">Add Ambience</button>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Footstep sounds by ground (regions first, then terrain tags, then the kind of ground):</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">Footstep sounds by ground (regions first, then terrain tags, then the kind of ground):</div>
             ${steps}
             <datalist id="dd-step-se">${se.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
             <button class="dd-btn" id="dd-step-add">Add Footstep Sound</button>`;
@@ -936,7 +936,7 @@
     renderAssetSeasonControl(a) {
         if (!a || !a.path || !/\.png$/i.test(a.path)) return '';
         const seasons = DocsDoodads.World.settings().seasons;
-        const selectStyle = 'flex: 1; min-width: 0; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const selectStyle = 'flex: 1; min-width: 0; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;';
         const rowLabel = (set, r) => {
             const first = Object.keys(set || {}).map(k => set[k])[0];
             return `Row ${r + 1}${first ? ' (' + String(first).split('/').pop() + ')' : ''}`;
@@ -987,30 +987,29 @@
         const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
         const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
         content.innerHTML = `
-            <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP ${mapId} SETTINGS</div>
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Select an asset in the drawer or click an object on the map.</div>
-            <input type="search" id="dd-map-search" placeholder="Search settings (e.g. fog, shadow, snow)" value="${escapeHtml(this._mapSearch || '')}"
-                style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
-            <div id="dd-map-search-none" style="display: none; font-size: 11px; color: #64748b; margin-bottom: 6px;">No settings match.</div>
-            <details open style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Lighting</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
-                    <div>Ambient Darkness: <span id="dd-map-dark-val" style="color: #e2e8f0;">${Math.round(ambient.darkness * 100)}%</span>
+            <div style="color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Nothing is picked, so this is the map's own settings. (Map ${mapId})</div>
+            <input type="search" id="dd-map-search" placeholder="Find a setting (fog, shadow, snow...)" value="${escapeHtml(this._mapSearch || '')}"
+                style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
+            <div id="dd-map-search-none" style="display: none; font-size: 11px; color: var(--dd-faint); margin-bottom: 6px;">No settings match.</div>
+            <details open style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Lighting</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Ambient Darkness: <span id="dd-map-dark-val" style="color: var(--dd-text);">${Math.round(ambient.darkness * 100)}%</span>
                         <input type="range" id="dd-map-dark" min="0" max="1" step="0.05" value="${ambient.darkness}" style="width: 100%;" /></div>
-                    <div>Ambient Color <input type="color" id="dd-map-color" value="${escapeHtml(ambient.color)}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>
+                    <div>Ambient Color <input type="color" id="dd-map-color" value="${escapeHtml(ambient.color)}" style="width: 100%; height: 22px; background: var(--dd-field); border: 1px solid var(--dd-line);" /></div>
                     <div>Only while switch # is ON (0 = always)
-                        <input type="number" id="dd-map-switch" min="0" value="${Number(ambient.switchId) || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                        <input type="number" id="dd-map-switch" min="0" value="${Number(ambient.switchId) || 0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" /></div>
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-preview" ${this.lightingPreview === false ? '' : 'checked'} /> Preview lighting while editing</label>
                     <div>Day and night on this map
-                        <select id="dd-map-daynight" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;">
+                        <select id="dd-map-daynight" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;">
                             ${DocsDoodads.TimeOfDay.mapModes.map(m => `<option value="${m.value}" ${(mapSettings.dayNight || 'auto') === m.value ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
                         </select></div>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-reflections" ${mapSettings.reflections === false ? '' : 'checked'} /> Water reflections on this map</label>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-charshadows" ${mapSettings.characterShadows === false ? '' : 'checked'} /> Character shadows on this map</label>
-                    <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Give doodads a Light in their details. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
             </details>
             ${this.renderPerspectivePanel()}

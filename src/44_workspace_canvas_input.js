@@ -154,17 +154,11 @@
     toggleGrid() {
         // Spriteset_Map (updateDocsEditorOverlay) draws the grid in map space, on tile edges at any scale.
         this.gridSnapShow = !this.gridSnapShow;
-        this.showToast(this.gridSnapShow ? "Grid Overlay Enabled" : "Grid Overlay Disabled");
+        this.showToast(this.gridSnapShow ? 'Grid on' : 'Grid off');
     },
 
     toggleInspector() {
-        const panel = document.getElementById('dd-inspector-panel');
-        if (!panel) return;
-        const isHidden = panel.style.display === 'none';
-        panel.style.display = isHidden ? 'flex' : 'none';
-        const resizer = document.getElementById('dd-inspector-resizer');
-        if (resizer) resizer.style.display = isHidden ? 'block' : 'none';
-        this.showToast(isHidden ? "Inspector Shown" : "Inspector Hidden");
+        this.foldPanel('inspector', !this.isFolded('inspector'));
     },
 
     focusSearch() {
@@ -501,7 +495,7 @@
             // 2. Path Tool: collect points
             if (this.placementTool === 'path') {
                 if (!this.selectedAsset || this.selectedAsset.category === 'Audio' || this.selectedAsset.type === 'prefab') {
-                    this.showToast('Select an image asset in the drawer to draw a path with.');
+                    this.showToast('First pick a picture in the Item Bag to draw a path with.');
                     return;
                 }
                 this.pathPoints.push(e.altKey ? { x: coords.x, y: coords.y } : this.snapToTile(coords));
@@ -607,7 +601,7 @@
                         overlay.id = 'dd-marquee-overlay';
                         overlay.style.cssText = `
                             position: fixed; pointer-events: none; z-index: 10006;
-                            border: 1px dashed #38bdf8; background: rgba(56, 189, 248, 0.18);
+                            border: 1px dashed var(--dd-primary); background: rgba(56, 189, 248, 0.18);
                             box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
                             border-radius: 2px;
                         `;
@@ -1023,8 +1017,8 @@
             width: 380px; padding: 20px; z-index: 10020; text-align: center;
         `;
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 8px;">PLACEMENT DECISION</div>
-            <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 16px;">Does ${escapeHtml(payload.fileName)} need an interactive RPG Maker MZ event?</div>
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('help', 1)} Doodad or event?</div>
+            <div style="font-size: 12px; color: var(--dd-text); margin-bottom: 16px;">Does ${escapeHtml(payload.fileName)} need an interactive RPG Maker MZ event?</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <button class="dd-btn dd-btn-primary" id="dd-ask-yes">Yes (Create MZ Event)</button>
                 <button class="dd-btn" id="dd-ask-no">No (Decorative Doodad)</button>
@@ -1190,28 +1184,21 @@
         const menu = document.createElement('div');
         menu.id = 'dd-context-menu';
         menu.className = 'dd-glass';
-        menu.style.cssText = `
-            position: fixed; z-index: 10050; min-width: 180px; padding: 4px;
-            display: flex; flex-direction: column; gap: 2px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.7);
-        `;
+        menu.style.cssText = 'position: fixed; z-index: 10050; display: flex; flex-direction: column; gap: 1px;';
+        DocsDoodads.Ui.sound('cursor');
         items.forEach(item => {
             if (item.separator) {
                 const sep = document.createElement('div');
-                sep.style.cssText = 'height: 1px; background: rgba(255,255,255,0.1); margin: 3px 0;';
+                sep.className = 'dd-menu-sep';
                 menu.appendChild(sep);
                 return;
             }
             const row = document.createElement('button');
-            row.className = 'dd-btn';
-            row.style.cssText = `
-                text-align: left; width: 100%; border: none; background: transparent;
-                padding: 5px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;
-                color: ${item.danger ? '#f87171' : '#e2e8f0'};
-            `;
-            row.innerHTML = `<span>${escapeHtml(item.icon || '•')}</span> <span>${escapeHtml(item.label)}</span>`;
-            row.onmouseenter = () => { row.style.background = item.danger ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.25)'; };
-            row.onmouseleave = () => { row.style.background = 'transparent'; };
+            row.className = 'dd-btn' + (item.danger ? ' dd-danger' : '');
+            row.style.cssText = 'width: 100%; text-align: left;';
+            // Items name a pixel icon (iconName) or give a small symbol.
+            const icon = item.iconName ? DocsDoodads.Ui.icon(item.iconName, 1) : `<span style="width: 16px; text-align: center;">${escapeHtml(item.icon || '•')}</span>`;
+            row.innerHTML = `${icon}<span>${escapeHtml(item.label)}</span>`;
             row.onclick = (e) => {
                 e.stopPropagation();
                 this.closeContextMenu();
@@ -1314,36 +1301,36 @@
         overlay.id = 'dd-import-modal';
         overlay.style.cssText = `
             position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10030; display: flex;
-            align-items: center; justify-content: center; background: rgba(2,6,23,0.72);
+            align-items: center; justify-content: center; background: rgba(47, 42, 67, 0.35);
             pointer-events: auto;
         `;
         const modal = document.createElement('div');
         modal.className = 'dd-glass';
-        modal.style.cssText = 'width: 430px; padding: 20px; color: #e2e8f0;';
+        modal.style.cssText = 'width: 430px; padding: 20px; color: var(--dd-text);';
         const destinationOptions = DocsDoodads.Import.destinations
             .map(destination => `<option value="${destination}">${destination}</option>`)
             .join('');
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 6px;">IMPORT PROJECT ASSETS</div>
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 16px;">
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('plus', 1)} Add Files</div>
+            <div style="font-size: 11px; color: var(--dd-muted); margin-bottom: 16px;">
                 ${supportedCount} supported file(s) found${collected.files.length !== supportedCount ? `; ${collected.files.length - supportedCount} unsupported skipped` : ''}.
             </div>
-            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: #cbd5e1;">Destination</label>
-            <select id="dd-import-destination" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: var(--dd-text);">Destination</label>
+            <select id="dd-import-destination" style="width: 100%; margin-bottom: 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 <option value="auto">Auto-route by asset type</option>
                 ${destinationOptions}
             </select>
-            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: #cbd5e1;">When a filename already exists (apply to all)</label>
-            <select id="dd-import-collision" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: var(--dd-text);">When a filename already exists (apply to all)</label>
+            <select id="dd-import-collision" style="width: 100%; margin-bottom: 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 <option value="rename">Keep both (add numeric suffix)</option>
                 <option value="skip">Skip incoming file</option>
                 <option value="overwrite">Overwrite existing file</option>
                 <option value="error">Cancel batch on collision</option>
             </select>
-            <label style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #cbd5e1; margin-bottom: 16px;">
+            <label style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--dd-text); margin-bottom: 16px;">
                 <input id="dd-import-auto-slice" type="checkbox" /> Open the first imported image in the slicer
             </label>
-            <div id="dd-import-warning" style="display: none; color: #fbbf24; font-size: 11px; margin: -6px 0 12px;">
+            <div id="dd-import-warning" style="display: none; color: var(--dd-warn); font-size: 11px; margin: -6px 0 12px;">
                 Overwrite is explicit and transactional; existing files are restored if the batch fails.
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
@@ -1404,18 +1391,18 @@
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 440px; padding: 22px; z-index: 10025; text-align: center;
-            border: 2px solid #ef4444;
+            border: 2px solid var(--dd-danger);
         `;
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #ef4444; font-size: 15px; margin-bottom: 10px;">EXTERNAL CONFLICT DETECTED</div>
-            <div style="font-size: 12px; line-height: 1.6; color: #cbd5e1; margin-bottom: 18px;">
-                The current map file was modified externally (e.g. in the RPG Maker MZ editor) since this workspace session began.<br><br>
-                Overwriting now may erase external edits made in MZ.
+            <div class="dd-pop-title" style="justify-content: center; font-size: 15px;">${DocsDoodads.Ui.icon('help', 2)} This map was changed in RPG Maker MZ</div>
+            <div style="font-size: 12px; line-height: 1.6; color: var(--dd-text); margin-bottom: 16px;">
+                Someone saved this map in the MZ editor after the Doodads editor was opened.
+                Saving now would replace those changes with yours.
             </div>
             <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="dd-btn" id="dd-conf-force" style="background: #b91c1c;">Force Overwrite With Workspace Changes</button>
-                <button class="dd-btn" id="dd-conf-reload">Reload Map from Disk (Discard Workspace Staged)</button>
-                <button class="dd-btn" id="dd-conf-cancel">Cancel Save</button>
+                <button class="dd-btn" id="dd-conf-cancel" style="padding: 8px;">Don't Save Yet</button>
+                <button class="dd-btn" id="dd-conf-reload" style="padding: 8px;">Use MZ's Version (my event changes are dropped)</button>
+                <button class="dd-btn dd-btn-danger" id="dd-conf-force" style="padding: 8px;">Save Mine Anyway (MZ's changes are replaced)</button>
             </div>
         `;
         document.body.appendChild(modal);
@@ -1450,20 +1437,20 @@
             width: 440px; padding: 20px; z-index: 10010;
         `;
         diag.innerHTML = `
-            <div style="font-weight: bold; font-size: 14px; color: #60a5fa; margin-bottom: 12px;">SYSTEM DIAGNOSTICS</div>
-            <div style="font-size: 12px; line-height: 1.8; color: #cbd5e1;">
-                <div>Total Indexed Assets: <strong style="color: #fff;">${DocsDoodads.AssetIndex.list.length}</strong></div>
-                <div>Thumbnail Cache Count: <strong style="color: #fff;">${Object.keys(DocsDoodads.Thumbnail.cache).length}</strong></div>
-                <div>Background Work Queue: <strong style="color: #fff;">${DocsDoodads.Thumbnail.queue.length} jobs</strong></div>
-                <div>Undo History Depth: <strong style="color: #fff;">${DocsDoodads.Undo.undoStack.length} actions</strong></div>
-                <div>Current Map ID: <strong style="color: #fff;">${$gameMap ? $gameMap.mapId() : 0}</strong></div>
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('info', 1)} Info</div>
+            <div style="font-size: 12px; line-height: 1.8; color: var(--dd-text);">
+                <div>Total Indexed Assets: <strong style="color: var(--dd-text);">${DocsDoodads.AssetIndex.list.length}</strong></div>
+                <div>Thumbnail Cache Count: <strong style="color: var(--dd-text);">${Object.keys(DocsDoodads.Thumbnail.cache).length}</strong></div>
+                <div>Background Work Queue: <strong style="color: var(--dd-text);">${DocsDoodads.Thumbnail.queue.length} jobs</strong></div>
+                <div>Undo History Depth: <strong style="color: var(--dd-text);">${DocsDoodads.Undo.undoStack.length} actions</strong></div>
+                <div>Current Map ID: <strong style="color: var(--dd-text);">${$gameMap ? $gameMap.mapId() : 0}</strong></div>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 16px;">
                 <button class="dd-btn dd-btn-primary" id="dd-rebuild-idx-btn" style="flex: 1;">Rebuild Index</button>
                 <button class="dd-btn" id="dd-clear-cache-btn" style="flex: 1;">Clear Cache</button>
                 <button class="dd-btn" id="dd-close-diag-btn">Close</button>
             </div>
-            <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: #f59e0b; color: #fde68a;">Restore Project Backup…</button>
+            <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: var(--dd-warn); color: var(--dd-warn);">Restore Project Backup…</button>
         `;
         document.body.appendChild(diag);
 
@@ -1503,22 +1490,22 @@
         modal.className = 'dd-glass';
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 480px; padding: 20px; z-index: 10035; border: 1px solid #f59e0b;
+            width: 480px; padding: 20px; z-index: 10035; border: 1px solid var(--dd-warn);
         `;
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #fde68a; font-size: 14px; margin-bottom: 8px;">RESTORE PROJECT BACKUP</div>
-            <div style="font-size: 11px; line-height: 1.5; color: #cbd5e1; margin-bottom: 14px;">
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('folder', 1)} Bring Back a Backup</div>
+            <div style="font-size: 11px; line-height: 1.5; color: var(--dd-text); margin-bottom: 14px;">
                 Backups are validated before restore. The current file is backed up again first so this action remains reversible.
             </div>
-            <label style="font-size: 11px; color: #94a3b8;">Project file</label>
-            <select id="dd-restore-target" style="width: 100%; margin: 5px 0 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <label style="font-size: 11px; color: var(--dd-muted);">Project file</label>
+            <select id="dd-restore-target" style="width: 100%; margin: 5px 0 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 ${targets.map(target => `<option value="${target.path}">${target.label} — ${target.path}</option>`).join('')}
             </select>
-            <label style="font-size: 11px; color: #94a3b8;">Backup snapshot</label>
-            <select id="dd-restore-source" style="width: 100%; margin: 5px 0 16px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;"></select>
+            <label style="font-size: 11px; color: var(--dd-muted);">Backup snapshot</label>
+            <select id="dd-restore-source" style="width: 100%; margin: 5px 0 16px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;"></select>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
                 <button class="dd-btn" id="dd-restore-cancel">Cancel</button>
-                <button class="dd-btn" id="dd-restore-confirm" style="background: #b45309;">Restore Selected Backup</button>
+                <button class="dd-btn" id="dd-restore-confirm" style="background: var(--dd-warn-soft);">Restore Selected Backup</button>
             </div>
         `;
         document.body.appendChild(modal);
@@ -1580,17 +1567,19 @@
 
     // kind: a duration in ms, or 'info' / 'success' / 'error' (colour, and errors stay longer).
     showToast(msg, kind) {
-        const styles = { info: ['#2563eb', 2200], success: ['#15803d', 2200], error: ['#b91c1c', 5000] };
-        const [background, wait] = typeof kind === 'number' ? ['#2563eb', kind] : (styles[kind] || styles.info);
+        const styles = { info: ['info', 2200], success: ['done', 2200], error: ['close', 5000] };
+        const [icon, wait] = typeof kind === 'number' ? ['info', kind] : (styles[kind] || styles.info);
         const duration = Math.max(800, Number(wait) || 2200);
+        // One at a time: a new message replaces the last.
+        const old = document.getElementById('dd-toast');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
         const toast = document.createElement('div');
-        toast.style.cssText = `
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            background: ${background}; color: #fff; padding: 8px 16px; border-radius: 20px;
-            font-size: 12px; font-weight: bold; z-index: 10030; box-shadow: 0 4px 14px rgba(0,0,0,0.5);
-            pointer-events: none; transition: opacity 0.3s;
-        `;
-        toast.textContent = msg;
+        toast.id = 'dd-toast';
+        toast.className = 'dd-toast' + (kind === 'success' ? ' dd-toast-success' : kind === 'error' ? ' dd-toast-error' : '');
+        toast.innerHTML = `${DocsDoodads.Ui.icon(icon, 1)}<span></span>`;
+        const text = toast.querySelector ? toast.querySelector('span') : null;
+        if (text) text.textContent = msg; else toast.textContent = msg;
+        if (kind === 'error') DocsDoodads.Ui.sound('buzzer');
         document.body.appendChild(toast);
         setTimeout(() => {
             toast.style.opacity = '0';

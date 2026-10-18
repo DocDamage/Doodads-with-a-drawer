@@ -16,7 +16,7 @@ DocsDoodads.Workspace = {
     selectedAsset: null,
     selectedDoodad: null,
     selectedEvent: null,
-    currentCategory: 'All',
+    currentCategory: 'Doodads',
     searchQuery: '',
     placementTool: null, // 'stamp', 'eyedropper', 'brush'
     brushSettings: { radius: 80, density: 3, scaleJitter: 0.15, rotateJitter: 25, minDistance: 32, flipChance: 0.5, hueJitter: 0, regions: '', terrainTags: '', avoidBlocked: false },
@@ -32,22 +32,25 @@ DocsDoodads.Workspace = {
         if (this.mounted) this.close(); else this.open();
     },
 
-    // One placement tool at a time; keeps the toolbar highlight and brush popover in sync.
+    // One placement tool at a time: its button lights up, its options card opens under it, and the hint
+    // bubble says what to do. No tool (null) is Select.
+    toolButtons: { select: 'dd-select-btn', eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn', terrain: 'dd-terrain-btn' },
+    toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
+
     setPlacementTool(tool) {
         this.placementTool = tool || null;
-        const buttons = { eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn' };
-        for (const [name, id] of Object.entries(buttons)) {
+        for (const [name, id] of Object.entries(this.toolButtons)) {
             const btn = document.getElementById(id);
-            if (btn) btn.classList.toggle('dd-btn-active', this.placementTool === name);
+            if (btn && btn.classList) btn.classList.toggle('dd-btn-active', (this.placementTool || 'select') === name);
         }
-        const brushPopover = document.getElementById('dd-brush-popover');
-        if (brushPopover) brushPopover.style.display = this.placementTool === 'brush' ? 'block' : 'none';
-        const pathPopover = document.getElementById('dd-path-popover');
-        if (pathPopover) pathPopover.style.display = this.placementTool === 'path' ? 'block' : 'none';
-        const biomePopover = document.getElementById('dd-biome-popover');
-        if (biomePopover) biomePopover.style.display = this.placementTool === 'biome' ? 'block' : 'none';
-        const terrainPopover = document.getElementById('dd-terrain-popover');
-        if (terrainPopover) terrainPopover.style.display = this.placementTool === 'terrain' ? 'block' : 'none';
+        for (const [name, id] of Object.entries(this.toolPopovers)) {
+            const pop = document.getElementById(id);
+            if (!pop) continue;
+            pop.style.display = this.placementTool === name ? 'block' : 'none';
+            if (this.placementTool === name) this.placePopover(pop, this.toolButtons[name]);
+        }
+        this.showMoreMenu(false);
+        DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
@@ -91,6 +94,8 @@ DocsDoodads.Workspace = {
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
         this.detachCanvasListeners();
         if (this._onWindowResize) window.removeEventListener('resize', this._onWindowResize);
+        if (this._onOutsidePointer) document.removeEventListener('pointerdown', this._onOutsidePointer, true);
+        this._onOutsidePointer = null;
         this.removeGhost();
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
@@ -184,273 +189,240 @@ DocsDoodads.Workspace = {
         return result;
     },
 
+    // The bag's tabs: [category, icon, name].
+    categoryTabs: [
+        ['Doodads', 'tree', 'Doodads'], ['Characters', 'person', 'People'], ['Tilesets', 'tiles', 'Tiles'],
+        ['Pictures', 'picture', 'Pictures'], ['Prefabs', 'box', 'Prefabs'], ['Audio', 'music', 'Sounds'],
+        ['Favorites', 'star', 'Favourites'], ['Recent', 'recent', 'Recently used'], ['All', 'all', 'Everything'],
+        ['Faces', 'face', 'Faces'], ['Battlers', 'sword', 'Battlers'], ['Backgrounds', 'scene', 'Backdrops'],
+        ['System', 'window', 'System']
+    ],
+
+    categoryName(category) {
+        const tab = this.categoryTabs.find(t => t[0] === category);
+        return tab ? tab[2] : category === 'Similar' ? 'Look-alikes' : category;
+    },
+
     buildDom() {
+        const U = DocsDoodads.Ui;
         const wrap = document.createElement('div');
         wrap.id = 'dd-asset-workspace-root';
         wrap.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            pointer-events: none; z-index: 10000; font-family: 'Segoe UI', Roboto, sans-serif;
-            user-select: none;
+            pointer-events: none; z-index: 10000; user-select: none;
         `;
 
         const style = document.createElement('style');
-        style.textContent = `
-            #dd-asset-workspace-root * { box-sizing: border-box; }
-            .dd-glass {
-                background: rgba(17, 24, 39, 0.92);
-                backdrop-filter: blur(16px);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                color: #e2e8f0;
-                box-shadow: 0 12px 36px rgba(0,0,0,0.65);
-                pointer-events: auto;
-                /* Panels appended to the page (Asset Tools, Post FX) sit outside the workspace root. */
-                font-family: 'Segoe UI', Roboto, sans-serif;
-            }
-            .dd-btn {
-                background: #1f2937; color: #f1f5f9; border: 1px solid #374151;
-                padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
-                transition: all 0.15s ease;
-            }
-            .dd-btn:hover { background: #374151; border-color: #60a5fa; }
-            #dd-category-tabs .dd-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
-            #dd-toolbar .dd-btn { padding: 5px 8px; white-space: nowrap; }
-            #dd-toolbar > div { flex-wrap: wrap; row-gap: 6px; }
-            .dd-btn-primary { background: #2563eb; border-color: #3b82f6; }
-            .dd-btn-primary:hover { background: #1d4ed8; }
-            .dd-btn-active { background: #059669 !important; border-color: #10b981 !important; color: #fff !important; }
-            .dd-card {
-                background: #18202f; border: 1px solid #283548; border-radius: 6px;
-                cursor: pointer; position: relative; overflow: hidden; transition: transform 0.15s, border-color 0.15s;
-            }
-            .dd-card:hover { transform: translateY(-2px); border-color: #3b82f6; }
-            .dd-card.selected { border: 2px solid #60a5fa; background: #1e293b; }
-            .dd-badge {
-                position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.75);
-                padding: 2px 5px; border-radius: 3px; font-size: 10px; color: #93c5fd;
-            }
-        `;
+        style.id = 'dd-ui-style';
+        style.textContent = U.styleText();
         wrap.appendChild(style);
 
-        // Top Toolbar
+        const tool = (id, icon, label, title, extra = '') =>
+            `<button class="dd-btn dd-tool ${extra}" id="${id}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
+        const slider = (id, label, valId, value, min, max, step = 1) => `
+            <div>
+                <div style="display: flex; justify-content: space-between; color: var(--dd-muted);"><span>${label}</span><b id="${valId}" style="color: var(--dd-text);">${value}</b></div>
+                <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${parseFloat(value)}" style="width: 100%;" />
+            </div>`;
+
+        // Top bar: the tools (pick one, use it on the map), undo, and save / done.
         const toolbar = document.createElement('div');
         toolbar.className = 'dd-glass';
         toolbar.id = 'dd-toolbar';
-        toolbar.style.cssText = `
-            position: absolute; top: 10px; left: 10px; right: 10px; min-height: 50px; gap: 6px 10px;
-            display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 6px 12px;
-        `;
+        toolbar.style.cssText = 'position: absolute; top: 8px; left: 8px; right: 8px;';
         toolbar.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-weight: bold; font-size: 14px; color: #60a5fa; letter-spacing: 0.5px;">DOC'S DOODADS</span>
-                <input type="text" id="dd-search-input" placeholder="Search (e.g. tree tag:prop -dead)"
-                    style="width: 200px; background: #0b1120; border: 1px solid #334155; color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 12px;" />
-                <select id="dd-collection-select" title="Show one collection (right-click an asset: Add to Collection)" style="max-width: 150px; background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
-                <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the assets stay)" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
-                <select id="dd-layout-select" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
-                <button class="dd-btn" id="dd-save-layout-btn" title="Save current panel sizes as custom layout">+ Layout</button>
-                <button class="dd-btn" id="dd-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
-                <button class="dd-btn" id="dd-undo-btn">Undo</button>
-                <button class="dd-btn" id="dd-redo-btn">Redo</button>
-                <button class="dd-btn" id="dd-undo-list-btn" title="Undo history: step back to any point">☰</button>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-                <button class="dd-btn" id="dd-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
-                <button class="dd-btn" id="dd-stamp-btn" title="Stamp: Click repeatedly to place">Stamp</button>
-                <button class="dd-btn" id="dd-brush-btn" title="Scatter Brush: Drag to scatter props">Scatter Brush</button>
-                <div id="dd-brush-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">BRUSH SETTINGS</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Radius:</span><span id="dd-brush-rad-val">80px</span>
-                            </div>
-                            <input type="range" id="dd-brush-rad" min="20" max="250" value="80" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Density:</span><span id="dd-brush-den-val">3</span>
-                            </div>
-                            <input type="range" id="dd-brush-den" min="1" max="10" value="3" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Scale Variation:</span><span id="dd-brush-scale-val">15%</span>
-                            </div>
-                            <input type="range" id="dd-brush-scale" min="0" max="50" value="15" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Rotation Variation:</span><span id="dd-brush-rot-val">25°</span>
-                            </div>
-                            <input type="range" id="dd-brush-rot" min="0" max="180" value="25" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Min Spacing:</span><span id="dd-brush-min-val">32px</span>
-                            </div>
-                            <input type="range" id="dd-brush-min" min="0" max="160" value="32" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Flip Chance:</span><span id="dd-brush-flip-val">50%</span>
-                            </div>
-                            <input type="range" id="dd-brush-flip" min="0" max="100" value="50" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Hue Variation:</span><span id="dd-brush-hue-val">0°</span>
-                            </div>
-                            <input type="range" id="dd-brush-hue" min="0" max="90" value="0" style="width: 100%;" />
-                        </div>
-                        <div style="color: #94a3b8;">Only on regions (e.g. 1, 2):
-                            <input type="text" id="dd-brush-regions" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
-                        <div style="color: #94a3b8;">Only on terrain tags:
-                            <input type="text" id="dd-brush-terrain" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-brush-avoid" /> Skip impassable tiles</label>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-biome-btn" title="Biome brush: paint a mix of props (set up biomes in the map panel)">Biome</button>
-                <div id="dd-biome-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">BIOME BRUSH</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
-                        <select id="dd-biome-tool-pick" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
-                        <div>Radius: <span id="dd-biome-rad-val">96px</span><input type="range" id="dd-biome-rad" min="24" max="320" value="96" style="width: 100%;" /></div>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-biome-avoid" checked /> Skip impassable tiles</label>
-                        <div style="line-height: 1.4;">Drag on the map. Each biome's mix, spacing, edge thinning and patchiness are set in the map panel under Biomes.</div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-terrain-btn" title="Terrain: paint ground heights for the 3D view">Terrain</button>
-                <div id="dd-terrain-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">TERRAIN BRUSH</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
-                        <select id="dd-terrain-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
-                        <div>Strength: <span id="dd-terrain-amount-val">0.5</span> tiles<input type="range" id="dd-terrain-amount" min="0.1" max="3" step="0.1" value="0.5" style="width: 100%;" /></div>
-                        <div>Radius: <span id="dd-terrain-radius-val">1</span> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
-                        <label>Height for Set (tiles) <input type="number" step="0.25" id="dd-terrain-value" value="1" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
-                        <div style="line-height: 1.4;">Drag on the map. Each stroke is one undo step. Heights show in the 3D view; painting turns Terrain Height on for the map.</div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-sym-btn" title="Symmetry: mirror placements">Symmetry</button>
-                <div id="dd-sym-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">SYMMETRY</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
-                        <select id="dd-sym-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                            <label>Axis X (tile)<input type="number" step="0.5" id="dd-sym-x" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
-                            <label>Axis Y (tile)<input type="number" step="0.5" id="dd-sym-y" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
-                        </div>
-                        <button class="dd-btn" id="dd-sym-center">Centre of Map</button>
-                        <div style="line-height: 1.4;">Stamps, the scatter brush and the biome brush place mirrored copies too.</div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-path-btn" title="Path: click points, double-click or Enter to place props along them">Path</button>
-                <div id="dd-path-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 250px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 6px;">PATH TOOL</div>
-                    <div style="font-size: 10px; color: #94a3b8; margin-bottom: 8px; line-height: 1.4;">Click to add points. Double-click or Enter places the selected asset along them; Backspace removes the last point; Alt for off-grid points.</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;"><span>Spacing:</span><span id="dd-path-spacing-val">48px</span></div>
-                            <input type="range" id="dd-path-spacing" min="8" max="240" value="48" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;"><span>Random Offset:</span><span id="dd-path-jitter-val">0px</span></div>
-                            <input type="range" id="dd-path-jitter" min="0" max="24" value="0" style="width: 100%;" />
-                        </div>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-align" /> Turn pieces along the path</label>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-smooth" /> Smooth curve</label>
-                        <div style="color: #94a3b8;">End piece: <span id="dd-path-end-name" style="color: #e2e8f0;">same as path</span></div>
-                        <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-end-btn" style="flex: 1; padding: 3px;">Use Selected</button><button class="dd-btn" id="dd-path-end-clear" style="padding: 3px 6px;">Clear</button></div>
-                        <div style="color: #94a3b8;">Corner piece: <span id="dd-path-corner-name" style="color: #e2e8f0;">same as path</span></div>
-                        <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-corner-btn" style="flex: 1; padding: 3px;">Use Selected</button><button class="dd-btn" id="dd-path-corner-clear" style="padding: 3px 6px;">Clear</button></div>
-                        <div style="display: flex; gap: 4px; margin-top: 4px;"><button class="dd-btn dd-btn-primary" id="dd-path-place" style="flex: 1;">Place Path</button><button class="dd-btn" id="dd-path-clear">Clear Points</button></div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
-                <button class="dd-btn" id="dd-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
-                <button class="dd-btn" id="dd-tools-btn" title="Find duplicate and unused files">Asset Tools</button>
-                <button class="dd-btn" id="dd-postfx-btn" title="Post-processing looks, screen effects and map image export">Post FX</button>
-                <button class="dd-btn" id="dd-vfx-btn" title="Build particle and sprite-sheet effects">VFX</button>
-                <button class="dd-btn" id="dd-history-btn" title="Compare with backups and restore single doodads or events">History</button>
-                <button class="dd-btn" id="dd-diag-btn" title="Diagnostics">Diagnostics</button>
-                <button class="dd-btn dd-btn-primary" id="dd-save-btn">Save Changes</button>
-                <button class="dd-btn" id="dd-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
-            </div>
+            <div class="dd-brand" title="Doc's Doodads v${pluginVersion}">${U.icon('leaf', 2)}<span>Doodads</span></div>
+            ${tool('dd-select-btn', 'select', 'Select', 'Select: click things on the map to change them, drag to move (Esc)')}
+            ${tool('dd-stamp-btn', 'stamp', 'Stamp', 'Stamp: click the map to place the picked item again and again')}
+            ${tool('dd-brush-btn', 'brush', 'Scatter', 'Scatter: drag over the map to sprinkle the picked item around')}
+            ${tool('dd-biome-btn', 'biome', 'Paint', 'Paint: drag to paint a mix of plants (biomes)')}
+            ${tool('dd-path-btn', 'path', 'Path', 'Path: lay the picked item along a line you click out')}
+            ${tool('dd-terrain-btn', 'terrain', 'Hills', 'Hills: raise and lower the ground (3D view)')}
+            ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
+            ${tool('dd-eyedropper-btn', 'picker', 'Grab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)')}
+            <div class="dd-sep"></div>
+            ${tool('dd-undo-btn', 'undo', 'Undo', 'Undo (Ctrl+Z)')}
+            ${tool('dd-redo-btn', 'redo', 'Redo', 'Redo (Ctrl+Y)')}
+            ${tool('dd-undo-list-btn', 'history', 'Steps', 'Every step you took: jump back to any of them')}
+            <div class="dd-spacer"></div>
+            <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
+            ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
+            ${tool('dd-save-btn', 'save', 'Save', 'Save everything (Ctrl+S)', 'dd-btn-good')}
+            ${tool('dd-close-btn', 'done', 'Done', 'Close the editor and play (F10)', 'dd-btn-primary')}
         `;
         wrap.appendChild(toolbar);
 
-        // Left Drawer (Virtualized Cards)
+        // Tool options: each appears under the top bar while its tool is on.
+        const pops = document.createElement('div');
+        pops.innerHTML = `
+            <div id="dd-brush-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('brush', 1)} Scatter</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                    ${slider('dd-brush-rad', 'Size', 'dd-brush-rad-val', '80px', 20, 250)}
+                    ${slider('dd-brush-den', 'How many', 'dd-brush-den-val', '3', 1, 10)}
+                    ${slider('dd-brush-min', 'Space between', 'dd-brush-min-val', '32px', 0, 160)}
+                    <details>
+                        <summary>Variety</summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                            ${slider('dd-brush-scale', 'Size changes', 'dd-brush-scale-val', '15%', 0, 50)}
+                            ${slider('dd-brush-rot', 'Tilt', 'dd-brush-rot-val', '25°', 0, 180)}
+                            ${slider('dd-brush-flip', 'Flip chance', 'dd-brush-flip-val', '50%', 0, 100)}
+                            ${slider('dd-brush-hue', 'Colour changes', 'dd-brush-hue-val', '0°', 0, 90)}
+                        </div>
+                    </details>
+                    <details>
+                        <summary>Where it can go</summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; color: var(--dd-muted);">
+                            <label>Only on regions (e.g. 1, 2)<input type="text" id="dd-brush-regions" style="width: 100%;" /></label>
+                            <label>Only on terrain tags<input type="text" id="dd-brush-terrain" style="width: 100%;" /></label>
+                            <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-brush-avoid" /> Not where you can't walk</label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+            <div id="dd-biome-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('biome', 1)} Paint</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <select id="dd-biome-tool-pick" style="width: 100%;"></select>
+                    ${slider('dd-biome-rad', 'Size', 'dd-biome-rad-val', '96px', 24, 320)}
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-biome-avoid" checked /> Not where you can't walk</label>
+                    <div style="line-height: 1.4;">Drag on the map. Make mixes in Details (with nothing picked), under Biomes.</div>
+                </div>
+            </div>
+            <div id="dd-terrain-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('terrain', 1)} Hills</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <select id="dd-terrain-mode" style="width: 100%;"></select>
+                    <div>Strength: <b id="dd-terrain-amount-val" style="color: var(--dd-text);">0.5</b> tiles<input type="range" id="dd-terrain-amount" min="0.1" max="3" step="0.1" value="0.5" style="width: 100%;" /></div>
+                    <div>Size: <b id="dd-terrain-radius-val" style="color: var(--dd-text);">1</b> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
+                    <label>Height for "Set" (tiles)<input type="number" step="0.25" id="dd-terrain-value" value="1" style="width: 100%;" /></label>
+                    <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step. Heights show in the 3D view.</div>
+                </div>
+            </div>
+            <div id="dd-sym-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('mirror', 1)} Mirror</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <select id="dd-sym-mode" style="width: 100%;"></select>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <label>Line across (tile)<input type="number" step="0.5" id="dd-sym-x" style="width: 100%;" /></label>
+                        <label>Line down (tile)<input type="number" step="0.5" id="dd-sym-y" style="width: 100%;" /></label>
+                    </div>
+                    <button class="dd-btn" id="dd-sym-center">Middle of the map</button>
+                    <div style="line-height: 1.4;">Stamp, Scatter and Paint place mirrored copies too.</div>
+                </div>
+            </div>
+            <div id="dd-path-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('path', 1)} Path</div>
+                <div style="font-size: 11px; color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Click to add points. Double-click or Enter lays the picked item along them; Backspace takes back a point; Alt for off-grid points.</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                    ${slider('dd-path-spacing', 'Space between', 'dd-path-spacing-val', '48px', 8, 240)}
+                    ${slider('dd-path-jitter', 'Wobble', 'dd-path-jitter-val', '0px', 0, 24)}
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-align" /> Turn pieces along the path</label>
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-smooth" /> Smooth curve</label>
+                    <details>
+                        <summary>End and corner pieces</summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                            <div style="color: var(--dd-muted);">End piece: <b id="dd-path-end-name" style="color: var(--dd-text);">same as path</b></div>
+                            <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-end-btn" style="flex: 1;">Use Picked</button><button class="dd-btn" id="dd-path-end-clear">Clear</button></div>
+                            <div style="color: var(--dd-muted);">Corner piece: <b id="dd-path-corner-name" style="color: var(--dd-text);">same as path</b></div>
+                            <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-corner-btn" style="flex: 1;">Use Picked</button><button class="dd-btn" id="dd-path-corner-clear">Clear</button></div>
+                        </div>
+                    </details>
+                    <div style="display: flex; gap: 6px; margin-top: 4px;"><button class="dd-btn dd-btn-primary" id="dd-path-place" style="flex: 1;">Lay the Path</button><button class="dd-btn" id="dd-path-clear">Start Over</button></div>
+                </div>
+            </div>
+            <div id="dd-more-menu" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('more', 1)} More</div>
+                <div class="dd-more-grid">
+                    <button class="dd-btn" id="dd-slicer-btn" title="Cut a picked sprite sheet into pieces">${U.icon('scissors', 1)} Cut Up Sheet</button>
+                    <button class="dd-btn" id="dd-postfx-btn" title="Looks and screen effects for the whole game or this map; save a picture of the map">${U.icon('sun', 1)} Screen Looks</button>
+                    <button class="dd-btn" id="dd-vfx-btn" title="Make sparkles, smoke, fire and other effects">${U.icon('sparkle', 1)} Effects Maker</button>
+                    <button class="dd-btn" id="dd-history-btn" title="Compare with earlier saves and bring single things back">${U.icon('folder', 1)} Old Saves</button>
+                    <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
+                    <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
+                    <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
+                    <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
+                </div>
+                <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
+                <div style="display: flex; gap: 4px; margin-top: 4px;">
+                    <select id="dd-layout-select" style="flex: 1; min-width: 0;"></select>
+                    <button class="dd-btn" id="dd-save-layout-btn" title="Remember the panel sizes as a new layout">${U.icon('plus', 1)}</button>
+                    <button class="dd-btn" id="dd-del-layout-btn" title="Delete this layout" style="display: none;">${U.icon('trash', 1)}</button>
+                </div>
+            </div>
+        `;
+        while (pops.firstChild) wrap.appendChild(pops.firstChild);
+
+        // The bag (left): everything you can place.
         const drawer = document.createElement('div');
         drawer.className = 'dd-glass';
         drawer.id = 'dd-drawer-panel';
         drawer.style.cssText = `
-            position: absolute; top: 70px; left: 10px; bottom: 32px; width: 360px;
-            display: flex; flex-direction: column; overflow: hidden;
+            position: absolute; top: 76px; left: 8px; bottom: 8px; width: 250px; padding: 10px;
+            display: flex; flex-direction: column; gap: 7px; overflow: hidden;
         `;
         drawer.innerHTML = `
-            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Drawer"></div>
-            <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; flex-wrap: wrap; gap: 4px;" id="dd-category-tabs">
-                <button class="dd-btn dd-btn-primary" data-cat="All">All</button>
-                <button class="dd-btn" data-cat="Characters">Characters</button>
-                <button class="dd-btn" data-cat="Doodads">Doodads</button>
-                <button class="dd-btn" data-cat="Tilesets">Tiles</button>
-                <button class="dd-btn" data-cat="Pictures">Pictures</button>
-                <button class="dd-btn" data-cat="Faces">Faces</button>
-                <button class="dd-btn" data-cat="Battlers">Battlers</button>
-                <button class="dd-btn" data-cat="Backgrounds">Backgrounds</button>
-                <button class="dd-btn" data-cat="System">System</button>
-                <button class="dd-btn" data-cat="Audio">Audio</button>
-                <button class="dd-btn" data-cat="Prefabs" title="Saved prefabs: groups of doodads and events">Prefabs</button>
-                <button class="dd-btn" data-cat="Favorites" title="Show Favorited Assets">★ Favs</button>
-                <button class="dd-btn" data-cat="Recent" title="Show Recently Used Assets">🕒 Recent</button>
+            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag">
+                ${U.icon('bag', 2)}
+                <span class="dd-grow">Item Bag <span id="dd-drawer-category" style="color: var(--dd-muted); font-weight: 800; font-size: 12px;"></span></span>
+                <button class="dd-btn dd-fold" id="dd-drawer-fold" title="Fold the bag away">${U.icon('left', 1)}</button>
             </div>
-            <div style="padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <span style="font-size: 11px; color: #94a3b8;" id="dd-asset-count">Assets: 0</span>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 11px; color: #94a3b8;">Zoom:</span>
+            <div style="display: flex; gap: 6px;">
+                <div class="dd-search">${U.icon('search', 1)}<input type="text" id="dd-search-input" placeholder="Find... (tree, tag:rock, -dead)" /></div>
+            </div>
+            <div style="display: flex; gap: 6px;">
+                <select id="dd-collection-select" title="Show one collection (right-click an item: Add to Collection)" style="flex: 1; min-width: 0;"></select>
+                <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the items stay)" style="display: none; padding: 3px 7px;">${U.icon('trash', 1)}</button>
+            </div>
+            <div id="dd-category-tabs">
+                ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}">${U.icon(icon, 1)}</button>`).join('')}
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800;" id="dd-asset-count">0 items</span>
+                <div style="display: flex; align-items: center; gap: 4px;" title="Card size">
+                    ${U.icon('picture', 1)}
                     <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 80px;" />
                 </div>
             </div>
-            <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 10px; position: relative;">
+            <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 2px 2px 8px; position: relative; margin: 0 -4px 0 0;">
                 <div id="dd-cards-sizer" style="width: 100%; position: relative;">
-                    <div id="dd-cards-viewport" style="position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px;">
-                    </div>
+                    <div id="dd-cards-viewport" style="position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px;"></div>
                 </div>
             </div>
+            <div id="dd-status-right" style="font-size: 10px; color: var(--dd-faint); font-weight: 700;"></div>
         `;
         wrap.appendChild(drawer);
 
-        // Right Inspector Panel
+        // Details (right): what is picked or selected, or this map's settings.
         const inspector = document.createElement('div');
         inspector.className = 'dd-glass';
         inspector.id = 'dd-inspector-panel';
         inspector.style.cssText = `
-            position: absolute; top: 70px; right: 10px; bottom: 32px; width: 280px;
-            padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+            position: absolute; top: 76px; right: 8px; bottom: 8px; width: 270px;
+            padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
         `;
         inspector.innerHTML = `
-            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Inspector"></div>
-            <div style="font-weight: bold; font-size: 13px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;">
-                INSPECTOR & PROPERTIES
+            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div class="dd-panel-head" id="dd-inspector-head">
+                <button class="dd-btn dd-fold" id="dd-inspector-fold" title="Fold the details away (H)">${U.icon('right', 1)}</button>
+                <span id="dd-inspector-icon">${U.icon('map', 2)}</span>
+                <span class="dd-grow" id="dd-inspector-title">Details</span>
             </div>
-            <div id="dd-inspector-content" style="font-size: 12px; color: #94a3b8;">
-                Select an asset in the drawer or click a placed doodad/event on the map.
+            <div id="dd-inspector-content" style="font-size: 12px; color: var(--dd-muted);">
+                Pick something in the bag or click a placed thing on the map.
             </div>
         `;
         wrap.appendChild(inspector);
 
-        // Bottom Status Bar
-        const statusBar = document.createElement('div');
-        statusBar.className = 'dd-glass';
-        statusBar.style.cssText = `
-            position: absolute; bottom: 5px; left: 10px; right: 10px; height: 24px;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 11px; color: #64748b;
-        `;
-        statusBar.innerHTML = `
-            <span id="dd-status-left">Doc's Doodads v${pluginVersion} Ready | Hold Alt for free placement</span>
-            <span id="dd-status-right">Map ID: ${$gameMap ? $gameMap.mapId() : 0} | Autosave Active</span>
-        `;
-        wrap.appendChild(statusBar);
+        // The hint bubble: what to do next.
+        const hint = document.createElement('div');
+        hint.className = 'dd-glass';
+        hint.id = 'dd-hint';
+        hint.innerHTML = `${U.icon('help', 1)}<span id="dd-status-left">${escapeHtml(U.hints.none)}</span>`;
+        wrap.appendChild(hint);
 
         document.body.appendChild(wrap);
         this.container = wrap;
@@ -458,20 +430,124 @@ DocsDoodads.Workspace = {
         this.inspectorEl = inspector;
 
         this.bindEvents();
+        const prefs = DocsDoodads.Ui.prefs();
+        if (prefs.drawerFolded) this.foldPanel('drawer', true);
+        if (prefs.inspectorFolded) this.foldPanel('inspector', true);
+        // The chosen layout's panel widths and card size.
+        DocsDoodads.Layout.apply(DocsDoodads.Layout.current);
+        this.setPlacementTool(this.placementTool);
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
+        if (!prefs.welcomed) this.showWelcome();
     },
 
-    // The toolbar wraps onto more rows in narrow windows; the side panels start just below it.
+    // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
+    // follow their buttons.
     layoutPanels() {
         const toolbar = document.getElementById('dd-toolbar');
         if (!toolbar) return;
-        const top = (toolbar.offsetTop || 10) + (toolbar.offsetHeight || 50) + 10;
+        const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
         for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
             const panel = document.getElementById(id);
             if (panel) panel.style.top = top + 'px';
         }
+        for (const [name, id] of Object.entries(this.toolPopovers)) {
+            const pop = document.getElementById(id);
+            if (pop && pop.style.display === 'block') this.placePopover(pop, this.toolButtons[name]);
+        }
+        this.placeHint();
+    },
+
+    // The hint bubble sits over the map, between the bag and the details panel.
+    placeHint() {
+        const hint = document.getElementById('dd-hint');
+        if (!hint || !hint.style) return;
+        const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
+        const room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
+        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
+        const width = Math.max(140, right - left);
+        hint.style.left = Math.round(left + width / 2) + 'px';
+        hint.style.maxWidth = Math.round(width) + 'px';
+    },
+
+    // An options card just under its top-bar button, kept inside the window.
+    placePopover(pop, buttonId) {
+        const toolbar = document.getElementById('dd-toolbar');
+        const btn = document.getElementById(buttonId);
+        if (!pop || !toolbar || !btn || typeof btn.getBoundingClientRect !== 'function') return;
+        const bar = toolbar.getBoundingClientRect(), at = btn.getBoundingClientRect();
+        const width = pop.offsetWidth || 270, room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        pop.style.top = Math.round(bar.bottom + 8) + 'px';
+        pop.style.left = Math.round(Math.max(8, Math.min(room - width - 8, at.left + at.width / 2 - width / 2))) + 'px';
+    },
+
+    showMoreMenu(open) {
+        const menu = document.getElementById('dd-more-menu');
+        if (!menu) return;
+        menu.style.display = open ? 'block' : 'none';
+        const btn = document.getElementById('dd-more-btn');
+        if (btn && btn.classList) btn.classList.toggle('dd-btn-active', Boolean(open));
+        if (open) {
+            this.placePopover(menu, 'dd-more-btn');
+            const grid = document.getElementById('dd-grid-label');
+            if (grid) grid.textContent = this.gridSnapShow ? 'Hide Grid' : 'Show Grid';
+            const sound = document.getElementById('dd-sound-label');
+            if (sound) sound.textContent = DocsDoodads.Ui.prefs().sounds === false ? 'Sounds: Off' : 'Sounds: On';
+        }
+    },
+
+    // The bag and the details panel fold away to a narrow strip (remembered on this computer).
+    foldPanel(which, folded) {
+        const panel = document.getElementById(which === 'drawer' ? 'dd-drawer-panel' : 'dd-inspector-panel');
+        if (!panel || !panel.classList) return;
+        panel.classList.toggle('dd-collapsed', Boolean(folded));
+        const resizer = document.getElementById(which === 'drawer' ? 'dd-drawer-resizer' : 'dd-inspector-resizer');
+        if (resizer) resizer.style.display = folded ? 'none' : 'block';
+        const fold = document.getElementById(which === 'drawer' ? 'dd-drawer-fold' : 'dd-inspector-fold');
+        const U = DocsDoodads.Ui;
+        if (fold) {
+            fold.innerHTML = U.icon(which === 'drawer' ? (folded ? 'right' : 'left') : (folded ? 'left' : 'right'), 1);
+            fold.title = folded ? 'Open it again' : (which === 'drawer' ? 'Fold the bag away' : 'Fold the details away (H)');
+        }
+        U.setPref(which + 'Folded', Boolean(folded));
+        if (!folded && which === 'drawer') this.updateVirtualGrid(true);
+        this.placeHint();
+    },
+
+    isFolded(which) {
+        const panel = document.getElementById(which === 'drawer' ? 'dd-drawer-panel' : 'dd-inspector-panel');
+        return Boolean(panel && panel.classList && panel.classList.contains('dd-collapsed'));
+    },
+
+    // The first time (and from More, How to Use): three steps to get going.
+    showWelcome() {
+        const U = DocsDoodads.Ui;
+        const old = document.getElementById('dd-welcome');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        const card = document.createElement('div');
+        card.id = 'dd-welcome';
+        card.className = 'dd-glass';
+        card.innerHTML = `
+            ${U.icon('leaf', 3)}
+            <h2>Let's decorate!</h2>
+            <div style="color: var(--dd-muted);">Three steps, that's all:</div>
+            <ol>
+                <li><span class="dd-num">1</span>${U.icon('bag', 2)}<span>Pick something from the <b>Item Bag</b> on the left.</span></li>
+                <li><span class="dd-num">2</span>${U.icon('select', 2)}<span><b>Click the map</b> to put it there. Drag things to move them; right-click for more.</span></li>
+                <li><span class="dd-num">3</span>${U.icon('save', 2)}<span>Press <b>Save</b>, then <b>Done</b> to play.</span></li>
+            </ol>
+            <div style="color: var(--dd-muted); font-size: 11px; margin-bottom: 12px;">Stuck? The bubble at the bottom always says what to do next.</div>
+            <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
+        `;
+        (this.container || document.body).appendChild(card);
+        const ok = document.getElementById('dd-welcome-ok');
+        if (ok) ok.onclick = () => {
+            U.setPref('welcomed', true);
+            U.sound('ok');
+            if (card.parentNode) card.parentNode.removeChild(card);
+        };
     },
 
     refreshLayoutSelector() {
@@ -535,7 +611,7 @@ DocsDoodads.Workspace = {
     },
 
     bindEvents() {
-        document.getElementById('dd-close-btn').onclick = () => this.close();
+        document.getElementById('dd-close-btn').onclick = () => { DocsDoodads.Ui.sound('cancel'); this.close(); };
         document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
         document.getElementById('dd-undo-btn').onclick = () => DocsDoodads.Undo.undo();
         document.getElementById('dd-undo-list-btn').onclick = () => this.toggleUndoHistory();
@@ -589,6 +665,7 @@ DocsDoodads.Workspace = {
                     const newW = Math.max(200, Math.min(800, startWidth + (ev.clientX - startX)));
                     this.drawerEl.style.width = newW + 'px';
                     this.updateVirtualGrid(true);
+                    this.placeHint();
                 };
                 const onMouseUp = () => {
                     isResizing = false;
@@ -615,6 +692,7 @@ DocsDoodads.Workspace = {
                     if (!isResizing) return;
                     const newW = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX)));
                     this.inspectorEl.style.width = newW + 'px';
+                    this.placeHint();
                 };
                 const onMouseUp = () => {
                     isResizing = false;
@@ -660,17 +738,58 @@ DocsDoodads.Workspace = {
 
         const catTabs = document.getElementById('dd-category-tabs');
         catTabs.onclick = (e) => {
-            if (e.target.dataset.cat) {
-                catTabs.querySelectorAll('button').forEach(b => b.className = 'dd-btn');
-                e.target.className = 'dd-btn dd-btn-primary';
-                this.currentCategory = e.target.dataset.cat;
-                this.refreshDrawerCards();
+            const tab = e.target && e.target.closest ? e.target.closest('button') : e.target;
+            if (tab && tab.dataset && tab.dataset.cat) {
+                this._categoryChosen = true;
+                DocsDoodads.Ui.sound('cursor');
+                this.setCategory(tab.dataset.cat);
             }
         };
 
+        // The new buttons: Select, More (and what is in it), folding the panels.
+        const U = DocsDoodads.Ui;
+        const on = (id, handler) => { const node = document.getElementById(id); if (node) node.onclick = handler; };
+        on('dd-select-btn', () => { U.sound('ok'); this.setPlacementTool(null); });
+        on('dd-more-btn', () => { U.sound('cursor'); this.showMoreMenu(document.getElementById('dd-more-menu').style.display !== 'block'); });
+        on('dd-grid-btn', () => { this.toggleGrid(); this.showMoreMenu(false); });
+        on('dd-sound-btn', () => {
+            U.setPref('sounds', U.prefs().sounds === false);
+            U.sound('ok');
+            this.showMoreMenu(true);
+        });
+        on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
+        on('dd-help-btn', () => { this.showMoreMenu(false); this.showWelcome(); });
+        on('dd-drawer-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('drawer', !this.isFolded('drawer')); });
+        on('dd-inspector-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('inspector', !this.isFolded('inspector')); });
+        // A folded panel opens again from anywhere on its strip.
+        on('dd-drawer-head', () => { if (this.isFolded('drawer')) this.foldPanel('drawer', false); });
+        on('dd-inspector-head', () => { if (this.isFolded('inspector')) this.foldPanel('inspector', false); });
+        // More and Mirror close when you click anywhere else (or press Esc).
+        if (this._onOutsidePointer) document.removeEventListener('pointerdown', this._onOutsidePointer, true);
+        this._onOutsidePointer = e => {
+            const inside = (id, buttonId) => {
+                const el = document.getElementById(id), btn = document.getElementById(buttonId);
+                return (el && el.contains && el.contains(e.target)) || (btn && btn.contains && btn.contains(e.target));
+            };
+            const more = document.getElementById('dd-more-menu');
+            if (more && more.style.display === 'block' && !inside('dd-more-menu', 'dd-more-btn')) this.showMoreMenu(false);
+            const sym = document.getElementById('dd-sym-popover');
+            if (sym && sym.style.display === 'block' && !inside('dd-sym-popover', 'dd-sym-btn')) sym.style.display = 'none';
+        };
+        document.addEventListener('pointerdown', this._onOutsidePointer, true);
+        // The More menu closes once one of its tools opens (the layout buttons keep it open).
+        const more = document.getElementById('dd-more-menu');
+        if (more) more.addEventListener('click', e => {
+            const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+            if (btn && /^(dd-slicer-btn|dd-postfx-btn|dd-vfx-btn|dd-history-btn|dd-tools-btn|dd-diag-btn)$/.test(btn.id)) {
+                U.sound('ok');
+                this.showMoreMenu(false);
+            }
+        });
+
         document.getElementById('dd-slicer-btn').onclick = () => {
             if (this.selectedAsset) DocsDoodads.Slicing.Editor.open(this.selectedAsset);
-            else alert("Please select a sprite sheet in the drawer first!");
+            else alert("First pick a sprite sheet in the Item Bag.");
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
@@ -685,18 +804,17 @@ DocsDoodads.Workspace = {
             document.getElementById('dd-stop-audio-btn').style.display = 'none';
         };
 
-        document.getElementById('dd-eyedropper-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'eyedropper' ? null : 'eyedropper');
-            this.showToast(this.placementTool ? "Eyedropper Active: Click any object on map" : "Eyedropper Deactivated");
+        const pickTool = name => {
+            DocsDoodads.Ui.sound('ok');
+            this.setPlacementTool(this.placementTool === name ? null : name);
+            // Tools that place the picked item: say so when nothing is picked yet.
+            if (this.placementTool && ['stamp', 'brush', 'path'].includes(this.placementTool) && !this.selectedAsset) {
+                this.showToast('First pick something from the Item Bag.', 'info');
+            }
         };
-        document.getElementById('dd-stamp-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'stamp' ? null : 'stamp');
-            this.showToast(this.placementTool ? "Stamp Active: Click map to place repeatedly" : "Stamp Deactivated");
-        };
-        document.getElementById('dd-brush-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'brush' ? null : 'brush');
-            this.showToast(this.placementTool ? "Scatter Brush Active: Drag map to scatter" : "Brush Deactivated");
-        };
+        document.getElementById('dd-eyedropper-btn').onclick = () => pickTool('eyedropper');
+        document.getElementById('dd-stamp-btn').onclick = () => pickTool('stamp');
+        document.getElementById('dd-brush-btn').onclick = () => pickTool('brush');
 
         const setupBrushSlider = (id, prop, valId, suffix, mult = 1) => {
             const el = document.getElementById(id);
@@ -720,10 +838,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-brush-terrain').oninput = (ev) => { this.brushSettings.terrainTags = ev.target.value; };
         document.getElementById('dd-brush-avoid').onchange = (ev) => { this.brushSettings.avoidBlocked = Boolean(ev.target.checked); };
 
-        document.getElementById('dd-path-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'path' ? null : 'path');
-            this.showToast(this.placementTool ? "Path Active: click points on the map" : "Path Deactivated");
-        };
+        document.getElementById('dd-path-btn').onclick = () => pickTool('path');
         const pathSlider = (id, prop) => {
             const input = document.getElementById(id);
             input.oninput = (ev) => {
@@ -739,7 +854,7 @@ DocsDoodads.Workspace = {
             const label = document.getElementById(`dd-path-${kind}-name`);
             document.getElementById(`dd-path-${kind}-btn`).onclick = () => {
                 if (!this.selectedAsset || this.selectedAsset.category === 'Audio' || this.selectedAsset.type === 'prefab') {
-                    this.showToast('Select an image asset in the drawer first.');
+                    this.showToast('First pick a picture in the Item Bag.');
                     return;
                 }
                 this.pathSettings[prop] = this.selectedAsset;
@@ -772,11 +887,20 @@ DocsDoodads.Workspace = {
             filtered = filtered.filter(a => a.category === this.currentCategory);
         }
         filtered = DocsDoodads.Search.filter(filtered, this.searchQuery);
+        // The bag opens on Doodads; a project without any (yet) opens on Everything instead.
+        if (!this._categoryChosen && this.currentCategory === 'Doodads' && filtered.length === 0 && !this.searchQuery &&
+            DocsDoodads.AssetIndex.list.length > 0 && !DocsDoodads.AssetIndex.list.some(a => a.category === 'Doodads')) {
+            this._categoryChosen = true;
+            this.setCategory('All');
+            return;
+        }
         this.filteredAssets = filtered;
 
         const countEl = document.getElementById('dd-asset-count');
         if (countEl) countEl.textContent = this.currentCategory === 'Similar' && this.similarSource
-            ? `Most like ${this.similarSource}: ${filtered.length}` : `Assets: ${filtered.length}`;
+            ? `Most like ${this.similarSource}: ${filtered.length}` : `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
+        const catEl = document.getElementById('dd-drawer-category');
+        if (catEl) catEl.textContent = '· ' + this.categoryName(this.currentCategory);
 
         // Back to the top only for a new search or tab; a reload, favourite or save keeps the place.
         const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}`;
@@ -797,14 +921,15 @@ DocsDoodads.Workspace = {
         const totalCount = assets.length;
         if (totalCount === 0) {
             sizer.style.height = '0px';
-            viewport.innerHTML = '<div style="color: #64748b; font-size: 12px; padding: 16px; text-align: center;">No matching assets found.</div>';
+            viewport.innerHTML = '<div style="color: var(--dd-faint); font-size: 12px; padding: 16px; text-align: center;">No matching assets found.</div>';
             return;
         }
 
         const size = this.thumbSize || defaultThumbnailSize;
         const gap = 8;
-        const containerW = Math.max(120, container.clientWidth - 20);
-        const cols = Math.max(1, Math.floor((containerW + gap) / (size + gap)));
+        const containerW = Math.max(120, container.clientWidth - 8);
+        // As many columns as cards of about the chosen size fit.
+        const cols = Math.max(1, Math.round((containerW + gap) / (size + gap)));
         const colWidth = Math.floor((containerW - (cols - 1) * gap) / cols);
         const cardHeight = colWidth + 24;
         const rowHeight = cardHeight + gap;
@@ -851,7 +976,7 @@ DocsDoodads.Workspace = {
         this.attachThumbAnimation(card, imgEl, asset);
 
         const title = document.createElement('div');
-        title.style.cssText = 'font-size: 10px; color: #e2e8f0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin-top: 3px;';
+        title.style.cssText = 'font-size: 10px; color: var(--dd-text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin-top: 3px;';
         title.textContent = asset.fileName;
         card.appendChild(title);
 
@@ -859,7 +984,6 @@ DocsDoodads.Workspace = {
             const favBadge = document.createElement('span');
             favBadge.className = 'dd-badge';
             favBadge.textContent = '★';
-            favBadge.style.color = '#fbbf24';
             card.appendChild(favBadge);
         }
 
@@ -869,10 +993,11 @@ DocsDoodads.Workspace = {
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));
             card.classList.add('selected');
 
+            DocsDoodads.Ui.sound('cursor');
             if (asset.category === 'Audio') {
                 DocsDoodads.Audio.playPreview(asset);
                 const stopBtn = document.getElementById('dd-stop-audio-btn');
-                if (stopBtn) stopBtn.style.display = 'block';
+                if (stopBtn) stopBtn.style.display = 'inline-flex';
             }
         };
 

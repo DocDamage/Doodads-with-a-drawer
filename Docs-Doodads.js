@@ -14,20 +14,26 @@
  * Doc's Doodads began as Qiu Jiu's QJ-Doodads (V1.2) and has grown into its own tool.
  * Projects saved by QJ-Doodads are read and migrated automatically.
  *
+ * THE EDITOR (F10 in a playtest): a top bar of big tools (Select, Stamp, Scatter, Paint,
+ * Path, Hills, Mirror, Grab, Undo, Redo, Steps, More, Save, Done), the Item Bag on the left,
+ * Details on the right (both fold away), and a hint bubble saying what to do next. More holds
+ * Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check and Info.
+ *
  * KEY CAPABILITIES:
- * 1. Visual Asset Drawer:
+ * 1. Item Bag (asset browser):
  *    - Virtualized browsing for 10,000+ assets with lightning performance.
- *    - Thumbnail slider (32px - 256px), list & grid views, folder hierarchy.
- *    - Real-time tokenized search (type:, tag:, folder:, favorite:, animated:, -neg).
+ *    - Card size slider, icon tabs by kind, folder hierarchy.
+ *    - Real-time tokenized search (type:, tag:, folder:, category:, collection:, favorite:,
+ *      animated:, used:, and a minus on any of them).
  *    - Favorites, custom collections, and recently used asset tracking.
  *
- * 2. Intelligent Slicing Engine & Interactive Slicer Modal:
+ * 2. Intelligent Slicing Engine & Cut Up Sheet:
  *    - Automatic detection of standard MZ sheets ($Single, 8-character, Faces, IconSet, SV).
  *    - Divisor-based grid candidate scoring.
  *    - Sidecar atlas metadata parsing (Aseprite, TexturePacker, .saf.json).
  *    - Canvas visual auto-slicer with adaptive Otsu alpha thresholding, border flood,
  *      morphological cleanup, 4-connected components, and gutter splitting.
- *    - Interactive 1600% zoomable Slicer Modal with 8-handle drag/resize, smart snapping,
+ *    - Cut Up Sheet: 1600% zoom, 8-handle drag/resize, smart snapping,
  *      alignment guides, region list sidebar, split, merge, align, distribute,
  *      and authoritative non-destructive slice metadata persistence.
  *    - PNG slice exporter (individual PNGs, batch, animation strips).
@@ -36,7 +42,7 @@
  *    - Drag any asset or slice directly onto the map with live ghost preview.
  *    - Free placement or tile grid snapping (48px or custom, hold Alt for free).
  *    - Stamping mode (click repeatedly to place props).
- *    - Eyedropper tool (Alt+Click placed object to select in drawer).
+ *    - Grab tool (Alt+Click a placed object to pick its art in the Item Bag).
  *    - Scatter brush with density, scale jitter, and rotation jitter.
  *    - In-map selection, arrow-key nudge (1px / 16px), Ctrl+D duplicate, Delete key,
  *      and Z-order layering.
@@ -53,7 +59,7 @@
  * 5. Direct Physical Doodad Collision:
  *    - Direct box collision without creating invisible blocker events.
  *    - Collision presets: Full Bounds, Bottom Half, Bottom Third, Center Box, Trunk, Wall.
- *    - Interactive visual collision rectangle editor in Inspector using relative coordinates.
+ *    - Interactive visual collision rectangle editor in Details using relative coordinates.
  *
  * 6. Audio Preview & Sound Triggers:
  *    - In-editor audio player with start/stop and animated playback indicators.
@@ -83,7 +89,7 @@
  *    - Event tags (note or page comment): <shadow>, <shadow: length 0.8, opacity 0.4>,
  *      <no shadow>, <motion blur>, <no motion blur>, <no reflection>.
  *
- * 11. Post-Processing (toolbar: Post FX):
+ * 11. Post-Processing (More: Screen Looks):
  *    - Bloom, colour grading, vignette, film grain, chromatic aberration, lens
  *      distortion, CRT, pixelate, sharpen and tilt-shift, with presets.
  *    - A game-wide look plus per-map looks; Set Post-Processing Look fades between
@@ -91,7 +97,7 @@
  *    - Quality setting, an Effects Quality option for players, and full-map
  *      PNG export to the screenshots folder.
  *
- * 12. Particles, VFX & Character Animation (toolbar: VFX):
+ * 12. Particles, VFX & Character Animation (More: Effects Maker):
  *    - Particle emitters on doodads (smoke, embers, fire, fireflies, leaves,
  *      mist, dust, sparkles, snow, bubbles, magic); grass that bends when walked through.
  *    - VFX builder: particle and sprite-sheet layers; Play VFX plugin command.
@@ -107,7 +113,7 @@
  * 14. Editor Tools:
  *    - Layers per map (show/hide, lock, hide in game), Symmetry, Biome brush,
  *      Dressing Rules (water edges, wall bases, beside paths...), visual save History,
- *      animated drawer thumbnails, and the Ctrl+K command palette.
+ *      animated Item Bag cards, and the Ctrl+K command palette (More: Find a Tool).
  *
  * 15. Visual Equipment & Destination Marker (map panel):
  *    - Paper-doll characters: a bare body plus parts. <visual: Sheet, z -1, part clothes>
@@ -153,7 +159,7 @@
  *    - A video sky: a looping movie (a 360° panorama turns with the camera, or one that
  *      fills the sky), tinted by day and night, optionally behind flat maps too; Set Sky
  *      Video changes it during play.
- *    - 3D models (glTF .glb/.gltf) on doodads (inspector: 3D Model): colours, textures and
+ *    - 3D models (glTF .glb/.gltf) on doodads (Details: 3D Model): colours, textures and
  *      vertex colours; metal, roughness, glow, cut-out and see-through materials, unlit;
  *      animations (pick one by name or number, set the speed) and skinned (rigged) models.
  *      They reload when re-exported while the editor is open, and the editor picks them by
@@ -178,7 +184,8 @@
  * - Ctrl + K         : Command palette (tools, panels, maps, assets, looks)
  * - Delete           : Delete selected doodad(s)
  * - Arrow Keys       : Nudge 1px (Shift + Arrow: 16px)
- * - Alt + Click      : Eyedropper (pick placed object on map)
+ * - Alt + Click      : Grab (pick a placed object's art)
+ * - H                : Fold or open the Details panel
  * - G                : Toggle Grid display
  * - Escape           : Cancel current placement tool / close modals
  * - Enter/Backspace  : Path tool: place along the path / remove last point
@@ -15544,64 +15551,67 @@ DocsDoodads.Slicing.Editor = {
         modal.id = 'dd-slicer-modal-root';
         modal.className = 'dd-glass';
         modal.style.cssText = `
-            position: fixed; top: 20px; left: 20px; right: 20px; bottom: 20px;
-            z-index: 10005; display: flex; flex-direction: column; overflow: hidden;
-            pointer-events: auto; font-family: 'Segoe UI', Roboto, sans-serif;
-            border: 1px solid rgba(255,255,255,0.18);
+            position: fixed; top: 12px; left: 12px; right: 12px; bottom: 12px;
+            z-index: 10005; display: flex; flex-direction: column; overflow: hidden; pointer-events: auto;
         `;
+        const U = DocsDoodads.Ui;
 
         modal.innerHTML = `
             <!-- Top Toolbar -->
-            <div style="height: 48px; background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; padding: 0 16px;">
+            <div style="padding: 8px 12px 6px; border-bottom: 2px solid var(--dd-line-soft); display: flex; flex-direction: column; gap: 6px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-weight: bold; color: #60a5fa; font-size: 13px;">SLICER: ${escapeHtml(this.asset.fileName)}</span>
-                    <button class="dd-btn" id="dd-slicer-undo" title="Undo (Ctrl+Z)">Undo</button>
-                    <button class="dd-btn" id="dd-slicer-redo" title="Redo (Ctrl+Y)">Redo</button>
-                    <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                    <button class="dd-btn dd-btn-primary" id="dd-slicer-auto-btn" title="Detect sprite regions automatically">Auto-Slice</button>
-                    <button class="dd-btn" id="dd-slicer-grid-btn" title="Slice into fixed grid">Fixed Grid</button>
-                    <button class="dd-btn" id="dd-slicer-add-btn" title="Add region">Add Box</button>
-                    <button class="dd-btn" id="dd-slicer-del-btn" title="Delete selected region">Delete</button>
-                    <button class="dd-btn" id="dd-slicer-dup-btn" title="Duplicate selected">Duplicate</button>
-                    <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                    <button class="dd-btn" id="dd-slicer-splitv-btn" title="Split vertical">Split Vert</button>
-                    <button class="dd-btn" id="dd-slicer-splith-btn" title="Split horizontal">Split Horz</button>
-                    <button class="dd-btn" id="dd-slicer-merge-btn" title="Merge the selected region with the next one in the list">Merge</button>
-                    <button class="dd-btn" id="dd-slicer-up-btn" title="Move the selected region up the list">▲</button>
-                    <button class="dd-btn" id="dd-slicer-down-btn" title="Move the selected region down the list">▼</button>
-                    <button class="dd-btn" id="dd-slicer-export-btn" title="Export individual PNG files">Export PNGs</button>
+                    ${U.icon('scissors', 2)}
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 900; font-size: 15px;">Cut Up Sheet</div>
+                        <div style="color: var(--dd-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(this.asset.fileName)}: each box becomes a piece you can place.</div>
+                    </div>
+                    <button class="dd-btn dd-btn-good" id="dd-slicer-save-btn" style="padding: 7px 16px;">${U.icon('save', 1)} Save Pieces</button>
+                    <button class="dd-btn" id="dd-slicer-close-btn" style="padding: 7px 12px;">${U.icon('close', 1)} Close</button>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <button class="dd-btn dd-btn-primary" id="dd-slicer-save-btn">Save Slices</button>
-                    <button class="dd-btn" id="dd-slicer-close-btn" style="background: #ef4444; border-color: #dc2626;">Close</button>
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;">
+                    <button class="dd-btn dd-btn-primary" id="dd-slicer-auto-btn" title="Find the pieces by themselves">${U.icon('sparkle', 1)} Auto-Slice</button>
+                    <button class="dd-btn" id="dd-slicer-grid-btn" title="Cut into equal pieces (columns x rows)">${U.icon('grid', 1)} Grid</button>
+                    <button class="dd-btn" id="dd-slicer-add-btn" title="Add a box">${U.icon('plus', 1)} Box</button>
+                    <button class="dd-btn" id="dd-slicer-dup-btn" title="Copy the picked box (Ctrl+D)">Copy</button>
+                    <button class="dd-btn" id="dd-slicer-del-btn" title="Delete the picked box (Delete)">${U.icon('trash', 1)}</button>
+                    <span style="width: 2px; height: 22px; background: var(--dd-line-soft); border-radius: 2px;"></span>
+                    <button class="dd-btn" id="dd-slicer-splitv-btn" title="Cut the picked box into a left and a right half">Split ▯▯</button>
+                    <button class="dd-btn" id="dd-slicer-splith-btn" title="Cut the picked box into a top and a bottom half">Split ▭</button>
+                    <button class="dd-btn" id="dd-slicer-merge-btn" title="Join the picked box with the next one in the list">Join</button>
+                    <button class="dd-btn" id="dd-slicer-up-btn" title="Move the picked box up the list">▲</button>
+                    <button class="dd-btn" id="dd-slicer-down-btn" title="Move the picked box down the list">▼</button>
+                    <span style="width: 2px; height: 22px; background: var(--dd-line-soft); border-radius: 2px;"></span>
+                    <button class="dd-btn" id="dd-slicer-undo" title="Undo (Ctrl+Z)">${U.icon('undo', 1)}</button>
+                    <button class="dd-btn" id="dd-slicer-redo" title="Redo (Ctrl+Y)">${U.icon('redo', 1)}</button>
+                    <button class="dd-btn" id="dd-slicer-export-btn" title="Save each piece as its own PNG file">Save as PNGs</button>
                 </div>
             </div>
 
             <!-- Workspace Body: Left Canvas Viewport + Right Region List -->
             <div style="flex: 1; display: flex; overflow: hidden; position: relative;">
                 <!-- Canvas Container -->
-                <div id="dd-slicer-canvas-container" style="flex: 1; background: #0b0f19; overflow: hidden; position: relative; cursor: default;">
+                <div id="dd-slicer-canvas-container" style="flex: 1; background: var(--dd-panel-2); border-radius: 14px; overflow: hidden; position: relative; cursor: default;">
                     <canvas id="dd-slicer-interactive-canvas" style="position: absolute; top: 0; left: 0;"></canvas>
                 </div>
 
                 <!-- Right Sidebar: Region List & Inspector -->
-                <div style="width: 320px; background: rgba(15, 23, 42, 0.95); border-left: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: bold; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between;">
-                        <span>REGIONS (<span id="dd-region-count">0</span>)</span>
-                        <span id="dd-slicer-zoom-indicator" style="color: #60a5fa;">100%</span>
+                <div style="width: 260px; background: var(--dd-panel); border-left: 2px solid var(--dd-line-soft); display: flex; flex-direction: column; overflow: hidden;">
+                    <div style="padding: 10px 14px; border-bottom: 1px solid var(--dd-line-soft); font-weight: bold; font-size: 12px; color: var(--dd-muted); display: flex; justify-content: space-between;">
+                        <span>Pieces (<span id="dd-region-count">0</span>)</span>
+                        <span id="dd-slicer-zoom-indicator" style="color: var(--dd-accent);">100%</span>
                     </div>
                     <div id="dd-region-list" style="flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
                     <!-- Selected Region Properties -->
-                    <div id="dd-region-inspector" style="padding: 12px; background: #111827; border-top: 1px solid rgba(255,255,255,0.1); font-size: 11px;">
-                        <div style="color: #64748b; text-align: center;">No region selected</div>
+                    <div id="dd-region-inspector" style="padding: 12px; background: var(--dd-field); border-top: 1px solid var(--dd-line-soft); font-size: 11px;">
+                        <div style="color: var(--dd-faint); text-align: center;">No region selected</div>
                     </div>
                 </div>
             </div>
 
             <!-- Bottom Status Bar -->
-            <div style="height: 26px; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 11px; color: #64748b;">
-                <span id="dd-slicer-hint">Mouse Wheel: Zoom (25%-1600%) | Space+Drag / Middle Click: Pan | Drag handle: Resize | Drag inside: Move | Drag empty: Create</span>
+            <div style="height: 26px; background: var(--dd-field); border-top: 1px solid var(--dd-line-soft); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 11px; color: var(--dd-faint);">
+                <span id="dd-slicer-hint">Wheel: zoom · Space or middle button + drag: look around · Drag a corner: resize · Drag on empty space: new box</span>
                 <span id="dd-slicer-img-dim">${this.img.naturalWidth} x ${this.img.naturalHeight} px</span>
             </div>
         `;
@@ -16087,8 +16097,8 @@ DocsDoodads.Slicing.Editor = {
             const tile = document.createElement('canvas');
             tile.width = tile.height = 32;
             const t = tile.getContext('2d');
-            t.fillStyle = '#0f172a'; t.fillRect(0, 0, 32, 32);
-            t.fillStyle = '#1e293b'; t.fillRect(16, 0, 16, 16); t.fillRect(0, 16, 16, 16);
+            t.fillStyle = '#f4f2fa'; t.fillRect(0, 0, 32, 32);
+            t.fillStyle = '#e8e5f1'; t.fillRect(16, 0, 16, 16); t.fillRect(0, 16, 16, 16);
             this._checker = tile;
         }
         ctx.fillStyle = ctx.createPattern(this._checker, 'repeat');
@@ -16220,9 +16230,9 @@ DocsDoodads.Slicing.Editor = {
             item.innerHTML = `
                 <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">
                     <strong>#${i + 1}</strong> ${escapeHtml(r.name || 'Region')}
-                    <span style="color: #64748b; margin-left: 4px;">(${r.w}x${r.h})</span>
+                    <span style="color: var(--dd-faint); margin-left: 4px;">(${r.w}x${r.h})</span>
                 </div>
-                <span style="color: #94a3b8; font-size: 10px;">${r.x},${r.y}</span>
+                <span style="color: var(--dd-muted); font-size: 10px;">${r.x},${r.y}</span>
             `;
             item.onclick = () => {
                 this.selectedRegionIdx = i;
@@ -16238,43 +16248,43 @@ DocsDoodads.Slicing.Editor = {
         const insp = document.getElementById('dd-region-inspector');
         if (!insp) return;
         if (this.selectedRegionIdx < 0 || this.selectedRegionIdx >= this.regions.length) {
-            insp.innerHTML = '<div style="color: #64748b; text-align: center;">No region selected</div>';
+            insp.innerHTML = '<div style="color: var(--dd-faint); text-align: center;">No region selected</div>';
             return;
         }
 
         const r = this.regions[this.selectedRegionIdx];
         insp.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; margin-bottom: 8px;">Region #${this.selectedRegionIdx + 1} Properties</div>
+            <div style="font-weight: bold; color: var(--dd-accent); margin-bottom: 8px;">Region #${this.selectedRegionIdx + 1} Properties</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">X:</label>
-                    <input type="number" id="dd-insp-rx" value="${r.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">X:</label>
+                    <input type="number" id="dd-insp-rx" value="${r.x}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Y:</label>
-                    <input type="number" id="dd-insp-ry" value="${r.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Y:</label>
+                    <input type="number" id="dd-insp-ry" value="${r.y}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Width:</label>
-                    <input type="number" id="dd-insp-rw" value="${r.w}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Width:</label>
+                    <input type="number" id="dd-insp-rw" value="${r.w}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Height:</label>
-                    <input type="number" id="dd-insp-rh" value="${r.h}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Height:</label>
+                    <input type="number" id="dd-insp-rh" value="${r.h}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
             </div>
             <div style="margin-top: 6px;">
-                <label style="color: #94a3b8; font-size: 10px;">Name:</label>
-                <input type="text" id="dd-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                <label style="color: var(--dd-muted); font-size: 10px;">Name:</label>
+                <input type="text" id="dd-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Pivot X:</label>
-                    <input type="number" step="0.1" id="dd-insp-pivx" value="${r.pivotX !== undefined ? r.pivotX : 0.5}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Pivot X:</label>
+                    <input type="number" step="0.1" id="dd-insp-pivx" value="${r.pivotX !== undefined ? r.pivotX : 0.5}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Pivot Y:</label>
-                    <input type="number" step="0.1" id="dd-insp-pivy" value="${r.pivotY !== undefined ? r.pivotY : 1.0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Pivot Y:</label>
+                    <input type="number" step="0.1" id="dd-insp-pivy" value="${r.pivotY !== undefined ? r.pivotY : 1.0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
             </div>
         `;
@@ -17443,11 +17453,11 @@ DocsDoodads.Persistence = {
 DocsDoodads.Layout = {
     filePath: 'data/DocsDoodadsLayouts.json',
     presets: {
-        Mapping: { drawerWidth: 360, inspectorWidth: 280, thumbSize: 96 },
-        Events: { drawerWidth: 320, inspectorWidth: 380, thumbSize: 80 },
-        Characters: { drawerWidth: 420, inspectorWidth: 260, thumbSize: 128 },
-        Tiles: { drawerWidth: 380, inspectorWidth: 260, thumbSize: 48 },
-        Compact: { drawerWidth: 280, inspectorWidth: 240, thumbSize: 64 }
+        Mapping: { drawerWidth: 250, inspectorWidth: 270, thumbSize: 64 },
+        Events: { drawerWidth: 230, inspectorWidth: 320, thumbSize: 64 },
+        Characters: { drawerWidth: 330, inspectorWidth: 250, thumbSize: 96 },
+        Tiles: { drawerWidth: 290, inspectorWidth: 250, thumbSize: 48 },
+        Compact: { drawerWidth: 210, inspectorWidth: 230, thumbSize: 56 }
     },
     custom: {},
     current: defaultLayoutName,
@@ -17919,6 +17929,318 @@ DocsDoodads.Import = {
 
 
 //==========================================================
+// SECTION 24b: DocsDoodads.UiIcons (WORKSPACE PIXEL ICONS)
+//==========================================================
+// Built from art/ui_icons.png by scripts/icons.js: edit the picture, then run npm run icons.
+DocsDoodads.UiIcons = {
+    size: 16,
+    cols: 8,
+    width: 128,
+    height: 112,
+    names: ["select","stamp","brush","biome","path","terrain","mirror","picker","undo","redo","history","more","save","done","search","bag","star","recent","all","tree","person","tiles","picture","face","sword","scene","window","music","box","map","gear","sparkle","sun","scissors","wrench","trash","layers","eye","lock","folder","grid","sound","help","close","left","right","plus","info","leaf"],
+    url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAABwCAYAAADWrHjSAAAMrElEQVR4nO1dva4sORHuJ9lgyRwQI5ZsiW5OAAkPQEC4EoIUgt2UaJGWkBSR8AAEIJBWQje52ZUINt8XaOTRqVFNTf18VXbPzDnjkqxzptsul/19rrLdf9v2yqR9+qO9p3vb8VrF7b9ZHUuVyOSV2d9/FtbddfzzD+9OydIn60PrR+qepSvSP5InquNfP/7pKak6ZnXU/otfqsnS3cH/+Jdt90jAwbcIcKr76/+ek/a72qYP77+7SJGuTF/2fH/9aj8nq21RnqiODnzHwSTBqcP2vPIrHR1wEoAAW+ABEPA3RoCPP//mggD8d7VNf/rj32ACUD8ifcmB7aIBjOSJ6uCj3/UAqOFu45MeINKHgi9TJ1U2FHl2oG5aSpSfj2w5yqPziN2dvJD90vgZscZlHKCnj7beAGqEabd0/SysVEJBlTTci2r9KPURwL/72UeYAJQX8S5dkJB1UWAWCaJRG5VHwN8s1//+s3PKhoJKzN/YaCN76X8+Ai1SZD3AdPA3gwBVEowQoOf/yT9+dU6VEeslRFcm5styWqJzXTRCZ+w/BPzNIQBKglnGd9C//J9NAGvCqIaC4iqgShoijkUESQrNbm6vd86y47f/3k8pPXA9AiCTme+//TOUPOMR8K0loxoKQNdfjfm8PPcaKAE4wGRnRACrPQT+D78uhm5rDoB0ThOzdS9FBIhcf7RkpPSD37+DZ+6VmM/Le6Of6o8IYI1wNM8Q+JsggDVhicpXQwABlon7Wr38eNeH5KvGfFneGuW8TUgI0OqO8vTfQ+BvjAAXhoEkaMrSz0pWAztgNGq1OnrDtXKW1+AEiLxLRFLrPAK+DGnaygb1VBaBq6FLrUAeQ+cA1gYQuiHkNYLHPlnGmjcQATj4lC87wq0QYRFAs0uSABlUqJ3d/aPtSYv0DF6+aghARPMAvF7ZyeRN5PGsDV6IQNuc7QvpHTz7KPYfToLDlE+SI8k3S89Rcij4S5YcLkeHjxl138IDzKhr2ObZjUTiHSpHdH57WULRMsqrm+er1mX1R2O7eDxlJ6y018ITvCXfZqwnkzqp0ymPle5FAF73CAG0CSk/18EmqZJAAxsmgGxgxY1Y5byOe3QPMIMAHvibIEDFCwyHMN44L3nuK6NDlo08gEcArWHoMdn2I0JABP7muH+EACebv/k8lS70ocBZIM4oX/UAsqwkjHfMsj/yYhaJLXIh1zemEKALAP6HL9q1vmonzOq8yAM0Yw5wBAEqBNZARsGPSICU00b4Rd8x8FUC8I6I2GYRAClnub8RD0A3WnCwkWNemyIiawSQ29HZm1o24Um43ZkQ0LQ7ohACcAMiIyUBkDKe+7M8wA5cktaOo8dkexACWl7M2/v3+iaSiAQWAS7uiUQJgBqUJUCkz+twzmbO6nIDnPbsL7dsackjwOZ4glk2us9DzAgBqCGVEBDptDyAZPMtCFDxAFzXbPC5bo0EGgG8CWCaAEgM1GJoRn/GA3Qy3NoDoATYwDA6Yqu20UPAoilNAG8Wj+bx9EfpqNG/TfYAt5BoHoSkUoVR4aFKEjbM1Ct1H9aJS5a8OllMf2LhcTdLgqzLjPLP1jfT/mr4mJWOaP9ZSZYAVJG3n63pasoNpZIAyPYo6ZcbMZn7AZvzfINpu7IGjy7E8LU6+jxFZA/p0/ZN+JPSEJCnQl1AEnCQLLHAOxNg310CRDrknb8eEbLge50+gwDehSAtaUtBC3h3E01zFefMjADes/ZN3MxwsYY3iHBl/IAHkOB7BPCePSAw9g9/V5NFAG2NHa3B6W+GAISDJICHWUiCDHMsJbMJIB8ekQT45Nf/UQkQjXyEAB1o+ssTPyfLjCaEALLvVQIIj639b3oBFPS+C8d34izwPQJIEkSTFu+8F/M9AmgkqBIg6/rlfv2IB7CwiwhQIoEEfxYBRiRDAA5+5AVOiZ7FYyRQ8x9AgG4vMgeYRoCIBBr4CAGu5heTCYCSAAGf6/M8ksybjf38t0YAbneVAMhgThHAKuQRwJNZIUDm8UDnj4t7wGfuh5w9B9BWMppXUAnQvVUE/kueKywl+JSBH8+GgAwBPPekjfAIxCZeUeMBT+Uk4PsO3s8Iunzrmj0RAA1lngfwBrHE0iSABnI1DETgX9S96/sOrXCjhSSAl5cTIPIARxEgM5HtyVwGGst1CHw+6rUO6snzAggJrHX8LA8gCfCbd9i178Zm+R4B5GTQi/vInKBN2AnMzAPUQYy4yCgvHYuWMlZZb66hxfbZBOBt6PsMtNeg/bb64x5J2oEAj/ZHSVCDkTLo+dH6ZflOGk4c7dijymj7n160DludKGR1xBNL+/TyLZT3TpGts8JRpkzmGGp7Bh80b1ok+OdjyQcT5TIIfRSLrhLu4LXtfr6/WFlLWtkGvOxSltPKNGVmL/Npl3Plb+2VdRER1S3eGaKBv0UE4DNR4wHFDAEqHoDA5kkjgAYkgeeRgMrRCoUTQK7Z+7m+EpIEkGA3461kFikusAgIUCKHBf7mEUBbjhgEODoERMdH6s4QwLqhQwPcS947BuVG0BVW2Q9neOBzpVfJ2ofW3oVblJkEGNmEyYQAzQNoJJBks95i2uTaf7++iYe3mff7MPguAYLUX/rICaCNsFsTAA0BHgFonpKZA2juXWsrH/0ZD3CBURftdbOa0gh8qZyzDEmP5gFGCcBvZ0MJoI1ur73eRzSaMwcIPUB72efnoKBfxyKlfIYdvfYc8QCRR3g0AvAQQGR4FAJIrMwOo6dwM1/JaMpyKyKGJMAMD2ARxzoXEYDyVQhwurlU3OTa/2qrCTQEyNfMW3hEeIWAmneMGPm9tbZ2rInlmeYBsgRoxseVSJ92PCIAsh/gEUALAdwzSBvkLJ8n7TXzCDZIvosCZJh17T9DgCiNeAC5GSW/qceBludGCDC6CpCTRQ4+8pURlATtZdkJk4CDvzG3FJEAid1RyqyBrTd2a6OfE8ACn7f9FstAK4ygXxdBPqFHiV9+d4nQXi53apnCwoMySh6uRwNfq2OWDVb5zDGrny2wIzyauDnHe5TOrPy1SgT0a5JqW0oeYMnbk/QcQBPat59q2ZLXIygBMi6m6o6yrmxGOLiX64zmHIcICraWj2bykZFoPqsc+kk3ubqoxlHvRtajRLYVafcUwnBQI4UaUSJwZ4DPZ9NavsoMXtOhzaIzRKgC4vWRda4BL4RI2RMprDSgCn6mrDdyopEkga/c2s71eDuX0RKuSgDauEOTascF+Pv1M+nozqAcrVXwo4bL37M9AAr8ue8UsDVSVLyk1w8j6boRBvjZ6wNk7AzwrRskLE9DW8XRnTSyE+VvC3jttwRYvafRIUEVOM9jR+mkh0/qImWcANGksYFfx0TAzwDJCcA/5hyV0x450zpb5vPA33ecBBkg1XIkiUfEDiNAe/mOMP9bBd/aE/fKZQkgAc+8ZcwjAOVPESAA0XpwN5vS7wfIXB3koGdJIMHPkGfEA2gj3wL+qBBgzeLvToBw9sg6RQObH49GYBX8bZAAlnu1OhvxBDxFk8CHIAApTC0dyAjn6+DR+W0C+FLHSAjwYi9U3pAofFl1ziaAimd1I+gM7q6/5HHjo8N5D+Ao+FKPNnFEdUsiRMBb5a3+s8pUgPMGbGovoLoVjIzuKB8BNwI+1+Wliq4RezJ1VYCL2jvUH9mLQQjLrXy37OxHlKnAzZJ1OXjJkmeQQ+LHpGv/N3d7b0DS/actXaJjSLy3PrAYGZ55UaPWaKRjPNu1Mmj+0XKyfEYP5U1fzJpNgBZ8S9A6Jl/SyMX7IhmyEkFXK5l2zC4ndaCvxKP8Vy+XfhGNCFeFRwgg2eq9VdP6XwOf9EUkaMFehAQf2Zr22oGAUS3LdWTeiai+XdwgwBUJRucAkhjRaN0CAkgiVbwAkeDW4M/SMYMA0U0tFwpGPUCVAF7Ml97Ae2fvZpDgHuBXdGkDTF6MsgafN/otD3BBgkclgAe+N794BPCzOlviuwcIAaIQMJ0A1TmABW4EvvxsDNe7CFAgwMgcwGu0BZLVQSMEWCEAJ8CFPaMewGu8FQKsTrImghEBJPj8/oO3PAl8WAJsjNXZzoo8AAq+dr6fe4ZloBQT/O2AEFBpLOoB+KvbeXkC1gIXyePZVSVAtZ9GCWClmfObqYK4fOud/ZsgcVRHFszqCB6dP2TspXwI8A8HPpdbeZ23Kqv/lixZcqAsd/KEYm1O3NuuJQeLBD3z2bYlr1wk8PLT7IsAb1gi8BcB3rAg4CMfblzySoUTwAJ/EeCNygL/yaUpX+le4D+RWARY4D+BdHAJZA34Bf4bF06AdQXpyYSDf29bltxB1khfsuRJ5f+to4r3nJbTvAAAAABJRU5ErkJggg=='
+};
+
+//==========================================================
+// SECTION 24c: DocsDoodads.Ui (WORKSPACE LOOK AND FEEL)
+//==========================================================
+// A bright, friendly look: white rounded panels, chunky "press-down" buttons, big pixel icons, toggle
+// switches, and short hints that say what to do next. Colours are CSS variables (--dd-*) so every panel,
+// including the ones opened on the page (Screen Looks, Effects Maker, History...), shares them.
+DocsDoodads.Ui = {
+    prefsKey: 'docsDoodads.ui',
+
+    // Per-computer UI choices (panel folding, sounds, the welcome card). Never needed to work.
+    prefs() {
+        try {
+            const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(this.prefsKey) : null;
+            const data = raw ? JSON.parse(raw) : {};
+            return data && typeof data === 'object' ? data : {};
+        } catch (e) {
+            return {};
+        }
+    },
+
+    setPref(key, value) {
+        const data = this.prefs();
+        data[key] = value;
+        try { if (typeof localStorage !== 'undefined') localStorage.setItem(this.prefsKey, JSON.stringify(data)); } catch (e) {}
+        return value;
+    },
+
+    // An icon from art/ui_icons.png. scale: 1 (16px), 2 (32px)...
+    icon(name, scale = 2, extraClass = '') {
+        const I = DocsDoodads.UiIcons;
+        const index = I ? I.names.indexOf(name) : -1;
+        if (index < 0) return '';
+        const x = (index % I.cols) * I.size, y = Math.floor(index / I.cols) * I.size;
+        return `<i class="dd-ico ${extraClass}" aria-hidden="true" style="width: ${I.size * scale}px; height: ${I.size * scale}px; ` +
+            `background-size: ${I.width * scale}px ${I.height * scale}px; background-position: -${x * scale}px -${y * scale}px;"></i>`;
+    },
+
+    // Little sounds from the project's own System sounds (they can be turned off in More).
+    sound(kind) {
+        if (this.prefs().sounds === false || typeof SoundManager === 'undefined') return;
+        try {
+            if (kind === 'ok') SoundManager.playOk();
+            else if (kind === 'cancel') SoundManager.playCancel();
+            else if (kind === 'save') SoundManager.playSave();
+            else if (kind === 'buzzer') SoundManager.playBuzzer();
+            else SoundManager.playCursor();
+        } catch (e) {}
+    },
+
+    // What to do next, shown in the bubble at the bottom of the screen.
+    hints: {
+        none: 'Pick something from the bag, then click the map to place it. Click a placed thing to change it.',
+        stamp: 'Stamp: click the map to place the picked item again and again. Esc to stop.',
+        brush: 'Scatter: drag over the map to sprinkle the picked item around.',
+        biome: 'Paint: drag over the map to paint a mix of plants (set mixes in Map, Biomes).',
+        path: 'Path: click to add points, then double-click (or Enter) to lay the item along them.',
+        terrain: 'Hills: drag over the map to raise or lower the ground (seen in 3D).',
+        eyedropper: 'Pick: click any doodad on the map to pick up what it is made of.'
+    },
+
+    setHint(text) {
+        const el = typeof document !== 'undefined' ? document.getElementById('dd-status-left') : null;
+        if (el) el.textContent = text;
+    },
+
+    css: `
+:root {
+    --dd-panel: #ffffff;
+    --dd-panel-2: #f7f5fc;
+    --dd-field: #f2f0f8;
+    --dd-line: #e3dff0;
+    --dd-line-soft: #ece9f5;
+    --dd-text: #2f2a43;
+    --dd-muted: #6f6a86;
+    --dd-faint: #9c97b0;
+    --dd-accent: #1f8bff;
+    --dd-primary: #2e9bff;
+    --dd-primary-dark: #1c74d6;
+    --dd-primary-soft: #e3f1ff;
+    --dd-good: #2fc26b;
+    --dd-good-dark: #1f9450;
+    --dd-good-soft: #dff7e8;
+    --dd-danger: #ff5a5f;
+    --dd-danger-dark: #d63c41;
+    --dd-danger-soft: #ffe4e5;
+    --dd-warn: #e09b00;
+    --dd-warn-soft: #fff4c9;
+    --dd-purple: #8a63f0;
+    --dd-pink: #f2559c;
+    --dd-tint: rgba(46, 155, 255, 0.08);
+    --dd-shadow: 0 4px 0 rgba(47, 42, 67, 0.10), 0 12px 30px rgba(20, 16, 40, 0.30);
+    --dd-font: 'Nunito', 'M PLUS Rounded 1c', 'Varela Round', 'Arial Rounded MT Bold', 'Segoe UI', system-ui, sans-serif;
+}
+#dd-asset-workspace-root, .dd-glass { font-family: var(--dd-font); }
+#dd-asset-workspace-root *, .dd-glass * { box-sizing: border-box; }
+.dd-glass {
+    background: var(--dd-panel);
+    border: 3px solid #ffffff;
+    border-radius: 20px;
+    color: var(--dd-text);
+    box-shadow: var(--dd-shadow);
+    pointer-events: auto;
+    font-size: 12px;
+    font-weight: 600;
+}
+.dd-glass b, .dd-glass strong { font-weight: 800; }
+.dd-ico { display: inline-block; flex: none; background-image: var(--dd-icons); background-repeat: no-repeat; image-rendering: pixelated; vertical-align: middle; }
+
+/* Buttons: white, rounded, and they press down. */
+.dd-btn {
+    font-family: inherit; font-weight: 800; font-size: 12px; line-height: 1.15; color: var(--dd-text);
+    background: #ffffff; border: 2px solid var(--dd-line); border-radius: 12px; padding: 5px 11px;
+    box-shadow: 0 3px 0 var(--dd-line); cursor: pointer; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 #b8dbff; transform: translateY(-1px); }
+.dd-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--dd-line); }
+.dd-btn:focus { outline: none; }
+.dd-btn:focus-visible { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
+.dd-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+.dd-btn-primary { background: var(--dd-primary); border-color: var(--dd-primary-dark); color: #fff; box-shadow: 0 3px 0 var(--dd-primary-dark); }
+.dd-btn-primary:hover { background: #45a8ff; border-color: var(--dd-primary-dark); box-shadow: 0 3px 0 var(--dd-primary-dark); }
+.dd-btn-good { background: var(--dd-good); border-color: var(--dd-good-dark); color: #fff; box-shadow: 0 3px 0 var(--dd-good-dark); }
+.dd-btn-good:hover { background: #45cf7d; border-color: var(--dd-good-dark); box-shadow: 0 3px 0 var(--dd-good-dark); }
+.dd-btn-danger { background: var(--dd-danger); border-color: var(--dd-danger-dark); color: #fff; box-shadow: 0 3px 0 var(--dd-danger-dark); }
+.dd-btn-danger:hover { background: #ff7175; border-color: var(--dd-danger-dark); box-shadow: 0 3px 0 var(--dd-danger-dark); }
+.dd-btn-active, .dd-btn.dd-btn-active {
+    background: var(--dd-warn-soft) !important; border-color: #f2b600 !important; color: var(--dd-text) !important;
+    box-shadow: 0 3px 0 #e0a800 !important; animation: dd-pop 0.22s ease;
+}
+
+/* The top bar: big icon tools with a word under each, like a game's build menu. */
+#dd-toolbar { display: flex; align-items: center; gap: 4px; padding: 5px 8px; }
+#dd-toolbar .dd-brand { display: flex; align-items: center; gap: 4px; padding: 0 6px 0 2px; font-weight: 900; font-size: 15px; color: var(--dd-good-dark); letter-spacing: 0.2px; }
+#dd-toolbar .dd-sep { width: 2px; align-self: stretch; margin: 6px 3px; background: var(--dd-line-soft); border-radius: 2px; }
+#dd-toolbar .dd-spacer { flex: 1; }
+.dd-tool { flex-direction: column; gap: 1px; width: 54px; height: 54px; padding: 3px 2px 2px; border-radius: 14px; font-size: 10px; }
+.dd-tool b { font-weight: 800; font-size: 10px; }
+.dd-tool.dd-wide { width: 62px; }
+@media (max-width: 900px) { #dd-toolbar .dd-brand span { display: none; } .dd-tool { width: 46px; } .dd-tool.dd-wide { width: 52px; } }
+
+/* Pop-up option cards (brush settings, path, mirror, More). */
+.dd-pop { position: absolute; z-index: 10015; width: 270px; padding: 12px 14px; animation: dd-rise 0.18s ease; }
+.dd-pop-title { display: flex; align-items: center; gap: 6px; font-weight: 900; font-size: 13px; color: var(--dd-text) !important; margin-bottom: 8px; }
+#dd-more-menu { width: 300px; }
+.dd-more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.dd-more-grid .dd-btn { justify-content: flex-start; padding: 6px 8px; height: 40px; }
+
+/* Panels: the bag (left) and details (right) fold away to give the map room. */
+.dd-panel-head { display: flex; align-items: center; gap: 6px; font-weight: 900; font-size: 14px; color: var(--dd-text); }
+.dd-panel-head .dd-grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-fold { width: 30px; height: 30px; padding: 0; border-radius: 10px; flex: none; }
+.dd-collapsed { width: 52px !important; bottom: auto !important; padding: 8px 6px !important; overflow: hidden !important; cursor: pointer; }
+.dd-collapsed > :not(.dd-panel-head) { display: none !important; }
+.dd-collapsed .dd-panel-head { flex-direction: column; }
+.dd-collapsed .dd-panel-head .dd-grow, .dd-collapsed .dd-panel-head .dd-hide-folded { display: none; }
+.dd-tab-chip { flex-wrap: wrap; }
+#dd-category-tabs { display: flex; flex-wrap: wrap; gap: 3px; }
+#dd-category-tabs .dd-btn { width: 28px; height: 28px; padding: 0; border-radius: 9px; }
+.dd-search { position: relative; flex: 1; min-width: 0; }
+.dd-search .dd-ico { position: absolute; left: 7px; top: 50%; margin-top: -8px; pointer-events: none; }
+.dd-search input { width: 100%; padding-left: 28px !important; height: 32px; border-radius: 16px !important; }
+
+/* Item cards. */
+.dd-card {
+    background: #ffffff; border: 2px solid var(--dd-line); border-radius: 14px; box-shadow: 0 3px 0 var(--dd-line);
+    cursor: pointer; position: relative; overflow: hidden; color: var(--dd-text);
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.dd-card img, .dd-card canvas {
+    border-radius: 8px;
+    background-color: #f4f2fa;
+    background-image: linear-gradient(45deg, #e8e5f1 25%, transparent 25%, transparent 75%, #e8e5f1 75%), linear-gradient(45deg, #e8e5f1 25%, transparent 25%, transparent 75%, #e8e5f1 75%);
+    background-size: 12px 12px; background-position: 0 0, 6px 6px;
+}
+.dd-card:hover { transform: translateY(-2px); border-color: var(--dd-primary); box-shadow: 0 4px 0 #b8dbff; }
+.dd-card.selected { border-color: var(--dd-primary); box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.35), 0 3px 0 var(--dd-primary-dark); animation: dd-pop 0.22s ease; }
+.dd-card > div { color: var(--dd-text) !important; font-weight: 700; }
+.dd-badge { position: absolute; top: 4px; right: 4px; background: var(--dd-warn-soft); border: 2px solid #f2b600; padding: 0 5px; border-radius: 10px; font-size: 10px; color: var(--dd-warn); font-weight: 900; }
+
+/* Fields. */
+#dd-asset-workspace-root input[type=text], #dd-asset-workspace-root input[type=number], #dd-asset-workspace-root input[type=search],
+#dd-asset-workspace-root select, #dd-asset-workspace-root textarea,
+.dd-glass input[type=text], .dd-glass input[type=number], .dd-glass input[type=search], .dd-glass select, .dd-glass textarea {
+    font-family: inherit; font-weight: 700; font-size: 12px; color: var(--dd-text) !important;
+    background: var(--dd-field) !important; border: 2px solid var(--dd-line) !important; border-radius: 10px !important;
+    padding: 4px 8px; outline: none; min-height: 28px;
+}
+#dd-asset-workspace-root input:focus, #dd-asset-workspace-root select:focus, #dd-asset-workspace-root textarea:focus,
+.dd-glass input:focus, .dd-glass select:focus, .dd-glass textarea:focus {
+    border-color: var(--dd-primary) !important; background: #ffffff !important; box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.22);
+}
+.dd-glass input[type=color], #dd-asset-workspace-root input[type=color] {
+    -webkit-appearance: none; border: 2px solid var(--dd-line) !important; border-radius: 10px; padding: 2px; background: #fff !important; height: 28px; cursor: pointer;
+}
+.dd-glass input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+.dd-glass input[type=color]::-webkit-color-swatch { border: none; border-radius: 7px; }
+.dd-glass label { color: var(--dd-muted); }
+
+/* Sliders. */
+.dd-glass input[type=range] { -webkit-appearance: none; height: 22px; background: transparent !important; border: none !important; padding: 0; cursor: pointer; }
+.dd-glass input[type=range]:focus { box-shadow: none; }
+.dd-glass input[type=range]::-webkit-slider-runnable-track { height: 8px; border-radius: 8px; background: var(--dd-line); }
+.dd-glass input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; margin-top: -5px; border-radius: 50%;
+    background: #ffffff; border: 3px solid var(--dd-primary); box-shadow: 0 2px 0 var(--dd-primary-dark);
+}
+.dd-glass input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
+
+/* Check boxes are on/off switches; radios are round. */
+.dd-glass input[type=checkbox] {
+    -webkit-appearance: none; width: 34px; height: 20px; margin: 0 2px; border-radius: 20px; flex: none; vertical-align: middle;
+    background: #d9d4e7; border: 2px solid #cbc5dc; position: relative; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dd-glass input[type=checkbox]::after {
+    content: ''; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%;
+    background: #ffffff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transition: left 0.15s ease;
+}
+.dd-glass input[type=checkbox]:checked { background: var(--dd-good); border-color: var(--dd-good-dark); }
+.dd-glass input[type=checkbox]:checked::after { left: 15px; }
+.dd-glass input[type=radio] {
+    -webkit-appearance: none; width: 16px; height: 16px; margin: 0 2px; border-radius: 50%; flex: none; vertical-align: middle;
+    background: #ffffff; border: 2px solid #cbc5dc; cursor: pointer;
+}
+.dd-glass input[type=radio]:checked { border: 5px solid var(--dd-primary); }
+
+/* Sections fold open like cards. */
+.dd-glass details {
+    background: var(--dd-panel-2); border: 2px solid var(--dd-line-soft) !important; border-radius: 14px;
+    padding: 6px 10px !important; margin-top: 8px !important;
+}
+.dd-glass details[open] { background: #ffffff; border-color: var(--dd-line) !important; }
+.dd-glass summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    font-weight: 900 !important; font-size: 12px !important; color: var(--dd-text) !important; padding: 2px 0;
+}
+.dd-glass summary::-webkit-details-marker { display: none; }
+.dd-glass summary::before {
+    content: ''; flex: none; width: 0; height: 0; border-left: 7px solid var(--dd-primary);
+    border-top: 5px solid transparent; border-bottom: 5px solid transparent; transition: transform 0.15s ease;
+}
+.dd-glass details[open] > summary::before { transform: rotate(90deg); }
+
+/* Scroll bars. */
+.dd-glass ::-webkit-scrollbar, #dd-asset-workspace-root ::-webkit-scrollbar { width: 10px; height: 10px; }
+.dd-glass ::-webkit-scrollbar-thumb, #dd-asset-workspace-root ::-webkit-scrollbar-thumb { background: #d6d1e6; border-radius: 10px; border: 2px solid #ffffff; }
+.dd-glass ::-webkit-scrollbar-track { background: transparent; }
+
+/* Panel insides: labels, and buttons that wrap rather than spill out of narrow panels. */
+.dd-label { font-size: 11px; font-weight: 900; color: var(--dd-muted); margin: 2px 0 5px; }
+#dd-inspector-content .dd-btn, .dd-glass details .dd-btn { white-space: normal; min-width: 0; text-align: center; }
+#dd-inspector-content [style*="display: flex"] { flex-wrap: wrap; }
+#dd-inspector-content label[style*="display: flex"] { flex-wrap: nowrap; }
+#dd-inspector-content > div[style*="border-top"], .dd-glass > div[style*="border-top"] { border-top: 2px solid var(--dd-line-soft) !important; }
+
+/* The hint bubble, toasts and menus. */
+#dd-hint {
+    position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); max-width: min(560px, calc(100vw - 140px));
+    display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 22px; font-size: 12px; font-weight: 700;
+}
+#dd-hint #dd-status-left { color: var(--dd-text); }
+.dd-toast {
+    position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 10030; pointer-events: none;
+    display: flex; align-items: center; gap: 8px; padding: 8px 16px 8px 10px; border-radius: 22px;
+    font-family: var(--dd-font); font-size: 13px; font-weight: 800; color: var(--dd-text); background: #ffffff;
+    border: 3px solid var(--dd-primary); box-shadow: 0 4px 0 var(--dd-primary-dark), 0 10px 24px rgba(20, 16, 40, 0.3);
+    animation: dd-bounce 0.35s ease; transition: opacity 0.3s ease;
+}
+.dd-toast.dd-toast-success { border-color: var(--dd-good); box-shadow: 0 4px 0 var(--dd-good-dark), 0 10px 24px rgba(20, 16, 40, 0.3); }
+.dd-toast.dd-toast-error { border-color: var(--dd-danger); box-shadow: 0 4px 0 var(--dd-danger-dark), 0 10px 24px rgba(20, 16, 40, 0.3); }
+#dd-context-menu { padding: 6px; border-radius: 16px; min-width: 200px; }
+#dd-context-menu .dd-btn { border: none; box-shadow: none; background: transparent; justify-content: flex-start; border-radius: 10px; padding: 6px 10px; font-size: 12px; }
+#dd-context-menu .dd-btn:hover { background: var(--dd-primary-soft); transform: none; }
+#dd-context-menu .dd-btn.dd-danger { color: var(--dd-danger-dark); }
+#dd-context-menu .dd-btn.dd-danger:hover { background: var(--dd-danger-soft); }
+#dd-context-menu .dd-menu-sep { height: 2px; background: var(--dd-line-soft); margin: 4px 6px; border-radius: 2px; }
+
+/* The welcome card. */
+#dd-welcome { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 380px; max-width: calc(100vw - 32px); padding: 18px 20px; z-index: 10040; animation: dd-bounce 0.4s ease; text-align: center; }
+#dd-welcome h2 { margin: 6px 0 4px; font-size: 20px; font-weight: 900; color: var(--dd-text); }
+#dd-welcome ol { text-align: left; margin: 10px 0 14px; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+#dd-welcome li { display: flex; align-items: center; gap: 10px; background: var(--dd-panel-2); border-radius: 14px; padding: 6px 10px; font-size: 13px; font-weight: 700; }
+#dd-welcome li .dd-num { width: 24px; height: 24px; border-radius: 50%; background: var(--dd-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; flex: none; }
+
+@keyframes dd-pop { 0% { transform: scale(0.92); } 60% { transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes dd-bounce { 0% { opacity: 0; transform: translate(-50%, 12px) scale(0.9); } 60% { opacity: 1; transform: translate(-50%, -3px) scale(1.03); } 100% { transform: translate(-50%, 0) scale(1); } }
+#dd-welcome { animation-name: dd-bounce-center; }
+@keyframes dd-bounce-center { 0% { opacity: 0; transform: translate(-50%, -46%) scale(0.9); } 60% { opacity: 1; transform: translate(-50%, -51%) scale(1.03); } 100% { transform: translate(-50%, -50%) scale(1); } }
+@keyframes dd-rise { 0% { opacity: 0; transform: translateY(-6px); } 100% { opacity: 1; transform: translateY(0); } }
+`,
+
+    // The look for the page: the stylesheet with the icon sheet in it.
+    styleText() {
+        const url = DocsDoodads.UiIcons ? DocsDoodads.UiIcons.url : '';
+        return this.css.replace(':root {', `:root {\n    --dd-icons: url(${url});`);
+    }
+};
+
+//==========================================================
 // SECTION 25: DocsDoodads.WORKSPACE (GLASSMORPHIC WORKSPACE UI & TOOLS)
 //==========================================================
 DocsDoodads.Workspace = {
@@ -17936,7 +18258,7 @@ DocsDoodads.Workspace = {
     selectedAsset: null,
     selectedDoodad: null,
     selectedEvent: null,
-    currentCategory: 'All',
+    currentCategory: 'Doodads',
     searchQuery: '',
     placementTool: null, // 'stamp', 'eyedropper', 'brush'
     brushSettings: { radius: 80, density: 3, scaleJitter: 0.15, rotateJitter: 25, minDistance: 32, flipChance: 0.5, hueJitter: 0, regions: '', terrainTags: '', avoidBlocked: false },
@@ -17952,22 +18274,25 @@ DocsDoodads.Workspace = {
         if (this.mounted) this.close(); else this.open();
     },
 
-    // One placement tool at a time; keeps the toolbar highlight and brush popover in sync.
+    // One placement tool at a time: its button lights up, its options card opens under it, and the hint
+    // bubble says what to do. No tool (null) is Select.
+    toolButtons: { select: 'dd-select-btn', eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn', terrain: 'dd-terrain-btn' },
+    toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
+
     setPlacementTool(tool) {
         this.placementTool = tool || null;
-        const buttons = { eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn' };
-        for (const [name, id] of Object.entries(buttons)) {
+        for (const [name, id] of Object.entries(this.toolButtons)) {
             const btn = document.getElementById(id);
-            if (btn) btn.classList.toggle('dd-btn-active', this.placementTool === name);
+            if (btn && btn.classList) btn.classList.toggle('dd-btn-active', (this.placementTool || 'select') === name);
         }
-        const brushPopover = document.getElementById('dd-brush-popover');
-        if (brushPopover) brushPopover.style.display = this.placementTool === 'brush' ? 'block' : 'none';
-        const pathPopover = document.getElementById('dd-path-popover');
-        if (pathPopover) pathPopover.style.display = this.placementTool === 'path' ? 'block' : 'none';
-        const biomePopover = document.getElementById('dd-biome-popover');
-        if (biomePopover) biomePopover.style.display = this.placementTool === 'biome' ? 'block' : 'none';
-        const terrainPopover = document.getElementById('dd-terrain-popover');
-        if (terrainPopover) terrainPopover.style.display = this.placementTool === 'terrain' ? 'block' : 'none';
+        for (const [name, id] of Object.entries(this.toolPopovers)) {
+            const pop = document.getElementById(id);
+            if (!pop) continue;
+            pop.style.display = this.placementTool === name ? 'block' : 'none';
+            if (this.placementTool === name) this.placePopover(pop, this.toolButtons[name]);
+        }
+        this.showMoreMenu(false);
+        DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
@@ -18011,6 +18336,8 @@ DocsDoodads.Workspace = {
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
         this.detachCanvasListeners();
         if (this._onWindowResize) window.removeEventListener('resize', this._onWindowResize);
+        if (this._onOutsidePointer) document.removeEventListener('pointerdown', this._onOutsidePointer, true);
+        this._onOutsidePointer = null;
         this.removeGhost();
         if (this.container && this.container.parentNode) {
             this.container.parentNode.removeChild(this.container);
@@ -18104,273 +18431,240 @@ DocsDoodads.Workspace = {
         return result;
     },
 
+    // The bag's tabs: [category, icon, name].
+    categoryTabs: [
+        ['Doodads', 'tree', 'Doodads'], ['Characters', 'person', 'People'], ['Tilesets', 'tiles', 'Tiles'],
+        ['Pictures', 'picture', 'Pictures'], ['Prefabs', 'box', 'Prefabs'], ['Audio', 'music', 'Sounds'],
+        ['Favorites', 'star', 'Favourites'], ['Recent', 'recent', 'Recently used'], ['All', 'all', 'Everything'],
+        ['Faces', 'face', 'Faces'], ['Battlers', 'sword', 'Battlers'], ['Backgrounds', 'scene', 'Backdrops'],
+        ['System', 'window', 'System']
+    ],
+
+    categoryName(category) {
+        const tab = this.categoryTabs.find(t => t[0] === category);
+        return tab ? tab[2] : category === 'Similar' ? 'Look-alikes' : category;
+    },
+
     buildDom() {
+        const U = DocsDoodads.Ui;
         const wrap = document.createElement('div');
         wrap.id = 'dd-asset-workspace-root';
         wrap.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            pointer-events: none; z-index: 10000; font-family: 'Segoe UI', Roboto, sans-serif;
-            user-select: none;
+            pointer-events: none; z-index: 10000; user-select: none;
         `;
 
         const style = document.createElement('style');
-        style.textContent = `
-            #dd-asset-workspace-root * { box-sizing: border-box; }
-            .dd-glass {
-                background: rgba(17, 24, 39, 0.92);
-                backdrop-filter: blur(16px);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                color: #e2e8f0;
-                box-shadow: 0 12px 36px rgba(0,0,0,0.65);
-                pointer-events: auto;
-                /* Panels appended to the page (Asset Tools, Post FX) sit outside the workspace root. */
-                font-family: 'Segoe UI', Roboto, sans-serif;
-            }
-            .dd-btn {
-                background: #1f2937; color: #f1f5f9; border: 1px solid #374151;
-                padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
-                transition: all 0.15s ease;
-            }
-            .dd-btn:hover { background: #374151; border-color: #60a5fa; }
-            #dd-category-tabs .dd-btn { padding: 4px 8px; font-size: 11px; white-space: nowrap; }
-            #dd-toolbar .dd-btn { padding: 5px 8px; white-space: nowrap; }
-            #dd-toolbar > div { flex-wrap: wrap; row-gap: 6px; }
-            .dd-btn-primary { background: #2563eb; border-color: #3b82f6; }
-            .dd-btn-primary:hover { background: #1d4ed8; }
-            .dd-btn-active { background: #059669 !important; border-color: #10b981 !important; color: #fff !important; }
-            .dd-card {
-                background: #18202f; border: 1px solid #283548; border-radius: 6px;
-                cursor: pointer; position: relative; overflow: hidden; transition: transform 0.15s, border-color 0.15s;
-            }
-            .dd-card:hover { transform: translateY(-2px); border-color: #3b82f6; }
-            .dd-card.selected { border: 2px solid #60a5fa; background: #1e293b; }
-            .dd-badge {
-                position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.75);
-                padding: 2px 5px; border-radius: 3px; font-size: 10px; color: #93c5fd;
-            }
-        `;
+        style.id = 'dd-ui-style';
+        style.textContent = U.styleText();
         wrap.appendChild(style);
 
-        // Top Toolbar
+        const tool = (id, icon, label, title, extra = '') =>
+            `<button class="dd-btn dd-tool ${extra}" id="${id}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
+        const slider = (id, label, valId, value, min, max, step = 1) => `
+            <div>
+                <div style="display: flex; justify-content: space-between; color: var(--dd-muted);"><span>${label}</span><b id="${valId}" style="color: var(--dd-text);">${value}</b></div>
+                <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${parseFloat(value)}" style="width: 100%;" />
+            </div>`;
+
+        // Top bar: the tools (pick one, use it on the map), undo, and save / done.
         const toolbar = document.createElement('div');
         toolbar.className = 'dd-glass';
         toolbar.id = 'dd-toolbar';
-        toolbar.style.cssText = `
-            position: absolute; top: 10px; left: 10px; right: 10px; min-height: 50px; gap: 6px 10px;
-            display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 6px 12px;
-        `;
+        toolbar.style.cssText = 'position: absolute; top: 8px; left: 8px; right: 8px;';
         toolbar.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-weight: bold; font-size: 14px; color: #60a5fa; letter-spacing: 0.5px;">DOC'S DOODADS</span>
-                <input type="text" id="dd-search-input" placeholder="Search (e.g. tree tag:prop -dead)"
-                    style="width: 200px; background: #0b1120; border: 1px solid #334155; color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 12px;" />
-                <select id="dd-collection-select" title="Show one collection (right-click an asset: Add to Collection)" style="max-width: 150px; background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
-                <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the assets stay)" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
-                <select id="dd-layout-select" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
-                <button class="dd-btn" id="dd-save-layout-btn" title="Save current panel sizes as custom layout">+ Layout</button>
-                <button class="dd-btn" id="dd-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
-                <button class="dd-btn" id="dd-undo-btn">Undo</button>
-                <button class="dd-btn" id="dd-redo-btn">Redo</button>
-                <button class="dd-btn" id="dd-undo-list-btn" title="Undo history: step back to any point">☰</button>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-                <button class="dd-btn" id="dd-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
-                <button class="dd-btn" id="dd-stamp-btn" title="Stamp: Click repeatedly to place">Stamp</button>
-                <button class="dd-btn" id="dd-brush-btn" title="Scatter Brush: Drag to scatter props">Scatter Brush</button>
-                <div id="dd-brush-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">BRUSH SETTINGS</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Radius:</span><span id="dd-brush-rad-val">80px</span>
-                            </div>
-                            <input type="range" id="dd-brush-rad" min="20" max="250" value="80" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Density:</span><span id="dd-brush-den-val">3</span>
-                            </div>
-                            <input type="range" id="dd-brush-den" min="1" max="10" value="3" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Scale Variation:</span><span id="dd-brush-scale-val">15%</span>
-                            </div>
-                            <input type="range" id="dd-brush-scale" min="0" max="50" value="15" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Rotation Variation:</span><span id="dd-brush-rot-val">25°</span>
-                            </div>
-                            <input type="range" id="dd-brush-rot" min="0" max="180" value="25" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Min Spacing:</span><span id="dd-brush-min-val">32px</span>
-                            </div>
-                            <input type="range" id="dd-brush-min" min="0" max="160" value="32" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Flip Chance:</span><span id="dd-brush-flip-val">50%</span>
-                            </div>
-                            <input type="range" id="dd-brush-flip" min="0" max="100" value="50" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;">
-                                <span>Hue Variation:</span><span id="dd-brush-hue-val">0°</span>
-                            </div>
-                            <input type="range" id="dd-brush-hue" min="0" max="90" value="0" style="width: 100%;" />
-                        </div>
-                        <div style="color: #94a3b8;">Only on regions (e.g. 1, 2):
-                            <input type="text" id="dd-brush-regions" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
-                        <div style="color: #94a3b8;">Only on terrain tags:
-                            <input type="text" id="dd-brush-terrain" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-brush-avoid" /> Skip impassable tiles</label>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-biome-btn" title="Biome brush: paint a mix of props (set up biomes in the map panel)">Biome</button>
-                <div id="dd-biome-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">BIOME BRUSH</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
-                        <select id="dd-biome-tool-pick" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
-                        <div>Radius: <span id="dd-biome-rad-val">96px</span><input type="range" id="dd-biome-rad" min="24" max="320" value="96" style="width: 100%;" /></div>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-biome-avoid" checked /> Skip impassable tiles</label>
-                        <div style="line-height: 1.4;">Drag on the map. Each biome's mix, spacing, edge thinning and patchiness are set in the map panel under Biomes.</div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-terrain-btn" title="Terrain: paint ground heights for the 3D view">Terrain</button>
-                <div id="dd-terrain-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">TERRAIN BRUSH</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
-                        <select id="dd-terrain-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
-                        <div>Strength: <span id="dd-terrain-amount-val">0.5</span> tiles<input type="range" id="dd-terrain-amount" min="0.1" max="3" step="0.1" value="0.5" style="width: 100%;" /></div>
-                        <div>Radius: <span id="dd-terrain-radius-val">1</span> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
-                        <label>Height for Set (tiles) <input type="number" step="0.25" id="dd-terrain-value" value="1" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
-                        <div style="line-height: 1.4;">Drag on the map. Each stroke is one undo step. Heights show in the 3D view; painting turns Terrain Height on for the map.</div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-sym-btn" title="Symmetry: mirror placements">Symmetry</button>
-                <div id="dd-sym-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">SYMMETRY</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
-                        <select id="dd-sym-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                            <label>Axis X (tile)<input type="number" step="0.5" id="dd-sym-x" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
-                            <label>Axis Y (tile)<input type="number" step="0.5" id="dd-sym-y" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
-                        </div>
-                        <button class="dd-btn" id="dd-sym-center">Centre of Map</button>
-                        <div style="line-height: 1.4;">Stamps, the scatter brush and the biome brush place mirrored copies too.</div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-path-btn" title="Path: click points, double-click or Enter to place props along them">Path</button>
-                <div id="dd-path-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 250px; padding: 12px; z-index: 10015;">
-                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 6px;">PATH TOOL</div>
-                    <div style="font-size: 10px; color: #94a3b8; margin-bottom: 8px; line-height: 1.4;">Click to add points. Double-click or Enter places the selected asset along them; Backspace removes the last point; Alt for off-grid points.</div>
-                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px;">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;"><span>Spacing:</span><span id="dd-path-spacing-val">48px</span></div>
-                            <input type="range" id="dd-path-spacing" min="8" max="240" value="48" style="width: 100%;" />
-                        </div>
-                        <div>
-                            <div style="display: flex; justify-content: space-between; color: #94a3b8;"><span>Random Offset:</span><span id="dd-path-jitter-val">0px</span></div>
-                            <input type="range" id="dd-path-jitter" min="0" max="24" value="0" style="width: 100%;" />
-                        </div>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-align" /> Turn pieces along the path</label>
-                        <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-smooth" /> Smooth curve</label>
-                        <div style="color: #94a3b8;">End piece: <span id="dd-path-end-name" style="color: #e2e8f0;">same as path</span></div>
-                        <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-end-btn" style="flex: 1; padding: 3px;">Use Selected</button><button class="dd-btn" id="dd-path-end-clear" style="padding: 3px 6px;">Clear</button></div>
-                        <div style="color: #94a3b8;">Corner piece: <span id="dd-path-corner-name" style="color: #e2e8f0;">same as path</span></div>
-                        <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-corner-btn" style="flex: 1; padding: 3px;">Use Selected</button><button class="dd-btn" id="dd-path-corner-clear" style="padding: 3px 6px;">Clear</button></div>
-                        <div style="display: flex; gap: 4px; margin-top: 4px;"><button class="dd-btn dd-btn-primary" id="dd-path-place" style="flex: 1;">Place Path</button><button class="dd-btn" id="dd-path-clear">Clear Points</button></div>
-                    </div>
-                </div>
-                <button class="dd-btn" id="dd-slicer-btn" title="Open Interactive Sprite Sheet Slicer">Slicer Modal</button>
-                <button class="dd-btn" id="dd-stop-audio-btn" style="display: none; background: #be123c; border-color: #f43f5e;">⏹ Stop Audio</button>
-                <button class="dd-btn" id="dd-tools-btn" title="Find duplicate and unused files">Asset Tools</button>
-                <button class="dd-btn" id="dd-postfx-btn" title="Post-processing looks, screen effects and map image export">Post FX</button>
-                <button class="dd-btn" id="dd-vfx-btn" title="Build particle and sprite-sheet effects">VFX</button>
-                <button class="dd-btn" id="dd-history-btn" title="Compare with backups and restore single doodads or events">History</button>
-                <button class="dd-btn" id="dd-diag-btn" title="Diagnostics">Diagnostics</button>
-                <button class="dd-btn dd-btn-primary" id="dd-save-btn">Save Changes</button>
-                <button class="dd-btn" id="dd-close-btn" style="background: #ef4444; border-color: #dc2626;">Close (F10)</button>
-            </div>
+            <div class="dd-brand" title="Doc's Doodads v${pluginVersion}">${U.icon('leaf', 2)}<span>Doodads</span></div>
+            ${tool('dd-select-btn', 'select', 'Select', 'Select: click things on the map to change them, drag to move (Esc)')}
+            ${tool('dd-stamp-btn', 'stamp', 'Stamp', 'Stamp: click the map to place the picked item again and again')}
+            ${tool('dd-brush-btn', 'brush', 'Scatter', 'Scatter: drag over the map to sprinkle the picked item around')}
+            ${tool('dd-biome-btn', 'biome', 'Paint', 'Paint: drag to paint a mix of plants (biomes)')}
+            ${tool('dd-path-btn', 'path', 'Path', 'Path: lay the picked item along a line you click out')}
+            ${tool('dd-terrain-btn', 'terrain', 'Hills', 'Hills: raise and lower the ground (3D view)')}
+            ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
+            ${tool('dd-eyedropper-btn', 'picker', 'Grab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)')}
+            <div class="dd-sep"></div>
+            ${tool('dd-undo-btn', 'undo', 'Undo', 'Undo (Ctrl+Z)')}
+            ${tool('dd-redo-btn', 'redo', 'Redo', 'Redo (Ctrl+Y)')}
+            ${tool('dd-undo-list-btn', 'history', 'Steps', 'Every step you took: jump back to any of them')}
+            <div class="dd-spacer"></div>
+            <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
+            ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
+            ${tool('dd-save-btn', 'save', 'Save', 'Save everything (Ctrl+S)', 'dd-btn-good')}
+            ${tool('dd-close-btn', 'done', 'Done', 'Close the editor and play (F10)', 'dd-btn-primary')}
         `;
         wrap.appendChild(toolbar);
 
-        // Left Drawer (Virtualized Cards)
+        // Tool options: each appears under the top bar while its tool is on.
+        const pops = document.createElement('div');
+        pops.innerHTML = `
+            <div id="dd-brush-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('brush', 1)} Scatter</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                    ${slider('dd-brush-rad', 'Size', 'dd-brush-rad-val', '80px', 20, 250)}
+                    ${slider('dd-brush-den', 'How many', 'dd-brush-den-val', '3', 1, 10)}
+                    ${slider('dd-brush-min', 'Space between', 'dd-brush-min-val', '32px', 0, 160)}
+                    <details>
+                        <summary>Variety</summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                            ${slider('dd-brush-scale', 'Size changes', 'dd-brush-scale-val', '15%', 0, 50)}
+                            ${slider('dd-brush-rot', 'Tilt', 'dd-brush-rot-val', '25°', 0, 180)}
+                            ${slider('dd-brush-flip', 'Flip chance', 'dd-brush-flip-val', '50%', 0, 100)}
+                            ${slider('dd-brush-hue', 'Colour changes', 'dd-brush-hue-val', '0°', 0, 90)}
+                        </div>
+                    </details>
+                    <details>
+                        <summary>Where it can go</summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; color: var(--dd-muted);">
+                            <label>Only on regions (e.g. 1, 2)<input type="text" id="dd-brush-regions" style="width: 100%;" /></label>
+                            <label>Only on terrain tags<input type="text" id="dd-brush-terrain" style="width: 100%;" /></label>
+                            <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-brush-avoid" /> Not where you can't walk</label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+            <div id="dd-biome-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('biome', 1)} Paint</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <select id="dd-biome-tool-pick" style="width: 100%;"></select>
+                    ${slider('dd-biome-rad', 'Size', 'dd-biome-rad-val', '96px', 24, 320)}
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-biome-avoid" checked /> Not where you can't walk</label>
+                    <div style="line-height: 1.4;">Drag on the map. Make mixes in Details (with nothing picked), under Biomes.</div>
+                </div>
+            </div>
+            <div id="dd-terrain-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('terrain', 1)} Hills</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <select id="dd-terrain-mode" style="width: 100%;"></select>
+                    <div>Strength: <b id="dd-terrain-amount-val" style="color: var(--dd-text);">0.5</b> tiles<input type="range" id="dd-terrain-amount" min="0.1" max="3" step="0.1" value="0.5" style="width: 100%;" /></div>
+                    <div>Size: <b id="dd-terrain-radius-val" style="color: var(--dd-text);">1</b> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
+                    <label>Height for "Set" (tiles)<input type="number" step="0.25" id="dd-terrain-value" value="1" style="width: 100%;" /></label>
+                    <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step. Heights show in the 3D view.</div>
+                </div>
+            </div>
+            <div id="dd-sym-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('mirror', 1)} Mirror</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <select id="dd-sym-mode" style="width: 100%;"></select>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <label>Line across (tile)<input type="number" step="0.5" id="dd-sym-x" style="width: 100%;" /></label>
+                        <label>Line down (tile)<input type="number" step="0.5" id="dd-sym-y" style="width: 100%;" /></label>
+                    </div>
+                    <button class="dd-btn" id="dd-sym-center">Middle of the map</button>
+                    <div style="line-height: 1.4;">Stamp, Scatter and Paint place mirrored copies too.</div>
+                </div>
+            </div>
+            <div id="dd-path-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('path', 1)} Path</div>
+                <div style="font-size: 11px; color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Click to add points. Double-click or Enter lays the picked item along them; Backspace takes back a point; Alt for off-grid points.</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                    ${slider('dd-path-spacing', 'Space between', 'dd-path-spacing-val', '48px', 8, 240)}
+                    ${slider('dd-path-jitter', 'Wobble', 'dd-path-jitter-val', '0px', 0, 24)}
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-align" /> Turn pieces along the path</label>
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-path-smooth" /> Smooth curve</label>
+                    <details>
+                        <summary>End and corner pieces</summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                            <div style="color: var(--dd-muted);">End piece: <b id="dd-path-end-name" style="color: var(--dd-text);">same as path</b></div>
+                            <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-end-btn" style="flex: 1;">Use Picked</button><button class="dd-btn" id="dd-path-end-clear">Clear</button></div>
+                            <div style="color: var(--dd-muted);">Corner piece: <b id="dd-path-corner-name" style="color: var(--dd-text);">same as path</b></div>
+                            <div style="display: flex; gap: 4px;"><button class="dd-btn" id="dd-path-corner-btn" style="flex: 1;">Use Picked</button><button class="dd-btn" id="dd-path-corner-clear">Clear</button></div>
+                        </div>
+                    </details>
+                    <div style="display: flex; gap: 6px; margin-top: 4px;"><button class="dd-btn dd-btn-primary" id="dd-path-place" style="flex: 1;">Lay the Path</button><button class="dd-btn" id="dd-path-clear">Start Over</button></div>
+                </div>
+            </div>
+            <div id="dd-more-menu" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('more', 1)} More</div>
+                <div class="dd-more-grid">
+                    <button class="dd-btn" id="dd-slicer-btn" title="Cut a picked sprite sheet into pieces">${U.icon('scissors', 1)} Cut Up Sheet</button>
+                    <button class="dd-btn" id="dd-postfx-btn" title="Looks and screen effects for the whole game or this map; save a picture of the map">${U.icon('sun', 1)} Screen Looks</button>
+                    <button class="dd-btn" id="dd-vfx-btn" title="Make sparkles, smoke, fire and other effects">${U.icon('sparkle', 1)} Effects Maker</button>
+                    <button class="dd-btn" id="dd-history-btn" title="Compare with earlier saves and bring single things back">${U.icon('folder', 1)} Old Saves</button>
+                    <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
+                    <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
+                    <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
+                    <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
+                </div>
+                <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
+                <div style="display: flex; gap: 4px; margin-top: 4px;">
+                    <select id="dd-layout-select" style="flex: 1; min-width: 0;"></select>
+                    <button class="dd-btn" id="dd-save-layout-btn" title="Remember the panel sizes as a new layout">${U.icon('plus', 1)}</button>
+                    <button class="dd-btn" id="dd-del-layout-btn" title="Delete this layout" style="display: none;">${U.icon('trash', 1)}</button>
+                </div>
+            </div>
+        `;
+        while (pops.firstChild) wrap.appendChild(pops.firstChild);
+
+        // The bag (left): everything you can place.
         const drawer = document.createElement('div');
         drawer.className = 'dd-glass';
         drawer.id = 'dd-drawer-panel';
         drawer.style.cssText = `
-            position: absolute; top: 70px; left: 10px; bottom: 32px; width: 360px;
-            display: flex; flex-direction: column; overflow: hidden;
+            position: absolute; top: 76px; left: 8px; bottom: 8px; width: 250px; padding: 10px;
+            display: flex; flex-direction: column; gap: 7px; overflow: hidden;
         `;
         drawer.innerHTML = `
-            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Drawer"></div>
-            <div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; flex-wrap: wrap; gap: 4px;" id="dd-category-tabs">
-                <button class="dd-btn dd-btn-primary" data-cat="All">All</button>
-                <button class="dd-btn" data-cat="Characters">Characters</button>
-                <button class="dd-btn" data-cat="Doodads">Doodads</button>
-                <button class="dd-btn" data-cat="Tilesets">Tiles</button>
-                <button class="dd-btn" data-cat="Pictures">Pictures</button>
-                <button class="dd-btn" data-cat="Faces">Faces</button>
-                <button class="dd-btn" data-cat="Battlers">Battlers</button>
-                <button class="dd-btn" data-cat="Backgrounds">Backgrounds</button>
-                <button class="dd-btn" data-cat="System">System</button>
-                <button class="dd-btn" data-cat="Audio">Audio</button>
-                <button class="dd-btn" data-cat="Prefabs" title="Saved prefabs: groups of doodads and events">Prefabs</button>
-                <button class="dd-btn" data-cat="Favorites" title="Show Favorited Assets">★ Favs</button>
-                <button class="dd-btn" data-cat="Recent" title="Show Recently Used Assets">🕒 Recent</button>
+            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag">
+                ${U.icon('bag', 2)}
+                <span class="dd-grow">Item Bag <span id="dd-drawer-category" style="color: var(--dd-muted); font-weight: 800; font-size: 12px;"></span></span>
+                <button class="dd-btn dd-fold" id="dd-drawer-fold" title="Fold the bag away">${U.icon('left', 1)}</button>
             </div>
-            <div style="padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <span style="font-size: 11px; color: #94a3b8;" id="dd-asset-count">Assets: 0</span>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 11px; color: #94a3b8;">Zoom:</span>
+            <div style="display: flex; gap: 6px;">
+                <div class="dd-search">${U.icon('search', 1)}<input type="text" id="dd-search-input" placeholder="Find... (tree, tag:rock, -dead)" /></div>
+            </div>
+            <div style="display: flex; gap: 6px;">
+                <select id="dd-collection-select" title="Show one collection (right-click an item: Add to Collection)" style="flex: 1; min-width: 0;"></select>
+                <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the items stay)" style="display: none; padding: 3px 7px;">${U.icon('trash', 1)}</button>
+            </div>
+            <div id="dd-category-tabs">
+                ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}">${U.icon(icon, 1)}</button>`).join('')}
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800;" id="dd-asset-count">0 items</span>
+                <div style="display: flex; align-items: center; gap: 4px;" title="Card size">
+                    ${U.icon('picture', 1)}
                     <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 80px;" />
                 </div>
             </div>
-            <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 10px; position: relative;">
+            <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 2px 2px 8px; position: relative; margin: 0 -4px 0 0;">
                 <div id="dd-cards-sizer" style="width: 100%; position: relative;">
-                    <div id="dd-cards-viewport" style="position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px;">
-                    </div>
+                    <div id="dd-cards-viewport" style="position: absolute; top: 0; left: 0; right: 0; display: grid; gap: 8px;"></div>
                 </div>
             </div>
+            <div id="dd-status-right" style="font-size: 10px; color: var(--dd-faint); font-weight: 700;"></div>
         `;
         wrap.appendChild(drawer);
 
-        // Right Inspector Panel
+        // Details (right): what is picked or selected, or this map's settings.
         const inspector = document.createElement('div');
         inspector.className = 'dd-glass';
         inspector.id = 'dd-inspector-panel';
         inspector.style.cssText = `
-            position: absolute; top: 70px; right: 10px; bottom: 32px; width: 280px;
-            padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+            position: absolute; top: 76px; right: 8px; bottom: 8px; width: 270px;
+            padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
         `;
         inspector.innerHTML = `
-            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20; background: rgba(255,255,255,0.02);" title="Drag to resize Inspector"></div>
-            <div style="font-weight: bold; font-size: 13px; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px;">
-                INSPECTOR & PROPERTIES
+            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div class="dd-panel-head" id="dd-inspector-head">
+                <button class="dd-btn dd-fold" id="dd-inspector-fold" title="Fold the details away (H)">${U.icon('right', 1)}</button>
+                <span id="dd-inspector-icon">${U.icon('map', 2)}</span>
+                <span class="dd-grow" id="dd-inspector-title">Details</span>
             </div>
-            <div id="dd-inspector-content" style="font-size: 12px; color: #94a3b8;">
-                Select an asset in the drawer or click a placed doodad/event on the map.
+            <div id="dd-inspector-content" style="font-size: 12px; color: var(--dd-muted);">
+                Pick something in the bag or click a placed thing on the map.
             </div>
         `;
         wrap.appendChild(inspector);
 
-        // Bottom Status Bar
-        const statusBar = document.createElement('div');
-        statusBar.className = 'dd-glass';
-        statusBar.style.cssText = `
-            position: absolute; bottom: 5px; left: 10px; right: 10px; height: 24px;
-            display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 11px; color: #64748b;
-        `;
-        statusBar.innerHTML = `
-            <span id="dd-status-left">Doc's Doodads v${pluginVersion} Ready | Hold Alt for free placement</span>
-            <span id="dd-status-right">Map ID: ${$gameMap ? $gameMap.mapId() : 0} | Autosave Active</span>
-        `;
-        wrap.appendChild(statusBar);
+        // The hint bubble: what to do next.
+        const hint = document.createElement('div');
+        hint.className = 'dd-glass';
+        hint.id = 'dd-hint';
+        hint.innerHTML = `${U.icon('help', 1)}<span id="dd-status-left">${escapeHtml(U.hints.none)}</span>`;
+        wrap.appendChild(hint);
 
         document.body.appendChild(wrap);
         this.container = wrap;
@@ -18378,20 +18672,124 @@ DocsDoodads.Workspace = {
         this.inspectorEl = inspector;
 
         this.bindEvents();
+        const prefs = DocsDoodads.Ui.prefs();
+        if (prefs.drawerFolded) this.foldPanel('drawer', true);
+        if (prefs.inspectorFolded) this.foldPanel('inspector', true);
+        // The chosen layout's panel widths and card size.
+        DocsDoodads.Layout.apply(DocsDoodads.Layout.current);
+        this.setPlacementTool(this.placementTool);
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
+        if (!prefs.welcomed) this.showWelcome();
     },
 
-    // The toolbar wraps onto more rows in narrow windows; the side panels start just below it.
+    // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
+    // follow their buttons.
     layoutPanels() {
         const toolbar = document.getElementById('dd-toolbar');
         if (!toolbar) return;
-        const top = (toolbar.offsetTop || 10) + (toolbar.offsetHeight || 50) + 10;
+        const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
         for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
             const panel = document.getElementById(id);
             if (panel) panel.style.top = top + 'px';
         }
+        for (const [name, id] of Object.entries(this.toolPopovers)) {
+            const pop = document.getElementById(id);
+            if (pop && pop.style.display === 'block') this.placePopover(pop, this.toolButtons[name]);
+        }
+        this.placeHint();
+    },
+
+    // The hint bubble sits over the map, between the bag and the details panel.
+    placeHint() {
+        const hint = document.getElementById('dd-hint');
+        if (!hint || !hint.style) return;
+        const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
+        const room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
+        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
+        const width = Math.max(140, right - left);
+        hint.style.left = Math.round(left + width / 2) + 'px';
+        hint.style.maxWidth = Math.round(width) + 'px';
+    },
+
+    // An options card just under its top-bar button, kept inside the window.
+    placePopover(pop, buttonId) {
+        const toolbar = document.getElementById('dd-toolbar');
+        const btn = document.getElementById(buttonId);
+        if (!pop || !toolbar || !btn || typeof btn.getBoundingClientRect !== 'function') return;
+        const bar = toolbar.getBoundingClientRect(), at = btn.getBoundingClientRect();
+        const width = pop.offsetWidth || 270, room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        pop.style.top = Math.round(bar.bottom + 8) + 'px';
+        pop.style.left = Math.round(Math.max(8, Math.min(room - width - 8, at.left + at.width / 2 - width / 2))) + 'px';
+    },
+
+    showMoreMenu(open) {
+        const menu = document.getElementById('dd-more-menu');
+        if (!menu) return;
+        menu.style.display = open ? 'block' : 'none';
+        const btn = document.getElementById('dd-more-btn');
+        if (btn && btn.classList) btn.classList.toggle('dd-btn-active', Boolean(open));
+        if (open) {
+            this.placePopover(menu, 'dd-more-btn');
+            const grid = document.getElementById('dd-grid-label');
+            if (grid) grid.textContent = this.gridSnapShow ? 'Hide Grid' : 'Show Grid';
+            const sound = document.getElementById('dd-sound-label');
+            if (sound) sound.textContent = DocsDoodads.Ui.prefs().sounds === false ? 'Sounds: Off' : 'Sounds: On';
+        }
+    },
+
+    // The bag and the details panel fold away to a narrow strip (remembered on this computer).
+    foldPanel(which, folded) {
+        const panel = document.getElementById(which === 'drawer' ? 'dd-drawer-panel' : 'dd-inspector-panel');
+        if (!panel || !panel.classList) return;
+        panel.classList.toggle('dd-collapsed', Boolean(folded));
+        const resizer = document.getElementById(which === 'drawer' ? 'dd-drawer-resizer' : 'dd-inspector-resizer');
+        if (resizer) resizer.style.display = folded ? 'none' : 'block';
+        const fold = document.getElementById(which === 'drawer' ? 'dd-drawer-fold' : 'dd-inspector-fold');
+        const U = DocsDoodads.Ui;
+        if (fold) {
+            fold.innerHTML = U.icon(which === 'drawer' ? (folded ? 'right' : 'left') : (folded ? 'left' : 'right'), 1);
+            fold.title = folded ? 'Open it again' : (which === 'drawer' ? 'Fold the bag away' : 'Fold the details away (H)');
+        }
+        U.setPref(which + 'Folded', Boolean(folded));
+        if (!folded && which === 'drawer') this.updateVirtualGrid(true);
+        this.placeHint();
+    },
+
+    isFolded(which) {
+        const panel = document.getElementById(which === 'drawer' ? 'dd-drawer-panel' : 'dd-inspector-panel');
+        return Boolean(panel && panel.classList && panel.classList.contains('dd-collapsed'));
+    },
+
+    // The first time (and from More, How to Use): three steps to get going.
+    showWelcome() {
+        const U = DocsDoodads.Ui;
+        const old = document.getElementById('dd-welcome');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        const card = document.createElement('div');
+        card.id = 'dd-welcome';
+        card.className = 'dd-glass';
+        card.innerHTML = `
+            ${U.icon('leaf', 3)}
+            <h2>Let's decorate!</h2>
+            <div style="color: var(--dd-muted);">Three steps, that's all:</div>
+            <ol>
+                <li><span class="dd-num">1</span>${U.icon('bag', 2)}<span>Pick something from the <b>Item Bag</b> on the left.</span></li>
+                <li><span class="dd-num">2</span>${U.icon('select', 2)}<span><b>Click the map</b> to put it there. Drag things to move them; right-click for more.</span></li>
+                <li><span class="dd-num">3</span>${U.icon('save', 2)}<span>Press <b>Save</b>, then <b>Done</b> to play.</span></li>
+            </ol>
+            <div style="color: var(--dd-muted); font-size: 11px; margin-bottom: 12px;">Stuck? The bubble at the bottom always says what to do next.</div>
+            <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
+        `;
+        (this.container || document.body).appendChild(card);
+        const ok = document.getElementById('dd-welcome-ok');
+        if (ok) ok.onclick = () => {
+            U.setPref('welcomed', true);
+            U.sound('ok');
+            if (card.parentNode) card.parentNode.removeChild(card);
+        };
     },
 
     refreshLayoutSelector() {
@@ -18455,7 +18853,7 @@ DocsDoodads.Workspace = {
     },
 
     bindEvents() {
-        document.getElementById('dd-close-btn').onclick = () => this.close();
+        document.getElementById('dd-close-btn').onclick = () => { DocsDoodads.Ui.sound('cancel'); this.close(); };
         document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
         document.getElementById('dd-undo-btn').onclick = () => DocsDoodads.Undo.undo();
         document.getElementById('dd-undo-list-btn').onclick = () => this.toggleUndoHistory();
@@ -18509,6 +18907,7 @@ DocsDoodads.Workspace = {
                     const newW = Math.max(200, Math.min(800, startWidth + (ev.clientX - startX)));
                     this.drawerEl.style.width = newW + 'px';
                     this.updateVirtualGrid(true);
+                    this.placeHint();
                 };
                 const onMouseUp = () => {
                     isResizing = false;
@@ -18535,6 +18934,7 @@ DocsDoodads.Workspace = {
                     if (!isResizing) return;
                     const newW = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX)));
                     this.inspectorEl.style.width = newW + 'px';
+                    this.placeHint();
                 };
                 const onMouseUp = () => {
                     isResizing = false;
@@ -18580,17 +18980,58 @@ DocsDoodads.Workspace = {
 
         const catTabs = document.getElementById('dd-category-tabs');
         catTabs.onclick = (e) => {
-            if (e.target.dataset.cat) {
-                catTabs.querySelectorAll('button').forEach(b => b.className = 'dd-btn');
-                e.target.className = 'dd-btn dd-btn-primary';
-                this.currentCategory = e.target.dataset.cat;
-                this.refreshDrawerCards();
+            const tab = e.target && e.target.closest ? e.target.closest('button') : e.target;
+            if (tab && tab.dataset && tab.dataset.cat) {
+                this._categoryChosen = true;
+                DocsDoodads.Ui.sound('cursor');
+                this.setCategory(tab.dataset.cat);
             }
         };
 
+        // The new buttons: Select, More (and what is in it), folding the panels.
+        const U = DocsDoodads.Ui;
+        const on = (id, handler) => { const node = document.getElementById(id); if (node) node.onclick = handler; };
+        on('dd-select-btn', () => { U.sound('ok'); this.setPlacementTool(null); });
+        on('dd-more-btn', () => { U.sound('cursor'); this.showMoreMenu(document.getElementById('dd-more-menu').style.display !== 'block'); });
+        on('dd-grid-btn', () => { this.toggleGrid(); this.showMoreMenu(false); });
+        on('dd-sound-btn', () => {
+            U.setPref('sounds', U.prefs().sounds === false);
+            U.sound('ok');
+            this.showMoreMenu(true);
+        });
+        on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
+        on('dd-help-btn', () => { this.showMoreMenu(false); this.showWelcome(); });
+        on('dd-drawer-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('drawer', !this.isFolded('drawer')); });
+        on('dd-inspector-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('inspector', !this.isFolded('inspector')); });
+        // A folded panel opens again from anywhere on its strip.
+        on('dd-drawer-head', () => { if (this.isFolded('drawer')) this.foldPanel('drawer', false); });
+        on('dd-inspector-head', () => { if (this.isFolded('inspector')) this.foldPanel('inspector', false); });
+        // More and Mirror close when you click anywhere else (or press Esc).
+        if (this._onOutsidePointer) document.removeEventListener('pointerdown', this._onOutsidePointer, true);
+        this._onOutsidePointer = e => {
+            const inside = (id, buttonId) => {
+                const el = document.getElementById(id), btn = document.getElementById(buttonId);
+                return (el && el.contains && el.contains(e.target)) || (btn && btn.contains && btn.contains(e.target));
+            };
+            const more = document.getElementById('dd-more-menu');
+            if (more && more.style.display === 'block' && !inside('dd-more-menu', 'dd-more-btn')) this.showMoreMenu(false);
+            const sym = document.getElementById('dd-sym-popover');
+            if (sym && sym.style.display === 'block' && !inside('dd-sym-popover', 'dd-sym-btn')) sym.style.display = 'none';
+        };
+        document.addEventListener('pointerdown', this._onOutsidePointer, true);
+        // The More menu closes once one of its tools opens (the layout buttons keep it open).
+        const more = document.getElementById('dd-more-menu');
+        if (more) more.addEventListener('click', e => {
+            const btn = e.target && e.target.closest ? e.target.closest('button') : null;
+            if (btn && /^(dd-slicer-btn|dd-postfx-btn|dd-vfx-btn|dd-history-btn|dd-tools-btn|dd-diag-btn)$/.test(btn.id)) {
+                U.sound('ok');
+                this.showMoreMenu(false);
+            }
+        });
+
         document.getElementById('dd-slicer-btn').onclick = () => {
             if (this.selectedAsset) DocsDoodads.Slicing.Editor.open(this.selectedAsset);
-            else alert("Please select a sprite sheet in the drawer first!");
+            else alert("First pick a sprite sheet in the Item Bag.");
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
@@ -18605,18 +19046,17 @@ DocsDoodads.Workspace = {
             document.getElementById('dd-stop-audio-btn').style.display = 'none';
         };
 
-        document.getElementById('dd-eyedropper-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'eyedropper' ? null : 'eyedropper');
-            this.showToast(this.placementTool ? "Eyedropper Active: Click any object on map" : "Eyedropper Deactivated");
+        const pickTool = name => {
+            DocsDoodads.Ui.sound('ok');
+            this.setPlacementTool(this.placementTool === name ? null : name);
+            // Tools that place the picked item: say so when nothing is picked yet.
+            if (this.placementTool && ['stamp', 'brush', 'path'].includes(this.placementTool) && !this.selectedAsset) {
+                this.showToast('First pick something from the Item Bag.', 'info');
+            }
         };
-        document.getElementById('dd-stamp-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'stamp' ? null : 'stamp');
-            this.showToast(this.placementTool ? "Stamp Active: Click map to place repeatedly" : "Stamp Deactivated");
-        };
-        document.getElementById('dd-brush-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'brush' ? null : 'brush');
-            this.showToast(this.placementTool ? "Scatter Brush Active: Drag map to scatter" : "Brush Deactivated");
-        };
+        document.getElementById('dd-eyedropper-btn').onclick = () => pickTool('eyedropper');
+        document.getElementById('dd-stamp-btn').onclick = () => pickTool('stamp');
+        document.getElementById('dd-brush-btn').onclick = () => pickTool('brush');
 
         const setupBrushSlider = (id, prop, valId, suffix, mult = 1) => {
             const el = document.getElementById(id);
@@ -18640,10 +19080,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-brush-terrain').oninput = (ev) => { this.brushSettings.terrainTags = ev.target.value; };
         document.getElementById('dd-brush-avoid').onchange = (ev) => { this.brushSettings.avoidBlocked = Boolean(ev.target.checked); };
 
-        document.getElementById('dd-path-btn').onclick = () => {
-            this.setPlacementTool(this.placementTool === 'path' ? null : 'path');
-            this.showToast(this.placementTool ? "Path Active: click points on the map" : "Path Deactivated");
-        };
+        document.getElementById('dd-path-btn').onclick = () => pickTool('path');
         const pathSlider = (id, prop) => {
             const input = document.getElementById(id);
             input.oninput = (ev) => {
@@ -18659,7 +19096,7 @@ DocsDoodads.Workspace = {
             const label = document.getElementById(`dd-path-${kind}-name`);
             document.getElementById(`dd-path-${kind}-btn`).onclick = () => {
                 if (!this.selectedAsset || this.selectedAsset.category === 'Audio' || this.selectedAsset.type === 'prefab') {
-                    this.showToast('Select an image asset in the drawer first.');
+                    this.showToast('First pick a picture in the Item Bag.');
                     return;
                 }
                 this.pathSettings[prop] = this.selectedAsset;
@@ -18692,11 +19129,20 @@ DocsDoodads.Workspace = {
             filtered = filtered.filter(a => a.category === this.currentCategory);
         }
         filtered = DocsDoodads.Search.filter(filtered, this.searchQuery);
+        // The bag opens on Doodads; a project without any (yet) opens on Everything instead.
+        if (!this._categoryChosen && this.currentCategory === 'Doodads' && filtered.length === 0 && !this.searchQuery &&
+            DocsDoodads.AssetIndex.list.length > 0 && !DocsDoodads.AssetIndex.list.some(a => a.category === 'Doodads')) {
+            this._categoryChosen = true;
+            this.setCategory('All');
+            return;
+        }
         this.filteredAssets = filtered;
 
         const countEl = document.getElementById('dd-asset-count');
         if (countEl) countEl.textContent = this.currentCategory === 'Similar' && this.similarSource
-            ? `Most like ${this.similarSource}: ${filtered.length}` : `Assets: ${filtered.length}`;
+            ? `Most like ${this.similarSource}: ${filtered.length}` : `${filtered.length} item${filtered.length === 1 ? '' : 's'}`;
+        const catEl = document.getElementById('dd-drawer-category');
+        if (catEl) catEl.textContent = '· ' + this.categoryName(this.currentCategory);
 
         // Back to the top only for a new search or tab; a reload, favourite or save keeps the place.
         const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}`;
@@ -18717,14 +19163,15 @@ DocsDoodads.Workspace = {
         const totalCount = assets.length;
         if (totalCount === 0) {
             sizer.style.height = '0px';
-            viewport.innerHTML = '<div style="color: #64748b; font-size: 12px; padding: 16px; text-align: center;">No matching assets found.</div>';
+            viewport.innerHTML = '<div style="color: var(--dd-faint); font-size: 12px; padding: 16px; text-align: center;">No matching assets found.</div>';
             return;
         }
 
         const size = this.thumbSize || defaultThumbnailSize;
         const gap = 8;
-        const containerW = Math.max(120, container.clientWidth - 20);
-        const cols = Math.max(1, Math.floor((containerW + gap) / (size + gap)));
+        const containerW = Math.max(120, container.clientWidth - 8);
+        // As many columns as cards of about the chosen size fit.
+        const cols = Math.max(1, Math.round((containerW + gap) / (size + gap)));
         const colWidth = Math.floor((containerW - (cols - 1) * gap) / cols);
         const cardHeight = colWidth + 24;
         const rowHeight = cardHeight + gap;
@@ -18771,7 +19218,7 @@ DocsDoodads.Workspace = {
         this.attachThumbAnimation(card, imgEl, asset);
 
         const title = document.createElement('div');
-        title.style.cssText = 'font-size: 10px; color: #e2e8f0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin-top: 3px;';
+        title.style.cssText = 'font-size: 10px; color: var(--dd-text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin-top: 3px;';
         title.textContent = asset.fileName;
         card.appendChild(title);
 
@@ -18779,7 +19226,6 @@ DocsDoodads.Workspace = {
             const favBadge = document.createElement('span');
             favBadge.className = 'dd-badge';
             favBadge.textContent = '★';
-            favBadge.style.color = '#fbbf24';
             card.appendChild(favBadge);
         }
 
@@ -18789,10 +19235,11 @@ DocsDoodads.Workspace = {
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));
             card.classList.add('selected');
 
+            DocsDoodads.Ui.sound('cursor');
             if (asset.category === 'Audio') {
                 DocsDoodads.Audio.playPreview(asset);
                 const stopBtn = document.getElementById('dd-stop-audio-btn');
-                if (stopBtn) stopBtn.style.display = 'block';
+                if (stopBtn) stopBtn.style.display = 'inline-flex';
             }
         };
 
@@ -18917,7 +19364,7 @@ DocsDoodads.Workspace = {
         return `
             <div style="margin: 6px 0;">
                 <canvas id="dd-asset-3d" width="232" height="140" style="width: 100%; border-radius: 4px; background: #0b1220;"></canvas>
-                <div id="dd-asset-3d-note" style="font-size: 10px; color: #64748b;">In 3D on this map, beside the party leader.</div>
+                <div id="dd-asset-3d-note" style="font-size: 10px; color: var(--dd-faint);">In 3D on this map, beside the party leader.</div>
             </div>`;
     },
 
@@ -19018,9 +19465,43 @@ DocsDoodads.Workspace = {
         this.refreshInspector();
     },
 
+    // The details panel's heading (an icon and a name for what is shown) and the hint for it.
+    updateInspectorHead() {
+        const U = DocsDoodads.Ui;
+        let icon = 'map', title = 'Map', hint = null;
+        const name = path => String(path || '').split('/').pop().replace(/\.[^.]+$/, '');
+        if (this.selectedEvent) {
+            const ev = this.selectedEvent.stagedEvent || (this.selectedEvent.gameEvent && this.selectedEvent.gameEvent.event());
+            icon = 'person'; title = ev && ev.name ? ev.name : 'Event';
+            hint = 'Drag the event, or use the arrow keys, to move it. Right-click it for more.';
+        } else if (this.selectedDoodads && this.selectedDoodads.length > 1) {
+            icon = 'layers'; title = `${this.selectedDoodads.length} things`;
+            hint = 'Drag one to move them all. Delete removes them; right-click for more.';
+        } else if (this.selectedDoodad) {
+            icon = 'tree'; title = name(this.selectedDoodad.bit && this.selectedDoodad.bit[1]) || 'Doodad';
+            hint = 'Drag it to move it. Arrow keys nudge it; Delete removes it; right-click for more.';
+        } else if (this.selectedAsset) {
+            const a = this.selectedAsset;
+            icon = a.type === 'prefab' ? 'box' : a.category === 'Audio' ? 'music' : 'bag';
+            title = name(a.fileName) || 'Item';
+            hint = a.category === 'Audio' ? 'Drop it on the map to make a sound event, or right-click to listen.'
+                : 'Now click the map to place it. Stamp places it again and again.';
+        } else {
+            const mapId = this.currentMapId();
+            const info = typeof $dataMapInfos !== 'undefined' && $dataMapInfos ? $dataMapInfos[mapId] : null;
+            title = info && info.name ? info.name : `Map ${mapId}`;
+        }
+        const iconEl = document.getElementById('dd-inspector-icon');
+        if (iconEl) iconEl.innerHTML = U.icon(icon, 2);
+        const titleEl = document.getElementById('dd-inspector-title');
+        if (titleEl) { titleEl.textContent = title; titleEl.title = title; }
+        if (!this.placementTool) U.setHint(hint || U.hints.none);
+    },
+
     refreshInspector() {
         const content = document.getElementById('dd-inspector-content');
         if (!content) return;
+        this.updateInspectorHead();
 
         // Case 0: MZ Map Event Selected
         if (this.selectedEvent) {
@@ -19032,34 +19513,34 @@ DocsDoodads.Workspace = {
             const priorityNames = ["Below Characters", "Same as Characters", "Above Characters"];
 
             content.innerHTML = `
-                <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP EVENT: ${escapeHtml(ev ? ev.name : ('EV' + evId))} (ID: ${evId})</div>
-                <div style="font-size: 11px; margin-bottom: 4px;">Tile Coordinates: <span style="color: #fff;">[${ge ? ge.x : (ev ? ev.x : 0)}, ${ge ? ge.y : (ev ? ev.y : 0)}]</span></div>
+                <div style="color: var(--dd-muted); margin-bottom: 6px;">Event ${evId} on this map.</div>
+                <div style="font-size: 11px; margin-bottom: 4px;">Tile Coordinates: <span style="color: var(--dd-text);">[${ge ? ge.x : (ev ? ev.x : 0)}, ${ge ? ge.y : (ev ? ev.y : 0)}]</span></div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Tile X:</label>
-                        <input type="number" id="dd-ev-x" value="${ge ? ge.x : (ev ? ev.x : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Tile X:</label>
+                        <input type="number" id="dd-ev-x" value="${ge ? ge.x : (ev ? ev.x : 0)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Tile Y:</label>
-                        <input type="number" id="dd-ev-y" value="${ge ? ge.y : (ev ? ev.y : 0)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Tile Y:</label>
+                        <input type="number" id="dd-ev-y" value="${ge ? ge.y : (ev ? ev.y : 0)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                 </div>
                 <div style="margin-top: 6px;">
-                    <label style="display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">Trigger:</label>
-                    <select id="dd-ev-trigger" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
+                    <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Trigger:</label>
+                    <select id="dd-ev-trigger" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; font-size: 11px;">
                         ${triggerNames.map((t, idx) => `<option value="${idx}" ${(page0.trigger === idx) ? 'selected' : ''}>${t}</option>`).join('')}
                     </select>
                 </div>
                 <div style="margin-top: 6px;">
-                    <label style="display: block; font-size: 10px; color: #94a3b8; margin-bottom: 2px;">Priority:</label>
-                    <select id="dd-ev-priority" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; font-size: 11px;">
+                    <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Priority:</label>
+                    <select id="dd-ev-priority" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; font-size: 11px;">
                         ${priorityNames.map((p, idx) => `<option value="${idx}" ${(page0.priorityType === idx) ? 'selected' : ''}>${p}</option>`).join('')}
                     </select>
                 </div>
                 <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                     <button class="dd-btn dd-btn-primary" id="dd-ev-save-template-btn">💾 Save as Event Template</button>
                     <button class="dd-btn" id="dd-ev-dup-btn">Duplicate Event</button>
-                    <button class="dd-btn" id="dd-ev-del-btn" style="background: #991b1b;">Delete Event</button>
+                    <button class="dd-btn" id="dd-ev-del-btn" style="background: var(--dd-danger-soft);">Delete Event</button>
                 </div>
             `;
 
@@ -19102,15 +19583,15 @@ DocsDoodads.Workspace = {
             const hasGroup = items.some(d => d.groupId);
 
             content.innerHTML = `
-                <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MULTI-SELECTION (${items.length} DOODADS)</div>
-                <div style="font-size: 11px; color: #cbd5e1; margin-bottom: 8px;">
+                <div style="color: var(--dd-muted); margin-bottom: 6px;">${items.length} things picked: what you do here changes them all.</div>
+                <div style="font-size: 11px; color: var(--dd-text); margin-bottom: 8px;">
                     ${lockedCount > 0 ? `🔒 ${lockedCount} locked | ` : ''}
                     ${hiddenCount > 0 ? `👁 ${hiddenCount} hidden | ` : ''}
                     ${hasGroup ? `📦 Grouped` : ''}
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">ALIGN</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">Line up</div>
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
                         <button class="dd-btn" id="dd-align-left" title="Align Left">Left</button>
                         <button class="dd-btn" id="dd-align-center-x" title="Align Center X">Center X</button>
@@ -19121,16 +19602,16 @@ DocsDoodads.Workspace = {
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">DISTRIBUTE</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">Space out evenly</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                         <button class="dd-btn" id="dd-dist-h" title="Distribute Horizontally">Horizontal</button>
                         <button class="dd-btn" id="dd-dist-v" title="Distribute Vertically">Vertical</button>
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">LAYERING (Z-ORDER)</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">In front or behind</div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
                         <button class="dd-btn" id="dd-multi-z-fwd" title="Bring Forward (+1 Z)">+1 Z</button>
                         <button class="dd-btn" id="dd-multi-z-back" title="Send Backward (-1 Z)">-1 Z</button>
@@ -19139,8 +19620,8 @@ DocsDoodads.Workspace = {
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 6px;">ORGANIZATION</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
+                    <div class="dd-label">Group, lock and hide</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
                         <button class="dd-btn" id="dd-grp-btn">${hasGroup ? 'Ungroup' : 'Group'}</button>
                         <button class="dd-btn" id="dd-lock-btn">${lockedCount === items.length ? 'Unlock All' : 'Lock All'}</button>
@@ -19149,13 +19630,13 @@ DocsDoodads.Workspace = {
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-bottom: 8px;">
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
                     <button class="dd-btn" id="dd-multi-trace-col" style="width: 100%;" title="Fit each doodad's collision to the solid base of its image">Trace Collision from Art</button>
                 </div>
                 ${this.renderSelectionTools(items)}
                 ${this.renderEffectSections(items)}
                 <div style="margin-top: 12px;">
-                    <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: #991b1b;">Delete Selection (${items.length})</button>
+                    <button class="dd-btn" id="dd-del-all-btn" style="width: 100%; background: var(--dd-danger-soft);">Delete Selection (${items.length})</button>
                 </div>
             `;
 
@@ -19202,43 +19683,43 @@ DocsDoodads.Workspace = {
 
             content.innerHTML = `
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                    <div style="font-weight: bold; color: #38bdf8;">DOODAD PROPERTIES</div>
+                    <div style="color: var(--dd-muted);">Placed on the map.</div>
                     <div style="display: flex; gap: 4px;">
-                        <button class="dd-btn" id="dd-doodad-lock-toggle" style="padding: 2px 6px; font-size: 11px;">${isLocked ? '🔒 Locked' : '🔓 Lock'}</button>
-                        <button class="dd-btn" id="dd-doodad-hide-toggle" style="padding: 2px 6px; font-size: 11px;">${isHidden ? '👁 Hidden' : '👁 Hide'}</button>
+                        <button class="dd-btn${isLocked ? ' dd-btn-active' : ''}" id="dd-doodad-lock-toggle" title="Locked things can't be moved or deleted by mistake">${DocsDoodads.Ui.icon('lock', 1)} ${isLocked ? 'Locked' : 'Lock'}</button>
+                        <button class="dd-btn${isHidden ? ' dd-btn-active' : ''}" id="dd-doodad-hide-toggle" title="Hide it while editing (it still shows in the game)">${DocsDoodads.Ui.icon('eye', 1)} ${isHidden ? 'Hidden' : 'Hide'}</button>
                     </div>
                 </div>
-                <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: #fff;">${escapeHtml(d.bit ? d.bit[1] : 'Unknown')}</span></div>
-                ${d.groupId ? `<div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="dd-btn" id="dd-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
+                <div style="font-size: 11px; margin-bottom: 4px;">Image: <span style="color: var(--dd-text);">${escapeHtml(d.bit ? d.bit[1] : 'Unknown')}</span></div>
+                ${d.groupId ? `<div style="font-size: 10px; color: var(--dd-purple); margin-bottom: 4px;">Group: ${escapeHtml(d.groupId)} <button class="dd-btn" id="dd-ungrp-single" style="padding: 1px 4px; font-size: 9px;">Ungroup</button></div>` : ''}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0;">
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">X:</label>
-                        <input type="number" id="dd-prop-x" value="${d.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">X:</label>
+                        <input type="number" id="dd-prop-x" value="${d.x}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Y:</label>
-                        <input type="number" id="dd-prop-y" value="${d.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Y:</label>
+                        <input type="number" id="dd-prop-y" value="${d.y}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Z-Order:</label>
-                        <input type="number" id="dd-prop-z" value="${d.z || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Z-Order:</label>
+                        <input type="number" id="dd-prop-z" value="${d.z || 0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Rotation (°):</label>
-                        <input type="number" id="dd-prop-rot" value="${d.rotation || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Rotation (°):</label>
+                        <input type="number" id="dd-prop-rot" value="${d.rotation || 0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Scale X:</label>
-                        <input type="number" step="0.1" id="dd-prop-sx" value="${d.scaleX || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Scale X:</label>
+                        <input type="number" step="0.1" id="dd-prop-sx" value="${d.scaleX || 1}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                     <div>
-                        <label style="font-size: 10px; color: #94a3b8;">Scale Y:</label>
-                        <input type="number" step="0.1" id="dd-prop-sy" value="${d.scaleY || 1}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                        <label style="font-size: 10px; color: var(--dd-muted);">Scale Y:</label>
+                        <input type="number" step="0.1" id="dd-prop-sy" value="${d.scaleY || 1}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                     </div>
                 </div>
                 <div style="margin-top: 6px;">
                     <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
-                    <select id="dd-prop-col" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                    <select id="dd-prop-col" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                         <option value="none">None (Passable)</option>
                         <option value="full">Full Bounds</option>
                         <option value="bottomHalf">Bottom Half</option>
@@ -19252,33 +19733,33 @@ DocsDoodads.Workspace = {
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
-                <div id="dd-custom-col-editor" style="display: ${isCustomCol ? 'block' : 'none'}; margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid #334155; padding: 8px; border-radius: 4px;">
-                    <div style="font-size: 10px; color: #38bdf8; margin-bottom: 4px; font-weight: bold;">CUSTOM COLLISION BOX</div>
+                <div id="dd-custom-col-editor" style="display: ${isCustomCol ? 'block' : 'none'}; margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--dd-line); padding: 8px; border-radius: 4px;">
+                    <div class="dd-label">Solid area</div>
                     <div style="display: flex; gap: 8px; align-items: center;">
-                        <canvas id="dd-col-preview" width="64" height="64" style="background: #0b1120; border: 1px solid #475569; border-radius: 3px; flex-shrink: 0;"></canvas>
+                        <canvas id="dd-col-preview" width="64" height="64" style="background: var(--dd-field); border: 1px solid var(--dd-line); border-radius: 3px; flex-shrink: 0;"></canvas>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; flex: 1;">
                             <div>
-                                <label style="color: #94a3b8;">Rel X:</label>
-                                <input type="number" step="0.05" min="0" max="1" id="dd-col-x" value="${shape.x.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel X:</label>
+                                <input type="number" step="0.05" min="0" max="1" id="dd-col-x" value="${shape.x.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                             <div>
-                                <label style="color: #94a3b8;">Rel Y:</label>
-                                <input type="number" step="0.05" min="0" max="1" id="dd-col-y" value="${shape.y.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel Y:</label>
+                                <input type="number" step="0.05" min="0" max="1" id="dd-col-y" value="${shape.y.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                             <div>
-                                <label style="color: #94a3b8;">Rel W:</label>
-                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-w" value="${shape.w.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel W:</label>
+                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-w" value="${shape.w.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                             <div>
-                                <label style="color: #94a3b8;">Rel H:</label>
-                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-h" value="${shape.h.toFixed(2)}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" />
+                                <label style="color: var(--dd-muted);">Rel H:</label>
+                                <input type="number" step="0.05" min="0.05" max="1" id="dd-col-h" value="${shape.h.toFixed(2)}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line);" />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 8px;">
-                    <div style="font-size: 11px; font-weight: bold; color: #94a3b8; margin-bottom: 4px;">LAYERING (Z-ORDER)</div>
+                <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-top: 8px;">
+                    <div class="dd-label">In front or behind</div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
                         <button class="dd-btn" id="dd-prop-forward" title="Bring Forward (+1 Z)">+1 Z</button>
                         <button class="dd-btn" id="dd-prop-backward" title="Send Backward (-1 Z)">-1 Z</button>
@@ -19290,7 +19771,7 @@ DocsDoodads.Workspace = {
                 ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
                     <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
-                    <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: #991b1b;">Delete</button>
+                    <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: var(--dd-danger-soft);">Delete</button>
                 </div>
             `;
 
@@ -19405,8 +19886,8 @@ DocsDoodads.Workspace = {
         }
 
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
-            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${escapeHtml(a.category)}</span></div>
+            <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: var(--dd-accent);">${escapeHtml(a.category)}</span></div>
             <div style="font-size: 11px; margin-bottom: 4px;">Dimensions: ${a.width} x ${a.height}</div>
             ${this.renderAsset3dPreview(a)}
             <div style="display: flex; gap: 6px; margin: 8px 0;">
@@ -19414,12 +19895,12 @@ DocsDoodads.Workspace = {
             </div>
             <div style="margin-bottom: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
-                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. forest, prop" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
-                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
+                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. forest, prop" style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
             </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Placement Mode:</label>
-                <select id="dd-place-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-place-mode" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     <option value="doodad">Decorative Doodad</option>
                     <option value="event">Real MZ Event</option>
                     <option value="ask">Ask Each Time</option>
@@ -19427,18 +19908,18 @@ DocsDoodads.Workspace = {
             </div>
             <div id="dd-template-group" style="margin-top: 8px; display: none;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Event Template:</label>
-                <select id="dd-event-template" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-event-template" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     ${templateOptions}
                 </select>
                 ${a.type === 'character_sheet' ? `
                 <label style="display: block; font-size: 11px; margin: 8px 0 3px;">Character on Sheet:</label>
-                <select id="dd-char-index" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-char-index" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     ${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}">#${i + 1} (${i < 4 ? 'top' : 'bottom'} row, ${(i % 4) + 1} of 4)</option>`).join('')}
                 </select>` : ''}
             </div>
             <div style="margin-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Collision Preset:</label>
-                <select id="dd-col-preset" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-col-preset" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     <option value="none">None (Passable)</option>
                     <option value="full">Full Bounds</option>
                     <option value="bottomHalf">Bottom Half</option>
@@ -19452,7 +19933,7 @@ DocsDoodads.Workspace = {
             </div>
             <div style="margin-top: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Default Depth:</label>
-                <select id="dd-asset-depth" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;">
+                <select id="dd-asset-depth" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
@@ -19460,8 +19941,8 @@ DocsDoodads.Workspace = {
             ${this.renderAssetPlacementTools(a)}
             ${this.renderUsagePanel(a)}
             <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
-                <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place on Map Center</button>
-                <button class="dd-btn" id="dd-open-slicer-btn">Open Slicer</button>
+                <button class="dd-btn dd-btn-primary" id="dd-place-now-btn">Place in the Middle of the Screen</button>
+                <button class="dd-btn" id="dd-open-slicer-btn">${DocsDoodads.Ui.icon('scissors', 1)} Cut Up Sheet</button>
             </div>
         `;
 
@@ -19791,10 +20272,10 @@ DocsDoodads.Workspace = {
     },
 
     fieldHtml(id, f, value) {
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px; border-radius: 3px; font-size: 11px;';
-        const label = `<label for="${id}" style="font-size: 10px; color: #94a3b8;">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: #e2e8f0;">${escapeHtml(String(value))}</span>` : ''}</label>`;
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px; border-radius: 3px; font-size: 11px;';
+        const label = `<label for="${id}" style="font-size: 10px; color: var(--dd-muted);">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: var(--dd-text);">${escapeHtml(String(value))}</span>` : ''}</label>`;
         if (f.type === 'checkbox') {
-            return `<label style="font-size: 11px; color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
+            return `<label style="font-size: 11px; color: var(--dd-text); display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
         }
         if (f.type === 'select') {
             const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
@@ -19804,7 +20285,7 @@ DocsDoodads.Workspace = {
             return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
         }
         if (f.type === 'color') {
-            return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>`;
+            return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: var(--dd-field); border: 1px solid var(--dd-line);" /></div>`;
         }
         const type = f.type === 'number' ? 'number' : 'text';
         return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
@@ -19822,8 +20303,8 @@ DocsDoodads.Workspace = {
                 return this.fieldHtml(id, f, value);
             }).join('');
             return `
-                <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
+                <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${section.title}</summary>
                     <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
                 </details>`;
         }).join('');
@@ -19997,25 +20478,25 @@ DocsDoodads.Workspace = {
         const counts = {};
         for (const d of DocsDoodads.doodads(this.currentMapId())) if (d) counts[DocsDoodads.Layers.of(d)] = (counts[DocsDoodads.Layers.of(d)] || 0) + 1;
         const active = layers.some(l => l.id === this.activeLayer) ? this.activeLayer : 'main';
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const rows = layers.map((l, i) => `
-            <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; align-items: center; font-size: 10px; color: #cbd5e1;">
+            <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; align-items: center; font-size: 10px; color: var(--dd-text);">
                 <input type="radio" name="dd-layer-active" id="dd-layer-active-${i}" ${l.id === active ? 'checked' : ''} title="New doodads go on this layer" />
                 ${l.id === 'main' ? `<span>${escapeHtml(l.name)}</span>` : `<input type="text" id="dd-layer-name-${i}" value="${escapeHtml(l.name)}" style="${inputStyle}" />`}
-                <span style="color: #64748b;" title="Doodads on this layer">${counts[l.id] || 0}</span>
+                <span style="color: var(--dd-faint);" title="Doodads on this layer">${counts[l.id] || 0}</span>
                 <input type="checkbox" id="dd-layer-show-${i}" ${l.hidden ? '' : 'checked'} title="Show in the editor" />
                 <input type="checkbox" id="dd-layer-lock-${i}" ${l.locked ? 'checked' : ''} title="Locked (can't be selected)" />
                 <input type="checkbox" id="dd-layer-game-${i}" ${l.gameHidden ? '' : 'checked'} title="Show in the game" />
                 ${l.id === 'main' ? '<span></span>' : `<button class="dd-btn" id="dd-layer-del-${i}" title="Delete (doodads move to Main)" style="padding: 0 4px;">&times;</button>`}
             </div>`).join('');
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;" ${this._openLayers ? 'open' : ''} id="dd-layers-sec">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Layers</summary>
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;" ${this._openLayers ? 'open' : ''} id="dd-layers-sec">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Layers</summary>
                 <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-                    <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: #64748b;"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
+                    <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
                     ${rows}
                     <button class="dd-btn" id="dd-layer-add">Add Layer</button>
-                    <div style="font-size: 10px; color: #64748b; line-height: 1.4;">The selected layer receives new doodads. Ed = shown while editing, Lk = locked, Gm = shown in the game. Move doodads with the Layer field in their inspector, or right-click one: Move to Layer.</div>
+                    <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">The selected layer receives new doodads. Ed = shown while editing, Lk = locked, Gm = shown in the game. Move doodads with the Layer field in their details, or right-click one: Move to Layer.</div>
                 </div>
             </details>`;
     },
@@ -20264,7 +20745,7 @@ DocsDoodads.Workspace = {
     renderBiomeEditor() {
         const list = DocsDoodads.World.get('biomes.list') || [];
         const sel = DocsDoodads.Biome.find(this.biomeSettings.biomeId, list) || list[0] || null;
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const options = list.map(b => `<option value="${escapeHtml(b.id)}" ${sel && b.id === sel.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('');
         const b = sel ? DocsDoodads.Biome.normalize(sel) : null;
         const entries = sel ? (sel.entries || []).map((e, i) => `
@@ -20276,7 +20757,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-biome-e${i}-del" title="Remove" style="padding: 0 4px;">&times;</button>
             </div>`).join('') : '';
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">A biome is a mix of props painted with the Biome brush. Add art here or with "Add to Biome" on an asset.</div>
+            <div style="font-size: 10px; color: var(--dd-muted); line-height: 1.4;">A biome is a mix of props painted with the Biome brush. Add art here or with "Add to Biome" on an asset.</div>
             <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 4px;">
                 <select id="dd-biome-pick" style="${inputStyle}">${options || '<option value="">(no biomes yet)</option>'}</select>
                 <button class="dd-btn" id="dd-biome-new">New</button>
@@ -20284,13 +20765,13 @@ DocsDoodads.Workspace = {
             </div>
             ${b ? `
             <input type="text" id="dd-biome-name" value="${escapeHtml(b.name)}" style="${inputStyle}" />
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; color: #94a3b8;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; color: var(--dd-muted);">
                 <label>Spacing (px)<input type="number" id="dd-biome-spacing" value="${b.spacing}" style="${inputStyle}" /></label>
                 <label>Per dab<input type="number" id="dd-biome-density" value="${b.density}" style="${inputStyle}" /></label>
                 <label>Thin at edge<input type="range" id="dd-biome-edgeThin" min="0" max="1" step="0.05" value="${b.edgeThin}" style="width: 100%;" /></label>
                 <label>Patchiness<input type="range" id="dd-biome-cluster" min="0" max="1" step="0.05" value="${b.cluster}" style="width: 100%;" /></label>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 34px 34px 34px 20px; gap: 3px; font-size: 9px; color: #64748b;"><span>Art</span><span>Weight</span><span>Min</span><span>Max</span><span></span></div>
+            <div style="display: grid; grid-template-columns: 1fr 34px 34px 34px 20px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span>Art</span><span>Weight</span><span>Min</span><span>Max</span><span></span></div>
             ${entries}
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 4px;">
                 <input type="text" list="dd-doodad-files" id="dd-biome-add-path" placeholder="img/doodads/..." style="${inputStyle}" />
@@ -20326,22 +20807,22 @@ DocsDoodads.Workspace = {
 
     renderDressEditor() {
         const rules = DocsDoodads.World.get('dress.rules') || [];
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const rows = rules.map((rule, r) => {
             const n = DocsDoodads.Dress.normalize(rule);
             const entries = (rule.entries || []).map((e, i) => `
                 <div style="display: grid; grid-template-columns: 1fr 20px; gap: 3px;">
-                    <span style="font-size: 10px; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(e.path)}">${escapeHtml(String(e.path).split('/').pop())}</span>
+                    <span style="font-size: 10px; color: var(--dd-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(e.path)}">${escapeHtml(String(e.path).split('/').pop())}</span>
                     <button class="dd-btn" id="dd-dress-${r}-e${i}-del" style="padding: 0 4px;">&times;</button>
                 </div>`).join('');
             return `
-                <div style="border: 1px solid #334155; border-radius: 4px; padding: 5px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 5px; display: flex; flex-direction: column; gap: 4px;">
                     <div style="display: grid; grid-template-columns: 1fr 20px; gap: 3px;">
                         <input type="text" id="dd-dress-${r}-name" value="${escapeHtml(n.name)}" style="${inputStyle}" />
                         <button class="dd-btn" id="dd-dress-${r}-del" title="Remove rule" style="padding: 0 4px;">&times;</button>
                     </div>
                     <select id="dd-dress-${r}-where" style="${inputStyle}">${DocsDoodads.Dress.places.map(p => `<option value="${p.value}" ${p.value === n.where ? 'selected' : ''}>${escapeHtml(p.label)}</option>`).join('')}</select>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 9px; color: #94a3b8;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 9px; color: var(--dd-muted);">
                         <label>Region/tag<input type="number" id="dd-dress-${r}-param" value="${n.param}" style="${inputStyle}" /></label>
                         <label>Chance<input type="number" min="0" max="1" step="0.05" id="dd-dress-${r}-chance" value="${n.chance}" style="${inputStyle}" /></label>
                         <label>Spacing<input type="number" min="0" id="dd-dress-${r}-spacing" value="${n.spacing}" style="${inputStyle}" /></label>
@@ -20354,7 +20835,7 @@ DocsDoodads.Workspace = {
                 </div>`;
         }).join('');
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Rules read the map's tiles: reeds along water, barrels at wall bases, flowers beside a path region. Dressing is one undo step and dressed props can be cleared together.</div>
+            <div style="font-size: 10px; color: var(--dd-muted); line-height: 1.4;">Rules read the map's tiles: reeds along water, barrels at wall bases, flowers beside a path region. Dressing is one undo step and dressed props can be cleared together.</div>
             ${rows}
             <button class="dd-btn" id="dd-dress-add-rule">Add Rule</button>
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
@@ -20387,7 +20868,7 @@ DocsDoodads.Workspace = {
         if (!a || !a.path || !/\.png$/i.test(a.path)) return '';
         const biomes = DocsDoodads.World.get('biomes.list') || [];
         const rules = DocsDoodads.World.get('dress.rules') || [];
-        const selectStyle = 'flex: 1; min-width: 0; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const selectStyle = 'flex: 1; min-width: 0; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;';
         return `
             <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;">
                 <label style="font-size: 11px;">Add to Biome / Dressing Rule:</label>
@@ -20497,33 +20978,33 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn dd-hist-restore" data-kind="${kind}" data-index="${i}" style="padding: 1px 6px; font-size: 10px;">Restore</button>
             </div>`;
         const name = d => String(d.bit ? d.bit[1] : '').split('/').pop() + ` @ ${Math.round(d.x)},${Math.round(d.y)}`;
-        let body = '<div style="font-size: 11px; color: #94a3b8;">Pick a backup to see what changed on this map since then. Changes are outlined on the map: green new, amber changed, red deleted.</div>';
+        let body = '<div style="font-size: 11px; color: var(--dd-muted);">Pick a backup to see what changed on this map since then. Changes are outlined on the map: green new, amber changed, red deleted.</div>';
         if (diff && diff.doodads) {
             const d = diff.doodads;
-            body = `<div style="font-size: 11px; color: #cbd5e1;">Doodads on this map: ${d.added.length} new, ${d.changed.length} changed, ${d.removed.length} deleted, ${d.unchanged} the same.</div>` +
-                d.removed.map((x, i) => item('removed', 'Deleted: ' + name(x), '#f87171', i)).join('') +
-                d.changed.map((x, i) => item('changed', 'Changed: ' + name(x.current), '#fbbf24', i)).join('') +
-                d.added.map((x, i) => item('added', 'New: ' + name(x), '#4ade80', i)).join('');
+            body = `<div style="font-size: 11px; color: var(--dd-text);">Doodads on this map: ${d.added.length} new, ${d.changed.length} changed, ${d.removed.length} deleted, ${d.unchanged} the same.</div>` +
+                d.removed.map((x, i) => item('removed', 'Deleted: ' + name(x), 'var(--dd-danger-dark)', i)).join('') +
+                d.changed.map((x, i) => item('changed', 'Changed: ' + name(x.current), 'var(--dd-warn)', i)).join('') +
+                d.added.map((x, i) => item('added', 'New: ' + name(x), 'var(--dd-good-dark)', i)).join('');
         } else if (diff && diff.events) {
             const e = diff.events;
             const ev = x => `EV${String(x.id).padStart(3, '0')} "${x.name || ''}"`;
-            body = `<div style="font-size: 11px; color: #cbd5e1;">Events on this map: ${e.added.length} new, ${e.changed.length} changed, ${e.removed.length} deleted, ${e.unchanged} the same.</div>` +
-                e.removed.map((x, i) => item('removedEvent', 'Deleted: ' + ev(x), '#f87171', i)).join('') +
-                e.changed.map((x, i) => item('changedEvent', 'Changed: ' + ev(x.current), '#fbbf24', i)).join('') +
-                e.added.map((x, i) => item('addedEvent', 'New: ' + ev(x), '#4ade80', i)).join('');
+            body = `<div style="font-size: 11px; color: var(--dd-text);">Events on this map: ${e.added.length} new, ${e.changed.length} changed, ${e.removed.length} deleted, ${e.unchanged} the same.</div>` +
+                e.removed.map((x, i) => item('removedEvent', 'Deleted: ' + ev(x), 'var(--dd-danger-dark)', i)).join('') +
+                e.changed.map((x, i) => item('changedEvent', 'Changed: ' + ev(x.current), 'var(--dd-warn)', i)).join('') +
+                e.added.map((x, i) => item('addedEvent', 'New: ' + ev(x), 'var(--dd-good-dark)', i)).join('');
         }
         panel.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">SAVE HISTORY</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('folder', 1)} Old Saves</div>
                 <button class="dd-btn" id="dd-hist-close">Close</button>
             </div>
-            <select id="dd-hist-pick" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;">
+            <select id="dd-hist-pick" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;">
                 <option value="">Choose a backup...</option>
                 ${backups.map((b, i) => `<option value="${i}" ${diff && diff.backup.path === b.path ? 'selected' : ''}>${escapeHtml(DocsDoodads.History.backupLabel(b))} - ${b.kind === 'map' ? 'events' : 'doodads'}</option>`).join('')}
             </select>
-            ${backups.length ? '' : '<div style="font-size: 11px; color: #94a3b8;">No backups yet. Each save keeps one.</div>'}
+            ${backups.length ? '' : '<div style="font-size: 11px; color: var(--dd-muted);">No backups yet. Each save keeps one.</div>'}
             <div style="display: flex; flex-direction: column; gap: 4px;">${body}</div>
-            <div style="font-size: 10px; color: #64748b;">Restores are undoable. Event restores are saved with Save Changes.</div>`;
+            <div style="font-size: 10px; color: var(--dd-faint);">Restores are undoable. Event restores are saved when you press Save.</div>`;
         const byId = id => document.getElementById(id);
         byId('dd-hist-close').onclick = () => { this._historyDiff = null; if (panel.parentNode) panel.parentNode.removeChild(panel); this._historyPanel = null; };
         byId('dd-hist-pick').onchange = e => {
@@ -20564,34 +21045,35 @@ DocsDoodads.Workspace = {
         const D = DocsDoodads;
         const out = [];
         const add = (label, run, group) => out.push({ label, run, group: group || 'Command' });
-        add('Save Changes', () => D.Persistence.saveAll());
+        add('Save', () => D.Persistence.saveAll());
         add('Undo', () => D.Undo.undo());
         add('Redo', () => D.Undo.redo());
         add('Toggle Grid', () => this.toggleGrid());
-        add('Open Post FX', () => this.showPostFxBuilder());
-        add('Open VFX Builder', () => this.showVfxBuilder());
-        add('Open Asset Tools', () => this.showAssetTools());
-        add('Open Save History', () => this.showHistoryPanel());
-        add('Open World View', () => this.showWorldView());
+        add('Screen Looks (post-processing)', () => this.showPostFxBuilder());
+        add('Effects Maker (VFX)', () => this.showVfxBuilder());
+        add('File Check (duplicates, unused files)', () => this.showAssetTools());
+        add('Old Saves (history)', () => this.showHistoryPanel());
+        add('World View', () => this.showWorldView());
         add('Export Map Image', () => this.exportMapImage({ scale: 1, includeCharacters: true, includeEffects: true }));
         add('Dress This Map', () => {
             const n = this.dressMap();
             this.showToast(n ? `Dressed the map with ${n} prop(s).` : 'Nothing to add: check the rules have art and matching tiles.', n ? 'success' : 'info');
         });
         add('Clear Map Dressing', () => this.showToast(`Removed ${this.clearDressing()} dressed prop(s).`, 'info'));
-        add('Tool: Eyedropper', () => this.setPlacementTool('eyedropper'));
+        add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'));
         add('Tool: Stamp', () => this.setPlacementTool('stamp'));
-        add('Tool: Scatter Brush', () => this.setPlacementTool('brush'));
-        add('Tool: Biome Brush', () => this.setPlacementTool('biome'));
+        add('Tool: Scatter', () => this.setPlacementTool('brush'));
+        add('Tool: Paint (biomes)', () => this.setPlacementTool('biome'));
         add('Tool: Path', () => this.setPlacementTool('path'));
-        add('Tool: None (select)', () => this.setPlacementTool(null));
-        for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Symmetry: Off' : 'Symmetry: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
-        for (const p of D.PostFX.presets) add('Post FX: Apply ' + p.label, () => this.applyPreset('world', p.id), 'Look');
-        for (const v of D.Vfx.library().concat(D.Vfx.builtIns)) add('Play VFX: ' + v.name, () => this.previewVfx(v.id), 'VFX');
+        add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'));
+        add('Tool: Select', () => this.setPlacementTool(null));
+        for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
+        for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
+        for (const v of D.Vfx.library().concat(D.Vfx.builtIns)) add('Play Effect: ' + v.name, () => this.previewVfx(v.id), 'VFX');
         for (const l of D.Layers.list(D.Lighting.mapSettings(this.currentMapId()))) add('Layer: ' + l.name, () => { this.activeLayer = l.id; this.showToast(`New doodads go on ${l.name}.`); }, 'Layer');
         for (const m of this.mapEntries()) add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
         const assets = D.AssetIndex && D.AssetIndex.list ? D.AssetIndex.list : [];
-        for (const a of assets) add('Asset: ' + a.fileName, () => this.selectAsset(a), 'Asset');
+        for (const a of assets) add('Item: ' + a.fileName, () => this.selectAsset(a), 'Asset');
         return out;
     },
 
@@ -20604,7 +21086,7 @@ DocsDoodads.Workspace = {
         panel.className = 'dd-glass';
         panel.style.cssText = 'position: fixed; top: 90px; left: 50%; transform: translateX(-50%); width: 520px; max-width: calc(100vw - 32px); padding: 10px; z-index: 10050; display: flex; flex-direction: column; gap: 6px;';
         panel.innerHTML = `
-            <input type="text" id="dd-palette-input" placeholder="Type a command, map or asset..." style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #38bdf8; padding: 8px; border-radius: 6px; font-size: 13px;" />
+            <input type="text" id="dd-palette-input" placeholder="Type a command, map or asset..." style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-primary); padding: 8px; border-radius: 6px; font-size: 13px;" />
             <div id="dd-palette-list" style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 1px;"></div>`;
         document.body.appendChild(panel);
         const input = document.getElementById('dd-palette-input');
@@ -20615,9 +21097,9 @@ DocsDoodads.Workspace = {
             results = DocsDoodads.CommandPalette.rank(input.value, commands, 50);
             index = Math.min(index, Math.max(0, results.length - 1));
             listEl.innerHTML = results.map((c, i) => `
-                <div class="dd-palette-row" data-i="${i}" style="display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: #1e3a5f; color: #fff;' : 'color: #cbd5e1;'}">
-                    <span>${escapeHtml(c.label)}</span><span style="color: #64748b; font-size: 10px;">${escapeHtml(c.group)}</span>
-                </div>`).join('') || '<div style="font-size: 12px; color: #64748b; padding: 6px;">No matches</div>';
+                <div class="dd-palette-row" data-i="${i}" style="display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
+                    <span>${escapeHtml(c.label)}</span><span style="color: var(--dd-faint); font-size: 10px;">${escapeHtml(c.group)}</span>
+                </div>`).join('') || '<div style="font-size: 12px; color: var(--dd-faint); padding: 6px;">No matches</div>';
             listEl.querySelectorAll('.dd-palette-row').forEach(row => {
                 row.onmousedown = e => { e.preventDefault(); run(parseInt(row.dataset.i, 10)); };
             });
@@ -20729,7 +21211,9 @@ DocsDoodads.Workspace = {
             if (!symPop) return;
             const open = symPop.style.display !== 'block';
             symPop.style.display = open ? 'block' : 'none';
+            DocsDoodads.Ui.sound('cursor');
             if (!open) return;
+            this.placePopover(symPop, 'dd-sym-btn');
             const s = this.symmetryFor();
             const gm = window.$gameMap;
             const tw = gm ? gm.tileWidth() : 48, th = gm ? gm.tileHeight() : 48;
@@ -20904,7 +21388,7 @@ DocsDoodads.Workspace = {
         if (!this.vfxSelected || !V.find(this.vfxSelected, this.vfxLibraryRaw())) this.vfxSelected = all.length ? all[0].id : '';
         const isBuiltIn = !library.some(d => d.id === this.vfxSelected);
         const def = V.find(this.vfxSelected, this.vfxLibraryRaw());
-        const selectStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const selectStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;';
         const option = d => `<option value="${escapeHtml(d.id)}" ${d.id === this.vfxSelected ? 'selected' : ''}>${escapeHtml(d.name)}</option>`;
         const view = def ? this.vfxView(def) : null;
         const layers = view ? view.layers.map((layer, i) => {
@@ -20914,8 +21398,8 @@ DocsDoodads.Workspace = {
             }).join('');
             const title = layer.type === 'sheet' ? `Sprite sheet ${escapeHtml(String(layer.image || '').split('/').pop() || '(no image)')}` : `Particles (${escapeHtml(layer.emitter.preset || 'custom')})`;
             return `
-                <details ${this._openVfxLayer === i ? 'open' : ''} id="dd-vfx-sec-${i}" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 5px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${i + 1}. ${title}</summary>
+                <details ${this._openVfxLayer === i ? 'open' : ''} id="dd-vfx-sec-${i}" style="border-top: 1px solid var(--dd-line-soft); padding-top: 5px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${i + 1}. ${title}</summary>
                     <fieldset ${isBuiltIn ? 'disabled' : ''} style="border: none; padding: 0; margin: 5px 0 0; display: flex; flex-direction: column; gap: 5px;">
                         ${fields}
                         <button class="dd-btn" id="dd-vfx-remove-${i}">Remove Layer</button>
@@ -20924,7 +21408,7 @@ DocsDoodads.Workspace = {
         }).join('') : '';
         return `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">VFX BUILDER</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('sparkle', 1)} Effects Maker</div>
                 <button class="dd-btn" id="dd-vfx-close">Close</button>
             </div>
             <select id="dd-vfx-pick" style="${selectStyle}">
@@ -20937,7 +21421,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-vfx-rename" ${isBuiltIn ? 'disabled' : ''}>Rename</button>
                 <button class="dd-btn" id="dd-vfx-delete" ${isBuiltIn ? 'disabled' : ''}>Delete</button>
             </div>
-            ${isBuiltIn ? '<div style="font-size: 11px; color: #94a3b8;">Built-in effects are read-only. Duplicate one to change it.</div>' : ''}
+            ${isBuiltIn ? '<div style="font-size: 11px; color: var(--dd-muted);">Built-in effects are read-only. Duplicate one to change it.</div>' : ''}
             ${view ? `
             <fieldset ${isBuiltIn ? 'disabled' : ''} style="border: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: end;">
                 ${this.fieldHtml('dd-vfx-duration', { label: 'Emits for (s)', type: 'number', step: 0.1 }, view.duration)}
@@ -20950,9 +21434,9 @@ DocsDoodads.Workspace = {
             </div>` : ''}
             <div style="display: flex; gap: 8px; align-items: center;">
                 <button class="dd-btn dd-btn-primary" id="dd-vfx-preview">Preview at Player</button>
-                <label style="font-size: 11px; color: #cbd5e1; display: flex; gap: 5px; align-items: center;"><input type="checkbox" id="dd-vfx-autoplay" ${this.vfxAutoPlay !== false ? 'checked' : ''} /> Replay on change</label>
+                <label style="font-size: 11px; color: var(--dd-text); display: flex; gap: 5px; align-items: center;"><input type="checkbox" id="dd-vfx-autoplay" ${this.vfxAutoPlay !== false ? 'checked' : ''} /> Replay on change</label>
             </div>
-            <div style="font-size: 10px; color: #64748b; line-height: 1.4;">Play effects with the "Play VFX" plugin command (by name), or attach one to a doodad in its Particles section.</div>`;
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Play effects with the "Play VFX" plugin command (by name), or attach one to a doodad in its Particles section.</div>`;
     },
 
     showVfxBuilder() {
@@ -21124,9 +21608,9 @@ DocsDoodads.Workspace = {
         const s = DocsDoodads.Perspective.normalize(this.perspectiveRaw());
         const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, this.perspectiveFieldValue(f.key, s))).join('');
         return `
-            <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
-                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Tileset trees and objects can stand up too (Tileset objects).</div>
+            <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">3D View (this map)</summary>
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Tileset trees and objects can stand up too (Tileset objects).</div>
                 <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
             </details>`;
     },
@@ -21234,7 +21718,7 @@ DocsDoodads.Workspace = {
     renderTerrainPanel() {
         const raw = this.terrainRaw();
         const t = DocsDoodads.Terrain.normalize(raw);
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const fields = this.terrainFields().map(f => this.fieldHtml('dd-ter-' + f.key, f, t[f.key])).join('');
         const rows = (list, key, max) => list.map((r, i) => `
             <div style="display: grid; grid-template-columns: 1fr 1fr 22px; gap: 3px; align-items: center;">
@@ -21244,15 +21728,15 @@ DocsDoodads.Workspace = {
             </div>`).join('');
         const painted = Object.keys(t.paint).length;
         return `
-            <details id="dd-ter-section" ${this._openTerrain ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Terrain Height (this map)</summary>
-                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Heights in tiles. The Terrain brush beats regions, regions beat terrain tags, and tags beat automatic heights.</div>
+            <details id="dd-ter-section" ${this._openTerrain ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Terrain Height (this map)</summary>
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 4px; line-height: 1.4;">Heights in tiles. The Terrain brush beats regions, regions beat terrain tags, and tags beat automatic heights.</div>
                 <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}
-                    <div style="font-size: 10px; color: #94a3b8;">Regions (region, height):</div>${rows(t.regions, 'region', 255)}
+                    <div style="font-size: 10px; color: var(--dd-muted);">Regions (region, height):</div>${rows(t.regions, 'region', 255)}
                     <button class="dd-btn" id="dd-ter-region-add">Add Region Height</button>
-                    <div style="font-size: 10px; color: #94a3b8;">Terrain tags (tag 1-7, height):</div>${rows(t.tags, 'tag', 7)}
+                    <div style="font-size: 10px; color: var(--dd-muted);">Terrain tags (tag 1-7, height):</div>${rows(t.tags, 'tag', 7)}
                     <button class="dd-btn" id="dd-ter-tag-add">Add Terrain Tag Height</button>
-                    <div style="font-size: 10px; color: #94a3b8;">Painted with the Terrain brush: ${painted} tile(s)</div>
+                    <div style="font-size: 10px; color: var(--dd-muted);">Painted with the Terrain brush: ${painted} tile(s)</div>
                     <button class="dd-btn" id="dd-ter-paint-clear" ${painted ? '' : 'disabled'}>Clear Painted Heights</button>
                 </div>
             </details>`;
@@ -21350,7 +21834,7 @@ DocsDoodads.Workspace = {
 
     renderMapSoundPanel(mapSettings) {
         const echo = Object.assign({}, DocsDoodads.SpatialSound.echoDefaults, mapSettings.echo || {});
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const bgs = this.audioFileOptions().filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
         const rows = (Array.isArray(mapSettings.regionSounds) ? mapSettings.regionSounds : []).map((r, i) => `
             <div style="display: grid; grid-template-columns: 38px 1fr 40px 36px 22px; gap: 3px; align-items: center;">
@@ -21361,10 +21845,10 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-region-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
             </div>`).join('');
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Sound (this map)</summary>
-                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Sound (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-echo" ${echo.enabled ? 'checked' : ''} /> Echo (caves, halls)</label>
                     <div>Delay: ${echo.delay}s <input type="range" id="dd-map-echo-delay" min="0.05" max="1" step="0.01" value="${echo.delay}" style="width: 100%;" /></div>
                     <div>Repeats: ${echo.feedback} <input type="range" id="dd-map-echo-feedback" min="0" max="0.9" step="0.05" value="${echo.feedback}" style="width: 100%;" /></div>
@@ -21462,18 +21946,18 @@ DocsDoodads.Workspace = {
 
     renderAnimSetEditor() {
         const sets = DocsDoodads.World.get('characterAnim.sets') || [];
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const cell = (r, field, value, type) => `<input type="${type || 'text'}" ${type ? '' : 'list="dd-char-files"'} id="dd-anim-${r}-${field}" value="${escapeHtml(String(value === undefined ? '' : value))}" title="${field}" style="${inputStyle}" />`;
         const rows = sets.map((s, r) => `
-            <div style="border: 1px solid #334155; border-radius: 4px; padding: 4px; display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; align-items: center;">
+            <div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 4px; display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; align-items: center;">
                 ${cell(r, 'character', s.character)}${cell(r, 'idle', s.idle)}${cell(r, 'run', s.run)}
                 <button class="dd-btn" id="dd-anim-del-${r}" title="Remove" style="padding: 0 4px;">&times;</button>
-                <span style="font-size: 9px; color: #64748b;">idle after / idle fps / run fps</span>
+                <span style="font-size: 9px; color: var(--dd-faint);">idle after / idle fps / run fps</span>
                 ${cell(r, 'idleDelay', s.idleDelay, 'number')}${cell(r, 'idleFps', s.idleFps, 'number')}${cell(r, 'runFps', s.runFps, 'number')}
             </div>`).join('');
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Sheet names set the layout: <b>[f8]</b> = 8 frames per row, <b>[d1]</b> = one row (mirrored for left), <b>[d8]</b> = 8 direction rows. Name variants <b>Name_idle</b> and <b>Name_run</b> and they are found automatically.</div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; font-size: 9px; color: #64748b;"><span>Character</span><span>Idle sheet</span><span>Run sheet</span><span></span></div>
+            <div style="font-size: 10px; color: var(--dd-muted); line-height: 1.4;">Sheet names set the layout: <b>[f8]</b> = 8 frames per row, <b>[d1]</b> = one row (mirrored for left), <b>[d8]</b> = 8 direction rows. Name variants <b>Name_idle</b> and <b>Name_run</b> and they are found automatically.</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 22px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span>Character</span><span>Idle sheet</span><span>Run sheet</span><span></span></div>
             ${rows}
             <datalist id="dd-char-files">${this.characterFileNames().map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 4px;">
@@ -21559,27 +22043,27 @@ DocsDoodads.Workspace = {
         const actors = (typeof $dataActors !== 'undefined' && $dataActors ? $dataActors : []).filter(a => a && a.name);
         const t = this._veTry = this._veTry || { actorId: actors[0] ? actors[0].id : 0, dir: 2, keys: null };
         if (t.keys === null) t.keys = this.visualWornKeys(t.actorId);
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const items = this.visualItems();
-        const rows = items.map(i => `<label style="display: flex; gap: 6px; align-items: center; font-size: 10px; color: #cbd5e1;">
+        const rows = items.map(i => `<label style="display: flex; gap: 6px; align-items: center; font-size: 10px; color: var(--dd-text);">
                 <input type="checkbox" id="dd-ve-item-${escapeHtml(i.key)}" ${t.keys.includes(i.key) ? 'checked' : ''} /> <span title="${i.kind === 'w' ? 'Weapon' : 'Armor'} ${i.id}">${escapeHtml(i.name)}</span></label>`).join('');
         const layers = this.visualTryOnLayers(t.actorId, t.keys);
-        const list = layers.map(l => `${escapeHtml(l.image)} <span style="color: #64748b;">z ${l.z}${l.hue ? ', hue ' + l.hue : ''}${l.tint !== null ? ', tint #' + ('000000' + l.tint.toString(16)).slice(-6) : ''}</span>`).join('<br>');
+        const list = layers.map(l => `${escapeHtml(l.image)} <span style="color: var(--dd-faint);">z ${l.z}${l.hue ? ', hue ' + l.hue : ''}${l.tint !== null ? ', tint #' + ('000000' + l.tint.toString(16)).slice(-6) : ''}</span>`).join('<br>');
         return `
-            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1, part clothes&gt;</b>. Negative z draws behind the body. An item with the same part as the body's base part replaces it (armor over a shirt). Part sheets use the same layout as the body's sheet.</div>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Try on:</div>
+            <div style="font-size: 10px; color: var(--dd-muted); line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1, part clothes&gt;</b>. Negative z draws behind the body. An item with the same part as the body's base part replaces it (armor over a shirt). Part sheets use the same layout as the body's sheet.</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px;">Try on:</div>
             <select id="dd-ve-actor" style="${inputStyle}">${actors.map(a => `<option value="${a.id}" ${a.id === t.actorId ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}</select>
             <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: start;">
                 <div>
-                    <canvas id="dd-ve-canvas" width="96" height="96" style="width: 96px; height: 96px; image-rendering: pixelated; background: #0f172a; border: 1px solid #334155; border-radius: 4px;"></canvas>
+                    <canvas id="dd-ve-canvas" width="96" height="96" style="width: 96px; height: 96px; image-rendering: pixelated; background: var(--dd-field); border: 1px solid var(--dd-line); border-radius: 4px;"></canvas>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;">
                         ${[[4, '&#9664;'], [2, '&#9660;'], [8, '&#9650;'], [6, '&#9654;']].map(([d, s]) => `<button class="dd-btn" id="dd-ve-dir-${d}" style="padding: 0;">${s}</button>`).join('')}
                     </div>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow: auto;">${rows || '<span style="font-size: 10px; color: #64748b;">No weapons or armors have &lt;visual&gt; tags yet.</span>'}</div>
+                <div style="display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow: auto;">${rows || '<span style="font-size: 10px; color: var(--dd-faint);">No weapons or armors have &lt;visual&gt; tags yet.</span>'}</div>
             </div>
-            <div id="dd-ve-layers" style="font-size: 10px; color: #cbd5e1;">${list || '<span style="color: #64748b;">No layers.</span>'}</div>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Notetag builder:</div>
+            <div id="dd-ve-layers" style="font-size: 10px; color: var(--dd-text);">${list || '<span style="color: var(--dd-faint);">No layers.</span>'}</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">Notetag builder:</div>
             <div style="display: grid; grid-template-columns: 1fr 44px; gap: 3px;">
                 <input type="text" list="dd-ve-files" id="dd-ve-tag-image" placeholder="Layer sheet, or File.aseprite#Layer" style="${inputStyle}" />
                 <datalist id="dd-ve-files">${this.characterFileNames().concat(DocsDoodads.AsepriteVisuals.refs()).map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
@@ -21593,7 +22077,7 @@ DocsDoodads.Workspace = {
             </div>
             <textarea id="dd-ve-tag-out" readonly rows="2" style="${inputStyle} resize: vertical;"></textarea>
             <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">From Aseprite: put a layered .aseprite walk cycle in img/characters and tag gear with <b>&lt;visual: Hero.aseprite#Sword&gt;</b> (a layer name). Its sheet is made for you in a playtest and remade when you save the .aseprite again. Frames come from tags down, left, right and up, or the first frames in that order. Or make the sheets once:</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">From Aseprite: put a layered .aseprite walk cycle in img/characters and tag gear with <b>&lt;visual: Hero.aseprite#Sword&gt;</b> (a layer name). Its sheet is made for you in a playtest and remade when you save the .aseprite again. Frames come from tags down, left, right and up, or the first frames in that order. Or make the sheets once:</div>
             <button class="dd-btn" id="dd-ve-ase">Make Layer Sheets from .aseprite…</button>
             <input type="file" id="dd-ve-ase-file" accept=".aseprite,.ase" style="display: none;" />`;
     },
@@ -21818,35 +22302,35 @@ DocsDoodads.Workspace = {
         const target = this.postFxTarget === 'map' ? 'map' : 'world';
         const pf = DocsDoodads.World.settings().postfx;
         const mode = this.mapPostFxMode();
-        const selectStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const selectStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;';
         const option = (value, label, current) => `<option value="${escapeHtml(String(value))}" ${String(value) === String(current) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-        const check = (id, label, on, title) => `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #cbd5e1;" ${title ? `title="${escapeHtml(title)}"` : ''}><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
+        const check = (id, label, on, title) => `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dd-text);" ${title ? `title="${escapeHtml(title)}"` : ''}><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
         this._openPostFx = this._openPostFx || {};
         const editable = target === 'world' || mode === 'custom';
         const effects = editable ? P.effects.map((effect, i) => {
             const on = this.getLookValue(target, effect.id + '.enabled');
             const fields = [{ key: effect.id + '.enabled', label: 'On', type: 'checkbox' }].concat(effect.params.map(p => Object.assign({ type: 'range' }, p, { key: effect.id + '.' + p.key })));
             return `
-                <details id="dd-pfx-sec-${i}" ${this._openPostFx[effect.id] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 5px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: ${on ? '#4ade80' : '#94a3b8'};">${escapeHtml(effect.label)}${on ? ' &middot; on' : ''}</summary>
+                <details id="dd-pfx-sec-${i}" ${this._openPostFx[effect.id] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 5px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: ${on ? 'var(--dd-good-dark)' : 'var(--dd-text)'};">${escapeHtml(effect.label)}${on ? ' &middot; on' : ''}</summary>
                     <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 5px;">
                         ${fields.map((f, j) => this.fieldHtml(`dd-pfx-${i}-${j}`, f, this.getLookValue(target, f.key))).join('')}
                     </div>
                 </details>`;
-        }).join('') : `<div style="font-size: 11px; color: #94a3b8;">This map ${mode === 'off' ? 'shows no effects' : 'uses the game-wide look'}. Choose "Its own look" to give it a look of its own.</div>`;
+        }).join('') : `<div style="font-size: 11px; color: var(--dd-muted);">This map ${mode === 'off' ? 'shows no effects' : 'uses the game-wide look'}. Choose "Its own look" to give it a look of its own.</div>`;
         return `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">POST-PROCESSING</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('sun', 1)} Screen Looks</div>
                 <button class="dd-btn" id="dd-pfx-close">Close</button>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                <div style="font-size: 10px; color: #94a3b8;">Editing
+                <div style="font-size: 10px; color: var(--dd-muted);">Editing
                     <select id="dd-pfx-target" style="${selectStyle}">${option('world', 'Game-wide look', target)}${option('map', 'This map', target)}</select></div>
-                <div style="font-size: 10px; color: #94a3b8; ${target === 'map' ? '' : 'visibility: hidden;'}">This map uses
+                <div style="font-size: 10px; color: var(--dd-muted); ${target === 'map' ? '' : 'visibility: hidden;'}">This map uses
                     <select id="dd-pfx-mapmode" style="${selectStyle}">${option('global', 'The game-wide look', mode)}${option('off', 'No effects', mode)}${option('custom', 'Its own look', mode)}</select></div>
             </div>
             <div style="display: flex; gap: 6px; align-items: flex-end;">
-                <div style="flex: 1; font-size: 10px; color: #94a3b8;">Preset
+                <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Preset
                     <select id="dd-pfx-preset" style="${selectStyle}">${P.presets.map(p => option(p.id, p.label, '')).join('')}</select></div>
                 <button class="dd-btn dd-btn-primary" id="dd-pfx-apply" ${editable ? '' : 'disabled'}>Apply</button>
                 <button class="dd-btn" id="dd-pfx-compare" title="Hold to see the map without effects">Hold to Compare</button>
@@ -21855,17 +22339,17 @@ DocsDoodads.Workspace = {
                 ${check('dd-pfx-enabled', 'Post-processing on', pf.enabled, 'Switches every look off for the whole game')}
                 ${check('dd-pfx-pictures', 'Affect pictures', pf.includePictures, 'Off: pictures and the timer are drawn without effects')}
                 ${check('dd-pfx-preview', 'Show while editing', this.postFxPreview !== false)}
-                <div style="font-size: 10px; color: #94a3b8;">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
+                <div style="font-size: 10px; color: var(--dd-muted);">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
             </div>
             <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px;">${effects}</div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
-                <div style="flex: 1; font-size: 10px; color: #94a3b8;">Screen effect (test)
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
+                <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Screen effect (test)
                     <select id="dd-pfx-anim" style="${selectStyle}">${P.Animations.types.map(t => option(t.value, t.label, '')).join('')}</select></div>
                 <button class="dd-btn" id="dd-pfx-play">Play</button>
             </div>
-            <div style="border-top: 1px solid rgba(255,255,255,0.12); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
-                <div style="font-size: 11px; font-weight: bold; color: #94a3b8;">Export Map Image</div>
-                <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #cbd5e1;">
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                <div style="font-size: 11px; font-weight: bold; color: var(--dd-muted);">Export Map Image</div>
+                <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--dd-text);">
                     Scale <select id="dd-pfx-export-scale" style="${selectStyle} width: auto;">${option(1, '100%', 1)}${option(0.5, '50%', 1)}${option(0.25, '25%', 1)}</select>
                     ${check('dd-pfx-export-chars', 'Characters', true)}
                     ${check('dd-pfx-export-fx', 'Lighting & colour', true)}
@@ -22172,9 +22656,9 @@ DocsDoodads.Workspace = {
                 : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor()
                 : section.extra === 'ambience' ? this.renderAmbienceEditor() : '';
             return `
-                <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
-                    <div style="font-size: 10px; color: #64748b; margin-top: 4px;">All maps</div>
+                <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${section.title}</summary>
+                    <div style="font-size: 10px; color: var(--dd-faint); margin-top: 4px;">All maps</div>
                     <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}${extra}</div>
                 </details>`;
         }).join('');
@@ -22226,22 +22710,22 @@ DocsDoodads.Workspace = {
     renderKeyframeEditor() {
         const Time = DocsDoodads.TimeOfDay;
         const keys = DocsDoodads.World.get('time.keyframes') || [];
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 11px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 11px;';
         const rows = keys.map((k, i) => `
             <div style="display: grid; grid-template-columns: 48px 1fr 34px 24px; gap: 4px; align-items: center;">
                 <input type="number" id="dd-kf-hour-${i}" min="0" max="23.75" step="0.25" value="${escapeHtml(String(k.hour))}" title="Hour" style="${inputStyle}" />
                 <input type="range" id="dd-kf-dark-${i}" min="0" max="1" step="0.05" value="${escapeHtml(String(k.darkness))}" title="Darkness" />
-                <input type="color" id="dd-kf-color-${i}" value="${escapeHtml(k.color || '#000000')}" title="Colour" style="width: 100%; height: 20px; background: #0f172a; border: 1px solid #334155;" />
+                <input type="color" id="dd-kf-color-${i}" value="${escapeHtml(k.color || '#000000')}" title="Colour" style="width: 100%; height: 20px; background: var(--dd-field); border: 1px solid var(--dd-line);" />
                 <button class="dd-btn" id="dd-kf-del-${i}" title="Remove this keyframe" style="padding: 0 4px;">&times;</button>
             </div>`).join('');
         const preview = this.previewMinutes !== null && this.previewMinutes !== undefined ? this.previewMinutes : 12 * 60;
         return `
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Darkness through the day (hour, darkness, colour):</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px;">Darkness through the day (hour, darkness, colour):</div>
             ${rows}
             <button class="dd-btn" id="dd-kf-add">Add Keyframe</button>
-            <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+            <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                 <input type="checkbox" id="dd-time-preview-on" ${this.previewMinutes !== null && this.previewMinutes !== undefined ? 'checked' : ''} /> Preview a time while editing</label>
-            <div style="font-size: 10px; color: #94a3b8;">Preview: <span id="dd-time-preview-val" style="color: #e2e8f0;">${Time.format(preview)}</span>
+            <div style="font-size: 10px; color: var(--dd-muted);">Preview: <span id="dd-time-preview-val" style="color: var(--dd-text);">${Time.format(preview)}</span>
                 <input type="range" id="dd-time-preview" min="0" max="1425" step="15" value="${preview}" style="width: 100%;" /></div>`;
     },
 
@@ -22306,7 +22790,7 @@ DocsDoodads.Workspace = {
 
     renderSeasonEditor() {
         const seasons = DocsDoodads.World.settings().seasons;
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const names = seasons.names.map((name, k) => `<input type="text" id="dd-season-name-${k}" value="${escapeHtml(name)}" style="${inputStyle}" />`).join('');
         const cols = `grid-template-columns: repeat(${seasons.names.length}, 1fr) 22px;`;
         const rows = seasons.sets.map((set, r) => `
@@ -22318,13 +22802,13 @@ DocsDoodads.Workspace = {
             ? Object.values(DocsDoodads.AssetIndex.data.assets).filter(a => a && a.path && /\.png$/i.test(a.path)).slice(0, 2000) : [];
         const preview = this.previewSeason !== null && this.previewSeason !== undefined ? this.previewSeason : -1;
         return `
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Season names:</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px;">Season names:</div>
             <div style="display: grid; grid-template-columns: repeat(${seasons.names.length}, 1fr); gap: 3px;">${names}</div>
-            <div style="font-size: 10px; color: #94a3b8;">Art swaps (each row is one prop; empty cells keep the original). Tip: select an asset and use "Season Variant".</div>
+            <div style="font-size: 10px; color: var(--dd-muted);">Art swaps (each row is one prop; empty cells keep the original). Tip: select an asset and use "Season Variant".</div>
             ${rows}
             <datalist id="dd-season-assets">${assets.map(a => `<option value="${escapeHtml(a.path)}"></option>`).join('')}</datalist>
             <button class="dd-btn" id="dd-season-add">Add Row</button>
-            <div style="font-size: 10px; color: #94a3b8;">Preview while editing
+            <div style="font-size: 10px; color: var(--dd-muted);">Preview while editing
                 <select id="dd-season-preview" style="${inputStyle}">
                     <option value="-1" ${preview < 0 ? 'selected' : ''}>As in the game</option>
                     ${seasons.names.map((name, k) => `<option value="${k}" ${preview === k ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
@@ -22334,13 +22818,13 @@ DocsDoodads.Workspace = {
     // ---- Ambience layers and footstep sounds (World > Zoom and Sound Focus) ----
     renderAmbienceEditor() {
         const W = DocsDoodads.World, SS = DocsDoodads.SpatialSound;
-        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
         const files = this.audioFileOptions();
         const bgs = files.filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
         const se = files.filter(o => o.value.indexOf('se/') === 0).map(o => o.value.slice(3));
         const select = (id, value, options) => `<select id="${id}" style="${inputStyle}">${options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
         const layers = (W.get('ambience.layers') || []).map((l, i) => `
-            <div style="display: grid; grid-template-columns: 1fr 52px; gap: 3px; border-top: 1px dashed #334155; padding-top: 3px;">
+            <div style="display: grid; grid-template-columns: 1fr 52px; gap: 3px; border-top: 1px dashed var(--dd-line); padding-top: 3px;">
                 ${select(`dd-amb-${i}-kind`, l.kind, SS.ambienceKinds)}
                 <input type="text" id="dd-amb-${i}-id" value="${escapeHtml(String(l.id === undefined ? '' : l.id))}" title="Region or terrain tag number, or text in the doodads' picture names" placeholder="id / text" style="${inputStyle}" />
                 <input type="text" list="dd-amb-bgs" id="dd-amb-${i}-sound" value="${escapeHtml(l.sound || '')}" placeholder="Background sound" style="${inputStyle}" />
@@ -22361,11 +22845,11 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-step-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
             </div>`).join('');
         return `
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Ambience: background sounds that rise with what's around the player (volume, heard within, share at normal zoom, pitch). They swell as you zoom in.</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 4px; line-height: 1.4;">Ambience: background sounds that rise with what's around the player (volume, heard within, share at normal zoom, pitch). They swell as you zoom in.</div>
             ${layers}
             <datalist id="dd-amb-bgs">${bgs.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
             <button class="dd-btn" id="dd-amb-add">Add Ambience</button>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Footstep sounds by ground (regions first, then terrain tags, then the kind of ground):</div>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">Footstep sounds by ground (regions first, then terrain tags, then the kind of ground):</div>
             ${steps}
             <datalist id="dd-step-se">${se.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
             <button class="dd-btn" id="dd-step-add">Add Footstep Sound</button>`;
@@ -22442,7 +22926,7 @@ DocsDoodads.Workspace = {
     renderAssetSeasonControl(a) {
         if (!a || !a.path || !/\.png$/i.test(a.path)) return '';
         const seasons = DocsDoodads.World.settings().seasons;
-        const selectStyle = 'flex: 1; min-width: 0; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 3px; border-radius: 4px; font-size: 11px;';
+        const selectStyle = 'flex: 1; min-width: 0; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 3px; border-radius: 4px; font-size: 11px;';
         const rowLabel = (set, r) => {
             const first = Object.keys(set || {}).map(k => set[k])[0];
             return `Row ${r + 1}${first ? ' (' + String(first).split('/').pop() + ')' : ''}`;
@@ -22493,30 +22977,29 @@ DocsDoodads.Workspace = {
         const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
         const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
         content.innerHTML = `
-            <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP ${mapId} SETTINGS</div>
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Select an asset in the drawer or click an object on the map.</div>
-            <input type="search" id="dd-map-search" placeholder="Search settings (e.g. fog, shadow, snow)" value="${escapeHtml(this._mapSearch || '')}"
-                style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
-            <div id="dd-map-search-none" style="display: none; font-size: 11px; color: #64748b; margin-bottom: 6px;">No settings match.</div>
-            <details open style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Lighting</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
-                    <div>Ambient Darkness: <span id="dd-map-dark-val" style="color: #e2e8f0;">${Math.round(ambient.darkness * 100)}%</span>
+            <div style="color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Nothing is picked, so this is the map's own settings. (Map ${mapId})</div>
+            <input type="search" id="dd-map-search" placeholder="Find a setting (fog, shadow, snow...)" value="${escapeHtml(this._mapSearch || '')}"
+                style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
+            <div id="dd-map-search-none" style="display: none; font-size: 11px; color: var(--dd-faint); margin-bottom: 6px;">No settings match.</div>
+            <details open style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Lighting</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Ambient Darkness: <span id="dd-map-dark-val" style="color: var(--dd-text);">${Math.round(ambient.darkness * 100)}%</span>
                         <input type="range" id="dd-map-dark" min="0" max="1" step="0.05" value="${ambient.darkness}" style="width: 100%;" /></div>
-                    <div>Ambient Color <input type="color" id="dd-map-color" value="${escapeHtml(ambient.color)}" style="width: 100%; height: 22px; background: #0f172a; border: 1px solid #334155;" /></div>
+                    <div>Ambient Color <input type="color" id="dd-map-color" value="${escapeHtml(ambient.color)}" style="width: 100%; height: 22px; background: var(--dd-field); border: 1px solid var(--dd-line);" /></div>
                     <div>Only while switch # is ON (0 = always)
-                        <input type="number" id="dd-map-switch" min="0" value="${Number(ambient.switchId) || 0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" /></div>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                        <input type="number" id="dd-map-switch" min="0" value="${Number(ambient.switchId) || 0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" /></div>
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-preview" ${this.lightingPreview === false ? '' : 'checked'} /> Preview lighting while editing</label>
                     <div>Day and night on this map
-                        <select id="dd-map-daynight" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;">
+                        <select id="dd-map-daynight" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;">
                             ${DocsDoodads.TimeOfDay.mapModes.map(m => `<option value="${m.value}" ${(mapSettings.dayNight || 'auto') === m.value ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
                         </select></div>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-reflections" ${mapSettings.reflections === false ? '' : 'checked'} /> Water reflections on this map</label>
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px;">
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text); font-size: 11px;">
                         <input type="checkbox" id="dd-map-charshadows" ${mapSettings.characterShadows === false ? '' : 'checked'} /> Character shadows on this map</label>
-                    <div style="color: #64748b; line-height: 1.4;">Give doodads a Light in their inspector. The "Set Ambient Light" plugin command changes darkness during play.</div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Give doodads a Light in their details. The "Set Ambient Light" plugin command changes darkness during play.</div>
                 </div>
             </details>
             ${this.renderPerspectivePanel()}
@@ -22718,15 +23201,15 @@ DocsDoodads.Workspace = {
             return n + new Set(list.filter(d => d && d.prefabRef && d.prefabRef.id === prefab.id).map(d => d.prefabRef.instance)).size;
         }, 0);
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
+            <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
             <div style="font-size: 11px; margin-bottom: 4px;">Prefab &middot; ${prefab.doodads.length} doodad(s), ${prefab.events.length} event(s)</div>
-            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: #60a5fa;">${copies}</span></div>
-            <div style="font-size: 11px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
+            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: var(--dd-accent);">${copies}</span></div>
+            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
                 <button class="dd-btn dd-btn-primary" id="dd-prefab-place">Place at Player</button>
                 <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${copies})</button>
                 <button class="dd-btn" id="dd-prefab-rename">Rename</button>
-                <button class="dd-btn" id="dd-prefab-delete" style="background: #991b1b;">Delete Prefab</button>
+                <button class="dd-btn" id="dd-prefab-delete" style="background: var(--dd-danger-soft);">Delete Prefab</button>
             </div>`;
         document.getElementById('dd-prefab-place').onclick = () => this.placePrefabAtPlayer(prefab.id);
         document.getElementById('dd-prefab-sync').onclick = () => { this.syncPrefabInstances(prefab.id); this.refreshInspector(); };
@@ -22740,10 +23223,10 @@ DocsDoodads.Workspace = {
         const prefab = instance ? DocsDoodads.Prefabs.get(instance.prefabRef.id) : null;
         const mirror = items.find(d => d.mirrorOf);
         return `
-            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 8px;">
-                ${mirror ? `<div style="font-size: 10px; color: #f59e0b; margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-top: 8px;">
+                ${mirror ? `<div style="font-size: 10px; color: var(--dd-warn); margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
                 ${prefab ? `
-                <div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
+                <div style="font-size: 10px; color: var(--dd-purple); margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px;">
                     <button class="dd-btn" id="dd-sel-prefab-update" title="Make the master prefab match this copy" style="padding: 4px;">Update Prefab</button>
                     <button class="dd-btn" id="dd-sel-prefab-sync" title="Rebuild every copy from the master" style="padding: 4px;">Sync Copies</button>
@@ -22795,8 +23278,8 @@ DocsDoodads.Workspace = {
         modal.className = 'dd-glass';
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; padding: 18px; z-index: 10030;';
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
-            <select id="dd-map-picker-select" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
+            <div style="font-weight: bold; color: var(--dd-accent); font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
+            <select id="dd-map-picker-select" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
             <div style="display: flex; gap: 8px; justify-content: flex-end;">
                 <button class="dd-btn" id="dd-map-picker-cancel">Cancel</button>
                 <button class="dd-btn dd-btn-primary" id="dd-map-picker-ok">OK</button>
@@ -22813,15 +23296,15 @@ DocsDoodads.Workspace = {
 
     renderMapNavigation() {
         const neighbors = this.mapNeighbors();
-        const side = (name, label) => `<div>${label}<select id="dd-map-nb-${name}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px;">${this.mapOptions(neighbors[name] || 0, true)}</select></div>`;
+        const side = (name, label) => `<div>${label}<select id="dd-map-nb-${name}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px;">${this.mapOptions(neighbors[name] || 0, true)}</select></div>`;
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Maps</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Maps</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
                     <div>Go to map (keeps the editor open):
-                        <select id="dd-map-goto" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
+                        <select id="dd-map-goto" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
                         <button class="dd-btn" id="dd-map-goto-btn" style="width: 100%; margin-top: 4px;">Go to Map</button></div>
-                    <div style="margin-top: 4px; color: #cbd5e1;">Neighbouring maps (for doodads that cross the edge):</div>
+                    <div style="margin-top: 4px; color: var(--dd-text);">Neighbouring maps (for doodads that cross the edge):</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">${side('north', 'North')}${side('south', 'South')}${side('west', 'West')}${side('east', 'East')}</div>
                     <button class="dd-btn" id="dd-map-mirror" title="Copy doodads hanging over an edge onto the neighbouring map">Mirror Edge Doodads</button>
                     <button class="dd-btn" id="dd-map-world" title="See this map and its linked neighbours together">World View</button>
@@ -22870,11 +23353,11 @@ DocsDoodads.Workspace = {
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 16px; z-index: 10030;';
         modal.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 13px;">WORLD VIEW</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('map', 1)} World View</div>
                 <button class="dd-btn" id="dd-world-close">Close</button>
             </div>
-            <canvas id="dd-world-canvas" width="${width}" height="${height}" style="background: #0b1120; border: 1px solid #334155; border-radius: 4px; cursor: pointer;"></canvas>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
+            <canvas id="dd-world-canvas" width="${width}" height="${height}" style="background: var(--dd-field); border: 1px solid var(--dd-line); border-radius: 4px; cursor: pointer;"></canvas>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
         document.body.appendChild(modal);
         const canvas = document.getElementById('dd-world-canvas');
         const ctx = canvas.getContext('2d');
@@ -22935,8 +23418,7 @@ DocsDoodads.Workspace = {
         if (this._historyPanel && this._historyPanel.parentNode) this._historyPanel.parentNode.removeChild(this._historyPanel);
         this._historyPanel = null;
         this.refreshInspector();
-        const status = document.getElementById('dd-status-left');
-        if (status) status.textContent = `Doc's Doodads v${pluginVersion} | Map ${this.currentMapId()} | Hold Alt for free placement`;
+        DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
     },
 
     // ---- Where-used, unused report, safe rename/move ----
@@ -23145,6 +23627,7 @@ DocsDoodads.Workspace = {
         }
         const tabs = document.getElementById('dd-category-tabs');
         if (tabs && tabs.querySelectorAll) tabs.querySelectorAll('button').forEach(b => { b.className = 'dd-btn' + (b.dataset && b.dataset.cat === category ? ' dd-btn-primary' : ''); });
+        if (this.isFolded && this.isFolded('drawer')) this.foldPanel('drawer', false);
         this.refreshDrawerCards();
     },
 
@@ -23227,15 +23710,15 @@ DocsDoodads.Workspace = {
             ? `${Object.keys(manifest.frames).length} region(s) in ${manifest.sheets.length} sheet(s), built ${new Date(manifest.builtAt).toLocaleString()}.`
             : 'Not packed. Deployed games load each image separately.';
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Performance</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Performance</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
                     <div>${escapeHtml(status)}</div>
-                    ${stale.length ? `<div style="color: #f59e0b;">Out of date: ${escapeHtml(stale.slice(0, 3).join(', '))} changed. Pack again.</div>` : ''}
-                    <div style="color: #64748b; line-height: 1.4;">Packing copies the art this map's doodads use into a few sheets in img/doodads/_packed for the deployed game. Playtests keep using the original files.</div>
+                    ${stale.length ? `<div style="color: var(--dd-warn);">Out of date: ${escapeHtml(stale.slice(0, 3).join(', '))} changed. Pack again.</div>` : ''}
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Packing copies the art this map's doodads use into a few sheets in img/doodads/_packed for the deployed game. Playtests keep using the original files.</div>
                     <button class="dd-btn" id="dd-pack-map">${manifest ? 'Pack Again' : 'Pack Map Art'}</button>
                     ${manifest ? '<button class="dd-btn" id="dd-pack-remove">Remove Packed Art</button>' : ''}
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1;"><input type="checkbox" id="dd-pack-preview" ${DocsDoodads.Packer.previewInTest ? 'checked' : ''} /> Use packed art in this playtest</label>
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text);"><input type="checkbox" id="dd-pack-preview" ${DocsDoodads.Packer.previewInTest ? 'checked' : ''} /> Use packed art in this playtest</label>
                 </div>
             </details>`;
     },
@@ -23259,15 +23742,15 @@ DocsDoodads.Workspace = {
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 560px; max-height: 80vh; padding: 18px; z-index: 10030; display: flex; flex-direction: column; gap: 10px;';
         modal.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">ASSET TOOLS</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('wrench', 1)} File Check</div>
                 <button class="dd-btn" id="dd-tools-close">Close</button>
             </div>
             <div style="display: flex; gap: 8px;">
                 <button class="dd-btn dd-btn-primary" id="dd-tools-dupes" style="flex: 1;">Find Duplicates</button>
                 <button class="dd-btn dd-btn-primary" id="dd-tools-unused" style="flex: 1;">Find Unused Files</button>
             </div>
-            <div id="dd-tools-status" style="font-size: 11px; color: #94a3b8;">Duplicates compares every image's fingerprint (computed once, then cached). Unused checks maps, events, the database, doodads and prefabs.</div>
-            <div id="dd-tools-results" style="overflow-y: auto; font-size: 11px; color: #cbd5e1; display: flex; flex-direction: column; gap: 8px;"></div>`;
+            <div id="dd-tools-status" style="font-size: 11px; color: var(--dd-muted);">Duplicates compares every image's fingerprint (computed once, then cached). Unused checks maps, events, the database, doodads and prefabs.</div>
+            <div id="dd-tools-results" style="overflow-y: auto; font-size: 11px; color: var(--dd-text); display: flex; flex-direction: column; gap: 8px;"></div>`;
         document.body.appendChild(modal);
         const statusEl = document.getElementById('dd-tools-status');
         const resultsEl = document.getElementById('dd-tools-results');
@@ -23291,15 +23774,15 @@ DocsDoodads.Workspace = {
             const exactIds = new Set(exactGroups.flat().map(e => e.id));
             const nearGroups = DocsDoodads.Similarity.findDuplicates(entries.filter(e => !exactIds.has(e.id)), 1);
             statusEl.textContent = `${exactGroups.length} group(s) of identical files, ${nearGroups.length} group(s) of near-identical images (from ${entries.length} images).`;
-            resultsEl.innerHTML = exactGroups.map(g => `<div style="border: 1px solid #334155; border-radius: 4px; padding: 6px;"><div style="color: #f87171; margin-bottom: 4px;">Identical files</div>${g.map(e => row(e.asset)).join('')}</div>`).join('') +
-                nearGroups.map(g => `<div style="border: 1px solid #334155; border-radius: 4px; padding: 6px;"><div style="color: #f59e0b; margin-bottom: 4px;">Near-identical (resized or re-saved)</div>${g.map(e => row(e.asset)).join('')}</div>`).join('');
+            resultsEl.innerHTML = exactGroups.map(g => `<div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 6px;"><div style="color: var(--dd-danger-dark); margin-bottom: 4px;">Identical files</div>${g.map(e => row(e.asset)).join('')}</div>`).join('') +
+                nearGroups.map(g => `<div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 6px;"><div style="color: var(--dd-warn); margin-bottom: 4px;">Near-identical (resized or re-saved)</div>${g.map(e => row(e.asset)).join('')}</div>`).join('');
             bindShow();
         };
         document.getElementById('dd-tools-unused').onclick = () => {
             statusEl.textContent = 'Checking maps, events, database, doodads and prefabs...';
             const index = this.refreshUsageIndex();
             const unused = DocsDoodads.Usage.unusedAssets(DocsDoodads.AssetIndex.list, index);
-            statusEl.textContent = `${unused.length} file(s) are not referenced anywhere the editor can see. Plugins and scripts can also load files by name, so check before deleting. Search "used:no" lists them in the drawer.`;
+            statusEl.textContent = `${unused.length} file(s) are not referenced anywhere the editor can see. Plugins and scripts can also load files by name, so check before deleting. Search "used:no" lists them in the Item Bag.`;
             resultsEl.innerHTML = unused.slice(0, 500).map(row).join('') + (unused.length > 500 ? `<div>...and ${unused.length - 500} more.</div>` : '');
             bindShow();
         };
@@ -23307,13 +23790,13 @@ DocsDoodads.Workspace = {
 
     renderUsagePanel(a) {
         return `
-            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; margin-top: 8px;">
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-top: 8px;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
                     <button class="dd-btn" id="dd-asset-usage" style="padding: 4px;" title="List every map, event, database entry, doodad and prefab using this file">Where Used</button>
                     <button class="dd-btn" id="dd-asset-rename" style="padding: 4px;" title="Rename or move the file and update every reference">Rename/Move</button>
                     <button class="dd-btn" id="dd-asset-similar" style="padding: 4px;" title="Show the images that look most like this one">More Like This</button>
                 </div>
-                <div id="dd-asset-usage-list" style="font-size: 10px; color: #94a3b8; margin-top: 6px; line-height: 1.5;"></div>
+                <div id="dd-asset-usage-list" style="font-size: 10px; color: var(--dd-muted); margin-top: 6px; line-height: 1.5;"></div>
             </div>`;
     },
 
@@ -23323,7 +23806,7 @@ DocsDoodads.Workspace = {
             const refs = this.assetUsage(a);
             list.innerHTML = refs.length === 0
                 ? 'Not used by any map, event, database entry, doodad or prefab.'
-                : `<div style="color: #e2e8f0;">Used in ${refs.length} place(s):</div>` + refs.slice(0, 40).map(r => `<div>• ${escapeHtml(r.label)}</div>`).join('') + (refs.length > 40 ? `<div>...and ${refs.length - 40} more</div>` : '');
+                : `<div style="color: var(--dd-text);">Used in ${refs.length} place(s):</div>` + refs.slice(0, 40).map(r => `<div>• ${escapeHtml(r.label)}</div>`).join('') + (refs.length > 40 ? `<div>...and ${refs.length - 40} more</div>` : '');
         };
         document.getElementById('dd-asset-rename').onclick = () => {
             const target = prompt('New path (rename or move; engine files must stay in their folder):', a.path);
@@ -23346,8 +23829,8 @@ DocsDoodads.Workspace = {
     renderAudioInspector(content, a) {
         const channel = /\/bgm\//i.test(a.path) ? 'BGM' : /\/bgs\//i.test(a.path) ? 'BGS' : /\/me\//i.test(a.path) ? 'ME' : 'SE';
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
-            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">Audio</span> &middot; Channel: <span style="color: #60a5fa;">${channel}</span></div>
+            <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: var(--dd-accent);">Audio</span> &middot; Channel: <span style="color: var(--dd-accent);">${channel}</span></div>
             <div style="display: flex; gap: 6px; margin: 8px 0;">
                 <button class="dd-btn dd-btn-primary" id="dd-audio-preview-btn" style="flex: 1;">&#9654; Preview</button>
                 <button class="dd-btn" id="dd-audio-stop-btn" style="flex: 1;">&#9632; Stop</button>
@@ -23357,10 +23840,10 @@ DocsDoodads.Workspace = {
             </div>
             <div style="margin-bottom: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
-                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. ambient, door" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
-                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
+                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. ambient, door" style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
             </div>
-            <div style="font-size: 11px; color: #94a3b8; line-height: 1.5;">
+            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5;">
                 Drag onto an empty tile to create a sound event, or onto an existing event to add a play command to it.
             </div>
             ${this.renderUsagePanel(a)}
@@ -23546,7 +24029,10 @@ DocsDoodads.Workspace = {
         this._undoHistoryOpen = true;
         const panel = document.createElement('div');
         panel.id = 'dd-undo-history';
-        panel.style.cssText = 'position: fixed; right: 260px; top: 70px; width: 240px; max-height: 60vh; overflow-y: auto; z-index: 10007; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px; font: 11px sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.5);';
+        panel.className = 'dd-glass dd-pop';
+        const bar = document.getElementById('dd-toolbar');
+        const top = bar && bar.getBoundingClientRect ? Math.round(bar.getBoundingClientRect().bottom + 8) : 78;
+        panel.style.cssText = `position: fixed; left: 50%; transform: translateX(-50%); top: ${top}px; width: 260px; max-height: 60vh; overflow-y: auto; z-index: 10017;`;
         document.body.appendChild(panel);
         this.renderUndoHistory();
     },
@@ -23556,13 +24042,12 @@ DocsDoodads.Workspace = {
         if (!panel || !panel.querySelectorAll) { this._undoHistoryOpen = false; return; }
         const steps = DocsDoodads.Undo.history();
         const applied = DocsDoodads.Undo.undoStack.length;
-        const row = (count, label, state) => `<div class="dd-undo-step" data-count="${count}" style="padding: 3px 6px; border-radius: 3px; cursor: pointer; ${state === 'current' ? 'background: #1d4ed8; color: #fff;' : state === 'undone' ? 'color: #64748b; font-style: italic;' : ''}">${escapeHtml(label)}</div>`;
+        const row = (count, label, state) => `<div class="dd-undo-step${state === 'current' ? ' dd-undo-current' : ''}" data-count="${count}" style="padding: 4px 8px; border-radius: 10px; cursor: pointer; font-weight: 700; ${state === 'current' ? 'background: var(--dd-primary-soft); color: var(--dd-text); box-shadow: inset 0 0 0 2px var(--dd-primary);' : state === 'undone' ? 'color: var(--dd-faint); font-style: italic;' : ''}">${escapeHtml(label)}</div>`;
         panel.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <b style="color: #38bdf8;">Undo History</b>
-                <button class="dd-btn" id="dd-undo-history-close" style="padding: 0 6px;">×</button>
+            <div class="dd-pop-title">${DocsDoodads.Ui.icon('history', 1)}<span style="flex: 1;">Steps</span>
+                <button class="dd-btn dd-fold" id="dd-undo-history-close" title="Close">${DocsDoodads.Ui.icon('close', 1)}</button>
             </div>
-            <div style="color: #64748b; margin-bottom: 4px;">Click a step to go back (or forward) to just after it.</div>
+            <div style="color: var(--dd-faint); margin-bottom: 4px;">Click a step to go back (or forward) to just after it.</div>
             ${row(0, '(Start)', applied === 0 ? 'current' : 'done')}
             ${steps.map(st => row(st.index + 1, (st.index + 1) + '. ' + st.label, st.index + 1 === applied ? 'current' : st.done ? 'done' : 'undone')).join('')}`;
         document.getElementById('dd-undo-history-close').onclick = () => { panel.remove(); this._undoHistoryOpen = false; };
@@ -23572,7 +24057,7 @@ DocsDoodads.Workspace = {
                 this.renderUndoHistory();
             };
         }
-        const current = panel.querySelector('[style*="#1d4ed8"]');
+        const current = panel.querySelector('.dd-undo-current');
         if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' });
     },
 
@@ -24100,17 +24585,11 @@ DocsDoodads.Workspace = {
     toggleGrid() {
         // Spriteset_Map (updateDocsEditorOverlay) draws the grid in map space, on tile edges at any scale.
         this.gridSnapShow = !this.gridSnapShow;
-        this.showToast(this.gridSnapShow ? "Grid Overlay Enabled" : "Grid Overlay Disabled");
+        this.showToast(this.gridSnapShow ? 'Grid on' : 'Grid off');
     },
 
     toggleInspector() {
-        const panel = document.getElementById('dd-inspector-panel');
-        if (!panel) return;
-        const isHidden = panel.style.display === 'none';
-        panel.style.display = isHidden ? 'flex' : 'none';
-        const resizer = document.getElementById('dd-inspector-resizer');
-        if (resizer) resizer.style.display = isHidden ? 'block' : 'none';
-        this.showToast(isHidden ? "Inspector Shown" : "Inspector Hidden");
+        this.foldPanel('inspector', !this.isFolded('inspector'));
     },
 
     focusSearch() {
@@ -24447,7 +24926,7 @@ DocsDoodads.Workspace = {
             // 2. Path Tool: collect points
             if (this.placementTool === 'path') {
                 if (!this.selectedAsset || this.selectedAsset.category === 'Audio' || this.selectedAsset.type === 'prefab') {
-                    this.showToast('Select an image asset in the drawer to draw a path with.');
+                    this.showToast('First pick a picture in the Item Bag to draw a path with.');
                     return;
                 }
                 this.pathPoints.push(e.altKey ? { x: coords.x, y: coords.y } : this.snapToTile(coords));
@@ -24553,7 +25032,7 @@ DocsDoodads.Workspace = {
                         overlay.id = 'dd-marquee-overlay';
                         overlay.style.cssText = `
                             position: fixed; pointer-events: none; z-index: 10006;
-                            border: 1px dashed #38bdf8; background: rgba(56, 189, 248, 0.18);
+                            border: 1px dashed var(--dd-primary); background: rgba(56, 189, 248, 0.18);
                             box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
                             border-radius: 2px;
                         `;
@@ -24969,8 +25448,8 @@ DocsDoodads.Workspace = {
             width: 380px; padding: 20px; z-index: 10020; text-align: center;
         `;
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 8px;">PLACEMENT DECISION</div>
-            <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 16px;">Does ${escapeHtml(payload.fileName)} need an interactive RPG Maker MZ event?</div>
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('help', 1)} Doodad or event?</div>
+            <div style="font-size: 12px; color: var(--dd-text); margin-bottom: 16px;">Does ${escapeHtml(payload.fileName)} need an interactive RPG Maker MZ event?</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                 <button class="dd-btn dd-btn-primary" id="dd-ask-yes">Yes (Create MZ Event)</button>
                 <button class="dd-btn" id="dd-ask-no">No (Decorative Doodad)</button>
@@ -25136,28 +25615,21 @@ DocsDoodads.Workspace = {
         const menu = document.createElement('div');
         menu.id = 'dd-context-menu';
         menu.className = 'dd-glass';
-        menu.style.cssText = `
-            position: fixed; z-index: 10050; min-width: 180px; padding: 4px;
-            display: flex; flex-direction: column; gap: 2px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.7);
-        `;
+        menu.style.cssText = 'position: fixed; z-index: 10050; display: flex; flex-direction: column; gap: 1px;';
+        DocsDoodads.Ui.sound('cursor');
         items.forEach(item => {
             if (item.separator) {
                 const sep = document.createElement('div');
-                sep.style.cssText = 'height: 1px; background: rgba(255,255,255,0.1); margin: 3px 0;';
+                sep.className = 'dd-menu-sep';
                 menu.appendChild(sep);
                 return;
             }
             const row = document.createElement('button');
-            row.className = 'dd-btn';
-            row.style.cssText = `
-                text-align: left; width: 100%; border: none; background: transparent;
-                padding: 5px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px;
-                color: ${item.danger ? '#f87171' : '#e2e8f0'};
-            `;
-            row.innerHTML = `<span>${escapeHtml(item.icon || '•')}</span> <span>${escapeHtml(item.label)}</span>`;
-            row.onmouseenter = () => { row.style.background = item.danger ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.25)'; };
-            row.onmouseleave = () => { row.style.background = 'transparent'; };
+            row.className = 'dd-btn' + (item.danger ? ' dd-danger' : '');
+            row.style.cssText = 'width: 100%; text-align: left;';
+            // Items name a pixel icon (iconName) or give a small symbol.
+            const icon = item.iconName ? DocsDoodads.Ui.icon(item.iconName, 1) : `<span style="width: 16px; text-align: center;">${escapeHtml(item.icon || '•')}</span>`;
+            row.innerHTML = `${icon}<span>${escapeHtml(item.label)}</span>`;
             row.onclick = (e) => {
                 e.stopPropagation();
                 this.closeContextMenu();
@@ -25260,36 +25732,36 @@ DocsDoodads.Workspace = {
         overlay.id = 'dd-import-modal';
         overlay.style.cssText = `
             position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10030; display: flex;
-            align-items: center; justify-content: center; background: rgba(2,6,23,0.72);
+            align-items: center; justify-content: center; background: rgba(47, 42, 67, 0.35);
             pointer-events: auto;
         `;
         const modal = document.createElement('div');
         modal.className = 'dd-glass';
-        modal.style.cssText = 'width: 430px; padding: 20px; color: #e2e8f0;';
+        modal.style.cssText = 'width: 430px; padding: 20px; color: var(--dd-text);';
         const destinationOptions = DocsDoodads.Import.destinations
             .map(destination => `<option value="${destination}">${destination}</option>`)
             .join('');
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; font-size: 14px; margin-bottom: 6px;">IMPORT PROJECT ASSETS</div>
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 16px;">
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('plus', 1)} Add Files</div>
+            <div style="font-size: 11px; color: var(--dd-muted); margin-bottom: 16px;">
                 ${supportedCount} supported file(s) found${collected.files.length !== supportedCount ? `; ${collected.files.length - supportedCount} unsupported skipped` : ''}.
             </div>
-            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: #cbd5e1;">Destination</label>
-            <select id="dd-import-destination" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: var(--dd-text);">Destination</label>
+            <select id="dd-import-destination" style="width: 100%; margin-bottom: 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 <option value="auto">Auto-route by asset type</option>
                 ${destinationOptions}
             </select>
-            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: #cbd5e1;">When a filename already exists (apply to all)</label>
-            <select id="dd-import-collision" style="width: 100%; margin-bottom: 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <label style="display: block; font-size: 11px; margin-bottom: 5px; color: var(--dd-text);">When a filename already exists (apply to all)</label>
+            <select id="dd-import-collision" style="width: 100%; margin-bottom: 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 <option value="rename">Keep both (add numeric suffix)</option>
                 <option value="skip">Skip incoming file</option>
                 <option value="overwrite">Overwrite existing file</option>
                 <option value="error">Cancel batch on collision</option>
             </select>
-            <label style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #cbd5e1; margin-bottom: 16px;">
+            <label style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--dd-text); margin-bottom: 16px;">
                 <input id="dd-import-auto-slice" type="checkbox" /> Open the first imported image in the slicer
             </label>
-            <div id="dd-import-warning" style="display: none; color: #fbbf24; font-size: 11px; margin: -6px 0 12px;">
+            <div id="dd-import-warning" style="display: none; color: var(--dd-warn); font-size: 11px; margin: -6px 0 12px;">
                 Overwrite is explicit and transactional; existing files are restored if the batch fails.
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
@@ -25350,18 +25822,18 @@ DocsDoodads.Workspace = {
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 440px; padding: 22px; z-index: 10025; text-align: center;
-            border: 2px solid #ef4444;
+            border: 2px solid var(--dd-danger);
         `;
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #ef4444; font-size: 15px; margin-bottom: 10px;">EXTERNAL CONFLICT DETECTED</div>
-            <div style="font-size: 12px; line-height: 1.6; color: #cbd5e1; margin-bottom: 18px;">
-                The current map file was modified externally (e.g. in the RPG Maker MZ editor) since this workspace session began.<br><br>
-                Overwriting now may erase external edits made in MZ.
+            <div class="dd-pop-title" style="justify-content: center; font-size: 15px;">${DocsDoodads.Ui.icon('help', 2)} This map was changed in RPG Maker MZ</div>
+            <div style="font-size: 12px; line-height: 1.6; color: var(--dd-text); margin-bottom: 16px;">
+                Someone saved this map in the MZ editor after the Doodads editor was opened.
+                Saving now would replace those changes with yours.
             </div>
             <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="dd-btn" id="dd-conf-force" style="background: #b91c1c;">Force Overwrite With Workspace Changes</button>
-                <button class="dd-btn" id="dd-conf-reload">Reload Map from Disk (Discard Workspace Staged)</button>
-                <button class="dd-btn" id="dd-conf-cancel">Cancel Save</button>
+                <button class="dd-btn" id="dd-conf-cancel" style="padding: 8px;">Don't Save Yet</button>
+                <button class="dd-btn" id="dd-conf-reload" style="padding: 8px;">Use MZ's Version (my event changes are dropped)</button>
+                <button class="dd-btn dd-btn-danger" id="dd-conf-force" style="padding: 8px;">Save Mine Anyway (MZ's changes are replaced)</button>
             </div>
         `;
         document.body.appendChild(modal);
@@ -25396,20 +25868,20 @@ DocsDoodads.Workspace = {
             width: 440px; padding: 20px; z-index: 10010;
         `;
         diag.innerHTML = `
-            <div style="font-weight: bold; font-size: 14px; color: #60a5fa; margin-bottom: 12px;">SYSTEM DIAGNOSTICS</div>
-            <div style="font-size: 12px; line-height: 1.8; color: #cbd5e1;">
-                <div>Total Indexed Assets: <strong style="color: #fff;">${DocsDoodads.AssetIndex.list.length}</strong></div>
-                <div>Thumbnail Cache Count: <strong style="color: #fff;">${Object.keys(DocsDoodads.Thumbnail.cache).length}</strong></div>
-                <div>Background Work Queue: <strong style="color: #fff;">${DocsDoodads.Thumbnail.queue.length} jobs</strong></div>
-                <div>Undo History Depth: <strong style="color: #fff;">${DocsDoodads.Undo.undoStack.length} actions</strong></div>
-                <div>Current Map ID: <strong style="color: #fff;">${$gameMap ? $gameMap.mapId() : 0}</strong></div>
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('info', 1)} Info</div>
+            <div style="font-size: 12px; line-height: 1.8; color: var(--dd-text);">
+                <div>Total Indexed Assets: <strong style="color: var(--dd-text);">${DocsDoodads.AssetIndex.list.length}</strong></div>
+                <div>Thumbnail Cache Count: <strong style="color: var(--dd-text);">${Object.keys(DocsDoodads.Thumbnail.cache).length}</strong></div>
+                <div>Background Work Queue: <strong style="color: var(--dd-text);">${DocsDoodads.Thumbnail.queue.length} jobs</strong></div>
+                <div>Undo History Depth: <strong style="color: var(--dd-text);">${DocsDoodads.Undo.undoStack.length} actions</strong></div>
+                <div>Current Map ID: <strong style="color: var(--dd-text);">${$gameMap ? $gameMap.mapId() : 0}</strong></div>
             </div>
             <div style="display: flex; gap: 8px; margin-top: 16px;">
                 <button class="dd-btn dd-btn-primary" id="dd-rebuild-idx-btn" style="flex: 1;">Rebuild Index</button>
                 <button class="dd-btn" id="dd-clear-cache-btn" style="flex: 1;">Clear Cache</button>
                 <button class="dd-btn" id="dd-close-diag-btn">Close</button>
             </div>
-            <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: #f59e0b; color: #fde68a;">Restore Project Backup…</button>
+            <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: var(--dd-warn); color: var(--dd-warn);">Restore Project Backup…</button>
         `;
         document.body.appendChild(diag);
 
@@ -25449,22 +25921,22 @@ DocsDoodads.Workspace = {
         modal.className = 'dd-glass';
         modal.style.cssText = `
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 480px; padding: 20px; z-index: 10035; border: 1px solid #f59e0b;
+            width: 480px; padding: 20px; z-index: 10035; border: 1px solid var(--dd-warn);
         `;
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #fde68a; font-size: 14px; margin-bottom: 8px;">RESTORE PROJECT BACKUP</div>
-            <div style="font-size: 11px; line-height: 1.5; color: #cbd5e1; margin-bottom: 14px;">
+            <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('folder', 1)} Bring Back a Backup</div>
+            <div style="font-size: 11px; line-height: 1.5; color: var(--dd-text); margin-bottom: 14px;">
                 Backups are validated before restore. The current file is backed up again first so this action remains reversible.
             </div>
-            <label style="font-size: 11px; color: #94a3b8;">Project file</label>
-            <select id="dd-restore-target" style="width: 100%; margin: 5px 0 12px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;">
+            <label style="font-size: 11px; color: var(--dd-muted);">Project file</label>
+            <select id="dd-restore-target" style="width: 100%; margin: 5px 0 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 ${targets.map(target => `<option value="${target.path}">${target.label} — ${target.path}</option>`).join('')}
             </select>
-            <label style="font-size: 11px; color: #94a3b8;">Backup snapshot</label>
-            <select id="dd-restore-source" style="width: 100%; margin: 5px 0 16px; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 7px;"></select>
+            <label style="font-size: 11px; color: var(--dd-muted);">Backup snapshot</label>
+            <select id="dd-restore-source" style="width: 100%; margin: 5px 0 16px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;"></select>
             <div style="display: flex; justify-content: flex-end; gap: 8px;">
                 <button class="dd-btn" id="dd-restore-cancel">Cancel</button>
-                <button class="dd-btn" id="dd-restore-confirm" style="background: #b45309;">Restore Selected Backup</button>
+                <button class="dd-btn" id="dd-restore-confirm" style="background: var(--dd-warn-soft);">Restore Selected Backup</button>
             </div>
         `;
         document.body.appendChild(modal);
@@ -25526,17 +25998,19 @@ DocsDoodads.Workspace = {
 
     // kind: a duration in ms, or 'info' / 'success' / 'error' (colour, and errors stay longer).
     showToast(msg, kind) {
-        const styles = { info: ['#2563eb', 2200], success: ['#15803d', 2200], error: ['#b91c1c', 5000] };
-        const [background, wait] = typeof kind === 'number' ? ['#2563eb', kind] : (styles[kind] || styles.info);
+        const styles = { info: ['info', 2200], success: ['done', 2200], error: ['close', 5000] };
+        const [icon, wait] = typeof kind === 'number' ? ['info', kind] : (styles[kind] || styles.info);
         const duration = Math.max(800, Number(wait) || 2200);
+        // One at a time: a new message replaces the last.
+        const old = document.getElementById('dd-toast');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
         const toast = document.createElement('div');
-        toast.style.cssText = `
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            background: ${background}; color: #fff; padding: 8px 16px; border-radius: 20px;
-            font-size: 12px; font-weight: bold; z-index: 10030; box-shadow: 0 4px 14px rgba(0,0,0,0.5);
-            pointer-events: none; transition: opacity 0.3s;
-        `;
-        toast.textContent = msg;
+        toast.id = 'dd-toast';
+        toast.className = 'dd-toast' + (kind === 'success' ? ' dd-toast-success' : kind === 'error' ? ' dd-toast-error' : '');
+        toast.innerHTML = `${DocsDoodads.Ui.icon(icon, 1)}<span></span>`;
+        const text = toast.querySelector ? toast.querySelector('span') : null;
+        if (text) text.textContent = msg; else toast.textContent = msg;
+        if (kind === 'error') DocsDoodads.Ui.sound('buzzer');
         document.body.appendChild(toast);
         setTimeout(() => {
             toast.style.opacity = '0';
@@ -25715,6 +26189,10 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
         } else if (e.key === 'Escape') {
             e.preventDefault();
             DocsDoodads.Workspace.setPlacementTool(null);
+            const sym = document.getElementById('dd-sym-popover');
+            if (sym) sym.style.display = 'none';
+            const welcome = document.getElementById('dd-welcome-ok');
+            if (welcome) welcome.click();
             DocsDoodads.Workspace.removeGhost();
             DocsDoodads.Workspace.selectDoodad(null);
         }
