@@ -125,6 +125,7 @@
  *      characters, gear and standing doodads stand up as billboards, sorted by distance.
  *    - Camera tilt, turn, field of view, zoom, fog and sky; the parallax becomes the sky.
  *    - Round world: a planet or a rolling log; radius 0 fits a looping map in one lap.
+ *    - Rippling water with glints and wakes behind boats and waders.
  *    - Terrain height (map panel and the Terrain brush): automatic mountains and forests on
  *      world tilesets, heights by region or terrain tag, smooth or stepped, optional blocking.
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
@@ -4339,7 +4340,8 @@ DocsDoodads.Perspective = {
     defaults: {
         enabled: false, pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
-        curve: 'flat', curveRadius: 60, lean: true
+        curve: 'flat', curveRadius: 60, lean: true,
+        water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true
     },
 
     curves: [
@@ -4372,7 +4374,12 @@ DocsDoodads.Perspective = {
             smoothGround: s.smoothGround === true,
             curve: this.curves.some(c => c.value === s.curve) ? s.curve : 'flat',
             curveRadius: Number(s.curveRadius) === 0 && s.curveRadius !== '' && s.curveRadius !== null && s.curveRadius !== undefined ? 0 : num(s.curveRadius, d.curveRadius, 6, 2000),
-            lean: s.lean !== false
+            lean: s.lean !== false,
+            water: s.water !== false,
+            waterStrength: num(s.waterStrength, d.waterStrength, 0, 2),
+            waterSpeed: num(s.waterSpeed, d.waterSpeed, 0, 3),
+            waterShine: num(s.waterShine, d.waterShine, 0, 1),
+            waterWakes: s.waterWakes !== false
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4982,6 +4989,181 @@ DocsDoodads.Terrain = {
         return out;
     }
 };
+
+// Rippling water in the 3D view: a sum of travelling waves bends what shows through water tiles and
+// catches the light, and things moving through water leave spreading wake rings.
+DocsDoodads.Water3D = {
+    // k: 2π / wavelength (map pixels); a: the slope each wave adds; w: radians per second.
+    waves: [
+        { dx: 0.8, dy: 0.6, k: 2 * Math.PI / 42, a: 0.45, w: 1.6 },
+        { dx: -0.6, dy: 0.8, k: 2 * Math.PI / 27, a: 0.33, w: 2.3 },
+        { dx: 0.2, dy: -0.979796, k: 2 * Math.PI / 66, a: 0.14, w: 1.1 },
+        { dx: 0.951057, dy: -0.309017, k: 2 * Math.PI / 17, a: 0.08, w: 3.1 }
+    ],
+    wakeSpeed: 60,       // pixels per second
+    wakeLife: 2.6,       // seconds
+    wakeLength: 14,      // ring wavelength (pixels)
+    wakeWidth: 13,       // ring thickness (pixels)
+    wakeSlope: 0.9,
+    wakeFoam: 0.5,
+    wakeEvery: 12,       // frames between wakes while moving
+    maxWakes: 16,
+
+    mask(width, height, isWater) {
+        const out = new Uint8Array(width * height * 4);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                out[i] = isWater(x, y) ? 255 : 0;
+                out[i + 3] = 255;
+            }
+        }
+        return out;
+    },
+
+    height(x, y, t, speed) {
+        let h = 0;
+        for (const w of this.waves) h += (w.a / w.k) * Math.sin(w.k * (w.dx * x + w.dy * y) + w.w * t * speed);
+        return h;
+    },
+
+    gradient(x, y, t, speed) {
+        let gx = 0, gy = 0;
+        for (const w of this.waves) {
+            const c = w.a * Math.cos(w.k * (w.dx * x + w.dy * y) + w.w * t * speed);
+            gx += c * w.dx;
+            gy += c * w.dy;
+        }
+        return { x: gx, y: gy };
+    },
+
+    // The shortest step between two positions on a loop of the given size (0: no loop).
+    unwrap(delta, size) {
+        return size > 0 ? delta - size * Math.round(delta / size) : delta;
+    },
+
+    // Wake gradients on looping maps measure to the nearest copy of each wake.
+    wrapOffset(d, size) {
+        return size > 0 ? d - size * Math.floor(d / size + 0.5) : d;
+    },
+
+    prune(list, now) {
+        return (list || []).filter(w => now - w.born <= this.wakeLife);
+    },
+
+    addWake(list, x, y, now, strength) {
+        const next = this.prune(list, now);
+        next.push({ x, y, born: now, strength: strength === undefined ? 1 : strength });
+        return next.slice(-this.maxWakes);
+    },
+
+    wakeGradient(list, x, y, now, loop) {
+        let gx = 0, gy = 0;
+        for (const w of list || []) {
+            const age = now - w.born;
+            if (age < 0 || age > this.wakeLife || !(w.strength > 0)) continue;
+            const dx = this.wrapOffset(x - w.x, loop ? loop.width : 0), dy = this.wrapOffset(y - w.y, loop ? loop.height : 0), d = Math.hypot(dx, dy);
+            if (d < 0.001) continue;
+            const front = d - age * this.wakeSpeed;
+            const env = Math.exp(-(front / this.wakeWidth) * (front / this.wakeWidth)) * (1 - age / this.wakeLife) * w.strength;
+            const g = this.wakeSlope * env * Math.cos(front * 2 * Math.PI / this.wakeLength);
+            gx += g * dx / d;
+            gy += g * dy / d;
+        }
+        return { x: gx, y: gy };
+    },
+
+    // x, y, age, strength for each of 16 slots (strength 0 = empty), for the shader.
+    pack(list, now) {
+        const out = new Float32Array(this.maxWakes * 4);
+        (list || []).slice(-this.maxWakes).forEach((w, i) => {
+            out[i * 4] = w.x;
+            out[i * 4 + 1] = w.y;
+            out[i * 4 + 2] = now - w.born;
+            out[i * 4 + 3] = w.strength;
+        });
+        return out;
+    },
+
+    // info: { onWater, moving, tile, frame }. A wake on entering a new water tile, then every few frames.
+    shouldWake(state, info) {
+        if (!info.onWater || !info.moving) return false;
+        if (state.tile !== info.tile || state.frame === undefined || info.frame - state.frame >= this.wakeEvery) {
+            state.tile = info.tile;
+            state.frame = info.frame;
+            return true;
+        }
+        return false;
+    }
+};
+
+// Shared by the flat ground and terrain shaders. Map pixels mp = flat pixels + uOrigin.
+DocsDoodads.Water3D.glsl = (() => {
+    const W = DocsDoodads.Water3D;
+    const f = n => n.toFixed(6);
+    const waves = W.waves.map(w => `    g += ${f(w.a)} * vec2(${f(w.dx)}, ${f(w.dy)}) * cos(${f(w.k)} * dot(vec2(${f(w.dx)}, ${f(w.dy)}), mp) + ${f(w.w)} * uWaterTime);`).join('\n');
+    return [
+        'uniform vec4 uWater;',          // on, strength, shine, light level
+        'uniform float uWaterTime;',     // seconds x speed
+        'uniform sampler2D uWaterMask;',
+        'uniform vec2 uMapTiles;',
+        'uniform vec2 uTile;',
+        'uniform vec2 uOrigin;',
+        'uniform vec2 uLoop;',
+        'uniform vec3 uLightDir;',
+        `uniform vec4 uWakes[${W.maxWakes}];`,
+        'float docsWaterMask(vec2 mp) {',
+        '    vec2 t = mp / uTile;',
+        '    if (uLoop.x > 0.5) t.x = mod(t.x, uMapTiles.x);',
+        '    if (uLoop.y > 0.5) t.y = mod(t.y, uMapTiles.y);',
+        '    if (t.x < 0.0 || t.y < 0.0 || t.x > uMapTiles.x || t.y > uMapTiles.y) return 0.0;',
+        '    return texture2D(uWaterMask, t / uMapTiles).r;',
+        '}',
+        'vec2 docsWaterGrad(vec2 mp, out float foam) {',
+        '    vec2 g = vec2(0.0);',
+        '    foam = 0.0;',
+        waves,
+        `    for (int i = 0; i < ${W.maxWakes}; i++) {`,
+        '        vec4 w = uWakes[i];',
+        `        if (w.w <= 0.0 || w.z < 0.0 || w.z > ${f(W.wakeLife)}) continue;`,
+        '        vec2 dv = mp - w.xy;',
+        // Looping maps: the nearest copy of the wake.
+        '        if (uLoop.x > 0.5) dv.x -= uMapTiles.x * uTile.x * floor(dv.x / (uMapTiles.x * uTile.x) + 0.5);',
+        '        if (uLoop.y > 0.5) dv.y -= uMapTiles.y * uTile.y * floor(dv.y / (uMapTiles.y * uTile.y) + 0.5);',
+        '        float d = length(dv);',
+        '        if (d < 0.001) continue;',
+        `        float front = d - w.z * ${f(W.wakeSpeed)};`,
+        `        float env = exp(-(front / ${f(W.wakeWidth)}) * (front / ${f(W.wakeWidth)})) * (1.0 - w.z / ${f(W.wakeLife)}) * w.w;`,
+        `        float crest = cos(front * ${f(2 * Math.PI / W.wakeLength)});`,
+        `        g += ${f(W.wakeSlope)} * env * crest * dv / d;`,
+        `        foam += ${f(W.wakeFoam)} * env * max(crest, 0.0);`,
+        '    }',
+        '    return g;',
+        '}'
+    ].join('\n');
+})();
+
+// The lines each ground shader runs for a flat point p (pixels) and texture position uv:
+// bends uv through the water, and sets docsWaterShade (slope light) and docsWaterSpec (glints).
+DocsDoodads.Water3D.applyGlsl = [
+    '    float docsWaterShade = 1.0;',
+    '    float docsWaterSpec = 0.0;',
+    '    if (uWater.x > 0.5) {',
+    '        vec2 mp = p + uOrigin;',
+    // Only well inside water tiles: their shore border is drawn inside them, and sand stays dry.
+    '        float wet = smoothstep(0.55, 0.95, docsWaterMask(mp));',
+    '        if (wet > 0.01) {',
+    '            float foam;',
+    '            vec2 g = docsWaterGrad(mp, foam) * uWater.y;',
+    '            uv += g * 3.0 * wet / uGround;',
+    '            vec3 N = normalize(vec3(-g * 0.6, 1.0));',
+    '            vec3 V = normalize(uCam - vec3(p, 0.0));',
+    '            vec3 H = normalize(uLightDir + V);',
+    '            docsWaterSpec = (pow(max(dot(N, H), 0.0), 140.0) * uWater.z + foam * uWater.y) * uWater.w * wet;',
+    '            docsWaterShade = 1.0 + dot(-g, uLightDir.xy) * 0.12 * wet;',
+    '        }',
+    '    }'
+].join('\n');
 
 // A frame clipped to the image. Images replaced by smaller ones would otherwise make PIXI throw
 // "frame does not fit inside the base Texture" and stop the game.
@@ -7886,6 +8068,7 @@ DocsDoodads.Perspective.groundFragment = [
     'uniform vec2 uAhead;',
     'uniform vec3 uVoid;',
     'uniform float uAlpha;',
+    DocsDoodads.Water3D.glsl,
     'void main() {',
     '    vec3 dir = uF + ((vScreen.x - uHalf.x) / uFocal) * uR + ((uHalf.y - vScreen.y) / uFocal) * uU;',
     '    vec2 p;',
@@ -7923,9 +8106,11 @@ DocsDoodads.Perspective.groundFragment = [
     '        p = uCam.xy + t * dir.xy;',
     '    }',
     '    vec2 uv = p / uGround;',
+    DocsDoodads.Water3D.applyGlsl,
     '    vec4 c = vec4(0.0);',
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
     '    vec3 rgb = c.rgb + uVoid * (1.0 - c.a);',
+    '    rgb = rgb * docsWaterShade + vec3(docsWaterSpec);',
     // Fog by distance along the ground from the camera's target, so it hides the ground's edges all round.
     '    float f = smoothstep(uFogRange.x, uFogRange.y, length(p - uTarget));',
     // uFog.a = 1: blend into the fog colour; 0: fade out so the sky shows through.
@@ -8129,7 +8314,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addIndex([0, 1, 2, 0, 2, 3]);
         const shader = PIXI.Shader.from(P.groundVertex, P.groundFragment, {
             uSampler: PIXI.Texture.EMPTY, uCam: [0, 0, 1], uF: [0, 0, -1], uR: [1, 0, 0], uU: [0, -1, 0], uFocal: 1,
-            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1
+            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1,
+            uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
+            uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4)
         });
         const mesh = new PIXI.Mesh(geometry, shader);
         mesh._docsW = width;
@@ -8202,6 +8389,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const mesh = this.docsGroundMesh(W, H);
         mesh.visible = !terrain;
         const u = mesh.shader.uniforms;
+        if (s.water) {
+            this.docsWaterMask();
+            this.updateDocsWakes(s, DocsDoodads.frameCount() / 60);
+        }
         u.uSampler = rt;
         u.uCam = [cam.C.x, cam.C.y, cam.C.z];
         u.uF = [cam.F.x, cam.F.y, cam.F.z];
@@ -8217,6 +8408,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uRadius = cam.radius || 1;
         u.uAxis = [cam.axis.x, cam.axis.y];
         u.uAhead = [cam.ahead.x, cam.ahead.y];
+        this.docsWaterUniforms(u, s, cam);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uAlpha = 1;
@@ -8270,6 +8462,94 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
     };
 
+    // ---- Water ----
+    // Which tiles are water (built once per map), as an array for lookups and a texture for the shaders.
+    Spriteset_Map.prototype.docsWaterMask = function() {
+        const world = DocsDoodads.World.settings().reflections;
+        const key = $gameMap.mapId() + '|' + (Number(world.regionId) || 0);
+        if (this._docsWater && this._docsWater.key === key && this._docsWater.data === $dataMap.data) return this._docsWater;
+        if (this._docsWater && this._docsWater.texture) this._docsWater.texture.destroy(true);
+        const w = $gameMap.width(), h = $gameMap.height();
+        const isWaterTile = id => (typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false);
+        const pixels = DocsDoodads.Water3D.mask(w, h, (x, y) => DocsDoodads.Reflection.isWaterAt([0, 1, 2, 3].map(z => $gameMap.tileId(x, y, z)),
+            $gameMap.regionId(x, y), world, isWaterTile));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        const image = ctx.createImageData(w, h);
+        image.data.set(pixels);
+        ctx.putImageData(image, 0, 0);
+        const texture = PIXI.Texture.from(canvas);
+        texture.baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
+        let any = false;
+        for (let i = 0; i < pixels.length; i += 4) if (pixels[i]) { any = true; break; }
+        this._docsWater = { key, data: $dataMap.data, pixels, width: w, height: h, texture, any };
+        return this._docsWater;
+    };
+
+    Spriteset_Map.prototype.docsOnWater = function(x, y) {
+        const m = this._docsWater;
+        if (!m) return false;
+        x = $gameMap.roundX(x);
+        y = $gameMap.roundY(y);
+        return x >= 0 && y >= 0 && x < m.width && y < m.height && m.pixels[(y * m.width + x) * 4] > 0;
+    };
+
+    // Wakes behind things moving through water: boats, ships, and characters wading in shallow water.
+    Spriteset_Map.prototype.updateDocsWakes = function(s, now) {
+        if (!s.waterWakes) {
+            this._docsWakes = [];
+            return;
+        }
+        const W = DocsDoodads.Water3D;
+        this._docsWakeState = this._docsWakeState || new WeakMap();
+        let wakes = W.prune(this._docsWakes || [], now);
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const frame = DocsDoodads.frameCount();
+        const movers = [].concat($gameMap.vehicles ? $gameMap.vehicles().filter(v => v._mapId === $gameMap.mapId()) : [],
+            $gamePlayer.isInVehicle() ? [] : [$gamePlayer], $gamePlayer.followers().visibleFollowers(), $gameMap.events());
+        for (const ch of movers) {
+            if (!ch || ch.isTransparent() && !(typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle)) continue;
+            let state = this._docsWakeState.get(ch);
+            if (!state) this._docsWakeState.set(ch, state = {});
+            const x = Math.round(ch._realX), y = Math.round(ch._realY);
+            if (W.shouldWake(state, { onWater: this.docsOnWater(x, y), moving: ch.isMoving(), tile: x + ',' + y, frame })) {
+                const vehicle = typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle;
+                wakes = W.addWake(wakes, (ch._realX + 0.5) * tw, (ch._realY + 0.5) * th, now, vehicle ? 1.4 : 1);
+            }
+        }
+        this._docsWakes = wakes;
+    };
+
+    // The water uniforms both ground shaders share.
+    Spriteset_Map.prototype.docsWaterUniforms = function(u, s, cam) {
+        const mask = this._docsWater;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const now = DocsDoodads.frameCount() / 60;
+        const base = this._docsLightInfo ? this._docsLightInfo.base : null;
+        const light = base ? (base[0] + base[1] + base[2]) / 3 : 1;
+        u.uWater = [s.water && mask && mask.any ? 1 : 0, s.waterStrength, s.waterShine, light];
+        u.uWaterTime = now * s.waterSpeed;
+        u.uWaterMask = mask ? mask.texture : PIXI.Texture.EMPTY;
+        u.uMapTiles = [$gameMap.width(), $gameMap.height()];
+        u.uTile = [tw, th];
+        // On looping maps the camera's position wraps; the waves follow it without jumping at the seam.
+        const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
+        const mw = $gameMap.isLoopHorizontal() ? $gameMap.width() * tw : 0, mh = $gameMap.isLoopVertical() ? $gameMap.height() * th : 0;
+        const o = this._docsWaterOrigin && this._docsWaterOrigin.mapId === $gameMap.mapId() ? this._docsWaterOrigin
+            : (this._docsWaterOrigin = { mapId: $gameMap.mapId(), x: ox, y: oy, rx: ox, ry: oy });
+        o.x += DocsDoodads.Water3D.unwrap(ox - o.rx, mw);
+        o.y += DocsDoodads.Water3D.unwrap(oy - o.ry, mh);
+        o.rx = ox;
+        o.ry = oy;
+        u.uOrigin = [o.x, o.y];
+        u.uLoop = [$gameMap.isLoopHorizontal() ? 1 : 0, $gameMap.isLoopVertical() ? 1 : 0];
+        u.uWakes = DocsDoodads.Water3D.pack(this._docsWakes || [], now);
+        if (u.uCam !== undefined) u.uCam = [cam.C.x, cam.C.y, cam.C.z];
+        if (u.uGround !== undefined) u.uGround = [this._docs3dTexture.width, this._docs3dTexture.height];
+    };
+
     $.Spriteset_Map_update_3d = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
         $.Spriteset_Map_update_3d.call(this);
@@ -8289,6 +8569,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     $.Spriteset_Map_destroy_3d = Spriteset_Map.prototype.destroy;
     Spriteset_Map.prototype.destroy = function(options) {
+        if (this._docsWater && this._docsWater.texture) this._docsWater.texture.destroy(true);
+        this._docsWater = null;
         if (this._docs3dTexture) {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
@@ -8527,10 +8809,16 @@ DocsDoodads.Terrain.fragment = [
     'uniform vec3 uVoid;',
     'uniform vec4 uFog;',
     'uniform float uAlpha;',
+    'uniform vec3 uCam;',
+    'uniform vec2 uGround;',
+    DocsDoodads.Water3D.glsl,
     'void main() {',
+    '    vec2 uv = vUv;',
+    '    vec2 p = vUv * uGround;',
+    DocsDoodads.Water3D.applyGlsl,
     '    vec4 c = vec4(0.0);',
-    '    if (vUv.x >= 0.0 && vUv.y >= 0.0 && vUv.x <= 1.0 && vUv.y <= 1.0) c = texture2D(uSampler, vUv);',
-    '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x;',
+    '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
+    '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x * docsWaterShade + vec3(docsWaterSpec);',
     '    float f = 1.0 - vShade.y;',
     '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
     '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
@@ -8566,7 +8854,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aUv', topo.uvs, 2)
             .addAttribute('aShade', topo.shades, 2)
             .addIndex(topo.index);
-        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1 });
+        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
+            uCam: [0, 0, 1], uGround: [1, 1],
+            uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
+            uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
         this._docsTerrainMesh = new PIXI.Mesh(geometry, shader);
         return topo;
     };
@@ -8623,6 +8914,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;
+        this.docsWaterUniforms(u, s, cam);
         return order;
     };
 
@@ -16313,7 +16605,12 @@ DocsDoodads.Workspace = {
             number('curveRadius', 'World radius (tiles; 0 = one lap across a looping map)'),
             check('lean', 'Things lean with the curve'),
             check('rotate', 'Q / W turn the camera 90°'),
-            check('smoothGround', 'Smooth distant ground (less pixelated)')
+            check('smoothGround', 'Smooth distant ground (less pixelated)'),
+            check('water', 'Rippling water'),
+            range('waterStrength', 'Ripple strength', 0, 2, 0.05),
+            range('waterSpeed', 'Ripple speed', 0, 3, 0.05),
+            range('waterShine', 'Sparkle', 0, 1, 0.05),
+            check('waterWakes', 'Wakes behind boats and waders')
         ];
     },
 
