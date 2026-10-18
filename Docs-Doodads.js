@@ -5332,6 +5332,8 @@ DocsDoodads.Water3D.applyGlsl = [
 DocsDoodads.Weather3D = {
     maxParticles: 2000,
     maxSplashes: 160,
+    // Drops are drawn in this many bands by distance, each sorted in with the trees and characters.
+    depthBands: 8,
     splashLife: 0.35,
 
     // The look of each kind of weather at MZ's power (1-9), times the map's density.
@@ -5391,6 +5393,17 @@ DocsDoodads.Weather3D = {
             return { x, y, z, seed: p.seed };
         });
         return { particles: out, splashes };
+    },
+
+    // Which depth band (0 nearest) a drop at `depth` goes in, and the depth a band is sorted at (its
+    // near edge, so whatever stands behind any of its drops is drawn before them).
+    band(depth, near, far) {
+        const span = Math.max(1e-6, far - near);
+        return Math.max(0, Math.min(this.depthBands - 1, Math.floor(((depth - near) / span) * this.depthBands)));
+    },
+
+    bandDepth(index, near, far) {
+        return near + Math.max(1e-6, far - near) * index / this.depthBands;
     },
 
     pruneSplashes(list, now) {
@@ -8810,9 +8823,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
+        for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
         items.sort(P.compareBillboards);
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
-        this.updateDocsWeather(s, cam, fogRange);
         this.updateDocsGizmos(cam);
     };
 
@@ -9048,14 +9061,13 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (layer) layer.visible = false;
             this._docsWeatherParts = [];
             this._docsSplashes = [];
-            return;
+            return [];
         }
         if (!layer) {
             layer = this._docs3dWeather = new PIXI.Container();
             this._docs3dWeatherDim = new PIXI.Sprite(PIXI.Texture.WHITE);
             this._docs3dWeatherDim.tint = 0x000000;
             layer.addChild(this._docs3dWeatherDim);
-            this._docs3dWeatherPool = [];
         }
         const view = this._docs3dView;
         if (layer.parent !== view || view.children.indexOf(layer) !== view.children.indexOf(this._docs3dGizmo) - 1) {
@@ -9093,19 +9105,6 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         dim.width = Graphics.width;
         dim.height = Graphics.height;
         dim.alpha = params.dim;
-        const pool = this._docs3dWeatherPool;
-        let used = 0;
-        const sprite = texture => {
-            if (used >= pool.length) {
-                const sp = new PIXI.Sprite(texture);
-                layer.addChild(sp);
-                pool.push(sp);
-            }
-            const sp = pool[used++];
-            sp.texture = texture;
-            sp.visible = true;
-            return sp;
-        };
         const at = (x, y, z) => {
             const fx = x - origin.x, fy = y - origin.y;
             const g = P.groundPoint(cam, fx, fy, z);
@@ -9115,7 +9114,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             p.fog = P.fogAt(Math.hypot(fx - cam.target.x, fy - cam.target.y), fogRange[0], fogRange[1]);
             return p;
         };
-        const color = shade(params.color);
+        // Work out where every drop and splash is first, so they can be split into depth bands.
+        const drops = [];
+        let near = Infinity, far = -Infinity;
+        const keep = d => {
+            drops.push(d);
+            if (d.head.depth < near) near = d.head.depth;
+            if (d.head.depth > far) far = d.head.depth;
+        };
         for (const pt of this._docsWeatherParts) {
             const head = at(pt.x, pt.y, pt.z);
             if (!head || head.fog >= 1) continue;
@@ -9123,37 +9129,73 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 const tail = at(pt.x - params.wind * params.length, pt.y, pt.z + params.length);
                 if (!tail) continue;
                 const dx = tail.x - head.x, dy = tail.y - head.y, len = Math.hypot(dx, dy);
-                if (len < 0.5) continue;
-                const sp = sprite(tex.streak);
-                sp.anchor.set(0.5, 1);
-                sp.x = head.x; sp.y = head.y;
-                sp.rotation = Math.atan2(dx, -dy);
-                sp.scale.set(Math.max(0.25, params.size * head.scale) / 2, len / 32);
-                sp.tint = color;
-                sp.alpha = params.alpha * (1 - head.fog);
+                if (len >= 0.5) keep({ kind: 'streak', head, dx, dy, len });
             } else {
-                const sp = sprite(tex.flake);
-                sp.anchor.set(0.5, 0.5);
-                sp.x = head.x; sp.y = head.y;
-                sp.rotation = 0;
-                sp.scale.set(Math.max(0.1, params.size * head.scale * (0.7 + 0.6 * pt.seed) / 8));
-                sp.tint = color;
-                sp.alpha = params.alpha * (1 - head.fog);
+                keep({ kind: 'flake', head, seed: pt.seed });
             }
         }
         for (const spl of this._docsSplashes) {
-            const p = at(spl.x, spl.y, spl.z);
-            if (!p || p.fog >= 1) continue;
-            const age = (now - spl.born) / W.splashLife;
-            const sp = sprite(tex.splash);
-            sp.anchor.set(0.5, 0.5);
-            sp.x = p.x; sp.y = p.y;
-            sp.rotation = 0;
-            sp.scale.set(p.scale * (0.25 + 0.5 * age));
-            sp.tint = color;
-            sp.alpha = 0.6 * (1 - age) * (1 - p.fog);
+            const head = at(spl.x, spl.y, spl.z);
+            if (head && head.fog < 1) keep({ kind: 'splash', head, age: (now - spl.born) / W.splashLife });
         }
-        for (let i = used; i < pool.length; i++) pool[i].visible = false;
+        // Each band is drawn with the billboards at its depth, so trees and hills in front hide the
+        // weather behind them. Sorted at its near edge: whatever is behind any of its drops goes first.
+        const count = W.depthBands;
+        const bands = this._docs3dWeatherBands = this._docs3dWeatherBands || [];
+        this._docs3dWeatherHolder = this._docs3dWeatherHolder || new PIXI.Container();
+        for (let b = bands.length; b < count; b++) {
+            const box = new PIXI.Container();
+            this._docs3dWeatherHolder.addChild(box);
+            bands.push({ box, pool: [], used: 0 });
+        }
+        for (const band of bands) band.used = 0;
+        const sprite = (band, texture) => {
+            if (band.used >= band.pool.length) {
+                const sp = new PIXI.Sprite(texture);
+                band.box.addChild(sp);
+                band.pool.push(sp);
+            }
+            const sp = band.pool[band.used++];
+            sp.texture = texture;
+            sp.visible = true;
+            return sp;
+        };
+        const color = shade(params.color);
+        for (const d of drops) {
+            const band = bands[W.band(d.head.depth, near, far)];
+            const head = d.head;
+            if (d.kind === 'streak') {
+                const sp = sprite(band, tex.streak);
+                sp.anchor.set(0.5, 1);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = Math.atan2(d.dx, -d.dy);
+                sp.scale.set(Math.max(0.25, params.size * head.scale) / 2, d.len / 32);
+                sp.tint = color;
+                sp.alpha = params.alpha * (1 - head.fog);
+            } else if (d.kind === 'flake') {
+                const sp = sprite(band, tex.flake);
+                sp.anchor.set(0.5, 0.5);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = 0;
+                sp.scale.set(Math.max(0.1, params.size * head.scale * (0.7 + 0.6 * d.seed) / 8));
+                sp.tint = color;
+                sp.alpha = params.alpha * (1 - head.fog);
+            } else {
+                const sp = sprite(band, tex.splash);
+                sp.anchor.set(0.5, 0.5);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = 0;
+                sp.scale.set(head.scale * (0.25 + 0.5 * d.age));
+                sp.tint = color;
+                sp.alpha = 0.6 * (1 - d.age) * (1 - head.fog);
+            }
+        }
+        const items = [];
+        bands.forEach((band, b) => {
+            for (let i = band.used; i < band.pool.length; i++) band.pool[i].visible = false;
+            if (band.used) items.push({ obj: band.box, depth: W.bandDepth(b, near, far), bias: 0, z: 0, spriteId: 0, matrix: null, alpha: 1, tint: null });
+        });
+        return items;
     };
 
     // The water uniforms both ground shaders share.
