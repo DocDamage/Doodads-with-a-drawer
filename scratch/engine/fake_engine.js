@@ -137,6 +137,13 @@ function install() {
         Container.prototype.destroy.call(this, options);
     };
 
+    // PIXI's TilingSprite: its own width and height, with a tile scale and offset.
+    function PixiTilingSprite(texture, width, height) { Sprite.call(this, texture); this._w = width || 100; this._h = height || 100; this.tileScale = new Point(1, 1); this.tilePosition = new Point(); }
+    PixiTilingSprite.prototype = Object.create(Sprite.prototype);
+    PixiTilingSprite.prototype.constructor = PixiTilingSprite;
+    Object.defineProperty(PixiTilingSprite.prototype, 'width', { get() { return this._w; }, set(v) { this._w = v; }, configurable: true });
+    Object.defineProperty(PixiTilingSprite.prototype, 'height', { get() { return this._h; }, set(v) { this._h = v; }, configurable: true });
+
     function Graphics() { Container.call(this); this.geometry = { graphicsData: [] }; this.tint = 0xffffff; this.blendMode = 0; }
     Graphics.prototype = Object.create(Container.prototype);
     Graphics.prototype.constructor = Graphics;
@@ -168,7 +175,7 @@ function install() {
     class AlphaFilter extends Filter { constructor(alpha = 1) { super(); this.alpha = alpha; } }
     class ColorMatrixFilter extends Filter { constructor() { super(); this.matrix = []; } reset() {} brightness() {} saturate() {} hue() {} }
     g.PIXI = {
-        Point, ObservablePoint: Point, Matrix, Rectangle, BaseTexture, Texture, RenderTexture, Container, Sprite, Graphics, Geometry, Shader, Mesh, Filter,
+        Point, ObservablePoint: Point, Matrix, Rectangle, BaseTexture, Texture, RenderTexture, Container, Sprite, TilingSprite: PixiTilingSprite, Graphics, Geometry, Shader, Mesh, Filter,
         filters: { BlurFilter, AlphaFilter, ColorMatrixFilter }, Buffer, Transform,
         BLEND_MODES: { NORMAL: 0, ADD: 1, MULTIPLY: 2, SCREEN: 3 }, SCALE_MODES: { NEAREST: 0, LINEAR: 1 }, CLEAR_MODES: { NO: 0, YES: 1, BLIT: 2, CLEAR: 1 },
         DRAW_MODES: { TRIANGLES: 4 }, settings: {}, utils: { hex2rgb: h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255] }

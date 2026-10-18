@@ -138,6 +138,9 @@
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
  *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
  *      through the ground; selected doodads show 3D boxes.
+ *    - A video sky: a looping movie (a 360° panorama turns with the camera, or one that
+ *      fills the sky), tinted by day and night, optionally behind flat maps too; Set Sky
+ *      Video changes it during play.
  *    - 3D models (glTF .glb/.gltf) on doodads (inspector: 3D Model): colours, textures and
  *      vertex colours; metal, roughness, glow, cut-out and see-through materials, unlit;
  *      animations (pick one by name or number, set the speed) and skinned (rigged) models.
@@ -1046,6 +1049,33 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command setSkyVideo
+ * @text Set Sky Video
+ * @desc A different sky video for the rest of this visit to the map (3D sky, or behind a flat map
+ * when the map's 3D settings show it there). Leave Video blank for the map's own; "none" for none.
+ *
+ * @arg video
+ * @text Video
+ * @type file
+ * @dir movies
+ * @desc A video in movies (or a project path), "none", or blank for the map's own.
+ *
+ * @arg mode
+ * @text Shape
+ * @type select
+ * @option The map's setting
+ * @value map
+ * @option 360° panorama (turns with the camera)
+ * @value panorama
+ * @option Fill the sky
+ * @value fill
+ * @default map
+ *
+ * @arg speed
+ * @text Speed
+ * @desc Playback speed (1 = normal, 0 = paused); blank for the map's own.
+ * @default
  *
  * @command showWorldMap
  * @text Show World Map

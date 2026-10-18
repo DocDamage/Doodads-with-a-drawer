@@ -70,6 +70,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Set Camera (3D) | pitch, yaw, zoom, fov, curve, curvature, relative, duration, wait | Moves the 3D camera (eased). |
 | Reset Camera (3D) | duration | Back to the map's camera. |
 | Set 3D View | mode | 3D on, off, or the map's setting. |
+| Set Sky Video | video, mode, speed | A different sky video for this visit (`none` for none, blank for the map's own). |
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
 
