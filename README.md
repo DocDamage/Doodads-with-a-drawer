@@ -1,10 +1,21 @@
 # Doc's Doodads
 
-A visual asset workspace and doodad engine for RPG Maker MZ/MV. It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads plugin and has grown into its own tool. It adds a visual, virtualized asset drawer, sprite-sheet detection and slicing, modern map-editing tools, real MZ event authoring, transactional asset import, and protected project saves.
+A visual asset workspace and doodad engine for RPG Maker MZ. It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads plugin and has grown into its own tool. It adds a visual, virtualized asset drawer, sprite-sheet detection and slicing, modern map-editing tools, real MZ event authoring, transactional asset import, and protected project saves.
 
 Placed doodads sort in front of or behind the player by their base line and can sway, flicker, cast shadows, and give off light under a map's ambient darkness. The editor adds a path tool, prefabs, a rule-based scatter brush, drag-to-move with smart guides, cross-map copy/move, neighbouring-map edge mirroring, and a World View. A world layer adds a day/night clock with lamps that switch on after dark, sun shadows for characters and doodads, see-through trees and roofs, water reflections, motion blur, seasons, and animated appear/disappear effects. Post-processing adds bloom, colour grading, CRT, lens, grain, vignette, tilt-shift and more, with presets, per-map looks, animated screen effects and full-map image export. Particle emitters, reactive grass, a VFX builder and character animation (idle/run cycles, any number of frames, single-row and 8-direction sheets, one-command actions) bring maps and characters to life. Spatial sound places event sounds in the world (distance, pan, variation), adds ambient emitters, cave echo and background sounds by region. Editor tools add layers, symmetry, a biome brush, map dressing rules, a visual save history, animated thumbnails and a Ctrl+K command palette. Visual equipment draws gear on characters, followers, events and side-view battlers (with hide tags, colours, body-type aliases and an equip-screen preview), and the click-to-walk destination marker can be restyled or animated, with dots along the path. A 3D view lays any map on a perspective ground plane, or wraps it onto a small planet or rolling log, with raised terrain (automatic mountains, regions, terrain tags or a height brush), standing billboards, a turnable camera, fog and a parallax sky, and the editor keeps working in it. For managing assets it adds where-used, safe rename/move, duplicate and look-alike finding, live reload, and per-map art packing for deployed games.
 
+### The 3D view
+
+| Weather | Day and night | Camera |
+| :---: | :---: | :---: |
+| ![Rain over a river in 3D](docs/images/3d_weather.gif) | ![A day passing in 3D](docs/images/3d_daynight.gif) | ![The camera turning round a 3D map](docs/images/3d_orbit.gif) |
+
+New to it? [Your First 3D Map](docs/FIRST_3D_MAP.md) walks from a flat map to hills, water, weather and day and night.
+
 ## Install
+
+RPG Maker MZ is supported. An MV compatibility layer from the original editor is still in the plugin, but nothing added since 2.0 (atmosphere, post-processing, VFX, sound, visual equipment, the 3D view) has been tested in MV, so treat MV as unsupported.
+
 
 1. Copy `Docs-Doodads.js` to your RPG Maker project's `js/plugins/` directory.
 2. Enable **Docs-Doodads** in Plugin Manager.
@@ -12,7 +23,7 @@ Placed doodads sort in front of or behind the player by their base line and can 
 
 Coming from QJ-Doodads? Replace `QJ-Doodads.js` with `Docs-Doodads.js` in Plugin Manager. Existing doodads, the asset library, templates, layouts, backups, and plugin settings are picked up automatically and saved under the new names on your next save.
 
-See [Docs_Doodads_Guide.md](Docs_Doodads_Guide.md) for usage and [Docs_Doodads_Implementation_Plan.md](Docs_Doodads_Implementation_Plan.md) for architecture and milestone status.
+See [Docs_Doodads_Guide.md](Docs_Doodads_Guide.md) for usage, [CHEAT_SHEET.md](CHEAT_SHEET.md) for every notetag and plugin command on one page, [CHANGELOG.md](CHANGELOG.md) for what changed, and [RECOMMENDATIONS.md](RECOMMENDATIONS.md) for what is planned. The original implementation plan is kept in [docs/archive](docs/archive/Docs_Doodads_Implementation_Plan.md) for history.
 
 ## Verification
 
@@ -24,8 +35,8 @@ npm run verify
 npm run coverage
 ```
 
-The regression tests themselves use only Node.js. The coverage command uses `c8` and currently enforces a 40% baseline across the monolithic RPG Maker plugin; browser/NW.js UI branches remain covered by the manual checklist until an engine-level test harness is available.
+The regression tests themselves use only Node.js. Drawing code (spritesets, character sprites, the 3D view, the editor overlay) runs on a small stand-in for PIXI and the MZ classes in `scratch/engine/fake_engine.js`. The coverage command uses `c8` and enforces 72% of lines and statements and 70% of functions and branches (about 75% of lines are covered); the editor's HTML panels remain covered by the manual checklist.
 
-Use [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) for the final RPG Maker MZ/MV playtest.
+Use [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) for the final RPG Maker MZ playtest.
 
 `QJ-Doodads.original.js` is Qiu Jiu's original V1.2 plugin, retained as the upstream baseline for compatibility comparison.

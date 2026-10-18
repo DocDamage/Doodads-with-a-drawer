@@ -180,4 +180,53 @@ assert.strictEqual(paint['0,0'], undefined);
 assert.strictEqual(T.applyBrush({}, brushGrid, -5, -5, { mode: 'raise', amount: 1, radius: 1 })['-5,-5'], undefined, "off the map");
 assert.ok('5,1' in T.applyBrush({}, Object.assign({}, brushGrid, { loopX: true }), 0, 1, { mode: 'raise', amount: 1, radius: 1 }), "wraps on looping maps");
 
+// Height-aware movement: with steep steps blocking, ledges can be jumped down and small steps hopped up.
+{
+    const Tt = DocsDoodads.Terrain;
+    const base = Tt.normalize({ block: true, climb: 0.5 });
+    assert.deepStrictEqual([base.drop, base.hop], [false, 0], 'off by default');
+    assert.strictEqual(Tt.stepKind(0, 0.25, base), 'walk');
+    assert.strictEqual(Tt.stepKind(2, 0, base), 'blocked');
+    const both = Tt.normalize({ block: true, climb: 0.5, drop: true, hop: 1 });
+    assert.strictEqual(Tt.stepKind(2, 0, both), 'drop', 'off a ledge');
+    assert.strictEqual(Tt.stepKind(0, 1, both), 'hop', 'up a one-tile step');
+    assert.strictEqual(Tt.stepKind(0, 2, both), 'blocked', 'too high to hop');
+    assert.strictEqual(Tt.stepKind(0, 0.5, both), 'walk', 'small steps are still walked');
+    assert.strictEqual(Tt.normalize({ hop: 99 }).hop, 20);
+}
+
+// Interior walls: A3/A4 wall tops and the wall face below them stand up to the face's height; the face
+// tiles' tops show the wall top's art and the front shows the face art.
+{
+    const Tt = DocsDoodads.Terrain;
+    const TOP = 5888, SIDE = 6272, ROOF = 4352, A3WALL = 4352 + 8 * 48, FLOOR = 2816;
+    assert.deepStrictEqual([Tt.wallKind(TOP), Tt.wallKind(SIDE), Tt.wallKind(ROOF), Tt.wallKind(A3WALL), Tt.wallKind(FLOOR), Tt.wallKind(0)],
+        ['top', 'side', 'top', 'side', null, null]);
+    const W = 3, H = 6;
+    const data = new Array(W * H * 6).fill(0);
+    const set = (x, y, id) => { data[y * W + x] = id; };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) set(x, y, FLOOR);
+    [TOP, TOP, SIDE, SIDE].forEach((id, y) => set(0, y, id));     // a wall with a 2-tile face
+    set(1, 0, TOP);                                                // a wall top with no face
+    const settings = Tt.normalize({ enabled: true, walls: true, auto: false, wallHeight: 3 });
+    const heights = Tt.buildHeights({ width: W, height: H, data }, { mode: 1, flags: [] }, settings);
+    const col = x => Array.from({ length: H }, (_, y) => heights[y * W + x]);
+    assert.deepStrictEqual(col(0), [2, 2, 2, 2, 0, 0], 'top and face rise to the face height');
+    assert.deepStrictEqual(col(1), [3, 0, 0, 0, 0, 0], 'a top with no face uses the wall height');
+    assert.deepStrictEqual(Array.from({ length: H }, (_, y) => heights.faceRows[y * W]), [0, 0, 1, 2, 0, 0]);
+    assert.strictEqual(heights.faceDown[3 * W], 2, 'the lowest face tile carries the face');
+    // Painted heights still win.
+    const painted = Tt.buildHeights({ width: W, height: H, data }, { mode: 1, flags: [] }, Tt.normalize({ enabled: true, walls: true, auto: false, paint: { '0,1': 5 } }));
+    assert.strictEqual(painted[1 * W], 5);
+    // The mesh: the face tile's top samples the wall top above; the front samples the face art.
+    const grid = { heights, width: W, height: H };
+    const mesh = Tt.buildMesh(grid, 0, 0, W, H, 48, 48, 'stepped');
+    // Row 3 (the second face tile) samples two rows up: its corners at y 144 and 192 read v 48 and 96.
+    assert.ok(mesh.vertices.some(v => v.x === 0 && v.y === 3 * 48 && v.h === 2 && v.v === 48)
+        && mesh.vertices.some(v => v.x === 0 && v.y === 4 * 48 && v.h === 2 && v.v === 96), 'shows the wall top two rows up');
+    const front = mesh.vertices.filter(v => v.y === 4 * 48 && v.x <= 48 && v.shade < 1);
+    assert.ok(front.some(v => v.h === 2 && v.v === 4 * 48 - 2 * 48) && front.some(v => v.h === 0 && v.v === 4 * 48), 'the front spans the face art');
+    assert.strictEqual(Tt.normalize({}).walls, false);
+}
+
 console.log("✓ Settings, automatic/tag/region/painted heights, height under points, smooth and stepped meshes, shading, level ground for doodads, steps, raised feet, clicks and the height brush verified.");

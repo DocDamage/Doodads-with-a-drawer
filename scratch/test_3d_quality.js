@@ -93,4 +93,12 @@ assert.deepStrictEqual(T.buildMesh(grid, 0, 0, GW, GH, 48, 48, 'smooth', null, 9
 assert.deepStrictEqual(T.buildMesh(grid, 0, 0, 3, 3, 48, 48, 'stepped', null, 1).triangles,
     T.buildMesh(grid, 0, 0, 3, 3, 48, 48, 'stepped').triangles, "stepped ground is unchanged");
 
+// Battle backgrounds from the 3D map: off unless asked for; a low camera looking the map camera's way.
+{
+    assert.strictEqual(P.normalize({}).battleBack, false);
+    assert.strictEqual(P.normalize({ battleBack: true }).battleBack, true);
+    assert.deepStrictEqual(P.battleCamera({ pitch: 55, yaw: 90, zoom: 1 }), { pitch: 22, yaw: 90, zoom: 1.2 });
+    assert.deepStrictEqual(P.battleCamera({ pitch: 15, yaw: 0, zoom: 2 }), { pitch: 15, yaw: 0, zoom: 2 }, 'already low and close');
+}
+
 console.log("✓ 3D quality presets (view distance and fog, weather, wakes, hill detail), the editor exception and the Options entry verified.");

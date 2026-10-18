@@ -1,8 +1,9 @@
 # Doc's Doodads — User Guide & Technical Reference
 
 **Plugin:** `Docs-Doodads.js` (v2.0)  
-**Compatibility:** RPG Maker MZ (Primary) & RPG Maker MV  
+**Compatibility:** RPG Maker MZ. MV is untested since 2.0 and unsupported (see the README).  
 **License:** MIT License. Based on QJ-Doodads by Qiu Jiu.  
+**Quick reference:** every notetag, image name tag and plugin command is listed in the [Cheat Sheet](CHEAT_SHEET.md).  
 
 ---
 
@@ -30,7 +31,7 @@ It eliminates the friction of traditional sprite-sheet pickers and multi-click f
    ```text
    js/plugins/Docs-Doodads.js
    ```
-2. Open RPG Maker MZ (or MV), go to **Plugin Manager**, and activate **`Docs-Doodads`**.
+2. Open RPG Maker MZ, go to **Plugin Manager**, and activate **`Docs-Doodads`**.
 3. Launch Playtest (**F5**).
 4. Press **F10** (or your configured `editKey`) while on any map to open the Asset Workspace!
 
@@ -56,7 +57,7 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Background Work Budget** (`backgroundWorkBudget`) | Number | `4` | Milliseconds per frame dedicated to background scanning. |
 | **Autosave Interval** (`autosaveRecoveryInterval`) | Number | `60` | Heartbeat interval (seconds) for crash recovery snapshots. |
 | **Backup Retention Count** (`backupRetentionCount`) | Number | `10` | Number of timestamped backups retained in `data/docs_doodads_cache/backups/`. |
-| **Enable MV Compatibility** (`enableMVCompatibility`) | Boolean | `true` | Enables compatibility layer when running under RPG Maker MV. |
+| **Enable MV Compatibility** (`enableMVCompatibility`) | Boolean | `true` | Enables the compatibility layer when running under RPG Maker MV. MV is untested since 2.0. |
 | **Developer Diagnostics** (`devDiagnostics`) | Boolean | `false` | Enables detailed console logging in DevTools. |
 
 ---
@@ -367,6 +368,12 @@ Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing 
 - Pick a map backup to see its events.
 - **Restore** puts back a deleted doodad or event, undoes a change, or removes something new. Each restore is a single undo step. Event restores are saved with Save Changes.
 
+### Searching the map panel
+The map panel has many sections. Type in **Search settings** at its top (for example *fog*, *shadow* or *snow*) to show only the sections that mention every word, opened; clear it to get the panel back as it was.
+
+### Undo history
+The **☰** button next to Undo and Redo lists the undo steps by name (Place doodad, Move doodads, Terrain height, Dress map...), oldest first, with the current point highlighted. Click a step to go back to just after it, or forward again to a greyed-out step; *(Start)* undoes everything. Making a new change after going back drops the greyed-out steps, as Undo does. The list holds the last 300 steps.
+
 ### Command palette (Ctrl+K)
 Type a few letters of anything and press Enter:
 - tools, panels, Save, Undo and Redo, Toggle Grid
@@ -416,7 +423,9 @@ Plugin commands change an actor's look without equipment:
 
 In the editor, open **Visual Equipment** in the map panel to turn each place on or off, and to try gear on. Pick an actor, tick items, and watch the preview walk in any direction. The **notetag builder** writes the tags for you.
 
-Character shadows use the body's outline only; gear layers don't add to them.
+Character shadows include gear layers: a cape, hat or shield changes the shadow's shape.
+
+**Layer sheets from Aseprite.** Draw the character once in Aseprite with a layer per part (body, hair, clothes...) and the walk cycle as frames: either tag the frames `down`, `left`, `right` and `up`, or put them in that order (three frames each). In the map panel's Visual Equipment section, **Make Layer Sheets from .aseprite…** writes one sheet per visible layer to `img/characters`, already in MZ's layout: `$Name_Body.png`, `$Name_Hair.png` and so on (single-character sheets; rows with other than three frames get `[fN]` in the name). Hidden layers and empty layers are skipped. RGB, grayscale and indexed files work.
 
 ### Destination marker
 The marker MZ shows where the player clicks or taps to walk can be restyled under **Destination Marker** in the map panel:
@@ -432,11 +441,12 @@ The **Set Destination Marker** plugin command changes any of these mid-game. The
 ## 14. 3D View
 
 Any map can be shown in 3D. Open **3D View (this map)** in the map panel and tick **Show this map in 3D**.
+New to the 3D view? [Your First 3D Map](docs/FIRST_3D_MAP.md) is a short walkthrough with screenshots.
 - The map's tiles lie on a ground plane seen in perspective.
 - Characters, their gear and standing doodads (trees, lamps, statues, buildings) stand up as billboards. They shrink with distance and are drawn far to near.
 - Floor doodads (the **Below characters** layer), shadows, water reflections, the click-to-walk marker and the editor grid lie on the ground with the tiles.
 
-Tileset tiles always lie flat, including tree tops and roofs from the B–E tiles. To make something stand up in 3D, place it as a doodad.
+Tileset tiles lie flat by default, including tree tops and roofs from the B–E tiles. **Tileset objects** (below) can stand them up, or you can place things as doodads for full control.
 
 ### Camera
 | Setting | What it does |
@@ -458,13 +468,19 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 | Rippling water | Water tiles move with gentle waves that bend what shows through them (including water reflections) and catch the light. Shores stay dry. |
 | Ripple strength / speed / sparkle | How far the waves bend the water, how fast they move, and how bright the glints are. Glints dim at night. |
 | Wakes behind boats and waders | Boats, ships and anything moving through water leave spreading rings with a little foam. |
+| Tileset objects (B–E tiles) | *Lie flat* (default). *Objects with ☆ tiles*: anything with a ☆ (above characters) tile, like a tree top, stands up with the tile under it (the trunk); side-by-side columns of the same height stand as one wide object. *Every B–E tile*: also lifts every other B–E tile (barrels, signs, fences) as one-tile billboards. The map itself isn't changed: in 2D, or with this off, the tiles lie on the ground as before. They use the standing doodads' height setting. Roof edges and wall tops drawn with ☆ tiles stand up too, so check buildings. |
 | Standing doodads / Characters: height in 3D | Shrink or grow things that stand up, in the 3D view only (the 2D map is unchanged). Tileset-sized art is often tall next to a one-tile hero: a 3-tile lamp at 0.65 stands about twice the hero's height. They stay on their feet, and gear, effects and balloons go with their owner. Editor clicks and selection boxes match. |
 | Sky, sun, moon and stars follow the time of day | With the day/night clock running (section 8), the sky fades from blue by day to an orange sunrise and sunset and a dark night with twinkling stars. The sun and moon cross the sky on the same path the shadows use, low ones show near the horizon, hills are shaded from wherever the light is, and water glints toward the sun or moon. Ambient darkness and lamps work as on flat maps. A map's parallax still replaces the sky. |
-| 3D rain and snow | MZ's **Set Weather Effect** (rain, storm, snow, power 1–9, with fades) falls through the 3D world around the camera: rain and storms slant with the wind and splash on the ground (raised terrain too), some drops ripple water, and snow drifts down. The screen dims with the weather like MZ's own. Off: MZ's flat weather is used instead. |
+| 3D rain and snow | MZ's **Set Weather Effect** (rain, storm, snow, power 1–9, with fades) falls through the 3D world around the camera: rain and storms slant with the wind and splash on the ground (raised terrain too), some drops ripple water, and snow drifts down. Trees, characters and hills in front hide the drops behind them. The screen dims with the weather like MZ's own. Off: MZ's flat weather is used instead. |
 | Weather density | More or fewer drops and flakes than MZ's power alone gives. |
+| Snow settles | While 3D snow falls, the ground slowly turns white (heavy snow covers it in about a minute) and standing doodads and tileset objects get white tops; it melts over about two minutes once the snow stops. In a season named Winter (section 8) it stays mostly white. Water stays clear when Rippling water is on. The cover is kept in save files. |
 | Smooth distant ground | Blends distant pixels instead of keeping them crisp. |
+| Cloud shadows / size / speed | Soft cloud shadows drift across the ground in daylight (they fade out at night). Size is roughly one cloud's width in tiles. |
+| Low fog / height | Drifting patches of mist on the ground. With terrain height on, it lies in valleys and low ground, up to the height given (tiles above the lowest ground); hilltops stay clear. |
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
+
+On a map shown in 3D, selecting an image in the asset drawer shows a small **3D preview**: the image standing beside the party leader, at this map's camera tilt and 3D height settings, so you can judge its size before placing it.
 
 ### Quality on slower machines
 When any map uses the 3D view, players get the **Effects Quality** option in the Options menu, the same one post-processing uses. It lowers the 3D detail you set, and never raises it:
@@ -479,7 +495,7 @@ When the view distance is shortened, the fog is pulled in by the same amount, so
 
 ### Terrain height
 Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (this map)** in the map panel and tick **Raise the ground**. Heights are in tiles and come from four places. The higher one in this list wins:
-1. **The Terrain brush** (toolbar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map.
+1. **The Terrain brush** (toolbar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map. Before you paint, the tiles under the brush are shown on the ground (over hills in 3D), stronger towards the centre, in the mode's colour.
 2. **Regions:** for example, region 5 is 2 tiles high.
 3. **Terrain tags (1–7):** for example, tag 3 is 1 tile high.
 4. **Automatic,** on world tilesets: mountain tiles (impassable ground) rise to the **Mountain height** (1 tile by default), and forests (where airships can't land) to the **Forest height**.
@@ -491,25 +507,45 @@ Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (t
 **How things stand on it:**
 - Characters and the click-to-walk marker stand on the raised ground. On smooth ground they rest on the highest point under their base, so a bump beside their feet doesn't swallow them.
 - **Doodads stand on level ground only.** The stamp, brushes, paths, dressing and dragging all refuse mountains and slopes; level raised ground you made (a plateau) is fine. Doodads already on a mountain (placed before terrain was turned on) show a red box in the editor so you can move them.
-- Hills hide whatever is behind them.
+- Hills hide whatever is behind them, except the player: where a hill covers the player, it fades (see below).
 - Clicking finds the slope you clicked.
 - Slopes are shaded by a light from the upper left, and fog fades distant hills.
 - **Steep steps block walking:** characters can't climb or drop more than the **Highest step you can walk**.
+- **Walk off ledges:** with steep steps blocking, characters can still go off higher ground: they jump down to the tile below.
+- **Hop up steps up to:** characters jump up a step no higher than this (tiles); 0 turns it off. Followers and events do the same.
+- **Store Ground Height** (plugin command) puts the height under the player or an event (tiles, rounded) in a variable, for page conditions or branches. In a Conditional Branch script, `DocsDoodads.Terrain.heightOf($gamePlayer) >= 2` works too.
 
 Terrain height shows only in the 3D view. It works on round worlds too.
 
+**Interiors: walls stand up.** Tick **Walls stand up** (and choose the **Stepped** shape) to raise A4 walls and A3 roofs: in each column the wall top and the wall face below it rise to the face's height (usually two tiles), the front of the wall shows the face art as drawn in 2D (decorations hung on it included), and the top shows the wall top. A wall top with no face below it uses **Wall height where there is no wall face**. Painted and region heights win over walls. Use a fairly steep camera tilt inside rooms; with See-Through on, walls between the camera and the player fade where they cover the player.
+
 ### What works in 3D
+- **See-through:** with See-Through on (section 8), hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player, to the See-Through opacity. In 3D it always fades (the outline mode is for flat maps).
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
 - **Sun and doodad shadows** lie on the ground.
-- **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play at their target's spot on screen but don't shrink with distance; MV-style animations do.
+- **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play where their target is drawn and shrink with distance like it; MV-style animations do too.
 - **Post-processing and day/night tint** apply to the whole view.
 - **Touch and mouse:** clicking the ground walks there.
 - **Editor:**
+  - **Mouse look:** middle-drag orbits the camera (left and right turn it, up and down tilt it), Shift + middle-drag pans across the ground, and the mouse wheel zooms. A middle click without dragging goes back to the map's own camera. Like Set Camera, this only changes the view while editing; the map's 3D View settings stay as they are.
   - Clicks go through to the ground.
   - Clicking a tree or lamp picks the nearest one drawn under the mouse.
   - The selection shows as a yellow box.
   - Dragging moves the doodad's base along the ground.
   - The grid, paths and guides are drawn on the ground.
+
+### 3D models
+A doodad can be drawn as a real 3D model in the 3D view. Put a glTF 2.0 model (`.glb`, or `.gltf` with its files) in your project, for example in a `models` folder, select the doodad, and in its **3D Model** section enter the path (`models/Tree.glb`), its **Size** (tiles per model unit: a 3-unit-tall tree at size 1 is 3 tiles tall) and its **Turn**. On a flat map and in 2D the doodad still shows its picture, so pick a picture that matches.
+
+Models are lit by the sun or moon, fade with the fog, take the lighting tint where they stand, and are sorted with the billboards, so characters walk in front of and behind them. They use the standing doodads' 3D height setting. Supported: meshes with base colours and base colour textures (embedded or next to the model), node transforms and single- or double-sided faces. Not supported: animation, skinning, morph targets, PBR lighting (metal, roughness, normal maps) and transparency sorting inside a model. Keep models small: each one is drawn on the CPU every frame; a few hundred triangles each is comfortable.
+
+### Battles on 3D maps
+Tick **Battles show this map in 3D behind the fight** in the 3D View panel to use the map itself as the battle background: when a battle starts, the 3D view around the encounter is drawn again from a low camera looking the same way, without characters, pictures or the minimap, and replaces the battlebacks for that battle. Enemies and side-view actors are drawn over it as usual.
+
+### Minimap and world map
+Tick **Minimap in the corner** in the 3D View panel to show a small map of the whole map in the top-right corner during play, with an arrow for the player. Tiles are coloured by what they are: water, blocked ground (mountains, walls), forest, objects and open ground, lighter where the ground is raised.
+
+The **Show World Map** plugin command opens the whole map full screen with the player marked; OK, Cancel or a click closes it. On a planet-shaped map it is a **globe** facing the player; the left and right arrow keys turn it.
 
 ### Plugin commands
 - **Set Camera (3D):** tilt, turn, zoom, field of view, round-world shape and curvature, absolute or added to the current values, eased over a number of frames, with optional wait. Use it for cutscenes: ease a flat map into a planet to show the whole world, or set the shape to Flat to ease the curve back out.

@@ -126,4 +126,17 @@ assert.deepStrictEqual(grid.ys, [36, 84], "horizontal lines follow the vertical 
 $gameMap.displayX = () => 0; $gameMap.displayY = () => 0;
 assert.deepStrictEqual(ws.placementGridLines(100, 50).xs, [0, 48, 96]);
 
+// Searching the map panel: every word must appear, in any order or case; nothing searched matches all.
+{
+    const S = DocsDoodads.SettingsSearch;
+    const section = '3D View (this map)  Fog starts (tiles) Fog colour  Snow settles (whitens the ground)';
+    assert.strictEqual(S.matches(section, ''), true);
+    assert.strictEqual(S.matches(section, '   '), true);
+    assert.strictEqual(S.matches(section, 'snow'), true);
+    assert.strictEqual(S.matches(section, 'FOG colour'), true);
+    assert.strictEqual(S.matches(section, 'colour fog'), true, 'any order');
+    assert.strictEqual(S.matches(section, 'whiten'), true, 'part of a word');
+    assert.strictEqual(S.matches(section, 'fog shadow'), false, 'every word must be there');
+}
+
 console.log("✓ Selection outlines, audio inspector, overlays, import messages and folders, status count, grouped copies, and route display lines verified.");

@@ -1038,6 +1038,35 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command showWorldMap
+ * @text Show World Map
+ * @desc Shows the whole map (a globe on planet-shaped 3D maps) with the player marked. Arrow keys turn the globe; OK or Cancel closes.
+ *
+ * @command storeHeight
+ * @text Store Ground Height
+ * @desc Stores the terrain height (tiles, rounded) under a character in a variable, for event conditions.
+ *
+ * @arg target
+ * @text Character
+ * @type select
+ * @option Player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @default 0
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 1
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -4168,6 +4197,437 @@ DocsDoodads.VisualEquip = {
 };
 
 // The marker where the player clicks or taps to walk.
+// Minimap and world map: one pixel per tile, coloured by what the tile is, and a globe view for
+// planet-shaped maps.
+DocsDoodads.Minimap = {
+    colors: { water: [59, 125, 216], blocked: [122, 127, 136], forest: [47, 107, 51], ground: [106, 168, 79], object: [150, 120, 80] },
+
+    // info: { water, blocked, forest, object, height (tiles) }. Raised ground is lighter.
+    tileColor(info) {
+        const kind = info.water ? 'water' : info.blocked ? 'blocked' : info.forest ? 'forest' : info.object ? 'object' : 'ground';
+        const c = this.colors[kind];
+        const k = Math.max(-0.4, Math.min(0.5, (Number(info.height) || 0) * 0.12));
+        return k >= 0 ? c.map(v => Math.round(v + (255 - v) * k)) : c.map(v => Math.round(v * (1 + k)));
+    },
+
+    pixels(width, height, infoAt) {
+        const out = new Uint8ClampedArray(width * height * 4);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const [r, g, b] = this.tileColor(infoAt(x, y));
+                const i = (y * width + x) * 4;
+                out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = 255;
+            }
+        }
+        return out;
+    },
+
+    // A globe (size x size) of the map wrapped round a sphere: the map's width is one lap, and it is
+    // turned so (cx, cy) (tiles) faces the viewer. Outside the map's rows is dark; the back is hidden.
+    globePixels(map, mapW, mapH, size, cx, cy, spin) {
+        const out = new Uint8ClampedArray(size * size * 4);
+        const r = size / 2 - 1, k = (2 * Math.PI) / mapW;
+        const lon0 = cx * k + (spin || 0), lat0 = (cy - mapH / 2) * k;
+        const cl = Math.cos(lat0), sl = Math.sin(lat0);
+        for (let py = 0; py < size; py++) {
+            for (let px = 0; px < size; px++) {
+                const u = (px - size / 2 + 0.5) / r, v = (py - size / 2 + 0.5) / r;
+                const d = u * u + v * v;
+                const i = (py * size + px) * 4;
+                if (d > 1) continue;
+                const z = Math.sqrt(1 - d);
+                // Tilt by the viewer's latitude, then read longitude and latitude.
+                const y2 = v * cl + z * sl, z2 = -v * sl + z * cl;
+                const lat = Math.asin(Math.max(-1, Math.min(1, y2)));
+                const lon = lon0 + Math.atan2(u, z2);
+                const tx = ((Math.floor(lon / k) % mapW) + mapW) % mapW, ty = Math.floor(lat / k + mapH / 2);
+                const shade = 0.55 + 0.45 * z;
+                if (ty < 0 || ty >= mapH) { out[i] = 12 * shade; out[i + 1] = 18 * shade; out[i + 2] = 36 * shade; out[i + 3] = 255; continue; }
+                const m = (ty * mapW + tx) * 4;
+                out[i] = map[m] * shade; out[i + 1] = map[m + 1] * shade; out[i + 2] = map[m + 2] * shade; out[i + 3] = 255;
+            }
+        }
+        return out;
+    }
+};
+
+// 3D models (glTF 2.0, .glb or .gltf) as doodads in the 3D view. The reader flattens the default scene
+// into triangle lists in model space (+Y up, +Z towards the viewer at camera turn 0), one per primitive,
+// with colours converted to sRGB and embedded images kept as bytes.
+DocsDoodads.Gltf = {
+    parse(buffer, readExternal) {
+        const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+        let json, bin = null;
+        if (u8.length >= 12 && dv.getUint32(0, true) === 0x46546c67) {
+            let pos = 12;
+            while (pos + 8 <= u8.length) {
+                const len = dv.getUint32(pos, true), type = dv.getUint32(pos + 4, true);
+                const chunk = u8.subarray(pos + 8, pos + 8 + len);
+                if (type === 0x4e4f534a) json = JSON.parse(new TextDecoder('utf-8').decode(chunk));
+                else if (type === 0x004e4942) bin = chunk;
+                pos += 8 + len;
+            }
+        } else {
+            json = JSON.parse(new TextDecoder('utf-8').decode(u8));
+        }
+        if (!json || !json.asset || String(json.asset.version).charAt(0) !== '2') throw new Error('Not a glTF 2.0 model.');
+        const buffers = (json.buffers || []).map((b, i) => {
+            if (!b.uri) return bin;
+            const m = /^data:[^;]*;base64,(.*)$/.exec(b.uri);
+            if (m) return Uint8Array.from(atob(m[1]), c => c.charCodeAt(0));
+            if (!readExternal) throw new Error('Buffer ' + i + ' is in another file.');
+            return new Uint8Array(readExternal(b.uri));
+        });
+        return { json, buffers };
+    },
+
+    viewBytes(doc, viewIndex) {
+        const view = doc.json.bufferViews[viewIndex];
+        const buf = doc.buffers[view.buffer];
+        return buf.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
+    },
+
+    accessor(doc, index) {
+        const a = doc.json.accessors[index];
+        const sizes = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+        const types = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
+        const n = sizes[a.type], Type = types[a.componentType];
+        const out = new Float64Array(a.count * n);
+        if (a.bufferView === undefined) return out;
+        const view = doc.json.bufferViews[a.bufferView];
+        const bytes = this.viewBytes(doc, a.bufferView);
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const size = Type.BYTES_PER_ELEMENT, stride = view.byteStride || n * size;
+        const read = { 5120: 'getInt8', 5121: 'getUint8', 5122: 'getInt16', 5123: 'getUint16', 5125: 'getUint32', 5126: 'getFloat32' }[a.componentType];
+        for (let i = 0; i < a.count; i++) {
+            for (let k = 0; k < n; k++) {
+                let v = dv[read]((a.byteOffset || 0) + i * stride + k * size, true);
+                if (a.normalized && a.componentType !== 5126) v = read.indexOf('Uint') === 3 ? v / (Math.pow(2, 8 * size) - 1) : Math.max(-1, v / (Math.pow(2, 8 * size - 1) - 1));
+                out[i * n + k] = v;
+            }
+        }
+        return out;
+    },
+
+    // 4x4 column-major helpers.
+    multiply(a, b) {
+        const o = new Array(16).fill(0);
+        for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+        return o;
+    },
+
+    nodeMatrix(node) {
+        if (node.matrix) return node.matrix.slice();
+        const [tx, ty, tz] = node.translation || [0, 0, 0];
+        const [x, y, z, w] = node.rotation || [0, 0, 0, 1];
+        const [sx, sy, sz] = node.scale || [1, 1, 1];
+        return [
+            (1 - 2 * (y * y + z * z)) * sx, (2 * (x * y + z * w)) * sx, (2 * (x * z - y * w)) * sx, 0,
+            (2 * (x * y - z * w)) * sy, (1 - 2 * (x * x + z * z)) * sy, (2 * (y * z + x * w)) * sy, 0,
+            (2 * (x * z + y * w)) * sz, (2 * (y * z - x * w)) * sz, (1 - 2 * (x * x + y * y)) * sz, 0,
+            tx, ty, tz, 1
+        ];
+    },
+
+    toSrgb(c) {
+        return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    },
+
+    // { primitives: [{ positions, normals, uvs (Float32Array), indices (Uint32Array), color [r,g,b,a],
+    //   image: { bytes, mime } | null, nearest }], min: [x,y,z], max: [x,y,z] }
+    meshes(doc) {
+        const j = doc.json;
+        const scene = j.scenes ? j.scenes[j.scene || 0] : { nodes: (j.nodes || []).map((n, i) => i) };
+        const prims = [];
+        const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+        const visit = (index, parent) => {
+            const node = j.nodes[index];
+            const m = this.multiply(parent, this.nodeMatrix(node));
+            if (node.mesh !== undefined) {
+                // Normals turn by the cofactor matrix (right under uneven scaling); a mirrored node
+                // (negative determinant) has its triangles' winding reversed so they still face out.
+                const a0 = [m[0], m[1], m[2]], a1 = [m[4], m[5], m[6]], a2 = [m[8], m[9], m[10]];
+                const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+                const c0 = cross(a1, a2), c1 = cross(a2, a0), c2 = cross(a0, a1);
+                const mirrored = a0[0] * c0[0] + a0[1] * c0[1] + a0[2] * c0[2] < 0;
+                for (const p of j.meshes[node.mesh].primitives) {
+                    if (p.mode !== undefined && p.mode !== 4) continue;
+                    if (p.attributes.POSITION === undefined) continue;
+                    const pos = this.accessor(doc, p.attributes.POSITION);
+                    const nor = p.attributes.NORMAL !== undefined ? this.accessor(doc, p.attributes.NORMAL) : null;
+                    const uv = p.attributes.TEXCOORD_0 !== undefined ? this.accessor(doc, p.attributes.TEXCOORD_0) : null;
+                    const count = pos.length / 3;
+                    const positions = new Float32Array(count * 3), normals = new Float32Array(count * 3), uvs = new Float32Array(count * 2);
+                    for (let v = 0; v < count; v++) {
+                        const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+                        for (let k = 0; k < 3; k++) {
+                            const w = m[k] * x + m[4 + k] * y + m[8 + k] * z + m[12 + k];
+                            positions[v * 3 + k] = w;
+                            if (w < min[k]) min[k] = w;
+                            if (w > max[k]) max[k] = w;
+                        }
+                        if (nor) {
+                            const nx = nor[v * 3], ny = nor[v * 3 + 1], nz = nor[v * 3 + 2];
+                            const sign = mirrored ? -1 : 1;
+                            const a = sign * (c0[0] * nx + c1[0] * ny + c2[0] * nz), b = sign * (c0[1] * nx + c1[1] * ny + c2[1] * nz), c = sign * (c0[2] * nx + c1[2] * ny + c2[2] * nz);
+                            const len = Math.hypot(a, b, c) || 1;
+                            normals[v * 3] = a / len; normals[v * 3 + 1] = b / len; normals[v * 3 + 2] = c / len;
+                        } else normals[v * 3 + 1] = 1;
+                        if (uv) { uvs[v * 2] = uv[v * 2]; uvs[v * 2 + 1] = uv[v * 2 + 1]; }
+                    }
+                    const indices = p.indices !== undefined ? Uint32Array.from(this.accessor(doc, p.indices)) : Uint32Array.from({ length: count }, (_, i) => i);
+                    if (mirrored) for (let t = 0; t + 2 < indices.length; t += 3) { const b = indices[t + 1]; indices[t + 1] = indices[t + 2]; indices[t + 2] = b; }
+                    const mat = p.material !== undefined ? j.materials[p.material] : {};
+                    const pbr = mat.pbrMetallicRoughness || {};
+                    const f = pbr.baseColorFactor || [1, 1, 1, 1];
+                    let image = null, nearest = false;
+                    if (pbr.baseColorTexture && j.textures) {
+                        const tex = j.textures[pbr.baseColorTexture.index];
+                        const img = tex && j.images[tex.source];
+                        if (img && img.bufferView !== undefined) image = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png', source: tex.source };
+                        else if (img && img.uri) image = { uri: img.uri, mime: img.mimeType || '', source: tex.source };
+                        const sampler = tex && tex.sampler !== undefined && j.samplers ? j.samplers[tex.sampler] : null;
+                        nearest = Boolean(sampler && sampler.magFilter === 9728);
+                    }
+                    prims.push({ positions, normals, uvs, indices, color: [this.toSrgb(f[0]), this.toSrgb(f[1]), this.toSrgb(f[2]), f[3]], image, nearest,
+                        doubleSided: mat.doubleSided === true });
+                }
+            }
+            for (const child of node.children || []) visit(child, m);
+        };
+        const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+        for (const root of scene.nodes || []) visit(root, identity);
+        return { primitives: prims, min, max };
+    },
+
+    // A model point (x, y up, z towards the viewer) placed on the map: turned by yaw degrees and scaled
+    // to pixels. Returns flat map offsets (dx east, dy south) and the height.
+    place(x, y, z, scale, yaw) {
+        const r = (yaw || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        return { dx: (x * c - z * s) * scale, dy: (x * s + z * c) * scale, h: y * scale };
+    },
+
+    // Light on a surface facing (model normal) under a light from `dir` (map x, y, up): 0.45-1.
+    shade(nx, ny, nz, yaw, dir) {
+        const r = (yaw || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        const mx = nx * c - nz * s, my = nx * s + nz * c, up = ny;
+        return 0.45 + 0.55 * Math.max(0, mx * dir[0] + my * dir[1] + up * dir[2]);
+    }
+};
+
+// Searching the map panel's settings: a section matches when it mentions every word searched for
+// (any case, any order, the start of words or anywhere inside them).
+DocsDoodads.SettingsSearch = {
+    matches(text, query) {
+        const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+        if (!words.length) return true;
+        const hay = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+        return words.every(w => hay.includes(w));
+    }
+};
+
+// Visual equipment sheets from Aseprite: one character sheet per layer (body, hair, clothes...) in MZ's
+// layout, from a layered .aseprite file whose frames are the walk cycle. Frames come from tags named
+// down, left, right and up (in any order), or else the first frames in that order. inflate / deflate are
+// zlib's (passed in, so the parts stay testable outside NW.js).
+DocsDoodads.AsepriteSheets = {
+    directions: ['down', 'left', 'right', 'up'],
+
+    parse(buffer, inflate) {
+        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const u8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        let pos = 0;
+        const byte = () => u8[pos++];
+        const word = () => { const v = view.getUint16(pos, true); pos += 2; return v; };
+        const short = () => { const v = view.getInt16(pos, true); pos += 2; return v; };
+        const dword = () => { const v = view.getUint32(pos, true); pos += 4; return v; };
+        const string = () => { const n = word(); const t = new TextDecoder('utf-8').decode(u8.subarray(pos, pos + n)); pos += n; return t; };
+        dword();
+        if (word() !== 0xa5e0) throw new Error('Not an Aseprite file.');
+        const frameCount = word(), width = word(), height = word(), depth = word();
+        dword(); word(); dword(); dword();
+        const transparentIndex = byte();
+        pos = 128;
+        if (![32, 16, 8].includes(depth)) throw new Error('Unsupported colour depth: ' + depth);
+        const out = { width, height, depth, transparentIndex, layers: [], frames: [], tags: [], palette: [] };
+        for (let f = 0; f < frameCount; f++) {
+            const frameStart = pos;
+            const frameBytes = dword();
+            if (word() !== 0xf1fa) throw new Error('Bad frame ' + f + '.');
+            const oldChunks = word(), duration = word();
+            pos += 2;
+            const newChunks = dword();
+            const chunks = newChunks || oldChunks;
+            const frame = { duration, cels: [] };
+            for (let c = 0; c < chunks; c++) {
+                const chunkStart = pos;
+                const size = dword(), type = word();
+                if (type === 0x2004) {
+                    const flags = word(), layerType = word(), level = word();
+                    word(); word();
+                    const blend = word(), opacity = byte();
+                    pos += 3;
+                    out.layers.push({ name: string(), visible: (flags & 1) === 1, type: layerType, level, blend, opacity });
+                } else if (type === 0x2005) {
+                    const layer = word(), x = short(), y = short(), opacity = byte(), celType = word();
+                    pos += 7;
+                    if (celType === 1) frame.cels.push({ layer, x, y, opacity, link: word() });
+                    else if (celType === 0 || celType === 2) {
+                        const w = word(), h = word();
+                        const bpp = depth / 8;
+                        const raw = celType === 0 ? u8.slice(pos, pos + w * h * bpp) : new Uint8Array(inflate(u8.subarray(pos, chunkStart + size)));
+                        frame.cels.push({ layer, x, y, opacity, w, h, pixels: raw });
+                    }
+                } else if (type === 0x2018) {
+                    const n = word();
+                    pos += 8;
+                    for (let t = 0; t < n; t++) {
+                        const from = word(), to = word();
+                        pos += 1 + 2 + 6 + 3 + 1;
+                        out.tags.push({ from, to, name: string() });
+                    }
+                } else if (type === 0x2019) {
+                    dword();
+                    const first = dword(), last = dword();
+                    pos += 8;
+                    for (let i = first; i <= last; i++) {
+                        const flags = word();
+                        out.palette[i] = [byte(), byte(), byte(), byte()];
+                        if (flags & 1) string();
+                    }
+                } else if (type === 0x0004 && !out.palette.length) {
+                    const packets = word();
+                    let index = 0;
+                    for (let k = 0; k < packets; k++) {
+                        index += byte();
+                        let count = byte() || 256;
+                        while (count--) out.palette[index++] = [byte(), byte(), byte(), 255];
+                    }
+                }
+                pos = chunkStart + size;
+            }
+            out.frames.push(frame);
+            pos = frameStart + frameBytes;
+        }
+        return out;
+    },
+
+    // One layer's picture in one frame, as RGBA (width x height).
+    layerFrame(ase, layerIndex, frameIndex) {
+        const { width, height, depth } = ase;
+        const rgba = new Uint8ClampedArray(width * height * 4);
+        let cel = ase.frames[frameIndex] && ase.frames[frameIndex].cels.find(c => c.layer === layerIndex);
+        if (cel && cel.link !== undefined) {
+            const linked = ase.frames[cel.link] && ase.frames[cel.link].cels.find(c => c.layer === layerIndex);
+            cel = linked ? Object.assign({}, linked, { opacity: cel.opacity }) : null;
+        }
+        if (!cel || !cel.pixels) return rgba;
+        const layer = ase.layers[layerIndex] || { opacity: 255 };
+        const alphaScale = (cel.opacity / 255) * ((layer.opacity === undefined ? 255 : layer.opacity) / 255);
+        for (let y = 0; y < cel.h; y++) {
+            for (let x = 0; x < cel.w; x++) {
+                const tx = cel.x + x, ty = cel.y + y;
+                if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
+                const i = y * cel.w + x;
+                let r, g, b, a;
+                if (depth === 32) { r = cel.pixels[i * 4]; g = cel.pixels[i * 4 + 1]; b = cel.pixels[i * 4 + 2]; a = cel.pixels[i * 4 + 3]; }
+                else if (depth === 16) { r = g = b = cel.pixels[i * 2]; a = cel.pixels[i * 2 + 1]; }
+                else {
+                    const index = cel.pixels[i];
+                    const c = ase.palette[index] || [0, 0, 0, 0];
+                    [r, g, b, a] = index === ase.transparentIndex ? [0, 0, 0, 0] : c;
+                }
+                const o = (ty * width + tx) * 4;
+                rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = Math.round(a * alphaScale);
+            }
+        }
+        return rgba;
+    },
+
+    // Which frames make each row (down, left, right, up) and how many frames a row has.
+    plan(ase) {
+        const named = {};
+        for (const t of ase.tags) {
+            const key = String(t.name || '').trim().toLowerCase();
+            if (this.directions.includes(key) && !named[key]) named[key] = t;
+        }
+        if (this.directions.every(d => named[d])) {
+            const rows = this.directions.map(d => { const t = named[d]; const r = []; for (let f = t.from; f <= t.to; f++) r.push(f); return r; });
+            const perRow = Math.min(...rows.map(r => r.length));
+            return { rows: rows.map(r => r.slice(0, perRow)), perRow };
+        }
+        const perRow = Math.max(1, Math.floor(ase.frames.length / 4));
+        if (ase.frames.length < 4) throw new Error('Needs at least 4 frames, or tags named down, left, right and up.');
+        return { rows: this.directions.map((d, i) => Array.from({ length: perRow }, (_, k) => i * perRow + k)), perRow };
+    },
+
+    // A sheet per visible image layer: { name, fileName, width, height, rgba }. Single-character sheets
+    // ('$' prefix); rows of more or fewer than 3 frames say so in the name ([f4]). Layers whose names
+    // come out the same (two "Hair" layers, or "Hair" and "hair" on Windows) get _2, _3... so none is lost.
+    sheets(ase, baseName) {
+        const plan = this.plan(ase);
+        const fw = ase.width, fh = ase.height;
+        const width = fw * plan.perRow, height = fh * 4;
+        const safe = n => String(n).replace(/[\\/:*?"<>|\[\]$!]/g, '').replace(/\s+/g, '_') || 'Layer';
+        const out = [];
+        const taken = new Set();
+        ase.layers.forEach((layer, index) => {
+            if (layer.type !== 0 || !layer.visible) return;
+            const rgba = new Uint8ClampedArray(width * height * 4);
+            plan.rows.forEach((frames, row) => frames.forEach((frame, col) => {
+                const picture = this.layerFrame(ase, index, frame);
+                for (let y = 0; y < fh; y++) {
+                    const from = y * fw * 4;
+                    rgba.set(picture.subarray(from, from + fw * 4), ((row * fh + y) * width + col * fw) * 4);
+                }
+            }));
+            if (!rgba.some((v, i) => i % 4 === 3 && v > 0)) return;
+            const tag = plan.perRow === 3 ? '' : `[f${plan.perRow}]`;
+            let part = safe(layer.name);
+            for (let n = 2; taken.has(part.toLowerCase()); n++) part = safe(layer.name) + '_' + n;
+            taken.add(part.toLowerCase());
+            out.push({ name: layer.name, fileName: `$${safe(baseName)}_${part}${tag}.png`, width, height, rgba });
+        });
+        return out;
+    },
+
+    crc32(bytes) {
+        if (!this._crc) {
+            this._crc = new Uint32Array(256);
+            for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; this._crc[n] = c >>> 0; }
+        }
+        let c = 0xffffffff;
+        for (let i = 0; i < bytes.length; i++) c = this._crc[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+        return (c ^ 0xffffffff) >>> 0;
+    },
+
+    // A PNG file (RGBA, 8 bits) for an image.
+    encodePng(width, height, rgba, deflate) {
+        const raw = new Uint8Array((width * 4 + 1) * height);
+        for (let y = 0; y < height; y++) raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
+        const chunk = (type, data) => {
+            const out = new Uint8Array(12 + data.length);
+            const dv = new DataView(out.buffer);
+            dv.setUint32(0, data.length);
+            for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+            out.set(data, 8);
+            dv.setUint32(8 + data.length, this.crc32(out.subarray(4, 8 + data.length)));
+            return out;
+        };
+        const ihdr = new Uint8Array(13);
+        const dv = new DataView(ihdr.buffer);
+        dv.setUint32(0, width); dv.setUint32(4, height);
+        ihdr[8] = 8; ihdr[9] = 6;
+        const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', new Uint8Array(deflate(raw))), chunk('IEND', new Uint8Array(0))];
+        const total = parts.reduce((n, p) => n + p.length, 0);
+        const png = new Uint8Array(total);
+        let at = 0;
+        for (const part of parts) { png.set(part, at); at += part.length; }
+        return png;
+    }
+};
+
 DocsDoodads.Destination = {
     styles: [
         { value: 'default', label: 'MZ square' },
@@ -4346,7 +4806,8 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1
+        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
+        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
     },
 
     curves: [
@@ -4389,7 +4850,16 @@ DocsDoodads.Perspective = {
             weatherDensity: num(s.weatherDensity, d.weatherDensity, 0, 3),
             dayNight: s.dayNight !== false,
             doodadScale: num(s.doodadScale, d.doodadScale, 0.25, 2),
-            characterScale: num(s.characterScale, d.characterScale, 0.25, 2)
+            characterScale: num(s.characterScale, d.characterScale, 0.25, 2),
+            standTiles: s.standTiles === 'star' || s.standTiles === 'all' ? s.standTiles : 'off',
+            snowCover: s.snowCover === true,
+            clouds: num(s.clouds, d.clouds, 0, 1),
+            cloudScale: num(s.cloudScale, d.cloudScale, 2, 100),
+            cloudSpeed: num(s.cloudSpeed, d.cloudSpeed, 0, 5),
+            mist: num(s.mist, d.mist, 0, 1),
+            mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10),
+            minimap: s.minimap === true,
+            battleBack: s.battleBack === true
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4410,6 +4880,96 @@ DocsDoodads.Perspective = {
         if (!settings || settings.curve === 'flat') return 0;
         const radius = settings.curveRadius > 0 ? settings.curveRadius : (mapWidthTiles || 1) / (2 * Math.PI);
         return this.curvatureFromRadius(radius);
+    },
+
+    // The screen box a billboard fills, from its feet to a little above its head (transform m, foot at
+    // x, y, size w x h in flat pixels), and the depth ground must be nearer than to fade there: `margin`
+    // in front of it, so the ground at its feet never fades. Hills that cover the player fade instead.
+    seeThroughRect(m, x, y, w, h, margin) {
+        const at = (px, py) => ({ x: m.a * px + m.c * py + m.tx, y: m.b * px + m.d * py + m.ty });
+        const foot = at(x, y), head = at(x, y - h);
+        const len = Math.hypot(head.x - foot.x, head.y - foot.y) || 1;
+        const halfH = len * 1.2 / 2;
+        return {
+            rect: [foot.x + (head.x - foot.x) / len * halfH, foot.y + (head.y - foot.y) / len * halfH, w * Math.hypot(m.a, m.b) * 0.65, halfH],
+            depth: m.depth - (margin || 0)
+        };
+    },
+
+    // The screen box (x, y, w, h) a flat rectangle covers once drawn with billboard transform m.
+    screenBox(m, left, top, w, h) {
+        const xs = [], ys = [];
+        for (const [px, py] of [[left, top], [left + w, top], [left, top + h], [left + w, top + h]]) {
+            xs.push(m.a * px + m.c * py + m.tx);
+            ys.push(m.b * px + m.d * py + m.ty);
+        }
+        const x = Math.min(...xs), y = Math.min(...ys);
+        return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+    },
+
+    // Whether a billboard at `depth` drawn over `box` hides the player (see: from seeThroughRect): it is
+    // in front of them and covers at least a quarter of them.
+    hidesPlayer(box, depth, see) {
+        if (!see || !(depth < see.depth)) return false;
+        const [cx, cy, hw, hh] = see.rect;
+        const player = { x: cx - hw, y: cy - hh, w: hw * 2, h: hh * 2 };
+        const ox = Math.min(box.x + box.w, player.x + player.w) - Math.max(box.x, player.x);
+        const oy = Math.min(box.y + box.h, player.y + player.h) - Math.max(box.y, player.y);
+        return ox > 0 && oy > 0 && ox * oy >= 0.25 * player.w * player.h;
+    },
+
+    // The drawer's 3D preview: a small camera over a patch of ground, the party leader one tile left of
+    // centre and the asset one tile right, each standing at its 3D height setting. Sizes in canvas pixels.
+    previewLayout(settings, width, height, asset, hero) {
+        const s = this.normalize(Object.assign({}, settings, { enabled: true }));
+        const tile = 48;
+        const cam = this.camera({ target: { x: 0, y: -tile }, pitch: s.pitch, yaw: 0, fov: s.fov, zoom: 0.6, width, height, curve: 'flat' });
+        const grid = [];
+        for (let i = -5; i <= 5; i++) {
+            const a = this.project(cam, i * tile, -6 * tile, 0), b = this.project(cam, i * tile, 3 * tile, 0);
+            if (a && b) grid.push([a.x, a.y, b.x, b.y]);
+        }
+        for (let j = -6; j <= 3; j++) {
+            const a = this.project(cam, -5 * tile, j * tile, 0), b = this.project(cam, 5 * tile, j * tile, 0);
+            if (a && b) grid.push([a.x, a.y, b.x, b.y]);
+        }
+        const stand = (x, w, h, k) => {
+            const foot = this.project(cam, x, tile / 2, 0);
+            if (!foot) return null;
+            const sw = w * foot.scale * k, sh = h * foot.scale * k;
+            return { x: foot.x - sw / 2, y: foot.y - sh, w: sw, h: sh };
+        };
+        return {
+            grid,
+            hero: stand(-tile, hero.w, hero.h, s.characterScale),
+            asset: stand(tile, asset.w, asset.h, s.doodadScale),
+            doodadScale: s.doodadScale, characterScale: s.characterScale
+        };
+    },
+
+    // The camera for a battle background: low over the ground, looking the way the map's camera looks.
+    battleCamera(s) {
+        return { pitch: Math.min(s.pitch, 22), yaw: s.yaw, zoom: Math.max(1.2, s.zoom) };
+    },
+
+    // How far the cloud pattern has drifted after t seconds (pattern units: one is a cloud's size).
+    cloudDrift(t, speed) {
+        const k = (Number(speed) || 0) * 0.02 * t;
+        return { x: k, y: k * 0.35 };
+    },
+
+    // Mouse look in the editor: dragging right turns right, dragging down looks more steeply down.
+    orbit(s, dx, dy) {
+        return {
+            yaw: ((s.yaw + dx * 0.4) % 360 + 360) % 360,
+            pitch: Math.max(20, Math.min(89, s.pitch + dy * 0.3))
+        };
+    },
+
+    // The wheel zooms in steps of about 10%, within the zoom setting's range.
+    wheelZoom(zoom, deltaY) {
+        const next = deltaY < 0 ? zoom * 1.1 : deltaY > 0 ? zoom / 1.1 : zoom;
+        return Math.round(Math.max(0.25, Math.min(4, next)) * 1000) / 1000;
     },
 
     resolve(mapSettings, override) {
@@ -4753,11 +5313,13 @@ DocsDoodads.Terrain = {
         { value: 'smooth', label: 'Smooth (hills and mountains)' },
         { value: 'stepped', label: 'Stepped (cliffs and plateaus)' }
     ],
-    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5 },
+    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5, drop: false, hop: 0, walls: false, wallHeight: 2 },
     // Smooth ground: heights are sampled 4 times per tile and blurred, so ranges stay full height inside
     // and round off at their edges with low foothills, and art isn't stretched up sharp spikes.
     smoothSamples: 4,
     smoothSigma: 0.25,
+    // Extra tiles the 3D terrain mesh is built with on each side, so walking rebuilds it less often.
+    meshMargin: 4,
     // How much the ground under a doodad's base may vary (tiles) and still count as level.
     levelTolerance: 0.35,
     // A light from the upper left, for shading slopes.
@@ -4787,8 +5349,52 @@ DocsDoodads.Terrain = {
             regions: list(s.regions, 'region', 255),
             paint,
             block: s.block === true,
-            climb: num(s.climb, d.climb, 0, 20)
+            climb: num(s.climb, d.climb, 0, 20),
+            drop: s.drop === true,
+            hop: num(s.hop, d.hop, 0, 20),
+            walls: s.walls === true,
+            wallHeight: num(s.wallHeight, d.wallHeight, 0.5, 10)
         };
+    },
+
+    // Wall autotiles: 'top' (A4 wall tops, A3 roofs) or 'side' (the wall face below them), else null.
+    wallKind(tileId) {
+        if (!(tileId >= 2048 && tileId < 8192)) return null;
+        const kind = Math.floor((tileId - 2048) / 48);
+        if (kind >= 48 && kind < 80) return Math.floor((kind - 48) / 8) % 2 === 0 ? 'top' : 'side';
+        if (kind >= 80 && kind < 128) return Math.floor((kind - 80) / 8) % 2 === 0 ? 'top' : 'side';
+        return null;
+    },
+
+    // Interior walls: in each column, a wall face (side tiles) and the wall top above it rise to the
+    // face's height. faceRows: for a side tile, how many rows up the wall top is (its top shows that art);
+    // faceDown: on the face's lowest tile, the face height (its front shows the face art above it).
+    buildWalls(map, settings, out, keep) {
+        const w = map.width, h = map.height, data = map.data || [];
+        const kindAt = (x, y) => this.wallKind(data[(0 * h + y) * w + x] || 0) || this.wallKind(data[(1 * h + y) * w + x] || 0);
+        out.faceRows = new Uint8Array(w * h);
+        out.faceDown = new Float32Array(w * h);
+        for (let x = 0; x < w; x++) {
+            let y = 0;
+            while (y < h) {
+                const kind = kindAt(x, y);
+                if (!kind) { y++; continue; }
+                let top = y;
+                while (y < h && kindAt(x, y) === 'top') y++;
+                const sideStart = y;
+                while (y < h && kindAt(x, y) === 'side') y++;
+                const sides = y - sideStart;
+                const height = sides > 0 ? sides : settings.wallHeight;
+                for (let r = top; r < y; r++) {
+                    const i = r * w + x;
+                    if (keep[i]) continue;
+                    out[i] = Math.max(out[i], height);
+                    if (r >= sideStart) out.faceRows[i] = r - sideStart + 1;
+                }
+                if (sides > 0 && !keep[(y - 1) * w + x]) out.faceDown[(y - 1) * w + x] = height;
+                if (y === top) y++;
+            }
+        }
     },
 
     // World tilesets: impassable ground autotiles (A2) are mountains; passable ones airships can't land on are forests.
@@ -4812,13 +5418,15 @@ DocsDoodads.Terrain = {
         const tagHeight = {}, regionHeight = {};
         for (const t of settings.tags) tagHeight[t.tag] = t.height;
         for (const r of settings.regions) regionHeight[r.region] = r.height;
+        // Painted and region heights win over walls.
+        const keep = new Uint8Array(w * h);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 const i = y * w + x;
                 const painted = settings.paint[x + ',' + y];
-                if (painted !== undefined) { out[i] = painted; continue; }
+                if (painted !== undefined) { out[i] = painted; keep[i] = 1; continue; }
                 const region = data[(5 * h + y) * w + x] || 0;
-                if (region && regionHeight[region] !== undefined) { out[i] = regionHeight[region]; continue; }
+                if (region && regionHeight[region] !== undefined) { out[i] = regionHeight[region]; keep[i] = 1; continue; }
                 let tag = 0;
                 for (let z = 3; z >= 0 && !tag; z--) {
                     const id = data[(z * h + y) * w + x] || 0;
@@ -4836,7 +5444,18 @@ DocsDoodads.Terrain = {
                 }
             }
         }
+        if (settings.walls) this.buildWalls(map, settings, out, keep);
         return out;
+    },
+
+    // A per-tile wall value (faceRows / faceDown), wrapped like tileHeight; 0 where there is none.
+    wallMeta(grid, list, tx, ty) {
+        const arr = grid.heights && grid.heights[list];
+        if (!arr) return 0;
+        if (grid.loopX) tx = ((tx % grid.width) + grid.width) % grid.width;
+        if (grid.loopY) ty = ((ty % grid.height) + grid.height) % grid.height;
+        if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return 0;
+        return arr[ty * grid.width + tx];
     },
 
     signature(map, tileset, settings) {
@@ -4905,7 +5524,9 @@ DocsDoodads.Terrain = {
                 for (let tx = tx0; tx < tx0 + cols; tx++) {
                     const h = this.tileHeight(grid, tx, ty);
                     const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
-                    const a = add(x0, y0, h, x0, y0, 1), b = add(x1, y0, h, x1, y0, 1), c = add(x1, y1, h, x1, y1, 1), d = add(x0, y1, h, x0, y1, 1);
+                    // A raised wall face shows the wall top's art on top (rows up the column).
+                    const up = this.wallMeta(grid, 'faceRows', tx, ty) * th;
+                    const a = add(x0, y0, h, x0, y0 - up, 1), b = add(x1, y0, h, x1, y0 - up, 1), c = add(x1, y1, h, x1, y1 - up, 1), d = add(x0, y1, h, x0, y1 - up, 1);
                     triangles.push(a, b, c, a, c, d);
                     // Walls down to lower neighbours, textured with this tile and shaded by the way they face.
                     const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
@@ -4913,8 +5534,10 @@ DocsDoodads.Terrain = {
                         const low = this.tileHeight(grid, tx + dx, ty + dy);
                         if (low >= h) continue;
                         const sh = shadeOf(dx, dy, 0) * 0.85;
-                        // The wall shows the tile squashed from its far edge down to this edge.
-                        const fu = dx === 0 ? 0 : -dx * tw, fv = dy === 0 ? 0 : -dy * th;
+                        // The wall shows the tile squashed from its far edge down to this edge; the front of an
+                        // interior wall shows the wall face art drawn above it in 2D.
+                        const face = dy === 1 ? this.wallMeta(grid, 'faceDown', tx, ty) : 0;
+                        const fu = dx === 0 ? 0 : -dx * tw, fv = face > 0 ? -face * th : dy === 0 ? 0 : -dy * th;
                         const p = add(ax, ay, h, ax + fu, ay + fv, sh), q = add(bx, by, h, bx + fu, by + fv, sh);
                         const r = add(bx, by, low, bx, by, sh), t = add(ax, ay, low, ax, ay, sh);
                         triangles.push(p, q, r, p, r, t);
@@ -4923,13 +5546,16 @@ DocsDoodads.Terrain = {
             }
             return { vertices, triangles };
         }
-        // Smooth: tiles near raised ground are split 4 x 4 (or detail x detail, for lower quality) and
-        // follow the field; flat tiles are one quad.
+        // Smooth: tiles where the height changes are split 4 x 4 (or detail x detail, for lower quality)
+        // and follow the field; level tiles are one quad.
         const n = this.smoothSamples;
         const split = Math.max(1, Math.min(n, Math.round(Number(detail)) || n));
-        const near = (tx, ty) => {
-            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== 0) return true;
-            return false;
+        // The blur reaches less than a tile, so a tile whose neighbours all share its height is level
+        // at that height (open ground, the inside of a range or a forest): one quad is exact there.
+        const level = (tx, ty) => {
+            const h = this.tileHeight(grid, tx, ty);
+            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== h) return null;
+            return h;
         };
         const shadeAt = (x, y) => {
             const e = 1 / n;
@@ -4939,13 +5565,13 @@ DocsDoodads.Terrain = {
         };
         for (let ty = ty0; ty < ty0 + rows; ty++) {
             for (let tx = tx0; tx < tx0 + cols; tx++) {
-                const raised = near(tx, ty), steps = raised ? split : 1;
+                const flatAt = level(tx, ty), sloped = flatAt === null, steps = sloped ? split : 1;
                 const base = vertices.length;
                 for (let j = 0; j <= steps; j++) {
                     for (let i = 0; i <= steps; i++) {
                         const x = tx + i / steps, y = ty + j / steps;
-                        const h = raised ? this.heightAt(grid, x, y, 'smooth') : 0;
-                        add(x * tw, y * th, h, x * tw, y * th, raised ? shadeAt(x, y) : 1);
+                        const h = sloped ? this.heightAt(grid, x, y, 'smooth') : flatAt;
+                        add(x * tw, y * th, h, x * tw, y * th, sloped ? shadeAt(x, y) : 1);
                     }
                 }
                 for (let j = 0; j < steps; j++) {
@@ -4989,8 +5615,50 @@ DocsDoodads.Terrain = {
         return this.groundUnder(grid, x, y, halfWidth, style).max;
     },
 
+    // Buffers for sorting up to n triangles each frame without allocating.
+    sortBuffers(n) {
+        const depth = new Float32Array(n);
+        return { depth, bits: new Uint32Array(depth.buffer), keys: new Uint32Array(n), keys2: new Uint32Array(n),
+            idx: new Uint32Array(n), idx2: new Uint32Array(n), counts: new Uint32Array(256) };
+    },
+
+    // The first `count` entries of buf.depth, far to near: returns buf.idx holding their positions.
+    // A radix sort on the float bits (which keep their order for positive numbers), so a frame with tens
+    // of thousands of triangles needs no comparisons and no garbage.
+    sortFarToNear(buf, count) {
+        let keys = buf.keys, keys2 = buf.keys2, idx = buf.idx, idx2 = buf.idx2, swap;
+        const c = buf.counts, bits = buf.bits;
+        for (let i = 0; i < count; i++) {
+            keys[i] = 0xffffffff - bits[i];
+            idx[i] = i;
+        }
+        for (let shift = 0; shift < 32; shift += 8) {
+            c.fill(0);
+            for (let i = 0; i < count; i++) c[(keys[i] >>> shift) & 255]++;
+            for (let b = 0, sum = 0; b < 256; b++) { const t = c[b]; c[b] = sum; sum += t; }
+            for (let i = 0; i < count; i++) {
+                const k = keys[i], p = c[(k >>> shift) & 255]++;
+                keys2[p] = k;
+                idx2[p] = idx[i];
+            }
+            swap = keys; keys = keys2; keys2 = swap;
+            swap = idx; idx = idx2; idx2 = swap;
+        }
+        return idx;
+    },
+
     canStep(fromHeight, toHeight, climb) {
         return Math.abs(toHeight - fromHeight) <= climb + 1e-9;
+    },
+
+    // How a character gets from one tile to the next with Steep steps on: 'walk', 'drop' (off a ledge,
+    // with Walk off ledges), 'hop' (up a step no higher than Hop up), or 'blocked'.
+    stepKind(fromHeight, toHeight, s) {
+        if (this.canStep(fromHeight, toHeight, s.climb)) return 'walk';
+        const rise = toHeight - fromHeight;
+        if (rise < 0 && s.drop) return 'drop';
+        if (rise > 0 && s.hop > 0 && rise <= s.hop + 1e-9) return 'hop';
+        return 'blocked';
     },
 
     brushModes: [
@@ -5000,6 +5668,23 @@ DocsDoodads.Terrain = {
         { value: 'set', label: 'Set height' },
         { value: 'erase', label: 'Erase (back to automatic)' }
     ],
+
+    // The tiles one dab around (cx, cy) touches, with how strongly (1 at the centre): what the brush
+    // preview shows before painting. Uses the same circle and falloff as applyBrush.
+    brushFootprint(cx, cy, radius) {
+        const r = Math.max(0, Math.round(Number(radius) || 0));
+        const out = [];
+        for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+                const d = Math.hypot(dx, dy);
+                if (d > r + 0.25) continue;
+                out.push({ x: cx + dx, y: cy + dy, weight: 1 - d / (r + 1) });
+            }
+        }
+        return out;
+    },
+
+    brushColors: { raise: 0x22c55e, lower: 0xf97316, flatten: 0x38bdf8, set: 0xa855f7, erase: 0xef4444 },
 
     // One dab of the height brush around tile (cx, cy). Returns the new painted heights.
     // opts: { mode, amount (tiles), radius (tiles), value (set), target (flatten) }
@@ -5025,6 +5710,130 @@ DocsDoodads.Terrain = {
                 else if (opts.mode === 'flatten') next = current + ((Number(opts.target) || 0) - current) * Math.min(1, Math.max(0.1, amount) * falloff);
                 else if (opts.mode === 'set') next = Number(opts.value) || 0;
                 out[key] = Math.round(Math.max(-20, Math.min(20, next)) * 100) / 100;
+            }
+        }
+        return out;
+    }
+};
+
+// Tileset objects standing up in the 3D view. Trees, signs and lamps drawn with B-E tiles normally lie
+// flat on the ground; these settings lift them into upright billboards, without changing the map.
+// 'star': objects with a star (above characters) tile, like tree tops, plus the tile under them (the
+// trunk). 'all': every B-E tile, grouped the same way.
+DocsDoodads.StandTiles = {
+    modes: [
+        { value: 'off', label: 'Lie flat' },
+        { value: 'star', label: 'Objects with ☆ tiles (tree tops and the tile under them)' },
+        { value: 'all', label: 'Every B–E tile' }
+    ],
+
+    isObjectTile(tileId) {
+        return tileId > 0 && tileId < 1024;
+    },
+
+    // Groups of tiles that stand as one billboard: { x, y, w, h } in tiles (x, y top left; the foot is
+    // the bottom edge), and cells: [{ dx, dy, tiles: [tileId by layer] }]. Also mask: which (x, y, z)
+    // tiles are lifted off the ground. map: { width, height, data }; flags: the tileset's flags.
+    groups(map, flags, mode) {
+        const w = map.width, h = map.height, data = map.data || [];
+        const mask = new Uint8Array(w * h * 4);
+        if (mode !== 'star' && mode !== 'all') return { list: [], mask };
+        const at = (x, y, z) => data[(z * h + y) * w + x] || 0;
+        const objects = (x, y) => {
+            const out = [];
+            for (let z = 0; z < 4; z++) { const id = at(x, y, z); if (this.isObjectTile(id)) out.push(z); }
+            return out;
+        };
+        const star = (x, y) => objects(x, y).some(z => ((flags && flags[at(x, y, z)]) || 0) & 0x10);
+        // Column pieces: a run of star cells plus the object cell under it (the base), or in 'all' mode
+        // any other object cell on its own.
+        const used = new Uint8Array(w * h);
+        const columns = [];
+        for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+                if (used[y * w + x] || !objects(x, y).length) continue;
+                if (star(x, y)) {
+                    let bottom = y;
+                    while (bottom + 1 < h && objects(x, bottom + 1).length && star(x, bottom + 1)) bottom++;
+                    if (bottom + 1 < h && objects(x, bottom + 1).length) bottom++;
+                    for (let yy = y; yy <= bottom; yy++) used[yy * w + x] = 1;
+                    columns.push({ x, y, h: bottom - y + 1 });
+                } else if (mode === 'all') {
+                    used[y * w + x] = 1;
+                    columns.push({ x, y, h: 1 });
+                }
+            }
+        }
+        // Side-by-side columns of the same height make one wide billboard (a 2-tile-wide tree).
+        const byKey = new Map();
+        for (const c of columns) byKey.set(c.x + ',' + c.y + ',' + c.h, c);
+        const list = [];
+        const taken = new Set();
+        for (const c of columns) {
+            const key = c.x + ',' + c.y + ',' + c.h;
+            if (taken.has(key)) continue;
+            let width = 1;
+            while (byKey.has((c.x + width) + ',' + c.y + ',' + c.h) && !taken.has((c.x + width) + ',' + c.y + ',' + c.h)) width++;
+            const group = { x: c.x, y: c.y, w: width, h: c.h, cells: [] };
+            for (let dx = 0; dx < width; dx++) {
+                taken.add((c.x + dx) + ',' + c.y + ',' + c.h);
+                for (let dy = 0; dy < c.h; dy++) {
+                    const zs = objects(c.x + dx, c.y + dy);
+                    for (const z of zs) mask[((z * h) + c.y + dy) * w + c.x + dx] = 1;
+                    group.cells.push({ dx, dy, tiles: zs.map(z => at(c.x + dx, c.y + dy, z)) });
+                }
+            }
+            group.key = group.w + 'x' + group.h + ':' + group.cells.map(cell => cell.tiles.join('.')).join('|');
+            list.push(group);
+        }
+        return { list, mask };
+    },
+
+    // Where a B-E tile's picture is in its tileset image (MZ's own layout).
+    source(tileId, tw, th) {
+        return {
+            set: 5 + Math.floor(tileId / 256),
+            x: ((Math.floor(tileId / 128) % 2) * 8 + (tileId % 8)) * tw,
+            y: (Math.floor((tileId % 256) / 8) % 16) * th
+        };
+    }
+};
+
+// Snow that settles in the 3D view: a cover (0 bare, 1 white) that builds while it snows, melts when it
+// stops, and stays at least `winterCover` in a season named Winter. The ground whitens (water stays
+// clear) and standing objects get white tops.
+DocsDoodads.SnowCover = {
+    fillSeconds: 60,   // heavy snow (power 9) covers everything in about a minute
+    meltSeconds: 120,
+    winterCover: 0.75,
+
+    step(cover, dt, weatherType, power, winter) {
+        let c = Math.max(0, Math.min(1, Number(cover) || 0));
+        if (weatherType === 'snow' && power > 0) c += dt * (Math.min(9, power) / 9) / this.fillSeconds;
+        else c -= dt / this.meltSeconds;
+        c = Math.max(0, Math.min(1, c));
+        return winter ? Math.max(c, this.winterCover) : c;
+    },
+
+    isWinter(seasonIndex, names) {
+        return seasonIndex >= 0 && Array.isArray(names) && /winter/i.test(String(names[seasonIndex] || ''));
+    },
+
+    // How white each pixel of a standing object's picture gets: the top of every opaque run down a
+    // column (what faces the sky), fading over `depth` pixels. alpha: the picture's alpha channel
+    // (width x height, 0-255); cellH: the height of one frame, so each frame of a sheet gets its own tops.
+    capAlpha(alpha, width, height, cellH, depth) {
+        const out = new Uint8ClampedArray(width * height);
+        const d = Math.max(1, depth);
+        for (let x = 0; x < width; x++) {
+            let run = -1;
+            for (let y = 0; y < height; y++) {
+                if (cellH > 0 && y % cellH === 0) run = -1;
+                const a = alpha[y * width + x];
+                if (a < 40) { run = -1; continue; }
+                run = run < 0 ? 0 : run + 1;
+                const k = Math.max(0, 1 - run / d);
+                out[y * width + x] = Math.round(a * k);
             }
         }
         return out;
@@ -5206,11 +6015,51 @@ DocsDoodads.Water3D.applyGlsl = [
     '    }'
 ].join('\n');
 
+// Drifting cloud shadows and low fog on the ground, from smooth noise over map pixels.
+// uClouds: (strength, size in pixels, drift x, drift y); uMist: (amount, height in tiles, drift x, drift y).
+// docsLow: how far down in a valley the point is (1 on flat ground). Both fade with the light (uWater.w).
+DocsDoodads.Perspective.skyGlsl = [
+    'float docsHash(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }',
+    'float docsNoise(vec2 q) {',
+    '    vec2 i = floor(q), f = fract(q);',
+    '    vec2 u = f * f * (3.0 - 2.0 * f);',
+    '    return mix(mix(docsHash(i), docsHash(i + vec2(1.0, 0.0)), u.x), mix(docsHash(i + vec2(0.0, 1.0)), docsHash(i + vec2(1.0, 1.0)), u.x), u.y);',
+    '}',
+    'float docsFbm(vec2 q) { return (docsNoise(q) * 0.5 + docsNoise(q * 2.03 + 3.1) * 0.25 + docsNoise(q * 4.01 + 7.7) * 0.125) / 0.875; }'
+].join('\n');
+
+DocsDoodads.Perspective.skyApplyGlsl = [
+    '    if (uClouds.x > 0.0 || uMist.x > 0.0) {',
+    '        vec2 wp = p + uOrigin;',
+    '        float daylight = smoothstep(0.45, 0.9, uWater.w);',
+    '        if (uClouds.x > 0.0) {',
+    '            float cloud = smoothstep(0.42, 0.62, docsFbm(wp / uClouds.y + uClouds.zw));',
+    '            rgb *= 1.0 - uClouds.x * 0.5 * cloud * daylight;',
+    '        }',
+    '        if (uMist.x > 0.0) {',
+    '            float mist = uMist.x * docsLow * smoothstep(0.3, 0.8, docsFbm(wp / (uTile.x * 6.0) + uMist.zw));',
+    '            rgb = mix(rgb, vec3(0.82, 0.86, 0.9) * max(0.22, uWater.w), mist * 0.75);',
+    '        }',
+    '    }'
+].join('\n');
+
+// Snow cover on the ground: dry ground whitens by uSnow, keeping the light (darker at night).
+DocsDoodads.SnowCover.glsl = [
+    '    if (uSnow > 0.0) {',
+    '        float dry = 1.0 - smoothstep(0.3, 0.7, docsWaterMask(p + uOrigin));',
+    '        float lum = dot(rgb, vec3(0.299, 0.587, 0.114));',
+    '        vec3 snow = vec3(0.9, 0.94, 1.0) * min(1.0, lum * 1.6 + 0.12);',
+    '        rgb = mix(rgb, snow, uSnow * dry);',
+    '    }'
+].join('\n');
+
 // Weather in the 3D view: MZ's rain, storm and snow as particles falling through the space around the
 // camera (map pixels, z = height above the ground in pixels).
 DocsDoodads.Weather3D = {
     maxParticles: 2000,
     maxSplashes: 160,
+    // Drops are drawn in this many bands by distance, each sorted in with the trees and characters.
+    depthBands: 8,
     splashLife: 0.35,
 
     // The look of each kind of weather at MZ's power (1-9), times the map's density.
@@ -5270,6 +6119,17 @@ DocsDoodads.Weather3D = {
             return { x, y, z, seed: p.seed };
         });
         return { particles: out, splashes };
+    },
+
+    // Which depth band (0 nearest) a drop at `depth` goes in, and the depth a band is sorted at (its
+    // near edge, so whatever stands behind any of its drops is drawn before them).
+    band(depth, near, far) {
+        const span = Math.max(1e-6, far - near);
+        return Math.max(0, Math.min(this.depthBands - 1, Math.floor(((depth - near) / span) * this.depthBands)));
+    },
+
+    bandDepth(index, near, far) {
+        return near + Math.max(1e-6, far - near) * index / this.depthBands;
     },
 
     pruneSplashes(list, now) {
@@ -5564,6 +6424,12 @@ if (typeof PIXI !== 'undefined') {
 
     // Fades a tall doodad while the player is hidden behind it (and flags the player for the silhouette).
     Sprite_DocsDoodad.prototype.updateSeeThrough = function(editing) {
+        // The 3D view fades by what's on screen after the camera (docsSeeThroughBillboards); the flat
+        // rectangles here would fade the wrong doodads on top of that.
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.active()) {
+            this._seeAlpha = 1;
+            return 1;
+        }
         const settings = DocsDoodads.World.settings().seeThrough;
         const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         let target = 1;
@@ -5933,8 +6799,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (!this._baseSprite || typeof PIXI === 'undefined') return;
         const settings = DocsDoodads.World.settings().seeThrough;
         const sprite = this.docsPlayerSprite();
+        // Flat maps only: in 3D the player isn't where the flat sprite is, and things fade instead.
         const show = DocsDoodads.Atmosphere._playerHidden && settings.mode !== 'fade' && sprite && sprite._docsFrameTexture
-            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) && !(DocsDoodads.Perspective && DocsDoodads.Perspective.active());
         let ghost = this._docsSilhouette;
         if (!show) {
             if (ghost) ghost.visible = false;
@@ -5992,7 +6859,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             gradient.addColorStop(1, 'rgba(255,255,255,0)');
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, size, size);
-            DocsDoodads._lightGradient = PIXI.Texture.from(canvas);
+            DocsDoodads._lightGradient = DocsDoodads.sharedTexture(canvas);
         }
         return DocsDoodads._lightGradient;
     };
@@ -6285,14 +7152,63 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
         shadow.y = footY;
         shadow.rotation = t.rotation;
         shadow.scale.set(this.scale.x, scaleY * this.scale.y);
-        shadow.alpha = t.alpha * (this.opacity / 255);
-        shadow.visible = scaleY > 0.02 && shadow.alpha > 0.005;
+        const alpha = t.alpha * (this.opacity / 255);
+        const gear = this.updateDocsShadowGear(shadow);
+        shadow.visible = scaleY > 0.02 && alpha > 0.005;
         shadow.z = DocsDoodads.Depth.shadowZ;
         shadow._docsSortY = footY;
-        if (shadow._docsBlur !== t.blur) {
-            shadow._docsBlur = t.blur;
-            shadow.filters = t.blur > 0 && PIXI.filters && PIXI.filters.BlurFilter ? [new PIXI.filters.BlurFilter(Math.min(16, t.blur))] : null;
+        // With gear, the parts are drawn solid and faded once together, so overlaps don't darken twice.
+        const fadeOnce = gear > 0 && PIXI.filters && PIXI.filters.AlphaFilter;
+        shadow.alpha = fadeOnce ? 1 : alpha;
+        if (fadeOnce) {
+            shadow._docsFade = shadow._docsFade || new PIXI.filters.AlphaFilter(alpha);
+            shadow._docsFade.alpha = alpha;
         }
+        const key = t.blur + '|' + Boolean(fadeOnce);
+        if (shadow._docsFilterKey !== key) {
+            shadow._docsFilterKey = key;
+            if (shadow._docsBlur !== t.blur) {
+                shadow._docsBlur = t.blur;
+                shadow._docsBlurFilter = t.blur > 0 && PIXI.filters && PIXI.filters.BlurFilter ? new PIXI.filters.BlurFilter(Math.min(16, t.blur)) : null;
+            }
+            const filters = [shadow._docsBlurFilter, fadeOnce ? shadow._docsFade : null].filter(Boolean);
+            shadow.filters = filters.length ? filters : null;
+        }
+    };
+
+    // Gear layers (capes, hats) join the shadow, so it has the shape of what the character wears.
+    // Returns how many layers are in it.
+    Sprite_Character.prototype.updateDocsShadowGear = function(shadow) {
+        const gear = (this._docsVisualSprites || []).filter(sp => sp.visible && sp._docsRect && sp.bitmap && sp.bitmap.isReady());
+        const parts = shadow._docsGear = shadow._docsGear || [];
+        while (parts.length < gear.length) {
+            const part = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            part.anchor.set(0.5, 1);
+            part.tint = 0x000000;
+            part._docsFrames = new Map();
+            shadow.addChild(part);
+            parts.push(part);
+        }
+        gear.forEach((sp, i) => {
+            const part = parts[i], r = sp._docsRect, base = sp.bitmap.baseTexture || sp.bitmap._baseTexture;
+            const frameKey = r.x + ',' + r.y + ',' + r.w + ',' + r.h;
+            if (part._docsBase !== base) {
+                part._docsBase = base;
+                part._docsFrames.clear();
+            }
+            let texture = part._docsFrames.get(frameKey);
+            if (!texture) {
+                texture = new PIXI.Texture(base, new PIXI.Rectangle(r.x, r.y, r.w, r.h));
+                if (part._docsFrames.size > 32) part._docsFrames.clear();
+                part._docsFrames.set(frameKey, texture);
+            }
+            part.texture = texture;
+            // The shadow already has the body's scale; a mirrored layer (8-direction sheets) flips.
+            part.scale.set(Math.sign(sp.scale.x || 1) * Math.sign(this.scale.x || 1), 1);
+            part.visible = true;
+        });
+        for (let i = gear.length; i < parts.length; i++) parts[i].visible = false;
+        return gear.length;
     };
 
     Sprite_Character.prototype.updateDocsMotionBlur = function(settings, tags, playerLike) {
@@ -6628,6 +7544,15 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
 
 // ---- Particles, VFX and reactive doodads on the map ----
 // Small white textures (one per shape), tinted per particle.
+// A texture drawn once and shared by every scene. MZ destroys the textures of all sprites in a scene
+// when it leaves it (the menu, battle, a map transfer), and the next scene is built before the old one
+// goes, so a shared texture must ignore that, as PIXI's own Texture.WHITE does.
+DocsDoodads.sharedTexture = function(canvas) {
+    const texture = PIXI.Texture.from(canvas);
+    texture.destroy = function() {};
+    return texture;
+};
+
 DocsDoodads.ParticleTextures = {
     _cache: {},
     size: 32,
@@ -6674,7 +7599,7 @@ DocsDoodads.ParticleTextures = {
             g.closePath();
             g.fill();
         }
-        this._cache[shape] = PIXI.Texture.from(c);
+        this._cache[shape] = DocsDoodads.sharedTexture(c);
         return this._cache[shape];
     }
 };
@@ -8183,10 +9108,18 @@ DocsDoodads.Perspective.active = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
     if (this._suspended) return null;
     const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
-    const s = this.resolve(mine, $gameMap._docsCamera || null);
+    const editing = !!(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    const quality = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+    // Asked for many times a frame: kept for the rest of the frame while nothing it depends on changes.
+    const frame = typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
+    const memo = this._activeMemo;
+    if (frame !== null && memo && memo.frame === frame && memo.mine === mine && memo.camera === $gameMap._docsCamera
+        && memo.editing === editing && memo.quality === quality) return memo.s;
+    let s = this.resolve(mine, $gameMap._docsCamera || null);
     // The editor shows the map as it was set; the player's Effects Quality applies in play.
-    if (!s || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return s;
-    return this.withQuality(s, typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0);
+    if (s && !editing) s = this.withQuality(s, quality);
+    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, s };
+    return s;
 };
 
 // The camera used for the last frame drawn (null when the map is flat).
@@ -8257,7 +9190,11 @@ DocsDoodads.Perspective.groundFragment = [
     'uniform vec2 uAhead;',
     'uniform vec3 uVoid;',
     'uniform float uAlpha;',
+    'uniform float uSnow;',
+    'uniform vec4 uClouds;',
+    'uniform vec4 uMist;',
     DocsDoodads.Water3D.glsl,
+    DocsDoodads.Perspective.skyGlsl,
     'void main() {',
     '    vec3 dir = uF + ((vScreen.x - uHalf.x) / uFocal) * uR + ((uHalf.y - vScreen.y) / uFocal) * uU;',
     '    vec2 p;',
@@ -8300,6 +9237,9 @@ DocsDoodads.Perspective.groundFragment = [
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
     '    vec3 rgb = c.rgb + uVoid * (1.0 - c.a);',
     '    rgb = rgb * docsWaterShade + vec3(docsWaterSpec);',
+    DocsDoodads.SnowCover.glsl,
+    '    float docsLow = 1.0;',
+    DocsDoodads.Perspective.skyApplyGlsl,
     // Fog by distance along the ground from the camera's target, so it hides the ground's edges all round.
     '    float f = smoothstep(uFogRange.x, uFogRange.y, length(p - uTarget));',
     // uFog.a = 1: blend into the fog colour; 0: fade out so the sky shows through.
@@ -8416,12 +9356,42 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
     };
 }
 
+if (typeof Sprite_Animation !== 'undefined') {
+    // In 3D, MZ's Effekseer animations take the size their target is drawn at (set each frame by the 3D view).
+    // ...and plays where the target is drawn, not where it would be on the flat map.
+    $.Sprite_Animation_targetSpritePosition_3d = Sprite_Animation.prototype.targetSpritePosition;
+    Sprite_Animation.prototype.targetSpritePosition = function(sprite) {
+        // The target as drawn in the last frame or this one; a target not drawn (hidden, blinking, past
+        // the fog) has an old matrix, so the animation's own (made at its first target) is used instead.
+        const frame = DocsDoodads.frameCount();
+        const fresh = sp => sp && sp._docs3dMatrix && frame - (sp._docs3dFrame || 0) <= 1 ? sp._docs3dMatrix : null;
+        const m = fresh(sprite) || fresh(this);
+        const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene && SceneManager._scene._spriteset;
+        const view = spriteset && spriteset._docs3dBillboards;
+        if (!m || !view || !DocsDoodads.Perspective.liveCamera()) return $.Sprite_Animation_targetSpritePosition_3d.call(this, sprite);
+        const x = sprite.x, y = sprite.y - (this._animation.alignBottom ? 0 : (sprite.height * Math.abs(sprite.scale.y)) / 2);
+        return view.worldTransform.apply(new Point(m.a * x + m.c * y + m.tx, m.b * x + m.d * y + m.ty));
+    };
+
+    $.Sprite_Animation_updateEffectGeometry_3d = Sprite_Animation.prototype.updateEffectGeometry;
+    Sprite_Animation.prototype.updateEffectGeometry = function() {
+        $.Sprite_Animation_updateEffectGeometry_3d.call(this);
+        const k = this._docs3dScale;
+        if (this._handle && k > 0 && k !== 1 && DocsDoodads.Perspective.liveCamera()) {
+            const scale = (this._animation.scale / 100) * k;
+            this._handle.setScale(scale, scale, scale);
+        }
+    };
+}
+
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective;
 
     Spriteset_Map.prototype.docsIsGround = function(child) {
         const t = this._tilemap;
         if (child === t._lowerLayer || child === t._upperLayer || child._docsGround) return true;
+        // The airship's shadow lies on the ground.
+        if (child === this._shadowSprite) return true;
         if (typeof Sprite_Destination !== 'undefined' && child instanceof Sprite_Destination) return true;
         return child.z !== undefined && child.z < 1;
     };
@@ -8431,7 +9401,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.docsBillboardScale = function(obj, s) {
         let base = obj;
         for (let i = 0; i < 4 && base; i++) {
-            if (typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad) return s.doodadScale;
+            if ((typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad) || base._docsStandTile) return s.doodadScale;
             if (typeof Sprite_Character !== 'undefined' && base instanceof Sprite_Character) return s.characterScale;
             base = base._docsBillboardOwner || base._target || (base._targets && base._targets[0]) || null;
         }
@@ -8458,8 +9428,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const owner = obj._docsBillboardOwner || obj._target || (obj._targets && obj._targets[0]) || null;
         if (owner && owner !== obj && owner.parent) return this.docsPivotOf(owner, (depth || 0) + 1);
         if (typeof Sprite_Character !== 'undefined' && obj instanceof Sprite_Character && obj._character) {
-            const jump = typeof obj._character.jumpHeight === 'function' ? obj._character.jumpHeight() : 0;
-            return { x: obj.x, y: obj.y + jump };
+            // A jump or a flying airship stands on its own tile and is drawn higher up.
+            const ch = obj._character;
+            const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
+            const flying = typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle && ch.isAirship && ch.isAirship() ? ch._altitude || 0 : 0;
+            return { x: obj.x, y: obj.y + jump + flying };
         }
         if (typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad && obj._docsSortY !== undefined) return { x: obj.x, y: obj._docsSortY };
         return { x: obj.x, y: obj.y + (obj._docsPivotDy || 0) };
@@ -8480,6 +9453,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.exitDocsPerspective = function() {
         this._docs3d = false;
+        if (this.clearDocsStandTiles) this.clearDocsStandTiles();
+        for (const sprite of this._docsDoodadSprites || []) if (sprite._docsSnowCap) sprite._docsSnowCap.visible = false;
         if (this._weather) this._weather.visible = true;
         this._docs3dWeather = null;
         this._docs3dSkyGrad = null;
@@ -8523,7 +9498,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addIndex([0, 1, 2, 0, 2, 3]);
         const shader = PIXI.Shader.from(P.groundVertex, P.groundFragment, {
             uSampler: PIXI.Texture.EMPTY, uCam: [0, 0, 1], uF: [0, 0, -1], uR: [1, 0, 0], uU: [0, -1, 0], uFocal: 1,
-            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1,
+            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1, uSnow: 0, uClouds: [0, 1, 0, 0], uMist: [0, 1, 0, 0],
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4)
         });
@@ -8559,6 +9534,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         const rt = this._docs3dTexture;
         rt.baseTexture.scaleMode = s.smoothGround ? PIXI.SCALE_MODES.LINEAR : PIXI.SCALE_MODES.NEAREST;
+        this.updateDocsStandTiles(s);
         const W = Graphics.width, H = Graphics.height;
         const radius = s.curve === 'flat' ? 0 : (s.curveRadius > 0 ? s.curveRadius * tw : P.fitRadius($gameMap.width(), tw));
         const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H,
@@ -8600,10 +9576,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const mesh = this.docsGroundMesh(W, H);
         mesh.visible = !terrain;
         const u = mesh.shader.uniforms;
-        if (s.water) {
-            this.docsWaterMask();
-            this.updateDocsWakes(s, DocsDoodads.frameCount() / 60);
-        }
+        // Settled snow keeps off water, so it needs the water mask as well.
+        if (s.water || s.snowCover) this.docsWaterMask();
+        if (s.water) this.updateDocsWakes(s, DocsDoodads.frameCount() / 60);
         u.uSampler = rt;
         u.uCam = [cam.C.x, cam.C.y, cam.C.z];
         u.uF = [cam.F.x, cam.F.y, cam.F.z];
@@ -8623,6 +9598,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uAlpha = 1;
+        const snow = this._docs3dSnow = this.updateDocsSnowCover(s);
+        u.uSnow = snow;
+        this.docsSkyUniforms(u, s);
 
         // Billboards, far to near, faded by fog and lit like the ground.
         const light = this._docsLightInfo || null;
@@ -8638,14 +9616,31 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (!m) continue;
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
             if (fog >= 1) continue;
+            // A doodad with a 3D model is drawn as the model.
+            if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
+                const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);
+                if (models) {
+                    for (const it of models) items.push(it);
+                    obj._docs3dMatrix = m;
+                    obj._docs3dFrame = DocsDoodads.frameCount();
+                    continue;
+                }
+            }
             const isEffekseer = typeof Sprite_Animation !== 'undefined' && obj instanceof Sprite_Animation;
+            // Effekseer draws in screen space at its target; it shrinks with distance like the target does.
+            if (isEffekseer) obj._docs3dScale = Math.hypot(m.a, m.b);
+            obj._docs3dMatrix = m;
+            obj._docs3dFrame = DocsDoodads.frameCount();
             // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
             items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
+        this._docs3dSee = this.docsPlayerSeeThrough();
+        this.docsSeeThroughBillboards(items, this._docs3dSee);
+        this.updateDocsSnowCaps(items, snow);
+        for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
         items.sort(P.compareBillboards);
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
-        this.updateDocsWeather(s, cam, fogRange);
         this.updateDocsGizmos(cam);
     };
 
@@ -8842,7 +9837,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             const c = document.createElement('canvas');
             c.width = w; c.height = h;
             draw(c.getContext('2d'), w, h);
-            return PIXI.Texture.from(c);
+            return DocsDoodads.sharedTexture(c);
         };
         this._textures = {
             streak: make(4, 32, (g, w, h) => {
@@ -8881,14 +9876,13 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (layer) layer.visible = false;
             this._docsWeatherParts = [];
             this._docsSplashes = [];
-            return;
+            return [];
         }
         if (!layer) {
             layer = this._docs3dWeather = new PIXI.Container();
             this._docs3dWeatherDim = new PIXI.Sprite(PIXI.Texture.WHITE);
             this._docs3dWeatherDim.tint = 0x000000;
             layer.addChild(this._docs3dWeatherDim);
-            this._docs3dWeatherPool = [];
         }
         const view = this._docs3dView;
         if (layer.parent !== view || view.children.indexOf(layer) !== view.children.indexOf(this._docs3dGizmo) - 1) {
@@ -8926,19 +9920,6 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         dim.width = Graphics.width;
         dim.height = Graphics.height;
         dim.alpha = params.dim;
-        const pool = this._docs3dWeatherPool;
-        let used = 0;
-        const sprite = texture => {
-            if (used >= pool.length) {
-                const sp = new PIXI.Sprite(texture);
-                layer.addChild(sp);
-                pool.push(sp);
-            }
-            const sp = pool[used++];
-            sp.texture = texture;
-            sp.visible = true;
-            return sp;
-        };
         const at = (x, y, z) => {
             const fx = x - origin.x, fy = y - origin.y;
             const g = P.groundPoint(cam, fx, fy, z);
@@ -8948,7 +9929,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             p.fog = P.fogAt(Math.hypot(fx - cam.target.x, fy - cam.target.y), fogRange[0], fogRange[1]);
             return p;
         };
-        const color = shade(params.color);
+        // Work out where every drop and splash is first, so they can be split into depth bands.
+        const drops = [];
+        let near = Infinity, far = -Infinity;
+        const keep = d => {
+            drops.push(d);
+            if (d.head.depth < near) near = d.head.depth;
+            if (d.head.depth > far) far = d.head.depth;
+        };
         for (const pt of this._docsWeatherParts) {
             const head = at(pt.x, pt.y, pt.z);
             if (!head || head.fog >= 1) continue;
@@ -8956,37 +9944,73 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 const tail = at(pt.x - params.wind * params.length, pt.y, pt.z + params.length);
                 if (!tail) continue;
                 const dx = tail.x - head.x, dy = tail.y - head.y, len = Math.hypot(dx, dy);
-                if (len < 0.5) continue;
-                const sp = sprite(tex.streak);
-                sp.anchor.set(0.5, 1);
-                sp.x = head.x; sp.y = head.y;
-                sp.rotation = Math.atan2(dx, -dy);
-                sp.scale.set(Math.max(0.25, params.size * head.scale) / 2, len / 32);
-                sp.tint = color;
-                sp.alpha = params.alpha * (1 - head.fog);
+                if (len >= 0.5) keep({ kind: 'streak', head, dx, dy, len });
             } else {
-                const sp = sprite(tex.flake);
-                sp.anchor.set(0.5, 0.5);
-                sp.x = head.x; sp.y = head.y;
-                sp.rotation = 0;
-                sp.scale.set(Math.max(0.1, params.size * head.scale * (0.7 + 0.6 * pt.seed) / 8));
-                sp.tint = color;
-                sp.alpha = params.alpha * (1 - head.fog);
+                keep({ kind: 'flake', head, seed: pt.seed });
             }
         }
         for (const spl of this._docsSplashes) {
-            const p = at(spl.x, spl.y, spl.z);
-            if (!p || p.fog >= 1) continue;
-            const age = (now - spl.born) / W.splashLife;
-            const sp = sprite(tex.splash);
-            sp.anchor.set(0.5, 0.5);
-            sp.x = p.x; sp.y = p.y;
-            sp.rotation = 0;
-            sp.scale.set(p.scale * (0.25 + 0.5 * age));
-            sp.tint = color;
-            sp.alpha = 0.6 * (1 - age) * (1 - p.fog);
+            const head = at(spl.x, spl.y, spl.z);
+            if (head && head.fog < 1) keep({ kind: 'splash', head, age: (now - spl.born) / W.splashLife });
         }
-        for (let i = used; i < pool.length; i++) pool[i].visible = false;
+        // Each band is drawn with the billboards at its depth, so trees and hills in front hide the
+        // weather behind them. Sorted at its near edge: whatever is behind any of its drops goes first.
+        const count = W.depthBands;
+        const bands = this._docs3dWeatherBands = this._docs3dWeatherBands || [];
+        this._docs3dWeatherHolder = this._docs3dWeatherHolder || new PIXI.Container();
+        for (let b = bands.length; b < count; b++) {
+            const box = new PIXI.Container();
+            this._docs3dWeatherHolder.addChild(box);
+            bands.push({ box, pool: [], used: 0 });
+        }
+        for (const band of bands) band.used = 0;
+        const sprite = (band, texture) => {
+            if (band.used >= band.pool.length) {
+                const sp = new PIXI.Sprite(texture);
+                band.box.addChild(sp);
+                band.pool.push(sp);
+            }
+            const sp = band.pool[band.used++];
+            sp.texture = texture;
+            sp.visible = true;
+            return sp;
+        };
+        const color = shade(params.color);
+        for (const d of drops) {
+            const band = bands[W.band(d.head.depth, near, far)];
+            const head = d.head;
+            if (d.kind === 'streak') {
+                const sp = sprite(band, tex.streak);
+                sp.anchor.set(0.5, 1);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = Math.atan2(d.dx, -d.dy);
+                sp.scale.set(Math.max(0.25, params.size * head.scale) / 2, d.len / 32);
+                sp.tint = color;
+                sp.alpha = params.alpha * (1 - head.fog);
+            } else if (d.kind === 'flake') {
+                const sp = sprite(band, tex.flake);
+                sp.anchor.set(0.5, 0.5);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = 0;
+                sp.scale.set(Math.max(0.1, params.size * head.scale * (0.7 + 0.6 * d.seed) / 8));
+                sp.tint = color;
+                sp.alpha = params.alpha * (1 - head.fog);
+            } else {
+                const sp = sprite(band, tex.splash);
+                sp.anchor.set(0.5, 0.5);
+                sp.x = head.x; sp.y = head.y;
+                sp.rotation = 0;
+                sp.scale.set(head.scale * (0.25 + 0.5 * d.age));
+                sp.tint = color;
+                sp.alpha = 0.6 * (1 - d.age) * (1 - head.fog);
+            }
+        }
+        const items = [];
+        bands.forEach((band, b) => {
+            for (let i = band.used; i < band.pool.length; i++) band.pool[i].visible = false;
+            if (band.used) items.push({ obj: band.box, depth: W.bandDepth(b, near, far), bias: 0, z: 0, spriteId: 0, matrix: null, alpha: 1, tint: null });
+        });
+        return items;
     };
 
     // The water uniforms both ground shaders share.
@@ -9035,6 +10059,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
         }
+        // Textures and meshes the 3D view made itself (MZ frees the sprites' textures, not their pictures).
+        if (this._docsTerrainMesh) { this._docsTerrainMesh.destroy(); this._docsTerrainMesh = null; }
+        this._docsTerrainTopo = null;
+        if (this._docsLightTexture) { this._docsLightTexture.destroy(true); this._docsLightTexture = null; }
+        if (this._docsSkyTexture) { this._docsSkyTexture.destroy(true); this._docsSkyTexture = null; }
+        for (const bitmap of this._docsStandBitmaps ? this._docsStandBitmaps.values() : []) if (bitmap) bitmap.destroy();
+        this._docsStandBitmaps = null;
+        if (this.docsDestroyMinimap) this.docsDestroyMinimap();
         P._cam = null;
         $.Spriteset_Map_destroy_3d.call(this, options);
     };
@@ -9193,6 +10225,16 @@ DocsDoodads.Terrain.active = function() {
 // Heights for the current map (cached). force: build even when the map isn't in 3D (the brush).
 DocsDoodads.Terrain.grid = function(force) {
     if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    // Asked for by every character and doodad each frame: the answer is kept for the rest of the frame.
+    const frame = !force && typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
+    const memo = this._gridMemo;
+    if (frame !== null && memo && memo.frame === frame && memo.mapId === $gameMap.mapId() && memo.data === $dataMap.data) return memo.grid;
+    const grid = this.buildGrid(force);
+    this._gridMemo = frame === null ? null : { frame, mapId: $gameMap.mapId(), data: $dataMap.data, grid };
+    return grid;
+};
+
+DocsDoodads.Terrain.buildGrid = function(force) {
     const s = force ? this.settingsFor($gameMap.mapId()) : this.active();
     if (!s) return null;
     const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
@@ -9250,13 +10292,21 @@ DocsDoodads.Terrain.vertex = [
     'attribute vec2 aVertexPosition;',
     'attribute vec2 aUv;',
     'attribute vec2 aShade;',
+    'attribute float aDepth;',
+    'attribute float aHeight;',
     'uniform mat3 projectionMatrix;',
     'uniform mat3 translationMatrix;',
     'varying vec2 vUv;',
     'varying vec2 vShade;',
+    'varying vec2 vScreen;',
+    'varying float vDepth;',
+    'varying float vHeight;',
     'void main() {',
     '    vUv = aUv;',
+    '    vHeight = aHeight;',
     '    vShade = aShade;',
+    '    vScreen = aVertexPosition;',
+    '    vDepth = aDepth;',
     '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
     '}'
 ].join('\n');
@@ -9265,13 +10315,24 @@ DocsDoodads.Terrain.fragment = [
     fragmentPrecision,
     'varying vec2 vUv;',
     'varying vec2 vShade;',
+    'varying vec2 vScreen;',
+    'varying float vDepth;',
     'uniform sampler2D uSampler;',
     'uniform vec3 uVoid;',
     'uniform vec4 uFog;',
     'uniform float uAlpha;',
     'uniform vec3 uCam;',
     'uniform vec2 uGround;',
+    // The player on screen (centre, half size) and their depth: ground in front of them there fades.
+    'uniform vec4 uSee;',
+    'uniform float uSeeDepth;',
+    'uniform float uSeeAlpha;',
+    'uniform float uSnow;',
+    'uniform vec4 uClouds;',
+    'uniform vec4 uMist;',
+    'varying float vHeight;',
     DocsDoodads.Water3D.glsl,
+    DocsDoodads.Perspective.skyGlsl,
     'void main() {',
     '    vec2 uv = vUv;',
     '    vec2 p = vUv * uGround;',
@@ -9279,9 +10340,17 @@ DocsDoodads.Terrain.fragment = [
     '    vec4 c = vec4(0.0);',
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
     '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x * docsWaterShade + vec3(docsWaterSpec);',
+    DocsDoodads.SnowCover.glsl,
+    // Low fog lies below the fog height (tiles above the lowest ground).
+    '    float docsLow = 1.0 - smoothstep(0.0, uMist.y, vHeight);',
+    DocsDoodads.Perspective.skyApplyGlsl,
     '    float f = 1.0 - vShade.y;',
     '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
     '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
+    '    if (uSeeDepth > 0.0 && vDepth < uSeeDepth) {',
+    '        vec2 q = abs(vScreen - uSee.xy) / max(uSee.zw, vec2(1.0));',
+    '        a *= mix(uSeeAlpha, 1.0, smoothstep(0.75, 1.15, max(q.x, q.y)));',
+    '    }',
     '    gl_FragColor = vec4(rgb * a, a);',
     '}'
 ].join('\n');
@@ -9289,22 +10358,35 @@ DocsDoodads.Terrain.fragment = [
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain;
 
-    // The terrain mesh's shape for the tiles around the camera, rebuilt when the view moves a tile.
+    // The tiles the terrain draws this frame: the view plus a tile and a half on each side.
+    Spriteset_Map.prototype.docsTerrainWindow = function(s) {
+        const x = Math.floor($gameMap.displayX()) - 1, y = Math.floor($gameMap.displayY()) - 1;
+        return { x, y, size: s.viewTiles + 3 };
+    };
+
+    // The terrain mesh's shape around the camera. It covers a few tiles more than the view, so walking
+    // rebuilds it only every few tiles; updateDocsTerrain draws just the part inside the view.
     Spriteset_Map.prototype.docsTerrainTopology = function(grid, s) {
-        const viewTiles = s.viewTiles;
-        const tx0 = Math.floor($gameMap.displayX()) - 1, ty0 = Math.floor($gameMap.displayY()) - 1;
+        const margin = DocsDoodads.Terrain.meshMargin;
+        const view = this.docsTerrainWindow(s);
         const light = this._docsSkyLight || T.light;
-        const key = [grid.sig, tx0, ty0, viewTiles, s.terrainSteps || 0, DocsDoodads.Sky3D.lightKey(light)].join('|');
-        if (this._docsTerrainKey === key && this._docsTerrainTopo) return this._docsTerrainTopo;
+        const key = [grid.sig, s.viewTiles, s.terrainSteps || 0, DocsDoodads.Sky3D.lightKey(light)].join('|');
+        const old = this._docsTerrainTopo;
+        if (old && this._docsTerrainKey === key && view.x >= old.tx0 && view.y >= old.ty0
+            && view.x + view.size <= old.tx0 + old.cols && view.y + view.size <= old.ty0 + old.rows) return old;
         this._docsTerrainKey = key;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style, light, s.terrainSteps);
+        const tx0 = view.x - margin, ty0 = view.y - margin, cols = view.size + margin * 2, rows = cols;
+        const mesh = T.buildMesh(grid, tx0, ty0, cols, rows, tw, th, grid.style, light, s.terrainSteps);
         const n = mesh.vertices.length;
         const topo = this._docsTerrainTopo = {
+            tx0, ty0, cols, rows,
             vertices: mesh.vertices, triangles: mesh.triangles,
-            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2),
+            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2), depths: new Float32Array(n), heights: new Float32Array(mesh.vertices.map(v => v.h - (grid.min || 0))),
             depth: new Float64Array(n), ok: new Uint8Array(n),
-            order: [], index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length)
+            index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length),
+            sort: T.sortBuffers(mesh.triangles.length / 3), triOf: new Uint32Array(mesh.triangles.length / 3),
+            order: { length: 0, depth: new Float64Array(mesh.triangles.length / 3) }
         };
         if (this._docsTerrainMesh) {
             this._docsTerrainMesh.destroy();
@@ -9314,69 +10396,345 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aVertexPosition', topo.positions, 2)
             .addAttribute('aUv', topo.uvs, 2)
             .addAttribute('aShade', topo.shades, 2)
+            .addAttribute('aDepth', topo.depths, 1)
+            .addAttribute('aHeight', topo.heights, 1)
             .addIndex(topo.index);
         const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
-            uCam: [0, 0, 1], uGround: [1, 1],
+            uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4, uSnow: 0, uClouds: [0, 1, 0, 0], uMist: [0, 1, 0, 0],
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
         this._docsTerrainMesh = new PIXI.Mesh(geometry, shader);
         return topo;
     };
 
-    // Projects the terrain for this frame and returns its triangles sorted far to near ({ depth } per triangle).
+    // Projects the terrain for this frame and returns its triangles sorted far to near
+    // ({ length, depth[i] }). It runs every frame over tens of thousands of points, so it allocates nothing.
     Spriteset_Map.prototype.updateDocsTerrain = function(cam, s, grid, rt, fogRange) {
         const topo = this.docsTerrainTopology(grid, s);
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
         const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
         const gw = rt.width, gh = rt.height;
         const V = topo.vertices;
+        const flat = cam.curve === 'flat';
+        const C = cam.C, F = cam.F, R = cam.R, U = cam.U, focal = cam.focal, hw = cam.width / 2, hh = cam.height / 2;
+        const tx = cam.target.x, ty = cam.target.y, fog0 = fogRange[0], fog1 = fogRange[1];
+        // Only the tiles in view are drawn; the rest of the mesh is margin for the next few steps.
+        const view = this.docsTerrainWindow(s);
+        const minX = view.x * tw, minY = view.y * th, maxX = (view.x + view.size) * tw, maxY = (view.y + view.size) * th;
         for (let i = 0; i < V.length; i++) {
             const v = V[i];
             const fx = v.x - ox, fy = v.y - oy;
-            const g = P.groundPoint(cam, fx, fy, v.h * th);
-            let ok = g.visible;
-            if (ok && cam.curve !== 'flat') {
-                const n = P.surfacePoint(cam, fx, fy);
-                ok = n.nx * (cam.C.x - g.x) + n.ny * (cam.C.y - g.y) + n.nz * (cam.C.z - g.z) > 0;
+            let ok = 0;
+            if (v.x < minX || v.y < minY || v.x > maxX || v.y > maxY) {
+                // Outside the view: never drawn.
+            } else if (flat) {
+                // Flat ground: the point is (fx, fy, height); projected inline.
+                const vx = fx - C.x, vy = fy - C.y, vz = v.h * th - C.z;
+                const depth = vx * F.x + vy * F.y + vz * F.z;
+                if (depth >= 1) {
+                    const scale = focal / depth;
+                    topo.positions[i * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * scale;
+                    topo.positions[i * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * scale;
+                    topo.depth[i] = depth;
+                    topo.depths[i] = depth;
+                    ok = 1;
+                }
+            } else {
+                const g = P.groundPoint(cam, fx, fy, v.h * th);
+                if (g.visible) {
+                    const n = P.surfacePoint(cam, fx, fy);
+                    const p = n.nx * (C.x - g.x) + n.ny * (C.y - g.y) + n.nz * (C.z - g.z) > 0 ? P.project(cam, g.x, g.y, g.z) : null;
+                    if (p) {
+                        topo.positions[i * 2] = p.x;
+                        topo.positions[i * 2 + 1] = p.y;
+                        topo.depth[i] = p.depth;
+                        topo.depths[i] = p.depth;
+                        ok = 1;
+                    }
+                }
             }
-            const p = ok ? P.project(cam, g.x, g.y, g.z) : null;
-            topo.ok[i] = p ? 1 : 0;
-            if (p) {
-                topo.positions[i * 2] = p.x;
-                topo.positions[i * 2 + 1] = p.y;
-                topo.depth[i] = p.depth;
-            }
+            topo.ok[i] = ok;
             topo.uvs[i * 2] = (v.u - ox) / gw;
             topo.uvs[i * 2 + 1] = (v.v - oy) / gh;
             topo.shades[i * 2] = v.shade;
-            topo.shades[i * 2 + 1] = 1 - P.fogAt(Math.hypot(fx - cam.target.x, fy - cam.target.y), fogRange[0], fogRange[1]);
+            topo.shades[i * 2 + 1] = 1 - P.fogAt(Math.hypot(fx - tx, fy - ty), fog0, fog1);
         }
-        const tris = topo.triangles, order = topo.order;
-        order.length = 0;
+        const tris = topo.triangles, buf = topo.sort, triOf = topo.triOf, order = topo.order;
+        // Without a fog colour, ground past the fog's end is fully transparent: skip it.
+        const fadeOut = !s.fogColor, shade = topo.shades;
+        let count = 0;
         for (let t = 0; t < tris.length; t += 3) {
             const a = tris[t], b = tris[t + 1], c = tris[t + 2];
             if (!topo.ok[a] || !topo.ok[b] || !topo.ok[c]) continue;
-            order.push({ t, depth: (topo.depth[a] + topo.depth[b] + topo.depth[c]) / 3 });
+            if (fadeOut && shade[a * 2 + 1] === 0 && shade[b * 2 + 1] === 0 && shade[c * 2 + 1] === 0) continue;
+            buf.depth[count] = (topo.depth[a] + topo.depth[b] + topo.depth[c]) / 3;
+            triOf[count++] = t;
         }
-        order.sort((x, y) => y.depth - x.depth);
-        order.forEach((o, i) => {
-            topo.index[i * 3] = tris[o.t];
-            topo.index[i * 3 + 1] = tris[o.t + 1];
-            topo.index[i * 3 + 2] = tris[o.t + 2];
-        });
+        const sorted = T.sortFarToNear(buf, count);
+        for (let i = 0; i < count; i++) {
+            const k = sorted[i], t = triOf[k];
+            topo.index[i * 3] = tris[t];
+            topo.index[i * 3 + 1] = tris[t + 1];
+            topo.index[i * 3 + 2] = tris[t + 2];
+            order.depth[i] = buf.depth[k];
+        }
+        order.length = count;
         const mesh = this._docsTerrainMesh;
         const geo = mesh.geometry;
         geo.getBuffer('aVertexPosition').update(topo.positions);
         geo.getBuffer('aUv').update(topo.uvs);
         geo.getBuffer('aShade').update(topo.shades);
+        geo.getBuffer('aDepth').update(topo.depths);
         geo.getIndex().update(topo.index);
         const u = mesh.shader.uniforms;
         u.uSampler = rt;
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;
+        u.uSnow = this._docs3dSnow || 0;
+        this.docsSkyUniforms(u, s);
+        const see = this._docs3dSee;
+        u.uSee = see ? see.rect : [0, 0, 1, 1];
+        u.uSeeDepth = see ? see.depth : 0;
+        u.uSeeAlpha = see ? see.opacity : 1;
         this.docsWaterUniforms(u, s, cam);
         return order;
+    };
+
+    // ---- Tileset objects standing up ----
+    // The groups for the current map and mode (cached), and which tiles leave the ground.
+    Spriteset_Map.prototype.docsStandGroups = function(s) {
+        const mode = s ? s.standTiles : 'off';
+        if (this._docsStand && this._docsStand.map === $dataMap && this._docsStand.mode === mode) return this._docsStand;
+        const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+        const built = DocsDoodads.StandTiles.groups($dataMap || { width: 0, height: 0, data: [] }, tileset && tileset.flags, mode);
+        this._docsStand = { map: $dataMap, mode, list: built.list, mask: built.list.length ? built.mask : null };
+        if (this._tilemap) {
+            this._tilemap._docsStandMask = this._docsStand.mask;
+            if (this._tilemap.refresh) this._tilemap.refresh();
+        }
+        return this._docsStand;
+    };
+
+    // One picture per kind of group (a forest of the same tree shares one), drawn from the tilesets.
+    Spriteset_Map.prototype.docsStandBitmap = function(group) {
+        const cache = this._docsStandBitmaps = this._docsStandBitmaps || new Map();
+        if (cache.has(group.key)) return cache.get(group.key);
+        const sets = this._tilemap && this._tilemap._bitmaps;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const needed = new Set();
+        for (const cell of group.cells) for (const id of cell.tiles) needed.add(DocsDoodads.StandTiles.source(id, tw, th).set);
+        for (const set of needed) if (!sets || !sets[set] || !sets[set].isReady()) return null;
+        const bitmap = new Bitmap(group.w * tw, group.h * th);
+        for (const cell of group.cells) {
+            for (const id of cell.tiles) {
+                const src = DocsDoodads.StandTiles.source(id, tw, th);
+                bitmap.blt(sets[src.set], src.x, src.y, tw, th, cell.dx * tw, cell.dy * th);
+            }
+        }
+        cache.set(group.key, bitmap);
+        return bitmap;
+    };
+
+    // Groups near the camera get a billboard from a pool, standing on their foot line like a doodad.
+    // A group keeps the same sprite while it stays in view, so its fade (See-Through) stays with it.
+    Spriteset_Map.prototype.updateDocsStandTiles = function(s) {
+        const stand = this.docsStandGroups(s);
+        const pool = this._docsStandSprites = this._docsStandSprites || [];
+        const shown = this._docsStandShown = this._docsStandShown || new Map();
+        shown.clear();
+        if (stand.list.length && this._docs3dSize) {
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const { width: gw, height: gh } = this._docs3dSize;
+            for (const g of stand.list) {
+                const x = $gameMap.adjustX(g.x + g.w / 2) * tw, y = $gameMap.adjustY(g.y + g.h) * th;
+                if (x < -g.w * tw || y < 0 || x > gw + g.w * tw || y > gh + g.h * th) continue;
+                const bitmap = this.docsStandBitmap(g);
+                if (bitmap) shown.set(g, { bitmap, x, y });
+            }
+        }
+        const owned = new Map(), free = [];
+        for (const sprite of pool) {
+            if (sprite._docsStandGroup && shown.has(sprite._docsStandGroup)) owned.set(sprite._docsStandGroup, sprite);
+            else { sprite._docsStandGroup = null; sprite.visible = false; free.push(sprite); }
+        }
+        for (const [g, at] of shown) {
+            let sprite = owned.get(g);
+            if (!sprite) {
+                sprite = free.pop();
+                if (!sprite) {
+                    sprite = new Sprite();
+                    sprite.anchor.set(0.5, 1);
+                    sprite.z = 3;
+                    sprite._docsStandTile = true;
+                    pool.push(sprite);
+                    this._tilemap.addChild(sprite);
+                }
+                sprite._docsStandGroup = g;
+                sprite.alpha = 1;
+                sprite.spriteId = g.y * 100000 + g.x;
+            }
+            if (sprite.bitmap !== at.bitmap) sprite.bitmap = at.bitmap;
+            sprite.x = at.x;
+            sprite.y = at.y;
+            sprite.visible = true;
+        }
+    };
+
+    // Back to a flat map: the tiles return to the ground.
+    Spriteset_Map.prototype.clearDocsStandTiles = function() {
+        for (const sprite of this._docsStandSprites || []) {
+            if (sprite.parent) sprite.parent.removeChild(sprite);
+            sprite.destroy();
+        }
+        this._docsStandSprites = [];
+        this._docsStand = null;
+        if (this._tilemap && this._tilemap._docsStandMask) {
+            this._tilemap._docsStandMask = null;
+            if (this._tilemap.refresh) this._tilemap.refresh();
+        }
+    };
+
+    // ---- Cloud shadows and low fog ----
+    Spriteset_Map.prototype.docsSkyUniforms = function(u, s) {
+        const tw = $gameMap.tileWidth();
+        const t = DocsDoodads.frameCount() / 60;
+        const drift = P.cloudDrift(t, s.cloudSpeed);
+        u.uClouds = [s.clouds, s.cloudScale * tw, drift.x, drift.y];
+        u.uMist = [s.mist, s.mistHeight, drift.x * 0.35, -drift.y * 0.2];
+    };
+
+    // ---- Snow cover ----
+    // The cover now (kept in the save), stepped while the map is shown in 3D with Snow settles on.
+    Spriteset_Map.prototype.updateDocsSnowCover = function(s) {
+        if (!s.snowCover || typeof $gameSystem === 'undefined' || !$gameSystem) return 0;
+        const C = DocsDoodads.SnowCover;
+        const seasons = DocsDoodads.World.settings().seasons;
+        const winter = C.isWinter(DocsDoodads.Atmosphere.season(), seasons && seasons.names);
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        const dt = editing ? 0 : 1 / 60;
+        $gameSystem._docsSnowCover = C.step($gameSystem._docsSnowCover, dt, $gameScreen.weatherType(), $gameScreen.weatherPower(), winter);
+        return $gameSystem._docsSnowCover;
+    };
+
+    // White tops for standing doodads and tileset objects (a picture made once per image).
+    DocsDoodads.SnowCover.capBase = function(texture) {
+        const base = texture && texture.baseTexture;
+        const source = base && base.resource && base.resource.source;
+        if (!source || !source.width || typeof document === 'undefined') return null;
+        const cellH = Math.round(texture.frame.height);
+        const key = (base.cacheId || base.uid) + '|' + cellH;
+        this._caps = this._caps || new Map();
+        if (this._caps.has(key)) {
+            // Most recently used last, so the oldest unused one goes first.
+            const hit = this._caps.get(key);
+            this._caps.delete(key);
+            this._caps.set(key, hit);
+            return hit;
+        }
+        const w = source.width, h = source.height;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0);
+        const image = ctx.getImageData(0, 0, w, h);
+        const alpha = new Uint8ClampedArray(w * h);
+        for (let i = 0; i < w * h; i++) alpha[i] = image.data[i * 4 + 3];
+        const cap = this.capAlpha(alpha, w, h, cellH, Math.max(3, cellH * 0.16));
+        for (let i = 0; i < w * h; i++) {
+            image.data[i * 4] = 240; image.data[i * 4 + 1] = 245; image.data[i * 4 + 2] = 255;
+            image.data[i * 4 + 3] = cap[i];
+        }
+        ctx.putImageData(image, 0, 0);
+        const out = new PIXI.BaseTexture(canvas);
+        // At most 64 kept: the oldest goes (Maps keep insertion order).
+        while (this._caps.size >= 64) {
+            const oldest = this._caps.keys().next().value;
+            const old = this._caps.get(oldest);
+            this._caps.delete(oldest);
+            if (old && old.destroy) old.destroy();
+        }
+        this._caps.set(key, out);
+        return out;
+    };
+
+    Spriteset_Map.prototype.updateDocsSnowCaps = function(items, cover) {
+        for (const it of items) {
+            const obj = it.obj;
+            if (!obj || !it.matrix || !(obj instanceof PIXI.Sprite)) continue;
+            const isDoodad = typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad;
+            if (!isDoodad && !obj._docsStandTile) continue;
+            let cap = obj._docsSnowCap;
+            if (cover <= 0.01) {
+                if (cap) cap.visible = false;
+                continue;
+            }
+            const tex = obj.texture;
+            if (!tex || !tex.valid) continue;
+            const base = DocsDoodads.SnowCover.capBase(tex);
+            if (!base) continue;
+            if (!cap) {
+                cap = obj._docsSnowCap = new PIXI.Sprite(PIXI.Texture.EMPTY);
+                obj.addChild(cap);
+            }
+            const f = tex.frame;
+            const key = base.uid + '|' + f.x + ',' + f.y + ',' + f.width + ',' + f.height;
+            if (cap._docsKey !== key) {
+                cap._docsKey = key;
+                if (cap.texture && cap.texture !== PIXI.Texture.EMPTY) cap.texture.destroy(false);
+                cap.texture = new PIXI.Texture(base, new PIXI.Rectangle(f.x, f.y, f.width, f.height));
+            }
+            // Same place and size as the picture it caps (a child, so it shares the transform).
+            cap.anchor.set(obj.anchor.x, obj.anchor.y);
+            cap.alpha = cover;
+            cap.visible = true;
+        }
+    };
+
+    // Where the player is drawn this frame ({ rect: [centre x, centre y, half width, half height], depth }),
+    // so hills between them and the camera can fade there. null when the player isn't drawn, or while
+    // editing (everything shows as placed). The 3D view has no silhouette, so Silhouette mode fades too.
+    Spriteset_Map.prototype.docsPlayerSeeThrough = function() {
+        const settings = DocsDoodads.World.settings().seeThrough;
+        if (!settings || !settings.enabled || !DocsDoodads.Atmosphere.featureOn('seeThrough')) return null;
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return null;
+        const sprite = (this._characterSprites || []).find(sp => sp._character === $gamePlayer);
+        const m = sprite && sprite.visible && sprite._docs3dMatrix;
+        if (!m || !(sprite.width > 0)) return null;
+        const see = P.seeThroughRect(m, sprite.x, sprite.y, Math.abs(sprite.width), Math.abs(sprite.height), $gameMap.tileWidth() * 1.5);
+        see.opacity = Math.max(0, Math.min(1, Number(settings.opacity)));
+        see.speed = settings.speed;
+        see.player = sprite;
+        return see;
+    };
+
+    // Tall doodads and tileset objects in front of the player fade (like See-Through on flat maps).
+    Spriteset_Map.prototype.docsSeeThroughBillboards = function(items, see) {
+        const settings = DocsDoodads.World.settings().seeThrough;
+        const th = $gameMap.tileHeight();
+        for (const it of items) {
+            const obj = it.obj;
+            if (!obj || !it.matrix) continue;
+            const base = obj._docsBillboardOwner || obj;
+            const isDoodad = typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad;
+            if (!isDoodad && !base._docsStandTile) continue;
+            if (isDoodad && !DocsDoodads.SeeThrough.appliesTo(base._data, settings, th)) continue;
+            // Particles and effects on a doodad fade with it.
+            if (base !== obj) {
+                if (base._docs3dSeeAlpha !== undefined) it.alpha *= base._docs3dSeeAlpha;
+                continue;
+            }
+            let target = 1;
+            if (see) {
+                const w = Math.abs(obj.width), h = Math.abs(obj.height);
+                const ax = obj.anchor ? obj.anchor.x : 0.5, ay = obj.anchor ? obj.anchor.y : 1;
+                const box = P.screenBox(it.matrix, obj.x - ax * w, obj.y - ay * h, w, h);
+                if (P.hidesPlayer(box, it.matrix.depth, see)) target = see.opacity;
+            }
+            obj._docs3dSeeAlpha = DocsDoodads.SeeThrough.step(obj._docs3dSeeAlpha !== undefined ? obj._docs3dSeeAlpha : 1, target, see ? see.speed : 1);
+            it.alpha *= obj._docs3dSeeAlpha;
+        }
     };
 
     // Billboards between the terrain's triangles, so hills hide what's behind them. Each billboard
@@ -9388,7 +10746,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         let i = 0;
         const flush = until => {
             const start = i;
-            while (i < order.length && order[i].depth > until) i++;
+            while (i < order.length && order.depth[i] > until) i++;
             if (i > start) out.push({ terrain: true, mesh, start, count: i - start });
         };
         for (const item of items) {
@@ -9400,19 +10758,614 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     };
 }
 
+if (typeof Tilemap !== 'undefined') {
+    // Tiles standing up in 3D are drawn as billboards, so the ground leaves them out.
+    $.Tilemap_readMapData_stand = Tilemap.prototype._readMapData;
+    Tilemap.prototype._readMapData = function(x, y, z) {
+        const mask = this._docsStandMask;
+        if (mask && z < 4 && this._mapData) {
+            const w = this._mapWidth, h = this._mapHeight;
+            const mx = this.horizontalWrap ? ((x % w) + w) % w : x, my = this.verticalWrap ? ((y % h) + h) % h : y;
+            if (mx >= 0 && my >= 0 && mx < w && my < h && mask[(z * h + my) * w + mx]) return 0;
+        }
+        return $.Tilemap_readMapData_stand.call(this, x, y, z);
+    };
+}
+
 if (typeof Game_CharacterBase !== 'undefined') {
     // Steep steps block walking when the map asks for it.
     $.Game_CharacterBase_isMapPassable_terrain = Game_CharacterBase.prototype.isMapPassable;
     Game_CharacterBase.prototype.isMapPassable = function(x, y, d) {
         if (!$.Game_CharacterBase_isMapPassable_terrain.call(this, x, y, d)) return false;
         const T = DocsDoodads.Terrain;
-        const s = T.active();
-        if (!s || !s.block) return true;
+        // Pathfinding asks this thousands of times a frame: the grid (and its settings) is kept per frame.
         const g = T.grid();
-        if (!g) return true;
+        const s = g && g.settings;
+        if (!s || !s.block) return true;
         const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
-        return T.canStep(T.tileHeight(g, x, y), T.tileHeight(g, x2, y2), s.climb);
+        return T.stepKind(T.tileHeight(g, x, y), T.tileHeight(g, x2, y2), s) !== 'blocked';
     };
+
+    // Off a ledge or up a small step: the move is a jump onto the next tile.
+    $.Game_CharacterBase_moveStraight_terrain = Game_CharacterBase.prototype.moveStraight;
+    Game_CharacterBase.prototype.moveStraight = function(d) {
+        const T = DocsDoodads.Terrain;
+        const g = T.grid();
+        const s = g && g.settings;
+        if (s && s.block && (s.drop || s.hop > 0) && !this.isJumping() && this.docsWalksTerrain() && this.canPass(this._x, this._y, d)) {
+            const x2 = $gameMap.roundXWithDirection(this._x, d), y2 = $gameMap.roundYWithDirection(this._y, d);
+            const kind = T.stepKind(T.tileHeight(g, this._x, this._y), T.tileHeight(g, x2, y2), s);
+            if (kind === 'drop' || kind === 'hop') {
+                this.setMovementSuccess(true);
+                this.setDirection(d);
+                this.jump(d === 4 ? -1 : d === 6 ? 1 : 0, d === 8 ? -1 : d === 2 ? 1 : 0);
+                this.increaseSteps();
+                return;
+            }
+        }
+        $.Game_CharacterBase_moveStraight_terrain.call(this, d);
+    };
+
+    // Ledges are for walkers: not vehicles, the party aboard one, or characters set to Through.
+    Game_CharacterBase.prototype.docsWalksTerrain = function() {
+        if (this.isThrough() || (this.isDebugThrough && this.isDebugThrough())) return false;
+        if (typeof Game_Vehicle !== 'undefined' && this instanceof Game_Vehicle) return false;
+        if (this.isInVehicle && this.isInVehicle()) return false;
+        return true;
+    };
+}
+
+// The current map as minimap pixels (cached per map).
+DocsDoodads.Minimap.forCurrentMap = function() {
+    if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    if (this._map && this._map.data === $dataMap.data) return this._map;
+    const w = $gameMap.width(), h = $gameMap.height();
+    const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+    const flags = (tileset && tileset.flags) || [];
+    const world = DocsDoodads.World.settings().reflections;
+    const isWaterTile = id => (typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false);
+    const grid = DocsDoodads.Terrain.grid(true);
+    const pixels = this.pixels(w, h, (x, y) => {
+        const layers = [0, 1, 2, 3].map(z => $gameMap.tileId(x, y, z));
+        const water = DocsDoodads.Reflection.isWaterAt(layers, $gameMap.regionId(x, y), world, isWaterTile);
+        const blocked = !water && ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+        const base = layers[1] || layers[0];
+        const forest = tileset && tileset.mode === 0 && (((flags[base] || 0) & 0x800) !== 0);
+        const object = DocsDoodads.StandTiles.isObjectTile(layers[2]) || DocsDoodads.StandTiles.isObjectTile(layers[3]);
+        return { water, blocked, forest, object, height: grid ? DocsDoodads.Terrain.tileHeight(grid, x, y) : 0 };
+    });
+    this._map = { data: $dataMap.data, width: w, height: h, pixels };
+    return this._map;
+};
+
+DocsDoodads.Minimap.canvasFor = function(pixels, width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const image = ctx.createImageData(width, height);
+    image.data.set(pixels);
+    ctx.putImageData(image, 0, 0);
+    return canvas;
+};
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    $.Spriteset_Map_update_minimap = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        $.Spriteset_Map_update_minimap.call(this);
+        this.updateDocsMinimap();
+    };
+
+    // A small map in the top-right corner with the player's arrow, on maps that ask for it.
+    Spriteset_Map.prototype.updateDocsMinimap = function() {
+        const s = DocsDoodads.Perspective.active();
+        const on = Boolean(s && s.minimap) && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        if (!on) {
+            if (this._docsMinimap) this._docsMinimap.visible = false;
+            return;
+        }
+        const map = DocsDoodads.Minimap.forCurrentMap();
+        if (!map) return;
+        let mini = this._docsMinimap;
+        if (!mini || mini._docsData !== map.data) {
+            this.docsDestroyMinimap();
+            mini = this._docsMinimap = new PIXI.Container();
+            mini._docsData = map.data;
+            // Its own picture (not in PIXI's shared cache), freed with the minimap.
+            const base = new PIXI.BaseTexture(DocsDoodads.Minimap.canvasFor(map.pixels, map.width, map.height), { scaleMode: PIXI.SCALE_MODES.NEAREST });
+            const pic = new PIXI.Sprite(new PIXI.Texture(base));
+            const scale = 140 / Math.max(map.width, map.height);
+            pic.scale.set(scale);
+            const frame = new PIXI.Graphics();
+            frame.lineStyle(2, 0x0f172a, 0.9).drawRect(-1, -1, map.width * scale + 2, map.height * scale + 2);
+            const arrow = new PIXI.Graphics();
+            arrow.beginFill(0xffffff).lineStyle(1, 0x000000, 0.9).moveTo(0, -5).lineTo(4, 4).lineTo(-4, 4).closePath().endFill();
+            mini.addChild(pic, frame, arrow);
+            mini._docsScale = scale;
+            mini._docsArrow = arrow;
+            mini.alpha = 0.9;
+            this.addChild(mini);
+        }
+        const sc = mini._docsScale;
+        mini.visible = true;
+        mini.x = Graphics.width - map.width * sc - 12;
+        // Below MZ's menu button when Touch UI shows it.
+        mini.y = typeof ConfigManager !== 'undefined' && ConfigManager.touchUI ? 64 : 12;
+        const arrow = mini._docsArrow;
+        arrow.x = ($gamePlayer._realX + 0.5) * sc;
+        arrow.y = ($gamePlayer._realY + 0.5) * sc;
+        arrow.rotation = { 2: Math.PI, 4: -Math.PI / 2, 6: Math.PI / 2, 8: 0 }[$gamePlayer.direction()] || 0;
+    };
+
+    Spriteset_Map.prototype.docsDestroyMinimap = function() {
+        const mini = this._docsMinimap;
+        this._docsMinimap = null;
+        if (!mini || mini._destroyed) return;
+        if (mini.parent) mini.parent.removeChild(mini);
+        mini.destroy({ children: true, texture: true, baseTexture: true });
+    };
+}
+
+// Loaded models by path (project-relative): { ready, error, primitives, textures }.
+DocsDoodads.Models = {
+    _cache: {},
+    // A model that failed to load (missing, half-copied, broken) is tried again after this long.
+    retryAfter: 5000,
+
+    // Models, and the files they point to, have to be inside the project folder.
+    inside(root, target) {
+        const path = DocsDoodads.FS.path;
+        const rel = path.relative(root, target);
+        return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    },
+
+    get(path) {
+        if (!path) return null;
+        const key = String(path).replace(/\\/g, '/');
+        const cached = this._cache[key];
+        if (cached && !(cached.error && Date.now() - cached.failedAt >= this.retryAfter)) return cached;
+        if (cached) this.release(cached);
+        const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [] };
+        try {
+            const FS = DocsDoodads.FS;
+            if (!FS.fs) throw new Error('Models need the desktop game.');
+            const root = FS.path.resolve('.');
+            const file = FS.path.resolve(root, key);
+            if (!this.inside(root, file)) throw new Error('Models have to be inside the project folder.');
+            const dir = FS.path.dirname(file);
+            const local = uri => {
+                const target = FS.path.resolve(dir, decodeURIComponent(uri));
+                if (!this.inside(root, target)) throw new Error('"' + uri + '" is outside the project folder.');
+                return target;
+            };
+            const doc = DocsDoodads.Gltf.parse(FS.fs.readFileSync(file), uri => FS.fs.readFileSync(local(uri)));
+            const mesh = DocsDoodads.Gltf.meshes(doc);
+            entry.primitives = mesh.primitives;
+            entry.min = mesh.min;
+            entry.max = mesh.max;
+            // Image files load by their place in the project, as the game's own pictures do.
+            const url = uri => FS.path.relative(root, local(uri)).split(FS.path.sep).map(encodeURIComponent).join('/');
+            const images = new Map();
+            entry.textures = mesh.primitives.map(prim => this.texture(prim, url, images));
+            entry.ready = true;
+        } catch (e) {
+            entry.error = e.message;
+            entry.failedAt = Date.now();
+            if (!cached || cached.error !== e.message) console.warn('[DocsDoodads] Could not load model ' + key + ': ' + e.message);
+        }
+        return entry;
+    },
+
+    // Loads the models a map's doodads use when the map is set up, not in the middle of drawing a frame.
+    preload(list) {
+        for (const d of list || []) if (d && d.model && d.model.path) this.get(d.model.path);
+    },
+
+    // The primitive's colour texture (shared between scenes, and between parts using the same image),
+    // or plain white until it has loaded.
+    texture(prim, url, images) {
+        if (!prim.image || typeof Image === 'undefined') return PIXI.Texture.WHITE;
+        const id = prim.image.source !== undefined ? prim.image.source + (prim.nearest ? 'n' : 'l') : null;
+        if (id !== null && images && images.has(id)) return images.get(id);
+        const img = new Image();
+        const texture = new PIXI.Texture(new PIXI.BaseTexture(img, { scaleMode: prim.nearest ? PIXI.SCALE_MODES.NEAREST : PIXI.SCALE_MODES.LINEAR }));
+        // Scenes come and go; the texture stays until the model is let go of (release).
+        texture.destroy = function() {};
+        if (prim.image.bytes) {
+            const src = URL.createObjectURL(new Blob([prim.image.bytes], { type: prim.image.mime }));
+            if (img.addEventListener) {
+                const done = () => URL.revokeObjectURL(src);
+                img.addEventListener('load', done, { once: true });
+                img.addEventListener('error', done, { once: true });
+            }
+            img.src = src;
+        } else if (/^data:/i.test(prim.image.uri)) {
+            img.src = prim.image.uri;
+        } else {
+            img.src = url(prim.image.uri);
+        }
+        if (id !== null && images) images.set(id, texture);
+        return texture;
+    },
+
+    // Frees a model's textures (a model loaded again, or dropped from the cache).
+    release(entry) {
+        const seen = new Set();
+        for (const texture of entry.textures || []) {
+            if (!texture || texture === PIXI.Texture.WHITE || seen.has(texture)) continue;
+            seen.add(texture);
+            PIXI.Texture.prototype.destroy.call(texture, true);
+        }
+        entry.textures = [];
+    },
+
+    forget(path) {
+        const key = String(path || '').replace(/\\/g, '/');
+        if (this._cache[key]) this.release(this._cache[key]);
+        delete this._cache[key];
+    }
+};
+
+if (typeof Spriteset_Map !== 'undefined' && Spriteset_Map.prototype.addDocsDoodads) {
+    $.Spriteset_Map_addDocsDoodads_models = Spriteset_Map.prototype.addDocsDoodads;
+    Spriteset_Map.prototype.addDocsDoodads = function() {
+        DocsDoodads.Models.preload(DocsDoodads.doodads());
+        $.Spriteset_Map_addDocsDoodads_models.call(this);
+    };
+}
+
+DocsDoodads.Models.vertex = [
+    'precision highp float;',
+    'attribute vec2 aVertexPosition;',
+    'attribute vec2 aUv;',
+    'attribute float aShade;',
+    'uniform mat3 projectionMatrix;',
+    'uniform mat3 translationMatrix;',
+    'varying vec2 vUv;',
+    'varying float vShade;',
+    'void main() {',
+    '    vUv = aUv;',
+    '    vShade = aShade;',
+    '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
+    '}'
+].join('\n');
+
+DocsDoodads.Models.fragment = [
+    'precision mediump float;',
+    'varying vec2 vUv;',
+    'varying float vShade;',
+    'uniform sampler2D uSampler;',
+    'uniform vec4 uColor;',
+    'uniform vec3 uTint;',
+    'uniform float uAlpha;',
+    'void main() {',
+    '    vec4 c = texture2D(uSampler, vUv) * uColor;',
+    '    float a = c.a * uAlpha;',
+    '    gl_FragColor = vec4(c.rgb * vShade * uTint * a, a);',
+    '}'
+].join('\n');
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    // A model doodad's draw items for this frame (one per primitive, sorted far to near), or null to draw
+    // the picture instead (no model, or still loading). Each part keeps its placed points and shading
+    // until the model is turned, scaled or lit differently, and its projected triangles until the camera
+    // or the doodad moves, so a still view costs almost nothing.
+    Spriteset_Map.prototype.docsModelItems = function(obj, cam, pivot, fog, light, s) {
+        const d = obj._data;
+        const entry = d && d.model && d.model.path ? DocsDoodads.Models.get(d.model.path) : null;
+        if (!entry || !entry.ready || !entry.primitives.length) return null;
+        const P = DocsDoodads.Perspective, G = DocsDoodads.Gltf, T = DocsDoodads.Terrain;
+        const tw = $gameMap.tileWidth();
+        const scale = (Number(d.model.scale) || 1) * tw * s.doodadScale, yaw = Number(d.model.yaw) || 0;
+        const dir = this._docsSkyLight || T.light;
+        const flat = cam.curve === 'flat';
+        let meshes = obj._docsModelMeshes = obj._docsModelMeshes || [];
+        // Another model (the path changed, or it was loaded again): the old parts go.
+        if (obj._docsModelEntry !== entry) {
+            for (const m of meshes) if (m && !m._destroyed) m.destroy();
+            meshes = obj._docsModelMeshes = [];
+            obj._docsModelEntry = entry;
+        }
+        const items = [];
+        const ph = pivot.h || 0;
+        const pivotDepth = P.project(cam, pivot.x, pivot.y, ph);
+        if (!pivotDepth) return [];
+        const placeKey = scale + '|' + yaw;
+        const shadeKey = yaw + '|' + dir[0] + ',' + dir[1] + ',' + dir[2];
+        const C = cam.C, F = cam.F, R = cam.R, U = cam.U;
+        const frameKey = [C.x, C.y, C.z, F.x, F.y, F.z, R.x, R.y, U.z, cam.focal, cam.width, cam.height, cam.curve, cam.radius,
+            cam.target.x, cam.target.y, pivot.x, pivot.y, ph, placeKey].join(',');
+        // A doodad flipped by a negative scale turns its faces inside out.
+        const mirrored = scale < 0;
+        const hw = cam.width / 2, hh = cam.height / 2, focal = cam.focal;
+        entry.primitives.forEach((prim, pi) => {
+            const n = prim.positions.length / 3, triCount = prim.indices.length / 3;
+            let m = meshes[pi];
+            if (!m || m._destroyed || m._docsCount !== n || m._docsTris !== triCount) {
+                if (m && !m._destroyed) m.destroy();
+                const geometry = new PIXI.Geometry()
+                    .addAttribute('aVertexPosition', new Float32Array(n * 2), 2)
+                    .addAttribute('aUv', new Float32Array(prim.uvs), 2)
+                    .addAttribute('aShade', new Float32Array(n), 1)
+                    .addIndex(n < 65536 ? new Uint16Array(prim.indices.length) : new Uint32Array(prim.indices.length));
+                const shader = PIXI.Shader.from(DocsDoodads.Models.vertex, DocsDoodads.Models.fragment,
+                    { uSampler: entry.textures[pi], uColor: prim.color, uTint: [1, 1, 1], uAlpha: 1 });
+                m = meshes[pi] = new PIXI.Mesh(geometry, shader);
+                m._docsCount = n;
+                m._docsTris = triCount;
+                m._docsPlaced = new Float64Array(n * 3);
+                m._docsDepth = new Float64Array(n);
+                m._docsOk = new Uint8Array(n);
+                m._docsSort = T.sortBuffers(triCount);
+                m._docsTri = new Uint32Array(triCount);
+                m._docsPlaceKey = m._docsShadeKey = m._docsFrameKey = null;
+            }
+            const placed = m._docsPlaced;
+            if (m._docsPlaceKey !== placeKey) {
+                for (let v = 0; v < n; v++) {
+                    const w = G.place(prim.positions[v * 3], prim.positions[v * 3 + 1], prim.positions[v * 3 + 2], scale, yaw);
+                    placed[v * 3] = w.dx; placed[v * 3 + 1] = w.dy; placed[v * 3 + 2] = w.h;
+                }
+                m._docsPlaceKey = placeKey;
+                m._docsFrameKey = null;
+            }
+            if (m._docsShadeKey !== shadeKey) {
+                const shade = m.geometry.getBuffer('aShade').data;
+                for (let v = 0; v < n; v++) shade[v] = G.shade(prim.normals[v * 3], prim.normals[v * 3 + 1], prim.normals[v * 3 + 2], yaw, dir);
+                m.geometry.getBuffer('aShade').update();
+                m._docsShadeKey = shadeKey;
+            }
+            if (m._docsFrameKey !== frameKey) {
+                const pos = m.geometry.getBuffer('aVertexPosition').data, ok = m._docsOk, depthOf = m._docsDepth;
+                // P.project, written out so the loop allocates nothing on flat maps.
+                for (let v = 0; v < n; v++) {
+                    let x = pivot.x + placed[v * 3], y = pivot.y + placed[v * 3 + 1], z = ph + placed[v * 3 + 2];
+                    if (!flat) {
+                        const g = P.groundPoint(cam, x, y, z);
+                        if (!g.visible) { ok[v] = 0; continue; }
+                        x = g.x; y = g.y; z = g.z;
+                    }
+                    const vx = x - C.x, vy = y - C.y, vz = z - C.z;
+                    const depth = vx * F.x + vy * F.y + vz * F.z;
+                    if (depth < 1) { ok[v] = 0; continue; }
+                    const k = focal / depth;
+                    pos[v * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * k;
+                    pos[v * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * k;
+                    depthOf[v] = depth;
+                    ok[v] = 1;
+                }
+                const idx = prim.indices, buf = m._docsSort;
+                let count = 0, sum = 0;
+                for (let t = 0; t < triCount; t++) {
+                    const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+                    if (!ok[a] || !ok[b] || !ok[c]) continue;
+                    // Single-sided faces turned away from the camera are skipped.
+                    if (!prim.doubleSided) {
+                        const area = (pos[b * 2] - pos[a * 2]) * (pos[c * 2 + 1] - pos[a * 2 + 1]) - (pos[c * 2] - pos[a * 2]) * (pos[b * 2 + 1] - pos[a * 2 + 1]);
+                        if (mirrored ? area < 0 : area > 0) continue;
+                    }
+                    const depth = (depthOf[a] + depthOf[b] + depthOf[c]) / 3;
+                    buf.depth[count] = depth;
+                    m._docsTri[count++] = t;
+                    sum += depth;
+                }
+                const sorted = T.sortFarToNear(buf, count);
+                const out = m.geometry.getIndex().data;
+                for (let i = 0; i < count; i++) {
+                    const t = m._docsTri[sorted[i]];
+                    out[i * 3] = idx[t * 3]; out[i * 3 + 1] = idx[t * 3 + 1]; out[i * 3 + 2] = idx[t * 3 + 2];
+                }
+                m.geometry.getBuffer('aVertexPosition').update();
+                m.geometry.getIndex().update();
+                m._docsFrameKey = frameKey;
+                m._docsDrawn = count;
+                m._docsMean = count ? sum / count : pivotDepth.depth;
+            }
+            const u = m.shader.uniforms;
+            u.uSampler = entry.textures[pi];
+            u.uAlpha = 1 - fog;
+            u.uTint = light !== null && light !== undefined ? [((light >> 16) & 255) / 255, ((light >> 8) & 255) / 255, (light & 255) / 255] : [1, 1, 1];
+            // Parts sort among themselves by their own depth, all at the model's place among billboards.
+            const count = m._docsDrawn;
+            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: pivotDepth.depth + (m._docsMean - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
+        });
+        // Parts the model no longer has.
+        for (let i = entry.primitives.length; i < meshes.length; i++) if (meshes[i] && !meshes[i]._destroyed) meshes[i].destroy();
+        meshes.length = entry.primitives.length;
+        return items;
+    };
+}
+
+// A doodad's model meshes go with its sprite (scene changes, editor refreshes).
+if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype.destroy) {
+    $.Sprite_DocsDoodad_destroy_models = Sprite_DocsDoodad.prototype.destroy;
+    Sprite_DocsDoodad.prototype.destroy = function(options) {
+        for (const mesh of this._docsModelMeshes || []) if (mesh && !mesh._destroyed) mesh.destroy();
+        this._docsModelMeshes = null;
+        $.Sprite_DocsDoodad_destroy_models.call(this, options);
+    };
+}
+
+// Battles on 3D maps can use the map itself as the background: when MZ takes its snapshot for the
+// battle, the 3D view is drawn again from a low camera, without characters, pictures or the minimap.
+if (typeof Spriteset_Map !== 'undefined' && typeof Bitmap !== 'undefined' && Bitmap.snap) {
+    Spriteset_Map.prototype.docsBattleSnapshot = function(s) {
+        const hidden = [];
+        const hide = obj => { if (obj && obj.visible) { obj.visible = false; hidden.push(obj); } };
+        for (const sp of this._characterSprites || []) {
+            hide(sp);
+            hide(sp._docsShadow);
+            for (const layer of sp._docsVisualSprites || []) hide(layer);
+        }
+        hide(this._pictureContainer);
+        hide(this._timerSprite);
+        hide(this._docsMinimap);
+        hide(this._destinationSprite);
+        const saved = $gameMap._docsCamera;
+        $gameMap._docsCamera = Object.assign({}, saved, DocsDoodads.Perspective.battleCamera(s));
+        let bitmap = null;
+        try {
+            this.updateDocsPerspective();
+            bitmap = Bitmap.snap(this);
+        } finally {
+            $gameMap._docsCamera = saved;
+            for (const obj of hidden) obj.visible = true;
+            this.updateDocsPerspective();
+        }
+        return bitmap;
+    };
+}
+
+if (typeof Scene_Map !== 'undefined') {
+    $.Scene_Map_snapForBattleBackground_3d = Scene_Map.prototype.snapForBattleBackground;
+    Scene_Map.prototype.snapForBattleBackground = function() {
+        $.Scene_Map_snapForBattleBackground_3d.call(this);
+        if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
+        DocsDoodads.Perspective.releaseBattleBack();
+        const s = DocsDoodads.Perspective.active();
+        if (s && s.battleBack && this._spriteset && this._spriteset.docsBattleSnapshot) {
+            $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s);
+        }
+    };
+}
+
+if (typeof Sprite_Battleback !== 'undefined') {
+    $.Sprite_Battleback_battleback1Bitmap_3d = Sprite_Battleback.prototype.battleback1Bitmap;
+    Sprite_Battleback.prototype.battleback1Bitmap = function() {
+        const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
+        return back || $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
+    };
+    $.Sprite_Battleback_battleback2Bitmap_3d = Sprite_Battleback.prototype.battleback2Bitmap;
+    // The map picture covers both layers; the second is left empty (one blank picture, shared).
+    Sprite_Battleback.prototype.battleback2Bitmap = function() {
+        const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
+        if (!back) return $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
+        if (!DocsDoodads.Perspective._blankBack || !DocsDoodads.Perspective._blankBack.baseTexture) DocsDoodads.Perspective._blankBack = new Bitmap(1, 1);
+        return DocsDoodads.Perspective._blankBack;
+    };
+}
+
+// The map picture taken for a battle is freed when the battle ends or another is taken.
+DocsDoodads.Perspective.releaseBattleBack = function() {
+    if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
+    const back = $gameTemp._docsBattleBack;
+    $gameTemp._docsBattleBack = null;
+    if (back && back.destroy && back.baseTexture) back.destroy();
+};
+
+if (typeof Scene_Battle !== 'undefined') {
+    $.Scene_Battle_terminate_3d = Scene_Battle.prototype.terminate;
+    Scene_Battle.prototype.terminate = function() {
+        $.Scene_Battle_terminate_3d.call(this);
+        DocsDoodads.Perspective.releaseBattleBack();
+    };
+}
+
+// Show World Map: the whole map, or a globe on planet-shaped 3D maps, until OK or Cancel.
+function Scene_DocsWorldMap() {
+    this.initialize(...arguments);
+}
+DocsDoodads.Scene_DocsWorldMap = Scene_DocsWorldMap;
+
+if (typeof Scene_MenuBase !== 'undefined') {
+    Scene_DocsWorldMap.prototype = Object.create(Scene_MenuBase.prototype);
+    Scene_DocsWorldMap.prototype.constructor = Scene_DocsWorldMap;
+
+    Scene_DocsWorldMap.prototype.create = function() {
+        Scene_MenuBase.prototype.create.call(this);
+        const map = DocsDoodads.Minimap.forCurrentMap();
+        const s = DocsDoodads.Perspective.active();
+        this._map = map;
+        this._globe = Boolean(s && s.curve === 'sphere');
+        this._spin = 0;
+        this._picture = new Sprite();
+        this.addChild(this._picture);
+        this._marker = new PIXI.Graphics();
+        this.addChild(this._marker);
+        this.drawWorldMap();
+    };
+
+    Scene_DocsWorldMap.prototype.drawWorldMap = function() {
+        const map = this._map;
+        if (!map) return;
+        const M = DocsDoodads.Minimap;
+        const px = $gamePlayer.x, py = $gamePlayer.y;
+        this._marker.clear();
+        if (this._globe) {
+            const size = Math.min(Graphics.width, Graphics.height) - 60;
+            const canvas = M.canvasFor(M.globePixels(map.pixels, map.width, map.height, size, px + 0.5, py + 0.5, this._spin), size, size);
+            const bitmap = this.worldMapBitmap(size, size);
+            bitmap.context.clearRect(0, 0, size, size);
+            bitmap.context.drawImage(canvas, 0, 0);
+            this._picture.bitmap.baseTexture.update();
+            this._picture.x = (Graphics.width - size) / 2;
+            this._picture.y = (Graphics.height - size) / 2;
+            // The player faces the viewer at the centre until the globe is turned.
+            if (Math.abs(this._spin) < 1e-6) this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(Graphics.width / 2, Graphics.height / 2, 5).endFill();
+        } else {
+            const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (Graphics.height - 60) / map.height));
+            const canvas = M.canvasFor(map.pixels, map.width, map.height);
+            const w = Math.round(map.width * scale), h = Math.round(map.height * scale);
+            this.worldMapBitmap(w, h);
+            this._picture.bitmap.context.imageSmoothingEnabled = false;
+            this._picture.bitmap.context.drawImage(canvas, 0, 0, w, h);
+            this._picture.bitmap.baseTexture.update();
+            this._picture.x = (Graphics.width - w) / 2;
+            this._picture.y = (Graphics.height - h) / 2;
+            this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(this._picture.x + (px + 0.5) * scale, this._picture.y + (py + 0.5) * scale, 5).endFill();
+        }
+    };
+
+    // One picture, redrawn while the globe turns (a new one each frame would pile up until the scene ends).
+    Scene_DocsWorldMap.prototype.worldMapBitmap = function(w, h) {
+        const old = this._picture.bitmap;
+        if (old && old.width === w && old.height === h) return old;
+        if (old) old.destroy();
+        return (this._picture.bitmap = new Bitmap(w, h));
+    };
+
+    Scene_DocsWorldMap.prototype.terminate = function() {
+        Scene_MenuBase.prototype.terminate.call(this);
+        if (this._picture && this._picture.bitmap) {
+            const bitmap = this._picture.bitmap;
+            this._picture.bitmap = null;
+            bitmap.destroy();
+        }
+    };
+
+    Scene_DocsWorldMap.prototype.update = function() {
+        Scene_MenuBase.prototype.update.call(this);
+        if (this._globe && (Input.isPressed('left') || Input.isPressed('right'))) {
+            this._spin += Input.isPressed('left') ? -0.05 : 0.05;
+            this.drawWorldMap();
+        }
+        if (Input.isTriggered('ok') || Input.isTriggered('cancel') || TouchInput.isCancelled() || TouchInput.isTriggered()) {
+            SoundManager.playCancel();
+            this.popScene();
+        }
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'showWorldMap', () => {
+        if (typeof SceneManager !== 'undefined' && typeof Scene_DocsWorldMap.prototype.create === 'function') SceneManager.push(Scene_DocsWorldMap);
+    });
+}
+
+// The ground height (tiles) under a character, for event conditions and scripts:
+// DocsDoodads.Terrain.heightOf($gamePlayer) in a Conditional Branch script.
+DocsDoodads.Terrain.heightOf = function(character) {
+    const g = this.grid(true);
+    if (!g || !character) return 0;
+    return this.tileHeight(g, character.x, character.y);
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'storeHeight', function(args) {
+        const ch = DocsDoodads.characterFor(this, args.target, args.eventId);
+        const id = Number(args.variableId) || 0;
+        if (id > 0 && typeof $gameVariables !== 'undefined') $gameVariables.setValue(id, Math.round(DocsDoodads.Terrain.heightOf(ch)));
+    });
 }
 
 //==========================================================
@@ -13390,6 +15343,61 @@ DocsDoodads.Undo = {
     redoStack: [],
     maxDepth: 300,
 
+    labels: {
+        edit_doodads: 'Edit doodads', move_doodads: 'Move doodads', adjust_doodads: 'Adjust doodads', trace_collision: 'Trace collision',
+        place_doodad: 'Place doodad', paste_doodads: 'Paste doodads', delete_doodads: 'Delete doodads', duplicate_doodads: 'Duplicate doodads',
+        scatter_doodads: 'Scatter brush', place_path: 'Draw path', place_prefab: 'Place prefab', sync_prefab: 'Sync prefab copies',
+        align_doodads: 'Align', distribute_doodads: 'Distribute', group_doodads: 'Group', ungroup_doodads: 'Ungroup',
+        lock_doodads: 'Lock or unlock', hide_doodads: 'Hide or show', z_order_fwd: 'Bring forward', z_order_back: 'Send backward',
+        z_order_front: 'Bring to front', z_order_bottom: 'Send to back', create_event: 'Create event', delete_event: 'Delete event',
+        duplicate_event: 'Duplicate event', move_event: 'Move event', append_audio_command: 'Add sound to event',
+        map_ambient: 'Map setting', map_setting: 'Map setting', world_setting: 'Project setting', map_neighbors: 'Neighbouring maps',
+        delete_layer: 'Delete layer', dress_map: 'Dress map', clear_dressing: 'Clear dressing', restore_history: 'Restore from history',
+        restore_event: 'Restore event', move_to_map: 'Move to map', copy_to_map: 'Copy to map', mirror_edges: 'Mirror edges',
+        terrain_paint: 'Terrain brush stroke', biome_paint: 'Biome brush stroke'
+    },
+
+    labelFor(command) {
+        if (!command) return '';
+        if (command.label) return String(command.label);
+        const type = String(command.type || '');
+        if (this.labels[type]) return this.labels[type];
+        if (!type) return 'Edit';
+        const words = type.replace(/[_-]+/g, ' ').trim();
+        return words.charAt(0).toUpperCase() + words.slice(1);
+    },
+
+    // The steps, oldest first: { index, label, done } (done: still applied). The current point is
+    // after the last done step.
+    history() {
+        const done = this.undoStack.map((c, i) => ({ index: i, label: this.labelFor(c), done: true }));
+        const undone = this.redoStack.slice().reverse().map((c, i) => ({ index: done.length + i, label: this.labelFor(c), done: false }));
+        return done.concat(undone);
+    },
+
+    // Undo or redo until `count` steps are applied (0 = before everything that can be undone).
+    goTo(count) {
+        const target = Math.max(0, Math.min(this.undoStack.length + this.redoStack.length, Math.round(Number(count) || 0)));
+        let moved = 0;
+        while (this.undoStack.length > target && this.undoStack.length) {
+            const cmd = this.undoStack.pop();
+            cmd.revert();
+            this.redoStack.push(cmd);
+            moved++;
+        }
+        while (this.undoStack.length < target && this.redoStack.length) {
+            const cmd = this.redoStack.pop();
+            cmd.apply();
+            this.undoStack.push(cmd);
+            moved++;
+        }
+        if (moved) {
+            DocsDoodads.Workspace.updateUndoButtons();
+            if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
+        }
+        return moved;
+    },
+
     clear() {
         this.undoStack = [];
         this.redoStack = [];
@@ -14253,6 +16261,10 @@ DocsDoodads.Workspace = {
                 if (panel.parentNode) panel.parentNode.removeChild(panel);
             }
         }
+        // The undo history floats on the page too (it isn't a glass panel).
+        const history = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-undo-history') : null;
+        if (history && history.parentNode) history.parentNode.removeChild(history);
+        this._undoHistoryOpen = false;
         this.postFxCompare = false;
         this.mounted = false;
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
@@ -14377,6 +16389,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
                 <button class="dd-btn" id="dd-undo-btn">Undo</button>
                 <button class="dd-btn" id="dd-redo-btn">Redo</button>
+                <button class="dd-btn" id="dd-undo-list-btn" title="Undo history: step back to any point">☰</button>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
                 <button class="dd-btn" id="dd-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
@@ -14621,6 +16634,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-close-btn').onclick = () => this.close();
         document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
         document.getElementById('dd-undo-btn').onclick = () => DocsDoodads.Undo.undo();
+        document.getElementById('dd-undo-list-btn').onclick = () => this.toggleUndoHistory();
         document.getElementById('dd-redo-btn').onclick = () => DocsDoodads.Undo.redo();
 
         this.refreshLayoutSelector();
@@ -15032,6 +17046,61 @@ DocsDoodads.Workspace = {
         this.selectedDoodads = [];
         this.selectedAsset = null;
         this.refreshInspector();
+    },
+
+    // ---- 3D preview in the asset inspector ----
+    // Only for images that could stand up as doodads, on maps shown in 3D.
+    renderAsset3dPreview(a) {
+        if (!a || !/\.png$/i.test(a.path || '') || /^img\/(faces|system|titles|battlebacks|sv_|enemies|parallaxes)/i.test(a.path)) return '';
+        const raw = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).perspective;
+        if (!raw || raw.enabled !== true) return '';
+        return `
+            <div style="margin: 6px 0;">
+                <canvas id="dd-asset-3d" width="232" height="140" style="width: 100%; border-radius: 4px; background: #0b1220;"></canvas>
+                <div id="dd-asset-3d-note" style="font-size: 10px; color: #64748b;">In 3D on this map, beside the party leader.</div>
+            </div>`;
+    },
+
+    drawAsset3dPreview(a) {
+        const canvas = document.getElementById('dd-asset-3d');
+        if (!canvas || !canvas.getContext) return;
+        const settings = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).perspective || {};
+        const ctx = canvas.getContext('2d');
+        const leader = typeof $gameParty !== 'undefined' && $gameParty && $gameParty.leader ? $gameParty.leader() : null;
+        const heroBitmap = leader && typeof ImageManager !== 'undefined' ? ImageManager.loadCharacter(leader.characterName()) : null;
+        const image = new Image();
+        const draw = () => {
+            if (!document.getElementById('dd-asset-3d')) return;
+            const big = heroBitmap && heroBitmap.isReady() && ImageManager.isBigCharacter(leader.characterName());
+            const hw = heroBitmap && heroBitmap.isReady() ? heroBitmap.width / (big ? 3 : 12) : 48;
+            const hh = heroBitmap && heroBitmap.isReady() ? heroBitmap.height / (big ? 4 : 8) : 48;
+            const aw = image.naturalWidth || a.width || 48, ah = image.naturalHeight || a.height || 48;
+            const L = DocsDoodads.Perspective.previewLayout(settings, canvas.width, canvas.height, { w: aw, h: ah }, { w: hw, h: hh });
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#1e3a2b';
+            ctx.fillRect(0, canvas.height * 0.35, canvas.width, canvas.height);
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+            ctx.lineWidth = 1;
+            for (const [x1, y1, x2, y2] of L.grid) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+            ctx.imageSmoothingEnabled = false;
+            if (L.hero) {
+                if (heroBitmap && heroBitmap.isReady()) {
+                    const index = big ? 0 : leader.characterIndex();
+                    const sx = ((index % 4) * 3 + 1) * hw, sy = Math.floor(index / 4) * 4 * hh;
+                    ctx.drawImage(heroBitmap._image || heroBitmap.canvas, sx, sy, hw, hh, L.hero.x, L.hero.y, L.hero.w, L.hero.h);
+                } else {
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.fillRect(L.hero.x, L.hero.y, L.hero.w, L.hero.h);
+                }
+            }
+            if (L.asset && image.naturalWidth) ctx.drawImage(image, L.asset.x, L.asset.y, L.asset.w, L.asset.h);
+            const note = document.getElementById('dd-asset-3d-note');
+            if (note) note.textContent = `In 3D on this map, beside the party leader. Height: doodads ${L.doodadScale}, characters ${L.characterScale}.`;
+        };
+        image.onload = draw;
+        image.src = DocsDoodads.LiveReload.urlFor(a.path);
+        if (heroBitmap && !heroBitmap.isReady()) heroBitmap.addLoadListener(draw);
+        draw();
     },
 
     selectAsset(asset) {
@@ -15473,6 +17542,7 @@ DocsDoodads.Workspace = {
             <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
             <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${escapeHtml(a.category)}</span></div>
             <div style="font-size: 11px; margin-bottom: 4px;">Dimensions: ${a.width} x ${a.height}</div>
+            ${this.renderAsset3dPreview(a)}
             <div style="display: flex; gap: 6px; margin: 8px 0;">
                 <button class="dd-btn" id="dd-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
             </div>
@@ -15529,6 +17599,7 @@ DocsDoodads.Workspace = {
             </div>
         `;
 
+        this.drawAsset3dPreview(a);
         const modeSel = document.getElementById('dd-place-mode');
         const templateGroup = document.getElementById('dd-template-group');
         modeSel.value = a.placement.defaultMode || "doodad";
@@ -15593,7 +17664,8 @@ DocsDoodads.Workspace = {
             transition: DocsDoodads.Transition.defaults,
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
             sound: DocsDoodads.SpatialSound.emitterDefaults,
-            react: DocsDoodads.React.defaults
+            react: DocsDoodads.React.defaults,
+            model: { path: '', scale: 1, yaw: 0 }
         };
     },
 
@@ -15638,6 +17710,10 @@ DocsDoodads.Workspace = {
         }
         if (key === 'sound.file' && !value) {
             delete d.sound;
+            return;
+        }
+        if (key === 'model.path' && !String(value || '').trim()) {
+            delete d.model;
             return;
         }
         if (key === 'layer' && (!value || value === 'main')) {
@@ -15793,6 +17869,11 @@ DocsDoodads.Workspace = {
                 range('react.amount', 'Strength', 0, 2, 0.05),
                 { key: 'react.leaves', label: 'Drop leaves when disturbed', type: 'checkbox' }
             ] },
+            { title: '3D Model', fields: [
+                { key: 'model.path', label: 'glTF model shown in 3D instead of the picture (e.g. models/Tree.glb)', type: 'text' },
+                number('model.scale', 'Size (tiles per model unit)', 0.05),
+                range('model.yaw', 'Turn (degrees)', 0, 359, 1)
+            ] },
             { title: 'Atmosphere', fields: [
                 { key: 'seeThrough', label: 'See-through when the player is behind', type: 'select', options: D.SeeThrough.options },
                 { key: 'reflect', label: 'Reflect in water', type: 'select', options: D.Reflection.options },
@@ -15905,7 +17986,7 @@ DocsDoodads.Workspace = {
         const next = Object.assign({}, previous || {});
         if (value === undefined) delete next[key];
         else next[key] = value;
-        DocsDoodads.Undo.execute({ type: 'map_setting', apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
+        DocsDoodads.Undo.execute({ type: 'map_setting', label: key === 'terrain' ? 'Terrain height' : 'Map setting: ' + key, apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
     },
 
     // ---- World (project-wide) settings ----
@@ -15919,7 +18000,7 @@ DocsDoodads.Workspace = {
             World.set(key, copy(v));
             DocsDoodads.Persistence.dirtyDoodads = true;
         };
-        DocsDoodads.Undo.execute({ type: 'world_setting', apply: () => write(after), revert: () => write(before) });
+        DocsDoodads.Undo.execute({ type: 'world_setting', label: 'Project setting: ' + key, apply: () => write(after), revert: () => write(before) });
     },
 
     // ---- Layers (per map) ----
@@ -17072,10 +19153,19 @@ DocsDoodads.Workspace = {
             range('waterSpeed', 'Ripple speed', 0, 3, 0.05),
             range('waterShine', 'Sparkle', 0, 1, 0.05),
             check('waterWakes', 'Wakes behind boats and waders'),
+            { key: 'standTiles', label: 'Tileset objects (B–E tiles)', type: 'select', options: DocsDoodads.StandTiles.modes },
             range('doodadScale', 'Standing doodads: height in 3D', 0.25, 2, 0.05),
             range('characterScale', 'Characters: height in 3D', 0.25, 2, 0.05),
             check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
             check('weather', '3D rain and snow (from Set Weather Effect)'),
+            check('snowCover', 'Snow settles (whitens the ground and tops while it snows, and in Winter)'),
+            range('clouds', 'Cloud shadows', 0, 1, 0.05),
+            number('cloudScale', 'Cloud size (tiles)'),
+            range('cloudSpeed', 'Cloud speed', 0, 5, 0.1),
+            range('mist', 'Low fog (in valleys on raised ground)', 0, 1, 0.05),
+            range('mistHeight', 'Low fog height (tiles)', 0.25, 10, 0.25),
+            check('minimap', 'Minimap in the corner (Show World Map opens the whole map)'),
+            check('battleBack', 'Battles show this map in 3D behind the fight'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },
@@ -17098,7 +19188,7 @@ DocsDoodads.Workspace = {
         return `
             <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
-                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Use doodads for trees and buildings.</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Tiles and floor doodads lie on the ground; characters and standing doodads stand up. Tileset trees and objects can stand up too (Tileset objects).</div>
                 <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
             </details>`;
     },
@@ -17188,7 +19278,11 @@ DocsDoodads.Workspace = {
             number('mountain', 'Mountain height (tiles)'),
             number('forest', 'Forest height (tiles)'),
             check('block', 'Steep steps block walking'),
-            number('climb', 'Highest step you can walk (tiles)')
+            number('climb', 'Highest step you can walk (tiles)'),
+            check('drop', 'Walk off ledges (jump down)'),
+            number('hop', 'Hop up steps up to (tiles; 0 = off)'),
+            check('walls', 'Walls stand up (A3/A4 wall tiles; use the Stepped shape)'),
+            number('wallHeight', 'Wall height where there is no wall face (tiles)')
         ];
     },
 
@@ -17262,6 +19356,16 @@ DocsDoodads.Workspace = {
 
     // ---- Terrain brush ----
     terrainBrush: { mode: 'raise', amount: 0.5, radius: 1, value: 1 },
+
+    // The tile under the mouse while the Terrain tool is out, for the brush preview (null off the map).
+    trackTerrainHover(e) {
+        const canvas = DocsDoodads.Compat.getCanvas();
+        const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+        const inside = !rect || (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom);
+        if (!inside) { this._terrainHover = null; return; }
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        this._terrainHover = { tileX: at.tileX, tileY: at.tileY };
+    },
 
     beginTerrainStroke(clientX, clientY) {
         const mapId = this.currentMapId();
@@ -17539,7 +19643,44 @@ DocsDoodads.Workspace = {
                 <span></span>
             </div>
             <textarea id="dd-ve-tag-out" readonly rows="2" style="${inputStyle} resize: vertical;"></textarea>
-            <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>`;
+            <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Layer sheets from Aseprite: one sheet per layer, in MZ's walking layout (tags down, left, right, up, or frames in that order).</div>
+            <button class="dd-btn" id="dd-ve-ase">Make Layer Sheets from .aseprite…</button>
+            <input type="file" id="dd-ve-ase-file" accept=".aseprite,.ase" style="display: none;" />`;
+    },
+
+    // Writes one character sheet per layer of an Aseprite file to img/characters.
+    makeLayerSheets(filePath) {
+        const FS = DocsDoodads.FS;
+        if (!FS.fs || typeof require === 'undefined') return this.showToast('Needs the desktop playtest.', 'error');
+        try {
+            const zlib = require('zlib');
+            const A = DocsDoodads.AsepriteSheets;
+            const ase = A.parse(FS.fs.readFileSync(filePath), data => zlib.inflateSync(data));
+            const base = FS.path.basename(filePath).replace(/\.(aseprite|ase)$/i, '');
+            const sheets = A.sheets(ase, base);
+            if (!sheets.length) return this.showToast('No visible layers with pictures in that file.', 'info');
+            FS.mkdirp('img/characters');
+            const target = sheet => FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
+            // Sheets made before (from an earlier version of the file) are replaced only when asked.
+            const existing = sheets.filter(sheet => FS.existsSync(target(sheet))).map(sheet => sheet.fileName);
+            if (existing.length && typeof confirm === 'function'
+                && !confirm(`Replace ${existing.length} sheet(s) already in img/characters (${existing.join(', ')})?`)) {
+                this.showToast('Nothing was written.', 'info');
+                return null;
+            }
+            const written = sheets.map(sheet => {
+                const out = target(sheet);
+                FS.fs.writeFileSync(out, A.encodePng(sheet.width, sheet.height, sheet.rgba, data => zlib.deflateSync(data)));
+                return out;
+            });
+            DocsDoodads.LiveReload.process(written, DocsDoodads.LiveReload.defaultHandlers());
+            this.showToast(`Made ${written.length} layer sheet(s): ${sheets.map(sh => sh.fileName).join(', ')}`, 'success');
+            return written;
+        } catch (e) {
+            this.showToast('Could not read that file: ' + e.message, 'error');
+            return null;
+        }
     },
 
     bindVisualTryOn() {
@@ -17570,6 +19711,15 @@ DocsDoodads.Workspace = {
         for (const id of ['dd-ve-tag-image', 'dd-ve-tag-z', 'dd-ve-tag-up', 'dd-ve-tag-part', 'dd-ve-tag-hide', 'dd-ve-tag-sv']) {
             const input = document.getElementById(id);
             if (input) input.oninput = update;
+        }
+        const aseButton = document.getElementById('dd-ve-ase'), aseFile = document.getElementById('dd-ve-ase-file');
+        if (aseButton && aseFile) {
+            aseButton.onclick = () => aseFile.click();
+            aseFile.onchange = () => {
+                const file = aseFile.files && aseFile.files[0];
+                if (file) this.makeLayerSheets(file.path || file.name);
+                aseFile.value = '';
+            };
         }
         const copy = document.getElementById('dd-ve-tag-copy');
         if (copy) copy.onclick = () => {
@@ -18244,6 +20394,23 @@ DocsDoodads.Workspace = {
         };
     },
 
+    // The map panel's sections that mention every word searched for are shown (and opened); clearing
+    // the search brings the panel back as it was.
+    applyMapSearch(content) {
+        const query = (this._mapSearch || '').trim();
+        let shown = 0;
+        for (const section of Array.from(content.children || []).filter(el => el.tagName === 'DETAILS')) {
+            if (section._docsWasOpen === undefined) section._docsWasOpen = section.open;
+            const hit = DocsDoodads.SettingsSearch.matches(section.textContent || '', query);
+            section.style.display = hit ? '' : 'none';
+            section.open = query ? hit : section._docsWasOpen;
+            if (hit) shown++;
+        }
+        const none = document.getElementById('dd-map-search-none');
+        if (none) none.style.display = query && !shown ? '' : 'none';
+        return shown;
+    },
+
     renderMapPanel(content) {
         const mapId = this.currentMapId();
         const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
@@ -18251,6 +20418,9 @@ DocsDoodads.Workspace = {
         content.innerHTML = `
             <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP ${mapId} SETTINGS</div>
             <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Select an asset in the drawer or click an object on the map.</div>
+            <input type="search" id="dd-map-search" placeholder="Search settings (e.g. fog, shadow, snow)" value="${escapeHtml(this._mapSearch || '')}"
+                style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
+            <div id="dd-map-search-none" style="display: none; font-size: 11px; color: #64748b; margin-bottom: 6px;">No settings match.</div>
             <details open style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Lighting</summary>
                 <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
@@ -18280,6 +20450,11 @@ DocsDoodads.Workspace = {
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}`;
 
+        const search = document.getElementById('dd-map-search');
+        if (search && content.querySelectorAll) {
+            search.oninput = () => { this._mapSearch = search.value; this.applyMapSearch(content); };
+            this.applyMapSearch(content);
+        }
         const read = () => ({
             darkness: parseFloat(document.getElementById('dd-map-dark').value) || 0,
             color: document.getElementById('dd-map-color').value || ambient.color,
@@ -19174,6 +21349,7 @@ DocsDoodads.Workspace = {
                     delete $gameMap._stagedMapData.events[newId];
                 }
             };
+            cmd.type = cmd.type || 'create_event';
             DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
@@ -19199,6 +21375,7 @@ DocsDoodads.Workspace = {
                     this.refreshSpriteset();
                 }
             };
+            cmd.type = cmd.type || 'place_doodad';
             DocsDoodads.Undo.execute(cmd);
             this.showToast("Placed Doodad on Map!");
         }
@@ -19350,6 +21527,43 @@ DocsDoodads.Workspace = {
         this.showToast(hidden ? `Hidden ${items.length} doodads in editor.` : `Showing ${items.length} doodads.`);
     },
 
+    // ---- Undo history panel ----
+    toggleUndoHistory() {
+        const existing = document.getElementById('dd-undo-history');
+        if (existing) { existing.remove(); this._undoHistoryOpen = false; return; }
+        this._undoHistoryOpen = true;
+        const panel = document.createElement('div');
+        panel.id = 'dd-undo-history';
+        panel.style.cssText = 'position: fixed; right: 260px; top: 70px; width: 240px; max-height: 60vh; overflow-y: auto; z-index: 10007; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px; font: 11px sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.5);';
+        document.body.appendChild(panel);
+        this.renderUndoHistory();
+    },
+
+    renderUndoHistory() {
+        const panel = document.getElementById('dd-undo-history');
+        if (!panel || !panel.querySelectorAll) { this._undoHistoryOpen = false; return; }
+        const steps = DocsDoodads.Undo.history();
+        const applied = DocsDoodads.Undo.undoStack.length;
+        const row = (count, label, state) => `<div class="dd-undo-step" data-count="${count}" style="padding: 3px 6px; border-radius: 3px; cursor: pointer; ${state === 'current' ? 'background: #1d4ed8; color: #fff;' : state === 'undone' ? 'color: #64748b; font-style: italic;' : ''}">${escapeHtml(label)}</div>`;
+        panel.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <b style="color: #38bdf8;">Undo History</b>
+                <button class="dd-btn" id="dd-undo-history-close" style="padding: 0 6px;">×</button>
+            </div>
+            <div style="color: #64748b; margin-bottom: 4px;">Click a step to go back (or forward) to just after it.</div>
+            ${row(0, '(Start)', applied === 0 ? 'current' : 'done')}
+            ${steps.map(st => row(st.index + 1, (st.index + 1) + '. ' + st.label, st.index + 1 === applied ? 'current' : st.done ? 'done' : 'undone')).join('')}`;
+        document.getElementById('dd-undo-history-close').onclick = () => { panel.remove(); this._undoHistoryOpen = false; };
+        for (const el of panel.querySelectorAll('.dd-undo-step')) {
+            el.onclick = () => {
+                DocsDoodads.Undo.goTo(Number(el.getAttribute('data-count')));
+                this.renderUndoHistory();
+            };
+        }
+        const current = panel.querySelector('[style*="#1d4ed8"]');
+        if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' });
+    },
+
     bringForward(items) {
         items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
         if (!items || items.length === 0) return;
@@ -19482,6 +21696,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             }
         };
+        cmd.type = cmd.type || 'paste_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
         this.showToast(`Pasted ${duplicates.length} doodad(s)${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
@@ -19832,6 +22047,18 @@ DocsDoodads.Workspace = {
 
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
+        if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
+            const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const color = T.brushColors[this.terrainBrush.mode] || 0xffffff;
+            for (const t of T.brushFootprint(this._terrainHover.tileX, this._terrainHover.tileY, this.terrainBrush.radius)) {
+                // Stronger towards the centre, as the brush is.
+                g.lineStyle(2, color, 0.35 + 0.55 * t.weight);
+                g.beginFill(color, 0.15 + 0.4 * t.weight);
+                g.drawRect($gameMap.adjustX(t.x) * tw + 3, $gameMap.adjustY(t.y) * th + 3, tw - 6, th - 6);
+                g.endFill();
+            }
+            g.lineStyle(0);
+        }
         // Offsets from the screen position of the map origin's nearest copy keep lines continuous on looping maps.
         const anchor = this._drag && this._drag.primary ? this._drag.primary : (this.pathPoints && this.pathPoints[0]) || { x: 0, y: 0 };
         const anchorScreen = DocsDoodads.mapToScreen(anchor.x, anchor.y);
@@ -19953,6 +22180,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             }
         };
+        cmd.type = cmd.type || 'delete_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectedDoodad = null;
         this.selectedDoodads = [];
@@ -19982,6 +22210,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             }
         };
+        cmd.type = cmd.type || 'duplicate_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
         this.showToast(`Duplicated ${duplicates.length} Doodad(s)`);
@@ -20254,6 +22483,7 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseDown = (e) => {
+            if (e.button === 1 && this.beginCameraDrag(e)) return;
             if (this.placementTool === 'brush' && this.selectedAsset) {
                 this.isBrushActive = true;
                 this.currentBrushBatch = [];
@@ -20291,6 +22521,10 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseMove = (e) => {
+            if (this._camDrag) {
+                this.updateCameraDrag(e);
+                return;
+            }
             if (this._drag) {
                 // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
                 if (e.buttons === 0) {
@@ -20309,6 +22543,7 @@ DocsDoodads.Workspace = {
                 this._pathHover = e.altKey ? { x: hover.x, y: hover.y } : this.snapToTile(hover);
                 return;
             }
+            if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 this.showGhost(this.selectedAsset, e.clientX, e.clientY, e.altKey);
             } else if (this.isBrushActive && this.placementTool === 'brush' && this.selectedAsset) {
@@ -20317,6 +22552,7 @@ DocsDoodads.Workspace = {
                 this.biomePaintAt(e.clientX, e.clientY);
             } else if (this.isBrushActive && this.placementTool === 'terrain') {
                 this.terrainPaintAt(e.clientX, e.clientY);
+                this.trackTerrainHover(e);
             } else if (this.isMarqueeActive && this.marqueeStartClient) {
                 const dx = e.clientX - this.marqueeStartClient.x;
                 const dy = e.clientY - this.marqueeStartClient.y;
@@ -20345,6 +22581,10 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseUp = (e) => {
+            if (this._camDrag) {
+                this.endCameraDrag();
+                return;
+            }
             if (this._drag) {
                 if (this.endDoodadDrag()) this._suppressNextClick = true;
                 this._dragActive = false;
@@ -20372,6 +22612,7 @@ DocsDoodads.Workspace = {
                             if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDocsDoodads();
                         }
                     };
+                    cmd.type = cmd.type || 'scatter_doodads';
                     DocsDoodads.Undo.execute(cmd);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
@@ -20411,6 +22652,8 @@ DocsDoodads.Workspace = {
             canvas.addEventListener('click', this._onCanvasClick);
             canvas.addEventListener('mousedown', this._onCanvasMouseDown);
             canvas.addEventListener('contextmenu', this._onCanvasContextMenu);
+            this._onCanvasWheel = (e) => this.wheelCamera(e);
+            canvas.addEventListener('wheel', this._onCanvasWheel, { passive: false });
             this._onCanvasDblClick = (e) => {
                 if (this.placementTool === 'path') {
                     e.preventDefault();
@@ -20425,6 +22668,71 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // ---- 3D camera with the mouse (editor only) ----
+    // Middle-drag orbits, Shift + middle-drag pans, the wheel zooms, a middle click resets. The view is a
+    // camera change for this visit (like Set Camera): the map's own camera settings are not changed.
+    canvasPoint(e) {
+        if (typeof Graphics !== 'undefined' && Graphics.pageToCanvasX) return { x: Graphics.pageToCanvasX(e.pageX), y: Graphics.pageToCanvasY(e.pageY) };
+        return { x: e.clientX, y: e.clientY };
+    },
+
+    beginCameraDrag(e) {
+        if (!this.mounted || !DocsDoodads.Perspective.liveCamera()) return false;
+        if (e.preventDefault) e.preventDefault();
+        const at = this.canvasPoint(e);
+        const cam = DocsDoodads.Perspective.liveCamera();
+        this._camDrag = { x: e.clientX, y: e.clientY, pan: Boolean(e.shiftKey), moved: false,
+            ground: DocsDoodads.Perspective.unproject(cam, at.x, at.y) };
+        return true;
+    },
+
+    updateCameraDrag(e) {
+        const drag = this._camDrag;
+        const P = DocsDoodads.Perspective;
+        const s = P.active();
+        if (!s || e.buttons === 0) return this.endCameraDrag();
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        drag.moved = true;
+        if (drag.pan) {
+            // Keep the ground point grabbed under the mouse.
+            const cam = P.liveCamera(), at = this.canvasPoint(e);
+            const now = cam && drag.ground ? P.unproject(cam, at.x, at.y) : null;
+            if (now) {
+                const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+                $gameMap.setDisplayPos($gameMap.displayX() + (drag.ground.x - now.x) / tw, $gameMap.displayY() + (drag.ground.y - now.y) / th);
+            }
+        } else {
+            this.setCameraView(P.orbit(s, dx, dy));
+            drag.x = e.clientX;
+            drag.y = e.clientY;
+        }
+    },
+
+    endCameraDrag() {
+        const drag = this._camDrag;
+        this._camDrag = null;
+        if (drag && !drag.moved) {
+            this.setCameraView(null);
+            if (typeof $gamePlayer !== 'undefined' && $gamePlayer) $gamePlayer.center($gamePlayer.x, $gamePlayer.y);
+            this.showToast("3D view reset to the map's camera");
+        }
+    },
+
+    wheelCamera(e) {
+        if (!this.mounted || !DocsDoodads.Perspective.liveCamera()) return;
+        e.preventDefault();
+        const s = DocsDoodads.Perspective.active();
+        if (s) this.setCameraView({ zoom: DocsDoodads.Perspective.wheelZoom(s.zoom, e.deltaY) });
+    },
+
+    // null goes back to the map's own camera.
+    setCameraView(change) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        $gameMap._docsCameraTween = null;
+        $gameMap._docsCamera = change ? Object.assign({}, $gameMap._docsCamera, change) : null;
+    },
+
     detachCanvasListeners() {
         this.setCanvasOverlaysPassthrough(false);
         const canvas = DocsDoodads.Compat.getCanvas();
@@ -20435,7 +22743,9 @@ DocsDoodads.Workspace = {
             if (this._onCanvasMouseDown) canvas.removeEventListener('mousedown', this._onCanvasMouseDown);
             if (this._onCanvasContextMenu) canvas.removeEventListener('contextmenu', this._onCanvasContextMenu);
             if (this._onCanvasDblClick) canvas.removeEventListener('dblclick', this._onCanvasDblClick);
+            if (this._onCanvasWheel) canvas.removeEventListener('wheel', this._onCanvasWheel);
         }
+        this._camDrag = null;
         if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
             if (this._onCanvasMouseMove) window.removeEventListener('mousemove', this._onCanvasMouseMove);
             if (this._onCanvasMouseUp) window.removeEventListener('mouseup', this._onCanvasMouseUp);
@@ -21190,6 +23500,7 @@ DocsDoodads.Workspace = {
         const rBtn = document.getElementById('dd-redo-btn');
         if (uBtn) uBtn.style.opacity = DocsDoodads.Undo.undoStack.length > 0 ? '1' : '0.5';
         if (rBtn) rBtn.style.opacity = DocsDoodads.Undo.redoStack.length > 0 ? '1' : '0.5';
+        if (this._undoHistoryOpen) this.renderUndoHistory();
     }
 };
 

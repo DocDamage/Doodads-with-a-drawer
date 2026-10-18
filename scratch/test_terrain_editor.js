@@ -100,4 +100,19 @@ ws._drag = null;
 ws.setTerrainField('enabled', false);
 assert.strictEqual(T.allowsDoodad(Object.assign({}, placed, { x: 72, y: 96 }), 1), true);
 
+// The brush preview shows exactly the tiles a dab changes, strongest at the centre.
+{
+    const Tt = DocsDoodads.Terrain;
+    const grid = { heights: new Float64Array(20 * 20), width: 20, height: 20 };
+    for (const radius of [0, 1, 3]) {
+        const foot = Tt.brushFootprint(10, 10, radius);
+        const painted = Tt.applyBrush({}, grid, 10, 10, { mode: 'raise', amount: 1, radius });
+        assert.deepStrictEqual(foot.map(t => t.x + ',' + t.y).sort(), Object.keys(painted).sort(), 'same tiles at radius ' + radius);
+        for (const t of foot) assert.ok(Math.abs(painted[t.x + ',' + t.y] - Math.round(t.weight * 100) / 100) < 1e-9, 'same strength');
+    }
+    const centre = Tt.brushFootprint(10, 10, 2).find(t => t.x === 10 && t.y === 10);
+    assert.strictEqual(centre.weight, 1);
+    assert.ok(Object.keys(Tt.brushColors).length === Tt.brushModes.length, 'a colour for every brush mode');
+}
+
 console.log("✓ Terrain panel, region heights with undo, brush strokes and undo, and level ground for doodads verified.");

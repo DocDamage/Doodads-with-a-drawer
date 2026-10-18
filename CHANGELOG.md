@@ -2,6 +2,31 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- The source now lives in `src/` (46 parts by feature) and `npm run build` joins them into the shipped `Docs-Doodads.js`; `npm run verify` checks the two match.
+- Tests: a stand-in engine (PIXI and MZ classes) runs the map, character and 3D drawing code under Node; line coverage went from 65% to 75% and the coverage gate from 40% to 72%.
+- Added interior walls for the 3D view: A4 walls and A3 roofs stand up to their face height, with the wall face art on the front and the wall top on top.
+- Added 3D models: a doodad can show a glTF 2.0 model (.glb or .gltf) in the 3D view, with colours and textures, lit by the sun and sorted with the billboards.
+- Added 3D battle backgrounds (per map): a battle started on a 3D map can show the map around the encounter, from a low camera, behind the fight.
+- Added a minimap for 3D maps and a Show World Map plugin command; planet-shaped maps show a globe that turns with the arrow keys.
+- Added height-aware movement on raised terrain: jump down off ledges and hop up small steps (per map), plus a Store Ground Height plugin command and a script helper for event conditions.
+- Added a settings search to the map panel: only the sections that mention every word typed are shown, opened.
+- Added an undo history panel (☰ beside Undo/Redo): every step by name, and a click goes back or forward to any point.
+- Added Make Layer Sheets from .aseprite: a layered Aseprite walk cycle becomes one MZ character sheet per layer (body, hair, clothes...) for visual equipment.
+- Added a Terrain brush preview: the tiles a stroke will change are shown on the ground before painting, stronger towards the centre.
+- Added a 3D preview to the asset inspector on 3D maps: the selected image standing beside the party leader at the map's tilt and 3D height settings.
+- Added drifting cloud shadows and low fog to the 3D view (per map); the fog lies in valleys when terrain height is on.
+- Added snow that settles in the 3D view (per map): the ground whitens and standing objects get white tops while it snows, it melts afterwards, and a season named Winter keeps it white.
+- Added see-through to the 3D view: hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player.
+- Added mouse look to the editor in 3D: middle-drag orbits, Shift + middle-drag pans, the wheel zooms, and a middle click resets to the map's camera.
+- Fixed the airship in the 3D view: in flight it was sorted as if it stood a tile north, so trees beside the player hid it, and its shadow stood up instead of lying on the ground. Ship wakes on the open sea, flying and landing were checked.
+- Character sun shadows now include visual equipment layers, so capes, hats and shields change the shadow's shape.
+- 3D rain and snow are now drawn in depth bands sorted in with trees, characters and hills, so drops behind them no longer show through.
+- Fixed MZ's Effekseer animations in the 3D view: they played where the target would be on the flat map, off to one side, and didn't shrink with distance. They now play on the target as drawn, at its size.
+- Added tileset objects standing up in the 3D view: a per-map option lifts B–E objects with ☆ tiles (tree tops and their trunks), or every B–E tile, off the ground as billboards, without changing the map.
+- Fixed a crash after opening the menu, a battle or a map transfer on a map with glowing lamps, particles or 3D weather ("Cannot read property 'valid' of null" or "'uvsFloat32' of null"). MZ destroys every sprite texture of the scene it leaves, and the plugin's shared light, particle and weather textures were destroyed with it.
+- Faster 3D terrain: on a 200 × 200 world map with view distance 64, terrain and a storm went from 18 to 58 fps. The terrain no longer allocates per frame, sorts with a radix sort, is rebuilt every few tiles instead of every tile, and draws level ground and fully faded ground more cheaply; the 3D and terrain settings are worked out once a frame.
+- The README and guide now say RPG Maker MZ only: nothing since 2.0 has been tested in MV.
+
 - Added 3D quality levels: the players' Effects Quality option (High, Medium, Low, Off) now also scales the 3D view down for slower machines, with a shorter view distance (fog pulled in to match), fewer weather drops, no wakes on Low and simpler hills. The option now shows in Options whenever a map uses the 3D view. The editor always shows maps as set.
 
 - Added 3D-only height settings for standing doodads and characters, so tall tileset art can be brought in proportion in the 3D view without changing the 2D map; editor picking and boxes match.

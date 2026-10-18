@@ -53,4 +53,17 @@ assert.strictEqual(ws.doodadAtScreen({ x: footScreen.x, y: footScreen.y - 120 * 
 global.$dataDocsDoodads.mapSettings = {};
 assert.strictEqual(ws.doodadFlatBox(lamp).rect.h, 144, "2D (and 3D at 1): full size");
 
+// The drawer's 3D preview: the asset and the party leader stand side by side at their 3D heights.
+{
+    const Pv = DocsDoodads.Perspective;
+    const base = Pv.previewLayout({ pitch: 55 }, 232, 140, { w: 48, h: 144 }, { w: 48, h: 48 });
+    assert.ok(base.grid.length > 10, 'ground lines');
+    assert.ok(Math.abs(base.asset.h / base.hero.h - 3) < 1e-6, 'a 3-tile lamp is 3 heroes tall at height 1');
+    assert.ok(Math.abs((base.asset.y + base.asset.h) - (base.hero.y + base.hero.h)) < 1e-6, 'both stand on the same line');
+    assert.ok(base.hero.x + base.hero.w <= base.asset.x + 1e-6, 'the hero stands left of the asset');
+    const scaled = Pv.previewLayout({ pitch: 55, doodadScale: 0.5, characterScale: 1.5 }, 232, 140, { w: 48, h: 144 }, { w: 48, h: 48 });
+    assert.ok(Math.abs(scaled.asset.h / scaled.hero.h - 1) < 1e-6, 'heights follow the 3D height settings');
+    assert.deepStrictEqual([scaled.doodadScale, scaled.characterScale], [0.5, 1.5]);
+}
+
 console.log("✓ 3D height settings, scaling about the foot, and editor picking at the 3D size verified.");

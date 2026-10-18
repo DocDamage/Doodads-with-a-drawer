@@ -75,4 +75,13 @@ assert.strictEqual(Wx.pruneSplashes(sp, Wx.splashLife * 0.5).length, 1);
 assert.strictEqual(Wx.pruneSplashes(sp, Wx.splashLife + 0.01).length, 0);
 assert.ok(Wx.pruneSplashes(Array.from({ length: 500 }, () => ({ x: 0, y: 0, z: 0, born: 1 })), 1).length <= Wx.maxSplashes, "capped");
 
+// Drops are drawn in depth bands sorted in with the trees: nearest band 0, each sorted at its near edge.
+assert.strictEqual(Wx.band(100, 100, 900), 0);
+assert.strictEqual(Wx.band(900, 100, 900), Wx.depthBands - 1, 'the farthest drop is in the last band');
+assert.strictEqual(Wx.band(500, 100, 900), Math.floor(Wx.depthBands / 2));
+assert.strictEqual(Wx.band(300, 300, 300), 0, 'all at one depth');
+assert.strictEqual(Wx.bandDepth(0, 100, 900), 100);
+assert.strictEqual(Wx.bandDepth(1, 100, 900), 100 + 800 / Wx.depthBands);
+for (let d = 100; d <= 900; d += 37) assert.ok(Wx.bandDepth(Wx.band(d, 100, 900), 100, 900) <= d, 'a band sorts no farther than its drops');
+
 console.log("✓ Weather settings, rain/storm/snow parameters, falling, splashing on raised ground, wind, snow sway, following the camera and splash lifetimes verified.");

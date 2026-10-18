@@ -95,4 +95,19 @@ assert.deepStrictEqual([at.tileX, at.tileY], [12, 8]);
 const sky = ws.clientToMapCoords(408, -2000);
 assert.deepStrictEqual([sky.x, sky.y], [at.x, at.y], "above the horizon: the last ground point");
 
+// Mouse look in the editor: middle-drag orbits, the wheel zooms, within the settings' ranges.
+{
+    const Pv = DocsDoodads.Perspective;
+    assert.deepStrictEqual(Pv.orbit({ yaw: 0, pitch: 55 }, 100, 0), { yaw: 40, pitch: 55 }, 'dragging right turns right');
+    assert.deepStrictEqual(Pv.orbit({ yaw: 10, pitch: 55 }, -100, 0).yaw, 330, 'wraps below 0');
+    assert.strictEqual(Pv.orbit({ yaw: 0, pitch: 55 }, 0, 100).pitch, 85, 'dragging down looks more steeply down');
+    assert.strictEqual(Pv.orbit({ yaw: 0, pitch: 55 }, 0, 500).pitch, 89, 'never past straight down');
+    assert.strictEqual(Pv.orbit({ yaw: 0, pitch: 55 }, 0, -500).pitch, 20, 'never flatter than the tilt setting allows');
+    assert.strictEqual(Pv.wheelZoom(1, -120), 1.1);
+    assert.strictEqual(Pv.wheelZoom(1, 120), 0.909);
+    assert.strictEqual(Pv.wheelZoom(3.9, -120), 4);
+    assert.strictEqual(Pv.wheelZoom(0.26, 120), 0.25);
+    assert.strictEqual(Pv.wheelZoom(1.5, 0), 1.5);
+}
+
 console.log("✓ 3D View panel, undo, camera overrides, picking, gizmo selection, drag grab and ground clicks verified.");

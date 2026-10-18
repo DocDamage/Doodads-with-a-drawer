@@ -2,16 +2,17 @@
   "name": "docs-doodads",
   "version": "2.0.0-alpha.1",
   "private": true,
-  "description": "Doc's Doodads: visual asset workspace and doodad editor for RPG Maker MZ/MV",
+  "description": "Doc's Doodads: visual asset workspace and doodad editor for RPG Maker MZ",
   "license": "MIT",
   "engines": {
     "node": ">=20.19"
   },
   "scripts": {
-    "check": "node --check Docs-Doodads.js",
+    "build": "node scripts/build.js",
+    "check": "node scripts/build.js --check && node --check Docs-Doodads.js",
     "test": "node scratch/run-tests.js",
     "verify": "node scratch/verify-project.js",
-    "coverage": "c8 --reporter=text --reporter=json-summary --include=Docs-Doodads.js --check-coverage --lines=40 --statements=40 --functions=40 --branches=40 node scratch/run-tests.js"
+    "coverage": "c8 --reporter=text --reporter=json-summary --include=Docs-Doodads.js --check-coverage --lines=72 --statements=72 --functions=70 --branches=70 node scratch/run-tests.js"
   },
   "devDependencies": {
     "c8": "12.0.0"

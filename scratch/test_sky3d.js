@@ -75,4 +75,18 @@ assert.ok(S.skyPoint(cam, 200, 20).x > sunAhead.x, "further clockwise is to the 
 assert.strictEqual(S.lightKey([0.1, 0.2, 0.97]), S.lightKey([0.101, 0.2, 0.97]));
 assert.notStrictEqual(S.lightKey([0.1, 0.2, 0.97]), S.lightKey([0.3, 0.2, 0.93]));
 
+// Cloud shadows and low fog: off by default, kept in range, and the clouds drift with time.
+{
+    const Pv = DocsDoodads.Perspective;
+    const d = Pv.normalize({});
+    assert.deepStrictEqual([d.clouds, d.mist, d.cloudScale, d.cloudSpeed, d.mistHeight], [0, 0, 6, 1, 1]);
+    const v = Pv.normalize({ clouds: 5, mist: -1, cloudScale: 0, cloudSpeed: 99, mistHeight: 0 });
+    assert.deepStrictEqual([v.clouds, v.mist, v.cloudScale, v.cloudSpeed, v.mistHeight], [1, 0, 2, 5, 0.25]);
+    assert.deepStrictEqual(Pv.cloudDrift(0, 1), { x: 0, y: 0 });
+    const a = Pv.cloudDrift(10, 1), b = Pv.cloudDrift(20, 1);
+    assert.ok(b.x > a.x && b.y > a.y, 'drifts on');
+    assert.ok(Math.abs(Pv.cloudDrift(10, 2).x - 2 * a.x) < 1e-12, 'faster with speed');
+    assert.deepStrictEqual(Pv.cloudDrift(10, 0), { x: 0, y: 0 }, 'still at speed 0');
+}
+
 console.log("✓ Day/night setting, sun and moon paths matching shadows, light colour and direction, sky colours, stars, sky positions and light keys verified.");
