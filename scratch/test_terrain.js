@@ -180,4 +180,19 @@ assert.strictEqual(paint['0,0'], undefined);
 assert.strictEqual(T.applyBrush({}, brushGrid, -5, -5, { mode: 'raise', amount: 1, radius: 1 })['-5,-5'], undefined, "off the map");
 assert.ok('5,1' in T.applyBrush({}, Object.assign({}, brushGrid, { loopX: true }), 0, 1, { mode: 'raise', amount: 1, radius: 1 }), "wraps on looping maps");
 
+// Height-aware movement: with steep steps blocking, ledges can be jumped down and small steps hopped up.
+{
+    const Tt = DocsDoodads.Terrain;
+    const base = Tt.normalize({ block: true, climb: 0.5 });
+    assert.deepStrictEqual([base.drop, base.hop], [false, 0], 'off by default');
+    assert.strictEqual(Tt.stepKind(0, 0.25, base), 'walk');
+    assert.strictEqual(Tt.stepKind(2, 0, base), 'blocked');
+    const both = Tt.normalize({ block: true, climb: 0.5, drop: true, hop: 1 });
+    assert.strictEqual(Tt.stepKind(2, 0, both), 'drop', 'off a ledge');
+    assert.strictEqual(Tt.stepKind(0, 1, both), 'hop', 'up a one-tile step');
+    assert.strictEqual(Tt.stepKind(0, 2, both), 'blocked', 'too high to hop');
+    assert.strictEqual(Tt.stepKind(0, 0.5, both), 'walk', 'small steps are still walked');
+    assert.strictEqual(Tt.normalize({ hop: 99 }).hop, 20);
+}
+
 console.log("✓ Settings, automatic/tag/region/painted heights, height under points, smooth and stepped meshes, shading, level ground for doodads, steps, raised feet, clicks and the height brush verified.");

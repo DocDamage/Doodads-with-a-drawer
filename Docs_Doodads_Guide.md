@@ -509,6 +509,9 @@ Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (t
 - Clicking finds the slope you clicked.
 - Slopes are shaded by a light from the upper left, and fog fades distant hills.
 - **Steep steps block walking:** characters can't climb or drop more than the **Highest step you can walk**.
+- **Walk off ledges:** with steep steps blocking, characters can still go off higher ground: they jump down to the tile below.
+- **Hop up steps up to:** characters jump up a step no higher than this (tiles); 0 turns it off. Followers and events do the same.
+- **Store Ground Height** (plugin command) puts the height under the player or an event (tiles, rounded) in a variable, for page conditions or branches. In a Conditional Branch script, `DocsDoodads.Terrain.heightOf($gamePlayer) >= 2` works too.
 
 Terrain height shows only in the 3D view. It works on round worlds too.
 

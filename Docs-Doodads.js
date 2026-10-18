@@ -1038,6 +1038,31 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command storeHeight
+ * @text Store Ground Height
+ * @desc Stores the terrain height (tiles, rounded) under a character in a variable, for event conditions.
+ *
+ * @arg target
+ * @text Character
+ * @type select
+ * @option Player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @default 0
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 1
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -5053,7 +5078,7 @@ DocsDoodads.Terrain = {
         { value: 'smooth', label: 'Smooth (hills and mountains)' },
         { value: 'stepped', label: 'Stepped (cliffs and plateaus)' }
     ],
-    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5 },
+    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5, drop: false, hop: 0 },
     // Smooth ground: heights are sampled 4 times per tile and blurred, so ranges stay full height inside
     // and round off at their edges with low foothills, and art isn't stretched up sharp spikes.
     smoothSamples: 4,
@@ -5089,7 +5114,9 @@ DocsDoodads.Terrain = {
             regions: list(s.regions, 'region', 255),
             paint,
             block: s.block === true,
-            climb: num(s.climb, d.climb, 0, 20)
+            climb: num(s.climb, d.climb, 0, 20),
+            drop: s.drop === true,
+            hop: num(s.hop, d.hop, 0, 20)
         };
     },
 
@@ -5328,6 +5355,16 @@ DocsDoodads.Terrain = {
 
     canStep(fromHeight, toHeight, climb) {
         return Math.abs(toHeight - fromHeight) <= climb + 1e-9;
+    },
+
+    // How a character gets from one tile to the next with Steep steps on: 'walk', 'drop' (off a ledge,
+    // with Walk off ledges), 'hop' (up a step no higher than Hop up), or 'blocked'.
+    stepKind(fromHeight, toHeight, s) {
+        if (this.canStep(fromHeight, toHeight, s.climb)) return 'walk';
+        const rise = toHeight - fromHeight;
+        if (rise < 0 && s.drop) return 'drop';
+        if (rise > 0 && s.hop > 0 && rise <= s.hop + 1e-9) return 'hop';
+        return 'blocked';
     },
 
     brushModes: [
@@ -10395,8 +10432,44 @@ if (typeof Game_CharacterBase !== 'undefined') {
         const g = T.grid();
         if (!g) return true;
         const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
-        return T.canStep(T.tileHeight(g, x, y), T.tileHeight(g, x2, y2), s.climb);
+        return T.stepKind(T.tileHeight(g, x, y), T.tileHeight(g, x2, y2), s) !== 'blocked';
     };
+
+    // Off a ledge or up a small step: the move is a jump onto the next tile.
+    $.Game_CharacterBase_moveStraight_terrain = Game_CharacterBase.prototype.moveStraight;
+    Game_CharacterBase.prototype.moveStraight = function(d) {
+        const T = DocsDoodads.Terrain;
+        const s = T.active();
+        if (s && s.block && (s.drop || s.hop > 0) && !this.isJumping() && this.canPass(this._x, this._y, d)) {
+            const g = T.grid();
+            const x2 = $gameMap.roundXWithDirection(this._x, d), y2 = $gameMap.roundYWithDirection(this._y, d);
+            const kind = g ? T.stepKind(T.tileHeight(g, this._x, this._y), T.tileHeight(g, x2, y2), s) : 'walk';
+            if (kind === 'drop' || kind === 'hop') {
+                this.setMovementSuccess(true);
+                this.setDirection(d);
+                this.jump(d === 4 ? -1 : d === 6 ? 1 : 0, d === 8 ? -1 : d === 2 ? 1 : 0);
+                this.increaseSteps();
+                return;
+            }
+        }
+        $.Game_CharacterBase_moveStraight_terrain.call(this, d);
+    };
+}
+
+// The ground height (tiles) under a character, for event conditions and scripts:
+// DocsDoodads.Terrain.heightOf($gamePlayer) in a Conditional Branch script.
+DocsDoodads.Terrain.heightOf = function(character) {
+    const g = this.grid(true);
+    if (!g || !character) return 0;
+    return this.tileHeight(g, character.x, character.y);
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'storeHeight', function(args) {
+        const ch = DocsDoodads.characterFor(this, args.target, args.eventId);
+        const id = Number(args.variableId) || 0;
+        if (id > 0 && typeof $gameVariables !== 'undefined') $gameVariables.setValue(id, Math.round(DocsDoodads.Terrain.heightOf(ch)));
+    });
 }
 
 //==========================================================
@@ -18293,7 +18366,9 @@ DocsDoodads.Workspace = {
             number('mountain', 'Mountain height (tiles)'),
             number('forest', 'Forest height (tiles)'),
             check('block', 'Steep steps block walking'),
-            number('climb', 'Highest step you can walk (tiles)')
+            number('climb', 'Highest step you can walk (tiles)'),
+            check('drop', 'Walk off ledges (jump down)'),
+            number('hop', 'Hop up steps up to (tiles; 0 = off)')
         ];
     },
 
