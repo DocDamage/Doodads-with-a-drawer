@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added a 3D preview to the asset inspector on 3D maps: the selected image standing beside the party leader at the map's tilt and 3D height settings.
 - Added drifting cloud shadows and low fog to the 3D view (per map); the fog lies in valleys when terrain height is on.
 - Added snow that settles in the 3D view (per map): the ground whitens and standing objects get white tops while it snows, it melts afterwards, and a season named Winter keeps it white.
 - Added see-through to the 3D view: hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player.

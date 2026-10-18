@@ -470,6 +470,8 @@ Tileset tiles lie flat by default, including tree tops and roofs from the B–E 
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
 
+On a map shown in 3D, selecting an image in the asset drawer shows a small **3D preview**: the image standing beside the party leader, at this map's camera tilt and 3D height settings, so you can judge its size before placing it.
+
 ### Quality on slower machines
 When any map uses the 3D view, players get the **Effects Quality** option in the Options menu, the same one post-processing uses. It lowers the 3D detail you set, and never raises it:
 

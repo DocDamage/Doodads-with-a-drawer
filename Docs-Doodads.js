@@ -4456,6 +4456,35 @@ DocsDoodads.Perspective = {
         return ox > 0 && oy > 0 && ox * oy >= 0.25 * player.w * player.h;
     },
 
+    // The drawer's 3D preview: a small camera over a patch of ground, the party leader one tile left of
+    // centre and the asset one tile right, each standing at its 3D height setting. Sizes in canvas pixels.
+    previewLayout(settings, width, height, asset, hero) {
+        const s = this.normalize(Object.assign({}, settings, { enabled: true }));
+        const tile = 48;
+        const cam = this.camera({ target: { x: 0, y: -tile }, pitch: s.pitch, yaw: 0, fov: s.fov, zoom: 0.6, width, height, curve: 'flat' });
+        const grid = [];
+        for (let i = -5; i <= 5; i++) {
+            const a = this.project(cam, i * tile, -6 * tile, 0), b = this.project(cam, i * tile, 3 * tile, 0);
+            if (a && b) grid.push([a.x, a.y, b.x, b.y]);
+        }
+        for (let j = -6; j <= 3; j++) {
+            const a = this.project(cam, -5 * tile, j * tile, 0), b = this.project(cam, 5 * tile, j * tile, 0);
+            if (a && b) grid.push([a.x, a.y, b.x, b.y]);
+        }
+        const stand = (x, w, h, k) => {
+            const foot = this.project(cam, x, tile / 2, 0);
+            if (!foot) return null;
+            const sw = w * foot.scale * k, sh = h * foot.scale * k;
+            return { x: foot.x - sw / 2, y: foot.y - sh, w: sw, h: sh };
+        };
+        return {
+            grid,
+            hero: stand(-tile, hero.w, hero.h, s.characterScale),
+            asset: stand(tile, asset.w, asset.h, s.doodadScale),
+            doodadScale: s.doodadScale, characterScale: s.characterScale
+        };
+    },
+
     // How far the cloud pattern has drifted after t seconds (pattern units: one is a cloud's size).
     cloudDrift(t, speed) {
         const k = (Number(speed) || 0) * 0.02 * t;
@@ -15765,6 +15794,61 @@ DocsDoodads.Workspace = {
         this.refreshInspector();
     },
 
+    // ---- 3D preview in the asset inspector ----
+    // Only for images that could stand up as doodads, on maps shown in 3D.
+    renderAsset3dPreview(a) {
+        if (!a || !/\.png$/i.test(a.path || '') || /^img\/(faces|system|titles|battlebacks|sv_|enemies|parallaxes)/i.test(a.path)) return '';
+        const raw = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).perspective;
+        if (!raw || raw.enabled !== true) return '';
+        return `
+            <div style="margin: 6px 0;">
+                <canvas id="dd-asset-3d" width="232" height="140" style="width: 100%; border-radius: 4px; background: #0b1220;"></canvas>
+                <div id="dd-asset-3d-note" style="font-size: 10px; color: #64748b;">In 3D on this map, beside the party leader.</div>
+            </div>`;
+    },
+
+    drawAsset3dPreview(a) {
+        const canvas = document.getElementById('dd-asset-3d');
+        if (!canvas || !canvas.getContext) return;
+        const settings = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).perspective || {};
+        const ctx = canvas.getContext('2d');
+        const leader = typeof $gameParty !== 'undefined' && $gameParty && $gameParty.leader ? $gameParty.leader() : null;
+        const heroBitmap = leader && typeof ImageManager !== 'undefined' ? ImageManager.loadCharacter(leader.characterName()) : null;
+        const image = new Image();
+        const draw = () => {
+            if (!document.getElementById('dd-asset-3d')) return;
+            const big = heroBitmap && heroBitmap.isReady() && ImageManager.isBigCharacter(leader.characterName());
+            const hw = heroBitmap && heroBitmap.isReady() ? heroBitmap.width / (big ? 3 : 12) : 48;
+            const hh = heroBitmap && heroBitmap.isReady() ? heroBitmap.height / (big ? 4 : 8) : 48;
+            const aw = image.naturalWidth || a.width || 48, ah = image.naturalHeight || a.height || 48;
+            const L = DocsDoodads.Perspective.previewLayout(settings, canvas.width, canvas.height, { w: aw, h: ah }, { w: hw, h: hh });
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#1e3a2b';
+            ctx.fillRect(0, canvas.height * 0.35, canvas.width, canvas.height);
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+            ctx.lineWidth = 1;
+            for (const [x1, y1, x2, y2] of L.grid) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+            ctx.imageSmoothingEnabled = false;
+            if (L.hero) {
+                if (heroBitmap && heroBitmap.isReady()) {
+                    const index = big ? 0 : leader.characterIndex();
+                    const sx = ((index % 4) * 3 + 1) * hw, sy = Math.floor(index / 4) * 4 * hh;
+                    ctx.drawImage(heroBitmap._image || heroBitmap.canvas, sx, sy, hw, hh, L.hero.x, L.hero.y, L.hero.w, L.hero.h);
+                } else {
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.fillRect(L.hero.x, L.hero.y, L.hero.w, L.hero.h);
+                }
+            }
+            if (L.asset && image.naturalWidth) ctx.drawImage(image, L.asset.x, L.asset.y, L.asset.w, L.asset.h);
+            const note = document.getElementById('dd-asset-3d-note');
+            if (note) note.textContent = `In 3D on this map, beside the party leader. Height: doodads ${L.doodadScale}, characters ${L.characterScale}.`;
+        };
+        image.onload = draw;
+        image.src = DocsDoodads.LiveReload.urlFor(a.path);
+        if (heroBitmap && !heroBitmap.isReady()) heroBitmap.addLoadListener(draw);
+        draw();
+    },
+
     selectAsset(asset) {
         this.selectedAsset = asset;
         this.selectedDoodad = null;
@@ -16204,6 +16288,7 @@ DocsDoodads.Workspace = {
             <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
             <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">${escapeHtml(a.category)}</span></div>
             <div style="font-size: 11px; margin-bottom: 4px;">Dimensions: ${a.width} x ${a.height}</div>
+            ${this.renderAsset3dPreview(a)}
             <div style="display: flex; gap: 6px; margin: 8px 0;">
                 <button class="dd-btn" id="dd-fav-toggle" style="flex: 1;">${a.favorite ? '★ Favorited' : '☆ Favorite'}</button>
             </div>
@@ -16260,6 +16345,7 @@ DocsDoodads.Workspace = {
             </div>
         `;
 
+        this.drawAsset3dPreview(a);
         const modeSel = document.getElementById('dd-place-mode');
         const templateGroup = document.getElementById('dd-template-group');
         modeSel.value = a.placement.defaultMode || "doodad";
