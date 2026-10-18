@@ -1039,6 +1039,10 @@
  * @value off
  * @default map
  *
+ * @command showWorldMap
+ * @text Show World Map
+ * @desc Shows the whole map (a globe on planet-shaped 3D maps) with the player marked. Arrow keys turn the globe; OK or Cancel closes.
+ *
  * @command storeHeight
  * @text Store Ground Height
  * @desc Stores the terrain height (tiles, rounded) under a character in a variable, for event conditions.
@@ -4193,6 +4197,60 @@ DocsDoodads.VisualEquip = {
 };
 
 // The marker where the player clicks or taps to walk.
+// Minimap and world map: one pixel per tile, coloured by what the tile is, and a globe view for
+// planet-shaped maps.
+DocsDoodads.Minimap = {
+    colors: { water: [59, 125, 216], blocked: [122, 127, 136], forest: [47, 107, 51], ground: [106, 168, 79], object: [150, 120, 80] },
+
+    // info: { water, blocked, forest, object, height (tiles) }. Raised ground is lighter.
+    tileColor(info) {
+        const kind = info.water ? 'water' : info.blocked ? 'blocked' : info.forest ? 'forest' : info.object ? 'object' : 'ground';
+        const c = this.colors[kind];
+        const k = Math.max(-0.4, Math.min(0.5, (Number(info.height) || 0) * 0.12));
+        return k >= 0 ? c.map(v => Math.round(v + (255 - v) * k)) : c.map(v => Math.round(v * (1 + k)));
+    },
+
+    pixels(width, height, infoAt) {
+        const out = new Uint8ClampedArray(width * height * 4);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const [r, g, b] = this.tileColor(infoAt(x, y));
+                const i = (y * width + x) * 4;
+                out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = 255;
+            }
+        }
+        return out;
+    },
+
+    // A globe (size x size) of the map wrapped round a sphere: the map's width is one lap, and it is
+    // turned so (cx, cy) (tiles) faces the viewer. Outside the map's rows is dark; the back is hidden.
+    globePixels(map, mapW, mapH, size, cx, cy, spin) {
+        const out = new Uint8ClampedArray(size * size * 4);
+        const r = size / 2 - 1, k = (2 * Math.PI) / mapW;
+        const lon0 = cx * k + (spin || 0), lat0 = (cy - mapH / 2) * k;
+        const cl = Math.cos(lat0), sl = Math.sin(lat0);
+        for (let py = 0; py < size; py++) {
+            for (let px = 0; px < size; px++) {
+                const u = (px - size / 2 + 0.5) / r, v = (py - size / 2 + 0.5) / r;
+                const d = u * u + v * v;
+                const i = (py * size + px) * 4;
+                if (d > 1) continue;
+                const z = Math.sqrt(1 - d);
+                // Tilt by the viewer's latitude, then read longitude and latitude.
+                const y2 = v * cl + z * sl, z2 = -v * sl + z * cl;
+                const lat = Math.asin(Math.max(-1, Math.min(1, y2)));
+                const lon = lon0 + Math.atan2(u, z2);
+                const tx = ((Math.floor(lon / k) % mapW) + mapW) % mapW, ty = Math.floor(lat / k + mapH / 2);
+                const shade = 0.55 + 0.45 * z;
+                if (ty < 0 || ty >= mapH) { out[i] = 12 * shade; out[i + 1] = 18 * shade; out[i + 2] = 36 * shade; out[i + 3] = 255; continue; }
+                const m = (ty * mapW + tx) * 4;
+                out[i] = map[m] * shade; out[i + 1] = map[m + 1] * shade; out[i + 2] = map[m + 2] * shade; out[i + 3] = 255;
+            }
+        }
+        return out;
+    }
+};
+
 // Searching the map panel's settings: a section matches when it mentions every word searched for
 // (any case, any order, the start of words or anywhere inside them).
 DocsDoodads.SettingsSearch = {
@@ -4579,7 +4637,7 @@ DocsDoodads.Perspective = {
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
-        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1
+        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false
     },
 
     curves: [
@@ -4629,7 +4687,8 @@ DocsDoodads.Perspective = {
             cloudScale: num(s.cloudScale, d.cloudScale, 2, 100),
             cloudSpeed: num(s.cloudSpeed, d.cloudSpeed, 0, 5),
             mist: num(s.mist, d.mist, 0, 1),
-            mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10)
+            mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10),
+            minimap: s.minimap === true
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -10454,6 +10513,160 @@ if (typeof Game_CharacterBase !== 'undefined') {
         }
         $.Game_CharacterBase_moveStraight_terrain.call(this, d);
     };
+}
+
+// The current map as minimap pixels (cached per map).
+DocsDoodads.Minimap.forCurrentMap = function() {
+    if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    if (this._map && this._map.data === $dataMap.data) return this._map;
+    const w = $gameMap.width(), h = $gameMap.height();
+    const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+    const flags = (tileset && tileset.flags) || [];
+    const world = DocsDoodads.World.settings().reflections;
+    const isWaterTile = id => (typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false);
+    const grid = DocsDoodads.Terrain.grid(true);
+    const pixels = this.pixels(w, h, (x, y) => {
+        const layers = [0, 1, 2, 3].map(z => $gameMap.tileId(x, y, z));
+        const water = DocsDoodads.Reflection.isWaterAt(layers, $gameMap.regionId(x, y), world, isWaterTile);
+        const blocked = !water && ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+        const base = layers[1] || layers[0];
+        const forest = tileset && tileset.mode === 0 && (((flags[base] || 0) & 0x800) !== 0);
+        const object = DocsDoodads.StandTiles.isObjectTile(layers[2]) || DocsDoodads.StandTiles.isObjectTile(layers[3]);
+        return { water, blocked, forest, object, height: grid ? DocsDoodads.Terrain.tileHeight(grid, x, y) : 0 };
+    });
+    this._map = { data: $dataMap.data, width: w, height: h, pixels };
+    return this._map;
+};
+
+DocsDoodads.Minimap.canvasFor = function(pixels, width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const image = ctx.createImageData(width, height);
+    image.data.set(pixels);
+    ctx.putImageData(image, 0, 0);
+    return canvas;
+};
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    $.Spriteset_Map_update_minimap = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        $.Spriteset_Map_update_minimap.call(this);
+        this.updateDocsMinimap();
+    };
+
+    // A small map in the top-right corner with the player's arrow, on maps that ask for it.
+    Spriteset_Map.prototype.updateDocsMinimap = function() {
+        const s = DocsDoodads.Perspective.active();
+        const on = Boolean(s && s.minimap) && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        if (!on) {
+            if (this._docsMinimap) this._docsMinimap.visible = false;
+            return;
+        }
+        const map = DocsDoodads.Minimap.forCurrentMap();
+        if (!map) return;
+        let mini = this._docsMinimap;
+        if (!mini || mini._docsData !== map.data) {
+            if (mini) { this.removeChild(mini); mini.destroy({ children: true, texture: true, baseTexture: true }); }
+            mini = this._docsMinimap = new PIXI.Container();
+            mini._docsData = map.data;
+            const pic = new PIXI.Sprite(PIXI.Texture.from(DocsDoodads.Minimap.canvasFor(map.pixels, map.width, map.height)));
+            pic.texture.baseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST;
+            const scale = 140 / Math.max(map.width, map.height);
+            pic.scale.set(scale);
+            const frame = new PIXI.Graphics();
+            frame.lineStyle(2, 0x0f172a, 0.9).drawRect(-1, -1, map.width * scale + 2, map.height * scale + 2);
+            const arrow = new PIXI.Graphics();
+            arrow.beginFill(0xffffff).lineStyle(1, 0x000000, 0.9).moveTo(0, -5).lineTo(4, 4).lineTo(-4, 4).closePath().endFill();
+            mini.addChild(pic, frame, arrow);
+            mini._docsScale = scale;
+            mini._docsArrow = arrow;
+            mini.alpha = 0.9;
+            this.addChild(mini);
+        }
+        const sc = mini._docsScale;
+        mini.visible = true;
+        mini.x = Graphics.width - map.width * sc - 12;
+        // Below MZ's menu button when Touch UI shows it.
+        mini.y = typeof ConfigManager !== 'undefined' && ConfigManager.touchUI ? 64 : 12;
+        const arrow = mini._docsArrow;
+        arrow.x = ($gamePlayer._realX + 0.5) * sc;
+        arrow.y = ($gamePlayer._realY + 0.5) * sc;
+        arrow.rotation = { 2: Math.PI, 4: -Math.PI / 2, 6: Math.PI / 2, 8: 0 }[$gamePlayer.direction()] || 0;
+    };
+}
+
+// Show World Map: the whole map, or a globe on planet-shaped 3D maps, until OK or Cancel.
+function Scene_DocsWorldMap() {
+    this.initialize(...arguments);
+}
+
+if (typeof Scene_MenuBase !== 'undefined') {
+    Scene_DocsWorldMap.prototype = Object.create(Scene_MenuBase.prototype);
+    Scene_DocsWorldMap.prototype.constructor = Scene_DocsWorldMap;
+
+    Scene_DocsWorldMap.prototype.create = function() {
+        Scene_MenuBase.prototype.create.call(this);
+        const map = DocsDoodads.Minimap.forCurrentMap();
+        const s = DocsDoodads.Perspective.active();
+        this._map = map;
+        this._globe = Boolean(s && s.curve === 'sphere');
+        this._spin = 0;
+        this._picture = new Sprite();
+        this.addChild(this._picture);
+        this._marker = new PIXI.Graphics();
+        this.addChild(this._marker);
+        this.drawWorldMap();
+    };
+
+    Scene_DocsWorldMap.prototype.drawWorldMap = function() {
+        const map = this._map;
+        if (!map) return;
+        const M = DocsDoodads.Minimap;
+        const px = $gamePlayer.x, py = $gamePlayer.y;
+        this._marker.clear();
+        if (this._globe) {
+            const size = Math.min(Graphics.width, Graphics.height) - 60;
+            const canvas = M.canvasFor(M.globePixels(map.pixels, map.width, map.height, size, px + 0.5, py + 0.5, this._spin), size, size);
+            this._picture.bitmap = new Bitmap(size, size);
+            this._picture.bitmap.context.drawImage(canvas, 0, 0);
+            this._picture.bitmap.baseTexture.update();
+            this._picture.x = (Graphics.width - size) / 2;
+            this._picture.y = (Graphics.height - size) / 2;
+            // The player faces the viewer at the centre until the globe is turned.
+            if (Math.abs(this._spin) < 1e-6) this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(Graphics.width / 2, Graphics.height / 2, 5).endFill();
+        } else {
+            const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (Graphics.height - 60) / map.height));
+            const canvas = M.canvasFor(map.pixels, map.width, map.height);
+            const w = Math.round(map.width * scale), h = Math.round(map.height * scale);
+            this._picture.bitmap = new Bitmap(w, h);
+            this._picture.bitmap.context.imageSmoothingEnabled = false;
+            this._picture.bitmap.context.drawImage(canvas, 0, 0, w, h);
+            this._picture.bitmap.baseTexture.update();
+            this._picture.x = (Graphics.width - w) / 2;
+            this._picture.y = (Graphics.height - h) / 2;
+            this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(this._picture.x + (px + 0.5) * scale, this._picture.y + (py + 0.5) * scale, 5).endFill();
+        }
+    };
+
+    Scene_DocsWorldMap.prototype.update = function() {
+        Scene_MenuBase.prototype.update.call(this);
+        if (this._globe && (Input.isPressed('left') || Input.isPressed('right'))) {
+            this._spin += Input.isPressed('left') ? -0.05 : 0.05;
+            this.drawWorldMap();
+        }
+        if (Input.isTriggered('ok') || Input.isTriggered('cancel') || TouchInput.isCancelled() || TouchInput.isTriggered()) {
+            SoundManager.playCancel();
+            this.popScene();
+        }
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'showWorldMap', () => {
+        if (typeof SceneManager !== 'undefined' && typeof Scene_DocsWorldMap.prototype.create === 'function') SceneManager.push(Scene_DocsWorldMap);
+    });
 }
 
 // The ground height (tiles) under a character, for event conditions and scripts:
@@ -18254,6 +18467,7 @@ DocsDoodads.Workspace = {
             range('cloudSpeed', 'Cloud speed', 0, 5, 0.1),
             range('mist', 'Low fog (in valleys on raised ground)', 0, 1, 0.05),
             range('mistHeight', 'Low fog height (tiles)', 0.25, 10, 0.25),
+            check('minimap', 'Minimap in the corner (Show World Map opens the whole map)'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },

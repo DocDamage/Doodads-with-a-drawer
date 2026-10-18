@@ -530,6 +530,11 @@ Terrain height shows only in the 3D view. It works on round worlds too.
   - Dragging moves the doodad's base along the ground.
   - The grid, paths and guides are drawn on the ground.
 
+### Minimap and world map
+Tick **Minimap in the corner** in the 3D View panel to show a small map of the whole map in the top-right corner during play, with an arrow for the player. Tiles are coloured by what they are: water, blocked ground (mountains, walls), forest, objects and open ground, lighter where the ground is raised.
+
+The **Show World Map** plugin command opens the whole map full screen with the player marked; OK, Cancel or a click closes it. On a planet-shaped map it is a **globe** facing the player; the left and right arrow keys turn it.
+
 ### Plugin commands
 - **Set Camera (3D):** tilt, turn, zoom, field of view, round-world shape and curvature, absolute or added to the current values, eased over a number of frames, with optional wait. Use it for cutscenes: ease a flat map into a planet to show the whole world, or set the shape to Flat to ease the curve back out.
 - **Reset Camera (3D):** returns to the map's own camera.
