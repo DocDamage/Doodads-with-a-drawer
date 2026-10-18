@@ -27,7 +27,7 @@ npm run verify
 npm run coverage
 ```
 
-The regression tests themselves use only Node.js. The coverage command uses `c8` and currently enforces a 40% baseline across the monolithic RPG Maker plugin; browser/NW.js UI branches remain covered by the manual checklist until an engine-level test harness is available.
+The regression tests themselves use only Node.js. Drawing code (spritesets, character sprites, the 3D view, the editor overlay) runs on a small stand-in for PIXI and the MZ classes in `scratch/engine/fake_engine.js`. The coverage command uses `c8` and enforces 72% of lines and statements and 70% of functions and branches (about 75% of lines are covered); the editor's HTML panels remain covered by the manual checklist.
 
 Use [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) for the final RPG Maker MZ playtest.
 
