@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- The source now lives in `src/` (46 parts by feature) and `npm run build` joins them into the shipped `Docs-Doodads.js`; `npm run verify` checks the two match.
 - Tests: a stand-in engine (PIXI and MZ classes) runs the map, character and 3D drawing code under Node; line coverage went from 65% to 75% and the coverage gate from 40% to 72%.
 - Added interior walls for the 3D view: A4 walls and A3 roofs stand up to their face height, with the wall face art on the front and the wall top on top.
 - Added 3D models: a doodad can show a glTF 2.0 model (.glb or .gltf) in the 3D view, with colours and textures, lit by the sun and sorted with the billboards.
