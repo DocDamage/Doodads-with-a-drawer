@@ -4251,6 +4251,163 @@ DocsDoodads.Minimap = {
     }
 };
 
+// 3D models (glTF 2.0, .glb or .gltf) as doodads in the 3D view. The reader flattens the default scene
+// into triangle lists in model space (+Y up, +Z towards the viewer at camera turn 0), one per primitive,
+// with colours converted to sRGB and embedded images kept as bytes.
+DocsDoodads.Gltf = {
+    parse(buffer, readExternal) {
+        const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+        let json, bin = null;
+        if (u8.length >= 12 && dv.getUint32(0, true) === 0x46546c67) {
+            let pos = 12;
+            while (pos + 8 <= u8.length) {
+                const len = dv.getUint32(pos, true), type = dv.getUint32(pos + 4, true);
+                const chunk = u8.subarray(pos + 8, pos + 8 + len);
+                if (type === 0x4e4f534a) json = JSON.parse(new TextDecoder('utf-8').decode(chunk));
+                else if (type === 0x004e4942) bin = chunk;
+                pos += 8 + len;
+            }
+        } else {
+            json = JSON.parse(new TextDecoder('utf-8').decode(u8));
+        }
+        if (!json || !json.asset || String(json.asset.version).charAt(0) !== '2') throw new Error('Not a glTF 2.0 model.');
+        const buffers = (json.buffers || []).map((b, i) => {
+            if (!b.uri) return bin;
+            const m = /^data:[^;]*;base64,(.*)$/.exec(b.uri);
+            if (m) return Uint8Array.from(atob(m[1]), c => c.charCodeAt(0));
+            if (!readExternal) throw new Error('Buffer ' + i + ' is in another file.');
+            return new Uint8Array(readExternal(b.uri));
+        });
+        return { json, buffers };
+    },
+
+    viewBytes(doc, viewIndex) {
+        const view = doc.json.bufferViews[viewIndex];
+        const buf = doc.buffers[view.buffer];
+        return buf.subarray(view.byteOffset || 0, (view.byteOffset || 0) + view.byteLength);
+    },
+
+    accessor(doc, index) {
+        const a = doc.json.accessors[index];
+        const sizes = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+        const types = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
+        const n = sizes[a.type], Type = types[a.componentType];
+        const out = new Float64Array(a.count * n);
+        if (a.bufferView === undefined) return out;
+        const view = doc.json.bufferViews[a.bufferView];
+        const bytes = this.viewBytes(doc, a.bufferView);
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const size = Type.BYTES_PER_ELEMENT, stride = view.byteStride || n * size;
+        const read = { 5120: 'getInt8', 5121: 'getUint8', 5122: 'getInt16', 5123: 'getUint16', 5125: 'getUint32', 5126: 'getFloat32' }[a.componentType];
+        for (let i = 0; i < a.count; i++) {
+            for (let k = 0; k < n; k++) {
+                let v = dv[read]((a.byteOffset || 0) + i * stride + k * size, true);
+                if (a.normalized && a.componentType !== 5126) v = read.indexOf('Uint') === 3 ? v / (Math.pow(2, 8 * size) - 1) : Math.max(-1, v / (Math.pow(2, 8 * size - 1) - 1));
+                out[i * n + k] = v;
+            }
+        }
+        return out;
+    },
+
+    // 4x4 column-major helpers.
+    multiply(a, b) {
+        const o = new Array(16).fill(0);
+        for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+        return o;
+    },
+
+    nodeMatrix(node) {
+        if (node.matrix) return node.matrix.slice();
+        const [tx, ty, tz] = node.translation || [0, 0, 0];
+        const [x, y, z, w] = node.rotation || [0, 0, 0, 1];
+        const [sx, sy, sz] = node.scale || [1, 1, 1];
+        return [
+            (1 - 2 * (y * y + z * z)) * sx, (2 * (x * y + z * w)) * sx, (2 * (x * z - y * w)) * sx, 0,
+            (2 * (x * y - z * w)) * sy, (1 - 2 * (x * x + z * z)) * sy, (2 * (y * z + x * w)) * sy, 0,
+            (2 * (x * z + y * w)) * sz, (2 * (y * z - x * w)) * sz, (1 - 2 * (x * x + y * y)) * sz, 0,
+            tx, ty, tz, 1
+        ];
+    },
+
+    toSrgb(c) {
+        return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    },
+
+    // { primitives: [{ positions, normals, uvs (Float32Array), indices (Uint32Array), color [r,g,b,a],
+    //   image: { bytes, mime } | null, nearest }], min: [x,y,z], max: [x,y,z] }
+    meshes(doc) {
+        const j = doc.json;
+        const scene = j.scenes ? j.scenes[j.scene || 0] : { nodes: (j.nodes || []).map((n, i) => i) };
+        const prims = [];
+        const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+        const visit = (index, parent) => {
+            const node = j.nodes[index];
+            const m = this.multiply(parent, this.nodeMatrix(node));
+            if (node.mesh !== undefined) {
+                for (const p of j.meshes[node.mesh].primitives) {
+                    if (p.mode !== undefined && p.mode !== 4) continue;
+                    if (p.attributes.POSITION === undefined) continue;
+                    const pos = this.accessor(doc, p.attributes.POSITION);
+                    const nor = p.attributes.NORMAL !== undefined ? this.accessor(doc, p.attributes.NORMAL) : null;
+                    const uv = p.attributes.TEXCOORD_0 !== undefined ? this.accessor(doc, p.attributes.TEXCOORD_0) : null;
+                    const count = pos.length / 3;
+                    const positions = new Float32Array(count * 3), normals = new Float32Array(count * 3), uvs = new Float32Array(count * 2);
+                    for (let v = 0; v < count; v++) {
+                        const x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
+                        for (let k = 0; k < 3; k++) {
+                            const w = m[k] * x + m[4 + k] * y + m[8 + k] * z + m[12 + k];
+                            positions[v * 3 + k] = w;
+                            if (w < min[k]) min[k] = w;
+                            if (w > max[k]) max[k] = w;
+                        }
+                        if (nor) {
+                            const nx = nor[v * 3], ny = nor[v * 3 + 1], nz = nor[v * 3 + 2];
+                            const a = m[0] * nx + m[4] * ny + m[8] * nz, b = m[1] * nx + m[5] * ny + m[9] * nz, c = m[2] * nx + m[6] * ny + m[10] * nz;
+                            const len = Math.hypot(a, b, c) || 1;
+                            normals[v * 3] = a / len; normals[v * 3 + 1] = b / len; normals[v * 3 + 2] = c / len;
+                        } else normals[v * 3 + 1] = 1;
+                        if (uv) { uvs[v * 2] = uv[v * 2]; uvs[v * 2 + 1] = uv[v * 2 + 1]; }
+                    }
+                    const indices = p.indices !== undefined ? Uint32Array.from(this.accessor(doc, p.indices)) : Uint32Array.from({ length: count }, (_, i) => i);
+                    const mat = p.material !== undefined ? j.materials[p.material] : {};
+                    const pbr = mat.pbrMetallicRoughness || {};
+                    const f = pbr.baseColorFactor || [1, 1, 1, 1];
+                    let image = null, nearest = false;
+                    if (pbr.baseColorTexture && j.textures) {
+                        const tex = j.textures[pbr.baseColorTexture.index];
+                        const img = tex && j.images[tex.source];
+                        if (img && img.bufferView !== undefined) image = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png' };
+                        else if (img && img.uri) image = { uri: img.uri, mime: img.mimeType || '' };
+                        const sampler = tex && tex.sampler !== undefined && j.samplers ? j.samplers[tex.sampler] : null;
+                        nearest = Boolean(sampler && sampler.magFilter === 9728);
+                    }
+                    prims.push({ positions, normals, uvs, indices, color: [this.toSrgb(f[0]), this.toSrgb(f[1]), this.toSrgb(f[2]), f[3]], image, nearest,
+                        doubleSided: mat.doubleSided === true });
+                }
+            }
+            for (const child of node.children || []) visit(child, m);
+        };
+        const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+        for (const root of scene.nodes || []) visit(root, identity);
+        return { primitives: prims, min, max };
+    },
+
+    // A model point (x, y up, z towards the viewer) placed on the map: turned by yaw degrees and scaled
+    // to pixels. Returns flat map offsets (dx east, dy south) and the height.
+    place(x, y, z, scale, yaw) {
+        const r = (yaw || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        return { dx: (x * c - z * s) * scale, dy: (x * s + z * c) * scale, h: y * scale };
+    },
+
+    // Light on a surface facing (model normal) under a light from `dir` (map x, y, up): 0.45-1.
+    shade(nx, ny, nz, yaw, dir) {
+        const r = (yaw || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        const mx = nx * c - nz * s, my = nx * s + nz * c, up = ny;
+        return 0.45 + 0.55 * Math.max(0, mx * dir[0] + my * dir[1] + up * dir[2]);
+    }
+};
+
 // Searching the map panel's settings: a section matches when it mentions every word searched for
 // (any case, any order, the start of words or anywhere inside them).
 DocsDoodads.SettingsSearch = {
@@ -9377,6 +9534,15 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (!m) continue;
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
             if (fog >= 1) continue;
+            // A doodad with a 3D model is drawn as the model.
+            if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
+                const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);
+                if (models) {
+                    for (const it of models) items.push(it);
+                    obj._docs3dMatrix = m;
+                    continue;
+                }
+            }
             const isEffekseer = typeof Sprite_Animation !== 'undefined' && obj instanceof Sprite_Animation;
             // Effekseer draws in screen space at its target; it shrinks with distance like the target does.
             if (isEffekseer) obj._docs3dScale = Math.hypot(m.a, m.b);
@@ -10600,6 +10766,165 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         arrow.x = ($gamePlayer._realX + 0.5) * sc;
         arrow.y = ($gamePlayer._realY + 0.5) * sc;
         arrow.rotation = { 2: Math.PI, 4: -Math.PI / 2, 6: Math.PI / 2, 8: 0 }[$gamePlayer.direction()] || 0;
+    };
+}
+
+// Loaded models by path (project-relative): { ready, error, primitives, textures }.
+DocsDoodads.Models = {
+    _cache: {},
+
+    get(path) {
+        if (!path) return null;
+        const key = String(path).replace(/\\/g, '/');
+        if (this._cache[key]) return this._cache[key];
+        const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [] };
+        try {
+            const FS = DocsDoodads.FS;
+            if (!FS.fs) throw new Error('Models need the desktop game.');
+            const dir = FS.path.dirname(key);
+            const doc = DocsDoodads.Gltf.parse(FS.fs.readFileSync(key), uri => FS.fs.readFileSync(FS.path.join(dir, decodeURIComponent(uri))));
+            const mesh = DocsDoodads.Gltf.meshes(doc);
+            entry.primitives = mesh.primitives;
+            entry.min = mesh.min;
+            entry.max = mesh.max;
+            entry.textures = mesh.primitives.map(prim => this.texture(prim, dir));
+            entry.ready = true;
+        } catch (e) {
+            entry.error = e.message;
+            console.warn('[DocsDoodads] Could not load model ' + key + ': ' + e.message);
+        }
+        return entry;
+    },
+
+    // The primitive's colour texture (shared between scenes), or plain white until it has loaded.
+    texture(prim, dir) {
+        if (!prim.image || typeof Image === 'undefined') return PIXI.Texture.WHITE;
+        const img = new Image();
+        const texture = new PIXI.Texture(new PIXI.BaseTexture(img, { scaleMode: prim.nearest ? PIXI.SCALE_MODES.NEAREST : PIXI.SCALE_MODES.LINEAR }));
+        texture.destroy = function() {};
+        if (prim.image.bytes) img.src = URL.createObjectURL(new Blob([prim.image.bytes], { type: prim.image.mime }));
+        else img.src = DocsDoodads.FS.path.join(dir, prim.image.uri).replace(/\\/g, '/');
+        return texture;
+    }
+};
+
+DocsDoodads.Models.vertex = [
+    'precision highp float;',
+    'attribute vec2 aVertexPosition;',
+    'attribute vec2 aUv;',
+    'attribute float aShade;',
+    'uniform mat3 projectionMatrix;',
+    'uniform mat3 translationMatrix;',
+    'varying vec2 vUv;',
+    'varying float vShade;',
+    'void main() {',
+    '    vUv = aUv;',
+    '    vShade = aShade;',
+    '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
+    '}'
+].join('\n');
+
+DocsDoodads.Models.fragment = [
+    'precision mediump float;',
+    'varying vec2 vUv;',
+    'varying float vShade;',
+    'uniform sampler2D uSampler;',
+    'uniform vec4 uColor;',
+    'uniform vec3 uTint;',
+    'uniform float uAlpha;',
+    'void main() {',
+    '    vec4 c = texture2D(uSampler, vUv) * uColor;',
+    '    float a = c.a * uAlpha;',
+    '    gl_FragColor = vec4(c.rgb * vShade * uTint * a, a);',
+    '}'
+].join('\n');
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    // A model doodad's draw items for this frame (one per primitive, sorted far to near), or null to draw
+    // the picture instead (no model, or still loading).
+    Spriteset_Map.prototype.docsModelItems = function(obj, cam, pivot, fog, light, s) {
+        const d = obj._data;
+        const entry = d && d.model && d.model.path ? DocsDoodads.Models.get(d.model.path) : null;
+        if (!entry || !entry.ready || !entry.primitives.length) return null;
+        const P = DocsDoodads.Perspective, G = DocsDoodads.Gltf, T = DocsDoodads.Terrain;
+        const tw = $gameMap.tileWidth();
+        const scale = (Number(d.model.scale) || 1) * tw * s.doodadScale, yaw = Number(d.model.yaw) || 0;
+        const dir = this._docsSkyLight || T.light;
+        const flat = cam.curve === 'flat';
+        const meshes = obj._docsModelMeshes = obj._docsModelMeshes || [];
+        const items = [];
+        const pivotDepth = P.project(cam, pivot.x, pivot.y, pivot.h || 0);
+        if (!pivotDepth) return [];
+        entry.primitives.forEach((prim, pi) => {
+            const n = prim.positions.length / 3, triCount = prim.indices.length / 3;
+            let m = meshes[pi];
+            if (!m || m._docsCount !== n) {
+                const geometry = new PIXI.Geometry()
+                    .addAttribute('aVertexPosition', new Float32Array(n * 2), 2)
+                    .addAttribute('aUv', new Float32Array(prim.uvs), 2)
+                    .addAttribute('aShade', new Float32Array(n), 1)
+                    .addIndex(n < 65536 ? new Uint16Array(prim.indices.length) : new Uint32Array(prim.indices.length));
+                const shader = PIXI.Shader.from(DocsDoodads.Models.vertex, DocsDoodads.Models.fragment,
+                    { uSampler: entry.textures[pi], uColor: prim.color, uTint: [1, 1, 1], uAlpha: 1 });
+                m = meshes[pi] = new PIXI.Mesh(geometry, shader);
+                m._docsCount = n;
+                m._docsDepth = new Float64Array(n);
+                m._docsOk = new Uint8Array(n);
+                m._docsSort = T.sortBuffers(triCount);
+                m._docsTri = new Uint32Array(triCount);
+            }
+            const pos = m.geometry.getBuffer('aVertexPosition').data, shade = m.geometry.getBuffer('aShade').data;
+            for (let v = 0; v < n; v++) {
+                const w = G.place(prim.positions[v * 3], prim.positions[v * 3 + 1], prim.positions[v * 3 + 2], scale, yaw);
+                const g = flat ? { x: pivot.x + w.dx, y: pivot.y + w.dy, z: (pivot.h || 0) + w.h, visible: true } : P.groundPoint(cam, pivot.x + w.dx, pivot.y + w.dy, (pivot.h || 0) + w.h);
+                const p = g.visible ? P.project(cam, g.x, g.y, g.z) : null;
+                m._docsOk[v] = p ? 1 : 0;
+                if (p) { pos[v * 2] = p.x; pos[v * 2 + 1] = p.y; m._docsDepth[v] = p.depth; }
+                shade[v] = G.shade(prim.normals[v * 3], prim.normals[v * 3 + 1], prim.normals[v * 3 + 2], yaw, dir);
+            }
+            const idx = prim.indices, buf = m._docsSort;
+            let count = 0, sum = 0;
+            for (let t = 0; t < triCount; t++) {
+                const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+                if (!m._docsOk[a] || !m._docsOk[b] || !m._docsOk[c]) continue;
+                // Single-sided faces turned away from the camera are skipped.
+                if (!prim.doubleSided) {
+                    const area = (pos[b * 2] - pos[a * 2]) * (pos[c * 2 + 1] - pos[a * 2 + 1]) - (pos[c * 2] - pos[a * 2]) * (pos[b * 2 + 1] - pos[a * 2 + 1]);
+                    if (area > 0) continue;
+                }
+                const depth = (m._docsDepth[a] + m._docsDepth[b] + m._docsDepth[c]) / 3;
+                buf.depth[count] = depth;
+                m._docsTri[count++] = t;
+                sum += depth;
+            }
+            const sorted = T.sortFarToNear(buf, count);
+            const out = m.geometry.getIndex().data;
+            for (let i = 0; i < count; i++) {
+                const t = m._docsTri[sorted[i]];
+                out[i * 3] = idx[t * 3]; out[i * 3 + 1] = idx[t * 3 + 1]; out[i * 3 + 2] = idx[t * 3 + 2];
+            }
+            m.geometry.getBuffer('aVertexPosition').update();
+            m.geometry.getBuffer('aShade').update();
+            m.geometry.getIndex().update();
+            const u = m.shader.uniforms;
+            u.uSampler = entry.textures[pi];
+            u.uAlpha = 1 - fog;
+            u.uTint = light !== null && light !== undefined ? [((light >> 16) & 255) / 255, ((light >> 8) & 255) / 255, (light & 255) / 255] : [1, 1, 1];
+            // Parts sort among themselves by their own depth, all at the model's place among billboards.
+            const own = count ? sum / count : pivotDepth.depth;
+            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: pivotDepth.depth + (own - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
+        });
+        return items;
+    };
+}
+
+// A doodad's model meshes go with its sprite (scene changes, editor refreshes).
+if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype.destroy) {
+    $.Sprite_DocsDoodad_destroy_models = Sprite_DocsDoodad.prototype.destroy;
+    Sprite_DocsDoodad.prototype.destroy = function(options) {
+        for (const mesh of this._docsModelMeshes || []) if (mesh && !mesh._destroyed) mesh.destroy();
+        this._docsModelMeshes = null;
+        $.Sprite_DocsDoodad_destroy_models.call(this, options);
     };
 }
 
@@ -17047,7 +17372,8 @@ DocsDoodads.Workspace = {
             transition: DocsDoodads.Transition.defaults,
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
             sound: DocsDoodads.SpatialSound.emitterDefaults,
-            react: DocsDoodads.React.defaults
+            react: DocsDoodads.React.defaults,
+            model: { path: '', scale: 1, yaw: 0 }
         };
     },
 
@@ -17092,6 +17418,10 @@ DocsDoodads.Workspace = {
         }
         if (key === 'sound.file' && !value) {
             delete d.sound;
+            return;
+        }
+        if (key === 'model.path' && !String(value || '').trim()) {
+            delete d.model;
             return;
         }
         if (key === 'layer' && (!value || value === 'main')) {
@@ -17246,6 +17576,11 @@ DocsDoodads.Workspace = {
                 { key: 'react.enabled', label: 'Bend when walked through (grass, bushes, reeds)', type: 'checkbox' },
                 range('react.amount', 'Strength', 0, 2, 0.05),
                 { key: 'react.leaves', label: 'Drop leaves when disturbed', type: 'checkbox' }
+            ] },
+            { title: '3D Model', fields: [
+                { key: 'model.path', label: 'glTF model shown in 3D instead of the picture (e.g. models/Tree.glb)', type: 'text' },
+                number('model.scale', 'Size (tiles per model unit)', 0.05),
+                range('model.yaw', 'Turn (degrees)', 0, 359, 1)
             ] },
             { title: 'Atmosphere', fields: [
                 { key: 'seeThrough', label: 'See-through when the player is behind', type: 'select', options: D.SeeThrough.options },

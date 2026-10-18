@@ -530,6 +530,11 @@ Terrain height shows only in the 3D view. It works on round worlds too.
   - Dragging moves the doodad's base along the ground.
   - The grid, paths and guides are drawn on the ground.
 
+### 3D models
+A doodad can be drawn as a real 3D model in the 3D view. Put a glTF 2.0 model (`.glb`, or `.gltf` with its files) in your project, for example in a `models` folder, select the doodad, and in its **3D Model** section enter the path (`models/Tree.glb`), its **Size** (tiles per model unit: a 3-unit-tall tree at size 1 is 3 tiles tall) and its **Turn**. On a flat map and in 2D the doodad still shows its picture, so pick a picture that matches.
+
+Models are lit by the sun or moon, fade with the fog, take the lighting tint where they stand, and are sorted with the billboards, so characters walk in front of and behind them. They use the standing doodads' 3D height setting. Supported: meshes with base colours and base colour textures (embedded or next to the model), node transforms and single- or double-sided faces. Not supported: animation, skinning, morph targets, PBR lighting (metal, roughness, normal maps) and transparency sorting inside a model. Keep models small: each one is drawn on the CPU every frame; a few hundred triangles each is comfortable.
+
 ### Battles on 3D maps
 Tick **Battles show this map in 3D behind the fight** in the 3D View panel to use the map itself as the battle background: when a battle starts, the 3D view around the encounter is drawn again from a low camera looking the same way, without characters, pictures or the minimap, and replaces the battlebacks for that battle. Enemies and side-view actors are drawn over it as usual.
 
