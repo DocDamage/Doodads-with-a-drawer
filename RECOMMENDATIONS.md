@@ -65,14 +65,14 @@ Status as of 18 October 2026. Every item on the 17 October list is done or partl
 
 ## What's left
 
-Roughly in order: the first two are what a release needs; the rest wait for real maps to show what matters.
+Roughly in order: the first three are what a release needs; the rest wait for real maps to show what matters. Done since the last update: models reload live when their files change, like pictures.
 
 | # | What | Why | Size |
 |---|---|---|---|
 | A | **Run the whole manual checklist on a real game.** That means the parts the sampled run skipped (slicing, import, prefabs, dressing, packing, sound, seasons, collision, events, the conflict and backup flows, 10,000-asset scale, a 30-minute session), and a build made with MZ's own Deploy dialog. | The sampled run found four bugs in an afternoon, and the review of that branch found more. The rest of the checklist will likely find more again. | M |
 | B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps). Check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
-| C | **Models: the next steps.** Editor picking uses the doodad's picture, not the model. There is no animation, skinning or PBR material. A model is drawn on the CPU whenever the camera moves (a still view reuses the last frame), so keep models to a few hundred triangles. | The first version is deliberately small. | M–L |
-| D | **Models: reload after editing.** A loaded model stays cached until the game restarts, so re-exporting a `.glb` from Blender doesn't show until then. Pictures already reload live. Hook models into the same file watcher. | It's the one asset type without live reload. | S |
+| C | **The 3D camera stops following the player near map edges.** The 3D view makes MZ scroll as if the screen were View Distance tiles across (40 by default). On maps that don't loop, MZ stops scrolling within half that of an edge. On maps no bigger than it (Starting Town is 35×40), it doesn't scroll at all. The camera stays put, and the player can walk below the screen. In 3D, scrolling should keep the player in the middle, with the void past the edges. | Found while playtesting model live reload. Every map that doesn't loop is affected near its edges. | S |
+| D | **Models: the next steps.** Editor picking uses the doodad's picture, not the model. There is no animation, skinning or PBR material. A model is drawn on the CPU whenever the camera moves (a still view reuses the last frame), so keep models to a few hundred triangles. | The first version is deliberately small. | M–L |
 | E | **A silhouette in the 3D view.** In 3D, Silhouette mode fades things instead, because the flat silhouette is drawn where the flat-map sprite would be, not where the player is drawn. Draw the player again, tinted, after everything in the billboard pass. | It makes Silhouette and Both behave the same on flat and 3D maps. | S–M |
 | F | **Standing tiles and walls: edge cases.** Roof edges drawn with ☆ tiles stand up too. Interiors need the Stepped shape. Wall faces always face south. Doodads taller than a wall (seen with 224-pixel test battlers in an interior) are cut off where the wall stands in front of them. | Maps vary; real maps will show which cases matter. | S–M |
 | G | **MV**, only if MV support is wanted again. | Nothing since 2.0 has been tested there. | M |

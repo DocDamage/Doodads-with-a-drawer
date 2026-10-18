@@ -969,6 +969,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         for (const bitmap of this._docsStandBitmaps ? this._docsStandBitmaps.values() : []) if (bitmap) bitmap.destroy();
         this._docsStandBitmaps = null;
         if (this.docsDestroyMinimap) this.docsDestroyMinimap();
+        // Model textures replaced by a live reload were kept for these sprites; they go with them.
+        DocsDoodads.Models.freeRetired();
         P._cam = null;
         $.Spriteset_Map_destroy_3d.call(this, options);
     };
@@ -1827,17 +1829,20 @@ DocsDoodads.Models = {
         const cached = this._cache[key];
         if (cached && !(cached.error && Date.now() - cached.failedAt >= this.retryAfter)) return cached;
         if (cached) this.release(cached);
-        const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [] };
+        // files: every file the model reads (itself, its buffers and images), for live reload.
+        const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [], files: [] };
         try {
             const FS = DocsDoodads.FS;
             if (!FS.fs) throw new Error('Models need the desktop game.');
             const root = FS.path.resolve('.');
             const file = FS.path.resolve(root, key);
             if (!this.inside(root, file)) throw new Error('Models have to be inside the project folder.');
+            entry.files.push(file);
             const dir = FS.path.dirname(file);
             const local = uri => {
                 const target = FS.path.resolve(dir, decodeURIComponent(uri));
                 if (!this.inside(root, target)) throw new Error('"' + uri + '" is outside the project folder.');
+                if (!entry.files.includes(target)) entry.files.push(target);
                 return target;
             };
             const doc = DocsDoodads.Gltf.parse(FS.fs.readFileSync(file), uri => FS.fs.readFileSync(local(uri)));
@@ -1855,7 +1860,39 @@ DocsDoodads.Models = {
             entry.failedAt = Date.now();
             if (!cached || cached.error !== e.message) console.warn('[DocsDoodads] Could not load model ' + key + ': ' + e.message);
         }
+        if (DocsDoodads.LiveReload && DocsDoodads.LiveReload.watchModels) DocsDoodads.LiveReload.watchModels();
         return entry;
+    },
+
+    // The folders holding the files of every model asked for (live reload watches them).
+    directories() {
+        const path = DocsDoodads.FS.path;
+        const dirs = new Set();
+        for (const entry of Object.values(this._cache)) for (const file of entry.files || []) dirs.add(path.dirname(file));
+        return [...dirs];
+    },
+
+    // Loads again every model that reads one of these files (absolute paths). The old textures may
+    // still be on screen until the doodads redraw, so they're kept until the map's sprites go
+    // (freeRetired). Returns the paths of the models loaded again.
+    reloadFiles(files) {
+        const norm = f => String(f).replace(/\\/g, '/').toLowerCase();
+        const changed = new Set(files.map(norm));
+        const keys = Object.keys(this._cache).filter(key => (this._cache[key].files || []).some(f => changed.has(norm(f))));
+        for (const key of keys) {
+            const old = this._cache[key];
+            delete this._cache[key];
+            this._retired = (this._retired || []).concat(old.textures || []);
+            old.textures = [];
+            this.get(key);
+        }
+        return keys;
+    },
+
+    freeRetired() {
+        const retired = this._retired || [];
+        this._retired = [];
+        this.release({ textures: retired });
     },
 
     // Loads the models a map's doodads use when the map is set up, not in the middle of drawing a frame.

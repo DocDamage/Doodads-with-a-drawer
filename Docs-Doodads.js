@@ -10067,6 +10067,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         for (const bitmap of this._docsStandBitmaps ? this._docsStandBitmaps.values() : []) if (bitmap) bitmap.destroy();
         this._docsStandBitmaps = null;
         if (this.docsDestroyMinimap) this.docsDestroyMinimap();
+        // Model textures replaced by a live reload were kept for these sprites; they go with them.
+        DocsDoodads.Models.freeRetired();
         P._cam = null;
         $.Spriteset_Map_destroy_3d.call(this, options);
     };
@@ -10925,17 +10927,20 @@ DocsDoodads.Models = {
         const cached = this._cache[key];
         if (cached && !(cached.error && Date.now() - cached.failedAt >= this.retryAfter)) return cached;
         if (cached) this.release(cached);
-        const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [] };
+        // files: every file the model reads (itself, its buffers and images), for live reload.
+        const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [], files: [] };
         try {
             const FS = DocsDoodads.FS;
             if (!FS.fs) throw new Error('Models need the desktop game.');
             const root = FS.path.resolve('.');
             const file = FS.path.resolve(root, key);
             if (!this.inside(root, file)) throw new Error('Models have to be inside the project folder.');
+            entry.files.push(file);
             const dir = FS.path.dirname(file);
             const local = uri => {
                 const target = FS.path.resolve(dir, decodeURIComponent(uri));
                 if (!this.inside(root, target)) throw new Error('"' + uri + '" is outside the project folder.');
+                if (!entry.files.includes(target)) entry.files.push(target);
                 return target;
             };
             const doc = DocsDoodads.Gltf.parse(FS.fs.readFileSync(file), uri => FS.fs.readFileSync(local(uri)));
@@ -10953,7 +10958,39 @@ DocsDoodads.Models = {
             entry.failedAt = Date.now();
             if (!cached || cached.error !== e.message) console.warn('[DocsDoodads] Could not load model ' + key + ': ' + e.message);
         }
+        if (DocsDoodads.LiveReload && DocsDoodads.LiveReload.watchModels) DocsDoodads.LiveReload.watchModels();
         return entry;
+    },
+
+    // The folders holding the files of every model asked for (live reload watches them).
+    directories() {
+        const path = DocsDoodads.FS.path;
+        const dirs = new Set();
+        for (const entry of Object.values(this._cache)) for (const file of entry.files || []) dirs.add(path.dirname(file));
+        return [...dirs];
+    },
+
+    // Loads again every model that reads one of these files (absolute paths). The old textures may
+    // still be on screen until the doodads redraw, so they're kept until the map's sprites go
+    // (freeRetired). Returns the paths of the models loaded again.
+    reloadFiles(files) {
+        const norm = f => String(f).replace(/\\/g, '/').toLowerCase();
+        const changed = new Set(files.map(norm));
+        const keys = Object.keys(this._cache).filter(key => (this._cache[key].files || []).some(f => changed.has(norm(f))));
+        for (const key of keys) {
+            const old = this._cache[key];
+            delete this._cache[key];
+            this._retired = (this._retired || []).concat(old.textures || []);
+            old.textures = [];
+            this.get(key);
+        }
+        return keys;
+    },
+
+    freeRetired() {
+        const retired = this._retired || [];
+        this._retired = [];
+        this.release({ textures: retired });
     },
 
     // Loads the models a map's doodads use when the map is set up, not in the middle of drawing a frame.
@@ -12421,9 +12458,14 @@ DocsDoodads.Similarity = {
 };
 
 // Watches img/ and audio/ while the workspace is open, so saving in Aseprite or Photoshop
-// updates the drawer and the placed doodads without restarting.
+// updates the drawer and the placed doodads without restarting. Models (glTF) are watched in the
+// folders they and their files are in, so exporting again from Blender shows on the map.
 DocsDoodads.LiveReload = {
     watchers: [],
+    running: false,
+    modelWatchers: new Map(),
+    pendingModels: new Set(),
+    modelTimer: null,
     pending: new Set(),
     timer: null,
     delay: 300,
@@ -12519,10 +12561,46 @@ DocsDoodads.LiveReload = {
         return summary;
     },
 
+    // Watches each folder holding a model's files (once each); called whenever a model is loaded.
+    watchModels() {
+        const FS = DocsDoodads.FS;
+        if (!this.running || !FS.fs || typeof FS.fs.watch !== 'function' || !DocsDoodads.Models) return;
+        for (const dir of DocsDoodads.Models.directories()) {
+            if (this.modelWatchers.has(dir) || !FS.fs.existsSync(dir)) continue;
+            try {
+                this.modelWatchers.set(dir, FS.fs.watch(dir, (event, file) => { if (file) this.queueModel(FS.path.join(dir, String(file))); }));
+            } catch (error) {
+                DocsDoodads.Core.log(`Live reload unavailable for models in ${dir}`, error);
+            }
+        }
+    },
+
+    queueModel(file) {
+        if (/\.(tmp|bak)$|~$/i.test(file)) return;
+        this.pendingModels.add(file);
+        clearTimeout(this.modelTimer);
+        this.modelTimer = setTimeout(() => this.flushModels(), this.delay);
+    },
+
+    flushModels() {
+        const files = [...this.pendingModels];
+        this.pendingModels.clear();
+        if (!files.length || !DocsDoodads.Models) return [];
+        const reloaded = DocsDoodads.Models.reloadFiles(files);
+        const ws = DocsDoodads.Workspace;
+        if (reloaded.length && ws && ws.mounted) {
+            const names = reloaded.map(p => p.split('/').pop());
+            ws.showToast(`Reloaded ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`);
+        }
+        return reloaded;
+    },
+
     start() {
         this.stop();
         const fs = DocsDoodads.FS.fs;
         if (!fs || typeof fs.watch !== 'function') return false;
+        this.running = true;
+        this.watchModels();
         for (const root of ['img', 'audio']) {
             if (!fs.existsSync(root)) continue;
             try {
@@ -12531,7 +12609,7 @@ DocsDoodads.LiveReload = {
                 DocsDoodads.Core.log(`Live reload unavailable for ${root}`, error);
             }
         }
-        return this.watchers.length > 0;
+        return this.watchers.length > 0 || this.modelWatchers.size > 0;
     },
 
     stop() {
@@ -12541,6 +12619,13 @@ DocsDoodads.LiveReload = {
         this.watchers = [];
         clearTimeout(this.timer);
         this.pending.clear();
+        for (const watcher of this.modelWatchers.values()) {
+            try { watcher.close(); } catch (error) {}
+        }
+        this.modelWatchers.clear();
+        clearTimeout(this.modelTimer);
+        this.pendingModels.clear();
+        this.running = false;
     }
 };
 

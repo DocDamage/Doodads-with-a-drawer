@@ -1,7 +1,7 @@
 // scratch/test_engine_lifecycle.js
 // What the 3D view and its extras free and keep: textures and meshes freed with the map, the battle
 // background and world map pictures, the snow cap cache, standing tiles keeping their sprites, models
-// (loading, sharing textures, mirrored nodes, retrying, staying in the project), and edge cases: ledges
+// (loading, sharing textures, mirrored nodes, retrying, staying in the project, live reload), and edge cases: ledges
 // and vehicles, See-Through in 3D, Effekseer targets not drawn, the water mask for snow, the undo
 // history panel, Aseprite layer names and parts the build would leave out.
 const assert = require('assert');
@@ -304,8 +304,57 @@ $gameMap.setDisplayPos(0, 0);
     assert.ok(require('../scripts/build.js').build().parts.length > 40);
 }
 
-// 15. Clouds default to a size that shows on screen.
+// 15. Model live reload: exporting a model again reloads it on the map. Old textures stay until the
+// map's sprites go (an unfocused game still draws), and other files' changes reload nothing.
+{
+    const L = DocsDoodads.LiveReload, M = DocsDoodads.Models;
+    const realWatch = fs.watch;
+    const watched = [];
+    let closed = 0;
+    fs.watch = (dir, opts, cb) => { watched.push({ dir, fn: typeof opts === 'function' ? opts : cb }); return { close() { closed++; } }; };
+    const live = path.join(__dirname, 'fixtures', 'live_test.glb');
+    fs.copyFileSync(crate, live);
+    try {
+        L.start();
+        $dataDocsDoodads[1] = [E.doodad(18, 14, { model: { path: live, scale: 1, yaw: 0 } })];
+        const map = new Spriteset_Map();
+        SceneManager._scene = { _spriteset: map };
+        run('live frames', () => E.frames(map, 2));
+        const sprite = map._docsDoodadSprites[0];
+        const before = M.get(live), oldPart = sprite._docsModelMeshes[0], oldTexture = before.textures[0];
+        assert.ok(before.ready && oldPart, 'drawn as a model');
+        const folder = watched.find(w => path.resolve(w.dir) === path.dirname(live));
+        assert.ok(folder, "the model's folder is watched");
+        assert.strictEqual(watched.filter(w => w.dir === folder.dir).length, 1, 'once');
+
+        folder.fn('change', 'tree.glb');
+        assert.deepStrictEqual(L.flushModels(), [], "another model's file reloads nothing");
+        folder.fn('change', 'live_test.glb');
+        folder.fn('change', 'live_test.glb');
+        assert.deepStrictEqual(L.flushModels(), [live.replace(/\\/g, '/')], 'reloaded once');
+        const after = M.get(live);
+        assert.ok(after !== before && after.ready, 'a fresh copy');
+        run('after reload', () => E.frames(map, 1));
+        assert.ok(oldPart._destroyed && sprite._docsModelMeshes[0] !== oldPart, 'the doodad redraws with it');
+        assert.strictEqual(oldTexture.valid, true, 'the old texture is kept for now');
+        map.destroy({ children: true, texture: true });
+        assert.strictEqual(oldTexture.valid, false, 'and freed with the map');
+        assert.deepStrictEqual(errors, []);
+
+        L.stop();
+        assert.ok(closed >= 1 && !L.running && L.modelWatchers.size === 0, 'watchers closed with the editor');
+        M.get(path.join(__dirname, 'fixtures', 'tree.glb'));
+        assert.strictEqual(L.modelWatchers.size, 0, 'nothing watched while the editor is closed');
+    } finally {
+        fs.watch = realWatch;
+        L.stop();
+        fs.unlinkSync(live);
+        M.forget(live);
+    }
+}
+
+// 16. Clouds default to a size that shows on screen.
 assert.strictEqual(P.normalize({}).cloudScale, 6);
 
 assert.deepStrictEqual(errors, []);
-console.log("✓ Lifecycle and edge cases: textures freed with the map, battle and world map pictures, snow caps, standing tiles, models (caching, sharing, mirrors, retry, project folder), ledges, See-Through in 3D, Effekseer, the undo panel, Aseprite names and the build.");
+console.log("✓ Lifecycle and edge cases: textures freed with the map, battle and world map pictures, snow caps, standing tiles, models (caching, sharing, mirrors, retry, project folder), ledges, See-Through in 3D, Effekseer, the undo panel, Aseprite names, the build and model live reload.");
