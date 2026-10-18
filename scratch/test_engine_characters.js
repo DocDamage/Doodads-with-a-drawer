@@ -96,4 +96,56 @@ assert.deepStrictEqual(errors, []);
 W.mounted = false;
 W.placementTool = null;
 
-console.log("✓ Character drawing on a stand-in engine: gear layers and gear shadows, motion blur, the destination marker, Effekseer in 3D, the airship, the battle snapshot and the editor overlay.");
+// 7. See-Through in 3D, with a tall doodad between the camera and the player. Fade fades it;
+// Silhouette leaves it and draws the player and their gear again on top as one outline; Both does both.
+{
+    $gamePlayer.locate(12, 12);
+    $dataDocsDoodads[1] = [E.doodad(12, 14, { frameW: 96, frameH: 192 })];
+    ss.addDocsDoodads();
+    const tree = ss._docsDoodadSprites[0];
+    DocsDoodads.Lighting.setMapSettings(1, { perspective: { enabled: true, pitch: 40 } });
+    const mode = m => { $dataDocsDoodads.world = Object.assign({}, $dataDocsDoodads.world, { seeThrough: { enabled: true, mode: m, opacity: 0.3, speed: 1, silhouetteColor: '#ff0000' } }); };
+    const view = () => ss._docs3dBillboards;
+    const treeAlpha = () => view().items.find(it => it.obj === tree).alpha;
+
+    mode('fade');
+    run('fade', () => E.frames(ss, 3));
+    assert.ok(treeAlpha() < 0.5, 'Fade: the tree fades');
+    assert.strictEqual(view().silhouette, null, 'Fade: no outline');
+
+    mode('silhouette');
+    tree._docs3dSeeAlpha = 1;
+    run('silhouette', () => E.frames(ss, 3));
+    assert.ok(treeAlpha() > 0.99, 'Silhouette: the tree stays');
+    const ghost = view().silhouette;
+    assert.ok(ghost && ghost.some(it => it.obj === player), 'the player is outlined');
+    assert.strictEqual(ghost.filter(it => it.obj._docsBillboardOwner === player).length, 2, 'with both gear layers');
+    assert.deepStrictEqual(view().silhouetteColor, [1, 0, 0], 'in the chosen colour');
+    assert.ok(view()._ghost && view()._ghost._docsFilter.uniforms.uColor[0] === 1, 'drawn through the outline filter');
+    // The outline goes on top: drawn after everything else in the frame.
+    const order = [];
+    const realDraw = view().drawDocsItem;
+    view().drawDocsItem = function(r, it, plain) { order.push([it.obj, plain]); return realDraw.call(this, r, it, plain); };
+    view().render(Graphics.app.renderer);
+    view().drawDocsItem = realDraw;
+    const firstGhost = order.findIndex(([, plain]) => plain);
+    assert.ok(firstGhost > 0 && order.slice(firstGhost).every(([, plain]) => plain), 'after the rest');
+    assert.ok(order.slice(0, firstGhost).some(([o]) => o === tree), 'the tree is drawn first');
+
+    mode('both');
+    run('both', () => E.frames(ss, 3));
+    assert.ok(treeAlpha() < 0.5 && view().silhouette, 'Both: fades and outlines');
+
+    // Nothing in the way, or editing: no outline.
+    $gamePlayer.locate(20, 12);
+    run('clear', () => E.frames(ss, 3));
+    assert.strictEqual(view().silhouette, null, 'not hidden, no outline');
+    $gamePlayer.locate(12, 12);
+    W.mounted = true;
+    run('editing', () => E.frames(ss, 2));
+    assert.strictEqual(view().silhouette, null, 'none while editing');
+    W.mounted = false;
+    assert.deepStrictEqual(errors, []);
+}
+
+console.log("✓ Character drawing on a stand-in engine: gear layers and gear shadows, motion blur, the destination marker, Effekseer in 3D, the airship, the battle snapshot, the editor overlay and See-Through in 3D (fade, silhouette, both).");

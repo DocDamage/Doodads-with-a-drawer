@@ -106,7 +106,7 @@ function install() {
             this.worldAlpha = this.alpha * (this.parent ? this.parent.worldAlpha : 1);
             for (const c of this.children) c.updateTransform();
         },
-        render(renderer) { if (!this.visible || !this.renderable) return; if (renderer) renderer.drawn++; for (const c of this.children) c.render(renderer); },
+        render(renderer) { if (!this.visible || !this.renderable) return; if (renderer) renderer.drawn++; if (this._render) this._render(renderer); for (const c of this.children) c.render(renderer); },
         getBounds() { return new Rectangle(this.x, this.y, this.width || 0, this.height || 0); },
         getLocalBounds() { return new Rectangle(0, 0, this.width || 0, this.height || 0); },
         destroy(options) {
@@ -179,7 +179,7 @@ function install() {
         drawn: 0, renders: 0,
         render(obj) { this.renders++; },
         extract: { pixels: rt => new Uint8Array(Math.max(1, rt.width * rt.height) * 4), canvas: rt => makeCanvas(rt.width, rt.height) },
-        batch: { flush() {} }, gl: { viewport() {} }, view: { width: 816, height: 624 }, plugins: {},
+        batch: { flush() {} }, gl: { viewport() {} }, view: { width: 816, height: 624 }, screen: { x: 0, y: 0, width: 816, height: 624 }, plugins: {},
         renderTexture: { bind() {} }, framebuffer: {}
     };
     g.Graphics = { width: 816, height: 624, boxWidth: 816, boxHeight: 624, frameCount: 0, app: { renderer }, _app: { renderer }, _canvas: makeCanvas(816, 624),
