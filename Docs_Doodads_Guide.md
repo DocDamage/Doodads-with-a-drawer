@@ -492,7 +492,7 @@ Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (t
 **How things stand on it:**
 - Characters and the click-to-walk marker stand on the raised ground. On smooth ground they rest on the highest point under their base, so a bump beside their feet doesn't swallow them.
 - **Doodads stand on level ground only.** The stamp, brushes, paths, dressing and dragging all refuse mountains and slopes; level raised ground you made (a plateau) is fine. Doodads already on a mountain (placed before terrain was turned on) show a red box in the editor so you can move them.
-- Hills hide whatever is behind them.
+- Hills hide whatever is behind them, except the player: where a hill covers the player, it fades (see below).
 - Clicking finds the slope you clicked.
 - Slopes are shaded by a light from the upper left, and fog fades distant hills.
 - **Steep steps block walking:** characters can't climb or drop more than the **Highest step you can walk**.
@@ -500,6 +500,7 @@ Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (t
 Terrain height shows only in the 3D view. It works on round worlds too.
 
 ### What works in 3D
+- **See-through:** with See-Through on (section 8), hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player, to the See-Through opacity. In 3D it always fades (the outline mode is for flat maps).
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
 - **Sun and doodad shadows** lie on the ground.
 - **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play where their target is drawn and shrink with distance like it; MV-style animations do too.

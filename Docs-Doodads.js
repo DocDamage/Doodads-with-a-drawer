@@ -4413,6 +4413,42 @@ DocsDoodads.Perspective = {
         return this.curvatureFromRadius(radius);
     },
 
+    // The screen box a billboard fills, from its feet to a little above its head (transform m, foot at
+    // x, y, size w x h in flat pixels), and the depth ground must be nearer than to fade there: `margin`
+    // in front of it, so the ground at its feet never fades. Hills that cover the player fade instead.
+    seeThroughRect(m, x, y, w, h, margin) {
+        const at = (px, py) => ({ x: m.a * px + m.c * py + m.tx, y: m.b * px + m.d * py + m.ty });
+        const foot = at(x, y), head = at(x, y - h);
+        const len = Math.hypot(head.x - foot.x, head.y - foot.y) || 1;
+        const halfH = len * 1.2 / 2;
+        return {
+            rect: [foot.x + (head.x - foot.x) / len * halfH, foot.y + (head.y - foot.y) / len * halfH, w * Math.hypot(m.a, m.b) * 0.65, halfH],
+            depth: m.depth - (margin || 0)
+        };
+    },
+
+    // The screen box (x, y, w, h) a flat rectangle covers once drawn with billboard transform m.
+    screenBox(m, left, top, w, h) {
+        const xs = [], ys = [];
+        for (const [px, py] of [[left, top], [left + w, top], [left, top + h], [left + w, top + h]]) {
+            xs.push(m.a * px + m.c * py + m.tx);
+            ys.push(m.b * px + m.d * py + m.ty);
+        }
+        const x = Math.min(...xs), y = Math.min(...ys);
+        return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+    },
+
+    // Whether a billboard at `depth` drawn over `box` hides the player (see: from seeThroughRect): it is
+    // in front of them and covers at least a quarter of them.
+    hidesPlayer(box, depth, see) {
+        if (!see || !(depth < see.depth)) return false;
+        const [cx, cy, hw, hh] = see.rect;
+        const player = { x: cx - hw, y: cy - hh, w: hw * 2, h: hh * 2 };
+        const ox = Math.min(box.x + box.w, player.x + player.w) - Math.max(box.x, player.x);
+        const oy = Math.min(box.y + box.h, player.y + player.h) - Math.max(box.y, player.y);
+        return ox > 0 && oy > 0 && ox * oy >= 0.25 * player.w * player.h;
+    },
+
     // Mouse look in the editor: dragging right turns right, dragging down looks more steeply down.
     orbit(s, dx, dy) {
         return {
@@ -8891,6 +8927,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
+        this._docs3dSee = this.docsPlayerSeeThrough();
+        this.docsSeeThroughBillboards(items, this._docs3dSee);
         for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
         items.sort(P.compareBillboards);
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
@@ -9537,13 +9575,18 @@ DocsDoodads.Terrain.vertex = [
     'attribute vec2 aVertexPosition;',
     'attribute vec2 aUv;',
     'attribute vec2 aShade;',
+    'attribute float aDepth;',
     'uniform mat3 projectionMatrix;',
     'uniform mat3 translationMatrix;',
     'varying vec2 vUv;',
     'varying vec2 vShade;',
+    'varying vec2 vScreen;',
+    'varying float vDepth;',
     'void main() {',
     '    vUv = aUv;',
     '    vShade = aShade;',
+    '    vScreen = aVertexPosition;',
+    '    vDepth = aDepth;',
     '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
     '}'
 ].join('\n');
@@ -9552,12 +9595,18 @@ DocsDoodads.Terrain.fragment = [
     fragmentPrecision,
     'varying vec2 vUv;',
     'varying vec2 vShade;',
+    'varying vec2 vScreen;',
+    'varying float vDepth;',
     'uniform sampler2D uSampler;',
     'uniform vec3 uVoid;',
     'uniform vec4 uFog;',
     'uniform float uAlpha;',
     'uniform vec3 uCam;',
     'uniform vec2 uGround;',
+    // The player on screen (centre, half size) and their depth: ground in front of them there fades.
+    'uniform vec4 uSee;',
+    'uniform float uSeeDepth;',
+    'uniform float uSeeAlpha;',
     DocsDoodads.Water3D.glsl,
     'void main() {',
     '    vec2 uv = vUv;',
@@ -9569,6 +9618,10 @@ DocsDoodads.Terrain.fragment = [
     '    float f = 1.0 - vShade.y;',
     '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
     '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
+    '    if (uSeeDepth > 0.0 && vDepth < uSeeDepth) {',
+    '        vec2 q = abs(vScreen - uSee.xy) / max(uSee.zw, vec2(1.0));',
+    '        a *= mix(uSeeAlpha, 1.0, smoothstep(0.75, 1.15, max(q.x, q.y)));',
+    '    }',
     '    gl_FragColor = vec4(rgb * a, a);',
     '}'
 ].join('\n');
@@ -9600,7 +9653,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const topo = this._docsTerrainTopo = {
             tx0, ty0, cols, rows,
             vertices: mesh.vertices, triangles: mesh.triangles,
-            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2),
+            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2), depths: new Float32Array(n),
             depth: new Float64Array(n), ok: new Uint8Array(n),
             index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length),
             sort: T.sortBuffers(mesh.triangles.length / 3), triOf: new Uint32Array(mesh.triangles.length / 3),
@@ -9614,9 +9667,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aVertexPosition', topo.positions, 2)
             .addAttribute('aUv', topo.uvs, 2)
             .addAttribute('aShade', topo.shades, 2)
+            .addAttribute('aDepth', topo.depths, 1)
             .addIndex(topo.index);
         const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
-            uCam: [0, 0, 1], uGround: [1, 1],
+            uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4,
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
         this._docsTerrainMesh = new PIXI.Mesh(geometry, shader);
@@ -9652,6 +9706,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                     topo.positions[i * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * scale;
                     topo.positions[i * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * scale;
                     topo.depth[i] = depth;
+                    topo.depths[i] = depth;
                     ok = 1;
                 }
             } else {
@@ -9663,6 +9718,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                         topo.positions[i * 2] = p.x;
                         topo.positions[i * 2 + 1] = p.y;
                         topo.depth[i] = p.depth;
+                        topo.depths[i] = p.depth;
                         ok = 1;
                     }
                 }
@@ -9698,12 +9754,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         geo.getBuffer('aVertexPosition').update(topo.positions);
         geo.getBuffer('aUv').update(topo.uvs);
         geo.getBuffer('aShade').update(topo.shades);
+        geo.getBuffer('aDepth').update(topo.depths);
         geo.getIndex().update(topo.index);
         const u = mesh.shader.uniforms;
         u.uSampler = rt;
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;
+        const see = this._docs3dSee;
+        u.uSee = see ? see.rect : [0, 0, 1, 1];
+        u.uSeeDepth = see ? see.depth : 0;
+        u.uSeeAlpha = see ? see.opacity : 1;
         this.docsWaterUniforms(u, s, cam);
         return order;
     };
@@ -9786,6 +9847,49 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (this._tilemap && this._tilemap._docsStandMask) {
             this._tilemap._docsStandMask = null;
             if (this._tilemap.refresh) this._tilemap.refresh();
+        }
+    };
+
+    // Where the player is drawn this frame ({ rect: [centre x, centre y, half width, half height], depth }),
+    // so hills between them and the camera can fade there. null when the player isn't drawn.
+    Spriteset_Map.prototype.docsPlayerSeeThrough = function() {
+        const settings = DocsDoodads.World.settings().seeThrough;
+        if (!settings || !settings.enabled || !DocsDoodads.Atmosphere.featureOn('seeThrough')) return null;
+        const sprite = (this._characterSprites || []).find(sp => sp._character === $gamePlayer);
+        const m = sprite && sprite.visible && sprite._docs3dMatrix;
+        if (!m || !(sprite.width > 0)) return null;
+        const see = P.seeThroughRect(m, sprite.x, sprite.y, Math.abs(sprite.width), Math.abs(sprite.height), $gameMap.tileWidth() * 1.5);
+        see.opacity = Math.max(0, Math.min(1, Number(settings.opacity)));
+        see.speed = settings.speed;
+        see.player = sprite;
+        return see;
+    };
+
+    // Tall doodads and tileset objects in front of the player fade (like See-Through on flat maps).
+    Spriteset_Map.prototype.docsSeeThroughBillboards = function(items, see) {
+        const settings = DocsDoodads.World.settings().seeThrough;
+        const th = $gameMap.tileHeight();
+        for (const it of items) {
+            const obj = it.obj;
+            if (!obj || !it.matrix) continue;
+            const base = obj._docsBillboardOwner || obj;
+            const isDoodad = typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad;
+            if (!isDoodad && !base._docsStandTile) continue;
+            if (isDoodad && !DocsDoodads.SeeThrough.appliesTo(base._data, settings, th)) continue;
+            // Particles and effects on a doodad fade with it.
+            if (base !== obj) {
+                if (base._docs3dSeeAlpha !== undefined) it.alpha *= base._docs3dSeeAlpha;
+                continue;
+            }
+            let target = 1;
+            if (see) {
+                const w = Math.abs(obj.width), h = Math.abs(obj.height);
+                const ax = obj.anchor ? obj.anchor.x : 0.5, ay = obj.anchor ? obj.anchor.y : 1;
+                const box = P.screenBox(it.matrix, obj.x - ax * w, obj.y - ay * h, w, h);
+                if (P.hidesPlayer(box, it.matrix.depth, see)) target = see.opacity;
+            }
+            obj._docs3dSeeAlpha = DocsDoodads.SeeThrough.step(obj._docs3dSeeAlpha !== undefined ? obj._docs3dSeeAlpha : 1, target, see ? see.speed : 1);
+            it.alpha *= obj._docs3dSeeAlpha;
         }
     };
 
