@@ -465,6 +465,8 @@ Tileset tiles lie flat by default, including tree tops and roofs from the B–E 
 | Weather density | More or fewer drops and flakes than MZ's power alone gives. |
 | Snow settles | While 3D snow falls, the ground slowly turns white (heavy snow covers it in about a minute) and standing doodads and tileset objects get white tops; it melts over about two minutes once the snow stops. In a season named Winter (section 8) it stays mostly white. Water stays clear when Rippling water is on. The cover is kept in save files. |
 | Smooth distant ground | Blends distant pixels instead of keeping them crisp. |
+| Cloud shadows / size / speed | Soft cloud shadows drift across the ground in daylight (they fade out at night). Size is roughly one cloud's width in tiles. |
+| Low fog / height | Drifting patches of mist on the ground. With terrain height on, it lies in valleys and low ground, up to the height given (tiles above the lowest ground); hilltops stay clear. |
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
 

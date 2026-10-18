@@ -4346,7 +4346,8 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false
+        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
+        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1
     },
 
     curves: [
@@ -4391,7 +4392,12 @@ DocsDoodads.Perspective = {
             doodadScale: num(s.doodadScale, d.doodadScale, 0.25, 2),
             characterScale: num(s.characterScale, d.characterScale, 0.25, 2),
             standTiles: s.standTiles === 'star' || s.standTiles === 'all' ? s.standTiles : 'off',
-            snowCover: s.snowCover === true
+            snowCover: s.snowCover === true,
+            clouds: num(s.clouds, d.clouds, 0, 1),
+            cloudScale: num(s.cloudScale, d.cloudScale, 2, 100),
+            cloudSpeed: num(s.cloudSpeed, d.cloudSpeed, 0, 5),
+            mist: num(s.mist, d.mist, 0, 1),
+            mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4448,6 +4454,12 @@ DocsDoodads.Perspective = {
         const ox = Math.min(box.x + box.w, player.x + player.w) - Math.max(box.x, player.x);
         const oy = Math.min(box.y + box.h, player.y + player.h) - Math.max(box.y, player.y);
         return ox > 0 && oy > 0 && ox * oy >= 0.25 * player.w * player.h;
+    },
+
+    // How far the cloud pattern has drifted after t seconds (pattern units: one is a cloud's size).
+    cloudDrift(t, speed) {
+        const k = (Number(speed) || 0) * 0.02 * t;
+        return { x: k, y: k * 0.35 };
     },
 
     // Mouse look in the editor: dragging right turns right, dragging down looks more steeply down.
@@ -5415,6 +5427,34 @@ DocsDoodads.Water3D.applyGlsl = [
     '            vec3 H = normalize(uLightDir + V);',
     '            docsWaterSpec = (pow(max(dot(N, H), 0.0), 140.0) * uWater.z + foam * uWater.y) * uWater.w * wet;',
     '            docsWaterShade = 1.0 + dot(-g, uLightDir.xy) * 0.12 * wet;',
+    '        }',
+    '    }'
+].join('\n');
+
+// Drifting cloud shadows and low fog on the ground, from smooth noise over map pixels.
+// uClouds: (strength, size in pixels, drift x, drift y); uMist: (amount, height in tiles, drift x, drift y).
+// docsLow: how far down in a valley the point is (1 on flat ground). Both fade with the light (uWater.w).
+DocsDoodads.Perspective.skyGlsl = [
+    'float docsHash(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7))) * 43758.5453); }',
+    'float docsNoise(vec2 q) {',
+    '    vec2 i = floor(q), f = fract(q);',
+    '    vec2 u = f * f * (3.0 - 2.0 * f);',
+    '    return mix(mix(docsHash(i), docsHash(i + vec2(1.0, 0.0)), u.x), mix(docsHash(i + vec2(0.0, 1.0)), docsHash(i + vec2(1.0, 1.0)), u.x), u.y);',
+    '}',
+    'float docsFbm(vec2 q) { return (docsNoise(q) * 0.5 + docsNoise(q * 2.03 + 3.1) * 0.25 + docsNoise(q * 4.01 + 7.7) * 0.125) / 0.875; }'
+].join('\n');
+
+DocsDoodads.Perspective.skyApplyGlsl = [
+    '    if (uClouds.x > 0.0 || uMist.x > 0.0) {',
+    '        vec2 wp = p + uOrigin;',
+    '        float daylight = smoothstep(0.45, 0.9, uWater.w);',
+    '        if (uClouds.x > 0.0) {',
+    '            float cloud = smoothstep(0.42, 0.62, docsFbm(wp / uClouds.y + uClouds.zw));',
+    '            rgb *= 1.0 - uClouds.x * 0.5 * cloud * daylight;',
+    '        }',
+    '        if (uMist.x > 0.0) {',
+    '            float mist = uMist.x * docsLow * smoothstep(0.3, 0.8, docsFbm(wp / (uTile.x * 6.0) + uMist.zw));',
+    '            rgb = mix(rgb, vec3(0.82, 0.86, 0.9) * max(0.22, uWater.w), mist * 0.75);',
     '        }',
     '    }'
 ].join('\n');
@@ -8560,7 +8600,10 @@ DocsDoodads.Perspective.groundFragment = [
     'uniform vec3 uVoid;',
     'uniform float uAlpha;',
     'uniform float uSnow;',
+    'uniform vec4 uClouds;',
+    'uniform vec4 uMist;',
     DocsDoodads.Water3D.glsl,
+    DocsDoodads.Perspective.skyGlsl,
     'void main() {',
     '    vec3 dir = uF + ((vScreen.x - uHalf.x) / uFocal) * uR + ((uHalf.y - vScreen.y) / uFocal) * uU;',
     '    vec2 p;',
@@ -8604,6 +8647,8 @@ DocsDoodads.Perspective.groundFragment = [
     '    vec3 rgb = c.rgb + uVoid * (1.0 - c.a);',
     '    rgb = rgb * docsWaterShade + vec3(docsWaterSpec);',
     DocsDoodads.SnowCover.glsl,
+    '    float docsLow = 1.0;',
+    DocsDoodads.Perspective.skyApplyGlsl,
     // Fog by distance along the ground from the camera's target, so it hides the ground's edges all round.
     '    float f = smoothstep(uFogRange.x, uFogRange.y, length(p - uTarget));',
     // uFog.a = 1: blend into the fog colour; 0: fade out so the sky shows through.
@@ -8858,7 +8903,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addIndex([0, 1, 2, 0, 2, 3]);
         const shader = PIXI.Shader.from(P.groundVertex, P.groundFragment, {
             uSampler: PIXI.Texture.EMPTY, uCam: [0, 0, 1], uF: [0, 0, -1], uR: [1, 0, 0], uU: [0, -1, 0], uFocal: 1,
-            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1, uSnow: 0,
+            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1, uSnow: 0, uClouds: [0, 1, 0, 0], uMist: [0, 1, 0, 0],
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4)
         });
@@ -8961,6 +9006,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uAlpha = 1;
         const snow = this._docs3dSnow = this.updateDocsSnowCover(s);
         u.uSnow = snow;
+        this.docsSkyUniforms(u, s);
 
         // Billboards, far to near, faded by fog and lit like the ground.
         const light = this._docsLightInfo || null;
@@ -9634,14 +9680,17 @@ DocsDoodads.Terrain.vertex = [
     'attribute vec2 aUv;',
     'attribute vec2 aShade;',
     'attribute float aDepth;',
+    'attribute float aHeight;',
     'uniform mat3 projectionMatrix;',
     'uniform mat3 translationMatrix;',
     'varying vec2 vUv;',
     'varying vec2 vShade;',
     'varying vec2 vScreen;',
     'varying float vDepth;',
+    'varying float vHeight;',
     'void main() {',
     '    vUv = aUv;',
+    '    vHeight = aHeight;',
     '    vShade = aShade;',
     '    vScreen = aVertexPosition;',
     '    vDepth = aDepth;',
@@ -9666,7 +9715,11 @@ DocsDoodads.Terrain.fragment = [
     'uniform float uSeeDepth;',
     'uniform float uSeeAlpha;',
     'uniform float uSnow;',
+    'uniform vec4 uClouds;',
+    'uniform vec4 uMist;',
+    'varying float vHeight;',
     DocsDoodads.Water3D.glsl,
+    DocsDoodads.Perspective.skyGlsl,
     'void main() {',
     '    vec2 uv = vUv;',
     '    vec2 p = vUv * uGround;',
@@ -9675,6 +9728,9 @@ DocsDoodads.Terrain.fragment = [
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
     '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x * docsWaterShade + vec3(docsWaterSpec);',
     DocsDoodads.SnowCover.glsl,
+    // Low fog lies below the fog height (tiles above the lowest ground).
+    '    float docsLow = 1.0 - smoothstep(0.0, uMist.y, vHeight);',
+    DocsDoodads.Perspective.skyApplyGlsl,
     '    float f = 1.0 - vShade.y;',
     '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
     '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
@@ -9713,7 +9769,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const topo = this._docsTerrainTopo = {
             tx0, ty0, cols, rows,
             vertices: mesh.vertices, triangles: mesh.triangles,
-            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2), depths: new Float32Array(n),
+            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2), depths: new Float32Array(n), heights: new Float32Array(mesh.vertices.map(v => v.h - (grid.min || 0))),
             depth: new Float64Array(n), ok: new Uint8Array(n),
             index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length),
             sort: T.sortBuffers(mesh.triangles.length / 3), triOf: new Uint32Array(mesh.triangles.length / 3),
@@ -9728,9 +9784,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aUv', topo.uvs, 2)
             .addAttribute('aShade', topo.shades, 2)
             .addAttribute('aDepth', topo.depths, 1)
+            .addAttribute('aHeight', topo.heights, 1)
             .addIndex(topo.index);
         const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
-            uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4, uSnow: 0,
+            uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4, uSnow: 0, uClouds: [0, 1, 0, 0], uMist: [0, 1, 0, 0],
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
         this._docsTerrainMesh = new PIXI.Mesh(geometry, shader);
@@ -9822,6 +9879,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;
         u.uSnow = this._docs3dSnow || 0;
+        this.docsSkyUniforms(u, s);
         const see = this._docs3dSee;
         u.uSee = see ? see.rect : [0, 0, 1, 1];
         u.uSeeDepth = see ? see.depth : 0;
@@ -9909,6 +9967,15 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._tilemap._docsStandMask = null;
             if (this._tilemap.refresh) this._tilemap.refresh();
         }
+    };
+
+    // ---- Cloud shadows and low fog ----
+    Spriteset_Map.prototype.docsSkyUniforms = function(u, s) {
+        const tw = $gameMap.tileWidth();
+        const t = DocsDoodads.frameCount() / 60;
+        const drift = P.cloudDrift(t, s.cloudSpeed);
+        u.uClouds = [s.clouds, s.cloudScale * tw, drift.x, drift.y];
+        u.uMist = [s.mist, s.mistHeight, drift.x * 0.35, -drift.y * 0.2];
     };
 
     // ---- Snow cover ----
@@ -17742,6 +17809,11 @@ DocsDoodads.Workspace = {
             check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
             check('weather', '3D rain and snow (from Set Weather Effect)'),
             check('snowCover', 'Snow settles (whitens the ground and tops while it snows, and in Winter)'),
+            range('clouds', 'Cloud shadows', 0, 1, 0.05),
+            number('cloudScale', 'Cloud size (tiles)'),
+            range('cloudSpeed', 'Cloud speed', 0, 5, 0.1),
+            range('mist', 'Low fog (in valleys on raised ground)', 0, 1, 0.05),
+            range('mistHeight', 'Low fog height (tiles)', 0.25, 10, 0.25),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },
