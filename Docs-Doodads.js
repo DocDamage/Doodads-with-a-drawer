@@ -8554,6 +8554,30 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
     };
 }
 
+if (typeof Sprite_Animation !== 'undefined') {
+    // In 3D, MZ's Effekseer animations take the size their target is drawn at (set each frame by the 3D view).
+    // ...and plays where the target is drawn, not where it would be on the flat map.
+    $.Sprite_Animation_targetSpritePosition_3d = Sprite_Animation.prototype.targetSpritePosition;
+    Sprite_Animation.prototype.targetSpritePosition = function(sprite) {
+        const m = sprite && sprite._docs3dMatrix;
+        const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene && SceneManager._scene._spriteset;
+        const view = spriteset && spriteset._docs3dBillboards;
+        if (!m || !view || !DocsDoodads.Perspective.liveCamera()) return $.Sprite_Animation_targetSpritePosition_3d.call(this, sprite);
+        const x = sprite.x, y = sprite.y - (this._animation.alignBottom ? 0 : (sprite.height * Math.abs(sprite.scale.y)) / 2);
+        return view.worldTransform.apply(new Point(m.a * x + m.c * y + m.tx, m.b * x + m.d * y + m.ty));
+    };
+
+    $.Sprite_Animation_updateEffectGeometry_3d = Sprite_Animation.prototype.updateEffectGeometry;
+    Sprite_Animation.prototype.updateEffectGeometry = function() {
+        $.Sprite_Animation_updateEffectGeometry_3d.call(this);
+        const k = this._docs3dScale;
+        if (this._handle && k > 0 && k !== 1 && DocsDoodads.Perspective.liveCamera()) {
+            const scale = (this._animation.scale / 100) * k;
+            this._handle.setScale(scale, scale, scale);
+        }
+    };
+}
+
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective;
 
@@ -8779,6 +8803,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
             if (fog >= 1) continue;
             const isEffekseer = typeof Sprite_Animation !== 'undefined' && obj instanceof Sprite_Animation;
+            // Effekseer draws in screen space at its target; it shrinks with distance like the target does.
+            if (isEffekseer) obj._docs3dScale = Math.hypot(m.a, m.b);
+            obj._docs3dMatrix = m;
             // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
             items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });

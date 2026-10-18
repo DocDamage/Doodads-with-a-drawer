@@ -502,7 +502,7 @@ Terrain height shows only in the 3D view. It works on round worlds too.
 ### What works in 3D
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
 - **Sun and doodad shadows** lie on the ground.
-- **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play at their target's spot on screen but don't shrink with distance; MV-style animations do.
+- **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play where their target is drawn and shrink with distance like it; MV-style animations do too.
 - **Post-processing and day/night tint** apply to the whole view.
 - **Touch and mouse:** clicking the ground walks there.
 - **Editor:**
