@@ -973,8 +973,26 @@
  * @type string
  * @default
  *
+ * @arg curve
+ * @text Round World
+ * @type select
+ * @option (keep)
+ * @value
+ * @option Flat (eases out)
+ * @value flat
+ * @option Planet
+ * @value sphere
+ * @option Rolling log
+ * @value cylinder
+ * @default
+ *
+ * @arg curvature
+ * @text Curvature (0 = flat, 100 = tiny planet)
+ * @type string
+ * @default
+ *
  * @arg relative
- * @text Add to the Current Tilt / Turn / Field of View
+ * @text Add to the Current Tilt / Turn / Field of View / Curvature
  * @type boolean
  * @default false
  *
@@ -4359,10 +4377,36 @@ DocsDoodads.Perspective = {
     },
 
     // The map's camera with mid-game changes on top, or null when the map is flat.
+    // Curvature is how round the world is: 0 is flat, 10 is a 60-tile radius, 100 a 6-tile radius.
+    radiusFromCurvature(c) {
+        return c > 0 ? 600 / c : Infinity;
+    },
+
+    curvatureFromRadius(radiusTiles) {
+        return radiusTiles > 0 ? 600 / radiusTiles : 0;
+    },
+
+    // The curvature settings give, with a radius of 0 fitted to the map's width.
+    curvatureOf(settings, mapWidthTiles) {
+        if (!settings || settings.curve === 'flat') return 0;
+        const radius = settings.curveRadius > 0 ? settings.curveRadius : (mapWidthTiles || 1) / (2 * Math.PI);
+        return this.curvatureFromRadius(radius);
+    },
+
     resolve(mapSettings, override) {
         const merged = Object.assign({}, mapSettings || {});
         for (const key of Object.keys(override || {})) {
             if (override[key] !== undefined && override[key] !== null) merged[key] = override[key];
+        }
+        // Set Camera can ease the curvature; 0 flattens the world, any other value curves it.
+        if (merged.curvature !== undefined && merged.curvature !== null) {
+            const c = Number(merged.curvature) || 0;
+            if (c <= 0) merged.curve = 'flat';
+            else {
+                merged.curveRadius = Math.min(2000, this.radiusFromCurvature(c));
+                if (merged.curve !== 'sphere' && merged.curve !== 'cylinder') merged.curve = 'sphere';
+            }
+            delete merged.curvature;
         }
         const s = this.normalize(merged);
         return s.enabled ? s : null;
@@ -4399,13 +4443,13 @@ DocsDoodads.Perspective = {
             const ox = x - T.x, oy = y - T.y, s = Math.hypot(ox, oy);
             if (s < 1e-9) return { x, y, z: 0, nx: 0, ny: 0, nz: 1, visible: true };
             const a = s / R, dx = ox / s, dy = oy / s, sa = Math.sin(a), ca = Math.cos(a);
-            return { x: T.x + dx * R * sa, y: T.y + dy * R * sa, z: R * ca - R, nx: dx * sa, ny: dy * sa, nz: ca, visible: a < Math.PI - 1e-9 };
+            return { x: T.x + dx * R * sa, y: T.y + dy * R * sa, z: -2 * R * Math.sin(a / 2) ** 2, nx: dx * sa, ny: dy * sa, nz: ca, visible: a < Math.PI - 1e-9 };
         }
         if (cam.curve === 'cylinder') {
             const ox = x - T.x, oy = y - T.y;
             const u = ox * cam.axis.x + oy * cam.axis.y, w = ox * cam.ahead.x + oy * cam.ahead.y;
             const a = w / R, sa = Math.sin(a), ca = Math.cos(a);
-            return { x: T.x + cam.axis.x * u + cam.ahead.x * R * sa, y: T.y + cam.axis.y * u + cam.ahead.y * R * sa, z: R * ca - R,
+            return { x: T.x + cam.axis.x * u + cam.ahead.x * R * sa, y: T.y + cam.axis.y * u + cam.ahead.y * R * sa, z: -2 * R * Math.sin(a / 2) ** 2,
                 nx: cam.ahead.x * sa, ny: cam.ahead.y * sa, nz: ca, visible: Math.abs(a) < Math.PI - 1e-9 };
         }
         return { x, y, z: 0, nx: 0, ny: 0, nz: 1, visible: true };
@@ -4431,25 +4475,28 @@ DocsDoodads.Perspective = {
         const dz = cam.F.z + a * cam.R.z + b * cam.U.z;
         const C = cam.C, T = cam.target, R = cam.radius;
         // Nearest root of a t^2 + b t + c = 0 in front of the camera.
+        // Nearest root of qa t^2 + qb t + qc = 0 in front of the camera, in a form that stays accurate when
+        // the radius is huge (qc is passed already expanded so R^2 never cancels).
         const nearest = (qa, qb, qc) => {
             const disc = qb * qb - 4 * qa * qc;
             if (disc < 0 || qa < 1e-12) return null;
-            const t = (-qb - Math.sqrt(disc)) / (2 * qa);
+            const root = Math.sqrt(disc);
+            const t = qb < 0 ? (2 * qc) / (-qb + root) : (-qb - root) / (2 * qa);
             return t > 0 ? t : null;
         };
         if (cam.curve === 'sphere') {
             const cx = C.x - T.x, cy = C.y - T.y, cz = C.z + R;
-            const t = nearest(dx * dx + dy * dy + dz * dz, 2 * (dx * cx + dy * cy + dz * cz), cx * cx + cy * cy + cz * cz - R * R);
+            const t = nearest(dx * dx + dy * dy + dz * dz, 2 * (dx * cx + dy * cy + dz * cz), cx * cx + cy * cy + C.z * C.z + 2 * C.z * R);
             if (t === null) return null;
             const vx = cx + t * dx, vy = cy + t * dy, vz = cz + t * dz;
-            const ang = Math.acos(Math.max(-1, Math.min(1, vz / R))), h = Math.hypot(vx, vy);
+            const h = Math.hypot(vx, vy), ang = Math.atan2(h, vz);
             return h < 1e-9 ? { x: T.x, y: T.y } : { x: T.x + vx / h * R * ang, y: T.y + vy / h * R * ang };
         }
         if (cam.curve === 'cylinder') {
             const ox = C.x - T.x, oy = C.y - T.y;
             const cu = ox * cam.axis.x + oy * cam.axis.y, cw = ox * cam.ahead.x + oy * cam.ahead.y, cz = C.z + R;
             const du = dx * cam.axis.x + dy * cam.axis.y, dw = dx * cam.ahead.x + dy * cam.ahead.y;
-            const t = nearest(dw * dw + dz * dz, 2 * (cw * dw + cz * dz), cw * cw + cz * cz - R * R);
+            const t = nearest(dw * dw + dz * dz, 2 * (cw * dw + cz * dz), cw * cw + C.z * C.z + 2 * C.z * R);
             if (t === null) return null;
             const u = cu + t * du, w = cw + t * dw, z = cz + t * dz;
             const along = R * Math.atan2(w, z);
@@ -4526,7 +4573,7 @@ DocsDoodads.Perspective = {
 
     // Eased camera moves. Yaw turns the short way round.
     startTween(from, to, frames) {
-        const keys = ['pitch', 'yaw', 'zoom', 'fov'];
+        const keys = ['pitch', 'yaw', 'zoom', 'fov', 'curvature'];
         const start = {}, end = {};
         for (const k of keys) {
             start[k] = from[k];
@@ -7492,10 +7539,11 @@ DocsDoodads.Perspective.groundFragment = [
     '        vec3 d = vec3(dot(dir.xy, uAxis), dot(dir.xy, uAhead), dir.z);',
     '        float qa = d.y * d.y + d.z * d.z;',
     '        float qb = 2.0 * (c.y * d.y + c.z * d.z);',
-    '        float qc = c.y * c.y + c.z * c.z - uRadius * uRadius;',
+    // Expanded so R^2 never cancels, and the stable root form: nearly flat worlds have huge radii.
+    '        float qc = c.y * c.y + uCam.z * uCam.z + 2.0 * uCam.z * uRadius;',
     '        float disc = qb * qb - 4.0 * qa * qc;',
     '        if (disc < 0.0 || qa < 1e-9) discard;',
-    '        float t = (-qb - sqrt(disc)) / (2.0 * qa);',
+    '        float t = qb < 0.0 ? (2.0 * qc) / (-qb + sqrt(disc)) : (-qb - sqrt(disc)) / (2.0 * qa);',
     '        if (t <= 0.0) discard;',
     '        vec3 h = c + t * d;',
     '        float along = uRadius * atan(h.y, h.z);',
@@ -7504,14 +7552,14 @@ DocsDoodads.Perspective.groundFragment = [
     '        vec3 c = vec3(uCam.xy - uTarget, uCam.z + uRadius);',
     '        float qa = dot(dir, dir);',
     '        float qb = 2.0 * dot(dir, c);',
-    '        float qc = dot(c, c) - uRadius * uRadius;',
+    '        float qc = dot(c.xy, c.xy) + uCam.z * uCam.z + 2.0 * uCam.z * uRadius;',
     '        float disc = qb * qb - 4.0 * qa * qc;',
     '        if (disc < 0.0) discard;',
-    '        float t = (-qb - sqrt(disc)) / (2.0 * qa);',
+    '        float t = qb < 0.0 ? (2.0 * qc) / (-qb + sqrt(disc)) : (-qb - sqrt(disc)) / (2.0 * qa);',
     '        if (t <= 0.0) discard;',
     '        vec3 v = c + t * dir;',
-    '        float ang = acos(clamp(v.z / uRadius, -1.0, 1.0));',
     '        float hl = length(v.xy);',
+    '        float ang = atan(hl, v.z);',
     '        p = hl < 0.0001 ? uTarget : uTarget + v.xy / hl * uRadius * ang;',
     '    } else {',
     '        if (dir.z > -0.00001) discard;',
@@ -7914,8 +7962,10 @@ if (typeof Game_Map !== 'undefined') {
 
     Game_Map.prototype.docsMoveCamera = function(target, frames) {
         const s = P.active() || P.normalize((DocsDoodads.Lighting.mapSettings(this.mapId()) || {}).perspective);
-        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov };
+        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov, curvature: P.curvatureOf(s, this.width()) };
         this._docsCamera = Object.assign({}, this._docsCamera, from);
+        // A new shape takes over at once; its roundness eases in from where the world is now.
+        if (target.curve === 'sphere' || target.curve === 'cylinder') this._docsCamera.curve = target.curve;
         if (!frames || frames <= 0) {
             const tween = P.startTween(from, target, 1);
             this._docsCamera = Object.assign({}, this._docsCamera, P.stepTween(tween));
@@ -7951,10 +8001,19 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         const target = {};
         const relative = String(args.relative) === 'true';
         const s = DocsDoodads.Perspective.active() || DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
-        for (const key of ['pitch', 'yaw', 'zoom', 'fov']) {
+        const now = Object.assign({}, s, { curvature: DocsDoodads.Perspective.curvatureOf(s, $gameMap.width()) });
+        for (const key of ['pitch', 'yaw', 'zoom', 'fov', 'curvature']) {
             const raw = String(args[key] === undefined ? '' : args[key]).trim();
             if (raw === '') continue;
-            target[key] = relative && key !== 'zoom' ? s[key] + Number(raw) : Number(raw);
+            target[key] = relative && key !== 'zoom' ? now[key] + Number(raw) : Number(raw);
+        }
+        if (target.curvature !== undefined) target.curvature = Math.max(0, Math.min(100, target.curvature));
+        // "Flat" eases the curve out; a round shape switches and keeps (or eases to) its curvature.
+        const curve = String(args.curve || '').trim();
+        if (curve === 'flat' && target.curvature === undefined) target.curvature = 0;
+        else if (curve === 'sphere' || curve === 'cylinder') {
+            target.curve = curve;
+            if (target.curvature === undefined && now.curvature === 0) target.curvature = 10;
         }
         $gameMap.docsMoveCamera(target, Number(args.duration) || 0);
         if (String(args.wait) === 'true' && Number(args.duration) > 0 && this && this.wait) this.wait(Number(args.duration));
@@ -7968,7 +8027,8 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'resetCamera', function(args) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return;
         const mine = DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
-        $gameMap.docsMoveCamera({ pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov }, Number(args.duration) || 0);
+        $gameMap.docsMoveCamera({ pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov, curve: mine.curve,
+            curvature: DocsDoodads.Perspective.curvatureOf(mine, $gameMap.width()) }, Number(args.duration) || 0);
     });
 }
 
@@ -15592,6 +15652,7 @@ DocsDoodads.Workspace = {
             { key: 'skyColor', label: 'Sky colour (maps without a parallax)', type: 'color' },
             { key: 'voidColor', label: 'Beyond the map edge', type: 'color' },
             { key: 'curve', label: 'Round world', type: 'select', options: DocsDoodads.Perspective.curves },
+            range('curvature', 'Curvature (0 = flat, 100 = tiny planet)', 0, 100, 1),
             number('curveRadius', 'World radius (tiles; 0 = one lap across a looping map)'),
             check('lean', 'Things lean with the curve'),
             check('rotate', 'Q / W turn the camera 90°'),
@@ -15613,8 +15674,7 @@ DocsDoodads.Workspace = {
     renderPerspectivePanel() {
         const raw = this.perspectiveRaw();
         const s = DocsDoodads.Perspective.normalize(raw);
-        const value = key => key === 'fogUseColor' ? Boolean(s.fogColor) : key === 'fogColor' ? (s.fogColor || '#000000') : s[key];
-        const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, value(f.key))).join('');
+        const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, this.perspectiveFieldValue(f.key))).join('');
         return `
             <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
@@ -15623,13 +15683,36 @@ DocsDoodads.Workspace = {
             </details>`;
     },
 
+    // What a panel field shows: some fields are views onto other settings.
+    perspectiveFieldValue(key) {
+        const s = DocsDoodads.Perspective.normalize(this.perspectiveRaw());
+        if (key === 'fogUseColor') return Boolean(s.fogColor);
+        if (key === 'fogColor') return s.fogColor || '#000000';
+        if (key === 'curvature') {
+            const width = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.width ? $gameMap.width() : 0;
+            return Math.round(DocsDoodads.Perspective.curvatureOf(s, width));
+        }
+        return s[key];
+    },
+
+    // A field's change applied to the stored 3D settings.
+    perspectiveWith(raw, key, value) {
+        const next = Object.assign({}, raw);
+        if (key === 'fogUseColor') next.fogColor = value ? (next.fogColor || '#000000') : '';
+        else if (key === 'curvature') {
+            if (value <= 0) next.curve = 'flat';
+            else {
+                next.curveRadius = Math.min(2000, Math.round(DocsDoodads.Perspective.radiusFromCurvature(value) * 100) / 100);
+                if (next.curve !== 'sphere' && next.curve !== 'cylinder') next.curve = 'sphere';
+            }
+        } else next[key] = value;
+        return next;
+    },
+
     // One undo step per change; sliders preview live and record the value from before the drag.
     setPerspectiveField(key, value, previousSettings) {
         this.clearCameraOverride();
-        const next = this.perspectiveRaw();
-        if (key === 'fogUseColor') next.fogColor = value ? (next.fogColor || '#000000') : '';
-        else next[key] = value;
-        this.setMapSetting('perspective', next, previousSettings);
+        this.setMapSetting('perspective', this.perspectiveWith(this.perspectiveRaw(), key, value), previousSettings);
     },
 
     bindPerspectivePanel() {
@@ -15648,7 +15731,7 @@ DocsDoodads.Workspace = {
                     const data = window.$dataDocsDoodads || {};
                     if (previous === undefined) previous = data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null;
                     const settings = Object.assign({}, previous || {});
-                    settings.perspective = Object.assign({}, settings.perspective || {}, this._p3dLive || {}, { [f.key]: read() });
+                    settings.perspective = this.perspectiveWith(Object.assign({}, settings.perspective || {}, this._p3dLive || {}), f.key, read());
                     this._p3dLive = settings.perspective;
                     this.writeMapSettings(mapId, settings);
                     if (label) label.textContent = String(read());
@@ -15658,11 +15741,13 @@ DocsDoodads.Workspace = {
                     previous = undefined;
                     this._p3dLive = null;
                     this.setPerspectiveField(f.key, read(), prev);
+                    // The radius box and shape follow the curvature slider.
+                    if (f.key === 'curvature') this.refreshInspector();
                 };
             } else {
                 input.onchange = () => {
                     this.setPerspectiveField(f.key, read());
-                    if (f.key === 'enabled' || f.key === 'fogUseColor') this.refreshInspector();
+                    if (['enabled', 'fogUseColor', 'curve', 'curveRadius'].includes(f.key)) this.refreshInspector();
                 };
             }
         }

@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added curvature control for round worlds: a Curvature slider in the 3D View panel (0 flat to 100 tiny planet) and curvature and shape on Set Camera, eased with the camera, so a cutscene can turn a flat map into a planet and back. Ray tests now stay accurate for nearly flat curves.
 - Added round worlds to the 3D view: a planet (curves away all round, with a radius that can fit a looping map so one lap is the map's width) or a rolling log (curves away ahead), with things past the horizon hidden, optional leaning with the curve, and clicks, fog and editor boxes on the curve.
 - Fixed 3D billboards: lighting tints were not applied, and scaled sprites showed thin lines from neighbouring atlas pixels along their edges.
 - Added a 3D view for any map: tiles, floor doodads, shadows, reflections and lighting on a perspective ground plane; characters, gear and standing doodads as distance-sorted billboards; camera tilt, turn, field of view, zoom, radial fog and a parallax sky; optional Q/W camera turning with camera-relative arrow keys and facings; touch-to-move through the ground; editor picking, dragging and yellow selection boxes in 3D; and the Set Camera, Reset Camera and Set 3D View plugin commands.
