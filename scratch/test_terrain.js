@@ -229,4 +229,47 @@ assert.ok('5,1' in T.applyBrush({}, Object.assign({}, brushGrid, { loopX: true }
     assert.strictEqual(Tt.normalize({}).walls, false);
 }
 
-console.log("✓ Settings, automatic/tag/region/painted heights, height under points, smooth and stepped meshes, shading, level ground for doodads, steps, raised feet, clicks and the height brush verified.");
+// Walls in Smooth: sharp blocks on ground that isn't blurred up by them; seamless where they meet it.
+// Wall face art on every side; and the drawing order by place on the ground.
+{
+    const Tt = DocsDoodads.Terrain, Pv = DocsDoodads.Perspective;
+    const TOP = 5888, SIDE = 6272, FLOOR = 2816;
+    const W = 7, H = 8;
+    const data = new Array(W * H * 6).fill(0);
+    const set = (x, y, id) => { data[y * W + x] = id; };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) set(x, y, FLOOR);
+    for (const x of [2, 3, 4]) [TOP, SIDE, SIDE].forEach((id, y) => set(x, y + 1, id));   // a wall with a 2-tile face, rows 1-3
+    const settings = Tt.normalize({ enabled: true, walls: true, auto: false, style: 'smooth' });
+    const heights = Tt.buildHeights({ width: W, height: H, data }, { mode: 1, flags: [] }, settings);
+    const grid = { heights, width: W, height: H };
+    assert.strictEqual(Tt.heightAt(grid, 3.5, 2.5, 'smooth'), 2, 'on a wall: its full height');
+    assert.ok(Tt.heightAt(grid, 3.5, 4.5, 'smooth') < 1e-9, 'the floor in front is not blurred up');
+    assert.ok(Tt.heightAt(grid, 1.5, 2.5, 'smooth') < 1e-9, 'nor beside it');
+    const mesh = Tt.buildMesh(grid, 0, 0, W, H, 48, 48, 'smooth');
+    const at = (x, y, h) => mesh.vertices.filter(v => v.x === x && v.y === y && Math.abs(v.h - h) < 1e-9);
+    assert.ok(at(3 * 48, 4 * 48, 2).length && at(3 * 48, 4 * 48, 0).length, 'a sharp front: wall height and floor at the same edge');
+    assert.ok(mesh.vertices.every(v => v.h <= 2 + 1e-9), 'nothing rises above the wall');
+    // The front still shows the face art; the wall's ends (east, west) and back (north) show it too.
+    const sides = mesh.vertices.filter(v => v.shade < 1 && v.h === 2);
+    const frontV = sides.filter(v => v.y === 4 * 48).map(v => v.v);
+    assert.ok(frontV.includes(2 * 48), 'the front shows the face from row 2');
+    const back = sides.filter(v => v.y === 48 && v.x >= 2 * 48 && v.x <= 5 * 48);
+    assert.ok(back.length && back.every(v => v.v === 2 * 48), 'the back shows the face art, not the stretched top');
+    const east = sides.filter(v => v.x === 5 * 48);
+    assert.ok(east.length && east.every(v => v.v === 2 * 48), 'and so does the east end');
+    // Stepped walls do the same.
+    const stepped = Tt.buildMesh(grid, 0, 0, W, H, 48, 48, 'stepped');
+    assert.ok(stepped.vertices.some(v => v.y === 48 && v.h === 2 && v.shade < 1 && v.v === 2 * 48), 'stepped: the back too');
+
+    // Order: a wall top one tile behind a doodad is drawn before it, however high the wall is.
+    const cam = Pv.camera({ target: { x: 480, y: 480 }, pitch: 45, yaw: 0, fov: 50, zoom: 1, width: 816, height: 624 });
+    const foot = Pv.groundDepth(cam, 480, 480);
+    const wallTop = Pv.project(cam, 480, 480 - 48, 3 * 48).depth;
+    assert.ok(wallTop < foot, 'by 3D depth the high wall top would come in front');
+    assert.ok(Pv.groundDepth(cam, 480, 480 - 48) > foot, 'by place on the ground it is behind');
+    assert.ok(Math.abs(Pv.groundDepth(cam, 480, 480) - Pv.project(cam, 480, 480, 0).depth) < 1e-9, 'the same as depth at ground level');
+    const planet = Pv.camera({ target: { x: 480, y: 480 }, pitch: 45, yaw: 0, fov: 50, zoom: 1, width: 816, height: 624, curve: 'sphere', radius: 2000 });
+    assert.ok(Math.abs(Pv.groundDepth(planet, 600, 300) - Pv.project(planet, ...Object.values(Pv.surfacePoint(planet, 600, 300)).slice(0, 3)).depth) < 1e-6, 'on a planet, from the curved ground');
+}
+
+console.log("✓ Settings, automatic/tag/region/painted heights, height under points, smooth and stepped meshes, shading, level ground for doodads, steps, raised feet, clicks, the height brush, sharp walls in Smooth, wall faces on every side and drawing order by place on the ground verified.");

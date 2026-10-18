@@ -562,7 +562,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             obj._docs3dMatrix = m;
             obj._docs3dFrame = DocsDoodads.frameCount();
             // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
-            items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
+            items.push({ obj, depth: P.groundDepth(cam, pivot.x, pivot.y), bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
         const see = this._docs3dSee = this.docsPlayerSeeThrough();
@@ -1370,7 +1370,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                     const scale = focal / depth;
                     topo.positions[i * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * scale;
                     topo.positions[i * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * scale;
-                    topo.depth[i] = depth;
+                    // Sorted by place on the ground; the shader's depth (for See-Through) keeps the height.
+                    topo.depth[i] = depth - vz * F.z - C.z * F.z;
                     topo.depths[i] = depth;
                     ok = 1;
                 }
@@ -1382,7 +1383,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                     if (p) {
                         topo.positions[i * 2] = p.x;
                         topo.positions[i * 2 + 1] = p.y;
-                        topo.depth[i] = p.depth;
+                        topo.depth[i] = (n.x - C.x) * F.x + (n.y - C.y) * F.y + (n.z - C.z) * F.z;
                         topo.depths[i] = p.depth;
                         ok = 1;
                     }
@@ -1440,10 +1441,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     // The groups for the current map and mode (cached), and which tiles leave the ground.
     Spriteset_Map.prototype.docsStandGroups = function(s) {
         const mode = s ? s.standTiles : 'off';
-        if (this._docsStand && this._docsStand.map === $dataMap && this._docsStand.mode === mode) return this._docsStand;
+        const flatRegion = s ? s.standFlatRegion : 0;
+        const c = this._docsStand;
+        if (c && c.map === $dataMap && c.mode === mode && c.flatRegion === flatRegion) return c;
         const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
-        const built = DocsDoodads.StandTiles.groups($dataMap || { width: 0, height: 0, data: [] }, tileset && tileset.flags, mode);
-        this._docsStand = { map: $dataMap, mode, list: built.list, mask: built.list.length ? built.mask : null };
+        const built = DocsDoodads.StandTiles.groups($dataMap || { width: 0, height: 0, data: [] }, tileset && tileset.flags, mode, { flatRegion });
+        this._docsStand = { map: $dataMap, mode, flatRegion, list: built.list, mask: built.list.length ? built.mask : null };
         if (this._tilemap) {
             this._tilemap._docsStandMask = this._docsStand.mask;
             if (this._tilemap.refresh) this._tilemap.refresh();
@@ -2056,6 +2059,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const ph = pivot.h || 0;
         const pivotDepth = P.project(cam, pivot.x, pivot.y, ph);
         if (!pivotDepth) return [];
+        const groundDepth = P.groundDepth(cam, pivot.x, pivot.y);
         const placeKey = scale + '|' + yaw;
         const shadeKey = yaw + '|' + dir[0] + ',' + dir[1] + ',' + dir[2];
         const C = cam.C, F = cam.F, R = cam.R, U = cam.U;
@@ -2153,7 +2157,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             u.uTint = light !== null && light !== undefined ? [((light >> 16) & 255) / 255, ((light >> 8) & 255) / 255, (light & 255) / 255] : [1, 1, 1];
             // Parts sort among themselves by their own depth, all at the model's place among billboards.
             const count = m._docsDrawn;
-            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: pivotDepth.depth + (m._docsMean - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
+            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: groundDepth + (m._docsMean - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
         });
         // Parts the model no longer has.
         for (let i = entry.primitives.length; i < meshes.length; i++) if (meshes[i] && !meshes[i]._destroyed) meshes[i].destroy();

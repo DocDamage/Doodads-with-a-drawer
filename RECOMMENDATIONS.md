@@ -65,7 +65,13 @@ Status as of 18 October 2026. Every item on the 17 October list is done or partl
 
 ## What's left
 
-Roughly in order: the first three are what a release needs; the rest wait for real maps to show what matters. Done since the last update: models reload live when their files change, like pictures. The 3D view also has its own See-Through silhouette: the player and their gear are drawn as one outline over whatever hides them, and Silhouette mode no longer fades things in 3D (hills still fade in every mode).
+Roughly in order: the first three are what a release needs; the rest wait for real maps to show what matters. Done since the last update: models reload live when their files change, like pictures. The 3D view also has its own See-Through silhouette: the player and their gear are drawn as one outline over whatever hides them, and Silhouette mode no longer fades things in 3D (hills still fade in every mode). Standing tiles and walls:
+
+- Objects drawn entirely on roofs and walls (eaves, chimneys, windows) stay flat, and a per-map region keeps anything flat.
+- Walls stay sharp in Smooth.
+- Every exposed side of a wall shows its face art, so a turned camera sees walls.
+- Things are drawn in order of their place on the ground, so a high wall top behind a doodad no longer cuts it off.
+
 
 | # | What | Why | Size |
 |---|---|---|---|
@@ -73,5 +79,5 @@ Roughly in order: the first three are what a release needs; the rest wait for re
 | B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps). Check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
 | C | **The 3D camera stops following the player near map edges.** The 3D view makes MZ scroll as if the screen were View Distance tiles across (40 by default). On maps that don't loop, MZ stops scrolling within half that of an edge. On maps no bigger than it (Starting Town is 35×40), it doesn't scroll at all. The camera stays put, and the player can walk below the screen. In 3D, scrolling should keep the player in the middle, with the void past the edges. | Found while playtesting model live reload. Every map that doesn't loop is affected near its edges. | S |
 | D | **Models: the next steps.** Editor picking uses the doodad's picture, not the model. There is no animation, skinning or PBR material. A model is drawn on the CPU whenever the camera moves (a still view reuses the last frame), so keep models to a few hundred triangles. | The first version is deliberately small. | M–L |
-| E | **Standing tiles and walls: edge cases.** Roof edges drawn with ☆ tiles stand up too. Interiors need the Stepped shape. Wall faces always face south. Doodads taller than a wall (seen with 224-pixel test battlers in an interior) are cut off where the wall stands in front of them. | Maps vary; real maps will show which cases matter. | S–M |
+| E | **Standing tiles and walls: what's still open.** Floor decals (Below characters) are painted on the ground, so one crossing a raised wall is lifted with it (seen with tall test battlers on a map-1 floor). Wall columns with no face art (a wall seen end-on, all wall top) still show stretched top art on their sides. The roof rule is cautious: it only keeps an object flat when all of it is on roof or wall tiles, so mixed cases need the keep-flat region. | Real maps will show which of these matter. | S–M |
 | F | **MV**, only if MV support is wanted again. | Nothing since 2.0 has been tested there. | M |

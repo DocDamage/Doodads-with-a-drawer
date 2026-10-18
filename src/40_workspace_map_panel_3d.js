@@ -54,6 +54,7 @@
             range('waterShine', 'Sparkle', 0, 1, 0.05),
             check('waterWakes', 'Wakes behind boats and waders'),
             { key: 'standTiles', label: 'Tileset objects (B–E tiles)', type: 'select', options: DocsDoodads.StandTiles.modes },
+            number('standFlatRegion', 'Keep tileset objects flat in region (0 = none; roofs and walls always stay flat)'),
             range('doodadScale', 'Standing doodads: height in 3D', 0.25, 2, 0.05),
             range('characterScale', 'Characters: height in 3D', 0.25, 2, 0.05),
             check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
