@@ -129,6 +129,10 @@ const stepped = T.buildMesh(grid, 0, 0, 3, 3, 48, 48, 'stepped');
 const walls = stepped.triangles.length / 3 - 3 * 3 * 2;
 assert.strictEqual(walls, 4 * 2, "a raised tile has four walls of two triangles");
 assert.ok(stepped.vertices.every(v => Number.isFinite(v.u) && Number.isFinite(v.v) && v.shade > 0 && v.shade <= 1));
+// The shading follows the light it is given (the sun moving through the day).
+const east = T.buildMesh(grid, 0, 0, 5, 4, 48, 48, 'smooth', [0.8, 0, 0.6]), west = T.buildMesh(grid, 0, 0, 5, 4, 48, 48, 'smooth', [-0.8, 0, 0.6]);
+const shadeAtX = (m, x) => m.vertices.find(v => near(v.x, x) && near(v.y, 72)).shade;
+assert.ok(shadeAtX(east, 84) > shadeAtX(west, 84) && shadeAtX(west, 60) > shadeAtX(east, 60), "the east slope is lit by an eastern sun");
 // Slopes facing away from the light are darker than flat ground.
 const shades = smooth.vertices.map(v => v.shade);
 assert.ok(Math.min(...shades) < Math.max(...shades));

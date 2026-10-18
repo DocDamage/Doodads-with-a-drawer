@@ -127,6 +127,7 @@
  *    - Round world: a planet or a rolling log; radius 0 fits a looping map in one lap.
  *    - Rippling water with glints and wakes behind boats and waders.
  *    - 3D rain, storms and snow from Set Weather Effect, splashing on the ground and water.
+ *    - Day and night: a sky following the clock, sun, moon and stars, light from the sun.
  *    - Terrain height (map panel and the Terrain brush): automatic mountains and forests on
  *      world tilesets, heights by region or terrain tag, smooth or stepped, optional blocking.
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
@@ -4343,7 +4344,7 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1
+        weather: true, weatherDensity: 1, dayNight: true
     },
 
     curves: [
@@ -4383,7 +4384,8 @@ DocsDoodads.Perspective = {
             waterShine: num(s.waterShine, d.waterShine, 0, 1),
             waterWakes: s.waterWakes !== false,
             weather: s.weather !== false,
-            weatherDensity: num(s.weatherDensity, d.weatherDensity, 0, 3)
+            weatherDensity: num(s.weatherDensity, d.weatherDensity, 0, 3),
+            dayNight: s.dayNight !== false
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4857,9 +4859,9 @@ DocsDoodads.Terrain = {
 
     // Mesh over cols x rows tiles from (tx0, ty0): vertices in map pixels with height h (tiles), texture
     // position u, v (map pixels) and shade 0-1; triangles as vertex index triples.
-    buildMesh(grid, tx0, ty0, cols, rows, tw, th, style) {
+    buildMesh(grid, tx0, ty0, cols, rows, tw, th, style, light) {
         const vertices = [], triangles = [];
-        const L = this.light;
+        const L = light || this.light;
         const shadeOf = (nx, ny, nz) => {
             const n = Math.hypot(nx, ny, nz) || 1;
             return Math.max(0.35, Math.min(1, 0.55 + 0.45 * ((nx * L[0] + ny * L[1] + nz * L[2]) / n) / L[2]));
@@ -5237,6 +5239,69 @@ DocsDoodads.Weather3D = {
 
     pruneSplashes(list, now) {
         return list.filter(s => now - s.born <= this.splashLife).slice(-this.maxSplashes);
+    }
+};
+
+// Day and night in the 3D view: sky colours, the sun and moon (on the path the shadows use), stars,
+// and the light direction for hills and water. Azimuth: degrees clockwise from north; elevation: degrees.
+DocsDoodads.Sky3D = {
+    palettes: {
+        day: { top: 0x3d7fd6, horizon: 0xa9d3ff },
+        twilight: { top: 0x2e3a78, horizon: 0xff9466 },
+        night: { top: 0x04060f, horizon: 0x16204a }
+    },
+
+    mix(a, b, t) {
+        t = Math.max(0, Math.min(1, t));
+        const ch = (c, s) => (c >> s) & 255;
+        const m = s => Math.round(ch(a, s) + (ch(b, s) - ch(a, s)) * t);
+        return (m(16) << 16) | (m(8) << 8) | m(0);
+    },
+
+    smooth(e0, e1, x) {
+        const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+        return t * t * (3 - 2 * t);
+    },
+
+    at(minutes) {
+        const h = DocsDoodads.TimeOfDay.wrap(minutes) / 60;
+        const day = h >= 6 && h < 18;
+        const t = day ? (h - 6) / 12 : ((h + 6) % 24) / 12;
+        const arc = Math.sin(Math.PI * t);
+        // The shadows' direction is where the light comes from, turned round.
+        const azimuth = (DocsDoodads.Sun.at(minutes).angle + 180) % 360;
+        const sun = { azimuth, elevation: day ? 5 + 60 * arc : -5 - 60 * arc };
+        const moon = { azimuth, elevation: day ? -5 - 45 * arc : 5 + 45 * arc };
+        // Night from about 19:00 to 05:00, twilight around 6 and 18.
+        const night = 1 - this.smooth(5, 7, h) + this.smooth(17, 19.5, h);
+        const bell = (x, c) => Math.exp(-((x - c) / 1.1) * ((x - c) / 1.1));
+        const twilight = Math.max(bell(h, 6.2), bell(h, 18));
+        const nightW = Math.max(0, Math.min(1, night));
+        const pal = this.palettes;
+        let top = this.mix(pal.day.top, pal.night.top, nightW), horizon = this.mix(pal.day.horizon, pal.night.horizon, nightW);
+        top = this.mix(top, pal.twilight.top, twilight * 0.7);
+        horizon = this.mix(horizon, pal.twilight.horizon, twilight);
+        const body = day ? sun : moon;
+        const el = Math.max(4, body.elevation) * Math.PI / 180, az = body.azimuth * Math.PI / 180;
+        const dir = [Math.sin(az) * Math.cos(el), -Math.cos(az) * Math.cos(el), Math.sin(el)];
+        const lowSun = 1 - Math.min(1, Math.max(0, sun.elevation) / 35);
+        const color = day ? this.mix(0xffffff, 0xffc27a, lowSun) : 0x9fb4ff;
+        return {
+            top, horizon, sun, moon, stars: nightW < 0.02 ? 0 : nightW > 0.98 ? 1 : nightW,
+            light: { dir, color, intensity: day ? 1 : 0.35, from: day ? 'sun' : 'moon' }
+        };
+    },
+
+    // Screen position of a direction in the sky (from the camera), or null behind the camera.
+    skyPoint(cam, azimuth, elevation) {
+        const az = azimuth * Math.PI / 180, el = elevation * Math.PI / 180;
+        const far = cam.dist * 1000;
+        return DocsDoodads.Perspective.project(cam,
+            cam.C.x + Math.sin(az) * Math.cos(el) * far, cam.C.y - Math.cos(az) * Math.cos(el) * far, cam.C.z + Math.sin(el) * far);
+    },
+
+    lightKey(dir) {
+        return dir.map(v => Math.round(v * 20)).join(',');
     }
 };
 
@@ -8356,6 +8421,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this._docs3d = false;
         if (this._weather) this._weather.visible = true;
         this._docs3dWeather = null;
+        this._docs3dSkyGrad = null;
+        this._docs3dCelestial = null;
+        this._docsSkyKey = null;
+        this._docsSkyLight = null;
         this._docsWeatherParts = [];
         this._docsSplashes = [];
         P._cam = null;
@@ -8459,10 +8528,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             parent.addChildAt(this._docs3dView, parent.children.indexOf(tilemap) + 1);
         }
         const sky = this._docs3dSky;
-        sky.visible = !($gameMap.parallaxName && $gameMap.parallaxName());
+        const parallax = Boolean($gameMap.parallaxName && $gameMap.parallaxName());
+        sky.visible = !parallax;
         sky.width = W;
         sky.height = H;
         sky.tint = parseInt(s.skyColor.slice(1), 16);
+        this.updateDocsSky(s, cam, parallax);
 
         const terrain = DocsDoodads.Terrain.grid();
         const mesh = this.docsGroundMesh(W, H);
@@ -8515,6 +8586,89 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
         this.updateDocsWeather(s, cam, fogRange);
         this.updateDocsGizmos(cam);
+    };
+
+    // Day and night: a sky that follows the clock, stars, the sun and moon, and their light.
+    Spriteset_Map.prototype.updateDocsSky = function(s, cam, parallax) {
+        const minutes = DocsDoodads.Atmosphere.minutes();
+        const state = s.dayNight && minutes !== null && minutes !== undefined ? DocsDoodads.Sky3D.at(minutes) : null;
+        this._docsSkyLight = state ? state.light.dir : null;
+        const view = this._docs3dView;
+        if (!this._docs3dSkyGrad) {
+            this._docs3dSkyGrad = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            this._docs3dCelestial = new PIXI.Graphics();
+        }
+        const grad = this._docs3dSkyGrad, cel = this._docs3dCelestial;
+        const at = view.children.indexOf(this._docs3dSky) + 1;
+        if (grad.parent !== view) view.addChildAt(grad, at);
+        if (cel.parent !== view) view.addChildAt(cel, at + 1);
+        cel.clear();
+        if (!state) {
+            grad.visible = false;
+            return;
+        }
+        const W = Graphics.width, H = Graphics.height;
+        // The sky: its top colour fading to the horizon colour at the horizon line, horizon colour below.
+        if (!parallax) {
+            this._docs3dSky.tint = state.horizon;
+            const key = state.top + '|' + state.horizon;
+            if (this._docsSkyKey !== key) {
+                this._docsSkyKey = key;
+                const c = document.createElement('canvas');
+                c.width = 1;
+                c.height = 64;
+                const g = c.getContext('2d');
+                const hex = n => '#' + ('000000' + n.toString(16)).slice(-6);
+                const lg = g.createLinearGradient(0, 0, 0, 64);
+                lg.addColorStop(0, hex(state.top));
+                lg.addColorStop(1, hex(state.horizon));
+                g.fillStyle = lg;
+                g.fillRect(0, 0, 1, 64);
+                if (this._docsSkyTexture) this._docsSkyTexture.destroy(true);
+                this._docsSkyTexture = PIXI.Texture.from(c);
+                grad.texture = this._docsSkyTexture;
+            }
+            const horizon = Math.max(1, Math.min(H, DocsDoodads.Perspective.horizonY(cam)));
+            grad.visible = true;
+            grad.x = 0;
+            grad.y = 0;
+            grad.width = W;
+            grad.height = horizon;
+        } else {
+            grad.visible = false;
+        }
+        // Stars, then the moon and sun, above the horizon.
+        const S = DocsDoodads.Sky3D;
+        const horizonY = DocsDoodads.Perspective.horizonY(cam);
+        if (state.stars > 0) {
+            if (!S._stars) {
+                const rng = DocsDoodads.Scatter.rng(1234);
+                S._stars = Array.from({ length: 320 }, () => ({ az: rng() * 360, el: 2 + Math.asin(rng()) * 180 / Math.PI * 0.95, size: rng() < 0.85 ? 1 : 2, tw: rng() * 6.28 }));
+            }
+            const t = DocsDoodads.frameCount() / 60;
+            for (const st of S._stars) {
+                const p = S.skyPoint(cam, st.az, st.el);
+                if (!p || p.y >= horizonY || p.x < -2 || p.x > W + 2 || p.y < -2) continue;
+                cel.beginFill(0xffffff, state.stars * (0.55 + 0.45 * Math.sin(t * 2 + st.tw)));
+                cel.drawRect(p.x, p.y, st.size, st.size);
+                cel.endFill();
+            }
+        }
+        const disc = (body, color, radius, glow) => {
+            if (body.elevation <= -2) return;
+            const p = S.skyPoint(cam, body.azimuth, body.elevation);
+            if (!p || p.y >= horizonY + radius) return;
+            for (let i = 4; i >= 1; i--) {
+                cel.beginFill(color, glow * 0.12 * (5 - i) / 4);
+                cel.drawCircle(p.x, p.y, radius * (1 + i * 0.6));
+                cel.endFill();
+            }
+            cel.beginFill(color, 1);
+            cel.drawCircle(p.x, p.y, radius);
+            cel.endFill();
+        };
+        disc(state.moon, 0xe6ecff, 10, 0.6);
+        disc(state.sun, state.sun.elevation < 15 ? 0xffd08a : 0xfff6d8, 15, 1);
     };
 
     // Editor selection as boxes standing on the ground.
@@ -8790,6 +8944,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uOrigin = [o.x, o.y];
         u.uLoop = [$gameMap.isLoopHorizontal() ? 1 : 0, $gameMap.isLoopVertical() ? 1 : 0];
         u.uWakes = DocsDoodads.Water3D.pack(this._docsWakes || [], now);
+        u.uLightDir = (this._docsSkyLight || DocsDoodads.Terrain.light).slice();
         if (u.uCam !== undefined) u.uCam = [cam.C.x, cam.C.y, cam.C.z];
         if (u.uGround !== undefined) u.uGround = [this._docs3dTexture.width, this._docs3dTexture.height];
     };
@@ -9077,11 +9232,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.docsTerrainTopology = function(grid, s) {
         const viewTiles = s.viewTiles;
         const tx0 = Math.floor($gameMap.displayX()) - 1, ty0 = Math.floor($gameMap.displayY()) - 1;
-        const key = [grid.sig, tx0, ty0, viewTiles].join('|');
+        const light = this._docsSkyLight || T.light;
+        const key = [grid.sig, tx0, ty0, viewTiles, DocsDoodads.Sky3D.lightKey(light)].join('|');
         if (this._docsTerrainKey === key && this._docsTerrainTopo) return this._docsTerrainTopo;
         this._docsTerrainKey = key;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style);
+        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style, light);
         const n = mesh.vertices.length;
         const topo = this._docsTerrainTopo = {
             vertices: mesh.vertices, triangles: mesh.triangles,
@@ -16855,6 +17011,7 @@ DocsDoodads.Workspace = {
             range('waterSpeed', 'Ripple speed', 0, 3, 0.05),
             range('waterShine', 'Sparkle', 0, 1, 0.05),
             check('waterWakes', 'Wakes behind boats and waders'),
+            check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
             check('weather', '3D rain and snow (from Set Weather Effect)'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
