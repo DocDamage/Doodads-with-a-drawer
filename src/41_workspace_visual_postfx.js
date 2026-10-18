@@ -594,6 +594,22 @@
                 range('sound.pitchVariance', 'Pitch variation (%)', 0, 30, 1),
                 range('sound.volumeVariance', 'Volume variation (%)', 0, 50, 1)
             ] },
+            { title: 'Zoom and Sound Focus', extra: 'ambience', fields: [
+                check('zoom.enabled', 'Players can zoom in on their character'),
+                check('zoom.wheel', 'With the mouse wheel'),
+                check('zoom.keys', 'With the + and - keys'),
+                range('zoom.max', 'Closest zoom', 1.25, 4, 0.05),
+                range('zoom.step', 'Zoom step', 0.05, 1, 0.05),
+                check('focus.enabled', 'Zooming in brings the nearby sound forward'),
+                range('focus.music', 'Music drops by (at the closest zoom)', 0, 1, 0.05),
+                range('focus.reach', 'Sounds carry less far by', 0, 0.9, 0.05),
+                range('focus.boost', 'Nearby sounds louder by (x)', 1, 3, 0.05),
+                check('footsteps.enabled', 'Footsteps'),
+                range('footsteps.volume', 'Footstep volume', 0, 100, 1),
+                range('footsteps.quiet', 'Footsteps at normal zoom (share of full)', 0, 1, 0.05),
+                range('footsteps.dash', 'Louder dashing (x)', 1, 2, 0.05),
+                check('footsteps.followers', 'Followers too (softer)')
+            ] },
             { title: 'Motion Blur', fields: [
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
@@ -612,7 +628,8 @@
             }).join('');
             const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor()
                 : section.extra === 'animsets' ? this.renderAnimSetEditor() : section.extra === 'visual' ? this.renderVisualTryOn()
-                : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor() : '';
+                : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor()
+                : section.extra === 'ambience' ? this.renderAmbienceEditor() : '';
             return `
                 <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                     <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
@@ -662,6 +679,7 @@
         this.bindVisualTryOn();
         this.bindBiomeEditor();
         this.bindDressEditor();
+        this.bindAmbienceEditor();
     },
 
     renderKeyframeEditor() {
@@ -770,6 +788,81 @@
                     <option value="-1" ${preview < 0 ? 'selected' : ''}>As in the game</option>
                     ${seasons.names.map((name, k) => `<option value="${k}" ${preview === k ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
                 </select></div>`;
+    },
+
+    // ---- Ambience layers and footstep sounds (World > Zoom and Sound Focus) ----
+    renderAmbienceEditor() {
+        const W = DocsDoodads.World, SS = DocsDoodads.SpatialSound;
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const files = this.audioFileOptions();
+        const bgs = files.filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
+        const se = files.filter(o => o.value.indexOf('se/') === 0).map(o => o.value.slice(3));
+        const select = (id, value, options) => `<select id="${id}" style="${inputStyle}">${options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
+        const layers = (W.get('ambience.layers') || []).map((l, i) => `
+            <div style="display: grid; grid-template-columns: 1fr 52px; gap: 3px; border-top: 1px dashed #334155; padding-top: 3px;">
+                ${select(`dd-amb-${i}-kind`, l.kind, SS.ambienceKinds)}
+                <input type="text" id="dd-amb-${i}-id" value="${escapeHtml(String(l.id === undefined ? '' : l.id))}" title="Region or terrain tag number, or text in the doodads' picture names" placeholder="id / text" style="${inputStyle}" />
+                <input type="text" list="dd-amb-bgs" id="dd-amb-${i}-sound" value="${escapeHtml(l.sound || '')}" placeholder="Background sound" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-amb-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
+                <div style="grid-column: span 2; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px;">
+                    <input type="number" id="dd-amb-${i}-volume" value="${escapeHtml(String(l.volume === undefined ? 60 : l.volume))}" title="Volume" style="${inputStyle}" />
+                    <input type="number" id="dd-amb-${i}-radius" value="${escapeHtml(String(l.radius === undefined ? 6 : l.radius))}" title="Heard within (tiles)" style="${inputStyle}" />
+                    <input type="number" step="0.05" id="dd-amb-${i}-quiet" value="${escapeHtml(String(l.quiet === undefined ? 0.4 : l.quiet))}" title="Share heard at normal zoom" style="${inputStyle}" />
+                    <input type="number" id="dd-amb-${i}-pitch" value="${escapeHtml(String(l.pitch === undefined ? 100 : l.pitch))}" title="Pitch" style="${inputStyle}" />
+                </div>
+            </div>`).join('');
+        const steps = (W.get('footsteps.rows') || []).map((r, i) => `
+            <div style="display: grid; grid-template-columns: 1fr 40px 1fr 40px 22px; gap: 3px; align-items: center;">
+                ${select(`dd-step-${i}-kind`, r.kind, SS.footstepKinds)}
+                <input type="number" id="dd-step-${i}-id" value="${escapeHtml(String(r.id === undefined ? '' : r.id))}" title="Region or terrain tag" style="${inputStyle}" />
+                <input type="text" list="dd-step-se" id="dd-step-${i}-sound" value="${escapeHtml(r.sound || '')}" placeholder="Sound effect" style="${inputStyle}" />
+                <input type="number" id="dd-step-${i}-volume" value="${escapeHtml(String(r.volume === undefined ? 90 : r.volume))}" title="Volume" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-step-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
+            </div>`).join('');
+        return `
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Ambience: background sounds that rise with what's around the player (volume, heard within, share at normal zoom, pitch). They swell as you zoom in.</div>
+            ${layers}
+            <datalist id="dd-amb-bgs">${bgs.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+            <button class="dd-btn" id="dd-amb-add">Add Ambience</button>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Footstep sounds by ground (regions first, then terrain tags, then the kind of ground):</div>
+            ${steps}
+            <datalist id="dd-step-se">${se.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+            <button class="dd-btn" id="dd-step-add">Add Footstep Sound</button>`;
+    },
+
+    bindAmbienceEditor() {
+        const W = DocsDoodads.World;
+        const byId = id => document.getElementById(id);
+        const edit = (key, fn) => {
+            const list = JSON.parse(JSON.stringify(W.get(key) || []));
+            fn(list);
+            this.setWorldSetting(key, list);
+            this.refreshInspector();
+        };
+        const add = byId('dd-amb-add');
+        if (add) add.onclick = () => edit('ambience.layers', list => list.push({ kind: 'water', id: '', sound: '', volume: 60, radius: 6, quiet: 0.4, pitch: 100 }));
+        (W.get('ambience.layers') || []).forEach((l, i) => {
+            for (const field of ['kind', 'id', 'sound', 'volume', 'radius', 'quiet', 'pitch']) {
+                const input = byId(`dd-amb-${i}-${field}`);
+                if (input) input.onchange = () => edit('ambience.layers', list => {
+                    list[i][field] = ['volume', 'radius', 'quiet', 'pitch'].includes(field) ? parseFloat(input.value) || 0 : input.value;
+                });
+            }
+            const del = byId(`dd-amb-del-${i}`);
+            if (del) del.onclick = () => edit('ambience.layers', list => list.splice(i, 1));
+        });
+        const addStep = byId('dd-step-add');
+        if (addStep) addStep.onclick = () => edit('footsteps.rows', list => list.push({ kind: 'default', id: '', sound: '', volume: 90 }));
+        (W.get('footsteps.rows') || []).forEach((r, i) => {
+            for (const field of ['kind', 'id', 'sound', 'volume']) {
+                const input = byId(`dd-step-${i}-${field}`);
+                if (input) input.onchange = () => edit('footsteps.rows', list => {
+                    list[i][field] = field === 'volume' || field === 'id' ? parseFloat(input.value) || 0 : input.value;
+                });
+            }
+            const del = byId(`dd-step-del-${i}`);
+            if (del) del.onclick = () => edit('footsteps.rows', list => list.splice(i, 1));
+        });
     },
 
     bindSeasonEditor() {

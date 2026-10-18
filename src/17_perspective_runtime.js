@@ -15,12 +15,14 @@ DocsDoodads.Perspective.active = function() {
     // Asked for many times a frame: kept for the rest of the frame while nothing it depends on changes.
     const frame = typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
     const memo = this._activeMemo;
+    const zoom = DocsDoodads.PlayerZoom ? DocsDoodads.PlayerZoom.level() : 1;
     if (frame !== null && memo && memo.frame === frame && memo.mine === mine && memo.camera === $gameMap._docsCamera
-        && memo.editing === editing && memo.quality === quality) return memo.s;
+        && memo.editing === editing && memo.quality === quality && memo.zoom === zoom) return memo.s;
     let s = this.resolve(mine, $gameMap._docsCamera || null);
-    // The editor shows the map as it was set; the player's Effects Quality applies in play.
+    // The editor shows the map as it was set; the player's Effects Quality and zoom apply in play.
     if (s && !editing) s = this.withQuality(s, quality);
-    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, s };
+    if (s && !editing && zoom !== 1) s = Object.assign({}, s, { zoom: s.zoom * zoom });
+    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, zoom, s };
     return s;
 };
 

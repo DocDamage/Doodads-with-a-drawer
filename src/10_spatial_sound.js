@@ -32,8 +32,8 @@ DocsDoodads.SpatialSound = {
     // A copy of the sound as heard from dx, dy tiles away, or null when out of earshot.
     apply(se, dx, dy, s) {
         if (!se || !s || s.mode === 'off') return se;
-        const gain = this.gainAt(Math.hypot(dx, dy), s);
-        const volume = Math.round((Number(se.volume) || 0) * gain);
+        const gain = this.gainAt(Math.hypot(dx, dy), s) * (Number(s.boost) || 1);
+        const volume = Math.min(100, Math.round((Number(se.volume) || 0) * gain));
         if (gain <= 0 || volume <= 0) return null;
         const pan = Math.max(-100, Math.min(100, (Number(se.pan) || 0) + this.panFor(dx, s)));
         return { name: se.name, volume, pitch: se.pitch, pan };
@@ -86,9 +86,11 @@ DocsDoodads.SpatialSound = {
         const out = {};
         for (const item of list || []) {
             if (!item || !item.emitter) continue;
-            const near = Math.min(Number(s.near) || 0, item.emitter.radius * 0.25);
+            // Zoomed in, an emitter carries less far (reach) and sounds louder close by (boost).
+            const far = item.emitter.radius * (Number(s.reachScale) || 1);
+            const near = Math.min(Number(s.near) || 0, far * 0.25);
             out[item.key] = {
-                gain: this.gainAt(Math.hypot(item.dx, item.dy), { near, far: item.emitter.radius }),
+                gain: Math.min(1.5, this.gainAt(Math.hypot(item.dx, item.dy), { near, far }) * (Number(s.boost) || 1)),
                 pan: this.panFor(item.dx, s)
             };
         }
@@ -106,6 +108,94 @@ DocsDoodads.SpatialSound = {
         const d = this.echoDefaults;
         const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
         return { delay: num(echo.delay, d.delay, 0.02, 1), feedback: num(echo.feedback, d.feedback, 0, 0.9), mix: num(echo.mix, d.mix, 0, 1) };
+    },
+
+    // ---- Zoom and sound focus ----
+    // How far in the player has zoomed: 0 at normal size, 1 at the most.
+    focusOf(level, max) {
+        const top = Math.max(1.0001, Number(max) || 2.5);
+        return Math.max(0, Math.min(1, ((Number(level) || 1) - 1) / (top - 1)));
+    },
+
+    // The spatial sound settings heard at focus f: sounds carry less far (reach) and are louder up close
+    // (boost); f 0 changes nothing.
+    focused(s, f, focus) {
+        if (!s || !(f > 0) || !focus || focus.enabled === false) return s;
+        const reachScale = 1 - Math.max(0, Math.min(0.9, Number(focus.reach) || 0)) * f;
+        const near = Number(s.near) || 0;
+        return Object.assign({}, s, {
+            far: Math.max(near + 1, (Number(s.far) || 14) * reachScale),
+            reachScale,
+            boost: 1 + (Math.max(1, Number(focus.boost) || 1) - 1) * f
+        });
+    },
+
+    // Music volume at focus f (music: how much it drops at the closest zoom).
+    musicScale(f, focus) {
+        if (!focus || focus.enabled === false) return 1;
+        return 1 - Math.max(0, Math.min(1, Number(focus.music) || 0)) * Math.max(0, Math.min(1, f || 0));
+    },
+
+    // How loud a sound heard "quiet" at normal zoom is at focus f (1 at the closest zoom).
+    closeness(quiet, f) {
+        const q = Math.max(0, Math.min(1, Number(quiet)));
+        return q + (1 - q) * Math.max(0, Math.min(1, f || 0));
+    },
+
+    ambienceKinds: [
+        { value: 'water', label: 'Near water (rivers, sea)' },
+        { value: 'trees', label: 'Near trees (forests, ☆ tree tops)' },
+        { value: 'open', label: 'Out in the open (wind; louder up high)' },
+        { value: 'doodads', label: 'Near doodads whose picture name contains…' },
+        { value: 'region', label: 'Near a region' },
+        { value: 'tag', label: 'Near a terrain tag' }
+    ],
+
+    footstepKinds: [
+        { value: 'region', label: 'Region' },
+        { value: 'tag', label: 'Terrain tag' },
+        { value: 'water', label: 'Shallow water' },
+        { value: 'bush', label: 'Bushes and tall grass' },
+        { value: 'forest', label: 'Forest' },
+        { value: 'default', label: 'Anywhere else' }
+    ],
+
+    // How much of a layer's kind is around the player: { coverage 0-1, pan -100..100 }. q answers about a
+    // tile: q.match(layer, x, y) -> true/false (or a number 0-1), and q.doodads (map pixels and paths).
+    coverage(layer, px, py, q, tw, th) {
+        const r = Math.max(1, Math.min(20, Number(layer.radius) || 6));
+        if (layer.kind === 'doodads') {
+            const text = String(layer.id || '').toLowerCase();
+            let n = 0, sx = 0;
+            for (const d of q.doodads || []) {
+                const dx = d.x / tw - (px + 0.5), dy = d.y / th - (py + 1);
+                if (dx * dx + dy * dy > r * r || (text && !String(d.path || '').toLowerCase().includes(text))) continue;
+                n++; sx += dx;
+            }
+            return { coverage: Math.min(1, n / 3), pan: n ? Math.round(Math.max(-1, Math.min(1, sx / n / r)) * 100) : 0 };
+        }
+        let total = 0, hit = 0, sx = 0;
+        for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+                if (dx * dx + dy * dy > r * r) continue;
+                total++;
+                const v = Number(q.match(layer, px + dx, py + dy)) || 0;
+                if (v > 0) { hit += v; sx += dx * v; }
+            }
+        }
+        // A few tiles are already heard: the square root lifts small amounts.
+        return { coverage: total ? Math.sqrt(hit / total) : 0, pan: layer.kind === 'open' || !hit ? 0 : Math.round(Math.max(-1, Math.min(1, sx / hit / r)) * 100) };
+    },
+
+    // The footstep row for the ground under the player: regions first, then terrain tags, then the kind of
+    // ground (water, bushes, forest), then the default; null for none. g: { region, tag, water, bush, forest }.
+    footstepFor(rows, g) {
+        const list = (rows || []).filter(r => r && r.sound);
+        const find = kind => list.find(r => r.kind === kind && (kind === 'region' ? Number(r.id) === g.region : kind === 'tag' ? Number(r.id) === g.tag : true));
+        if (g.region > 0 && find('region')) return find('region');
+        if (g.tag > 0 && find('tag')) return find('tag');
+        for (const kind of ['water', 'bush', 'forest']) if (g[kind] && find(kind)) return find(kind);
+        return find('default') || null;
     },
 
     regionSoundFor(list, regionId) {
