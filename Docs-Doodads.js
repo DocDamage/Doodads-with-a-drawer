@@ -125,6 +125,8 @@
  *      characters, gear and standing doodads stand up as billboards, sorted by distance.
  *    - Camera tilt, turn, field of view, zoom, fog and sky; the parallax becomes the sky.
  *    - Round world: a planet or a rolling log; radius 0 fits a looping map in one lap.
+ *    - Terrain height (map panel and the Terrain brush): automatic mountains and forests on
+ *      world tilesets, heights by region or terrain tag, smooth or stepped, optional blocking.
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
  *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
  *      through the ground; selected doodads show 3D boxes.
@@ -4437,7 +4439,17 @@ DocsDoodads.Perspective = {
 
     // Where a flat point sits in the world: on the plane, or wrapped onto the curve keeping distances
     // along the ground. n is the surface's up direction; visible is false past the far side.
-    groundPoint(cam, x, y) {
+    groundPoint(cam, x, y, height) {
+        const g = this.surfacePoint(cam, x, y);
+        if (height) {
+            g.x += g.nx * height;
+            g.y += g.ny * height;
+            g.z += g.nz * height;
+        }
+        return g;
+    },
+
+    surfacePoint(cam, x, y) {
         const T = cam.target, R = cam.radius;
         if (cam.curve === 'sphere') {
             const ox = x - T.x, oy = y - T.y, s = Math.hypot(ox, oy);
@@ -4513,15 +4525,16 @@ DocsDoodads.Perspective = {
     },
 
     // A point `height` pixels up from a foot point, drawn upright like a billboard.
-    billboardTop(cam, x, y, height) {
-        const g = this.groundPoint(cam, x, y);
+    billboardTop(cam, x, y, height, ground) {
+        const g = this.groundPoint(cam, x, y, ground || 0);
         const p = g.visible ? this.project(cam, g.x, g.y, g.z) : null;
         return p ? { x: p.x, y: p.y - height * p.scale, scale: p.scale } : null;
     },
 
     // Flat space to screen for something standing at `pivot`: scale around the projected foot.
+    // pivot: { x, y } in flat pixels, and h: the ground's height there in pixels (terrain).
     billboardMatrix(cam, pivot) {
-        const g = this.groundPoint(cam, pivot.x, pivot.y);
+        const g = this.groundPoint(cam, pivot.x, pivot.y, pivot.h || 0);
         if (!g.visible) return null;
         // On a round world, the far side of the horizon faces away from the camera.
         if (cam.curve !== 'flat' && g.nx * (cam.C.x - g.x) + g.ny * (cam.C.y - g.y) + g.nz * (cam.C.z - g.z) <= 0) return null;
@@ -4602,6 +4615,60 @@ DocsDoodads.Perspective = {
     },
 
     // A flat rectangle (the sprite's image) drawn as a billboard standing at `pivot`, in screen pixels.
+    // The first terrain hit under a screen point: march along the ray until it dips below the ground,
+    // then bisect. heightPx(x, y) is the terrain height in pixels at a flat point; opts.maxHeight and
+    // opts.minHeight (pixels) bound the terrain so the march is fine only where it can hit something.
+    unprojectTerrain(cam, sx, sy, heightPx, opts) {
+        opts = opts || {};
+        const a = (sx - cam.width / 2) / cam.focal, b = (cam.height / 2 - sy) / cam.focal;
+        const D = { x: cam.F.x + a * cam.R.x + b * cam.U.x, y: cam.F.y + a * cam.R.y + b * cam.U.y, z: cam.F.z + a * cam.R.z + b * cam.U.z };
+        const len = Math.hypot(D.x, D.y, D.z);
+        const T = cam.target, R = cam.radius;
+        // Height above the base surface and the flat point under a world point.
+        const locate = t => {
+            const px = cam.C.x + D.x * t / len, py = cam.C.y + D.y * t / len, pz = cam.C.z + D.z * t / len;
+            if (cam.curve === 'sphere') {
+                const vx = px - T.x, vy = py - T.y, vz = pz + R, r = Math.hypot(vx, vy, vz), hl = Math.hypot(vx, vy);
+                const ang = Math.atan2(hl, vz);
+                return { e: r - R, x: hl < 1e-9 ? T.x : T.x + vx / hl * R * ang, y: hl < 1e-9 ? T.y : T.y + vy / hl * R * ang };
+            }
+            if (cam.curve === 'cylinder') {
+                const ox = px - T.x, oy = py - T.y;
+                const u = ox * cam.axis.x + oy * cam.axis.y, w = ox * cam.ahead.x + oy * cam.ahead.y, zz = pz + R;
+                const along = R * Math.atan2(w, zz);
+                return { e: Math.hypot(w, zz) - R, x: T.x + cam.axis.x * u + cam.ahead.x * along, y: T.y + cam.axis.y * u + cam.ahead.y * along };
+            }
+            return { e: pz, x: px, y: py };
+        };
+        const above = t => { const p = locate(t); return p.e - heightPx(p.x, p.y); };
+        const top = opts.maxHeight !== undefined ? opts.maxHeight : 1000;
+        const bottom = (opts.minHeight !== undefined ? opts.minHeight : -1000) - 1;
+        const far = cam.dist * 30, coarse = cam.dist / 20, fine = opts.step || 4;
+        // Coarse steps down to the terrain's highest point; the fine march starts one step back.
+        let t = 0;
+        while (t < far && locate(t).e > top) t += coarse;
+        if (t >= far) return null;
+        t = Math.max(0, t - coarse);
+        let fPrev = above(t);
+        if (fPrev <= 0) return null;
+        for (; t < far; t += fine) {
+            const next = t + fine, f = above(next);
+            if (f <= 0) {
+                let lo = t, hi = next;
+                for (let k = 0; k < 30; k++) {
+                    const mid = (lo + hi) / 2;
+                    if (above(mid) > 0) lo = mid; else hi = mid;
+                }
+                const p = locate((lo + hi) / 2);
+                return { x: p.x, y: p.y };
+            }
+            // Below the lowest ground without a hit (looking past the edge of a round world): nothing.
+            if (locate(next).e < bottom) return null;
+            fPrev = f;
+        }
+        return null;
+    },
+
     screenRect(cam, rect, pivot) {
         const m = this.billboardMatrix(cam, pivot);
         if (!m) return null;
@@ -4619,7 +4686,7 @@ DocsDoodads.Perspective = {
         const half = rect.w / 4, height = Math.max(1, pivot.y - rect.y);
         const ground = [[rect.x, pivot.y - half], [rect.x + rect.w, pivot.y - half], [rect.x + rect.w, pivot.y + half], [rect.x, pivot.y + half]];
         const bottom = ground.map(([x, y]) => {
-            const g = this.groundPoint(cam, x, y);
+            const g = this.groundPoint(cam, x, y, pivot.h || 0);
             return g.visible ? this.project(cam, g.x, g.y, g.z) : null;
         });
         if (bottom.some(p => !p)) return null;
@@ -4630,6 +4697,289 @@ DocsDoodads.Perspective = {
             edges.push([bottom[i], bottom[j]], [top[i], top[j]], [bottom[i], top[i]]);
         }
         return edges;
+    }
+};
+
+// Terrain height for the 3D view, in tiles. Heights come from (highest priority first) the height
+// brush, regions, terrain tags, and automatically from world-tileset mountains and forests.
+DocsDoodads.Terrain = {
+    styles: [
+        { value: 'smooth', label: 'Smooth (hills and mountains)' },
+        { value: 'stepped', label: 'Stepped (cliffs and plateaus)' }
+    ],
+    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5 },
+    // Smooth ground: heights are sampled 4 times per tile and blurred, so ranges stay full height inside
+    // and round off at their edges with low foothills, and art isn't stretched up sharp spikes.
+    smoothSamples: 4,
+    smoothSigma: 0.25,
+    // How much the ground under a doodad's base may vary (tiles) and still count as level.
+    levelTolerance: 0.35,
+    // A light from the upper left, for shading slopes.
+    light: (() => { const l = [-0.45, -0.55, 0.7], n = Math.hypot(...l); return l.map(v => v / n); })(),
+
+    normalize(s) {
+        s = s || {};
+        const d = this.defaults;
+        const num = (v, fallback, min, max) => {
+            const n = Number(v);
+            return v === undefined || v === null || v === '' || !Number.isFinite(n) ? fallback : Math.max(min, Math.min(max, n));
+        };
+        const list = (items, key, max) => (Array.isArray(items) ? items : [])
+            .map(r => ({ [key]: Math.round(Number(r && r[key]) || 0), height: num(r && r.height, 0, -20, 20) }))
+            .filter(r => r[key] >= 1 && r[key] <= max);
+        const paint = {};
+        for (const k of Object.keys(s.paint || {})) {
+            if (/^-?\d+,-?\d+$/.test(k) && Number.isFinite(Number(s.paint[k]))) paint[k] = Math.max(-20, Math.min(20, Number(s.paint[k])));
+        }
+        return {
+            enabled: s.enabled === true,
+            style: this.styles.some(o => o.value === s.style) ? s.style : d.style,
+            auto: s.auto !== false,
+            mountain: num(s.mountain, d.mountain, 0, 20),
+            forest: num(s.forest, d.forest, 0, 20),
+            tags: list(s.tags, 'tag', 7),
+            regions: list(s.regions, 'region', 255),
+            paint,
+            block: s.block === true,
+            climb: num(s.climb, d.climb, 0, 20)
+        };
+    },
+
+    // World tilesets: impassable ground autotiles (A2) are mountains; passable ones airships can't land on are forests.
+    autoKind(tileId, flags, tilesetMode) {
+        if (tilesetMode !== 0 || !(tileId >= 2816 && tileId < 4352)) return null;
+        const f = (flags && flags[tileId]) || 0;
+        if ((f & 0x0f) === 0x0f) return 'mountain';
+        if (f & 0x800) return 'forest';
+        return null;
+    },
+
+    // Heights per tile (row-major), in tiles.
+    buildHeights(map, tileset, settings) {
+        const w = map.width, h = map.height, data = map.data || [];
+        const out = new Float64Array(w * h);
+        // Tiles raised as automatic mountains: doodads never stand there.
+        const mountains = new Uint8Array(w * h);
+        out.mountains = mountains;
+        const flags = (tileset && tileset.flags) || [];
+        const mode = tileset ? tileset.mode : 1;
+        const tagHeight = {}, regionHeight = {};
+        for (const t of settings.tags) tagHeight[t.tag] = t.height;
+        for (const r of settings.regions) regionHeight[r.region] = r.height;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                const painted = settings.paint[x + ',' + y];
+                if (painted !== undefined) { out[i] = painted; continue; }
+                const region = data[(5 * h + y) * w + x] || 0;
+                if (region && regionHeight[region] !== undefined) { out[i] = regionHeight[region]; continue; }
+                let tag = 0;
+                for (let z = 3; z >= 0 && !tag; z--) {
+                    const id = data[(z * h + y) * w + x] || 0;
+                    if (id) tag = ((flags[id] || 0) >> 12) & 7;
+                }
+                if (tag && tagHeight[tag] !== undefined) { out[i] = tagHeight[tag]; continue; }
+                if (settings.auto) {
+                    let value = 0;
+                    for (let z = 0; z < 2; z++) {
+                        const kind = this.autoKind(data[(z * h + y) * w + x] || 0, flags, mode);
+                        if (kind === 'mountain') { value = Math.max(value, settings.mountain); mountains[i] = 1; }
+                        else if (kind === 'forest') value = Math.max(value, settings.forest);
+                    }
+                    out[i] = value;
+                }
+            }
+        }
+        return out;
+    },
+
+    signature(map, tileset, settings) {
+        return [map.width, map.height, tileset ? tileset.mode : '', JSON.stringify(settings)].join('|');
+    },
+
+    // grid: { heights, width, height, loopX, loopY }. A tile's height, 0 off the map (wrapped on looping maps).
+    tileHeight(grid, tx, ty) {
+        if (grid.loopX) tx = ((tx % grid.width) + grid.width) % grid.width;
+        if (grid.loopY) ty = ((ty % grid.height) + grid.height) % grid.height;
+        if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return 0;
+        return grid.heights[ty * grid.width + tx];
+    },
+
+    // The blurred height samples for smooth ground (cached per height grid).
+    smoothField(grid) {
+        if (grid._field && grid._field.owner === grid) return grid._field;
+        const n = this.smoothSamples, w = grid.width * n, h = grid.height * n;
+        const raw = new Float64Array(w * h);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw[y * w + x] = grid.heights[Math.floor(y / n) * grid.width + Math.floor(x / n)];
+        const sigma = this.smoothSigma * n, r = Math.ceil(sigma * 2.5);
+        const kernel = [];
+        let total = 0;
+        for (let i = -r; i <= r; i++) { const k = Math.exp(-(i * i) / (2 * sigma * sigma)); kernel.push(k); total += k; }
+        for (let i = 0; i < kernel.length; i++) kernel[i] /= total;
+        const at = (data, x, y) => {
+            if (grid.loopX) x = ((x % w) + w) % w;
+            if (grid.loopY) y = ((y % h) + h) % h;
+            return x < 0 || y < 0 || x >= w || y >= h ? 0 : data[y * w + x];
+        };
+        const pass = (src, dx, dy) => {
+            const out = new Float64Array(w * h);
+            for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+                let v = 0;
+                for (let i = -r; i <= r; i++) v += kernel[i + r] * at(src, x + dx * i, y + dy * i);
+                out[y * w + x] = v;
+            }
+            return out;
+        };
+        grid._field = { owner: grid, n, w, h, data: pass(pass(raw, 1, 0), 0, 1), at };
+        return grid._field;
+    },
+
+    // Height under a point (in tiles). Stepped: the tile's height. Smooth: the blurred field, bilinear.
+    heightAt(grid, x, y, style) {
+        if (style === 'stepped') return this.tileHeight(grid, Math.floor(x), Math.floor(y));
+        const f = this.smoothField(grid);
+        const fx = x * f.n - 0.5, fy = y * f.n - 0.5;
+        const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+        const a = f.at(f.data, x0, y0), b = f.at(f.data, x0 + 1, y0), c = f.at(f.data, x0, y0 + 1), d = f.at(f.data, x0 + 1, y0 + 1);
+        return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+    },
+
+    // Mesh over cols x rows tiles from (tx0, ty0): vertices in map pixels with height h (tiles), texture
+    // position u, v (map pixels) and shade 0-1; triangles as vertex index triples.
+    buildMesh(grid, tx0, ty0, cols, rows, tw, th, style) {
+        const vertices = [], triangles = [];
+        const L = this.light;
+        const shadeOf = (nx, ny, nz) => {
+            const n = Math.hypot(nx, ny, nz) || 1;
+            return Math.max(0.35, Math.min(1, 0.55 + 0.45 * ((nx * L[0] + ny * L[1] + nz * L[2]) / n) / L[2]));
+        };
+        const add = (x, y, h, u, v, shade) => { vertices.push({ x, y, h, u, v, shade }); return vertices.length - 1; };
+        if (style === 'stepped') {
+            for (let ty = ty0; ty < ty0 + rows; ty++) {
+                for (let tx = tx0; tx < tx0 + cols; tx++) {
+                    const h = this.tileHeight(grid, tx, ty);
+                    const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
+                    const a = add(x0, y0, h, x0, y0, 1), b = add(x1, y0, h, x1, y0, 1), c = add(x1, y1, h, x1, y1, 1), d = add(x0, y1, h, x0, y1, 1);
+                    triangles.push(a, b, c, a, c, d);
+                    // Walls down to lower neighbours, textured with this tile and shaded by the way they face.
+                    const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
+                    for (const [dx, dy, ax, ay, bx, by] of sides) {
+                        const low = this.tileHeight(grid, tx + dx, ty + dy);
+                        if (low >= h) continue;
+                        const sh = shadeOf(dx, dy, 0) * 0.85;
+                        // The wall shows the tile squashed from its far edge down to this edge.
+                        const fu = dx === 0 ? 0 : -dx * tw, fv = dy === 0 ? 0 : -dy * th;
+                        const p = add(ax, ay, h, ax + fu, ay + fv, sh), q = add(bx, by, h, bx + fu, by + fv, sh);
+                        const r = add(bx, by, low, bx, by, sh), t = add(ax, ay, low, ax, ay, sh);
+                        triangles.push(p, q, r, p, r, t);
+                    }
+                }
+            }
+            return { vertices, triangles };
+        }
+        // Smooth: tiles near raised ground are split 4 x 4 and follow the field; flat tiles are one quad.
+        const n = this.smoothSamples;
+        const near = (tx, ty) => {
+            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== 0) return true;
+            return false;
+        };
+        const shadeAt = (x, y) => {
+            const e = 1 / n;
+            const nx = (this.heightAt(grid, x - e, y, 'smooth') - this.heightAt(grid, x + e, y, 'smooth')) * th;
+            const ny = (this.heightAt(grid, x, y - e, 'smooth') - this.heightAt(grid, x, y + e, 'smooth')) * tw;
+            return shadeOf(nx, ny, 2 * e * tw);
+        };
+        for (let ty = ty0; ty < ty0 + rows; ty++) {
+            for (let tx = tx0; tx < tx0 + cols; tx++) {
+                const steps = near(tx, ty) ? n : 1;
+                const base = vertices.length;
+                for (let j = 0; j <= steps; j++) {
+                    for (let i = 0; i <= steps; i++) {
+                        const x = tx + i / steps, y = ty + j / steps;
+                        const h = steps === 1 ? 0 : this.heightAt(grid, x, y, 'smooth');
+                        add(x * tw, y * th, h, x * tw, y * th, steps === 1 ? 1 : shadeAt(x, y));
+                    }
+                }
+                for (let j = 0; j < steps; j++) {
+                    for (let i = 0; i < steps; i++) {
+                        const a = base + j * (steps + 1) + i, b = a + 1, c = a + steps + 2, d = a + steps + 1;
+                        triangles.push(a, b, c, a, c, d);
+                    }
+                }
+            }
+        }
+        return { vertices, triangles };
+    },
+
+    // Where something standing at (x, y) with a base halfWidth wide (all in tiles) touches the ground:
+    // the lowest and highest ground under its base (a base on its tile's bottom edge belongs to that
+    // tile), whether it touches an automatic mountain, and whether it's level ground a doodad may stand
+    // on (never a mountain; raised ground you made is fine where it's level).
+    groundUnder(grid, x, y, halfWidth, style) {
+        const fy = y - 0.02;
+        const w = Math.max(0, halfWidth || 0) * 0.8;
+        let min = Infinity, max = -Infinity, mountain = false;
+        const mask = grid.heights && grid.heights.mountains;
+        for (const [dx, dy] of [[0, 0], [-w, 0], [w, 0], [0, -0.2], [-w, -0.2], [w, -0.2]]) {
+            const h = this.heightAt(grid, x + dx, fy + dy, style);
+            if (h < min) min = h;
+            if (h > max) max = h;
+            if (mask) {
+                let tx = Math.floor(x + dx), ty = Math.floor(fy + dy);
+                if (grid.loopX) tx = ((tx % grid.width) + grid.width) % grid.width;
+                if (grid.loopY) ty = ((ty % grid.height) + grid.height) % grid.height;
+                if (tx >= 0 && ty >= 0 && tx < grid.width && ty < grid.height && mask[ty * grid.width + tx]) mountain = true;
+            }
+        }
+        return { min, max, mountain, level: !mountain && max - min <= this.levelTolerance + 1e-9 };
+    },
+
+    // Where a character stands: on smooth ground the highest point under it (a bump beside its feet
+    // doesn't swallow it); on stepped ground its own tile.
+    footHeight(grid, x, y, halfWidth, style) {
+        if (style === 'stepped') return this.heightAt(grid, x, y - 0.02, style);
+        return this.groundUnder(grid, x, y, halfWidth, style).max;
+    },
+
+    canStep(fromHeight, toHeight, climb) {
+        return Math.abs(toHeight - fromHeight) <= climb + 1e-9;
+    },
+
+    brushModes: [
+        { value: 'raise', label: 'Raise' },
+        { value: 'lower', label: 'Lower' },
+        { value: 'flatten', label: 'Flatten (to where the stroke started)' },
+        { value: 'set', label: 'Set height' },
+        { value: 'erase', label: 'Erase (back to automatic)' }
+    ],
+
+    // One dab of the height brush around tile (cx, cy). Returns the new painted heights.
+    // opts: { mode, amount (tiles), radius (tiles), value (set), target (flatten) }
+    applyBrush(paint, grid, cx, cy, opts) {
+        const out = Object.assign({}, paint);
+        const r = Math.max(0, Math.round(Number(opts.radius) || 0));
+        const amount = Number(opts.amount) || 0;
+        for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+                const d = Math.hypot(dx, dy);
+                if (d > r + 0.25) continue;
+                let x = cx + dx, y = cy + dy;
+                if (grid.loopX) x = ((x % grid.width) + grid.width) % grid.width;
+                if (grid.loopY) y = ((y % grid.height) + grid.height) % grid.height;
+                if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+                const key = x + ',' + y;
+                if (opts.mode === 'erase') { delete out[key]; continue; }
+                const falloff = 1 - d / (r + 1);
+                const current = out[key] !== undefined ? out[key] : this.tileHeight(grid, x, y);
+                let next = current;
+                if (opts.mode === 'raise') next = current + amount * falloff;
+                else if (opts.mode === 'lower') next = current - amount * falloff;
+                else if (opts.mode === 'flatten') next = current + ((Number(opts.target) || 0) - current) * Math.min(1, Math.max(0.1, amount) * falloff);
+                else if (opts.mode === 'set') next = Number(opts.value) || 0;
+                out[key] = Math.round(Math.max(-20, Math.min(20, next)) * 100) / 100;
+            }
+        }
+        return out;
     }
 };
 
@@ -7489,7 +7839,13 @@ DocsDoodads.Perspective.flatToScreen = function(x, y) {
 // A screen point to flat pixels on the ground (null above the horizon).
 DocsDoodads.Perspective.screenToFlat = function(sx, sy) {
     const cam = this.liveCamera();
-    return cam ? this.unproject(cam, sx, sy) : { x: sx, y: sy };
+    if (!cam) return { x: sx, y: sy };
+    const grid = DocsDoodads.Terrain.grid();
+    if (grid && (grid.max !== 0 || grid.min !== 0)) {
+        const th = $gameMap.tileHeight();
+        return this.unprojectTerrain(cam, sx, sy, (x, y) => DocsDoodads.Terrain.heightPxAtFlat(x, y), { maxHeight: grid.max * th, minHeight: grid.min * th });
+    }
+    return this.unproject(cam, sx, sy);
 };
 
 // Screen pixels to map pixels, through the ground when the map is in 3D.
@@ -7642,6 +7998,22 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
             for (const child of (obj && obj.children) || []) tint(child, color);
         };
         for (const it of this.items) {
+            if (it.terrain) {
+                // A run of terrain triangles, already in screen space.
+                const mesh = it.mesh;
+                if (!mesh || mesh._destroyed) continue;
+                temp.transform.worldTransform.copyFrom(wt);
+                temp.transform._worldID++;
+                temp.worldAlpha = this.worldAlpha;
+                mesh.parent = temp;
+                mesh.updateTransform();
+                mesh.start = it.start * 3;
+                mesh.size = it.count * 3;
+                mesh.render(renderer);
+                mesh.parent = null;
+                mesh.transform._parentID = -1;
+                continue;
+            }
             const obj = it.obj;
             if (!obj || obj._destroyed || !obj.parent || !obj.visible) continue;
             const m = it.matrix;
@@ -7678,6 +8050,20 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (child === t._lowerLayer || child === t._upperLayer || child._docsGround) return true;
         if (typeof Sprite_Destination !== 'undefined' && child instanceof Sprite_Destination) return true;
         return child.z !== undefined && child.z < 1;
+    };
+
+    // Doodads (and their particles and effects) follow the level-ground rule; characters climb hills.
+    Spriteset_Map.prototype.docsStandsOnDoodadRule = function(obj) {
+        const base = obj._docsBillboardOwner || obj;
+        return typeof Sprite_DocsDoodad !== 'undefined' && base instanceof Sprite_DocsDoodad;
+    };
+
+    // Half the width of what stands there (its owner's, for gear, effects and balloons), in flat pixels.
+    Spriteset_Map.prototype.docsHalfWidthOf = function(obj) {
+        const tw = $gameMap.tileWidth();
+        const base = obj._docsBillboardOwner || obj._target || obj;
+        const w = base instanceof PIXI.Sprite ? Math.abs(base.width) : tw;
+        return Math.max(tw * 0.25, Math.min(tw * 4, w / 2 || tw / 2));
     };
 
     // The foot point a billboard stands on, in flat pixels.
@@ -7812,7 +8198,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         sky.height = H;
         sky.tint = parseInt(s.skyColor.slice(1), 16);
 
+        const terrain = DocsDoodads.Terrain.grid();
         const mesh = this.docsGroundMesh(W, H);
+        mesh.visible = !terrain;
         const u = mesh.shader.uniforms;
         u.uSampler = rt;
         u.uCam = [cam.C.x, cam.C.y, cam.C.z];
@@ -7839,16 +8227,21 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         for (const obj of billboards) {
             if (!obj.visible) continue;
             const pivot = this.docsPivotOf(obj);
+            const halfWidth = this.docsHalfWidthOf(obj);
+            if (terrain) pivot.h = this.docsStandsOnDoodadRule(obj)
+                ? DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, halfWidth)
+                : DocsDoodads.Terrain.footHeightPxAtFlat(pivot.x, pivot.y, halfWidth);
             const m = P.billboardMatrix(cam, pivot);
             if (!m) continue;
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
             if (fog >= 1) continue;
             const isEffekseer = typeof Sprite_Animation !== 'undefined' && obj instanceof Sprite_Animation;
-            items.push({ obj, depth: m.depth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
+            // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
+            items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
         items.sort(P.compareBillboards);
-        this._docs3dBillboards.items = items;
+        this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
         this.updateDocsGizmos(cam);
     };
 
@@ -7858,6 +8251,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         g.clear();
         const ws = DocsDoodads.Workspace;
         if (!ws || !ws.mounted) return;
+        // Doodads left on a mountain or slope (placed before terrain was turned on) show red boxes.
+        if (DocsDoodads.Terrain.active()) {
+            for (const d of DocsDoodads.doodads() || []) {
+                if (d.editorHidden || DocsDoodads.Terrain.allowsDoodad(d)) continue;
+                const item = ws.doodadFlatBox(d);
+                const box = P.gizmoBox(cam, item.rect, item.pivot);
+                if (!box) continue;
+                g.lineStyle(1.5, 0xef4444, 0.9);
+                for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
+            }
+        }
         for (const item of ws.selection3d ? ws.selection3d() : []) {
             const box = P.gizmoBox(cam, item.rect, item.pivot);
             if (!box) continue;
@@ -8030,6 +8434,232 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         $gameMap.docsMoveCamera({ pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov, curve: mine.curve,
             curvature: DocsDoodads.Perspective.curvatureOf(mine, $gameMap.width()) }, Number(args.duration) || 0);
     });
+}
+
+// ---- Terrain height (3D view) ----
+DocsDoodads.Terrain.settingsFor = function(mapId) {
+    return this.normalize((DocsDoodads.Lighting.mapSettings(mapId) || {}).terrain);
+};
+
+// The map's terrain settings when the map is shown in 3D with terrain on.
+DocsDoodads.Terrain.active = function() {
+    if (!DocsDoodads.Perspective.active()) return null;
+    const s = this.settingsFor($gameMap.mapId());
+    return s.enabled ? s : null;
+};
+
+// Heights for the current map (cached). force: build even when the map isn't in 3D (the brush).
+DocsDoodads.Terrain.grid = function(force) {
+    if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    const s = force ? this.settingsFor($gameMap.mapId()) : this.active();
+    if (!s) return null;
+    const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+    const map = { width: $dataMap.width, height: $dataMap.height, data: $dataMap.data };
+    const sig = $gameMap.mapId() + '|' + this.signature(map, tileset, s);
+    const c = this._grid;
+    if (c && c.sig === sig && c.data === $dataMap.data) return c;
+    const heights = this.buildHeights(map, tileset, s);
+    let max = 0, min = 0;
+    for (const h of heights) { if (h > max) max = h; if (h < min) min = h; }
+    this._grid = { sig, data: $dataMap.data, heights, width: map.width, height: map.height, style: s.style, max, min, settings: s,
+        loopX: $gameMap.isLoopHorizontal(), loopY: $gameMap.isLoopVertical() };
+    return this._grid;
+};
+
+// Terrain height in pixels under a flat (tilemap) point; 0 when the map has no terrain.
+DocsDoodads.Terrain.heightPxAtFlat = function(fx, fy) {
+    const g = this.grid();
+    if (!g) return 0;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    return this.heightAt(g, (fx + $gameMap.displayX() * tw) / tw, (fy + $gameMap.displayY() * th) / th, g.style) * th;
+};
+
+// The height a character halfWidthPx wide stands at, in pixels.
+DocsDoodads.Terrain.footHeightPxAtFlat = function(fx, fy, halfWidthPx) {
+    const g = this.grid();
+    if (!g) return 0;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    return this.footHeight(g, (fx + $gameMap.displayX() * tw) / tw, (fy + $gameMap.displayY() * th) / th, (halfWidthPx || 0) / tw, g.style) * th;
+};
+
+// Doodads stand only on level ground; one on a mountain or slope stays at the lowest ground under it.
+DocsDoodads.Terrain.doodadHeightPxAtFlat = function(fx, fy, halfWidthPx) {
+    const g = this.grid();
+    if (!g) return 0;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const ground = this.groundUnder(g, (fx + $gameMap.displayX() * tw) / tw, (fy + $gameMap.displayY() * th) / th, (halfWidthPx || 0) / tw, g.style);
+    return (ground.level ? ground.max : ground.min) * th;
+};
+
+// Whether a doodad may be placed at its spot: always, unless the map's terrain puts it on a mountain or slope.
+DocsDoodads.Terrain.allowsDoodad = function(d, mapId) {
+    if (!d || typeof $gameMap === 'undefined' || !$gameMap) return true;
+    const s = this.settingsFor(mapId || $gameMap.mapId());
+    if (!s.enabled) return true;
+    const g = this.grid(true);
+    if (!g) return true;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const half = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1) / 2;
+    return this.groundUnder(g, d.x / tw, DocsDoodads.Depth.baseY(d) / th, half / tw, g.style).level;
+};
+
+DocsDoodads.Terrain.vertex = [
+    'precision highp float;',
+    'attribute vec2 aVertexPosition;',
+    'attribute vec2 aUv;',
+    'attribute vec2 aShade;',
+    'uniform mat3 projectionMatrix;',
+    'uniform mat3 translationMatrix;',
+    'varying vec2 vUv;',
+    'varying vec2 vShade;',
+    'void main() {',
+    '    vUv = aUv;',
+    '    vShade = aShade;',
+    '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
+    '}'
+].join('\n');
+
+DocsDoodads.Terrain.fragment = [
+    fragmentPrecision,
+    'varying vec2 vUv;',
+    'varying vec2 vShade;',
+    'uniform sampler2D uSampler;',
+    'uniform vec3 uVoid;',
+    'uniform vec4 uFog;',
+    'uniform float uAlpha;',
+    'void main() {',
+    '    vec4 c = vec4(0.0);',
+    '    if (vUv.x >= 0.0 && vUv.y >= 0.0 && vUv.x <= 1.0 && vUv.y <= 1.0) c = texture2D(uSampler, vUv);',
+    '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x;',
+    '    float f = 1.0 - vShade.y;',
+    '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
+    '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
+    '    gl_FragColor = vec4(rgb * a, a);',
+    '}'
+].join('\n');
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain;
+
+    // The terrain mesh's shape for the tiles around the camera, rebuilt when the view moves a tile.
+    Spriteset_Map.prototype.docsTerrainTopology = function(grid, s) {
+        const viewTiles = s.viewTiles;
+        const tx0 = Math.floor($gameMap.displayX()) - 1, ty0 = Math.floor($gameMap.displayY()) - 1;
+        const key = [grid.sig, tx0, ty0, viewTiles].join('|');
+        if (this._docsTerrainKey === key && this._docsTerrainTopo) return this._docsTerrainTopo;
+        this._docsTerrainKey = key;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style);
+        const n = mesh.vertices.length;
+        const topo = this._docsTerrainTopo = {
+            vertices: mesh.vertices, triangles: mesh.triangles,
+            positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2),
+            depth: new Float64Array(n), ok: new Uint8Array(n),
+            order: [], index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length)
+        };
+        if (this._docsTerrainMesh) {
+            this._docsTerrainMesh.destroy();
+            this._docsTerrainMesh = null;
+        }
+        const geometry = new PIXI.Geometry()
+            .addAttribute('aVertexPosition', topo.positions, 2)
+            .addAttribute('aUv', topo.uvs, 2)
+            .addAttribute('aShade', topo.shades, 2)
+            .addIndex(topo.index);
+        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1 });
+        this._docsTerrainMesh = new PIXI.Mesh(geometry, shader);
+        return topo;
+    };
+
+    // Projects the terrain for this frame and returns its triangles sorted far to near ({ depth } per triangle).
+    Spriteset_Map.prototype.updateDocsTerrain = function(cam, s, grid, rt, fogRange) {
+        const topo = this.docsTerrainTopology(grid, s);
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
+        const gw = rt.width, gh = rt.height;
+        const V = topo.vertices;
+        for (let i = 0; i < V.length; i++) {
+            const v = V[i];
+            const fx = v.x - ox, fy = v.y - oy;
+            const g = P.groundPoint(cam, fx, fy, v.h * th);
+            let ok = g.visible;
+            if (ok && cam.curve !== 'flat') {
+                const n = P.surfacePoint(cam, fx, fy);
+                ok = n.nx * (cam.C.x - g.x) + n.ny * (cam.C.y - g.y) + n.nz * (cam.C.z - g.z) > 0;
+            }
+            const p = ok ? P.project(cam, g.x, g.y, g.z) : null;
+            topo.ok[i] = p ? 1 : 0;
+            if (p) {
+                topo.positions[i * 2] = p.x;
+                topo.positions[i * 2 + 1] = p.y;
+                topo.depth[i] = p.depth;
+            }
+            topo.uvs[i * 2] = (v.u - ox) / gw;
+            topo.uvs[i * 2 + 1] = (v.v - oy) / gh;
+            topo.shades[i * 2] = v.shade;
+            topo.shades[i * 2 + 1] = 1 - P.fogAt(Math.hypot(fx - cam.target.x, fy - cam.target.y), fogRange[0], fogRange[1]);
+        }
+        const tris = topo.triangles, order = topo.order;
+        order.length = 0;
+        for (let t = 0; t < tris.length; t += 3) {
+            const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+            if (!topo.ok[a] || !topo.ok[b] || !topo.ok[c]) continue;
+            order.push({ t, depth: (topo.depth[a] + topo.depth[b] + topo.depth[c]) / 3 });
+        }
+        order.sort((x, y) => y.depth - x.depth);
+        order.forEach((o, i) => {
+            topo.index[i * 3] = tris[o.t];
+            topo.index[i * 3 + 1] = tris[o.t + 1];
+            topo.index[i * 3 + 2] = tris[o.t + 2];
+        });
+        const mesh = this._docsTerrainMesh;
+        const geo = mesh.geometry;
+        geo.getBuffer('aVertexPosition').update(topo.positions);
+        geo.getBuffer('aUv').update(topo.uvs);
+        geo.getBuffer('aShade').update(topo.shades);
+        geo.getIndex().update(topo.index);
+        const u = mesh.shader.uniforms;
+        u.uSampler = rt;
+        u.uVoid = P.hexToRgb(s.voidColor);
+        u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
+        u.uAlpha = 1;
+        return order;
+    };
+
+    // Billboards between the terrain's triangles, so hills hide what's behind them. Each billboard
+    // goes after the ground around its feet (half a tile of slack).
+    Spriteset_Map.prototype.docsInterleaveTerrain = function(items, order) {
+        const th = $gameMap.tileHeight();
+        const mesh = this._docsTerrainMesh;
+        const out = [];
+        let i = 0;
+        const flush = until => {
+            const start = i;
+            while (i < order.length && order[i].depth > until) i++;
+            if (i > start) out.push({ terrain: true, mesh, start, count: i - start });
+        };
+        for (const item of items) {
+            flush(item.depth - (item.bias !== undefined ? item.bias : th * 0.5));
+            out.push(item);
+        }
+        flush(-Infinity);
+        return out;
+    };
+}
+
+if (typeof Game_CharacterBase !== 'undefined') {
+    // Steep steps block walking when the map asks for it.
+    $.Game_CharacterBase_isMapPassable_terrain = Game_CharacterBase.prototype.isMapPassable;
+    Game_CharacterBase.prototype.isMapPassable = function(x, y, d) {
+        if (!$.Game_CharacterBase_isMapPassable_terrain.call(this, x, y, d)) return false;
+        const T = DocsDoodads.Terrain;
+        const s = T.active();
+        if (!s || !s.block) return true;
+        const g = T.grid();
+        if (!g) return true;
+        const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
+        return T.canStep(T.tileHeight(g, x, y), T.tileHeight(g, x2, y2), s.climb);
+    };
 }
 
 //==========================================================
@@ -12817,6 +13447,8 @@ DocsDoodads.Workspace = {
         if (pathPopover) pathPopover.style.display = this.placementTool === 'path' ? 'block' : 'none';
         const biomePopover = document.getElementById('dd-biome-popover');
         if (biomePopover) biomePopover.style.display = this.placementTool === 'biome' ? 'block' : 'none';
+        const terrainPopover = document.getElementById('dd-terrain-popover');
+        if (terrainPopover) terrainPopover.style.display = this.placementTool === 'terrain' ? 'block' : 'none';
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
@@ -13057,6 +13689,17 @@ DocsDoodads.Workspace = {
                         <div>Radius: <span id="dd-biome-rad-val">96px</span><input type="range" id="dd-biome-rad" min="24" max="320" value="96" style="width: 100%;" /></div>
                         <label style="color: #cbd5e1; display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-biome-avoid" checked /> Skip impassable tiles</label>
                         <div style="line-height: 1.4;">Drag on the map. Each biome's mix, spacing, edge thinning and patchiness are set in the map panel under Biomes.</div>
+                    </div>
+                </div>
+                <button class="dd-btn" id="dd-terrain-btn" title="Terrain: paint ground heights for the 3D view">Terrain</button>
+                <div id="dd-terrain-popover" class="dd-glass" style="display: none; position: absolute; top: calc(100% + 8px); right: 380px; width: 230px; padding: 12px; z-index: 10015;">
+                    <div style="font-weight: bold; font-size: 11px; color: #38bdf8; margin-bottom: 8px;">TERRAIN BRUSH</div>
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 10px; color: #94a3b8;">
+                        <select id="dd-terrain-mode" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;"></select>
+                        <div>Strength: <span id="dd-terrain-amount-val">0.5</span> tiles<input type="range" id="dd-terrain-amount" min="0.1" max="3" step="0.1" value="0.5" style="width: 100%;" /></div>
+                        <div>Radius: <span id="dd-terrain-radius-val">1</span> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
+                        <label>Height for Set (tiles) <input type="number" step="0.25" id="dd-terrain-value" value="1" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155;" /></label>
+                        <div style="line-height: 1.4;">Drag on the map. Each stroke is one undo step. Heights show in the 3D view; painting turns Terrain Height on for the map.</div>
                     </div>
                 </div>
                 <button class="dd-btn" id="dd-sym-btn" title="Symmetry: mirror placements">Symmetry</button>
@@ -14670,11 +15313,14 @@ DocsDoodads.Workspace = {
     },
 
     // Copies of a new doodad for symmetry, each with its own uid.
+    // The doodad and its symmetry copies, leaving out any that would land on a mountain or slope.
     withMirrors(d) {
         const copies = DocsDoodads.Symmetry.mirrors(d, this.symmetryFor());
         copies.forEach(c => DocsDoodads.MapLinks.ensureUid(c));
-        return [d].concat(copies);
+        return [d].concat(copies).filter(x => DocsDoodads.Terrain.allowsDoodad(x, this.currentMapId()));
     },
+
+    levelGroundMessage: 'Doodads stand on level ground only: that spot is on a mountain or slope.',
 
     // ---- Biomes ----
     biomeSettings: { biomeId: '', radius: 96, avoidBlocked: true },
@@ -14845,7 +15491,7 @@ DocsDoodads.Workspace = {
             d.scaleY = p.scale;
             d.dressed = true;
             return d;
-        });
+        }).filter(d => DocsDoodads.Terrain.allowsDoodad(d, mapId));
         if (added.length === 0) return 0;
         DocsDoodads.Undo.execute({
             type: 'dress_map',
@@ -15312,6 +15958,17 @@ DocsDoodads.Workspace = {
         on('dd-biome-tool-pick', 'onchange', e => { this.biomeSettings.biomeId = e.target.value; });
         on('dd-biome-rad', 'oninput', e => { this.biomeSettings.radius = parseFloat(e.target.value) || 96; const v = byId('dd-biome-rad-val'); if (v) v.textContent = e.target.value + 'px'; });
         on('dd-biome-avoid', 'onchange', e => { this.biomeSettings.avoidBlocked = Boolean(e.target.checked); });
+        on('dd-terrain-btn', 'onclick', () => {
+            this.setPlacementTool(this.placementTool === 'terrain' ? null : 'terrain');
+            const mode = byId('dd-terrain-mode');
+            if (mode) mode.innerHTML = DocsDoodads.Terrain.brushModes.map(m => `<option value="${m.value}" ${m.value === this.terrainBrush.mode ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('');
+            if (!this.placementTool) this.showToast('Terrain brush off');
+            else this.showToast(DocsDoodads.Perspective.active() ? 'Terrain brush: drag on the map' : 'Terrain brush: turn on 3D View (map panel) to see heights', 'info');
+        });
+        on('dd-terrain-mode', 'onchange', e => { this.terrainBrush.mode = e.target.value; });
+        on('dd-terrain-amount', 'oninput', e => { this.terrainBrush.amount = parseFloat(e.target.value) || 0.5; const v = byId('dd-terrain-amount-val'); if (v) v.textContent = e.target.value; });
+        on('dd-terrain-radius', 'oninput', e => { this.terrainBrush.radius = parseInt(e.target.value, 10) || 0; const v = byId('dd-terrain-radius-val'); if (v) v.textContent = e.target.value; });
+        on('dd-terrain-value', 'onchange', e => { this.terrainBrush.value = parseFloat(e.target.value) || 0; });
         const symPop = byId('dd-sym-popover');
         on('dd-sym-btn', 'onclick', () => {
             if (!symPop) return;
@@ -15751,6 +16408,138 @@ DocsDoodads.Workspace = {
                 };
             }
         }
+    },
+
+    // ---- Terrain height (per map) ----
+    terrainRaw() {
+        return JSON.parse(JSON.stringify((DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).terrain || {}));
+    },
+
+    terrainFields() {
+        const number = (key, label, step = 0.25) => ({ key, label, type: 'number', step });
+        const check = (key, label) => ({ key, label, type: 'checkbox' });
+        return [
+            check('enabled', 'Raise the ground (shows in the 3D view)'),
+            { key: 'style', label: 'Shape', type: 'select', options: DocsDoodads.Terrain.styles },
+            check('auto', 'Automatic: world-tileset mountains and forests'),
+            number('mountain', 'Mountain height (tiles)'),
+            number('forest', 'Forest height (tiles)'),
+            check('block', 'Steep steps block walking'),
+            number('climb', 'Highest step you can walk (tiles)')
+        ];
+    },
+
+    setTerrainField(key, value) {
+        const next = this.terrainRaw();
+        next[key] = value;
+        this.setMapSetting('terrain', next);
+    },
+
+    renderTerrainPanel() {
+        const raw = this.terrainRaw();
+        const t = DocsDoodads.Terrain.normalize(raw);
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const fields = this.terrainFields().map(f => this.fieldHtml('dd-ter-' + f.key, f, t[f.key])).join('');
+        const rows = (list, key, max) => list.map((r, i) => `
+            <div style="display: grid; grid-template-columns: 1fr 1fr 22px; gap: 3px; align-items: center;">
+                <input type="number" min="1" max="${max}" id="dd-ter-${key}-${i}-id" value="${r[key]}" title="${key === 'region' ? 'Region' : 'Terrain tag'}" style="${inputStyle}" />
+                <input type="number" step="0.25" id="dd-ter-${key}-${i}-h" value="${r.height}" title="Height (tiles)" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-ter-${key}-${i}-del" title="Remove" style="padding: 0 4px;">&times;</button>
+            </div>`).join('');
+        const painted = Object.keys(t.paint).length;
+        return `
+            <details id="dd-ter-section" ${this._openTerrain ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Terrain Height (this map)</summary>
+                <div style="font-size: 10px; color: #64748b; margin-top: 4px; line-height: 1.4;">Heights in tiles. The Terrain brush beats regions, regions beat terrain tags, and tags beat automatic heights.</div>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}
+                    <div style="font-size: 10px; color: #94a3b8;">Regions (region, height):</div>${rows(t.regions, 'region', 255)}
+                    <button class="dd-btn" id="dd-ter-region-add">Add Region Height</button>
+                    <div style="font-size: 10px; color: #94a3b8;">Terrain tags (tag 1-7, height):</div>${rows(t.tags, 'tag', 7)}
+                    <button class="dd-btn" id="dd-ter-tag-add">Add Terrain Tag Height</button>
+                    <div style="font-size: 10px; color: #94a3b8;">Painted with the Terrain brush: ${painted} tile(s)</div>
+                    <button class="dd-btn" id="dd-ter-paint-clear" ${painted ? '' : 'disabled'}>Clear Painted Heights</button>
+                </div>
+            </details>`;
+    },
+
+    bindTerrainPanel() {
+        const byId = id => document.getElementById(id);
+        const details = byId('dd-ter-section');
+        if (details) details.ontoggle = () => { this._openTerrain = details.open; };
+        for (const f of this.terrainFields()) {
+            const input = byId('dd-ter-' + f.key);
+            if (!input) continue;
+            input.onchange = () => {
+                const value = f.type === 'checkbox' ? Boolean(input.checked) : f.type === 'number' ? parseFloat(input.value) || 0 : input.value;
+                this.setTerrainField(f.key, value);
+                this.refreshInspector();
+            };
+        }
+        const T = DocsDoodads.Terrain;
+        for (const [listKey, key] of [['regions', 'region'], ['tags', 'tag']]) {
+            const list = T.normalize(this.terrainRaw())[listKey];
+            list.forEach((r, i) => {
+                const write = mutate => { const next = T.normalize(this.terrainRaw())[listKey]; mutate(next); this.setTerrainField(listKey, next); this.refreshInspector(); };
+                const id = byId(`dd-ter-${key}-${i}-id`), h = byId(`dd-ter-${key}-${i}-h`), del = byId(`dd-ter-${key}-${i}-del`);
+                if (id) id.onchange = () => write(next => { next[i][key] = Math.round(parseFloat(id.value) || 1); });
+                if (h) h.onchange = () => write(next => { next[i].height = parseFloat(h.value) || 0; });
+                if (del) del.onclick = () => write(next => { next.splice(i, 1); });
+            });
+            const add = byId(`dd-ter-${key}-add`);
+            if (add) add.onclick = () => {
+                const next = T.normalize(this.terrainRaw())[listKey];
+                next.push({ [key]: 1, height: 1 });
+                this.setTerrainField(listKey, next);
+                this.refreshInspector();
+            };
+        }
+        const clear = byId('dd-ter-paint-clear');
+        if (clear) clear.onclick = () => { this.setTerrainField('paint', {}); this.refreshInspector(); };
+    },
+
+    // ---- Terrain brush ----
+    terrainBrush: { mode: 'raise', amount: 0.5, radius: 1, value: 1 },
+
+    beginTerrainStroke(clientX, clientY) {
+        const mapId = this.currentMapId();
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        const previous = data.mapSettings && data.mapSettings[mapId] ? JSON.parse(JSON.stringify(data.mapSettings[mapId])) : null;
+        const grid = DocsDoodads.Terrain.grid(true);
+        if (!grid) return;
+        const at = this.clientToMapCoords(clientX, clientY);
+        this._terrainStroke = { mapId, previous, target: DocsDoodads.Terrain.tileHeight(grid, at.tileX, at.tileY), last: null };
+        this.terrainPaintAt(clientX, clientY);
+    },
+
+    terrainPaintAt(clientX, clientY) {
+        const stroke = this._terrainStroke;
+        if (!stroke) return;
+        const at = this.clientToMapCoords(clientX, clientY);
+        const key = at.tileX + ',' + at.tileY;
+        if (stroke.last === key) return;
+        stroke.last = key;
+        const T = DocsDoodads.Terrain;
+        const grid = T.grid(true);
+        if (!grid) return;
+        const data = window.$dataDocsDoodads;
+        const settings = Object.assign({}, (data.mapSettings && data.mapSettings[stroke.mapId]) || {});
+        const terrain = Object.assign({}, settings.terrain || {});
+        // Painting turns terrain on for the map.
+        terrain.enabled = true;
+        terrain.paint = T.applyBrush(T.normalize(terrain).paint, grid, at.tileX, at.tileY,
+            Object.assign({ target: stroke.target }, this.terrainBrush));
+        settings.terrain = terrain;
+        this.writeMapSettings(stroke.mapId, settings);
+    },
+
+    // One undo step per stroke.
+    endTerrainStroke() {
+        const stroke = this._terrainStroke;
+        this._terrainStroke = null;
+        if (!stroke) return;
+        const now = (window.$dataDocsDoodads.mapSettings || {})[stroke.mapId] || {};
+        this.setMapSetting('terrain', JSON.parse(JSON.stringify(now.terrain || {})), stroke.previous);
+        this.refreshInspector();
     },
 
     renderMapSoundPanel(mapSettings) {
@@ -16721,6 +17510,7 @@ DocsDoodads.Workspace = {
                 </div>
             </details>
             ${this.renderPerspectivePanel()}
+            ${this.renderTerrainPanel()}
             ${this.renderMapSoundPanel(mapSettings)}
             ${this.renderLayersPanel(mapSettings)}
             ${this.renderWorldSections()}
@@ -16754,6 +17544,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-reflections').onchange = (e) => this.setMapSetting('reflections', e.target.checked ? undefined : false);
         document.getElementById('dd-map-charshadows').onchange = (e) => this.setMapSetting('characterShadows', e.target.checked ? undefined : false);
         this.bindPerspectivePanel();
+        this.bindTerrainPanel();
         this.bindMapSoundPanel(mapSettings);
         this.bindLayersPanel(mapSettings);
         this.bindWorldSections();
@@ -17624,6 +18415,10 @@ DocsDoodads.Workspace = {
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
             const placed = this.withMirrors(this.newDoodadFromAsset(asset, coords.x, coords.y));
+            if (placed.length === 0) {
+                this.showToast(this.levelGroundMessage, 'info');
+                return;
+            }
 
             const cmd = {
                 apply: () => {
@@ -18052,7 +18847,7 @@ DocsDoodads.Workspace = {
             const d = this.newDoodadFromAsset(special || asset, x, y);
             if (settings.alignToPath) d.rotation = Math.round(p.angle);
             return d;
-        });
+        }).filter(d => DocsDoodads.Terrain.allowsDoodad(d, this.currentMapId()));
         const mapId = this.currentMapId();
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         DocsDoodads.Undo.execute({
@@ -18249,10 +19044,16 @@ DocsDoodads.Workspace = {
             dy += snap.dy;
             this.activeGuides = snap.lines;
         }
+        const before = drag.items.map(d => ({ x: d.x, y: d.y }));
         drag.items.forEach((d, i) => {
             d.x = Math.round(drag.origin[i].x + dx);
             d.y = Math.round(drag.origin[i].y + dy);
         });
+        if (!drag.items.every(d => DocsDoodads.Terrain.allowsDoodad(d, this.currentMapId()))) {
+            drag.items.forEach((d, i) => { d.x = before[i].x; d.y = before[i].y; });
+            if (!drag.warned) { this.showToast(this.levelGroundMessage, 'info'); drag.warned = true; }
+            return;
+        }
         this.refreshSpriteset(true);
     },
 
@@ -18696,6 +19497,12 @@ DocsDoodads.Workspace = {
                 this.scatterAt(e.clientX, e.clientY);
                 return;
             }
+            if (this.placementTool === 'terrain' && e.button === 0) {
+                this.isBrushActive = true;
+                this.currentBrushBatch = [];
+                this.beginTerrainStroke(e.clientX, e.clientY);
+                return;
+            }
             if (this.placementTool === 'biome' && e.button === 0) {
                 this.isBrushActive = true;
                 this.currentBrushBatch = [];
@@ -18745,6 +19552,8 @@ DocsDoodads.Workspace = {
                 this.scatterAt(e.clientX, e.clientY);
             } else if (this.isBrushActive && this.placementTool === 'biome') {
                 this.biomePaintAt(e.clientX, e.clientY);
+            } else if (this.isBrushActive && this.placementTool === 'terrain') {
+                this.terrainPaintAt(e.clientX, e.clientY);
             } else if (this.isMarqueeActive && this.marqueeStartClient) {
                 const dx = e.clientX - this.marqueeStartClient.x;
                 const dy = e.clientY - this.marqueeStartClient.y;
@@ -18780,6 +19589,7 @@ DocsDoodads.Workspace = {
             }
             if (this.isBrushActive) {
                 this.isBrushActive = false;
+                if (this._terrainStroke) this.endTerrainStroke();
                 if (this.currentBrushBatch.length > 0) {
                     const batch = [...this.currentBrushBatch];
                     const cmd = {
@@ -18984,7 +19794,9 @@ DocsDoodads.Workspace = {
         const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
         const at = d.posMode === 1 && window.$gameMap ? DocsDoodads.mapToScreen(d.x, d.y) : { x: d.x, y: d.y };
         const rect = { x: at.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5), y: at.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0), w, h };
-        return { rect, pivot: { x: at.x, y: at.y + (DocsDoodads.Depth.baseY(d) - d.y) } };
+        const pivot = { x: at.x, y: at.y + (DocsDoodads.Depth.baseY(d) - d.y) };
+        pivot.h = DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, w / 2);
+        return { rect, pivot };
     },
 
     // The selection as boxes for the 3D view.
