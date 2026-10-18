@@ -453,7 +453,7 @@
             return null;
         }
         try {
-            const fsMod = require('fs');
+            const fsMod = DocsDoodads.FS.fs;
             const pathMod = require('path');
             this.showToast('Rendering the map...', 'info');
             const { canvas, plan } = DocsDoodads.MapExport.capture(spriteset, options);
