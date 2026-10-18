@@ -4,6 +4,14 @@ A visual asset workspace and doodad engine for RPG Maker MZ. It began as an upgr
 
 Placed doodads sort in front of or behind the player by their base line and can sway, flicker, cast shadows, and give off light under a map's ambient darkness. The editor adds a path tool, prefabs, a rule-based scatter brush, drag-to-move with smart guides, cross-map copy/move, neighbouring-map edge mirroring, and a World View. A world layer adds a day/night clock with lamps that switch on after dark, sun shadows for characters and doodads, see-through trees and roofs, water reflections, motion blur, seasons, and animated appear/disappear effects. Post-processing adds bloom, colour grading, CRT, lens, grain, vignette, tilt-shift and more, with presets, per-map looks, animated screen effects and full-map image export. Particle emitters, reactive grass, a VFX builder and character animation (idle/run cycles, any number of frames, single-row and 8-direction sheets, one-command actions) bring maps and characters to life. Spatial sound places event sounds in the world (distance, pan, variation), adds ambient emitters, cave echo and background sounds by region. Editor tools add layers, symmetry, a biome brush, map dressing rules, a visual save history, animated thumbnails and a Ctrl+K command palette. Visual equipment draws gear on characters, followers, events and side-view battlers (with hide tags, colours, body-type aliases and an equip-screen preview), and the click-to-walk destination marker can be restyled or animated, with dots along the path. A 3D view lays any map on a perspective ground plane, or wraps it onto a small planet or rolling log, with raised terrain (automatic mountains, regions, terrain tags or a height brush), standing billboards, a turnable camera, fog and a parallax sky, and the editor keeps working in it. For managing assets it adds where-used, safe rename/move, duplicate and look-alike finding, live reload, and per-map art packing for deployed games.
 
+### The 3D view
+
+| Weather | Day and night | Camera |
+| :---: | :---: | :---: |
+| ![Rain over a river in 3D](docs/images/3d_weather.gif) | ![A day passing in 3D](docs/images/3d_daynight.gif) | ![The camera turning round a 3D map](docs/images/3d_orbit.gif) |
+
+New to it? [Your First 3D Map](docs/FIRST_3D_MAP.md) walks from a flat map to hills, water, weather and day and night.
+
 ## Install
 
 RPG Maker MZ is supported. An MV compatibility layer from the original editor is still in the plugin, but nothing added since 2.0 (atmosphere, post-processing, VFX, sound, visual equipment, the 3D view) has been tested in MV, so treat MV as unsupported.

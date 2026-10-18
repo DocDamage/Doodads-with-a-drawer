@@ -441,6 +441,7 @@ The **Set Destination Marker** plugin command changes any of these mid-game. The
 ## 14. 3D View
 
 Any map can be shown in 3D. Open **3D View (this map)** in the map panel and tick **Show this map in 3D**.
+New to the 3D view? [Your First 3D Map](docs/FIRST_3D_MAP.md) is a short walkthrough with screenshots.
 - The map's tiles lie on a ground plane seen in perspective.
 - Characters, their gear and standing doodads (trees, lamps, statues, buildings) stand up as billboards. They shrink with distance and are drawn far to near.
 - Floor doodads (the **Below characters** layer), shadows, water reflections, the click-to-walk marker and the editor grid lie on the ground with the tiles.
