@@ -11,7 +11,8 @@ DocsDoodads.Perspective = {
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', standFlatRegion: 0, snowCover: false,
-        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
+        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false,
+        skyVideo: '', skyVideoMode: 'panorama', skyVideoSpeed: 1, skyVideoDayNight: true, skyVideoFlat: false
     },
 
     curves: [
@@ -64,7 +65,12 @@ DocsDoodads.Perspective = {
             mist: num(s.mist, d.mist, 0, 1),
             mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10),
             minimap: s.minimap === true,
-            battleBack: s.battleBack === true
+            battleBack: s.battleBack === true,
+            skyVideo: typeof s.skyVideo === 'string' ? s.skyVideo.trim().replace(/\\/g, '/') : '',
+            skyVideoMode: s.skyVideoMode === 'fill' ? 'fill' : 'panorama',
+            skyVideoSpeed: num(s.skyVideoSpeed, d.skyVideoSpeed, 0, 4),
+            skyVideoDayNight: s.skyVideoDayNight !== false,
+            skyVideoFlat: s.skyVideoFlat === true
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -178,6 +184,13 @@ DocsDoodads.Perspective = {
     },
 
     resolve(mapSettings, override) {
+        const s = this.withOverride(mapSettings, override);
+        return s.enabled ? s : null;
+    },
+
+    // The map's 3D settings with a mid-game override (Set Camera, Set 3D View, Set Sky Video) applied,
+    // whether or not 3D is on.
+    withOverride(mapSettings, override) {
         const merged = Object.assign({}, mapSettings || {});
         for (const key of Object.keys(override || {})) {
             if (override[key] !== undefined && override[key] !== null) merged[key] = override[key];
@@ -192,8 +205,7 @@ DocsDoodads.Perspective = {
             }
             delete merged.curvature;
         }
-        const s = this.normalize(merged);
-        return s.enabled ? s : null;
+        return this.normalize(merged);
     },
 
     // The player's Effects Quality also scales the 3D view down: 0 high (as set), 1 medium, 2 low.
@@ -517,6 +529,81 @@ DocsDoodads.Perspective = {
             edges.push([bottom[i], bottom[j]], [top[i], top[j]], [bottom[i], top[i]]);
         }
         return edges;
+    }
+};
+
+// A video as the sky: a looping movie (MZ's movies folder, or any project path), muted. A 360 degree
+// panorama (equirectangular, north at its centre) turns with the camera; any other video fills the sky.
+// One video element is shared by everything showing the same file, and freed when the last one lets go.
+DocsDoodads.SkyVideo = {
+    modes: [
+        { value: 'panorama', label: '360° panorama (turns with the camera)' },
+        { value: 'fill', label: 'Fill the sky (stays put)' }
+    ],
+    _entries: new Map(),
+
+    // A project path as a URL (each folder and the file name encoded; "movies/Sky" gets MZ's .webm).
+    url(path) {
+        let p = String(path || '').replace(/\\/g, '/').replace(/^\.?\/+/, '');
+        if (!/\.[a-z0-9]+$/i.test(p)) p += '.webm';
+        return p.split('/').map(encodeURIComponent).join('/');
+    },
+
+    acquire(path, owner) {
+        if (!path || typeof document === 'undefined' || typeof PIXI === 'undefined') return null;
+        let entry = this._entries.get(path);
+        if (!entry) {
+            const video = document.createElement('video');
+            video.muted = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.preload = 'auto';
+            video.src = this.url(path);
+            const texture = PIXI.Texture.from(video, { resourceOptions: { autoPlay: true, updateFPS: 30 } });
+            // Scenes come and go (MZ frees their textures); the video stays until its last user goes.
+            texture.destroy = function() {};
+            entry = { path, video, texture, users: new Set(), error: false };
+            if (video.addEventListener) video.addEventListener('error', () => {
+                // Letting the video go (clearing its source) raises an error too; only real ones are reported.
+                if (entry.released) return;
+                entry.error = true;
+                console.warn('[DocsDoodads] Could not play the sky video ' + path + '.');
+            });
+            const playing = video.play && video.play();
+            if (playing && playing.catch) playing.catch(() => {});
+            this._entries.set(path, entry);
+        }
+        entry.users.add(owner);
+        return entry;
+    },
+
+    release(path, owner) {
+        const entry = this._entries.get(path);
+        if (!entry) return;
+        entry.users.delete(owner);
+        if (entry.users.size) return;
+        this._entries.delete(path);
+        entry.released = true;
+        try { entry.video.pause(); entry.video.removeAttribute('src'); entry.video.load(); } catch (e) {}
+        PIXI.Texture.prototype.destroy.call(entry.texture, true);
+    },
+
+    ready(entry) {
+        return Boolean(entry && !entry.error && entry.video.readyState >= 2 && entry.video.videoWidth > 0);
+    },
+
+    // Where a panorama sits for a camera: the tile scale (one video pixel on screen) and the video's offset
+    // so north is at the screen's centre when the camera faces north and the video's middle row (the
+    // equator) is on the horizon. Fill: stretched over the sky above the horizon.
+    layout(mode, cam, yaw, horizonY, videoW, videoH) {
+        const W = cam.width;
+        if (mode === 'fill') return { y: 0, height: Math.max(1, horizonY), scaleX: W / videoW, scaleY: Math.max(1, horizonY) / videoH, offsetX: 0, offsetY: 0 };
+        const scale = cam.focal * 2 * Math.PI / videoW;
+        const full = videoW * scale;
+        const equatorTop = horizonY - videoH * scale / 2;
+        const top = Math.max(0, equatorTop);
+        return { y: top, height: Math.max(1, horizonY - top + 2), scaleX: scale, scaleY: scale,
+            offsetX: ((W / 2 - (((yaw % 360) + 360) % 360) / 360 * full - full / 2) % full + full) % full - full, offsetY: equatorTop - top };
     }
 };
 

@@ -138,6 +138,9 @@
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
  *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
  *      through the ground; selected doodads show 3D boxes.
+ *    - A video sky: a looping movie (a 360° panorama turns with the camera, or one that
+ *      fills the sky), tinted by day and night, optionally behind flat maps too; Set Sky
+ *      Video changes it during play.
  *    - 3D models (glTF .glb/.gltf) on doodads (inspector: 3D Model): colours, textures and
  *      vertex colours; metal, roughness, glow, cut-out and see-through materials, unlit;
  *      animations (pick one by name or number, set the speed) and skinned (rigged) models.
@@ -1046,6 +1049,33 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command setSkyVideo
+ * @text Set Sky Video
+ * @desc A different sky video for the rest of this visit to the map (3D sky, or behind a flat map
+ * when the map's 3D settings show it there). Leave Video blank for the map's own; "none" for none.
+ *
+ * @arg video
+ * @text Video
+ * @type file
+ * @dir movies
+ * @desc A video in movies (or a project path), "none", or blank for the map's own.
+ *
+ * @arg mode
+ * @text Shape
+ * @type select
+ * @option The map's setting
+ * @value map
+ * @option 360° panorama (turns with the camera)
+ * @value panorama
+ * @option Fill the sky
+ * @value fill
+ * @default map
+ *
+ * @arg speed
+ * @text Speed
+ * @desc Playback speed (1 = normal, 0 = paused); blank for the map's own.
+ * @default
  *
  * @command showWorldMap
  * @text Show World Map
@@ -5224,7 +5254,8 @@ DocsDoodads.Perspective = {
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', standFlatRegion: 0, snowCover: false,
-        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
+        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false,
+        skyVideo: '', skyVideoMode: 'panorama', skyVideoSpeed: 1, skyVideoDayNight: true, skyVideoFlat: false
     },
 
     curves: [
@@ -5277,7 +5308,12 @@ DocsDoodads.Perspective = {
             mist: num(s.mist, d.mist, 0, 1),
             mistHeight: num(s.mistHeight, d.mistHeight, 0.25, 10),
             minimap: s.minimap === true,
-            battleBack: s.battleBack === true
+            battleBack: s.battleBack === true,
+            skyVideo: typeof s.skyVideo === 'string' ? s.skyVideo.trim().replace(/\\/g, '/') : '',
+            skyVideoMode: s.skyVideoMode === 'fill' ? 'fill' : 'panorama',
+            skyVideoSpeed: num(s.skyVideoSpeed, d.skyVideoSpeed, 0, 4),
+            skyVideoDayNight: s.skyVideoDayNight !== false,
+            skyVideoFlat: s.skyVideoFlat === true
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -5391,6 +5427,13 @@ DocsDoodads.Perspective = {
     },
 
     resolve(mapSettings, override) {
+        const s = this.withOverride(mapSettings, override);
+        return s.enabled ? s : null;
+    },
+
+    // The map's 3D settings with a mid-game override (Set Camera, Set 3D View, Set Sky Video) applied,
+    // whether or not 3D is on.
+    withOverride(mapSettings, override) {
         const merged = Object.assign({}, mapSettings || {});
         for (const key of Object.keys(override || {})) {
             if (override[key] !== undefined && override[key] !== null) merged[key] = override[key];
@@ -5405,8 +5448,7 @@ DocsDoodads.Perspective = {
             }
             delete merged.curvature;
         }
-        const s = this.normalize(merged);
-        return s.enabled ? s : null;
+        return this.normalize(merged);
     },
 
     // The player's Effects Quality also scales the 3D view down: 0 high (as set), 1 medium, 2 low.
@@ -5730,6 +5772,81 @@ DocsDoodads.Perspective = {
             edges.push([bottom[i], bottom[j]], [top[i], top[j]], [bottom[i], top[i]]);
         }
         return edges;
+    }
+};
+
+// A video as the sky: a looping movie (MZ's movies folder, or any project path), muted. A 360 degree
+// panorama (equirectangular, north at its centre) turns with the camera; any other video fills the sky.
+// One video element is shared by everything showing the same file, and freed when the last one lets go.
+DocsDoodads.SkyVideo = {
+    modes: [
+        { value: 'panorama', label: '360° panorama (turns with the camera)' },
+        { value: 'fill', label: 'Fill the sky (stays put)' }
+    ],
+    _entries: new Map(),
+
+    // A project path as a URL (each folder and the file name encoded; "movies/Sky" gets MZ's .webm).
+    url(path) {
+        let p = String(path || '').replace(/\\/g, '/').replace(/^\.?\/+/, '');
+        if (!/\.[a-z0-9]+$/i.test(p)) p += '.webm';
+        return p.split('/').map(encodeURIComponent).join('/');
+    },
+
+    acquire(path, owner) {
+        if (!path || typeof document === 'undefined' || typeof PIXI === 'undefined') return null;
+        let entry = this._entries.get(path);
+        if (!entry) {
+            const video = document.createElement('video');
+            video.muted = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.preload = 'auto';
+            video.src = this.url(path);
+            const texture = PIXI.Texture.from(video, { resourceOptions: { autoPlay: true, updateFPS: 30 } });
+            // Scenes come and go (MZ frees their textures); the video stays until its last user goes.
+            texture.destroy = function() {};
+            entry = { path, video, texture, users: new Set(), error: false };
+            if (video.addEventListener) video.addEventListener('error', () => {
+                // Letting the video go (clearing its source) raises an error too; only real ones are reported.
+                if (entry.released) return;
+                entry.error = true;
+                console.warn('[DocsDoodads] Could not play the sky video ' + path + '.');
+            });
+            const playing = video.play && video.play();
+            if (playing && playing.catch) playing.catch(() => {});
+            this._entries.set(path, entry);
+        }
+        entry.users.add(owner);
+        return entry;
+    },
+
+    release(path, owner) {
+        const entry = this._entries.get(path);
+        if (!entry) return;
+        entry.users.delete(owner);
+        if (entry.users.size) return;
+        this._entries.delete(path);
+        entry.released = true;
+        try { entry.video.pause(); entry.video.removeAttribute('src'); entry.video.load(); } catch (e) {}
+        PIXI.Texture.prototype.destroy.call(entry.texture, true);
+    },
+
+    ready(entry) {
+        return Boolean(entry && !entry.error && entry.video.readyState >= 2 && entry.video.videoWidth > 0);
+    },
+
+    // Where a panorama sits for a camera: the tile scale (one video pixel on screen) and the video's offset
+    // so north is at the screen's centre when the camera faces north and the video's middle row (the
+    // equator) is on the horizon. Fill: stretched over the sky above the horizon.
+    layout(mode, cam, yaw, horizonY, videoW, videoH) {
+        const W = cam.width;
+        if (mode === 'fill') return { y: 0, height: Math.max(1, horizonY), scaleX: W / videoW, scaleY: Math.max(1, horizonY) / videoH, offsetX: 0, offsetY: 0 };
+        const scale = cam.focal * 2 * Math.PI / videoW;
+        const full = videoW * scale;
+        const equatorTop = horizonY - videoH * scale / 2;
+        const top = Math.max(0, equatorTop);
+        return { y: top, height: Math.max(1, horizonY - top + 2), scaleX: scale, scaleY: scale,
+            offsetX: ((W / 2 - (((yaw % 360) + 360) % 360) / 360 * full - full / 2) % full + full) % full - full, offsetY: equatorTop - top };
     }
 };
 
@@ -10009,6 +10126,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this._docs3dWeather = null;
         this._docs3dSkyGrad = null;
         this._docs3dCelestial = null;
+        // The sky video's sprite goes with the 3D view (the video stays while the map may still show it flat).
+        this._docsSkyVideoSprite = null;
         this._docsSkyKey = null;
         this._docsSkyLight = null;
         this._docsWeatherParts = [];
@@ -10206,6 +10325,84 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this.updateDocsGizmos(cam);
     };
 
+    // The sky video (perspective settings skyVideo...), drawn into `container` at `index`. Returns whether it
+    // shows (it waits until the video has a frame). Day and night tint it with the light, if asked.
+    Spriteset_Map.prototype.updateDocsSkyVideo = function(s, cam, state, container, index) {
+        const V = DocsDoodads.SkyVideo;
+        const path = s && s.skyVideo;
+        if (this._docsSkyVideoPath !== path) {
+            if (this._docsSkyVideoPath) V.release(this._docsSkyVideoPath, this);
+            this._docsSkyVideoPath = path || '';
+            this._docsSkyVideoEntry = path ? V.acquire(path, this) : null;
+        }
+        const entry = this._docsSkyVideoEntry;
+        let sprite = this._docsSkyVideoSprite;
+        if (!entry || !V.ready(entry)) {
+            if (sprite) sprite.visible = false;
+            return false;
+        }
+        if (!sprite) {
+            sprite = this._docsSkyVideoSprite = new PIXI.TilingSprite(entry.texture, Graphics.width, Graphics.height);
+            sprite._docsGround = true;
+        }
+        if (sprite.texture !== entry.texture) sprite.texture = entry.texture;
+        if (sprite.parent !== container || container.children.indexOf(sprite) !== index) container.addChildAt(sprite, Math.max(0, Math.min(index, container.children.length)));
+        entry.video.playbackRate = Math.max(0.0625, s.skyVideoSpeed || 0) || 1;
+        if (s.skyVideoSpeed === 0) entry.video.pause();
+        else if (entry.video.paused) { const p = entry.video.play(); if (p && p.catch) p.catch(() => {}); }
+        const horizon = Math.max(1, Math.min(Graphics.height, DocsDoodads.Perspective.horizonY(cam)));
+        const L = V.layout(s.skyVideoMode, cam, s.yaw, horizon, entry.video.videoWidth, entry.video.videoHeight);
+        sprite.x = 0;
+        sprite.y = L.y;
+        sprite.width = Graphics.width;
+        sprite.height = L.height;
+        sprite.tileScale.set(L.scaleX, L.scaleY);
+        sprite.tilePosition.set(L.offsetX, L.offsetY);
+        sprite.tint = s.skyVideoDayNight && state ? DocsDoodads.Perspective.multiplyTint(0xffffff, state.light.color) : 0xffffff;
+        sprite.visible = true;
+        return true;
+    };
+
+    // Flat maps can show the sky video behind the tiles, in place of the parallax.
+    Spriteset_Map.prototype.updateDocsFlatSkyVideo = function() {
+        // The map's settings, with any Set Sky Video change.
+        const P3 = DocsDoodads.Perspective;
+        const settings = P3.withOverride((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective, $gameMap._docsCamera || null);
+        const on = !this._docs3d && settings.skyVideo && settings.skyVideoFlat;
+        if (!on) {
+            if (this._docsFlatSkyVideo) this._docsFlatSkyVideo.visible = false;
+            if (!this._docs3d && this._docsSkyVideoPath) this.updateDocsSkyVideo(null, null, null, null, 0);
+            return;
+        }
+        const V = DocsDoodads.SkyVideo;
+        if (this._docsSkyVideoPath !== settings.skyVideo) {
+            if (this._docsSkyVideoPath) V.release(this._docsSkyVideoPath, this);
+            this._docsSkyVideoPath = settings.skyVideo;
+            this._docsSkyVideoEntry = V.acquire(settings.skyVideo, this);
+        }
+        const entry = this._docsSkyVideoEntry;
+        let sprite = this._docsFlatSkyVideo;
+        if (!entry || !V.ready(entry)) {
+            if (sprite) sprite.visible = false;
+            return;
+        }
+        if (!sprite) {
+            sprite = this._docsFlatSkyVideo = new PIXI.TilingSprite(entry.texture, Graphics.width, Graphics.height);
+        }
+        const parent = this._parallax ? this._parallax.parent : this._baseSprite;
+        const at = this._parallax ? parent.children.indexOf(this._parallax) + 1 : 0;
+        if (sprite.parent !== parent) parent.addChildAt(sprite, at);
+        const vw = entry.video.videoWidth, vh = entry.video.videoHeight;
+        const scale = Graphics.height / vh;
+        sprite.width = Graphics.width;
+        sprite.height = Graphics.height;
+        sprite.tileScale.set(settings.skyVideoMode === 'fill' ? Graphics.width / vw : scale, scale);
+        // A panorama drifts with the map's scrolling, like a distant parallax.
+        sprite.tilePosition.set(settings.skyVideoMode === 'fill' ? 0 : -$gameMap.displayX() * $gameMap.tileWidth() * 0.25, 0);
+        entry.video.playbackRate = Math.max(0.0625, settings.skyVideoSpeed || 0) || 1;
+        sprite.visible = true;
+    };
+
     // Day and night: a sky that follows the clock, stars, the sun and moon, and their light.
     Spriteset_Map.prototype.updateDocsSky = function(s, cam, parallax) {
         const minutes = DocsDoodads.Atmosphere.minutes();
@@ -10221,13 +10418,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (grad.parent !== view) view.addChildAt(grad, at);
         if (cel.parent !== view) view.addChildAt(cel, at + 1);
         cel.clear();
+        const video = this.updateDocsSkyVideo(s, cam, state, view, view.children.indexOf(grad));
         if (!state) {
             grad.visible = false;
             return;
         }
         const W = Graphics.width, H = Graphics.height;
         // The sky: its top colour fading to the horizon colour at the horizon line, horizon colour below.
-        if (!parallax) {
+        if (!parallax && !video) {
             this._docs3dSky.tint = state.horizon;
             const key = state.top + '|' + state.horizon;
             if (this._docsSkyKey !== key) {
@@ -10613,8 +10811,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
     };
 
+    $.Spriteset_Map_update_skyVideo = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        $.Spriteset_Map_update_skyVideo.call(this);
+        if (typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId()) this.updateDocsFlatSkyVideo();
+    };
+
     $.Spriteset_Map_destroy_3d = Spriteset_Map.prototype.destroy;
     Spriteset_Map.prototype.destroy = function(options) {
+        if (this._docsSkyVideoPath) DocsDoodads.SkyVideo.release(this._docsSkyVideoPath, this);
+        this._docsSkyVideoPath = '';
+        this._docsSkyVideoEntry = null;
         if (this._docsWater && this._docsWater.texture) this._docsWater.texture.destroy(true);
         this._docsWater = null;
         if (this._docs3dTexture) {
@@ -10789,6 +10996,19 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         const mode = String(args.mode || 'map');
         $gameMap._docsCamera = Object.assign({}, $gameMap._docsCamera, { enabled: mode === 'map' ? null : mode === 'on' });
         if (mode === 'map') delete $gameMap._docsCamera.enabled;
+    });
+    // Set Sky Video: another video (or none) for this visit to the map, or back to the map's own.
+    PluginManager.registerCommand(pluginName, 'setSkyVideo', function(args) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const over = Object.assign({}, $gameMap._docsCamera);
+        const video = String(args.video === undefined ? '' : args.video).trim();
+        if (!video) delete over.skyVideo;
+        else over.skyVideo = /^none$/i.test(video) ? '' : (video.includes('/') ? video : 'movies/' + video);
+        const mode = String(args.mode || 'map');
+        if (mode === 'map') delete over.skyVideoMode; else over.skyVideoMode = mode;
+        const speed = String(args.speed === undefined ? '' : args.speed).trim();
+        if (speed === '') delete over.skyVideoSpeed; else over.skyVideoSpeed = Number(speed);
+        $gameMap._docsCamera = over;
     });
     PluginManager.registerCommand(pluginName, 'resetCamera', function(args) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return;
@@ -20005,6 +20225,11 @@ DocsDoodads.Workspace = {
             range('mistHeight', 'Low fog height (tiles)', 0.25, 10, 0.25),
             check('minimap', 'Minimap in the corner (Show World Map opens the whole map)'),
             check('battleBack', 'Battles show this map in 3D behind the fight'),
+            { key: 'skyVideo', label: 'Sky video (e.g. movies/Sky.webm; blank for none)', type: 'text' },
+            { key: 'skyVideoMode', label: 'Sky video shape', type: 'select', options: DocsDoodads.SkyVideo.modes },
+            range('skyVideoSpeed', 'Sky video speed', 0, 4, 0.05),
+            check('skyVideoDayNight', 'Sky video follows day and night (darker at night)'),
+            check('skyVideoFlat', 'Also show the sky video behind this map when it is flat'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },

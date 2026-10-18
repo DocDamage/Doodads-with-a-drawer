@@ -67,6 +67,11 @@
             range('mistHeight', 'Low fog height (tiles)', 0.25, 10, 0.25),
             check('minimap', 'Minimap in the corner (Show World Map opens the whole map)'),
             check('battleBack', 'Battles show this map in 3D behind the fight'),
+            { key: 'skyVideo', label: 'Sky video (e.g. movies/Sky.webm; blank for none)', type: 'text' },
+            { key: 'skyVideoMode', label: 'Sky video shape', type: 'select', options: DocsDoodads.SkyVideo.modes },
+            range('skyVideoSpeed', 'Sky video speed', 0, 4, 0.05),
+            check('skyVideoDayNight', 'Sky video follows day and night (darker at night)'),
+            check('skyVideoFlat', 'Also show the sky video behind this map when it is flat'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },
