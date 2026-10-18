@@ -4168,6 +4168,17 @@ DocsDoodads.VisualEquip = {
 };
 
 // The marker where the player clicks or taps to walk.
+// Searching the map panel's settings: a section matches when it mentions every word searched for
+// (any case, any order, the start of words or anywhere inside them).
+DocsDoodads.SettingsSearch = {
+    matches(text, query) {
+        const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+        if (!words.length) return true;
+        const hay = String(text || '').toLowerCase().replace(/\s+/g, ' ');
+        return words.every(w => hay.includes(w));
+    }
+};
+
 // Visual equipment sheets from Aseprite: one character sheet per layer (body, hair, clothes...) in MZ's
 // layout, from a layered .aseprite file whose frames are the walk cycle. Frames come from tags named
 // down, left, right and up (in any order), or else the first frames in that order. inflate / deflate are
@@ -19386,6 +19397,23 @@ DocsDoodads.Workspace = {
         };
     },
 
+    // The map panel's sections that mention every word searched for are shown (and opened); clearing
+    // the search brings the panel back as it was.
+    applyMapSearch(content) {
+        const query = (this._mapSearch || '').trim();
+        let shown = 0;
+        for (const section of Array.from(content.children || []).filter(el => el.tagName === 'DETAILS')) {
+            if (section._docsWasOpen === undefined) section._docsWasOpen = section.open;
+            const hit = DocsDoodads.SettingsSearch.matches(section.textContent || '', query);
+            section.style.display = hit ? '' : 'none';
+            section.open = query ? hit : section._docsWasOpen;
+            if (hit) shown++;
+        }
+        const none = document.getElementById('dd-map-search-none');
+        if (none) none.style.display = query && !shown ? '' : 'none';
+        return shown;
+    },
+
     renderMapPanel(content) {
         const mapId = this.currentMapId();
         const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
@@ -19393,6 +19421,9 @@ DocsDoodads.Workspace = {
         content.innerHTML = `
             <div style="font-weight: bold; color: #38bdf8; margin-bottom: 6px;">MAP ${mapId} SETTINGS</div>
             <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">Select an asset in the drawer or click an object on the map.</div>
+            <input type="search" id="dd-map-search" placeholder="Search settings (e.g. fog, shadow, snow)" value="${escapeHtml(this._mapSearch || '')}"
+                style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
+            <div id="dd-map-search-none" style="display: none; font-size: 11px; color: #64748b; margin-bottom: 6px;">No settings match.</div>
             <details open style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px;">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Lighting</summary>
                 <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
@@ -19422,6 +19453,11 @@ DocsDoodads.Workspace = {
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}`;
 
+        const search = document.getElementById('dd-map-search');
+        if (search && content.querySelectorAll) {
+            search.oninput = () => { this._mapSearch = search.value; this.applyMapSearch(content); };
+            this.applyMapSearch(content);
+        }
         const read = () => ({
             darkness: parseFloat(document.getElementById('dd-map-dark').value) || 0,
             color: document.getElementById('dd-map-color').value || ambient.color,

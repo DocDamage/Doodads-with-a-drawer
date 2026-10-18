@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added a settings search to the map panel: only the sections that mention every word typed are shown, opened.
 - Added an undo history panel (☰ beside Undo/Redo): every step by name, and a click goes back or forward to any point.
 - Added Make Layer Sheets from .aseprite: a layered Aseprite walk cycle becomes one MZ character sheet per layer (body, hair, clothes...) for visual equipment.
 - Added a Terrain brush preview: the tiles a stroke will change are shown on the ground before painting, stronger towards the centre.

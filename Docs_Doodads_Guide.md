@@ -367,6 +367,9 @@ Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing 
 - Pick a map backup to see its events.
 - **Restore** puts back a deleted doodad or event, undoes a change, or removes something new. Each restore is a single undo step. Event restores are saved with Save Changes.
 
+### Searching the map panel
+The map panel has many sections. Type in **Search settings** at its top (for example *fog*, *shadow* or *snow*) to show only the sections that mention every word, opened; clear it to get the panel back as it was.
+
 ### Undo history
 The **☰** button next to Undo and Redo lists the undo steps by name (Place doodad, Move doodads, Terrain height, Dress map...), oldest first, with the current point highlighted. Click a step to go back to just after it, or forward again to a greyed-out step; *(Start)* undoes everything. Making a new change after going back drops the greyed-out steps, as Undo does. The list holds the last 300 steps.
 
