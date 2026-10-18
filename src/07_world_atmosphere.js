@@ -28,6 +28,11 @@ DocsDoodads.World = {
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [] },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
+        // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
+        zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },
+        focus: { enabled: true, music: 0.6, reach: 0.5, boost: 1.5 },
+        ambience: { layers: [] },
+        footsteps: { enabled: false, volume: 70, quiet: 0.35, dash: 1.2, followers: false, rows: [] },
         biomes: { list: [] },
         dress: { rules: [] },
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },

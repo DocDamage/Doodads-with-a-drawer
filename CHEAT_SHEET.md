@@ -71,6 +71,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Reset Camera (3D) | duration | Back to the map's camera. |
 | Set 3D View | mode | 3D on, off, or the map's setting. |
 | Set Sky Video | video, mode, speed | A different sky video for this visit (`none` for none, blank for the map's own). |
+| Set Zoom | level, duration, wait | Zooms in on the player (1 = normal); nearby sounds come forward. |
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
 

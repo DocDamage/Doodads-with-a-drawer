@@ -123,6 +123,11 @@
  *    - The click-to-walk marker: shapes, images, animations or VFX, pulse, spin,
  *      bob, path dots; Set Destination Marker changes it mid-game.
  *
+ *    - Zoom and Sound Focus (World panel): players zoom in on their character with the mouse
+ *      wheel or + and -, or Set Zoom does it. Zoomed in, the music drops, nearby sounds get
+ *      louder and far ones fade sooner; ambience layers (water, trees, open ground and wind,
+ *      doodads, regions, terrain tags) and footsteps by ground come forward.
+ *
  * 16. 3D View (map panel: 3D View (this map)):
  *    - Tiles, floor doodads, shadows and lighting lie on a perspective ground plane;
  *      characters, gear and standing doodads stand up as billboards, sorted by distance.
@@ -1049,6 +1054,29 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command setZoom
+ * @text Set Zoom
+ * @desc Zooms in on the player (1 = normal, up to the Closest zoom setting). Zoomed in, the nearby
+ * sound comes forward: music drops, close sounds, ambience and footsteps get louder.
+ *
+ * @arg level
+ * @text Zoom
+ * @type number
+ * @decimals 2
+ * @min 1
+ * @default 1.5
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @min 0
+ * @default 30
+ *
+ * @arg wait
+ * @text Wait for completion
+ * @type boolean
+ * @default false
  *
  * @command setSkyVideo
  * @text Set Sky Video
@@ -2080,6 +2108,11 @@ DocsDoodads.World = {
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [] },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
+        // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
+        zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },
+        focus: { enabled: true, music: 0.6, reach: 0.5, boost: 1.5 },
+        ambience: { layers: [] },
+        footsteps: { enabled: false, volume: 70, quiet: 0.35, dash: 1.2, followers: false, rows: [] },
         biomes: { list: [] },
         dress: { rules: [] },
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
@@ -3652,8 +3685,8 @@ DocsDoodads.SpatialSound = {
     // A copy of the sound as heard from dx, dy tiles away, or null when out of earshot.
     apply(se, dx, dy, s) {
         if (!se || !s || s.mode === 'off') return se;
-        const gain = this.gainAt(Math.hypot(dx, dy), s);
-        const volume = Math.round((Number(se.volume) || 0) * gain);
+        const gain = this.gainAt(Math.hypot(dx, dy), s) * (Number(s.boost) || 1);
+        const volume = Math.min(100, Math.round((Number(se.volume) || 0) * gain));
         if (gain <= 0 || volume <= 0) return null;
         const pan = Math.max(-100, Math.min(100, (Number(se.pan) || 0) + this.panFor(dx, s)));
         return { name: se.name, volume, pitch: se.pitch, pan };
@@ -3706,9 +3739,11 @@ DocsDoodads.SpatialSound = {
         const out = {};
         for (const item of list || []) {
             if (!item || !item.emitter) continue;
-            const near = Math.min(Number(s.near) || 0, item.emitter.radius * 0.25);
+            // Zoomed in, an emitter carries less far (reach) and sounds louder close by (boost).
+            const far = item.emitter.radius * (Number(s.reachScale) || 1);
+            const near = Math.min(Number(s.near) || 0, far * 0.25);
             out[item.key] = {
-                gain: this.gainAt(Math.hypot(item.dx, item.dy), { near, far: item.emitter.radius }),
+                gain: Math.min(1.5, this.gainAt(Math.hypot(item.dx, item.dy), { near, far }) * (Number(s.boost) || 1)),
                 pan: this.panFor(item.dx, s)
             };
         }
@@ -3726,6 +3761,94 @@ DocsDoodads.SpatialSound = {
         const d = this.echoDefaults;
         const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
         return { delay: num(echo.delay, d.delay, 0.02, 1), feedback: num(echo.feedback, d.feedback, 0, 0.9), mix: num(echo.mix, d.mix, 0, 1) };
+    },
+
+    // ---- Zoom and sound focus ----
+    // How far in the player has zoomed: 0 at normal size, 1 at the most.
+    focusOf(level, max) {
+        const top = Math.max(1.0001, Number(max) || 2.5);
+        return Math.max(0, Math.min(1, ((Number(level) || 1) - 1) / (top - 1)));
+    },
+
+    // The spatial sound settings heard at focus f: sounds carry less far (reach) and are louder up close
+    // (boost); f 0 changes nothing.
+    focused(s, f, focus) {
+        if (!s || !(f > 0) || !focus || focus.enabled === false) return s;
+        const reachScale = 1 - Math.max(0, Math.min(0.9, Number(focus.reach) || 0)) * f;
+        const near = Number(s.near) || 0;
+        return Object.assign({}, s, {
+            far: Math.max(near + 1, (Number(s.far) || 14) * reachScale),
+            reachScale,
+            boost: 1 + (Math.max(1, Number(focus.boost) || 1) - 1) * f
+        });
+    },
+
+    // Music volume at focus f (music: how much it drops at the closest zoom).
+    musicScale(f, focus) {
+        if (!focus || focus.enabled === false) return 1;
+        return 1 - Math.max(0, Math.min(1, Number(focus.music) || 0)) * Math.max(0, Math.min(1, f || 0));
+    },
+
+    // How loud a sound heard "quiet" at normal zoom is at focus f (1 at the closest zoom).
+    closeness(quiet, f) {
+        const q = Math.max(0, Math.min(1, Number(quiet)));
+        return q + (1 - q) * Math.max(0, Math.min(1, f || 0));
+    },
+
+    ambienceKinds: [
+        { value: 'water', label: 'Near water (rivers, sea)' },
+        { value: 'trees', label: 'Near trees (forests, ☆ tree tops)' },
+        { value: 'open', label: 'Out in the open (wind; louder up high)' },
+        { value: 'doodads', label: 'Near doodads whose picture name contains…' },
+        { value: 'region', label: 'Near a region' },
+        { value: 'tag', label: 'Near a terrain tag' }
+    ],
+
+    footstepKinds: [
+        { value: 'region', label: 'Region' },
+        { value: 'tag', label: 'Terrain tag' },
+        { value: 'water', label: 'Shallow water' },
+        { value: 'bush', label: 'Bushes and tall grass' },
+        { value: 'forest', label: 'Forest' },
+        { value: 'default', label: 'Anywhere else' }
+    ],
+
+    // How much of a layer's kind is around the player: { coverage 0-1, pan -100..100 }. q answers about a
+    // tile: q.match(layer, x, y) -> true/false (or a number 0-1), and q.doodads (map pixels and paths).
+    coverage(layer, px, py, q, tw, th) {
+        const r = Math.max(1, Math.min(20, Number(layer.radius) || 6));
+        if (layer.kind === 'doodads') {
+            const text = String(layer.id || '').toLowerCase();
+            let n = 0, sx = 0;
+            for (const d of q.doodads || []) {
+                const dx = d.x / tw - (px + 0.5), dy = d.y / th - (py + 1);
+                if (dx * dx + dy * dy > r * r || (text && !String(d.path || '').toLowerCase().includes(text))) continue;
+                n++; sx += dx;
+            }
+            return { coverage: Math.min(1, n / 3), pan: n ? Math.round(Math.max(-1, Math.min(1, sx / n / r)) * 100) : 0 };
+        }
+        let total = 0, hit = 0, sx = 0;
+        for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+                if (dx * dx + dy * dy > r * r) continue;
+                total++;
+                const v = Number(q.match(layer, px + dx, py + dy)) || 0;
+                if (v > 0) { hit += v; sx += dx * v; }
+            }
+        }
+        // A few tiles are already heard: the square root lifts small amounts.
+        return { coverage: total ? Math.sqrt(hit / total) : 0, pan: layer.kind === 'open' || !hit ? 0 : Math.round(Math.max(-1, Math.min(1, sx / hit / r)) * 100) };
+    },
+
+    // The footstep row for the ground under the player: regions first, then terrain tags, then the kind of
+    // ground (water, bushes, forest), then the default; null for none. g: { region, tag, water, bush, forest }.
+    footstepFor(rows, g) {
+        const list = (rows || []).filter(r => r && r.sound);
+        const find = kind => list.find(r => r.kind === kind && (kind === 'region' ? Number(r.id) === g.region : kind === 'tag' ? Number(r.id) === g.tag : true));
+        if (g.region > 0 && find('region')) return find('region');
+        if (g.tag > 0 && find('tag')) return find('tag');
+        for (const kind of ['water', 'bush', 'forest']) if (g[kind] && find(kind)) return find(kind);
+        return find('default') || null;
     },
 
     regionSoundFor(list, regionId) {
@@ -8842,9 +8965,266 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 }
 
 // ---- Spatial sound ----
+// The sound settings as heard now: zoomed in on the player, sounds carry less far and are louder close by.
 DocsDoodads.SpatialSound.settings = function() {
-    return DocsDoodads.World.settings().sound;
+    const world = DocsDoodads.World.settings();
+    const f = DocsDoodads.PlayerZoom ? DocsDoodads.PlayerZoom.focus() : 0;
+    return f > 0 ? this.focused(world.sound, f, world.focus) : world.sound;
 };
+
+// ---- Zooming in on the player ----
+// The wanted zoom is kept in the save ($gameSystem._docsZoom); the shown zoom eases towards it. Flat maps
+// zoom MZ's screen around the player; 3D maps move the camera in. Set Zoom works whether or not players
+// may zoom themselves (Zoom settings: mouse wheel, + and - keys).
+DocsDoodads.PlayerZoom = {
+    _level: 1,
+    _tween: null,
+    _managing: false,
+
+    settings() {
+        return DocsDoodads.World.settings().zoom;
+    },
+
+    max() {
+        return Math.max(1, Math.min(6, Number(this.settings().max) || 2.5));
+    },
+
+    target() {
+        const z = typeof $gameSystem !== 'undefined' && $gameSystem ? Number($gameSystem._docsZoom) : NaN;
+        return Number.isFinite(z) && z >= 1 ? Math.min(this.max(), z) : 1;
+    },
+
+    level() {
+        return this._level;
+    },
+
+    focus() {
+        return DocsDoodads.SpatialSound.focusOf(this._level, this.max());
+    },
+
+    // Zoom to `level` (1 = normal) over `frames` (0: the usual easing).
+    set(level, frames) {
+        const to = Math.max(1, Math.min(this.max(), Number(level) || 1));
+        if (typeof $gameSystem !== 'undefined' && $gameSystem) $gameSystem._docsZoom = to;
+        this._tween = frames > 0 ? { from: this._level, to, t: 0, d: frames } : null;
+    },
+
+    // Music is quieter zoomed in (Sound Focus: music).
+    musicScale() {
+        return DocsDoodads.SpatialSound.musicScale(this.focus(), DocsDoodads.World.settings().focus);
+    },
+
+    input() {
+        const z = this.settings();
+        if (!z.enabled || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return;
+        if (typeof $gameMessage !== 'undefined' && $gameMessage && $gameMessage.isBusy()) return;
+        const step = Math.max(0.05, Number(z.step) || 0.25);
+        let delta = 0;
+        if (z.wheel && typeof TouchInput !== 'undefined' && TouchInput.wheelY) delta += TouchInput.wheelY < 0 ? step : -step;
+        if (z.keys && typeof Input !== 'undefined') {
+            if (Input.isRepeated('docsZoomIn')) delta += step;
+            if (Input.isRepeated('docsZoomOut')) delta -= step;
+        }
+        if (delta) this.set(this.target() + delta, 0);
+    },
+
+    update() {
+        this.input();
+        const target = this.target();
+        if (this._tween) {
+            const tw = this._tween;
+            tw.t = Math.min(tw.d, tw.t + 1);
+            const u = tw.t / tw.d, k = u * u * (3 - 2 * u);
+            this._level = tw.from + (tw.to - tw.from) * k;
+            if (tw.t >= tw.d) { this._tween = null; this._level = tw.to; }
+        } else {
+            const ease = Math.max(0.01, Math.min(1, Number(this.settings().ease) || 0.15));
+            this._level += (target - this._level) * ease;
+            if (Math.abs(target - this._level) < 0.001) this._level = target;
+        }
+        this.applyScreen();
+        this.applyMusic();
+    },
+
+    // Flat maps: MZ's screen zoom, centred on the player (not while an event's own zoom runs, or in 3D).
+    applyScreen() {
+        if (typeof $gameScreen === 'undefined' || !$gameScreen || typeof $gamePlayer === 'undefined' || !$gamePlayer) return;
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.active()) {
+            if (this._managing) { $gameScreen._zoomScale = 1; this._managing = false; }
+            return;
+        }
+        if ($gameScreen._zoomDuration > 0) return;
+        if (this._level > 1.0005) {
+            $gameScreen._zoomX = $gamePlayer.screenX();
+            $gameScreen._zoomY = $gamePlayer.screenY() - $gameMap.tileHeight() / 2;
+            $gameScreen._zoomScale = this._level;
+            $gameScreen._zoomScaleTarget = this._level;
+            this._managing = true;
+        } else if (this._managing) {
+            $gameScreen._zoomScale = 1;
+            $gameScreen._zoomScaleTarget = 1;
+            this._managing = false;
+        }
+    },
+
+    applyMusic() {
+        if (typeof AudioManager === 'undefined') return;
+        const k = Math.round(this.musicScale() * 100) / 100;
+        if (k === this._musicScale) return;
+        this._musicScale = k;
+        if (AudioManager._bgmBuffer && AudioManager._currentBgm) AudioManager.updateBgmParameters(AudioManager._currentBgm);
+    }
+};
+
+if (typeof AudioManager !== 'undefined' && AudioManager.updateBgmParameters) {
+    $.AudioManager_updateBgmParameters_focus = AudioManager.updateBgmParameters;
+    AudioManager.updateBgmParameters = function(bgm) {
+        const k = DocsDoodads.PlayerZoom.musicScale();
+        $.AudioManager_updateBgmParameters_focus.call(this, bgm && k < 1 ? Object.assign({}, bgm, { volume: (Number(bgm.volume) || 0) * k }) : bgm);
+    };
+}
+
+if (typeof Input !== 'undefined' && Input.keyMapper) {
+    // + and - (and the number pad's) zoom when the Zoom setting allows it.
+    for (const [code, name] of [[187, 'docsZoomIn'], [107, 'docsZoomIn'], [189, 'docsZoomOut'], [109, 'docsZoomOut']]) {
+        if (!Input.keyMapper[code]) Input.keyMapper[code] = name;
+    }
+}
+
+if (typeof Scene_Map !== 'undefined') {
+    $.Scene_Map_update_zoom = Scene_Map.prototype.update;
+    Scene_Map.prototype.update = function() {
+        $.Scene_Map_update_zoom.call(this);
+        if (this.isActive && this.isActive()) DocsDoodads.PlayerZoom.update();
+    };
+}
+
+// ---- Ambience: the sound of what's around the player ----
+// Each layer (World > Zoom and Sound Focus) plays a looping background sound as loud as there is of its
+// kind nearby (water, trees, open ground, doodads, a region or terrain tag), panned towards it, and
+// louder zoomed in ("quiet" is how loud it is at normal zoom).
+DocsDoodads.Ambience = {
+    _playing: new Map(),
+    _tick: 0,
+    _mapId: null,
+
+    // Answers for the ground around the player (wrapping on looping maps; nothing beyond the edge).
+    query() {
+        const T = DocsDoodads.Terrain;
+        const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+        const flags = (tileset && tileset.flags) || [];
+        const mode = tileset ? tileset.mode : 1;
+        const isWater = id => typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false;
+        const treeAt = (x, y) => {
+            for (let z = 0; z < 2; z++) if (T.autoKind($gameMap.tileId(x, y, z), flags, mode) === 'forest') return true;
+            for (let z = 2; z < 4; z++) { const id = $gameMap.tileId(x, y, z); if (id > 0 && id < 1024 && (flags[id] & 0x10)) return true; }
+            return false;
+        };
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        return {
+            match(layer, x, y) {
+                x = $gameMap.roundX(x);
+                y = $gameMap.roundY(y);
+                if (!$gameMap.isValid(x, y)) return 0;
+                switch (layer.kind) {
+                    case 'water': return isWater($gameMap.tileId(x, y, 0)) || isWater($gameMap.tileId(x, y, 1)) ? 1 : 0;
+                    case 'trees': return treeAt(x, y) ? 1 : 0;
+                    case 'open': return !treeAt(x, y) && !isWater($gameMap.tileId(x, y, 0)) && $gameMap.isPassable(x, y, 2) ? 1 : 0;
+                    case 'region': return $gameMap.regionId(x, y) === Number(layer.id) ? 1 : 0;
+                    case 'tag': return $gameMap.terrainTag(x, y) === Number(layer.id) ? 1 : 0;
+                }
+                return 0;
+            },
+            doodads: (DocsDoodads.doodads() || []).filter(d => d && d.bit).map(d => ({ x: d.x, y: d.y, path: d.bit[1] })),
+            tw, th
+        };
+    },
+
+    update() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof AudioManager === 'undefined') return;
+        if (this._mapId !== $gameMap.mapId()) { this.stopAll(); this._mapId = $gameMap.mapId(); }
+        if (this._tick++ % 6) return;
+        const layers = DocsDoodads.World.settings().ambience.layers || [];
+        if (!layers.length || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) { this.stopAll(); return; }
+        const SS = DocsDoodads.SpatialSound, f = DocsDoodads.PlayerZoom.focus();
+        const q = this.query();
+        const px = $gamePlayer.x, py = $gamePlayer.y;
+        // Wind is stronger up high (terrain height under the player).
+        const grid = DocsDoodads.Terrain.grid ? DocsDoodads.Terrain.grid() : null;
+        const high = grid && grid.max > 0 ? Math.max(0, Math.min(1, DocsDoodads.Terrain.tileHeight(grid, px, py) / grid.max)) : 0;
+        layers.forEach((layer, i) => {
+            const name = String((layer && layer.sound) || '').trim();
+            let state = this._playing.get(i);
+            if (state && state.name !== name) { this.stop(i); state = null; }
+            if (!name) return;
+            const c = SS.coverage(layer, px, py, q, q.tw, q.th);
+            const quiet = layer.quiet === undefined || layer.quiet === '' ? 0.4 : Number(layer.quiet);
+            const height = layer.kind === 'open' && grid ? 0.5 + 0.5 * high : 1;
+            const volume = Math.min(100, (Number(layer.volume) || 60) * c.coverage * SS.closeness(quiet, f) * height);
+            if (volume < 0.5) { if (state) this.stop(i); return; }
+            if (!state) {
+                const buffer = AudioManager.createBuffer('bgs/', name);
+                buffer.play(true, 0);
+                state = { name, buffer };
+                this._playing.set(i, state);
+            }
+            state.volume = volume;
+            AudioManager.updateBufferParameters(state.buffer, AudioManager._bgsVolume, { volume, pitch: Number(layer.pitch) || 100, pan: c.pan });
+        });
+        for (const i of Array.from(this._playing.keys())) if (i >= layers.length) this.stop(i);
+    },
+
+    stop(i) {
+        const state = this._playing.get(i);
+        if (state && state.buffer) state.buffer.stop();
+        this._playing.delete(i);
+    },
+
+    stopAll() {
+        for (const i of Array.from(this._playing.keys())) this.stop(i);
+    }
+};
+
+// ---- Footsteps ----
+// A sound effect on each step, by what's underfoot (World > Zoom and Sound Focus > Footsteps): quiet at
+// normal zoom ("quiet"), clear zoomed in, a little louder dashing; followers optionally, softer.
+DocsDoodads.Footsteps = {
+    ground(x, y) {
+        const T = DocsDoodads.Terrain;
+        const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+        const flags = (tileset && tileset.flags) || [];
+        const mode = tileset ? tileset.mode : 1;
+        const water = typeof Tilemap !== 'undefined' && Tilemap.isWaterTile && (Tilemap.isWaterTile($gameMap.tileId(x, y, 0)) || Tilemap.isWaterTile($gameMap.tileId(x, y, 1)));
+        let forest = false;
+        for (let z = 0; z < 2; z++) if (T.autoKind($gameMap.tileId(x, y, z), flags, mode) === 'forest') forest = true;
+        return { region: $gameMap.regionId(x, y), tag: $gameMap.terrainTag(x, y), water: Boolean(water), bush: Boolean($gameMap.isBush(x, y)), forest };
+    },
+
+    // The sound effect for a step by `ch`, or null.
+    soundFor(ch) {
+        const s = DocsDoodads.World.settings().footsteps;
+        if (!s.enabled || !ch || typeof $gamePlayer === 'undefined' || !$gamePlayer) return null;
+        const follower = typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower;
+        if (ch !== $gamePlayer && !(follower && s.followers && ch.isVisible && ch.isVisible())) return null;
+        if (($gamePlayer.isInVehicle && $gamePlayer.isInVehicle()) || ch.isTransparent()) return null;
+        const row = DocsDoodads.SpatialSound.footstepFor(s.rows, this.ground(ch.x, ch.y));
+        if (!row) return null;
+        const SS = DocsDoodads.SpatialSound;
+        const dash = ch.isDashing && ch.isDashing() ? Math.max(1, Number(s.dash) || 1) : 1;
+        const volume = Math.min(100, (Number(s.volume) || 0) / 100 * (Number(row.volume) || 90) * SS.closeness(s.quiet, DocsDoodads.PlayerZoom.focus()) * dash * (follower ? 0.6 : 1));
+        if (volume < 1) return null;
+        return SS.vary({ name: String(row.sound), volume: Math.round(volume), pitch: Number(row.pitch) || 100, pan: 0 }, SS.settings(), Math.random);
+    }
+};
+
+if (typeof Game_CharacterBase !== 'undefined') {
+    $.Game_CharacterBase_increaseSteps_footsteps = Game_CharacterBase.prototype.increaseSteps;
+    Game_CharacterBase.prototype.increaseSteps = function() {
+        $.Game_CharacterBase_increaseSteps_footsteps.call(this);
+        const se = DocsDoodads.Footsteps.soundFor(this);
+        if (se && typeof AudioManager !== 'undefined') AudioManager.playSe(se);
+    };
+}
 
 // A sound effect from a character, varied and placed relative to the player.
 DocsDoodads.SpatialSound.forCharacter = function(se, ch) {
@@ -9065,6 +9445,7 @@ if (typeof Game_Map !== 'undefined') {
     Game_Map.prototype.update = function(sceneActive) {
         $.Game_Map_update_sound.call(this, sceneActive);
         DocsDoodads.SoundEmitters.update();
+        DocsDoodads.Ambience.update();
         DocsDoodads.RegionSounds.update();
         DocsDoodads.SpatialSound.updateEcho();
     };
@@ -9075,10 +9456,17 @@ if (typeof Scene_Map !== 'undefined') {
     Scene_Map.prototype.terminate = function() {
         $.Scene_Map_terminate_sound.call(this);
         DocsDoodads.SoundEmitters.stopAll();
+        DocsDoodads.Ambience.stopAll();
     };
 }
 
 if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    // Set Zoom: zoom in on the player (1 = normal), eased over a duration, optionally waiting.
+    PluginManager.registerCommand(pluginName, 'setZoom', function(args) {
+        const frames = Math.max(0, Number(args.duration) || 0);
+        DocsDoodads.PlayerZoom.set(Number(args.level) || 1, frames);
+        if (String(args.wait) === 'true' && frames > 0 && this && this.wait) this.wait(frames);
+    });
     PluginManager.registerCommand(pluginName, 'playSeAt', function(args) {
         const se = { name: String(args.name || ''), volume: Number(args.volume) || 90, pitch: Number(args.pitch) || 100, pan: 0 };
         if (!se.name) return;
@@ -9752,12 +10140,14 @@ DocsDoodads.Perspective.active = function() {
     // Asked for many times a frame: kept for the rest of the frame while nothing it depends on changes.
     const frame = typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
     const memo = this._activeMemo;
+    const zoom = DocsDoodads.PlayerZoom ? DocsDoodads.PlayerZoom.level() : 1;
     if (frame !== null && memo && memo.frame === frame && memo.mine === mine && memo.camera === $gameMap._docsCamera
-        && memo.editing === editing && memo.quality === quality) return memo.s;
+        && memo.editing === editing && memo.quality === quality && memo.zoom === zoom) return memo.s;
     let s = this.resolve(mine, $gameMap._docsCamera || null);
-    // The editor shows the map as it was set; the player's Effects Quality applies in play.
+    // The editor shows the map as it was set; the player's Effects Quality and zoom apply in play.
     if (s && !editing) s = this.withQuality(s, quality);
-    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, s };
+    if (s && !editing && zoom !== 1) s = Object.assign({}, s, { zoom: s.zoom * zoom });
+    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, zoom, s };
     return s;
 };
 
@@ -21216,6 +21606,22 @@ DocsDoodads.Workspace = {
                 range('sound.pitchVariance', 'Pitch variation (%)', 0, 30, 1),
                 range('sound.volumeVariance', 'Volume variation (%)', 0, 50, 1)
             ] },
+            { title: 'Zoom and Sound Focus', extra: 'ambience', fields: [
+                check('zoom.enabled', 'Players can zoom in on their character'),
+                check('zoom.wheel', 'With the mouse wheel'),
+                check('zoom.keys', 'With the + and - keys'),
+                range('zoom.max', 'Closest zoom', 1.25, 4, 0.05),
+                range('zoom.step', 'Zoom step', 0.05, 1, 0.05),
+                check('focus.enabled', 'Zooming in brings the nearby sound forward'),
+                range('focus.music', 'Music drops by (at the closest zoom)', 0, 1, 0.05),
+                range('focus.reach', 'Sounds carry less far by', 0, 0.9, 0.05),
+                range('focus.boost', 'Nearby sounds louder by (x)', 1, 3, 0.05),
+                check('footsteps.enabled', 'Footsteps'),
+                range('footsteps.volume', 'Footstep volume', 0, 100, 1),
+                range('footsteps.quiet', 'Footsteps at normal zoom (share of full)', 0, 1, 0.05),
+                range('footsteps.dash', 'Louder dashing (x)', 1, 2, 0.05),
+                check('footsteps.followers', 'Followers too (softer)')
+            ] },
             { title: 'Motion Blur', fields: [
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
@@ -21234,7 +21640,8 @@ DocsDoodads.Workspace = {
             }).join('');
             const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor()
                 : section.extra === 'animsets' ? this.renderAnimSetEditor() : section.extra === 'visual' ? this.renderVisualTryOn()
-                : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor() : '';
+                : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor()
+                : section.extra === 'ambience' ? this.renderAmbienceEditor() : '';
             return `
                 <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                     <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">${section.title}</summary>
@@ -21284,6 +21691,7 @@ DocsDoodads.Workspace = {
         this.bindVisualTryOn();
         this.bindBiomeEditor();
         this.bindDressEditor();
+        this.bindAmbienceEditor();
     },
 
     renderKeyframeEditor() {
@@ -21392,6 +21800,81 @@ DocsDoodads.Workspace = {
                     <option value="-1" ${preview < 0 ? 'selected' : ''}>As in the game</option>
                     ${seasons.names.map((name, k) => `<option value="${k}" ${preview === k ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
                 </select></div>`;
+    },
+
+    // ---- Ambience layers and footstep sounds (World > Zoom and Sound Focus) ----
+    renderAmbienceEditor() {
+        const W = DocsDoodads.World, SS = DocsDoodads.SpatialSound;
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const files = this.audioFileOptions();
+        const bgs = files.filter(o => o.value.indexOf('bgs/') === 0).map(o => o.value.slice(4));
+        const se = files.filter(o => o.value.indexOf('se/') === 0).map(o => o.value.slice(3));
+        const select = (id, value, options) => `<select id="${id}" style="${inputStyle}">${options.map(o => `<option value="${o.value}" ${o.value === value ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select>`;
+        const layers = (W.get('ambience.layers') || []).map((l, i) => `
+            <div style="display: grid; grid-template-columns: 1fr 52px; gap: 3px; border-top: 1px dashed #334155; padding-top: 3px;">
+                ${select(`dd-amb-${i}-kind`, l.kind, SS.ambienceKinds)}
+                <input type="text" id="dd-amb-${i}-id" value="${escapeHtml(String(l.id === undefined ? '' : l.id))}" title="Region or terrain tag number, or text in the doodads' picture names" placeholder="id / text" style="${inputStyle}" />
+                <input type="text" list="dd-amb-bgs" id="dd-amb-${i}-sound" value="${escapeHtml(l.sound || '')}" placeholder="Background sound" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-amb-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
+                <div style="grid-column: span 2; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px;">
+                    <input type="number" id="dd-amb-${i}-volume" value="${escapeHtml(String(l.volume === undefined ? 60 : l.volume))}" title="Volume" style="${inputStyle}" />
+                    <input type="number" id="dd-amb-${i}-radius" value="${escapeHtml(String(l.radius === undefined ? 6 : l.radius))}" title="Heard within (tiles)" style="${inputStyle}" />
+                    <input type="number" step="0.05" id="dd-amb-${i}-quiet" value="${escapeHtml(String(l.quiet === undefined ? 0.4 : l.quiet))}" title="Share heard at normal zoom" style="${inputStyle}" />
+                    <input type="number" id="dd-amb-${i}-pitch" value="${escapeHtml(String(l.pitch === undefined ? 100 : l.pitch))}" title="Pitch" style="${inputStyle}" />
+                </div>
+            </div>`).join('');
+        const steps = (W.get('footsteps.rows') || []).map((r, i) => `
+            <div style="display: grid; grid-template-columns: 1fr 40px 1fr 40px 22px; gap: 3px; align-items: center;">
+                ${select(`dd-step-${i}-kind`, r.kind, SS.footstepKinds)}
+                <input type="number" id="dd-step-${i}-id" value="${escapeHtml(String(r.id === undefined ? '' : r.id))}" title="Region or terrain tag" style="${inputStyle}" />
+                <input type="text" list="dd-step-se" id="dd-step-${i}-sound" value="${escapeHtml(r.sound || '')}" placeholder="Sound effect" style="${inputStyle}" />
+                <input type="number" id="dd-step-${i}-volume" value="${escapeHtml(String(r.volume === undefined ? 90 : r.volume))}" title="Volume" style="${inputStyle}" />
+                <button class="dd-btn" id="dd-step-del-${i}" title="Remove" style="padding: 0 4px;">&times;</button>
+            </div>`).join('');
+        return `
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Ambience: background sounds that rise with what's around the player (volume, heard within, share at normal zoom, pitch). They swell as you zoom in.</div>
+            ${layers}
+            <datalist id="dd-amb-bgs">${bgs.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+            <button class="dd-btn" id="dd-amb-add">Add Ambience</button>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Footstep sounds by ground (regions first, then terrain tags, then the kind of ground):</div>
+            ${steps}
+            <datalist id="dd-step-se">${se.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+            <button class="dd-btn" id="dd-step-add">Add Footstep Sound</button>`;
+    },
+
+    bindAmbienceEditor() {
+        const W = DocsDoodads.World;
+        const byId = id => document.getElementById(id);
+        const edit = (key, fn) => {
+            const list = JSON.parse(JSON.stringify(W.get(key) || []));
+            fn(list);
+            this.setWorldSetting(key, list);
+            this.refreshInspector();
+        };
+        const add = byId('dd-amb-add');
+        if (add) add.onclick = () => edit('ambience.layers', list => list.push({ kind: 'water', id: '', sound: '', volume: 60, radius: 6, quiet: 0.4, pitch: 100 }));
+        (W.get('ambience.layers') || []).forEach((l, i) => {
+            for (const field of ['kind', 'id', 'sound', 'volume', 'radius', 'quiet', 'pitch']) {
+                const input = byId(`dd-amb-${i}-${field}`);
+                if (input) input.onchange = () => edit('ambience.layers', list => {
+                    list[i][field] = ['volume', 'radius', 'quiet', 'pitch'].includes(field) ? parseFloat(input.value) || 0 : input.value;
+                });
+            }
+            const del = byId(`dd-amb-del-${i}`);
+            if (del) del.onclick = () => edit('ambience.layers', list => list.splice(i, 1));
+        });
+        const addStep = byId('dd-step-add');
+        if (addStep) addStep.onclick = () => edit('footsteps.rows', list => list.push({ kind: 'default', id: '', sound: '', volume: 90 }));
+        (W.get('footsteps.rows') || []).forEach((r, i) => {
+            for (const field of ['kind', 'id', 'sound', 'volume']) {
+                const input = byId(`dd-step-${i}-${field}`);
+                if (input) input.onchange = () => edit('footsteps.rows', list => {
+                    list[i][field] = field === 'volume' || field === 'id' ? parseFloat(input.value) || 0 : input.value;
+                });
+            }
+            const del = byId(`dd-step-del-${i}`);
+            if (del) del.onclick = () => edit('footsteps.rows', list => list.splice(i, 1));
+        });
     },
 
     bindSeasonEditor() {

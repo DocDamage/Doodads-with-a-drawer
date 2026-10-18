@@ -270,6 +270,9 @@ function install() {
         fadeOutBgs() {}, fadeInBgs() {}, replayBgs() {}, saveBgs() { return this._currentBgs || { name: '', volume: 0, pitch: 0, pan: 0 }; },
         loadStaticSe() {}, playStaticSe() {}, updateSeParameters(b, se) { this.updateBufferParameters(b, this.seVolume, se); },
         updateBgsParameters(bgs) { if (this._bgsBuffer) this.updateBufferParameters(this._bgsBuffer, this.bgsVolume, bgs); },
+        _bgmBuffer: null, _currentBgm: null, bgmVolume: 100, _bgsVolume: 100,
+        playBgm(bgm) { this._bgmBuffer = this.createBuffer('bgm/', bgm.name); this._currentBgm = bgm; this.updateBgmParameters(bgm); this._bgmBuffer.play(true); },
+        updateBgmParameters(bgm) { if (this._bgmBuffer) this.updateBufferParameters(this._bgmBuffer, this.bgmVolume, bgm); },
         updateBufferParameters(b, v, a) { if (b && a) { b.volume = (v * (a.volume || 0)) / 10000; b.pitch = (a.pitch || 100) / 100; b.pan = (a.pan || 0) / 100; } },
         makeEmptyAudioObject() { return { name: '', volume: 0, pitch: 0 }; }, stopSe() {}, checkErrors() {} };
     g.ConfigManager = { docsFxQuality: 0, docsMotionBlur: true, touchUI: false, makeData: () => ({}), applyData() {}, save() {} };

@@ -76,6 +76,7 @@ Roughly in order: the first three are what a release needs; the rest wait for re
 - MV is no longer a goal: Doc's Doodads is for MZ.
 - Models: animations, skinned models, materials (metal, roughness, glow, cut-out and see-through, unlit, vertex colours), picking by their shape in the editor, and selection boxes that fit them.
 - A video sky: a looping movie as the 3D sky (a 360° panorama that turns with the camera, or one that fills the sky), tinted by day and night, optionally behind flat maps too, with a Set Sky Video command.
+- Zoom and sound focus: players (or Set Zoom) zoom in on their character in 2D or 3D; zoomed in, the music drops, nearby sounds get louder and far ones fade sooner, ambience layers (water, trees, open ground and wind, doodads, regions, terrain tags) swell, and footsteps by ground come forward.
 
 
 | # | What | Why | Size |

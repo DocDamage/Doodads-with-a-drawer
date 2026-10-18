@@ -123,6 +123,11 @@
  *    - The click-to-walk marker: shapes, images, animations or VFX, pulse, spin,
  *      bob, path dots; Set Destination Marker changes it mid-game.
  *
+ *    - Zoom and Sound Focus (World panel): players zoom in on their character with the mouse
+ *      wheel or + and -, or Set Zoom does it. Zoomed in, the music drops, nearby sounds get
+ *      louder and far ones fade sooner; ambience layers (water, trees, open ground and wind,
+ *      doodads, regions, terrain tags) and footsteps by ground come forward.
+ *
  * 16. 3D View (map panel: 3D View (this map)):
  *    - Tiles, floor doodads, shadows and lighting lie on a perspective ground plane;
  *      characters, gear and standing doodads stand up as billboards, sorted by distance.
@@ -1049,6 +1054,29 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command setZoom
+ * @text Set Zoom
+ * @desc Zooms in on the player (1 = normal, up to the Closest zoom setting). Zoomed in, the nearby
+ * sound comes forward: music drops, close sounds, ambience and footsteps get louder.
+ *
+ * @arg level
+ * @text Zoom
+ * @type number
+ * @decimals 2
+ * @min 1
+ * @default 1.5
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @min 0
+ * @default 30
+ *
+ * @arg wait
+ * @text Wait for completion
+ * @type boolean
+ * @default false
  *
  * @command setSkyVideo
  * @text Set Sky Video
