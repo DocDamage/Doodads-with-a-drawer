@@ -1,3 +1,5 @@
+> **Archived (October 2026).** This is the original phased plan for the asset workspace and editor, written before most of what the plugin does now (atmosphere, post-processing, VFX, sound, visual equipment, the 3D view). It is kept for history. For what the plugin is today, read the [User Guide](../../Docs_Doodads_Guide.md), the [Changelog](../../CHANGELOG.md) and [Recommendations](../../RECOMMENDATIONS.md); for how the code is laid out, see the README.
+
 # Doc's Doodads
 ## Highly Detailed Phased Implementation Plan
 
