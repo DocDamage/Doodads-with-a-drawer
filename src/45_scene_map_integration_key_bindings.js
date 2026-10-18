@@ -160,6 +160,10 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
         } else if (e.key === 'Escape') {
             e.preventDefault();
             DocsDoodads.Workspace.setPlacementTool(null);
+            const sym = document.getElementById('dd-sym-popover');
+            if (sym) sym.style.display = 'none';
+            const welcome = document.getElementById('dd-welcome-ok');
+            if (welcome) welcome.click();
             DocsDoodads.Workspace.removeGhost();
             DocsDoodads.Workspace.selectDoodad(null);
         }

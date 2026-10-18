@@ -5,7 +5,10 @@
         this._undoHistoryOpen = true;
         const panel = document.createElement('div');
         panel.id = 'dd-undo-history';
-        panel.style.cssText = 'position: fixed; right: 260px; top: 70px; width: 240px; max-height: 60vh; overflow-y: auto; z-index: 10007; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px; font: 11px sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.5);';
+        panel.className = 'dd-glass dd-pop';
+        const bar = document.getElementById('dd-toolbar');
+        const top = bar && bar.getBoundingClientRect ? Math.round(bar.getBoundingClientRect().bottom + 8) : 78;
+        panel.style.cssText = `position: fixed; left: 50%; transform: translateX(-50%); top: ${top}px; width: 260px; max-height: 60vh; overflow-y: auto; z-index: 10017;`;
         document.body.appendChild(panel);
         this.renderUndoHistory();
     },
@@ -15,13 +18,12 @@
         if (!panel || !panel.querySelectorAll) { this._undoHistoryOpen = false; return; }
         const steps = DocsDoodads.Undo.history();
         const applied = DocsDoodads.Undo.undoStack.length;
-        const row = (count, label, state) => `<div class="dd-undo-step" data-count="${count}" style="padding: 3px 6px; border-radius: 3px; cursor: pointer; ${state === 'current' ? 'background: #1d4ed8; color: #fff;' : state === 'undone' ? 'color: #64748b; font-style: italic;' : ''}">${escapeHtml(label)}</div>`;
+        const row = (count, label, state) => `<div class="dd-undo-step${state === 'current' ? ' dd-undo-current' : ''}" data-count="${count}" style="padding: 4px 8px; border-radius: 10px; cursor: pointer; font-weight: 700; ${state === 'current' ? 'background: var(--dd-primary-soft); color: var(--dd-text); box-shadow: inset 0 0 0 2px var(--dd-primary);' : state === 'undone' ? 'color: var(--dd-faint); font-style: italic;' : ''}">${escapeHtml(label)}</div>`;
         panel.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <b style="color: #38bdf8;">Undo History</b>
-                <button class="dd-btn" id="dd-undo-history-close" style="padding: 0 6px;">×</button>
+            <div class="dd-pop-title">${DocsDoodads.Ui.icon('history', 1)}<span style="flex: 1;">Steps</span>
+                <button class="dd-btn dd-fold" id="dd-undo-history-close" title="Close">${DocsDoodads.Ui.icon('close', 1)}</button>
             </div>
-            <div style="color: #64748b; margin-bottom: 4px;">Click a step to go back (or forward) to just after it.</div>
+            <div style="color: var(--dd-faint); margin-bottom: 4px;">Click a step to go back (or forward) to just after it.</div>
             ${row(0, '(Start)', applied === 0 ? 'current' : 'done')}
             ${steps.map(st => row(st.index + 1, (st.index + 1) + '. ' + st.label, st.index + 1 === applied ? 'current' : st.done ? 'done' : 'undone')).join('')}`;
         document.getElementById('dd-undo-history-close').onclick = () => { panel.remove(); this._undoHistoryOpen = false; };
@@ -31,7 +33,7 @@
                 this.renderUndoHistory();
             };
         }
-        const current = panel.querySelector('[style*="#1d4ed8"]');
+        const current = panel.querySelector('.dd-undo-current');
         if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' });
     },
 

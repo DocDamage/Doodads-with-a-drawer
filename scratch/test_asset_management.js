@@ -314,7 +314,7 @@ const realGet = document.getElementById;
 document.getElementById = id => panels[id] || null;
 ws.layoutPanels();
 document.getElementById = realGet;
-assert.strictEqual(panels['dd-drawer-panel'].style.top, '116px');
-assert.strictEqual(panels['dd-inspector-panel'].style.top, '116px');
+assert.strictEqual(panels['dd-drawer-panel'].style.top, '114px');
+assert.strictEqual(panels['dd-inspector-panel'].style.top, '114px');
 
 console.log("✓ Where-used, unused report, used: search, safe rename/move with rollback, fingerprints and duplicates, live reload, and per-map packing verified.");

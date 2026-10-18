@@ -86,7 +86,7 @@ assert.deepStrictEqual(P.rank('town', items, 10).map(i => i.label), ['Go to map:
 assert.deepStrictEqual(P.rank('', items, 2).length, 2, "limited");
 // The editor provides commands from every tool, maps, presets and assets.
 const commands = ws.paletteCommands();
-for (const label of ['Save Changes', 'Undo', 'Toggle Grid', 'Open Post FX', 'Open VFX Builder', 'Open Save History', 'Dress This Map', 'Symmetry: Mirror Left/Right']) {
+for (const label of ['Save', 'Undo', 'Toggle Grid', 'Screen Looks (post-processing)', 'Effects Maker (VFX)', 'Old Saves (history)', 'Dress This Map', 'Mirror: Mirror Left/Right', 'Tool: Select', 'Tool: Hills (terrain)']) {
     assert.ok(commands.some(c => c.label === label), `palette offers ${label}`);
 }
 assert.ok(commands.every(c => typeof c.run === 'function'));

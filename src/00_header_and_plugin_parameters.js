@@ -14,20 +14,26 @@
  * Doc's Doodads began as Qiu Jiu's QJ-Doodads (V1.2) and has grown into its own tool.
  * Projects saved by QJ-Doodads are read and migrated automatically.
  *
+ * THE EDITOR (F10 in a playtest): a top bar of big tools (Select, Stamp, Scatter, Paint,
+ * Path, Hills, Mirror, Grab, Undo, Redo, Steps, More, Save, Done), the Item Bag on the left,
+ * Details on the right (both fold away), and a hint bubble saying what to do next. More holds
+ * Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check and Info.
+ *
  * KEY CAPABILITIES:
- * 1. Visual Asset Drawer:
+ * 1. Item Bag (asset browser):
  *    - Virtualized browsing for 10,000+ assets with lightning performance.
- *    - Thumbnail slider (32px - 256px), list & grid views, folder hierarchy.
- *    - Real-time tokenized search (type:, tag:, folder:, favorite:, animated:, -neg).
+ *    - Card size slider, icon tabs by kind, folder hierarchy.
+ *    - Real-time tokenized search (type:, tag:, folder:, category:, collection:, favorite:,
+ *      animated:, used:, and a minus on any of them).
  *    - Favorites, custom collections, and recently used asset tracking.
  *
- * 2. Intelligent Slicing Engine & Interactive Slicer Modal:
+ * 2. Intelligent Slicing Engine & Cut Up Sheet:
  *    - Automatic detection of standard MZ sheets ($Single, 8-character, Faces, IconSet, SV).
  *    - Divisor-based grid candidate scoring.
  *    - Sidecar atlas metadata parsing (Aseprite, TexturePacker, .saf.json).
  *    - Canvas visual auto-slicer with adaptive Otsu alpha thresholding, border flood,
  *      morphological cleanup, 4-connected components, and gutter splitting.
- *    - Interactive 1600% zoomable Slicer Modal with 8-handle drag/resize, smart snapping,
+ *    - Cut Up Sheet: 1600% zoom, 8-handle drag/resize, smart snapping,
  *      alignment guides, region list sidebar, split, merge, align, distribute,
  *      and authoritative non-destructive slice metadata persistence.
  *    - PNG slice exporter (individual PNGs, batch, animation strips).
@@ -36,7 +42,7 @@
  *    - Drag any asset or slice directly onto the map with live ghost preview.
  *    - Free placement or tile grid snapping (48px or custom, hold Alt for free).
  *    - Stamping mode (click repeatedly to place props).
- *    - Eyedropper tool (Alt+Click placed object to select in drawer).
+ *    - Grab tool (Alt+Click a placed object to pick its art in the Item Bag).
  *    - Scatter brush with density, scale jitter, and rotation jitter.
  *    - In-map selection, arrow-key nudge (1px / 16px), Ctrl+D duplicate, Delete key,
  *      and Z-order layering.
@@ -53,7 +59,7 @@
  * 5. Direct Physical Doodad Collision:
  *    - Direct box collision without creating invisible blocker events.
  *    - Collision presets: Full Bounds, Bottom Half, Bottom Third, Center Box, Trunk, Wall.
- *    - Interactive visual collision rectangle editor in Inspector using relative coordinates.
+ *    - Interactive visual collision rectangle editor in Details using relative coordinates.
  *
  * 6. Audio Preview & Sound Triggers:
  *    - In-editor audio player with start/stop and animated playback indicators.
@@ -83,7 +89,7 @@
  *    - Event tags (note or page comment): <shadow>, <shadow: length 0.8, opacity 0.4>,
  *      <no shadow>, <motion blur>, <no motion blur>, <no reflection>.
  *
- * 11. Post-Processing (toolbar: Post FX):
+ * 11. Post-Processing (More: Screen Looks):
  *    - Bloom, colour grading, vignette, film grain, chromatic aberration, lens
  *      distortion, CRT, pixelate, sharpen and tilt-shift, with presets.
  *    - A game-wide look plus per-map looks; Set Post-Processing Look fades between
@@ -91,7 +97,7 @@
  *    - Quality setting, an Effects Quality option for players, and full-map
  *      PNG export to the screenshots folder.
  *
- * 12. Particles, VFX & Character Animation (toolbar: VFX):
+ * 12. Particles, VFX & Character Animation (More: Effects Maker):
  *    - Particle emitters on doodads (smoke, embers, fire, fireflies, leaves,
  *      mist, dust, sparkles, snow, bubbles, magic); grass that bends when walked through.
  *    - VFX builder: particle and sprite-sheet layers; Play VFX plugin command.
@@ -107,7 +113,7 @@
  * 14. Editor Tools:
  *    - Layers per map (show/hide, lock, hide in game), Symmetry, Biome brush,
  *      Dressing Rules (water edges, wall bases, beside paths...), visual save History,
- *      animated drawer thumbnails, and the Ctrl+K command palette.
+ *      animated Item Bag cards, and the Ctrl+K command palette (More: Find a Tool).
  *
  * 15. Visual Equipment & Destination Marker (map panel):
  *    - Paper-doll characters: a bare body plus parts. <visual: Sheet, z -1, part clothes>
@@ -153,7 +159,7 @@
  *    - A video sky: a looping movie (a 360° panorama turns with the camera, or one that
  *      fills the sky), tinted by day and night, optionally behind flat maps too; Set Sky
  *      Video changes it during play.
- *    - 3D models (glTF .glb/.gltf) on doodads (inspector: 3D Model): colours, textures and
+ *    - 3D models (glTF .glb/.gltf) on doodads (Details: 3D Model): colours, textures and
  *      vertex colours; metal, roughness, glow, cut-out and see-through materials, unlit;
  *      animations (pick one by name or number, set the speed) and skinned (rigged) models.
  *      They reload when re-exported while the editor is open, and the editor picks them by
@@ -178,7 +184,8 @@
  * - Ctrl + K         : Command palette (tools, panels, maps, assets, looks)
  * - Delete           : Delete selected doodad(s)
  * - Arrow Keys       : Nudge 1px (Shift + Arrow: 16px)
- * - Alt + Click      : Eyedropper (pick placed object on map)
+ * - Alt + Click      : Grab (pick a placed object's art)
+ * - H                : Fold or open the Details panel
  * - G                : Toggle Grid display
  * - Escape           : Cancel current placement tool / close modals
  * - Enter/Backspace  : Path tool: place along the path / remove last point

@@ -4,11 +4,11 @@
 DocsDoodads.Layout = {
     filePath: 'data/DocsDoodadsLayouts.json',
     presets: {
-        Mapping: { drawerWidth: 360, inspectorWidth: 280, thumbSize: 96 },
-        Events: { drawerWidth: 320, inspectorWidth: 380, thumbSize: 80 },
-        Characters: { drawerWidth: 420, inspectorWidth: 260, thumbSize: 128 },
-        Tiles: { drawerWidth: 380, inspectorWidth: 260, thumbSize: 48 },
-        Compact: { drawerWidth: 280, inspectorWidth: 240, thumbSize: 64 }
+        Mapping: { drawerWidth: 250, inspectorWidth: 270, thumbSize: 64 },
+        Events: { drawerWidth: 230, inspectorWidth: 320, thumbSize: 64 },
+        Characters: { drawerWidth: 330, inspectorWidth: 250, thumbSize: 96 },
+        Tiles: { drawerWidth: 290, inspectorWidth: 250, thumbSize: 48 },
+        Compact: { drawerWidth: 210, inspectorWidth: 230, thumbSize: 56 }
     },
     custom: {},
     current: defaultLayoutName,

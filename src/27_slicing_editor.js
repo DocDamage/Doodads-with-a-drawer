@@ -165,64 +165,67 @@ DocsDoodads.Slicing.Editor = {
         modal.id = 'dd-slicer-modal-root';
         modal.className = 'dd-glass';
         modal.style.cssText = `
-            position: fixed; top: 20px; left: 20px; right: 20px; bottom: 20px;
-            z-index: 10005; display: flex; flex-direction: column; overflow: hidden;
-            pointer-events: auto; font-family: 'Segoe UI', Roboto, sans-serif;
-            border: 1px solid rgba(255,255,255,0.18);
+            position: fixed; top: 12px; left: 12px; right: 12px; bottom: 12px;
+            z-index: 10005; display: flex; flex-direction: column; overflow: hidden; pointer-events: auto;
         `;
+        const U = DocsDoodads.Ui;
 
         modal.innerHTML = `
             <!-- Top Toolbar -->
-            <div style="height: 48px; background: rgba(15, 23, 42, 0.85); border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; padding: 0 16px;">
+            <div style="padding: 8px 12px 6px; border-bottom: 2px solid var(--dd-line-soft); display: flex; flex-direction: column; gap: 6px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-weight: bold; color: #60a5fa; font-size: 13px;">SLICER: ${escapeHtml(this.asset.fileName)}</span>
-                    <button class="dd-btn" id="dd-slicer-undo" title="Undo (Ctrl+Z)">Undo</button>
-                    <button class="dd-btn" id="dd-slicer-redo" title="Redo (Ctrl+Y)">Redo</button>
-                    <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                    <button class="dd-btn dd-btn-primary" id="dd-slicer-auto-btn" title="Detect sprite regions automatically">Auto-Slice</button>
-                    <button class="dd-btn" id="dd-slicer-grid-btn" title="Slice into fixed grid">Fixed Grid</button>
-                    <button class="dd-btn" id="dd-slicer-add-btn" title="Add region">Add Box</button>
-                    <button class="dd-btn" id="dd-slicer-del-btn" title="Delete selected region">Delete</button>
-                    <button class="dd-btn" id="dd-slicer-dup-btn" title="Duplicate selected">Duplicate</button>
-                    <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-                    <button class="dd-btn" id="dd-slicer-splitv-btn" title="Split vertical">Split Vert</button>
-                    <button class="dd-btn" id="dd-slicer-splith-btn" title="Split horizontal">Split Horz</button>
-                    <button class="dd-btn" id="dd-slicer-merge-btn" title="Merge the selected region with the next one in the list">Merge</button>
-                    <button class="dd-btn" id="dd-slicer-up-btn" title="Move the selected region up the list">▲</button>
-                    <button class="dd-btn" id="dd-slicer-down-btn" title="Move the selected region down the list">▼</button>
-                    <button class="dd-btn" id="dd-slicer-export-btn" title="Export individual PNG files">Export PNGs</button>
+                    ${U.icon('scissors', 2)}
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 900; font-size: 15px;">Cut Up Sheet</div>
+                        <div style="color: var(--dd-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(this.asset.fileName)}: each box becomes a piece you can place.</div>
+                    </div>
+                    <button class="dd-btn dd-btn-good" id="dd-slicer-save-btn" style="padding: 7px 16px;">${U.icon('save', 1)} Save Pieces</button>
+                    <button class="dd-btn" id="dd-slicer-close-btn" style="padding: 7px 12px;">${U.icon('close', 1)} Close</button>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <button class="dd-btn dd-btn-primary" id="dd-slicer-save-btn">Save Slices</button>
-                    <button class="dd-btn" id="dd-slicer-close-btn" style="background: #ef4444; border-color: #dc2626;">Close</button>
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;">
+                    <button class="dd-btn dd-btn-primary" id="dd-slicer-auto-btn" title="Find the pieces by themselves">${U.icon('sparkle', 1)} Auto-Slice</button>
+                    <button class="dd-btn" id="dd-slicer-grid-btn" title="Cut into equal pieces (columns x rows)">${U.icon('grid', 1)} Grid</button>
+                    <button class="dd-btn" id="dd-slicer-add-btn" title="Add a box">${U.icon('plus', 1)} Box</button>
+                    <button class="dd-btn" id="dd-slicer-dup-btn" title="Copy the picked box (Ctrl+D)">Copy</button>
+                    <button class="dd-btn" id="dd-slicer-del-btn" title="Delete the picked box (Delete)">${U.icon('trash', 1)}</button>
+                    <span style="width: 2px; height: 22px; background: var(--dd-line-soft); border-radius: 2px;"></span>
+                    <button class="dd-btn" id="dd-slicer-splitv-btn" title="Cut the picked box into a left and a right half">Split ▯▯</button>
+                    <button class="dd-btn" id="dd-slicer-splith-btn" title="Cut the picked box into a top and a bottom half">Split ▭</button>
+                    <button class="dd-btn" id="dd-slicer-merge-btn" title="Join the picked box with the next one in the list">Join</button>
+                    <button class="dd-btn" id="dd-slicer-up-btn" title="Move the picked box up the list">▲</button>
+                    <button class="dd-btn" id="dd-slicer-down-btn" title="Move the picked box down the list">▼</button>
+                    <span style="width: 2px; height: 22px; background: var(--dd-line-soft); border-radius: 2px;"></span>
+                    <button class="dd-btn" id="dd-slicer-undo" title="Undo (Ctrl+Z)">${U.icon('undo', 1)}</button>
+                    <button class="dd-btn" id="dd-slicer-redo" title="Redo (Ctrl+Y)">${U.icon('redo', 1)}</button>
+                    <button class="dd-btn" id="dd-slicer-export-btn" title="Save each piece as its own PNG file">Save as PNGs</button>
                 </div>
             </div>
 
             <!-- Workspace Body: Left Canvas Viewport + Right Region List -->
             <div style="flex: 1; display: flex; overflow: hidden; position: relative;">
                 <!-- Canvas Container -->
-                <div id="dd-slicer-canvas-container" style="flex: 1; background: #0b0f19; overflow: hidden; position: relative; cursor: default;">
+                <div id="dd-slicer-canvas-container" style="flex: 1; background: var(--dd-panel-2); border-radius: 14px; overflow: hidden; position: relative; cursor: default;">
                     <canvas id="dd-slicer-interactive-canvas" style="position: absolute; top: 0; left: 0;"></canvas>
                 </div>
 
                 <!-- Right Sidebar: Region List & Inspector -->
-                <div style="width: 320px; background: rgba(15, 23, 42, 0.95); border-left: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08); font-weight: bold; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between;">
-                        <span>REGIONS (<span id="dd-region-count">0</span>)</span>
-                        <span id="dd-slicer-zoom-indicator" style="color: #60a5fa;">100%</span>
+                <div style="width: 260px; background: var(--dd-panel); border-left: 2px solid var(--dd-line-soft); display: flex; flex-direction: column; overflow: hidden;">
+                    <div style="padding: 10px 14px; border-bottom: 1px solid var(--dd-line-soft); font-weight: bold; font-size: 12px; color: var(--dd-muted); display: flex; justify-content: space-between;">
+                        <span>Pieces (<span id="dd-region-count">0</span>)</span>
+                        <span id="dd-slicer-zoom-indicator" style="color: var(--dd-accent);">100%</span>
                     </div>
                     <div id="dd-region-list" style="flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px;">
                     </div>
                     <!-- Selected Region Properties -->
-                    <div id="dd-region-inspector" style="padding: 12px; background: #111827; border-top: 1px solid rgba(255,255,255,0.1); font-size: 11px;">
-                        <div style="color: #64748b; text-align: center;">No region selected</div>
+                    <div id="dd-region-inspector" style="padding: 12px; background: var(--dd-field); border-top: 1px solid var(--dd-line-soft); font-size: 11px;">
+                        <div style="color: var(--dd-faint); text-align: center;">No region selected</div>
                     </div>
                 </div>
             </div>
 
             <!-- Bottom Status Bar -->
-            <div style="height: 26px; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 11px; color: #64748b;">
-                <span id="dd-slicer-hint">Mouse Wheel: Zoom (25%-1600%) | Space+Drag / Middle Click: Pan | Drag handle: Resize | Drag inside: Move | Drag empty: Create</span>
+            <div style="height: 26px; background: var(--dd-field); border-top: 1px solid var(--dd-line-soft); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 11px; color: var(--dd-faint);">
+                <span id="dd-slicer-hint">Wheel: zoom · Space or middle button + drag: look around · Drag a corner: resize · Drag on empty space: new box</span>
                 <span id="dd-slicer-img-dim">${this.img.naturalWidth} x ${this.img.naturalHeight} px</span>
             </div>
         `;
@@ -708,8 +711,8 @@ DocsDoodads.Slicing.Editor = {
             const tile = document.createElement('canvas');
             tile.width = tile.height = 32;
             const t = tile.getContext('2d');
-            t.fillStyle = '#0f172a'; t.fillRect(0, 0, 32, 32);
-            t.fillStyle = '#1e293b'; t.fillRect(16, 0, 16, 16); t.fillRect(0, 16, 16, 16);
+            t.fillStyle = '#f4f2fa'; t.fillRect(0, 0, 32, 32);
+            t.fillStyle = '#e8e5f1'; t.fillRect(16, 0, 16, 16); t.fillRect(0, 16, 16, 16);
             this._checker = tile;
         }
         ctx.fillStyle = ctx.createPattern(this._checker, 'repeat');
@@ -841,9 +844,9 @@ DocsDoodads.Slicing.Editor = {
             item.innerHTML = `
                 <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;">
                     <strong>#${i + 1}</strong> ${escapeHtml(r.name || 'Region')}
-                    <span style="color: #64748b; margin-left: 4px;">(${r.w}x${r.h})</span>
+                    <span style="color: var(--dd-faint); margin-left: 4px;">(${r.w}x${r.h})</span>
                 </div>
-                <span style="color: #94a3b8; font-size: 10px;">${r.x},${r.y}</span>
+                <span style="color: var(--dd-muted); font-size: 10px;">${r.x},${r.y}</span>
             `;
             item.onclick = () => {
                 this.selectedRegionIdx = i;
@@ -859,43 +862,43 @@ DocsDoodads.Slicing.Editor = {
         const insp = document.getElementById('dd-region-inspector');
         if (!insp) return;
         if (this.selectedRegionIdx < 0 || this.selectedRegionIdx >= this.regions.length) {
-            insp.innerHTML = '<div style="color: #64748b; text-align: center;">No region selected</div>';
+            insp.innerHTML = '<div style="color: var(--dd-faint); text-align: center;">No region selected</div>';
             return;
         }
 
         const r = this.regions[this.selectedRegionIdx];
         insp.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; margin-bottom: 8px;">Region #${this.selectedRegionIdx + 1} Properties</div>
+            <div style="font-weight: bold; color: var(--dd-accent); margin-bottom: 8px;">Region #${this.selectedRegionIdx + 1} Properties</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">X:</label>
-                    <input type="number" id="dd-insp-rx" value="${r.x}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">X:</label>
+                    <input type="number" id="dd-insp-rx" value="${r.x}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Y:</label>
-                    <input type="number" id="dd-insp-ry" value="${r.y}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Y:</label>
+                    <input type="number" id="dd-insp-ry" value="${r.y}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Width:</label>
-                    <input type="number" id="dd-insp-rw" value="${r.w}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Width:</label>
+                    <input type="number" id="dd-insp-rw" value="${r.w}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Height:</label>
-                    <input type="number" id="dd-insp-rh" value="${r.h}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Height:</label>
+                    <input type="number" id="dd-insp-rh" value="${r.h}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
             </div>
             <div style="margin-top: 6px;">
-                <label style="color: #94a3b8; font-size: 10px;">Name:</label>
-                <input type="text" id="dd-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                <label style="color: var(--dd-muted); font-size: 10px;">Name:</label>
+                <input type="text" id="dd-insp-name" value="${escapeHtml(r.name || '')}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Pivot X:</label>
-                    <input type="number" step="0.1" id="dd-insp-pivx" value="${r.pivotX !== undefined ? r.pivotX : 0.5}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Pivot X:</label>
+                    <input type="number" step="0.1" id="dd-insp-pivx" value="${r.pivotX !== undefined ? r.pivotX : 0.5}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
                 <div>
-                    <label style="color: #94a3b8; font-size: 10px;">Pivot Y:</label>
-                    <input type="number" step="0.1" id="dd-insp-pivy" value="${r.pivotY !== undefined ? r.pivotY : 1.0}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px 4px;" />
+                    <label style="color: var(--dd-muted); font-size: 10px;">Pivot Y:</label>
+                    <input type="number" step="0.1" id="dd-insp-pivy" value="${r.pivotY !== undefined ? r.pivotY : 1.0}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
                 </div>
             </div>
         `;

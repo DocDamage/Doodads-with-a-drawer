@@ -32,7 +32,9 @@ global.document = {
     createElement: node,
     body: { appendChild() {}, removeChild() {} },
     getElementById: id => el(id),
-    querySelectorAll: () => []
+    querySelectorAll: () => [],
+    addEventListener() {},
+    removeEventListener() {}
 };
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: opt => opt === 'test' };
 // A half-tile snapping grid (Grid Snap Width / Height) for section 9.
@@ -76,6 +78,7 @@ D.AssetIndex.save = () => {};
 D.AssetIndex.data = { version: 1, assets: {}, collections: {} };
 for (const a of assets) D.AssetIndex.data.assets[a.id] = JSON.parse(JSON.stringify(Object.assign({ placement: { defaultMode: 'doodad' }, collision: { preset: 'none' }, slice: { regions: [] }, usage: { useCount: 0, lastUsedAt: 0 } }, a, { collections: [] })));
 D.AssetIndex.rebuildList();
+ws.currentCategory = 'All';
 D.AssetIndex.addAssetToCollection('a', 'Castle Set');
 D.AssetIndex.addAssetToCollection('b', 'Castle Set');
 D.AssetIndex.addAssetToCollection('b', 'Forest');
@@ -284,8 +287,8 @@ ws.showToast('Broken', 'error');
 ws.showToast('Long', 9000);
 global.setTimeout = realTimeout;
 assert.deepStrictEqual(timers, [2200, 5000, 9000]);
-const toastNodes = made.filter(n => n.textContent === 'Broken');
-assert.ok(/#b91c1c/.test(toastNodes[0].style.cssText), 'errors are red');
+const toastNodes = made.filter(n => n.className === 'dd-toast dd-toast-error');
+assert.strictEqual(toastNodes.length, 1, 'errors are red');
 ws.showToast = msg => toasts.push(msg);
 console.log('✓ toasts: info / success / error, or a duration');
 

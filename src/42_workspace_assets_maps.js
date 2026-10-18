@@ -148,15 +148,15 @@
             return n + new Set(list.filter(d => d && d.prefabRef && d.prefabRef.id === prefab.id).map(d => d.prefabRef.instance)).size;
         }, 0);
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
+            <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
             <div style="font-size: 11px; margin-bottom: 4px;">Prefab &middot; ${prefab.doodads.length} doodad(s), ${prefab.events.length} event(s)</div>
-            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: #60a5fa;">${copies}</span></div>
-            <div style="font-size: 11px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
+            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: var(--dd-accent);">${copies}</span></div>
+            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
                 <button class="dd-btn dd-btn-primary" id="dd-prefab-place">Place at Player</button>
                 <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${copies})</button>
                 <button class="dd-btn" id="dd-prefab-rename">Rename</button>
-                <button class="dd-btn" id="dd-prefab-delete" style="background: #991b1b;">Delete Prefab</button>
+                <button class="dd-btn" id="dd-prefab-delete" style="background: var(--dd-danger-soft);">Delete Prefab</button>
             </div>`;
         document.getElementById('dd-prefab-place').onclick = () => this.placePrefabAtPlayer(prefab.id);
         document.getElementById('dd-prefab-sync').onclick = () => { this.syncPrefabInstances(prefab.id); this.refreshInspector(); };
@@ -170,10 +170,10 @@
         const prefab = instance ? DocsDoodads.Prefabs.get(instance.prefabRef.id) : null;
         const mirror = items.find(d => d.mirrorOf);
         return `
-            <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; margin-top: 8px;">
-                ${mirror ? `<div style="font-size: 10px; color: #f59e0b; margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-top: 8px;">
+                ${mirror ? `<div style="font-size: 10px; color: var(--dd-warn); margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
                 ${prefab ? `
-                <div style="font-size: 10px; color: #a78bfa; margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
+                <div style="font-size: 10px; color: var(--dd-purple); margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px;">
                     <button class="dd-btn" id="dd-sel-prefab-update" title="Make the master prefab match this copy" style="padding: 4px;">Update Prefab</button>
                     <button class="dd-btn" id="dd-sel-prefab-sync" title="Rebuild every copy from the master" style="padding: 4px;">Sync Copies</button>
@@ -225,8 +225,8 @@
         modal.className = 'dd-glass';
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; padding: 18px; z-index: 10030;';
         modal.innerHTML = `
-            <div style="font-weight: bold; color: #60a5fa; font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
-            <select id="dd-map-picker-select" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
+            <div style="font-weight: bold; color: var(--dd-accent); font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
+            <select id="dd-map-picker-select" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
             <div style="display: flex; gap: 8px; justify-content: flex-end;">
                 <button class="dd-btn" id="dd-map-picker-cancel">Cancel</button>
                 <button class="dd-btn dd-btn-primary" id="dd-map-picker-ok">OK</button>
@@ -243,15 +243,15 @@
 
     renderMapNavigation() {
         const neighbors = this.mapNeighbors();
-        const side = (name, label) => `<div>${label}<select id="dd-map-nb-${name}" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px;">${this.mapOptions(neighbors[name] || 0, true)}</select></div>`;
+        const side = (name, label) => `<div>${label}<select id="dd-map-nb-${name}" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px;">${this.mapOptions(neighbors[name] || 0, true)}</select></div>`;
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Maps</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Maps</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
                     <div>Go to map (keeps the editor open):
-                        <select id="dd-map-goto" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
+                        <select id="dd-map-goto" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
                         <button class="dd-btn" id="dd-map-goto-btn" style="width: 100%; margin-top: 4px;">Go to Map</button></div>
-                    <div style="margin-top: 4px; color: #cbd5e1;">Neighbouring maps (for doodads that cross the edge):</div>
+                    <div style="margin-top: 4px; color: var(--dd-text);">Neighbouring maps (for doodads that cross the edge):</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">${side('north', 'North')}${side('south', 'South')}${side('west', 'West')}${side('east', 'East')}</div>
                     <button class="dd-btn" id="dd-map-mirror" title="Copy doodads hanging over an edge onto the neighbouring map">Mirror Edge Doodads</button>
                     <button class="dd-btn" id="dd-map-world" title="See this map and its linked neighbours together">World View</button>
@@ -300,11 +300,11 @@
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 16px; z-index: 10030;';
         modal.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 13px;">WORLD VIEW</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('map', 1)} World View</div>
                 <button class="dd-btn" id="dd-world-close">Close</button>
             </div>
-            <canvas id="dd-world-canvas" width="${width}" height="${height}" style="background: #0b1120; border: 1px solid #334155; border-radius: 4px; cursor: pointer;"></canvas>
-            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
+            <canvas id="dd-world-canvas" width="${width}" height="${height}" style="background: var(--dd-field); border: 1px solid var(--dd-line); border-radius: 4px; cursor: pointer;"></canvas>
+            <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
         document.body.appendChild(modal);
         const canvas = document.getElementById('dd-world-canvas');
         const ctx = canvas.getContext('2d');
@@ -365,8 +365,7 @@
         if (this._historyPanel && this._historyPanel.parentNode) this._historyPanel.parentNode.removeChild(this._historyPanel);
         this._historyPanel = null;
         this.refreshInspector();
-        const status = document.getElementById('dd-status-left');
-        if (status) status.textContent = `Doc's Doodads v${pluginVersion} | Map ${this.currentMapId()} | Hold Alt for free placement`;
+        DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
     },
 
     // ---- Where-used, unused report, safe rename/move ----
@@ -575,6 +574,7 @@
         }
         const tabs = document.getElementById('dd-category-tabs');
         if (tabs && tabs.querySelectorAll) tabs.querySelectorAll('button').forEach(b => { b.className = 'dd-btn' + (b.dataset && b.dataset.cat === category ? ' dd-btn-primary' : ''); });
+        if (this.isFolded && this.isFolded('drawer')) this.foldPanel('drawer', false);
         this.refreshDrawerCards();
     },
 
@@ -657,15 +657,15 @@
             ? `${Object.keys(manifest.frames).length} region(s) in ${manifest.sheets.length} sheet(s), built ${new Date(manifest.builtAt).toLocaleString()}.`
             : 'Not packed. Deployed games load each image separately.';
         return `
-            <details style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
-                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">Performance</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: #94a3b8;">
+            <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Performance</summary>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
                     <div>${escapeHtml(status)}</div>
-                    ${stale.length ? `<div style="color: #f59e0b;">Out of date: ${escapeHtml(stale.slice(0, 3).join(', '))} changed. Pack again.</div>` : ''}
-                    <div style="color: #64748b; line-height: 1.4;">Packing copies the art this map's doodads use into a few sheets in img/doodads/_packed for the deployed game. Playtests keep using the original files.</div>
+                    ${stale.length ? `<div style="color: var(--dd-warn);">Out of date: ${escapeHtml(stale.slice(0, 3).join(', '))} changed. Pack again.</div>` : ''}
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Packing copies the art this map's doodads use into a few sheets in img/doodads/_packed for the deployed game. Playtests keep using the original files.</div>
                     <button class="dd-btn" id="dd-pack-map">${manifest ? 'Pack Again' : 'Pack Map Art'}</button>
                     ${manifest ? '<button class="dd-btn" id="dd-pack-remove">Remove Packed Art</button>' : ''}
-                    <label style="display: flex; align-items: center; gap: 6px; color: #cbd5e1;"><input type="checkbox" id="dd-pack-preview" ${DocsDoodads.Packer.previewInTest ? 'checked' : ''} /> Use packed art in this playtest</label>
+                    <label style="display: flex; align-items: center; gap: 6px; color: var(--dd-text);"><input type="checkbox" id="dd-pack-preview" ${DocsDoodads.Packer.previewInTest ? 'checked' : ''} /> Use packed art in this playtest</label>
                 </div>
             </details>`;
     },
@@ -689,15 +689,15 @@
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 560px; max-height: 80vh; padding: 18px; z-index: 10030; display: flex; flex-direction: column; gap: 10px;';
         modal.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-weight: bold; color: #60a5fa; font-size: 14px;">ASSET TOOLS</div>
+                <div class="dd-pop-title" style="margin-bottom: 0;">${DocsDoodads.Ui.icon('wrench', 1)} File Check</div>
                 <button class="dd-btn" id="dd-tools-close">Close</button>
             </div>
             <div style="display: flex; gap: 8px;">
                 <button class="dd-btn dd-btn-primary" id="dd-tools-dupes" style="flex: 1;">Find Duplicates</button>
                 <button class="dd-btn dd-btn-primary" id="dd-tools-unused" style="flex: 1;">Find Unused Files</button>
             </div>
-            <div id="dd-tools-status" style="font-size: 11px; color: #94a3b8;">Duplicates compares every image's fingerprint (computed once, then cached). Unused checks maps, events, the database, doodads and prefabs.</div>
-            <div id="dd-tools-results" style="overflow-y: auto; font-size: 11px; color: #cbd5e1; display: flex; flex-direction: column; gap: 8px;"></div>`;
+            <div id="dd-tools-status" style="font-size: 11px; color: var(--dd-muted);">Duplicates compares every image's fingerprint (computed once, then cached). Unused checks maps, events, the database, doodads and prefabs.</div>
+            <div id="dd-tools-results" style="overflow-y: auto; font-size: 11px; color: var(--dd-text); display: flex; flex-direction: column; gap: 8px;"></div>`;
         document.body.appendChild(modal);
         const statusEl = document.getElementById('dd-tools-status');
         const resultsEl = document.getElementById('dd-tools-results');
@@ -721,15 +721,15 @@
             const exactIds = new Set(exactGroups.flat().map(e => e.id));
             const nearGroups = DocsDoodads.Similarity.findDuplicates(entries.filter(e => !exactIds.has(e.id)), 1);
             statusEl.textContent = `${exactGroups.length} group(s) of identical files, ${nearGroups.length} group(s) of near-identical images (from ${entries.length} images).`;
-            resultsEl.innerHTML = exactGroups.map(g => `<div style="border: 1px solid #334155; border-radius: 4px; padding: 6px;"><div style="color: #f87171; margin-bottom: 4px;">Identical files</div>${g.map(e => row(e.asset)).join('')}</div>`).join('') +
-                nearGroups.map(g => `<div style="border: 1px solid #334155; border-radius: 4px; padding: 6px;"><div style="color: #f59e0b; margin-bottom: 4px;">Near-identical (resized or re-saved)</div>${g.map(e => row(e.asset)).join('')}</div>`).join('');
+            resultsEl.innerHTML = exactGroups.map(g => `<div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 6px;"><div style="color: var(--dd-danger-dark); margin-bottom: 4px;">Identical files</div>${g.map(e => row(e.asset)).join('')}</div>`).join('') +
+                nearGroups.map(g => `<div style="border: 1px solid var(--dd-line); border-radius: 4px; padding: 6px;"><div style="color: var(--dd-warn); margin-bottom: 4px;">Near-identical (resized or re-saved)</div>${g.map(e => row(e.asset)).join('')}</div>`).join('');
             bindShow();
         };
         document.getElementById('dd-tools-unused').onclick = () => {
             statusEl.textContent = 'Checking maps, events, database, doodads and prefabs...';
             const index = this.refreshUsageIndex();
             const unused = DocsDoodads.Usage.unusedAssets(DocsDoodads.AssetIndex.list, index);
-            statusEl.textContent = `${unused.length} file(s) are not referenced anywhere the editor can see. Plugins and scripts can also load files by name, so check before deleting. Search "used:no" lists them in the drawer.`;
+            statusEl.textContent = `${unused.length} file(s) are not referenced anywhere the editor can see. Plugins and scripts can also load files by name, so check before deleting. Search "used:no" lists them in the Item Bag.`;
             resultsEl.innerHTML = unused.slice(0, 500).map(row).join('') + (unused.length > 500 ? `<div>...and ${unused.length - 500} more.</div>` : '');
             bindShow();
         };
@@ -737,13 +737,13 @@
 
     renderUsagePanel(a) {
         return `
-            <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; margin-top: 8px;">
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-top: 8px;">
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
                     <button class="dd-btn" id="dd-asset-usage" style="padding: 4px;" title="List every map, event, database entry, doodad and prefab using this file">Where Used</button>
                     <button class="dd-btn" id="dd-asset-rename" style="padding: 4px;" title="Rename or move the file and update every reference">Rename/Move</button>
                     <button class="dd-btn" id="dd-asset-similar" style="padding: 4px;" title="Show the images that look most like this one">More Like This</button>
                 </div>
-                <div id="dd-asset-usage-list" style="font-size: 10px; color: #94a3b8; margin-top: 6px; line-height: 1.5;"></div>
+                <div id="dd-asset-usage-list" style="font-size: 10px; color: var(--dd-muted); margin-top: 6px; line-height: 1.5;"></div>
             </div>`;
     },
 
@@ -753,7 +753,7 @@
             const refs = this.assetUsage(a);
             list.innerHTML = refs.length === 0
                 ? 'Not used by any map, event, database entry, doodad or prefab.'
-                : `<div style="color: #e2e8f0;">Used in ${refs.length} place(s):</div>` + refs.slice(0, 40).map(r => `<div>• ${escapeHtml(r.label)}</div>`).join('') + (refs.length > 40 ? `<div>...and ${refs.length - 40} more</div>` : '');
+                : `<div style="color: var(--dd-text);">Used in ${refs.length} place(s):</div>` + refs.slice(0, 40).map(r => `<div>• ${escapeHtml(r.label)}</div>`).join('') + (refs.length > 40 ? `<div>...and ${refs.length - 40} more</div>` : '');
         };
         document.getElementById('dd-asset-rename').onclick = () => {
             const target = prompt('New path (rename or move; engine files must stay in their folder):', a.path);
@@ -776,8 +776,8 @@
     renderAudioInspector(content, a) {
         const channel = /\/bgm\//i.test(a.path) ? 'BGM' : /\/bgs\//i.test(a.path) ? 'BGS' : /\/me\//i.test(a.path) ? 'ME' : 'SE';
         content.innerHTML = `
-            <div style="font-weight: bold; color: #fff; margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
-            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: #60a5fa;">Audio</span> &middot; Channel: <span style="color: #60a5fa;">${channel}</span></div>
+            <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(a.fileName)}</div>
+            <div style="font-size: 11px; margin-bottom: 4px;">Category: <span style="color: var(--dd-accent);">Audio</span> &middot; Channel: <span style="color: var(--dd-accent);">${channel}</span></div>
             <div style="display: flex; gap: 6px; margin: 8px 0;">
                 <button class="dd-btn dd-btn-primary" id="dd-audio-preview-btn" style="flex: 1;">&#9654; Preview</button>
                 <button class="dd-btn" id="dd-audio-stop-btn" style="flex: 1;">&#9632; Stop</button>
@@ -787,10 +787,10 @@
             </div>
             <div style="margin-bottom: 8px;">
                 <label style="display: block; font-size: 11px; margin-bottom: 3px;">Tags (comma separated):</label>
-                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. ambient, door" style="width: 100%; box-sizing: border-box; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 4px; border-radius: 4px;" />
-                <div style="font-size: 10px; color: #64748b; margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
+                <input type="text" id="dd-asset-tags" value="${escapeHtml((a.tags || []).join(', '))}" placeholder="e.g. ambient, door" style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;" />
+                <div style="font-size: 10px; color: var(--dd-faint); margin-top: 3px;">Auto: ${escapeHtml((a.autoTags || []).join(', '))}</div>
             </div>
-            <div style="font-size: 11px; color: #94a3b8; line-height: 1.5;">
+            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5;">
                 Drag onto an empty tile to create a sound event, or onto an existing event to add a play command to it.
             </div>
             ${this.renderUsagePanel(a)}

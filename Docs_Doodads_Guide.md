@@ -62,13 +62,22 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 
 ---
 
-## 4. Visual Asset Drawer & Search
+## 4. The Item Bag & Search
 
-The left panel is the **Asset Drawer**, providing virtualized access to all graphics and audio in your project.
+### The editor at a glance
+Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**.
+
+- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), **More**, **Save** and **Done** (closes the editor).
+- A tool's options open in a card under its button while it is on. **Esc** goes back to Select.
+- **More** holds the rest: **Cut Up Sheet** (the slicer), **Screen Looks** (post-processing and map image export), **Effects Maker** (VFX), **Old Saves** (save history), **File Check** (duplicates and unused files), **Info** (numbers, cache and backups), **Show Grid**, **Sounds** on/off, **Find a Tool** (Ctrl+K), **How to Use** (the welcome card again) and the panel layouts.
+- **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
+- The **hint bubble** at the bottom always says what to do next for the tool or the thing you have picked.
+
+The left panel is the **Item Bag**, providing virtualized access to all graphics and audio in your project. It opens on **Doodads** (or **Everything** in a project that has none yet).
 
 ### Navigation & Views
-- **Category Tabs**: Switch between `All`, `Doodads`, `Characters`, `Tilesets`, `Pictures`, `Audio`, `★ Favs` (starred favorites), and `🕒 Recent` (recently used assets).
-- **Virtual Collections**: Group assets into custom collections (e.g., "Castle Set", "Dungeon Props") without duplicating files on disk. Pick one in the toolbar's collection list (beside the search box) or type `collection:"Castle Set"`; the ✕ beside the list deletes the shown collection (its assets stay).
+- **Category Tabs**: icon tabs for Doodads, People, Tiles, Pictures, Prefabs, Sounds, Favourites, Recently used, Everything, Faces, Battlers, Backdrops and System (hover for the name; the bag's title shows the open one).
+- **Virtual Collections**: Group assets into custom collections (e.g., "Castle Set", "Dungeon Props") without duplicating files on disk. Pick one in the collection list under the bag's search box or type `collection:"Castle Set"`; the ✕ beside the list deletes the shown collection (its assets stay).
 - **Right-Click Card Context Menu**: Right-click any asset card to open an instant action menu:
   - *Place as Doodad* / *Place as Real MZ Event...*
   - *Add to Favorites / Remove from Favorites*
@@ -92,14 +101,14 @@ Type directly into the search bar (press **F** to focus). Search is evaluated dy
 
 ---
 
-## 5. Intelligent Slicing Engine & Slicer Modal
+## 5. Intelligent Slicing Engine & Cut Up Sheet
 
 The workspace features a multi-tiered slicing engine that segments composite sheets into individual reusable assets:
 
 1. **Known MZ Format Detector**: Automatically detects `$Single` character sheets (3x4), standard 8-character sheets (12x8), Face sheets (4x2), IconSet grids (32x32), and Sideview Battlers without manual configuration.
 2. **Sidecar Atlas Parsers**: Reads Aseprite JSON, TexturePacker JSON, and `.saf.json` metadata when placed alongside the image.
 3. **Canvas Visual Auto-Slicer**: Uses Otsu adaptive alpha thresholding, 4-connected component labeling, border flood background removal, morphological noise cleanup, and gutter splitting to isolate irregular sprites.
-4. **Interactive Slicer Modal**:
+4. **Cut Up Sheet** (More, or an image's Details):
    - Double-click any asset or click **Auto Slice** to open the 1600% zoomable slicer editor.
    - **8-Handle Drag & Resize**: Adjust region boundaries with sub-pixel precision.
    - **Smart Snapping**: Automatically snaps region edges to pixel gutters and nearby regions.
@@ -112,13 +121,13 @@ The workspace features a multi-tiered slicing engine that segments composite she
 ## 6. Drag-and-Drop Placement & Modern Map Editing
 
 ### Placing Assets
-- **Drag & Drop**: Drag any asset or slice from the Drawer directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
-- **Snapping**: Snaps to 48px tile coordinates by default. **Hold Alt** while dragging or dropping for free pixel-perfect placement.
-- **Stamp Mode**: Click the **Stamp** tool in the toolbar to click-to-place repeated props (grass, barrels, trees) across the map. Press **Escape** or right-click to exit.
-- **Scatter Brush & Settings**: Click the **Scatter Brush** tool to paint scattered props. A floating settings popover lets you tune **Radius**, **Density**, **Scale** and **Rotation Variation**, **Min Spacing** (props never land closer than this, including to props already there), **Flip Chance**, and **Hue Variation**. Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls).
-- **Path Tool**: Click **Path**, then click points on the map (tile-snapped; hold **Alt** for free points). Double-click or press **Enter** to place the selected asset evenly along the line; **Backspace** removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate **End** and **Corner** pieces from the drawer for fences, walls, and rows of lamps.
-- **Prefabs**: Select doodads and click **Save Prefab** in the Inspector. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the **Prefabs** tab by dragging, with **Stamp**, or **Place at Player**. Copies are grouped. Edit one copy and click **Update Prefab**, then **Sync Copies** to rebuild every copy on every map from the master. **Detach** unlinks a copy.
-- **Eyedropper**: Hold **Alt and click** any placed doodad or MZ event on the map (or click the **Eyedropper** toolbar button) to automatically find and select that asset or event template in the Drawer.
+- **Drag & Drop**: Drag any asset or slice from the Item Bag directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
+- **Snapping**: Snaps to the map's tiles by default (or the Grid Snap Width / Height parameters). **Hold Alt** while dragging or dropping for free pixel-perfect placement.
+- **Stamp Mode**: Click the **Stamp** tool in the top bar to click-to-place repeated props (grass, barrels, trees) across the map. Press **Escape** or right-click to exit.
+- **Scatter & Settings**: Click the **Scatter** tool to paint scattered props. Its card lets you tune **Size**, **How many**, **Space between**, and under **Variety** the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls).
+- **Path Tool**: Click **Path**, then click points on the map (tile-snapped; hold **Alt** for free points). Double-click or press **Enter** to place the selected asset evenly along the line; **Backspace** removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate **End** and **Corner** pieces from the Item Bag for fences, walls, and rows of lamps.
+- **Prefabs**: Select doodads and click **Save Prefab** in Details. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the **Prefabs** tab by dragging, with **Stamp**, or **Place at Player**. Copies are grouped. Edit one copy and click **Update Prefab**, then **Sync Copies** to rebuild every copy on every map from the master. **Detach** unlinks a copy.
+- **Grab**: Hold **Alt and click** any placed doodad or MZ event on the map (or use the **Grab** tool) to find and pick that asset or event template in the Item Bag.
 
 ### Selection, Multi-Selection & Right-Click Context Menu
 - **Click**: Select a placed doodad or genuine MZ Event on the map.
@@ -135,15 +144,15 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Delete**: Press **Delete** to remove selected doodad(s) or selected event.
 
 ### Alignment & Distribution
-When 2 or more doodads are selected, the Inspector exposes one-click alignment tools:
+When 2 or more doodads are selected, Details exposes one-click alignment tools:
 - **Align**: Left, Center X, Right, Top, Center Y, Bottom.
 - **Distribute**: Horizontal Distribution, Vertical Distribution.
 
 ### Organization & Layering
 - **Grouping**: Click **Group** to link selected doodads (`d.groupId`). Clicking any member selects the entire group.
-- **Locking**: Click **Lock** (or press lock in Inspector). Locked doodads cannot be nudged, dragged, or accidentally deleted.
+- **Locking**: Click **Lock** (or press lock in Details). Locked doodads cannot be nudged, dragged, or accidentally deleted.
 - **Hiding**: Click **Hide** to toggle editor visibility of decorative layers without affecting runtime gameplay.
-- **Z-Order Layering**: Use the Layering buttons in Inspector to adjust draw order:
+- **Z-Order Layering**: Use the Layering buttons in Details to adjust draw order:
   - **+1 Z (Bring Forward)**: Increments Z-order.
   - **-1 Z (Send Backward)**: Decrements Z-order.
   - **To Front**: Places selected doodad(s) on top of all other doodads on the map.
@@ -153,7 +162,7 @@ When 2 or more doodads are selected, the Inspector exposes one-click alignment t
 
 ## 7. Depth, Appearance, Motion, Shadows & Lights
 
-Select a placed doodad (or several) and open the Inspector's collapsible sections. Every change can be undone, and dragging a slider counts as a single step.
+Select a placed doodad (or several) and open Details' collapsible sections. Every change can be undone, and dragging a slider counts as a single step.
 
 - **Depth**: *Below characters* (rugs, puddles, paths), *Sorted with characters* (trees, pillars, statues: the player walks behind them above the base line and in front below it), or *Above characters* (overhangs, canopies). **Base line offset** moves the sort line up or down. New placements guess from the file name, and each asset can set its own **Default Depth**. QJ-Doodads projects keep their old layering: z 0-2 maps to below, 3 to sorted, and 4+ to above.
 - **Appearance**: opacity, blend mode (Normal, Add, Multiply, Screen), hue shift, colour tone, greyscale, blur, and horizontal/vertical flip.
@@ -162,13 +171,13 @@ Select a placed doodad (or several) and open the Inspector's collapsible section
 - **Light**: colour, radius, intensity, flicker, a daylight glow, and offset. Lights shine through the map's ambient darkness.
 - **Visibility**: show only while switches are set (`5:on, 6:off`) and/or while a JavaScript condition is true. The editor always shows conditional doodads, faded when their condition is false.
 
-**Map lighting**: with nothing selected, the Inspector shows the map's settings. Set **Ambient Darkness** and colour, optionally only while a switch is ON (a night switch), and toggle **Preview lighting while editing**. During play, the plugin commands **Set Ambient Light** (darkness %, colour, fade frames) and **Reset Ambient Light** fade between moods.
+**Map lighting**: with nothing selected, Details shows the map's settings. Set **Ambient Darkness** and colour, optionally only while a switch is ON (a night switch), and toggle **Preview lighting while editing**. During play, the plugin commands **Set Ambient Light** (darkness %, colour, fade frames) and **Reset Ambient Light** fade between moods.
 
 ---
 
 ## 8. World Atmosphere: Day & Night, Sun Shadows, See-Through, Water, Seasons, Motion Blur
 
-These settings apply to the whole game. With nothing selected, the Inspector shows the map panel. Its sections marked **All maps** hold them, and the Lighting section has three per-map switches. Everything is undoable and saved in `data/DocsDoodads.json`.
+These settings apply to the whole game. With nothing selected, Details shows the map panel. Its sections marked **All maps** hold them, and the Lighting section has three per-map switches. Everything is undoable and saved in `data/DocsDoodads.json`.
 
 ### Day and Night
 - **Clock**: *Off*, *Running clock* (game minutes pass while the player is on a map; saved with the game), or *Read from variables* (your own events set the hour and minute variables).
@@ -204,7 +213,7 @@ Moving characters blur along their direction, more when dashing; transfers and j
 
 ### Seasons
 - **Current season from**: a variable, or the **Set Season** plugin command. Season names are editable.
-- **Art swaps**: each row lists one prop's art per season, and every doodad using any image in the row shows the current season's version. Empty cells keep the original. Fill rows from the map panel, or select an asset in the drawer and use **Season Variant** to add it.
+- **Art swaps**: each row lists one prop's art per season, and every doodad using any image in the row shows the current season's version. Empty cells keep the original. Fill rows from the map panel, or select an asset in the Item Bag and use **Season Variant** to add it.
 - **Preview while editing** shows any season in the editor.
 - A doodad's **Only in ...** checkboxes limit it to some seasons (flowers in spring and summer, snowmen in winter).
 
@@ -218,7 +227,7 @@ Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**,
 
 ## 9. Post-Processing, Screen Effects & Map Image Export
 
-Click **Post FX** in the toolbar to open the builder. Changes show live on the map behind it, and every edit can be undone (a slider drag counts as one step).
+Open **More → Screen Looks**. Changes show live on the map behind it, and every edit can be undone (a slider drag counts as one step).
 
 ### Effects
 - **Bloom**: bright areas glow. *Threshold* sets how bright a pixel must be to glow.
@@ -255,7 +264,7 @@ Saves the whole map as one PNG in the project's `screenshots` folder and opens i
 ## 10. Particles, VFX & Character Animation
 
 ### Particles on doodads
-Select a doodad and open **Particles** in the Inspector.
+Select a doodad and open **Particles** in Details.
 - **Emitter presets**: Smoke, Embers, Fire, Fireflies, Falling Leaves, Mist, Dust Motes, Sparkles, Snow, Bubbles and Magic.
 - **Amount** scales the preset's rate.
 - **Draw** places the particles above characters, or below them for ground mist.
@@ -268,7 +277,7 @@ Fire and embers combine well with a Light set to *After dark* (section 8).
 **Interaction → Bend when walked through** makes grass, bushes and reeds lean away from whoever passes and spring back. Faster walkers push harder. **Drop leaves when disturbed** shakes out a few leaves each time someone enters.
 
 ### VFX builder
-Click **VFX** in the toolbar.
+Open **More → Effects Maker**.
 - An effect is a list of layers:
   - **Particles**: start from a preset, then adjust rate, burst, life, speed, direction, spread, gravity, wind, size, opacity, colours, blend, shape, spawn area, flutter, twinkle and stretch (elongates particles along their motion, for flames and sparks).
   - **Sprite sheet**: any image split into columns and rows, with frames per second, loop, scale, rotation, blend, tint and opacity.
@@ -338,17 +347,17 @@ Every map has a **Main** layer. Add layers in the map panel under **Layers** (fo
 - **Ed** shows or hides a layer in the editor only, to work underneath a canopy.
 - **Lk** locks a layer so its doodads can't be clicked, box-selected or dragged.
 - **Gm** shows or hides a layer in the game. Use it for markers and notes you only want while editing.
-- Move doodads between layers with **Editor layer** in their inspector (Depth section), or right-click one on the map: **Move to Layer**. Deleting a layer moves its doodads to Main.
+- Move doodads between layers with **Editor layer** in their details (Depth section), or right-click one on the map: **Move to Layer**. Deleting a layer moves its doodads to Main.
 - Everything is undoable.
 
 ### Symmetry
-**Symmetry** (toolbar) mirrors placements left/right, top/bottom, or four ways, around axes at the map's centre or at any tile line you type. Stamps, the scatter brush and the biome brush all place the mirrored copies, flipped for left/right mirroring, in the same undo step. The axes show on the map as purple lines.
+**Mirror** (top bar) mirrors placements left/right, top/bottom, or four ways, around axes at the map's centre or at any tile line you type. Stamps, the scatter brush and the biome brush all place the mirrored copies, flipped for left/right mirroring, in the same undo step. The axes show on the map as purple lines.
 
 ### Biome brush
 A biome is a weighted mix of props: for example a forest of 3 oaks : 1 pine : 2 bushes, each with its own scale range.
 - Make biomes in the map panel under **Biomes**, or select an asset and use **Add to Biome**.
 - Each biome sets its **spacing**, how many props each dab tries, **thin at edge** (sparser at the rim of the brush) and **patchiness** (natural clumps and clearings).
-- Choose **Biome** in the toolbar, pick a biome and a radius, and drag on the map.
+- Choose **Paint** in the top bar, pick a biome and a size, and drag on the map.
 - Impassable tiles can be skipped. A stroke is one undo step.
 
 ### Dressing rules
@@ -363,7 +372,7 @@ Rules read the map's tiles and place props where they belong. Each rule has a pl
 Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing Rule** on an asset. **Dress Map** applies every rule in one undo step. **Re-roll** clears the dressing and tries again, and **Clear** removes it. Dressed props are ordinary doodads you can move or delete. Dressing never stacks on top of existing props, and skips events and blank tiles.
 
 ### Save history
-**History** (toolbar) lists the timestamped backups made each time you save.
+**More → Old Saves** lists the timestamped backups made each time you save.
 - Pick a doodads backup to see this map's doodads that are new, changed or deleted since then. They are outlined on the map in green, amber and red.
 - Pick a map backup to see its events.
 - **Restore** puts back a deleted doodad or event, undoes a change, or removes something new. Each restore is a single undo step. Event restores are saved with Save Changes.
@@ -377,13 +386,13 @@ The **☰** button next to Undo and Redo lists the undo steps by name (Place doo
 ### Command palette (Ctrl+K)
 Type a few letters of anything and press Enter:
 - tools, panels, Save, Undo and Redo, Toggle Grid
-- symmetry modes, Post FX presets, Play VFX for any effect
+- mirror modes, Screen Look presets, Play Effect for any effect
 - layers, Go to map, and any asset by file name
 
-Letters can be skipped (`ptfx` finds *Open Post FX*). Use the arrow keys to move through the results.
+Letters can be skipped (`scrlk` finds *Screen Looks*). Use the arrow keys to move through the results.
 
 ### Animated thumbnails
-Hover a character sheet in the drawer to watch it walk, and a door or chest sheet to see it open. An image sliced into equal frames (an animation strip) plays its frames too.
+Hover a character sheet in the Item Bag to watch it walk, and a door or chest sheet to see it open. An image sliced into equal frames (an animation strip) plays its frames too.
 
 ---
 
@@ -480,7 +489,7 @@ Tileset tiles lie flat by default, including tree tops and roofs from the B–E 
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
 
-On a map shown in 3D, selecting an image in the asset drawer shows a small **3D preview**: the image standing beside the party leader, at this map's camera tilt and 3D height settings, so you can judge its size before placing it.
+On a map shown in 3D, selecting an image in the Item Bag shows a small **3D preview**: the image standing beside the party leader, at this map's camera tilt and 3D height settings, so you can judge its size before placing it.
 
 ### Quality on slower machines
 When any map uses the 3D view, players get the **Effects Quality** option in the Options menu, the same one post-processing uses. It lowers the 3D detail you set, and never raises it:
@@ -495,7 +504,7 @@ When the view distance is shortened, the fog is pulled in by the same amount, so
 
 ### Terrain height
 Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (this map)** in the map panel and tick **Raise the ground**. Heights are in tiles and come from four places. The higher one in this list wins:
-1. **The Terrain brush** (toolbar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map. Before you paint, the tiles under the brush are shown on the ground (over hills in 3D), stronger towards the centre, in the mode's colour.
+1. **The Hills tool** (top bar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map. Before you paint, the tiles under the brush are shown on the ground (over hills in 3D), stronger towards the centre, in the mode's colour.
 2. **Regions:** for example, region 5 is 2 tiles high.
 3. **Terrain tags (1–7):** for example, tag 3 is 1 tile high.
 4. **Automatic,** on world tilesets: mountain tiles (impassable ground) rise to the **Mountain height** (1 tile by default), and forests (where airships can't land) to the **Forest height**.
@@ -584,9 +593,9 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 20. **Decoration Event**: Lightweight event container for complex custom logic.
 
 ### Map Event Inspection & Custom Template Saving
-- **Select Map Event**: Clicking any tile containing an MZ Event selects it and populates the Inspector.
+- **Select Map Event**: Clicking any tile containing an MZ Event selects it and populates Details.
 - **Inspect & Edit**: See the event's name and ID; edit its Tile X/Y, Trigger type (Action Button, Player Touch, Event Touch, Autorun, Parallel) and Priority (first page). Edits are undoable and saved with the map.
-- **Save Event as Template**: Click **💾 Save as Event Template** in the Inspector (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/DocsDoodadsEventTemplates.json` for reuse across any map in your project.
+- **Save Event as Template**: Click **💾 Save as Event Template** in Details (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/DocsDoodadsEventTemplates.json` for reuse across any map in your project.
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 
 ---
@@ -604,14 +613,14 @@ Doodads do not require invisible blocker events to obstruct the player. Each doo
   - `Thin Wall`: Horizontal or vertical barrier.
   - `Wide Wall`: Thick horizontal barrier.
   - `Custom`: Interactive relative box.
-- **Trace from Art**: Fits a custom collision box to the solid base of the image (a tree's trunk, a wall's foot), ignoring soft shadows. It works on placed doodads (one or many) and on drawer assets, so every new placement starts with it.
-- **Visual Collision Editor**: When `Custom` is chosen, the Inspector displays a live 64x64 interactive canvas preview. Adjust `Rel X`, `Rel Y`, `Rel W`, and `Rel H` (0.0 to 1.0) to fit collision precisely to your art regardless of scaling.
+- **Trace from Art**: Fits a custom collision box to the solid base of the image (a tree's trunk, a wall's foot), ignoring soft shadows. It works on placed doodads (one or many) and on assets in the Item Bag, so every new placement starts with it.
+- **Visual Collision Editor**: When `Custom` is chosen, Details displays a live 64x64 interactive canvas preview. Adjust `Rel X`, `Rel Y`, `Rel W`, and `Rel H` (0.0 to 1.0) to fit collision precisely to your art regardless of scaling.
 
 ---
 
-## 17. Audio Drawer Integration
+## 17. Sounds in the Item Bag
 
-Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
+Click the **Sounds** tab in the Item Bag to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
 - **Stop**: Click again or click Stop to halt audio.
 - **Drop on Map**: Dragging an audio track onto empty map tiles automatically creates a sound-trigger event, detecting whether it is BGM (`241`), BGS (`245`), ME (`249`), or SE (`250`).
@@ -644,7 +653,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
 - **Copy / Paste across maps**: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy.
-- **Copy to Map / Move to Map** (Inspector): send the selection to any map in one undoable step.
+- **Copy to Map / Move to Map** (Details): send the selection to any map in one undoable step.
 - **Neighbouring maps**: link maps north/south/east/west. **Mirror Edge Doodads** copies doodads hanging over an edge onto the neighbouring map as locked mirrors, so a tree on a border shows on both sides. Running it again replaces the old mirrors.
 - **World View** draws the map and its linked neighbours to scale with their doodads; edge-crossing doodads are orange. Click a map to go there.
 - Looping (world) maps wrap doodads, lights, outlines and clicks with the camera, the same way MZ's characters wrap.
@@ -653,25 +662,25 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ## 20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
-- **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
+- **Where Used** (the asset's Details) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
-- **Asset Tools → Find Unused Files** lists files nothing references (engine system files are never listed). Plugins and scripts can also load files by name, so check before deleting.
-- **Asset Tools → Find Duplicates** finds byte-identical files and near-identical images (resized or re-saved). **More Like This** shows the images that look most like the selected one. Image fingerprints are computed once and cached in the library.
-- **Live Reload**: while the workspace is open, saving an image or sound in another program updates the drawer, thumbnails, and placed doodads within a moment.
+- **More → File Check → Find Unused Files** lists files nothing references (engine system files are never listed). Plugins and scripts can also load files by name, so check before deleting.
+- **More → File Check → Find Duplicates** finds byte-identical files and near-identical images (resized or re-saved). **More Like This** shows the images that look most like the selected one. Image fingerprints are computed once and cached in the library.
+- **Live Reload**: while the workspace is open, saving an image or sound in another program updates the Item Bag, thumbnails, and placed doodads within a moment.
 - **Pack Map Art** (map panel → Performance): copies the art the map's doodads use into a few sheets in `img/doodads/_packed/` so deployed games load fewer textures. Playtests keep using the original files unless you tick **Use packed art in this playtest**. The panel warns when a source image has changed since packing; pack again before deploying.
 
 ---
 
 ## 21. Workspace Layouts & Custom Layout Persistence
 
-Switch workspace layout presets in the top toolbar:
-- **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
+Switch panel layout presets in **More → Panel sizes**:
+- **Mapping Preset**: Wide map viewport, compact bag, full details.
 - **Events Preset**: Focus on event templates and placement defaults.
 - **Characters Preset**: Optimized for character sheet decomposition and NPC generation.
 - **Tiles Preset**: Visual grid layout for decorative tiles.
 - **Compact Preset**: Minimal UI footprint for small laptop screens.
-- **Draggable Splitters**: Click and drag the vertical divider between the Drawer and Map or Inspector and Map to resize panels in real time (200px to 800px).
-- **Save Custom Layouts**: Click **+ Layout** in the toolbar to save your current panel dimensions and thumbnail zoom as a named preset in `data/DocsDoodadsLayouts.json`.
+- **Draggable Splitters**: Click and drag the vertical divider between the Item Bag and the map, or Details and the map to resize panels in real time (200px to 800px), or fold them away with their arrow buttons.
+- **Save Custom Layouts**: Click **+** beside the layout list in More to save your current panel dimensions and thumbnail zoom as a named preset in `data/DocsDoodadsLayouts.json`.
 
 ---
 
@@ -689,7 +698,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 4. **Corrupt JSON Auto-Recovery**: If any project file is corrupted (e.g., due to an abrupt power cut), `DocsDoodads.FS` automatically identifies and restores the latest valid backup snapshot.
 5. **Autosave Crash Recovery**: A background heartbeat writes current session staging data to `data/DocsDoodadsRecovery.json` every 60 seconds. If playtest is closed unexpectedly, the workspace offers to resume your unsaved changes upon restart.
 6. **Transactional Multi-File Save**: Map, doodad, and asset-library changes are staged and validated together. If a later file cannot commit, earlier files are restored and the workspace remains dirty so the save can be retried.
-7. **Manual Backup Restore**: Open **Diagnostics → Restore Project Backup…**, select the current map, doodad data, or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
+7. **Manual Backup Restore**: Open **More → Info → Restore Project Backup…**, select the current map, doodad data, or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
 
 ---
 
@@ -709,16 +718,16 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **Arrow Keys** | Nudge selected doodad(s) by 1 pixel | Workspace |
 | **Shift + Arrow Keys**| Nudge selected doodad(s) by 16 pixels | Workspace |
 | **Shift + Click / Drag**| Marquee multi-select or toggle doodad selection | Map Canvas |
-| **Alt + Click** | Eyedropper: Pick placed doodad to select in Drawer | Map Canvas |
+| **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map Canvas |
 | **Alt (Hold on Drag)**| Free pixel placement (bypasses 48px tile snap) | Map Canvas |
 | **G** | Toggle 48px Tile Grid visual overlay | Workspace |
-| **H** | Toggle Inspector panel visibility | Workspace |
-| **F** | Focus Drawer search input | Workspace |
+| **H** | Fold or open the Details panel | Workspace |
+| **F** | Find: type in the Item Bag's search box | Workspace |
 | **Escape** | Cancel active tool (Stamp/Brush/Path/Eyedropper) / Deselect / Close Modals | Workspace |
 | **Enter** / **Double-click** | Place props along the path being drawn | Path tool |
 | **Backspace** | Remove the last path point | Path tool |
 | **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map Canvas |
-| **Mouse Wheel** | Scroll Asset Drawer / Pan Slicer | Drawer / Slicer |
+| **Mouse Wheel** | Scroll the Item Bag / zoom Cut Up Sheet | Item Bag / Cut Up Sheet |
 | **Ctrl + Wheel** | Zoom Slicer Modal canvas (100% to 1600%) | Slicer Modal |
 
 ---
