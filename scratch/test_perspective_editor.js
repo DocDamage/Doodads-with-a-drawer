@@ -69,7 +69,7 @@ const back = doodad({ x: 480, y: 456 }), front = doodad({ x: 480, y: 480 });
 $dataDocsDoodads[1] = [front, back];
 const boxFront = ws.doodadFlatBox(front);
 assert.deepStrictEqual(boxFront.rect, { x: 456, y: 384, w: 48, h: 96 });
-assert.deepStrictEqual(boxFront.pivot, { x: 480, y: 480 });
+assert.deepStrictEqual(boxFront.pivot, { x: 480, y: 480, h: 0 }, "h: the terrain height under it (none here)");
 const footFront = P.project(P._cam, 480, 480, 0);
 // A point on the front tree's trunk, also covered by the taller-looking tree behind it.
 assert.strictEqual(ws.doodadAtScreen({ x: footFront.x, y: footFront.y - 30 }), front, "the nearer one wins");

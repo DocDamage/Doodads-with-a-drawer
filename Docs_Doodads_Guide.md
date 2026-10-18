@@ -459,6 +459,27 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
 
+### Terrain height
+Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (this map)** in the map panel and tick **Raise the ground**. Heights are in tiles and come from four places. The higher one in this list wins:
+1. **The Terrain brush** (toolbar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map.
+2. **Regions:** for example, region 5 is 2 tiles high.
+3. **Terrain tags (1–7):** for example, tag 3 is 1 tile high.
+4. **Automatic,** on world tilesets: mountain tiles (impassable ground) rise to the **Mountain height** (1 tile by default), and forests (where airships can't land) to the **Forest height**.
+
+**Shape:**
+- **Smooth** is for hills and mountains: the ground is rounded, so a range rises in gentle slopes to a broad top, and a lone mountain is a low mound.
+- **Stepped** is for cliffs and plateaus: flat tops with shaded cliff walls.
+
+**How things stand on it:**
+- Characters and the click-to-walk marker stand on the raised ground. On smooth ground they rest on the highest point under their base, so a bump beside their feet doesn't swallow them.
+- **Doodads stand on level ground only.** The stamp, brushes, paths, dressing and dragging all refuse mountains and slopes; level raised ground you made (a plateau) is fine. Doodads already on a mountain (placed before terrain was turned on) show a red box in the editor so you can move them.
+- Hills hide whatever is behind them.
+- Clicking finds the slope you clicked.
+- Slopes are shaded by a light from the upper left, and fog fades distant hills.
+- **Steep steps block walking:** characters can't climb or drop more than the **Highest step you can walk**.
+
+Terrain height shows only in the 3D view. It works on round worlds too.
+
 ### What works in 3D
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
 - **Sun and doodad shadows** lie on the ground.
