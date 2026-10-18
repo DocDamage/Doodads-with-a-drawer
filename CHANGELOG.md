@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added snow that settles in the 3D view (per map): the ground whitens and standing objects get white tops while it snows, it melts afterwards, and a season named Winter keeps it white.
 - Added see-through to the 3D view: hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player.
 - Added mouse look to the editor in 3D: middle-drag orbits, Shift + middle-drag pans, the wheel zooms, and a middle click resets to the map's camera.
 - Fixed the airship in the 3D view: in flight it was sorted as if it stood a tile north, so trees beside the player hid it, and its shadow stood up instead of lying on the ground. Ship wakes on the open sea, flying and landing were checked.

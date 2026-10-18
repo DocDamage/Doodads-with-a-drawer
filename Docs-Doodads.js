@@ -4346,7 +4346,7 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off'
+        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false
     },
 
     curves: [
@@ -4390,7 +4390,8 @@ DocsDoodads.Perspective = {
             dayNight: s.dayNight !== false,
             doodadScale: num(s.doodadScale, d.doodadScale, 0.25, 2),
             characterScale: num(s.characterScale, d.characterScale, 0.25, 2),
-            standTiles: s.standTiles === 'star' || s.standTiles === 'all' ? s.standTiles : 'off'
+            standTiles: s.standTiles === 'star' || s.standTiles === 'all' ? s.standTiles : 'off',
+            snowCover: s.snowCover === true
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -5202,6 +5203,47 @@ DocsDoodads.StandTiles = {
     }
 };
 
+// Snow that settles in the 3D view: a cover (0 bare, 1 white) that builds while it snows, melts when it
+// stops, and stays at least `winterCover` in a season named Winter. The ground whitens (water stays
+// clear) and standing objects get white tops.
+DocsDoodads.SnowCover = {
+    fillSeconds: 60,   // heavy snow (power 9) covers everything in about a minute
+    meltSeconds: 120,
+    winterCover: 0.75,
+
+    step(cover, dt, weatherType, power, winter) {
+        let c = Math.max(0, Math.min(1, Number(cover) || 0));
+        if (weatherType === 'snow' && power > 0) c += dt * (Math.min(9, power) / 9) / this.fillSeconds;
+        else c -= dt / this.meltSeconds;
+        c = Math.max(0, Math.min(1, c));
+        return winter ? Math.max(c, this.winterCover) : c;
+    },
+
+    isWinter(seasonIndex, names) {
+        return seasonIndex >= 0 && Array.isArray(names) && /winter/i.test(String(names[seasonIndex] || ''));
+    },
+
+    // How white each pixel of a standing object's picture gets: the top of every opaque run down a
+    // column (what faces the sky), fading over `depth` pixels. alpha: the picture's alpha channel
+    // (width x height, 0-255); cellH: the height of one frame, so each frame of a sheet gets its own tops.
+    capAlpha(alpha, width, height, cellH, depth) {
+        const out = new Uint8ClampedArray(width * height);
+        const d = Math.max(1, depth);
+        for (let x = 0; x < width; x++) {
+            let run = -1;
+            for (let y = 0; y < height; y++) {
+                if (cellH > 0 && y % cellH === 0) run = -1;
+                const a = alpha[y * width + x];
+                if (a < 40) { run = -1; continue; }
+                run = run < 0 ? 0 : run + 1;
+                const k = Math.max(0, 1 - run / d);
+                out[y * width + x] = Math.round(a * k);
+            }
+        }
+        return out;
+    }
+};
+
 // Rippling water in the 3D view: a sum of travelling waves bends what shows through water tiles and
 // catches the light, and things moving through water leave spreading wake rings.
 DocsDoodads.Water3D = {
@@ -5374,6 +5416,16 @@ DocsDoodads.Water3D.applyGlsl = [
     '            docsWaterSpec = (pow(max(dot(N, H), 0.0), 140.0) * uWater.z + foam * uWater.y) * uWater.w * wet;',
     '            docsWaterShade = 1.0 + dot(-g, uLightDir.xy) * 0.12 * wet;',
     '        }',
+    '    }'
+].join('\n');
+
+// Snow cover on the ground: dry ground whitens by uSnow, keeping the light (darker at night).
+DocsDoodads.SnowCover.glsl = [
+    '    if (uSnow > 0.0) {',
+    '        float dry = 1.0 - smoothstep(0.3, 0.7, docsWaterMask(p + uOrigin));',
+    '        float lum = dot(rgb, vec3(0.299, 0.587, 0.114));',
+    '        vec3 snow = vec3(0.9, 0.94, 1.0) * min(1.0, lum * 1.6 + 0.12);',
+    '        rgb = mix(rgb, snow, uSnow * dry);',
     '    }'
 ].join('\n');
 
@@ -8507,6 +8559,7 @@ DocsDoodads.Perspective.groundFragment = [
     'uniform vec2 uAhead;',
     'uniform vec3 uVoid;',
     'uniform float uAlpha;',
+    'uniform float uSnow;',
     DocsDoodads.Water3D.glsl,
     'void main() {',
     '    vec3 dir = uF + ((vScreen.x - uHalf.x) / uFocal) * uR + ((uHalf.y - vScreen.y) / uFocal) * uU;',
@@ -8550,6 +8603,7 @@ DocsDoodads.Perspective.groundFragment = [
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
     '    vec3 rgb = c.rgb + uVoid * (1.0 - c.a);',
     '    rgb = rgb * docsWaterShade + vec3(docsWaterSpec);',
+    DocsDoodads.SnowCover.glsl,
     // Fog by distance along the ground from the camera's target, so it hides the ground's edges all round.
     '    float f = smoothstep(uFogRange.x, uFogRange.y, length(p - uTarget));',
     // uFog.a = 1: blend into the fog colour; 0: fade out so the sky shows through.
@@ -8760,6 +8814,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.exitDocsPerspective = function() {
         this._docs3d = false;
         if (this.clearDocsStandTiles) this.clearDocsStandTiles();
+        for (const sprite of this._docsDoodadSprites || []) if (sprite._docsSnowCap) sprite._docsSnowCap.visible = false;
         if (this._weather) this._weather.visible = true;
         this._docs3dWeather = null;
         this._docs3dSkyGrad = null;
@@ -8803,7 +8858,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addIndex([0, 1, 2, 0, 2, 3]);
         const shader = PIXI.Shader.from(P.groundVertex, P.groundFragment, {
             uSampler: PIXI.Texture.EMPTY, uCam: [0, 0, 1], uF: [0, 0, -1], uR: [1, 0, 0], uU: [0, -1, 0], uFocal: 1,
-            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1,
+            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1, uSnow: 0,
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4)
         });
@@ -8904,6 +8959,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uAlpha = 1;
+        const snow = this._docs3dSnow = this.updateDocsSnowCover(s);
+        u.uSnow = snow;
 
         // Billboards, far to near, faded by fog and lit like the ground.
         const light = this._docsLightInfo || null;
@@ -8929,6 +8986,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         this._docs3dSee = this.docsPlayerSeeThrough();
         this.docsSeeThroughBillboards(items, this._docs3dSee);
+        this.updateDocsSnowCaps(items, snow);
         for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
         items.sort(P.compareBillboards);
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
@@ -9607,6 +9665,7 @@ DocsDoodads.Terrain.fragment = [
     'uniform vec4 uSee;',
     'uniform float uSeeDepth;',
     'uniform float uSeeAlpha;',
+    'uniform float uSnow;',
     DocsDoodads.Water3D.glsl,
     'void main() {',
     '    vec2 uv = vUv;',
@@ -9615,6 +9674,7 @@ DocsDoodads.Terrain.fragment = [
     '    vec4 c = vec4(0.0);',
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
     '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x * docsWaterShade + vec3(docsWaterSpec);',
+    DocsDoodads.SnowCover.glsl,
     '    float f = 1.0 - vShade.y;',
     '    rgb = mix(rgb, uFog.rgb, f * uFog.a);',
     '    float a = mix(1.0 - f, 1.0, uFog.a) * uAlpha;',
@@ -9670,7 +9730,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aDepth', topo.depths, 1)
             .addIndex(topo.index);
         const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
-            uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4,
+            uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4, uSnow: 0,
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
         this._docsTerrainMesh = new PIXI.Mesh(geometry, shader);
@@ -9761,6 +9821,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;
+        u.uSnow = this._docs3dSnow || 0;
         const see = this._docs3dSee;
         u.uSee = see ? see.rect : [0, 0, 1, 1];
         u.uSeeDepth = see ? see.depth : 0;
@@ -9847,6 +9908,81 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (this._tilemap && this._tilemap._docsStandMask) {
             this._tilemap._docsStandMask = null;
             if (this._tilemap.refresh) this._tilemap.refresh();
+        }
+    };
+
+    // ---- Snow cover ----
+    // The cover now (kept in the save), stepped while the map is shown in 3D with Snow settles on.
+    Spriteset_Map.prototype.updateDocsSnowCover = function(s) {
+        if (!s.snowCover || typeof $gameSystem === 'undefined' || !$gameSystem) return 0;
+        const C = DocsDoodads.SnowCover;
+        const seasons = DocsDoodads.World.settings().seasons;
+        const winter = C.isWinter(DocsDoodads.Atmosphere.season(), seasons && seasons.names);
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        const dt = editing ? 0 : 1 / 60;
+        $gameSystem._docsSnowCover = C.step($gameSystem._docsSnowCover, dt, $gameScreen.weatherType(), $gameScreen.weatherPower(), winter);
+        return $gameSystem._docsSnowCover;
+    };
+
+    // White tops for standing doodads and tileset objects (a picture made once per image).
+    DocsDoodads.SnowCover.capBase = function(texture) {
+        const base = texture && texture.baseTexture;
+        const source = base && base.resource && base.resource.source;
+        if (!source || !source.width || typeof document === 'undefined') return null;
+        const cellH = Math.round(texture.frame.height);
+        const key = (base.cacheId || base.uid) + '|' + cellH;
+        this._caps = this._caps || new Map();
+        if (this._caps.has(key)) return this._caps.get(key);
+        const w = source.width, h = source.height;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(source, 0, 0);
+        const image = ctx.getImageData(0, 0, w, h);
+        const alpha = new Uint8ClampedArray(w * h);
+        for (let i = 0; i < w * h; i++) alpha[i] = image.data[i * 4 + 3];
+        const cap = this.capAlpha(alpha, w, h, cellH, Math.max(3, cellH * 0.16));
+        for (let i = 0; i < w * h; i++) {
+            image.data[i * 4] = 240; image.data[i * 4 + 1] = 245; image.data[i * 4 + 2] = 255;
+            image.data[i * 4 + 3] = cap[i];
+        }
+        ctx.putImageData(image, 0, 0);
+        const out = PIXI.BaseTexture.from(canvas);
+        if (this._caps.size > 64) this._caps.clear();
+        this._caps.set(key, out);
+        return out;
+    };
+
+    Spriteset_Map.prototype.updateDocsSnowCaps = function(items, cover) {
+        for (const it of items) {
+            const obj = it.obj;
+            if (!obj || !it.matrix || !(obj instanceof PIXI.Sprite)) continue;
+            const isDoodad = typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad;
+            if (!isDoodad && !obj._docsStandTile) continue;
+            let cap = obj._docsSnowCap;
+            if (cover <= 0.01) {
+                if (cap) cap.visible = false;
+                continue;
+            }
+            const tex = obj.texture;
+            if (!tex || !tex.valid) continue;
+            const base = DocsDoodads.SnowCover.capBase(tex);
+            if (!base) continue;
+            if (!cap) {
+                cap = obj._docsSnowCap = new PIXI.Sprite(PIXI.Texture.EMPTY);
+                obj.addChild(cap);
+            }
+            const f = tex.frame;
+            const key = base.uid + '|' + f.x + ',' + f.y + ',' + f.width + ',' + f.height;
+            if (cap._docsKey !== key) {
+                cap._docsKey = key;
+                cap.texture = new PIXI.Texture(base, new PIXI.Rectangle(f.x, f.y, f.width, f.height));
+            }
+            // Same place and size as the picture it caps (a child, so it shares the transform).
+            cap.anchor.set(obj.anchor.x, obj.anchor.y);
+            cap.alpha = cover;
+            cap.visible = true;
         }
     };
 
@@ -17605,6 +17741,7 @@ DocsDoodads.Workspace = {
             range('characterScale', 'Characters: height in 3D', 0.25, 2, 0.05),
             check('dayNight', 'Sky, sun, moon and stars follow the time of day'),
             check('weather', '3D rain and snow (from Set Weather Effect)'),
+            check('snowCover', 'Snow settles (whitens the ground and tops while it snows, and in Winter)'),
             range('weatherDensity', 'Weather density', 0, 3, 0.1)
         ];
     },
