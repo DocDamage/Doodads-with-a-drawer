@@ -212,7 +212,10 @@ function install() {
         loadTileset: n => load('img/tilesets/', n, 768, 768), loadParallax: n => load('img/parallaxes/', n, 816, 624), loadSystem: n => load('img/system/', n, 96, 96),
         loadPicture: n => load('img/pictures/', n, 96, 96), loadFace: n => load('img/faces/', n, 576, 288), loadSvActor: n => load('img/sv_actors/', n, 576, 384),
         loadAnimation: n => load('img/animations/', n, 192, 192), loadEnemy: n => load('img/enemies/', n, 152, 156),
-        isBigCharacter: n => /^[!$]*\$/.test(n), isObjectCharacter: n => /^[!$]*!/.test(n), isReady: () => true, iconWidth: 32, iconHeight: 32
+        isBigCharacter: n => /^[!$]*\$/.test(n), isObjectCharacter: n => /^[!$]*!/.test(n), iconWidth: 32, iconHeight: 32,
+        _system: {}, _emptyBitmap: new Bitmap(1, 1),
+        // As MZ: a failed picture in the cache stops the game ("Failed to load").
+        isReady() { for (const c of [this._cache, this._system]) for (const url in c) { if (c[url].isError()) throw new Error('Failed to load: ' + url); if (!c[url].isReady()) return false; } return true; }
     };
     class MzSprite extends Sprite {
         constructor(bitmap) { super(); this._bitmap = null; this._frame = new Rectangle(); this.spriteId = MzSprite._counter++; this._hue = 0; this._blendColor = [0, 0, 0, 0]; this._colorTone = [0, 0, 0, 0]; this.bitmap = bitmap || null; }

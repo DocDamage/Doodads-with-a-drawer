@@ -742,6 +742,9 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ### Q: Can I safely deploy my game to players?
 - **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads, effects, lights and collision render normally. If you packed map art, pack again after changing source images; a pack built before a change keeps the old art.
+- In **File → Deployment**, leave **Exclude unused files** off: MZ only knows the files its own database and events use, so it leaves out every doodad picture (all of `img/doodads`) and sounds that only Doc's Doodads uses. If a doodad's picture is missing anyway, the game doesn't stop at MZ's "Failed to load" screen: that doodad is skipped and the console says which file it was. Image and audio encryption are fine; the plugin reads encrypted files.
+- The deploy script's build was checked against MZ's own (same key): every file is the same byte for byte, except `data/System.json`, which MZ writes again from the editor.
+- To try a deployed build without the editor, run `npm run deploy -- <project folder> <output folder>` in this repository. It makes a Windows build the way MZ's Deployment does with encryption on (Game.exe, encrypted `img/` and `audio/`, the key in `System.json`); run its `Game.exe`. Add `--no-encrypt` for a plain build or `--key <text>` for your own key.
 
 ### Q: Why do my house interiors get dark at night?
 - The day/night clock applies to every map that doesn't set its own darkness. In the map panel, set **Day and night on this map** to *Ignore (indoors)* for interiors, or give the map its own ambient darkness.

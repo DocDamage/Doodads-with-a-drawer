@@ -202,4 +202,24 @@ assert.strictEqual(T.settingsFor(1).mountain, 4, 'the editor changes them in pla
 D.Workspace.mounted = false;
 console.log('✓ terrain settings kept in play');
 
+// 11. Missing doodad art (e.g. left out by "Exclude unused files") never stops the game.
+const MA = D.MissingArt;
+const gone = D.loadBitmap('img/doodads/Gone.png');
+gone.isError = () => true;
+const other = ImageManager.loadBitmap('img/pictures/', 'Title');
+const warned = [];
+const realWarn = console.warn;
+console.warn = m => warned.push(m);
+assert.doesNotThrow(() => ImageManager.isReady(), 'no Failed to load screen for a doodad picture');
+console.warn = realWarn;
+assert.ok(!Object.values(ImageManager._cache).includes(gone), 'taken out of the cache');
+assert.ok(Object.values(ImageManager._cache).includes(other), 'other pictures stay');
+assert.ok(MA.missing.has('img/doodads/Gone.png') && warned.length === 1 && /Exclude unused files/.test(warned[0]), warned[0]);
+assert.strictEqual(D.loadBitmap('img/doodads/Gone.png'), ImageManager._emptyBitmap, 'known missing: not asked for again');
+// The game's own pictures still stop it as MZ does.
+other.isError = () => true;
+assert.throws(() => ImageManager.isReady(), /Failed to load/);
+delete other.isError;
+console.log('✓ missing doodad art is skipped with a warning; MZ still reports its own missing files');
+
 console.log('=== Audit fixes (runtime) passed ===');
