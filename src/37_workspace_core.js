@@ -24,7 +24,7 @@ DocsDoodads.Workspace = {
     ghostEl: null,
     isBrushActive: false,
     currentBrushBatch: [],
-    gridSnapShow: false,
+    gridSnapShow: gridSnapShow,
     _clipboardDoodads: [],
     selectedDoodads: [],
 
@@ -59,6 +59,8 @@ DocsDoodads.Workspace = {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
         DocsDoodads.Persistence.captureSession();
         DocsDoodads.AssetIndex.init();
+        // init() reloads every asset; a selection kept from last time must be the new object.
+        if (this.selectedAsset) this.selectedAsset = DocsDoodads.AssetIndex.data.assets[this.selectedAsset.id] || null;
         this.buildDom();
         this.attachCanvasListeners();
         this._onWindowResize = () => this.layoutPanels();
@@ -99,10 +101,19 @@ DocsDoodads.Workspace = {
                 if (panel.parentNode) panel.parentNode.removeChild(panel);
             }
         }
-        // The undo history floats on the page too (it isn't a glass panel).
-        const history = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-undo-history') : null;
-        if (history && history.parentNode) history.parentNode.removeChild(history);
+        // The slicer, undo history, import preview and a marquee in progress float on the page too.
+        if (DocsDoodads.Slicing.Editor.modal) DocsDoodads.Slicing.Editor.close();
+        for (const id of ['dd-undo-history', 'dd-import-modal', 'dd-marquee-overlay']) {
+            const node = typeof document !== 'undefined' && document.getElementById ? document.getElementById(id) : null;
+            if (node && node.parentNode) node.parentNode.removeChild(node);
+        }
         this._undoHistoryOpen = false;
+        this.isMarqueeActive = false;
+        this._historyDiff = null;
+        this._historyPanel = null;
+        this._vfxPanel = null;
+        this._postFxPanel = null;
+        this.stopVfxPreview();
         this.postFxCompare = false;
         this.mounted = false;
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
@@ -118,9 +129,20 @@ DocsDoodads.Workspace = {
         if (!recovery || !window.$gameMap) return;
         const mapId = recovery.mapId || this.currentMapId();
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        if (recovery.allDoodads && typeof recovery.allDoodads === 'object') {
+            for (const [id, list] of Object.entries(recovery.allDoodads)) if (Array.isArray(list)) data[id] = list;
+            DocsDoodads.Persistence.dirtyDoodads = true;
+        }
         if (Array.isArray(recovery.doodads)) {
             data[mapId] = recovery.doodads;
             DocsDoodads.Persistence.dirtyDoodads = true;
+        }
+        if (recovery.stagedMaps && typeof recovery.stagedMaps === 'object') {
+            for (const [id, staged] of Object.entries(recovery.stagedMaps)) {
+                if (!staged || Number(id) === this.currentMapId()) continue;
+                DocsDoodads.Persistence.stagedMaps[id] = staged;
+                DocsDoodads.Persistence.dirtyMap = true;
+            }
         }
         if (recovery.mapSettings) data.mapSettings = recovery.mapSettings;
         if (recovery.world) {
@@ -153,6 +175,7 @@ DocsDoodads.Workspace = {
         });
         if (this._assetScanToken !== token || token.cancelled || result.cancelled) return result;
         this._assetScanToken = null;
+        if (!result.errors.length) DocsDoodads.Thumbnail.pruneDisk(DocsDoodads.AssetIndex.list);
         if (this.mounted) {
             this.refreshDrawerCards();
             this.updateIndexStatus(result.removed);
@@ -222,6 +245,8 @@ DocsDoodads.Workspace = {
                 <span style="font-weight: bold; font-size: 14px; color: #60a5fa; letter-spacing: 0.5px;">DOC'S DOODADS</span>
                 <input type="text" id="dd-search-input" placeholder="Search (e.g. tree tag:prop -dead)"
                     style="width: 200px; background: #0b1120; border: 1px solid #334155; color: #fff; padding: 5px 10px; border-radius: 4px; font-size: 12px;" />
+                <select id="dd-collection-select" title="Show one collection (right-click an asset: Add to Collection)" style="max-width: 150px; background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
+                <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the assets stay)" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
                 <select id="dd-layout-select" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px;"></select>
                 <button class="dd-btn" id="dd-save-layout-btn" title="Save current panel sizes as custom layout">+ Layout</button>
                 <button class="dd-btn" id="dd-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
@@ -468,6 +493,47 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // The collection a search shows, from its collection:"..." term (the first one).
+    searchCollection() {
+        const m = /(?:^|\s)collection:(?:"([^"]*)"|'([^']*)'|(\S+))/i.exec(this.searchQuery || '');
+        if (!m) return '';
+        const wanted = (m[1] || m[2] || m[3] || '').toLowerCase();
+        return DocsDoodads.AssetIndex.getCollections().find(name => name.toLowerCase() === wanted) || '';
+    },
+
+    // Shows one collection (or all assets): swaps the search's collection term, keeping the rest.
+    setSearchCollection(name) {
+        const rest = String(this.searchQuery || '').replace(/(?:^|\s)collection:(?:"[^"]*"|'[^']*'|\S+)/gi, ' ').replace(/\s+/g, ' ').trim();
+        this.searchQuery = name ? `${rest} collection:"${name}"`.trim() : rest;
+        const input = document.getElementById('dd-search-input');
+        if (input) input.value = this.searchQuery;
+        this.refreshDrawerCards();
+        this.refreshCollectionPicker();
+    },
+
+    refreshCollectionPicker() {
+        const select = document.getElementById('dd-collection-select');
+        if (!select) return;
+        const library = DocsDoodads.AssetIndex.data;
+        const names = DocsDoodads.AssetIndex.getCollections().sort((a, b) => a.localeCompare(b));
+        const current = this.searchCollection();
+        select.innerHTML = '';
+        const all = document.createElement('option');
+        all.value = '';
+        all.textContent = names.length ? 'All collections' : 'No collections yet';
+        select.appendChild(all);
+        for (const name of names) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = `📁 ${name} (${(library.collections[name] || []).length})`;
+            if (name === current) opt.selected = true;
+            select.appendChild(opt);
+        }
+        select.disabled = names.length === 0;
+        const del = document.getElementById('dd-del-collection-btn');
+        if (del) del.style.display = current ? 'inline-block' : 'none';
+    },
+
     bindEvents() {
         document.getElementById('dd-close-btn').onclick = () => this.close();
         document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
@@ -564,7 +630,22 @@ DocsDoodads.Workspace = {
         searchInput.oninput = (e) => {
             this.searchQuery = e.target.value;
             this.refreshDrawerCards();
+            this.refreshCollectionPicker();
         };
+
+        this.refreshCollectionPicker();
+        const collectionSel = document.getElementById('dd-collection-select');
+        if (collectionSel) collectionSel.onchange = e => this.setSearchCollection(e.target.value);
+        const delCollectionBtn = document.getElementById('dd-del-collection-btn');
+        if (delCollectionBtn) {
+            delCollectionBtn.onclick = () => {
+                const name = this.searchCollection();
+                if (!name || !confirm(`Delete the collection "${name}"? Its assets stay in the library.`)) return;
+                DocsDoodads.AssetIndex.deleteCollection(name);
+                this.setSearchCollection('');
+                this.showToast(`Deleted collection "${name}".`);
+            };
+        }
 
         const container = document.getElementById('dd-cards-container');
         if (container) {
@@ -697,8 +778,11 @@ DocsDoodads.Workspace = {
         if (countEl) countEl.textContent = this.currentCategory === 'Similar' && this.similarSource
             ? `Most like ${this.similarSource}: ${filtered.length}` : `Assets: ${filtered.length}`;
 
+        // Back to the top only for a new search or tab; a reload, favourite or save keeps the place.
+        const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}`;
         const container = document.getElementById('dd-cards-container');
-        if (container) container.scrollTop = 0;
+        if (container && view !== this._drawerView) container.scrollTop = 0;
+        this._drawerView = view;
 
         this.updateVirtualGrid(true);
     },
@@ -739,6 +823,10 @@ DocsDoodads.Workspace = {
         const startIndex = startRow * cols;
         const endIndex = Math.min(totalCount, (endRow + 1) * cols);
 
+        // Scrolling within the same rows changes nothing; the cards are only rebuilt for new rows.
+        const range = `${startIndex}-${endIndex}-${cols}-${colWidth}-${totalCount}`;
+        if (!forceRecalculate && range === this._gridRange && viewport.childNodes.length) return;
+        this._gridRange = range;
         viewport.style.transform = `translateY(${startRow * rowHeight}px)`;
         viewport.innerHTML = '';
 
@@ -825,13 +913,29 @@ DocsDoodads.Workspace = {
                     label: 'Add to Collection...',
                     icon: '📁',
                     onClick: () => {
-                        const colName = prompt("Enter Collection Name (e.g. Castle Set, Forest Props):", "Custom Collection");
-                        if (colName && colName.trim()) {
-                            DocsDoodads.AssetIndex.addAssetToCollection(asset.id, colName.trim());
-                            this.showToast(`Added ${asset.fileName} to "${colName.trim()}"!`);
+                        const existing = DocsDoodads.AssetIndex.getCollections().filter(name => !(asset.collections || []).includes(name));
+                        const hint = existing.length ? ` (or one of: ${existing.slice(0, 6).join(', ')})` : '';
+                        const answer = prompt(`Collection name, e.g. Castle Set${hint}:`, this.searchCollection() || existing[0] || 'Custom Collection');
+                        // Quotes would break the collection:"..." search term.
+                        const colName = String(answer || '').replace(/["']/g, '').trim();
+                        if (colName) {
+                            DocsDoodads.AssetIndex.addAssetToCollection(asset.id, colName);
+                            this.refreshCollectionPicker();
+                            this.refreshDrawerCards();
+                            this.showToast(`Added ${asset.fileName} to "${colName}"!`);
                         }
                     }
                 },
+                ...(asset.collections || []).map(name => ({
+                    label: `Remove from "${name}"`,
+                    icon: '📂',
+                    onClick: () => {
+                        DocsDoodads.AssetIndex.removeAssetFromCollection(asset.id, name);
+                        this.refreshCollectionPicker();
+                        this.refreshDrawerCards();
+                        this.showToast(`Removed ${asset.fileName} from "${name}".`);
+                    }
+                })),
                 { separator: true }
             ];
             if (asset.category !== 'Audio') {
@@ -875,8 +979,6 @@ DocsDoodads.Workspace = {
 
         return card;
     },
-
-    selectedDoodads: [],
 
     selectEvent(evInfo) {
         this.selectedEvent = evInfo;

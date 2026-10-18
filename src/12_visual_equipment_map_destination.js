@@ -864,19 +864,25 @@ DocsDoodads.AsepriteVisuals = {
         return name;
     },
 
-    // The file's layer sheets (parsed once per version of the file), or null without file access.
+    // The file's layer sheets with their pixels (rgba), read from the file now.
+    parseSheets(path) {
+        const FS = DocsDoodads.FS;
+        const zlib = require('zlib');
+        const A = DocsDoodads.AsepriteSheets;
+        const base = FS.path.basename(path).replace(/\.(aseprite|ase)$/i, '');
+        return { mtime: FS.fs.statSync(path).mtimeMs, sheets: A.sheets(A.parse(FS.fs.readFileSync(path), data => zlib.inflateSync(data)), base) };
+    },
+
+    // The file's layer sheets (parsed once per version of the file), or null without file access. The
+    // first call returns them with their pixels; only names and sizes are kept for later calls.
     sheetsOf(path) {
         const FS = DocsDoodads.FS;
         if (!FS.fs || typeof require === 'undefined' || !FS.existsSync(path)) return null;
         const mtime = FS.fs.statSync(path).mtimeMs;
         const hit = this._files.get(path);
         if (hit && hit.mtime === mtime) return hit;
-        const zlib = require('zlib');
-        const A = DocsDoodads.AsepriteSheets;
-        const base = FS.path.basename(path).replace(/\.(aseprite|ase)$/i, '');
-        const sheets = A.sheets(A.parse(FS.fs.readFileSync(path), data => zlib.inflateSync(data)), base);
-        const entry = { mtime, sheets };
-        this._files.set(path, entry);
+        const entry = this.parseSheets(path);
+        this._files.set(path, { mtime: entry.mtime, sheets: entry.sheets.map(sh => ({ name: sh.name, fileName: sh.fileName, width: sh.width, height: sh.height })) });
         return entry;
     },
 
@@ -911,10 +917,18 @@ DocsDoodads.AsepriteVisuals = {
         const written = [];
         let manifestChanged = false;
         FS.mkdirp('img/characters');
+        let full = null;
         for (const sheet of entry.sheets) {
             const out = 'img/characters/' + sheet.fileName;
             if (!FS.existsSync(out) || FS.fs.statSync(out).mtimeMs < entry.mtime) {
-                FS.fs.writeFileSync(out, A.encodePng(sheet.width, sheet.height, sheet.rgba, data => zlib.deflateSync(data)));
+                // A remembered entry has no pixels: read them again, only when a sheet is to be written.
+                let pixels = sheet;
+                if (!pixels.rgba) {
+                    full = full || this.parseSheets(path);
+                    pixels = full.sheets.find(sh => sh.name === sheet.name) || sheet;
+                }
+                if (!pixels.rgba) continue;
+                FS.fs.writeFileSync(out, A.encodePng(pixels.width, pixels.height, pixels.rgba, data => zlib.deflateSync(data)));
                 written.push(out);
             }
             const key = this.key(path, sheet.name), name = sheet.fileName.replace(/\.png$/i, '');
@@ -949,9 +963,13 @@ DocsDoodads.AsepriteVisuals = {
         const dir = FS.path.dirname(path);
         if (this.watchers.has(dir) || typeof FS.fs.watch !== 'function') return;
         try {
-            this.watchers.set(dir, FS.fs.watch(dir, (event, file) => {
+            const watcher = FS.fs.watch(dir, (event, file) => {
                 if (file && /\.(aseprite|ase)$/i.test(String(file))) this.queue((dir + '/' + String(file)).replace(/\\/g, '/'));
-            }));
+            });
+            // A watched folder that is deleted or renamed reports an error instead of crashing the game.
+            if (watcher && typeof watcher.on === 'function') watcher.on('error', () => { try { watcher.close(); } catch (e) {} this.watchers.set(dir, null); });
+            this.watchers.set(dir, watcher);
+            this.stopOnUnload();
         } catch (e) {
             this.watchers.set(dir, null);
         }
@@ -995,6 +1013,13 @@ DocsDoodads.AsepriteVisuals = {
         this.watchers.clear();
         clearTimeout(this.timer);
         this.pending.clear();
+    },
+
+    // The folder watchers close with the game window (or a reload of it).
+    stopOnUnload() {
+        if (this._unloadHooked || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+        this._unloadHooked = true;
+        window.addEventListener('beforeunload', () => this.stop());
     },
 
     // "File.aseprite#Layer" for every layer of every .aseprite in img/characters (for the notetag builder).

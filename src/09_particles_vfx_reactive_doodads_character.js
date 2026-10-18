@@ -126,10 +126,6 @@ DocsDoodads.Particles = {
         return state;
     },
 
-    isIdle(state) {
-        return !state || state.particles.length === 0;
-    },
-
     // What each particle looks like now: size, alpha and colour blend over its life.
     view(state) {
         const c = state.config;
@@ -229,13 +225,14 @@ DocsDoodads.Vfx = {
     },
 
     _playing: [],
+    _uid: 0,
 
     // spec: { id, x, y (map pixels), follow (character), loop }. Rendering picks these up each frame.
     play(spec) {
         const def = this.find(spec && spec.id, this.library());
         if (!def) return null;
         const instance = { def: spec.loop ? Object.assign({}, def, { loop: true }) : def, x: Number(spec.x) || 0, y: Number(spec.y) || 0,
-            follow: spec.follow || null, time: 0, seed: Math.floor(Math.random() * 1e9), done: false };
+            follow: spec.follow || null, time: 0, seed: Math.floor(Math.random() * 1e9), done: false, uid: ++this._uid };
         this._playing.push(instance);
         return instance;
     }

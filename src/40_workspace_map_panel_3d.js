@@ -88,9 +88,8 @@
     },
 
     renderPerspectivePanel() {
-        const raw = this.perspectiveRaw();
-        const s = DocsDoodads.Perspective.normalize(raw);
-        const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, this.perspectiveFieldValue(f.key))).join('');
+        const s = DocsDoodads.Perspective.normalize(this.perspectiveRaw());
+        const fields = this.perspectiveFields().map(f => this.fieldHtml('dd-p3d-' + f.key, f, this.perspectiveFieldValue(f.key, s))).join('');
         return `
             <details id="dd-p3d-section" ${this._open3d ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: #94a3b8;">3D View (this map)</summary>
@@ -100,8 +99,8 @@
     },
 
     // What a panel field shows: some fields are views onto other settings.
-    perspectiveFieldValue(key) {
-        const s = DocsDoodads.Perspective.normalize(this.perspectiveRaw());
+    // s: the map's normalized 3D settings (worked out here when not given).
+    perspectiveFieldValue(key, s = DocsDoodads.Perspective.normalize(this.perspectiveRaw())) {
         if (key === 'fogUseColor') return Boolean(s.fogColor);
         if (key === 'fogColor') return s.fogColor || '#000000';
         if (key === 'curvature') {
@@ -160,6 +159,7 @@
                     // The radius box and shape follow the curvature slider.
                     if (f.key === 'curvature') this.refreshInspector();
                 };
+                input.onpointerup = input.onblur = () => setTimeout(() => { if (previous !== undefined) input.onchange(); }, 0);
             } else {
                 input.onchange = () => {
                     this.setPerspectiveField(f.key, read());

@@ -12,7 +12,10 @@ DocsDoodads.Search = {
             animated: null,
             collections: [],
             used: null,
-            negative: []
+            negative: [],
+            // Prefixed terms with a minus, e.g. -tag:"deep woods", leave matching assets out.
+            categories: [],
+            exclude: { types: [], tags: [], folders: [], collections: [], categories: [] }
         };
         if (!queryString) return tokens;
 
@@ -26,27 +29,25 @@ DocsDoodads.Search = {
             parts.push(prefix + val);
         }
 
-        for (const p of parts) {
-            if (!p) continue;
-            if (p.startsWith('-')) {
-                tokens.negative.push(p.slice(1).replace(/["']/g, '').toLowerCase());
-            } else if (p.startsWith('type:')) {
-                tokens.types.push(p.slice(5).replace(/["']/g, '').toLowerCase());
-            } else if (p.startsWith('tag:')) {
-                tokens.tags.push(p.slice(4).replace(/["']/g, '').toLowerCase());
-            } else if (p.startsWith('folder:')) {
-                tokens.folders.push(p.slice(7).replace(/["']/g, '').toLowerCase());
-            } else if (p.startsWith('favorite:')) {
-                tokens.favorite = p.slice(9).toLowerCase() === 'true';
-            } else if (p.startsWith('animated:')) {
-                tokens.animated = p.slice(9).toLowerCase() === 'true';
-            } else if (p.startsWith('used:')) {
-                const value = p.slice(5).toLowerCase();
-                tokens.used = /^(yes|true|1)$/.test(value) ? true : /^(no|false|0)$/.test(value) ? false : null;
-            } else if (p.startsWith('collection:')) {
-                tokens.collections.push(p.slice(11).replace(/["']/g, '').toLowerCase());
+        const lists = { type: 'types', tag: 'tags', folder: 'folders', collection: 'collections', category: 'categories' };
+        const yes = value => /^(yes|true|1)$/.test(value) ? true : /^(no|false|0)$/.test(value) ? false : null;
+        for (const part of parts) {
+            const negated = part.startsWith('-');
+            const p = negated ? part.slice(1) : part;
+            const m = /^(type|tag|folder|collection|category|favorite|animated|used):(.*)$/i.exec(p);
+            const key = m ? m[1].toLowerCase() : null;
+            const value = (m ? m[2] : p).replace(/["']/g, '').toLowerCase();
+            // A lone "-" (still being typed) or an empty "tag:" means nothing yet.
+            if (!value) continue;
+            if (lists[key]) {
+                (negated ? tokens.exclude[lists[key]] : tokens[lists[key]]).push(value);
+            } else if (key) {
+                const flag = yes(value);
+                if (flag !== null) tokens[key] = negated ? !flag : flag;
+            } else if (negated) {
+                tokens.negative.push(value);
             } else {
-                tokens.terms.push(p.toLowerCase());
+                tokens.terms.push(value);
             }
         }
         return tokens;
@@ -58,13 +59,30 @@ DocsDoodads.Search = {
                 return false;
             }
         }
-        if (parsed.favorite !== null && asset.favorite !== parsed.favorite) return false;
+        const ex = parsed.exclude;
+        if (ex) {
+            const lower = list => (list || []).map(v => String(v).toLowerCase());
+            if (ex.types.length && ex.types.includes((asset.type || '').toLowerCase())) return false;
+            if (ex.folders.length && ex.folders.some(f => (asset.path || '').toLowerCase().includes(f))) return false;
+            if (ex.tags.length) {
+                const tags = lower([...(asset.tags || []), ...(asset.autoTags || [])]);
+                if (ex.tags.some(t => tags.includes(t))) return false;
+            }
+            if (ex.collections.length && ex.collections.some(c => lower(asset.collections).includes(c))) return false;
+            if (ex.categories && ex.categories.length && ex.categories.includes((asset.category || '').toLowerCase())) return false;
+        }
+        if (parsed.favorite !== null && parsed.favorite !== undefined && Boolean(asset.favorite) !== parsed.favorite) return false;
+        if (parsed.animated !== null && parsed.animated !== undefined) {
+            const frames = DocsDoodads.AnimatedThumb.framesFor(asset);
+            if (Boolean(frames && frames.length > 1) !== parsed.animated) return false;
+        }
         if (parsed.used !== null && parsed.used !== undefined && DocsDoodads.Usage.lastIndex) {
             const used = DocsDoodads.Usage.isUsed(asset);
             if (parsed.used && !used) return false;
             if (!parsed.used && (used || DocsDoodads.Usage.isEngineReserved(asset))) return false;
         }
         if (parsed.types.length > 0 && !parsed.types.includes((asset.type || '').toLowerCase())) return false;
+        if (parsed.categories && parsed.categories.length > 0 && !parsed.categories.includes((asset.category || '').toLowerCase())) return false;
         if (parsed.folders.length > 0) {
             const pathLower = (asset.path || '').toLowerCase();
             if (!parsed.folders.some(f => pathLower.includes(f))) return false;

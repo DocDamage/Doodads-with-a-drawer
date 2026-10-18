@@ -70,9 +70,6 @@ const horizon = P.horizonY(cam);
 assert.ok(horizon > -1e6 && horizon < 300);
 assert.strictEqual(P.unproject(cam, 400, horizon - 5), null);
 assert.ok(P.unproject(cam, 400, horizon + 5));
-// Height: a point 48px up projects above its foot by 48 x its scale (billboards stand upright).
-const foot = P.project(cam, 1000, 1000, 0), head = P.billboardTop(cam, 1000, 1000, 48);
-assert.ok(near(head.y, foot.y - 48 * foot.scale) && near(head.x, foot.x));
 
 // 3. Billboards: a transform from flat map space to the screen around the foot point.
 const m = P.billboardMatrix(cam, { x: 1000, y: 1000 });

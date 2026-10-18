@@ -40,12 +40,14 @@ DocsDoodads.EventTemplates = {
             trigger: 0, priorityType: 1, directionFix: true,
             list: [
                 { code: 250, indent: 0, parameters: [{ name: "Chest1", pan: 0, pitch: 100, volume: 90 }] },
-                { code: 125, indent: 0, parameters: [1, 0, 0, 100] },
+                { code: 125, indent: 0, parameters: [0, 0, 100] },
                 { code: 101, indent: 0, parameters: ["", 0, 0, 2, ""] },
                 { code: 401, indent: 0, parameters: ["Found 100 Gold!"] },
                 { code: 123, indent: 0, parameters: ["A", 0] },
                 { code: 0, indent: 0, parameters: [] }
-            ]
+            ],
+            // Opened: the sheet's open frame, and nothing more to take.
+            after: { selfSwitch: 'A', image: { direction: 8, pattern: 1 } }
         },
         loot_pickup: {
             name: "Loot Pickup",
@@ -128,7 +130,9 @@ DocsDoodads.EventTemplates = {
                 { code: 126, indent: 0, parameters: [1, 0, 0, 1] },
                 { code: 123, indent: 0, parameters: ["A", 0] },
                 { code: 0, indent: 0, parameters: [] }
-            ]
+            ],
+            // Picked: gone.
+            after: { selfSwitch: 'A', image: 'none' }
         },
         breakable: {
             name: "Breakable Object",
@@ -145,7 +149,7 @@ DocsDoodads.EventTemplates = {
             category: "Mechanics",
             trigger: 0, priorityType: 1,
             list: [
-                { code: 205, indent: 0, parameters: [0, { list: [{ code: 14 }, { code: 0 }], repeat: false, skippable: true, wait: true }] },
+                { code: 205, indent: 0, parameters: [0, { list: [{ code: 11 }, { code: 0 }], repeat: false, skippable: true, wait: true }] },
                 { code: 0, indent: 0, parameters: [] }
             ]
         },
@@ -220,7 +224,9 @@ DocsDoodads.EventTemplates = {
             stepAnime: page0.stepAnime || false,
             walkAnime: page0.walkAnime !== undefined ? page0.walkAnime : true,
             through: page0.through || false,
-            list: JSON.parse(JSON.stringify(page0.list || [{ code: 0, indent: 0, parameters: [] }]))
+            list: JSON.parse(JSON.stringify(page0.list || [{ code: 0, indent: 0, parameters: [] }])),
+            // All of the event's pages (conditions, pictures, routes), so placing the template rebuilds it whole.
+            pages: JSON.parse(JSON.stringify(eventObj.pages || []))
         };
         this.templates[key] = tmpl;
 

@@ -130,49 +130,28 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             e.preventDefault();
             DocsDoodads.Workspace.toggleGrid();
         } else if (e.key === 'h' || e.key === 'H') {
-            if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             e.preventDefault();
             DocsDoodads.Workspace.toggleInspector();
         } else if (e.key === 'f' || e.key === 'F') {
-            if (e.target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
             e.preventDefault();
             DocsDoodads.Workspace.focusSearch();
         } else if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
-            const items = (DocsDoodads.Workspace.selectedDoodads && DocsDoodads.Workspace.selectedDoodads.length > 0 ? DocsDoodads.Workspace.selectedDoodads : (DocsDoodads.Workspace.selectedDoodad ? [DocsDoodads.Workspace.selectedDoodad] : [])).filter(d => !d.locked);
-            if (items.length > 0) {
+            const W = DocsDoodads.Workspace;
+            const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+            const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+            if (W.selectionItems().some(d => !d.locked)) {
                 e.preventDefault();
                 const step = e.shiftKey ? 16 : 1;
-                items.forEach(d => {
-                    if (e.key === 'ArrowLeft') d.x -= step;
-                    if (e.key === 'ArrowRight') d.x += step;
-                    if (e.key === 'ArrowUp') d.y -= step;
-                    if (e.key === 'ArrowDown') d.y += step;
-                });
-                if (SceneManager._scene && SceneManager._scene._spriteset) {
-                    SceneManager._scene._spriteset.sortDocsDoodads();
-                }
-                DocsDoodads.Workspace.refreshInspector();
-            } else if (DocsDoodads.Workspace.selectedEvent) {
+                W.nudgeSelection(dx * step, dy * step);
+            } else if (W.selectedEvent) {
                 e.preventDefault();
-                const evInfo = DocsDoodads.Workspace.selectedEvent;
-                const ge = evInfo.gameEvent;
-                const ev = evInfo.stagedEvent || (ge && ge.event());
-                if (ev) {
-                    const oldX = ev.x, oldY = ev.y;
-                    let nx = ev.x, ny = ev.y;
-                    if (e.key === 'ArrowLeft') nx--;
-                    if (e.key === 'ArrowRight') nx++;
-                    if (e.key === 'ArrowUp') ny--;
-                    if (e.key === 'ArrowDown') ny++;
-                    ev.x = nx; ev.y = ny;
-                    if (ge) { ge._x = nx; ge._y = ny; ge._realX = nx; ge._realY = ny; }
-                    DocsDoodads.Undo.execute({
-                        type: 'move_event',
-                        apply: () => { ev.x = nx; ev.y = ny; if (ge) { ge._x = nx; ge._y = ny; ge._realX = nx; ge._realY = ny; } },
-                        revert: () => { ev.x = oldX; ev.y = oldY; if (ge) { ge._x = oldX; ge._y = oldY; ge._realX = oldX; ge._realY = oldY; } }
-                    });
-                    DocsDoodads.Workspace.refreshInspector();
-                }
+                const w = window.$gameMap && $gameMap.width ? $gameMap.width() : Infinity;
+                const h = window.$gameMap && $gameMap.height ? $gameMap.height() : Infinity;
+                const moved = W.editSelectedEvent('move_event', ev => {
+                    ev.x = Math.max(0, Math.min(w - 1, ev.x + dx));
+                    ev.y = Math.max(0, Math.min(h - 1, ev.y + dy));
+                });
+                if (moved) W.refreshInspector();
             }
         } else if (DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace')) {
             e.preventDefault();
@@ -191,12 +170,17 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     const recoveryTimer = setInterval(() => {
         if (editorMode && DocsDoodads.Compat.isTest() && window.$gameMap && (DocsDoodads.Persistence.dirtyMap || DocsDoodads.Persistence.dirtyDoodads)) {
+            const data = window.$dataDocsDoodads || {};
             const recoveryData = {
                 timestamp: Date.now(),
                 mapId: $gameMap.mapId(),
                 doodads: DocsDoodads.doodads(),
-                mapSettings: window.$dataDocsDoodads ? window.$dataDocsDoodads.mapSettings : undefined,
-                world: window.$dataDocsDoodads ? window.$dataDocsDoodads.world : undefined,
+                // Every map's doodads (Move / Copy to Map, mirrored edges and prefab syncs reach other
+                // maps) and the event edits parked for maps other than this one.
+                allDoodads: Object.fromEntries(Object.entries(data).filter(([key, list]) => /^\d+$/.test(key) && Array.isArray(list))),
+                stagedMaps: DocsDoodads.Persistence.stagedMaps,
+                mapSettings: data.mapSettings,
+                world: data.world,
                 stagedMap: $gameMap._stagedMapData
             };
             DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', recoveryData);

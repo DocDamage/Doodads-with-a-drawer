@@ -4,11 +4,11 @@
 DocsDoodads.Layout = {
     filePath: 'data/DocsDoodadsLayouts.json',
     presets: {
-        Mapping: { drawerWidth: 360, inspectorWidth: 280, thumbSize: 96, viewMode: 'grid' },
-        Events: { drawerWidth: 320, inspectorWidth: 380, thumbSize: 80, viewMode: 'grid' },
-        Characters: { drawerWidth: 420, inspectorWidth: 260, thumbSize: 128, viewMode: 'grid' },
-        Tiles: { drawerWidth: 380, inspectorWidth: 260, thumbSize: 48, viewMode: 'compact' },
-        Compact: { drawerWidth: 280, inspectorWidth: 240, thumbSize: 64, viewMode: 'list' }
+        Mapping: { drawerWidth: 360, inspectorWidth: 280, thumbSize: 96 },
+        Events: { drawerWidth: 320, inspectorWidth: 380, thumbSize: 80 },
+        Characters: { drawerWidth: 420, inspectorWidth: 260, thumbSize: 128 },
+        Tiles: { drawerWidth: 380, inspectorWidth: 260, thumbSize: 48 },
+        Compact: { drawerWidth: 280, inspectorWidth: 240, thumbSize: 64 }
     },
     custom: {},
     current: defaultLayoutName,
@@ -46,8 +46,7 @@ DocsDoodads.Layout = {
         const layoutData = {
             drawerWidth: drawer ? (parseInt(drawer.style.width, 10) || 360) : 360,
             inspectorWidth: inspector ? (parseInt(inspector.style.width, 10) || 280) : 280,
-            thumbSize: zoom ? (parseInt(zoom.value, 10) || 96) : 96,
-            viewMode: 'grid'
+            thumbSize: zoom ? (parseInt(zoom.value, 10) || 96) : 96
         };
         this.custom[name] = layoutData;
         DocsDoodads.FS.atomicWriteJson(this.filePath, this.custom);

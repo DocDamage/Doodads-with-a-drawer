@@ -12,9 +12,18 @@ DocsDoodads.Persistence = {
         return `data/Map${String(mapId).padStart(3, '0')}.json`;
     },
 
+    // The map file as the workspace opened it, so Save can tell when the MZ editor has changed it since.
     captureSession() {
-        if (!window.$gameMap) return;
-        const mapFile = this.mapFilePath($gameMap.mapId());
+        const gameMap = window.$gameMap;
+        if (!gameMap) return;
+        const mapFile = this.mapFilePath(gameMap.mapId());
+        // Unsaved event edits keep the snapshot they were made against: Save must still notice MZ's changes.
+        if (this.dirtyMap && this.sessionSnapshots[mapFile]) return;
+        // A staged copy with no changes is dropped; it is read again, fresh, when it is next needed.
+        if (!this.dirtyMap && gameMap._stagedMapData) {
+            gameMap._stagedMapData = null;
+            delete gameMap._stagedMapDataId;
+        }
         this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
     },
 

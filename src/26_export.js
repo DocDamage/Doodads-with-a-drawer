@@ -41,10 +41,11 @@ DocsDoodads.Export = {
         DocsDoodads.FS.mkdirp(outDir);
 
         const img = new Image();
-        img.src = asset.path;
+        img.src = DocsDoodads.LiveReload.urlFor(asset.path);
         img.onload = () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
+            const usedNames = new Set();
             let count = 0;
 
             for (let i = 0; i < asset.slice.regions.length; i++) {
@@ -70,7 +71,11 @@ DocsDoodads.Export = {
                 const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
                 const buffer = Buffer.from(base64Data, 'base64');
                 const rawName = this.safeFileName(r.name || ('slice_' + (i + 1))).replace(/\.[^.]+$/, '');
-                const sliceFileName = `${rawName || ('slice_' + (i + 1))}.png`;
+                const base = rawName || ('slice_' + (i + 1));
+                let stem = base;
+                for (let n = 2; usedNames.has(stem.toLowerCase()); n++) stem = `${base}_${n}`;
+                usedNames.add(stem.toLowerCase());
+                const sliceFileName = `${stem}.png`;
                 fs.writeFileSync(path.join(outDir, sliceFileName), buffer);
                 count++;
             }

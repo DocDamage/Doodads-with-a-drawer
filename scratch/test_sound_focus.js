@@ -57,9 +57,10 @@ assert.strictEqual(SS.footstepFor([{ kind: 'bush', sound: 'Grass' }], { region: 
 
 // 4. Zooming: Set Zoom eases in; flat maps zoom the screen around the player.
 const ss = new Spriteset_Map();
-SceneManager._scene = { _spriteset: ss };
 const scene = new Scene_Map();
+scene._spriteset = ss;
 scene.isActive = () => true;
+SceneManager._scene = scene;
 const frames = n => { for (let i = 0; i < n; i++) { Graphics.frameCount++; $gameMap.update(true); Scene_Map.prototype.update.call(scene); } };
 PluginManager.callCommand($gameMap._interpreter, 'Docs-Doodads', 'setZoom', { level: '2', duration: '20', wait: 'false' });
 frames(10);
@@ -99,6 +100,12 @@ AudioManager.playBgm({ name: 'Theme', volume: 90, pitch: 100, pan: 0 });
 frames(1);
 assert.ok(near(AudioManager._bgmBuffer.volume, 0.9 * 0.4, 1e-6), 'music at 40%: ' + AudioManager._bgmBuffer.volume);
 assert.ok(SS.settings().far < W.settings().sound.far, 'event sounds carry less far');
+// Battle music plays at its own volume, zoom or not.
+SceneManager._scene = { _spriteset: ss };
+AudioManager.updateBgmParameters(AudioManager._currentBgm);
+assert.ok(near(AudioManager._bgmBuffer.volume, 0.9, 1e-6), 'battle music at full volume: ' + AudioManager._bgmBuffer.volume);
+SceneManager._scene = scene;
+AudioManager.updateBgmParameters(AudioManager._currentBgm);
 
 // 6. Ambience: water to the west plays, panned left, louder zoomed in; stops when removed.
 $dataDocsDoodads.world = Object.assign({}, $dataDocsDoodads.world, { ambience: { layers: [{ kind: 'water', sound: 'River', volume: 80, radius: 6, quiet: 0.4 }] } });

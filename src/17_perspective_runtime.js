@@ -8,7 +8,6 @@
 // The map's 3D settings now (with plugin-command camera changes), or null when the map is flat.
 DocsDoodads.Perspective.active = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
-    if (this._suspended) return null;
     const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
     const editing = !!(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
     const quality = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
@@ -161,15 +160,16 @@ DocsDoodads.Perspective.hexToRgb = function(hex) {
 // What light falls on a point: the ambient multiply colour plus nearby lights (like the lightmap).
 DocsDoodads.Perspective.lightAt = function(info, x, y) {
     if (!info || !info.base) return null;
-    const rgb = info.base.slice(0, 3);
+    let r = info.base[0], g = info.base[1], b = info.base[2];
     for (const l of info.lights || []) {
         const dist = Math.hypot(l.x - x, l.y - y) / Math.max(1, l.radius);
         if (dist >= 1) continue;
         const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
-        const c = DocsDoodads.Perspective.hexToRgb('#' + ('000000' + (l.color >>> 0).toString(16)).slice(-6));
-        const k = fall * (l.intensity || 0);
-        rgb[0] += c[0] * k; rgb[1] += c[1] * k; rgb[2] += c[2] * k;
+        const color = l.color >>> 0;
+        const k = fall * (l.intensity || 0) / 255;
+        r += ((color >> 16) & 255) * k; g += ((color >> 8) & 255) * k; b += (color & 255) * k;
     }
+    const rgb = [r, g, b];
     const to = v => Math.max(0, Math.min(255, Math.round(v * 255)));
     return (to(rgb[0]) << 16) | (to(rgb[1]) << 8) | to(rgb[2]);
 };
@@ -1104,7 +1104,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this._docsTerrainTopo = null;
         if (this._docsLightTexture) { this._docsLightTexture.destroy(true); this._docsLightTexture = null; }
         if (this._docsSkyTexture) { this._docsSkyTexture.destroy(true); this._docsSkyTexture = null; }
-        for (const bitmap of this._docsStandBitmaps ? this._docsStandBitmaps.values() : []) if (bitmap) bitmap.destroy();
+        for (const bitmap of this._docsStandBitmaps ? this._docsStandBitmaps.values() : []) {
+            if (!bitmap) continue;
+            DocsDoodads.SnowCover.dropCapsFor(bitmap._baseTexture);
+            bitmap.destroy();
+        }
         this._docsStandBitmaps = null;
         if (this.docsDestroyMinimap) this.docsDestroyMinimap();
         // Model textures replaced by a live reload were kept for these sprites; they go with them.
@@ -1286,8 +1290,16 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 }
 
 // ---- Terrain height (3D view) ----
+// In play the map's terrain settings only change by being replaced, so the normalized copy is kept
+// while they stay the same object; the editor (whose brush paints in place) always works them out.
 DocsDoodads.Terrain.settingsFor = function(mapId) {
-    return this.normalize((DocsDoodads.Lighting.mapSettings(mapId) || {}).terrain);
+    const raw = (DocsDoodads.Lighting.mapSettings(mapId) || {}).terrain;
+    const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    const memo = this._settingsMemo;
+    if (!editing && memo && memo.mapId === mapId && memo.raw === raw) return memo.settings;
+    const settings = this.normalize(raw);
+    this._settingsMemo = editing ? null : { mapId, raw, settings };
+    return settings;
 };
 
 // The map's terrain settings when the map is shown in 3D with terrain on.
@@ -1314,14 +1326,16 @@ DocsDoodads.Terrain.buildGrid = function(force) {
     if (!s) return null;
     const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
     const map = { width: $dataMap.width, height: $dataMap.height, data: $dataMap.data };
-    const sig = $gameMap.mapId() + '|' + this.signature(map, tileset, s);
     const c = this._grid;
-    if (c && c.sig === sig && c.data === $dataMap.data) return c;
+    // The same (kept) settings on the same map data: nothing to compare.
+    if (c && c.settings === s && c.data === $dataMap.data && c.mapId === $gameMap.mapId() && c.tileset === tileset) return c;
+    const sig = $gameMap.mapId() + '|' + this.signature(map, tileset, s);
+    if (c && c.sig === sig && c.data === $dataMap.data) { c.settings = s; c.tileset = tileset; return c; }
     const heights = this.buildHeights(map, tileset, s);
     let max = 0, min = 0;
     for (const h of heights) { if (h > max) max = h; if (h < min) min = h; }
     this._grid = { sig, data: $dataMap.data, heights, width: map.width, height: map.height, style: s.style, max, min, settings: s,
-        loopX: $gameMap.isLoopHorizontal(), loopY: $gameMap.isLoopVertical() };
+        mapId: $gameMap.mapId(), tileset, loopX: $gameMap.isLoopHorizontal(), loopY: $gameMap.isLoopVertical() };
     return this._grid;
 };
 
@@ -1767,6 +1781,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         this._caps.set(key, out);
         return out;
+    };
+
+    // The caps made from a picture that is going away (stand-tile pictures are rebuilt with each map scene).
+    DocsDoodads.SnowCover.dropCapsFor = function(base) {
+        if (!base || !this._caps) return;
+        const prefix = (base.cacheId || base.uid) + '|';
+        for (const [key, cap] of [...this._caps]) {
+            if (!String(key).startsWith(prefix)) continue;
+            this._caps.delete(key);
+            if (cap && cap.destroy) cap.destroy();
+        }
     };
 
     Spriteset_Map.prototype.updateDocsSnowCaps = function(items, cover) {
@@ -2261,10 +2286,15 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const time = animation ? DocsDoodads.frameCount() / 60 * (Number.isFinite(speed) ? speed : 1) : 0;
         let pose = null;
         if (animation) {
-            if (!obj._docsPose || obj._docsPose.time !== time || obj._docsPose.entry !== entry || obj._docsPose.animation !== animation) {
-                obj._docsPose = { time, entry, animation, data: G.pose(entry, animation, time) };
+            // Doodads showing the same model, animation and moment share one pose (it is only read).
+            const shared = entry._docsPoses = entry._docsPoses || new Map();
+            let posed = shared.get(animation);
+            if (!posed || posed.time !== time) {
+                posed = { time, entry, animation, data: G.pose(entry, animation, time) };
+                shared.set(animation, posed);
             }
-            pose = obj._docsPose.data;
+            obj._docsPose = posed;
+            pose = posed.data;
         }
         const poseKey = animation ? '|' + animation.name + '@' + time : '';
         const placeKey = scale + '|' + yaw + poseKey;

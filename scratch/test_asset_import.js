@@ -37,6 +37,7 @@ function write(relativePath, content) {
     return target;
 }
 
+(async () => {
 try {
     fs.rmSync(sandbox, { recursive: true, force: true });
     const tree = write('tree.png', 'new tree bytes');
@@ -60,7 +61,7 @@ try {
     assert(plan.operations.some(op => op.destination.endsWith(path.join('audio', 'bgm', 'music_theme_bgm.ogg'))));
     assert(plan.operations.some(op => op.destination.endsWith(path.join('img', 'characters', '$Hero.png'))));
 
-    const result = DocsDoodads.Import.executeBatch(plan);
+    const result = await DocsDoodads.Import.executeBatchAsync(plan);
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.imported.length, 3);
     assert.strictEqual(fs.readFileSync(existingTree, 'utf8'), 'original tree bytes', 'default import must not overwrite');
@@ -83,7 +84,7 @@ try {
     });
     fs.unlinkSync(rollbackB);
 
-    const failed = DocsDoodads.Import.executeBatch(rollbackPlan);
+    const failed = await DocsDoodads.Import.executeBatchAsync(rollbackPlan);
     assert.strictEqual(failed.ok, false, 'a failed copy should fail the transaction');
     assert.strictEqual(failed.rolledBack, true, 'a failed batch should roll back earlier copies');
     assert.strictEqual(fs.existsSync(path.join(project, 'img', 'pictures', 'rollback-a.png')), false);
@@ -99,7 +100,7 @@ try {
         collisionPolicy: 'overwrite'
     });
     fs.unlinkSync(laterFailure);
-    const overwriteFailure = DocsDoodads.Import.executeBatch(overwritePlan);
+    const overwriteFailure = await DocsDoodads.Import.executeBatchAsync(overwritePlan);
     assert.strictEqual(overwriteFailure.ok, false);
     assert.strictEqual(fs.readFileSync(overwriteTarget, 'utf8'), 'original bytes', 'rollback must restore overwritten files');
 
@@ -109,13 +110,25 @@ try {
         operations: [{ source: tree, destination: escapedTarget, overwrite: false, kind: 'image' }],
         duplicates: [], skipped: [], unsupported: [], errors: []
     };
-    const escapedResult = DocsDoodads.Import.executeBatch(forgedPlan);
+    const escapedResult = await DocsDoodads.Import.executeBatchAsync(forgedPlan);
     assert.strictEqual(escapedResult.ok, false, 'execution must reject a destination outside the planned project root');
     assert.strictEqual(fs.existsSync(escapedTarget), false, 'a forged plan must not write outside the project root');
 
     console.log('✓ Routing, collision handling, rollback, and execution-time path confinement verified.');
+
+    // Two dropped files whose names differ only in case land in one Windows file; the second is renamed.
+    if (process.platform === 'win32') {
+        const upper = write('case/Stone.png', 'upper');
+        const lower = write('case2/stone.png', 'lower');
+        const casePlan = DocsDoodads.Import.planBatch([upper, lower], { projectRoot: project, destination: 'img/pictures', collisionPolicy: 'rename' });
+        assert.strictEqual(casePlan.operations.length, 2);
+        assert.notStrictEqual(casePlan.operations[0].destination.toLowerCase(), casePlan.operations[1].destination.toLowerCase(), 'case-only name clashes get a new name');
+        const caseResult = await DocsDoodads.Import.executeBatchAsync(casePlan);
+        assert.strictEqual(caseResult.ok, true, JSON.stringify(caseResult.errors));
+        console.log('✓ Case-only name clashes are renamed on Windows.');
+    }
 } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
 }
-
 console.log('=== Phase 12 Asset Import Tests Passed ===');
+})().catch(error => { console.error(error); process.exit(1); });

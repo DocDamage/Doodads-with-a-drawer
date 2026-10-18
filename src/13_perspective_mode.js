@@ -340,13 +340,6 @@ DocsDoodads.Perspective = {
         return cam.height / 2 - cam.focal * (-cam.F.z / cam.U.z);
     },
 
-    // A point `height` pixels up from a foot point, drawn upright like a billboard.
-    billboardTop(cam, x, y, height, ground) {
-        const g = this.groundPoint(cam, x, y, ground || 0);
-        const p = g.visible ? this.project(cam, g.x, g.y, g.z) : null;
-        return p ? { x: p.x, y: p.y - height * p.scale, scale: p.scale } : null;
-    },
-
     // Flat space to screen for something standing at `pivot`: scale around the projected foot.
     // pivot: { x, y } in flat pixels, and h: the ground's height there in pixels (terrain).
     billboardMatrix(cam, pivot) {
@@ -1303,6 +1296,7 @@ DocsDoodads.Water3D = {
         return next.slice(-this.maxWakes);
     },
 
+    // The shader's wake math (glsl below) in JS, so the tests can check the rings it draws.
     wakeGradient(list, x, y, now, loop) {
         let gx = 0, gy = 0;
         for (const w of list || []) {

@@ -8,6 +8,13 @@ DocsDoodads.Thumbnail = {
     sizeBuckets: [64, 96, 128, 192],
     queue: [],
     busy: false,
+    // Jobs started and not yet finished, by key, with everyone waiting for them.
+    pending: {},
+    active: 0,
+    maxActive: 4,
+    // Keys whose image would not load: not retried until the file changes or the cache is cleared.
+    failed: new Set(),
+    diskDir: 'data/docs_doodads_cache/thumbnails',
 
     getBucketSize(size) {
         let best = this.sizeBuckets[0];
@@ -22,9 +29,12 @@ DocsDoodads.Thumbnail = {
         return best;
     },
 
+    safeKey(key) {
+        return key.replace(/[^a-zA-Z0-9_-]/g, '_');
+    },
+
     getDiskPath(key) {
-        const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
-        return `data/docs_doodads_cache/thumbnails/${safeKey}.txt`;
+        return `${this.diskDir}/${this.safeKey(key)}.txt`;
     },
 
     // The modified time is part of the key so a file changed while the game was closed gets a new thumbnail.
@@ -45,6 +55,15 @@ DocsDoodads.Thumbnail = {
             callback(this.cache[key]);
             return;
         }
+        if (this.failed.has(key)) {
+            callback('');
+            return;
+        }
+        // Already on its way (the drawer redraws on every scroll): wait for that one.
+        if (this.pending[key]) {
+            this.pending[key].push(callback);
+            return;
+        }
 
         // 2. Disk Cache check
         if (cacheEnabled && DocsDoodads.FS.existsSync) {
@@ -61,12 +80,16 @@ DocsDoodads.Thumbnail = {
             }
         }
 
-        this.queue.push({ asset, bucket, key, callback });
+        this.pending[key] = [callback];
+        this.queue.push({ asset, bucket, key });
         this.processQueue();
     },
 
     setCache(key, dataUrl) {
-        if (this.cacheOrder.length >= this.maxCacheSize) {
+        if (this.cache[key] !== undefined) {
+            const idx = this.cacheOrder.indexOf(key);
+            if (idx >= 0) this.cacheOrder.splice(idx, 1);
+        } else if (this.cacheOrder.length >= this.maxCacheSize) {
             const oldest = this.cacheOrder.shift();
             delete this.cache[oldest];
         }
@@ -82,8 +105,9 @@ DocsDoodads.Thumbnail = {
             delete this.cache[key];
             return false;
         });
-        const dir = 'data/docs_doodads_cache/thumbnails';
-        const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '_');
+        for (const key of [...this.failed]) if (key.startsWith(prefix)) this.failed.delete(key);
+        const dir = this.diskDir;
+        const safePrefix = this.safeKey(prefix);
         try {
             if (DocsDoodads.FS.existsSync(dir)) {
                 for (const file of DocsDoodads.FS.fs.readdirSync(dir)) {
@@ -93,12 +117,32 @@ DocsDoodads.Thumbnail = {
         } catch (e) {}
     },
 
+    // Disk thumbnails of files changed while the game was closed (their key has an old modified
+    // time) or of files that are gone. Run after the library is scanned.
+    pruneDisk(assets) {
+        const fs = DocsDoodads.FS.fs;
+        if (!fs || !DocsDoodads.FS.existsSync(this.diskDir)) return 0;
+        const current = new Set((assets || []).map(asset => this.safeKey(`${asset.id}_${Math.round(asset.mtimeMs || 0)}`)));
+        let removed = 0;
+        try {
+            for (const file of fs.readdirSync(this.diskDir)) {
+                const m = /^(.*)_\d+\.txt$/.exec(file);
+                if (m && current.has(m[1])) continue;
+                fs.unlinkSync(`${this.diskDir}/${file}`);
+                removed++;
+            }
+        } catch (e) {}
+        return removed;
+    },
+
     clearCache() {
         this.cache = {};
         this.cacheOrder = [];
         this.queue = [];
+        this.pending = {};
+        this.failed.clear();
         if (DocsDoodads.FS.fs) {
-            const dir = 'data/docs_doodads_cache/thumbnails';
+            const dir = this.diskDir;
             if (DocsDoodads.FS.existsSync(dir)) {
                 try {
                     const files = DocsDoodads.FS.fs.readdirSync(dir);
@@ -110,31 +154,41 @@ DocsDoodads.Thumbnail = {
         }
     },
 
+    // A few images load at a time (each finishes in its onload); drawing and encoding stay within
+    // the per-frame background budget, and the rest wait for the next frame.
     processQueue() {
         if (this.busy || this.queue.length === 0) return;
         this.busy = true;
 
         const startTime = Date.now();
-        while (this.queue.length > 0 && (Date.now() - startTime) < backgroundWorkBudget) {
+        while (this.queue.length > 0 && this.active < this.maxActive && (Date.now() - startTime) < backgroundWorkBudget) {
             const job = this.queue.shift();
+            this.active++;
+            let finished = false;
             this.generate(job.asset, job.bucket, (dataUrl) => {
-                this.setCache(job.key, dataUrl);
-                job.callback(dataUrl);
+                if (finished) return;
+                finished = true;
+                this.active--;
+                const waiting = this.pending[job.key] || [];
+                delete this.pending[job.key];
+                if (dataUrl) this.setCache(job.key, dataUrl);
+                else this.failed.add(job.key);
+                for (const callback of waiting) callback(dataUrl);
 
                 // Write to disk cache
                 if (cacheEnabled && DocsDoodads.FS.fs && dataUrl) {
                     const diskFile = this.getDiskPath(job.key);
                     try {
-                        const dir = 'data/docs_doodads_cache/thumbnails';
-                        if (!DocsDoodads.FS.existsSync(dir)) DocsDoodads.FS.mkdirp(dir);
+                        if (!DocsDoodads.FS.existsSync(this.diskDir)) DocsDoodads.FS.mkdirp(this.diskDir);
                         DocsDoodads.FS.writeFileSync(diskFile, dataUrl, 'utf8');
                     } catch(e) {}
                 }
+                this.processQueue();
             });
         }
 
         this.busy = false;
-        if (this.queue.length > 0) {
+        if (this.queue.length > 0 && this.active < this.maxActive) {
             if (typeof requestAnimationFrame !== 'undefined') {
                 requestAnimationFrame(() => this.processQueue());
             } else {

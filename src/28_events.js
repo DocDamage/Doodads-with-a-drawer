@@ -70,6 +70,26 @@ DocsDoodads.Events = {
                 }
             ]
         };
+        // pages: every page of a saved template; the first shows the placed picture, the rest keep theirs.
+        if (Array.isArray(options.pages) && options.pages.length > 0) {
+            const pages = JSON.parse(JSON.stringify(options.pages));
+            pages[0].image = ev.pages[0].image;
+            ev.pages = pages.map(page => Object.assign({}, page, { list: this.withRouteDisplayLines(page.list || [{ code: 0, indent: 0, parameters: [] }]) }));
+            return ev;
+        }
+        // after: a second page for once the event has been used (its self switch is on), e.g. an open
+        // chest or a picked herb. { selfSwitch, image: 'none' or { direction, pattern }, list }.
+        const after = options.after;
+        if (after) {
+            const page = JSON.parse(JSON.stringify(ev.pages[0]));
+            page.conditions.selfSwitchCh = after.selfSwitch || 'A';
+            page.conditions.selfSwitchValid = true;
+            if (after.image === 'none') Object.assign(page.image, { characterName: '', characterIndex: 0 });
+            else if (after.image) Object.assign(page.image, after.image);
+            page.list = this.withRouteDisplayLines(after.list || [{ code: 0, indent: 0, parameters: [] }]);
+            page.trigger = 0;
+            ev.pages.push(page);
+        }
         return ev;
     }
 };

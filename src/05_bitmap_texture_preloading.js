@@ -8,6 +8,7 @@ DocsDoodads.loadBitmap = function(path) {
     if (versioned !== full && typeof ImageManager.loadBitmapFromUrl === 'function') {
         return ImageManager.loadBitmapFromUrl(versioned);
     }
+    path = full;
     if (path.startsWith('img/')) {
         path = path.slice(4);
     }

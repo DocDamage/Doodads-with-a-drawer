@@ -437,6 +437,11 @@ DocsDoodads.PostFX = {
                 system._docsLook = null;
                 return null;
             }
+            // A finished fade only needs where it ended (it is kept in save files).
+            if (fade.framesLeft <= 0 && (fade.from || fade.to)) {
+                delete fade.from;
+                delete fade.to;
+            }
         }
         return fade.current;
     }

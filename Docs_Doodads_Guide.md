@@ -16,7 +16,7 @@ It eliminates the friction of traditional sprite-sheet pickers and multi-click f
 - **Intelligent sprite sheet detection & slicing** (standard MZ formats, sidecar JSON atlas files, and automatic alpha-threshold visual detection).
 - **Direct drag-and-drop placement** onto the live game map with real-time ghost previews.
 - **Genuine RPG Maker MZ event creation** with 20 pre-built game event templates (NPCs, chests, doors, switches, teleporters, encounters) plus custom template saving.
-- **Direct SAT physical collision** with interactive relative collision editing.
+- **Direct physical collision** with interactive relative collision editing.
 - **Modern editor operations**: Marquee selection box, Shift+Click multi-select, alignment, distribution, grouping, locking, hiding, Z-order layering, copy/paste, and 300-level command undo/redo.
 - **Windows Explorer native file/folder drop import** with intelligent categorization and collision renaming.
 - **Enterprise-grade project safety**: session snapshots, pre-save external conflict protection, timestamped backups in `data/docs_doodads_cache/backups/`, atomic writes, and crash autosave recovery.
@@ -48,7 +48,6 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | :--- | :--- | :--- | :--- |
 | **Editor Toggle Key** (`editKey`) | Select | `F10` | Key to open/close the workspace (`F1`, `F6`-`F10`). |
 | **Editor Enabled** (`editorMode`) | Boolean | `true` | Enables in-game asset workspace during playtest. |
-| **Doodads Image Folder** (`folderName`) | Text | `doodads/` | Subfolder inside `img/` for standalone doodads. |
 | **Doodads Data File Name** (`dataFileName`) | Text | `DocsDoodads` | JSON filename in `data/` (without `.json`). |
 | **Texture Scaling Mode** (`doodadScaleMode`) | Boolean | `true` | `true` for Smooth / Linear, `false` for Pixelated / Nearest. |
 | **Default Workspace Layout** (`defaultLayout`) | Select | `Mapping` | Startup layout preset (`Mapping`, `Events`, `Characters`, `Tiles`, `Compact`). |
@@ -57,7 +56,8 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Background Work Budget** (`backgroundWorkBudget`) | Number | `4` | Milliseconds per frame dedicated to background scanning. |
 | **Autosave Interval** (`autosaveRecoveryInterval`) | Number | `60` | Heartbeat interval (seconds) for crash recovery snapshots. |
 | **Backup Retention Count** (`backupRetentionCount`) | Number | `10` | Number of timestamped backups retained in `data/docs_doodads_cache/backups/`. |
-| **Enable MV Compatibility** (`enableMVCompatibility`) | Boolean | `true` | Enables the compatibility layer when running under RPG Maker MV. MV is untested since 2.0. |
+| **Show Grid Snap** (`gridSnapShow`) | Boolean | `false` | Shows the placement grid when the workspace opens (G toggles it). |
+| **Grid Snap Width / Height** (`gridSnapWidth`, `gridSnapHeight`) | Number | `0` | The snapping grid in pixels; `0` uses the map's tiles. Events always go on tiles. |
 | **Developer Diagnostics** (`devDiagnostics`) | Boolean | `false` | Enables detailed console logging in DevTools. |
 
 ---
@@ -68,11 +68,11 @@ The left panel is the **Asset Drawer**, providing virtualized access to all grap
 
 ### Navigation & Views
 - **Category Tabs**: Switch between `All`, `Doodads`, `Characters`, `Tilesets`, `Pictures`, `Audio`, `★ Favs` (starred favorites), and `🕒 Recent` (recently used assets).
-- **Virtual Collections**: Group assets into custom collections (e.g., "Castle Set", "Dungeon Props") without duplicating files on disk. Filter using `collection:"Castle Set"`.
+- **Virtual Collections**: Group assets into custom collections (e.g., "Castle Set", "Dungeon Props") without duplicating files on disk. Pick one in the toolbar's collection list (beside the search box) or type `collection:"Castle Set"`; the ✕ beside the list deletes the shown collection (its assets stay).
 - **Right-Click Card Context Menu**: Right-click any asset card to open an instant action menu:
   - *Place as Doodad* / *Place as Real MZ Event...*
   - *Add to Favorites / Remove from Favorites*
-  - *Add to Collection...*
+  - *Add to Collection...* / *Remove from "Castle Set"* (one item per collection the asset is in)
   - *Open in Slicing Modal* / *Export Slices to PNGs*
   - *Play Audio Preview* / *Stop Audio*
 - **Thumbnail Slider**: Zoom cards smoothly between 48px and 160px.
@@ -87,7 +87,7 @@ Type directly into the search bar (press **F** to focus). Search is evaluated dy
 - `favorite:true`: Shows only starred/favorite assets.
 - `animated:true`: Shows only multi-frame or animated assets.
 - `used:no` / `used:yes`: Files no map, event, database entry, doodad, or prefab uses (or that something does use).
-- `-tree`: Negative search; excludes any asset matching "tree".
+- `-tree`: Negative search; excludes any asset matching "tree". A minus works on the others too: `-tag:"deep forest"`, `-type:character_sheet`, `-folder:enemies`, `-collection:"Castle Set"`, `-category:Audio`.
 - **Combined Example**: `prop_123 tag:tree -dead category:Doodads collection:"Castle Set"`
 
 ---
@@ -129,7 +129,7 @@ The workspace features a multi-tiered slicing engine that segments composite she
   - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Stamp Asset Here.
 - **Marquee Drag Box**: Click and drag on empty map space with the pointer tool to draw a blue selection box. All enclosed doodads are selected at once!
 - **Shift + Click / Shift + Marquee**: Add or toggle doodads in the active multi-selection.
-- **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels). Arrow keys also nudge selected MZ Events by 1 tile.
+- **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
 - **Duplicate**: Press **Ctrl + D** to duplicate all selected doodads (+16px offset) or selected event.
 - **Copy / Paste**: Press **Ctrl + C** to copy selected doodads and **Ctrl + V** to paste them.
 - **Delete**: Press **Delete** to remove selected doodad(s) or selected event.
@@ -338,7 +338,7 @@ Every map has a **Main** layer. Add layers in the map panel under **Layers** (fo
 - **Ed** shows or hides a layer in the editor only, to work underneath a canopy.
 - **Lk** locks a layer so its doodads can't be clicked, box-selected or dragged.
 - **Gm** shows or hides a layer in the game. Use it for markers and notes you only want while editing.
-- Move doodads between layers with **Editor layer** in their inspector (Depth section). Deleting a layer moves its doodads to Main.
+- Move doodads between layers with **Editor layer** in their inspector (Depth section), or right-click one on the map: **Move to Layer**. Deleting a layer moves its doodads to Main.
 - Everything is undoable.
 
 ### Symmetry
@@ -585,15 +585,15 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ### Map Event Inspection & Custom Template Saving
 - **Select Map Event**: Clicking any tile containing an MZ Event selects it and populates the Inspector.
-- **Inspect & Edit**: Inspect and edit event Name, ID, Tile X/Y coordinates, Trigger type (Action Button, Player Touch, Event Touch, Autorun, Parallel), and Priority.
+- **Inspect & Edit**: See the event's name and ID; edit its Tile X/Y, Trigger type (Action Button, Player Touch, Event Touch, Autorun, Parallel) and Priority (first page). Edits are undoable and saved with the map.
 - **Save Event as Template**: Click **💾 Save as Event Template** in the Inspector (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/DocsDoodadsEventTemplates.json` for reuse across any map in your project.
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 
 ---
 
-## 16. Direct SAT Physical Collision System
+## 16. Direct Physical Collision System
 
-Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
+Doodads do not require invisible blocker events to obstruct the player. Each doodad's collision box blocks the map tiles it covers at runtime:
 
 - **Collision Presets**:
   - `None`: Completely passable (decorative flowers, grass, ceiling lamps).

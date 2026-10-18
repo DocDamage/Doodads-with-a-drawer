@@ -161,6 +161,20 @@
                     this.showToast(`Saved template "${name.trim()}"!`);
                 }
             };
+            const evNumber = (id, apply) => {
+                const input = document.getElementById(id);
+                if (input) input.onchange = () => {
+                    const value = parseInt(input.value, 10);
+                    if (Number.isFinite(value)) apply(value);
+                    this.refreshInspector();
+                };
+            };
+            const maxX = window.$gameMap && $gameMap.width ? $gameMap.width() - 1 : 9999;
+            const maxY = window.$gameMap && $gameMap.height ? $gameMap.height() - 1 : 9999;
+            evNumber('dd-ev-x', v => this.editSelectedEvent('move_event', e => { e.x = Math.max(0, Math.min(maxX, v)); }));
+            evNumber('dd-ev-y', v => this.editSelectedEvent('move_event', e => { e.y = Math.max(0, Math.min(maxY, v)); }));
+            evNumber('dd-ev-trigger', v => this.editSelectedEvent('event_trigger', e => { if (e.pages && e.pages[0]) e.pages[0].trigger = v; }));
+            evNumber('dd-ev-priority', v => this.editSelectedEvent('event_priority', e => { if (e.pages && e.pages[0]) e.pages[0].priorityType = v; }));
             document.getElementById('dd-ev-del-btn').onclick = () => {
                 this.deleteSelectedEvent();
             };
@@ -390,14 +404,9 @@
             document.getElementById('dd-prop-col').onchange = (e) => {
                 const val = e.target.value;
                 const colEditor = document.getElementById('dd-custom-col-editor');
-                if (val === 'custom') {
-                    d.collision = { preset: 'custom', shape: shape };
-                    if (colEditor) colEditor.style.display = 'block';
-                    renderColPreview();
-                } else {
-                    d.collision = { preset: val, shape: null };
-                    if (colEditor) colEditor.style.display = 'none';
-                }
+                this.editDoodads([d], o => { o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null }; }, 'set_collision');
+                if (colEditor) colEditor.style.display = val === 'custom' ? 'block' : 'none';
+                if (val === 'custom') renderColPreview();
             };
 
             if (isCustomCol) renderColPreview();
@@ -407,44 +416,41 @@
                 const cy = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-y').value) || 0));
                 const cw = Math.max(0.05, Math.min(1 - cx, parseFloat(document.getElementById('dd-col-w').value) || 0.5));
                 const ch = Math.max(0.05, Math.min(1 - cy, parseFloat(document.getElementById('dd-col-h').value) || 0.5));
-                d.collision = { preset: 'custom', shape: { x: cx, y: cy, w: cw, h: ch } };
+                this.editDoodads([d], o => { o.collision = { preset: 'custom', shape: { x: cx, y: cy, w: cw, h: ch } }; }, 'set_collision');
                 renderColPreview();
             };
             ['dd-col-x', 'dd-col-y', 'dd-col-w', 'dd-col-h'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.oninput = updateCustomCol;
+                if (el) el.onchange = updateCustomCol;
             });
 
             document.getElementById('dd-doodad-lock-toggle').onclick = () => {
-                d.locked = !d.locked;
+                this.editDoodads([d], o => { o.locked = !o.locked; }, 'lock_doodads');
                 this.refreshInspector();
             };
             document.getElementById('dd-doodad-hide-toggle').onclick = () => {
-                d.editorHidden = !d.editorHidden;
-                if (SceneManager._scene && SceneManager._scene._spriteset) {
-                    SceneManager._scene._spriteset.sortDocsDoodads();
-                }
+                this.editDoodads([d], o => { o.editorHidden = !o.editorHidden; }, 'hide_doodads');
                 this.refreshInspector();
             };
             const ungrpBtn = document.getElementById('dd-ungrp-single');
             if (ungrpBtn) {
                 ungrpBtn.onclick = () => {
-                    delete d.groupId;
+                    this.editDoodads([d], o => { delete o.groupId; }, 'ungroup_doodads');
                     this.refreshInspector();
                 };
             }
 
             const applyDoodadInputs = () => {
                 if (d.locked) return;
-                d.x = parseInt(document.getElementById('dd-prop-x').value, 10) || 0;
-                d.y = parseInt(document.getElementById('dd-prop-y').value, 10) || 0;
-                d.z = parseInt(document.getElementById('dd-prop-z').value, 10) || 0;
-                d.rotation = parseInt(document.getElementById('dd-prop-rot').value, 10) || 0;
-                d.scaleX = parseFloat(document.getElementById('dd-prop-sx').value) || 1;
-                d.scaleY = parseFloat(document.getElementById('dd-prop-sy').value) || 1;
-                if (SceneManager._scene && SceneManager._scene._spriteset) {
-                    SceneManager._scene._spriteset.sortDocsDoodads();
-                }
+                const num = (id, parse, fallback) => parse(document.getElementById(id).value) || fallback;
+                this.editDoodads([d], o => {
+                    o.x = num('dd-prop-x', v => parseInt(v, 10), 0);
+                    o.y = num('dd-prop-y', v => parseInt(v, 10), 0);
+                    o.z = num('dd-prop-z', v => parseInt(v, 10), 0);
+                    o.rotation = num('dd-prop-rot', v => parseInt(v, 10), 0);
+                    o.scaleX = num('dd-prop-sx', parseFloat, 1);
+                    o.scaleY = num('dd-prop-sy', parseFloat, 1);
+                }, 'transform_doodad');
             };
 
             ['dd-prop-x','dd-prop-y','dd-prop-z','dd-prop-rot','dd-prop-sx','dd-prop-sy'].forEach(id => {
@@ -723,6 +729,38 @@
         this.recordDoodadEdit(items, before, type);
     },
 
+    // Arrow-key moves: presses that keep coming (under a second apart) on the same doodads are one undo step.
+    nudgeSelection(dx, dy) {
+        const items = this.selectionItems().filter(d => !d.locked);
+        if (items.length === 0) return false;
+        const Undo = DocsDoodads.Undo;
+        const last = Undo.undoStack[Undo.undoStack.length - 1];
+        const now = Date.now();
+        const same = last && last === this._nudge && now - this._nudge.at < 1000 &&
+            last.items.length === items.length && last.items.every((d, i) => d === items[i]);
+        items.forEach(d => { d.x += dx; d.y += dy; });
+        if (same) {
+            last.after = this.snapshotDoodads(items);
+            Undo.markDirty();
+            this.afterDoodadEdit();
+        } else {
+            const before = this.snapshotDoodads(items);
+            before.forEach(s => { s.x -= dx; s.y -= dy; });
+            const cmd = {
+                type: 'nudge_doodads', items, before, after: this.snapshotDoodads(items),
+                apply: () => { cmd.items.forEach((d, i) => this.restoreDoodad(d, cmd.after[i])); this.afterDoodadEdit(); },
+                revert: () => { cmd.items.forEach((d, i) => this.restoreDoodad(d, cmd.before[i])); this.afterDoodadEdit(); }
+            };
+            Undo.execute(cmd);
+            this._nudge = cmd;
+        }
+        this._nudge.at = now;
+        // Only the position fields change; the rest of the inspector stays as it is.
+        const x = document.getElementById('dd-prop-x'), y = document.getElementById('dd-prop-y');
+        if (items.length === 1 && x && y) { x.value = items[0].x; y.value = items[0].y; }
+        return true;
+    },
+
     setDoodadProperty(items, key, value) {
         this.editDoodads(items, d => this.applyDoodadProperty(d, key, value), 'set_' + key);
     },
@@ -733,6 +771,8 @@
     },
 
     previewDoodadProperty(items, key, value) {
+        const p = this._propertyPreview;
+        if (p && (p.items.length !== items.length || p.items.some((d, i) => d !== items[i]))) this.commitPropertyPreview();
         if (!this._propertyPreview) this.beginPropertyPreview(items);
         items.forEach(d => this.applyDoodadProperty(d, key, value));
         this.refreshSpriteset(true);
@@ -741,7 +781,10 @@
     commitPropertyPreview() {
         const preview = this._propertyPreview;
         this._propertyPreview = null;
-        if (preview) this.recordDoodadEdit(preview.items, preview.before, 'adjust_doodads');
+        if (!preview) return;
+        // Dragged and let go where it started: nothing to undo.
+        if (JSON.stringify(this.snapshotDoodads(preview.items)) === JSON.stringify(preview.before)) return;
+        this.recordDoodadEdit(preview.items, preview.before, 'adjust_doodads');
     },
 
     effectSections() {
@@ -857,10 +900,12 @@
         return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
     },
 
+    // The sections are built once per render and bound from the same list.
     renderEffectSections(items) {
         const first = items[0];
         this._openEffectSections = this._openEffectSections || {};
-        return this.effectSections().map((section, si) => {
+        this._effectSections = this.effectSections();
+        return this._effectSections.map((section, si) => {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;
                 const value = this.getDoodadProperty(first, f.key);
@@ -875,7 +920,9 @@
     },
 
     bindEffectSections(items) {
-        this.effectSections().forEach((section, si) => {
+        const sections = this._effectSections || this.effectSections();
+        this._effectSections = null;
+        sections.forEach((section, si) => {
             const details = document.getElementById(`dd-fx-sec-${si}`);
             if (details) details.ontoggle = () => { this._openEffectSections[section.title] = details.open; };
             section.fields.forEach((f, fi) => {
@@ -896,6 +943,7 @@
                         this.previewDoodadProperty(items, f.key, read());
                         this.commitPropertyPreview();
                     };
+                    input.onpointerup = input.onblur = () => setTimeout(() => this.commitPropertyPreview(), 0);
                 } else {
                     input.onchange = () => this.setDoodadProperty(items, f.key, read());
                 }
