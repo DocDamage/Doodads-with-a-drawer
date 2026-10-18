@@ -458,6 +458,7 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 | Rippling water | Water tiles move with gentle waves that bend what shows through them (including water reflections) and catch the light. Shores stay dry. |
 | Ripple strength / speed / sparkle | How far the waves bend the water, how fast they move, and how bright the glints are. Glints dim at night. |
 | Wakes behind boats and waders | Boats, ships and anything moving through water leave spreading rings with a little foam. |
+| Sky, sun, moon and stars follow the time of day | With the day/night clock running (section 8), the sky fades from blue by day to an orange sunrise and sunset and a dark night with twinkling stars. The sun and moon cross the sky on the same path the shadows use, low ones show near the horizon, hills are shaded from wherever the light is, and water glints toward the sun or moon. Ambient darkness and lamps work as on flat maps. A map's parallax still replaces the sky. |
 | 3D rain and snow | MZ's **Set Weather Effect** (rain, storm, snow, power 1–9, with fades) falls through the 3D world around the camera: rain and storms slant with the wind and splash on the ground (raised terrain too), some drops ripple water, and snow drifts down. The screen dims with the weather like MZ's own. Off: MZ's flat weather is used instead. |
 | Weather density | More or fewer drops and flakes than MZ's power alone gives. |
 | Smooth distant ground | Blends distant pixels instead of keeping them crisp. |
