@@ -260,6 +260,20 @@ assert.ok('5,1' in T.applyBrush({}, Object.assign({}, brushGrid, { loopX: true }
     // Stepped walls do the same.
     const stepped = Tt.buildMesh(grid, 0, 0, W, H, 48, 48, 'stepped');
     assert.ok(stepped.vertices.some(v => v.y === 48 && v.h === 2 && v.shade < 1 && v.v === 2 * 48), 'stepped: the back too');
+    // Wall tiles are marked (they draw from the ground without floor decals); the floor isn't.
+    assert.ok(stepped.vertices.some(v => v.wall === 1 && v.shade === 1 && v.h === 2), 'wall tops are marked');
+    assert.ok(stepped.vertices.filter(v => v.h === 0 && v.shade === 1).every(v => !v.wall), 'the floor is not');
+
+    // A wall seen end-on (wall top only, no face) borrows the face art of the nearest wall column.
+    const d2 = data.slice();
+    const set2 = (x, y, id) => { d2[y * W + x] = id; };
+    set2(5, 1, TOP); set2(5, 2, TOP); set2(5, 3, TOP);                       // a top-only column beside the faced wall
+    const h2 = Tt.buildHeights({ width: W, height: H, data: d2 }, { mode: 1, flags: [] }, settings);
+    assert.strictEqual(h2.faceX[2 * W + 5], 4 + 1, 'borrows from column 4, the nearest with a face');
+    assert.strictEqual(h2.faceStart[2 * W + 5], 3);
+    const m2 = Tt.buildMesh({ heights: h2, width: W, height: H }, 0, 0, W, H, 48, 48, 'stepped');
+    const eastEnd = m2.vertices.filter(v => v.x === 6 * 48 && v.shade < 1 && v.h > 0);
+    assert.ok(eastEnd.length && eastEnd.every(v => v.v === 2 * 48 && v.u >= 4 * 48 && v.u <= 5 * 48), "its side shows column 4's face art");
 
     // Order: a wall top one tile behind a doodad is drawn before it, however high the wall is.
     const cam = Pv.camera({ target: { x: 480, y: 480 }, pitch: 45, yaw: 0, fov: 50, zoom: 1, width: 816, height: 624 });

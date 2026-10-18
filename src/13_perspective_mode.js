@@ -584,7 +584,8 @@ DocsDoodads.Terrain = {
     // face's height. faceRows: for a side tile, how many rows up the wall top is (its top shows that art);
     // faceDown: on the face's lowest tile, the face height (its front shows the face art above it);
     // faceStart / faceLen: for every tile of a column with a face, the face's first row (+1) and its
-    // length, so the wall's other sides can show the same art; wall: which tiles are wall.
+    // length, so the wall's other sides can show the same art; faceX: the column (+1) that art is in
+    // (a wall seen end-on has none of its own and borrows the nearest wall column's); wall: which tiles are wall.
     buildWalls(map, settings, out, keep) {
         const w = map.width, h = map.height, data = map.data || [];
         const kindAt = (x, y) => this.wallKind(data[(0 * h + y) * w + x] || 0) || this.wallKind(data[(1 * h + y) * w + x] || 0);
@@ -592,6 +593,7 @@ DocsDoodads.Terrain = {
         out.faceDown = new Float32Array(w * h);
         out.faceStart = new Int32Array(w * h);
         out.faceLen = new Uint8Array(w * h);
+        out.faceX = new Int32Array(w * h);
         out.wall = new Uint8Array(w * h);
         for (let x = 0; x < w; x++) {
             let y = 0;
@@ -610,10 +612,30 @@ DocsDoodads.Terrain = {
                     out[i] = Math.max(out[i], height);
                     out.wall[i] = 1;
                     if (r >= sideStart) out.faceRows[i] = r - sideStart + 1;
-                    if (sides > 0) { out.faceStart[i] = sideStart + 1; out.faceLen[i] = sides; }
+                    if (sides > 0) { out.faceStart[i] = sideStart + 1; out.faceLen[i] = sides; out.faceX[i] = x + 1; }
                 }
                 if (sides > 0 && !keep[(y - 1) * w + x]) out.faceDown[(y - 1) * w + x] = height;
                 if (y === top) y++;
+            }
+        }
+        // Wall tiles with no face of their own: the nearest wall tile (within 6) that has one lends its art.
+        const reach = 6;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                if (!out.wall[i] || out.faceStart[i]) continue;
+                let best = -1, bestD = Infinity;
+                for (let dy = -reach; dy <= reach; dy++) {
+                    for (let dx = -reach; dx <= reach; dx++) {
+                        const d = Math.abs(dx) + Math.abs(dy);
+                        if (d > reach || d >= bestD) continue;
+                        const xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+                        const j = yy * w + xx;
+                        if (out.faceX[j] && out.faceX[j] === xx + 1) { best = j; bestD = d; }
+                    }
+                }
+                if (best >= 0) { out.faceStart[i] = out.faceStart[best]; out.faceLen[i] = out.faceLen[best]; out.faceX[i] = out.faceX[best]; }
             }
         }
     },
@@ -756,10 +778,13 @@ DocsDoodads.Terrain = {
             const n = Math.hypot(nx, ny, nz) || 1;
             return Math.max(0.35, Math.min(1, 0.55 + 0.45 * ((nx * L[0] + ny * L[1] + nz * L[2]) / n) / L[2]));
         };
-        const add = (x, y, h, u, v, shade) => { vertices.push({ x, y, h, u, v, shade }); return vertices.length - 1; };
+        let onWall = 0;
+        const add = (x, y, h, u, v, shade) => { vertices.push({ x, y, h, u, v, shade, wall: onWall }); return vertices.length - 1; };
         // A tile as a block: its top, and sides down to lower ground. low(dx, dy, ax, ay, bx, by, h) gives
         // the heights at the foot of a side ([at a, at b]), or null where there is no side.
         const block = (tx, ty, low) => {
+            // Wall vertices draw from the ground without floor decals.
+            onWall = this.isWall(grid, tx, ty) ? 1 : 0;
             const h = this.tileHeight(grid, tx, ty);
             const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
             // A raised wall face shows the wall top's art on top (rows up the column).
@@ -767,6 +792,9 @@ DocsDoodads.Terrain = {
             const a = add(x0, y0, h, x0, y0 - up, 1), b = add(x1, y0, h, x1, y0 - up, 1), c = add(x1, y1, h, x1, y1 - up, 1), d = add(x0, y1, h, x0, y1 - up, 1);
             triangles.push(a, b, c, a, c, d);
             const faceStart = this.wallMeta(grid, 'faceStart', tx, ty), faceLen = this.wallMeta(grid, 'faceLen', tx, ty);
+            const faceX = this.wallMeta(grid, 'faceX', tx, ty);
+            // The face art's columns: this tile's, or the wall column it borrows from (wrapped like the map).
+            const fx0 = faceX > 0 ? x0 + (faceX - 1 - (((tx % grid.width) + grid.width) % grid.width)) * tw : x0, fx1 = fx0 + tw;
             const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
             for (const [dx, dy, ax, ay, bx, by] of sides) {
                 const foot = low(dx, dy, ax, ay, bx, by, h);
@@ -784,8 +812,8 @@ DocsDoodads.Terrain = {
                     // stretched wall tops.
                     const v0 = (faceStart - 1) * th, span = faceLen * th;
                     const vAt = z => v0 + Math.max(0, Math.min(1, (h - z) / h)) * span;
-                    p = add(ax, ay, h, x0, v0, sh); q = add(bx, by, h, x1, v0, sh);
-                    r = add(bx, by, lb, x1, vAt(lb), sh); t = add(ax, ay, la, x0, vAt(la), sh);
+                    p = add(ax, ay, h, fx0, v0, sh); q = add(bx, by, h, fx1, v0, sh);
+                    r = add(bx, by, lb, fx1, vAt(lb), sh); t = add(ax, ay, la, fx0, vAt(la), sh);
                 } else {
                     // Elsewhere the side shows the tile squashed from its far edge down to this edge.
                     const fu = dx === 0 ? 0 : -dx * tw, fv = dy === 0 ? 0 : -dy * th;
@@ -794,6 +822,7 @@ DocsDoodads.Terrain = {
                 }
                 triangles.push(p, q, r, p, r, t);
             }
+            onWall = 0;
         };
         // Stepped: every tile is a block, with sides down to lower neighbours.
         const stepLow = (dx, dy, ax, ay, bx, by, h, tx, ty) => {

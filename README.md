@@ -14,7 +14,7 @@ New to it? [Your First 3D Map](docs/FIRST_3D_MAP.md) walks from a flat map to hi
 
 ## Install
 
-RPG Maker MZ is supported. An MV compatibility layer from the original editor is still in the plugin, but nothing added since 2.0 (atmosphere, post-processing, VFX, sound, visual equipment, the 3D view) has been tested in MV, so treat MV as unsupported.
+Doc's Doodads is for RPG Maker MZ. An MV compatibility layer from the original editor is still in the plugin, but MV isn't supported or tested.
 
 
 1. Copy `Docs-Doodads.js` to your RPG Maker project's `js/plugins/` directory.

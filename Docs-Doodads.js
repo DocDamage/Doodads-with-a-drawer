@@ -1,5 +1,5 @@
 //==========================================================
-// RPG Maker MZ & MV: Doc's Doodads
+// RPG Maker MZ: Doc's Doodads
 //==========================================================
 /*:
  * @target MZ
@@ -282,7 +282,7 @@
  * @text Enable MV Compatibility
  * @type boolean
  * @default true
- * @desc Enable compatibility layer when running under RPG Maker MV.
+ * @desc A leftover compatibility layer for RPG Maker MV (unsupported: Doc's Doodads is for MZ).
  *
  * @param devDiagnostics
  * @text Developer Diagnostics
@@ -5380,7 +5380,8 @@ DocsDoodads.Terrain = {
     // face's height. faceRows: for a side tile, how many rows up the wall top is (its top shows that art);
     // faceDown: on the face's lowest tile, the face height (its front shows the face art above it);
     // faceStart / faceLen: for every tile of a column with a face, the face's first row (+1) and its
-    // length, so the wall's other sides can show the same art; wall: which tiles are wall.
+    // length, so the wall's other sides can show the same art; faceX: the column (+1) that art is in
+    // (a wall seen end-on has none of its own and borrows the nearest wall column's); wall: which tiles are wall.
     buildWalls(map, settings, out, keep) {
         const w = map.width, h = map.height, data = map.data || [];
         const kindAt = (x, y) => this.wallKind(data[(0 * h + y) * w + x] || 0) || this.wallKind(data[(1 * h + y) * w + x] || 0);
@@ -5388,6 +5389,7 @@ DocsDoodads.Terrain = {
         out.faceDown = new Float32Array(w * h);
         out.faceStart = new Int32Array(w * h);
         out.faceLen = new Uint8Array(w * h);
+        out.faceX = new Int32Array(w * h);
         out.wall = new Uint8Array(w * h);
         for (let x = 0; x < w; x++) {
             let y = 0;
@@ -5406,10 +5408,30 @@ DocsDoodads.Terrain = {
                     out[i] = Math.max(out[i], height);
                     out.wall[i] = 1;
                     if (r >= sideStart) out.faceRows[i] = r - sideStart + 1;
-                    if (sides > 0) { out.faceStart[i] = sideStart + 1; out.faceLen[i] = sides; }
+                    if (sides > 0) { out.faceStart[i] = sideStart + 1; out.faceLen[i] = sides; out.faceX[i] = x + 1; }
                 }
                 if (sides > 0 && !keep[(y - 1) * w + x]) out.faceDown[(y - 1) * w + x] = height;
                 if (y === top) y++;
+            }
+        }
+        // Wall tiles with no face of their own: the nearest wall tile (within 6) that has one lends its art.
+        const reach = 6;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                if (!out.wall[i] || out.faceStart[i]) continue;
+                let best = -1, bestD = Infinity;
+                for (let dy = -reach; dy <= reach; dy++) {
+                    for (let dx = -reach; dx <= reach; dx++) {
+                        const d = Math.abs(dx) + Math.abs(dy);
+                        if (d > reach || d >= bestD) continue;
+                        const xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+                        const j = yy * w + xx;
+                        if (out.faceX[j] && out.faceX[j] === xx + 1) { best = j; bestD = d; }
+                    }
+                }
+                if (best >= 0) { out.faceStart[i] = out.faceStart[best]; out.faceLen[i] = out.faceLen[best]; out.faceX[i] = out.faceX[best]; }
             }
         }
     },
@@ -5552,10 +5574,13 @@ DocsDoodads.Terrain = {
             const n = Math.hypot(nx, ny, nz) || 1;
             return Math.max(0.35, Math.min(1, 0.55 + 0.45 * ((nx * L[0] + ny * L[1] + nz * L[2]) / n) / L[2]));
         };
-        const add = (x, y, h, u, v, shade) => { vertices.push({ x, y, h, u, v, shade }); return vertices.length - 1; };
+        let onWall = 0;
+        const add = (x, y, h, u, v, shade) => { vertices.push({ x, y, h, u, v, shade, wall: onWall }); return vertices.length - 1; };
         // A tile as a block: its top, and sides down to lower ground. low(dx, dy, ax, ay, bx, by, h) gives
         // the heights at the foot of a side ([at a, at b]), or null where there is no side.
         const block = (tx, ty, low) => {
+            // Wall vertices draw from the ground without floor decals.
+            onWall = this.isWall(grid, tx, ty) ? 1 : 0;
             const h = this.tileHeight(grid, tx, ty);
             const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
             // A raised wall face shows the wall top's art on top (rows up the column).
@@ -5563,6 +5588,9 @@ DocsDoodads.Terrain = {
             const a = add(x0, y0, h, x0, y0 - up, 1), b = add(x1, y0, h, x1, y0 - up, 1), c = add(x1, y1, h, x1, y1 - up, 1), d = add(x0, y1, h, x0, y1 - up, 1);
             triangles.push(a, b, c, a, c, d);
             const faceStart = this.wallMeta(grid, 'faceStart', tx, ty), faceLen = this.wallMeta(grid, 'faceLen', tx, ty);
+            const faceX = this.wallMeta(grid, 'faceX', tx, ty);
+            // The face art's columns: this tile's, or the wall column it borrows from (wrapped like the map).
+            const fx0 = faceX > 0 ? x0 + (faceX - 1 - (((tx % grid.width) + grid.width) % grid.width)) * tw : x0, fx1 = fx0 + tw;
             const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
             for (const [dx, dy, ax, ay, bx, by] of sides) {
                 const foot = low(dx, dy, ax, ay, bx, by, h);
@@ -5580,8 +5608,8 @@ DocsDoodads.Terrain = {
                     // stretched wall tops.
                     const v0 = (faceStart - 1) * th, span = faceLen * th;
                     const vAt = z => v0 + Math.max(0, Math.min(1, (h - z) / h)) * span;
-                    p = add(ax, ay, h, x0, v0, sh); q = add(bx, by, h, x1, v0, sh);
-                    r = add(bx, by, lb, x1, vAt(lb), sh); t = add(ax, ay, la, x0, vAt(la), sh);
+                    p = add(ax, ay, h, fx0, v0, sh); q = add(bx, by, h, fx1, v0, sh);
+                    r = add(bx, by, lb, fx1, vAt(lb), sh); t = add(ax, ay, la, fx0, vAt(la), sh);
                 } else {
                     // Elsewhere the side shows the tile squashed from its far edge down to this edge.
                     const fu = dx === 0 ? 0 : -dx * tw, fv = dy === 0 ? 0 : -dy * th;
@@ -5590,6 +5618,7 @@ DocsDoodads.Terrain = {
                 }
                 triangles.push(p, q, r, p, r, t);
             }
+            onWall = 0;
         };
         // Stepped: every tile is a block, with sides down to lower neighbours.
         const stepLow = (dx, dy, ax, ay, bx, by, h, tx, ty) => {
@@ -9577,6 +9606,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
         }
+        if (this._docsWallTexture) {
+            this._docsWallTexture.destroy(true);
+            this._docsWallTexture = null;
+        }
         this._docs3dGround = null;
         this._docs3dSize = null;
         const tilemap = this._tilemap;
@@ -9654,12 +9687,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         tilemap.renderable = true;
         renderer.render(tilemap, rt, true);
+        // Walls rising through floor decals draw from the ground drawn again without them.
+        const wallRt = this.docsWallGround(renderer, tilemap, gw, gh);
         for (const child of billboards) child.renderable = child._docsWasRenderable !== false;
         tilemap.renderable = false;
         for (const o of [this._docsLightOverlay, this._docsGlowLayer, this._docsSelectionOutline]) {
             if (!o) continue;
             o.renderable = true;
-            if (o.visible) renderer.render(o, rt, false);
+            if (o.visible) {
+                renderer.render(o, rt, false);
+                if (wallRt) renderer.render(o, wallRt, false);
+            }
             o.renderable = false;
         }
 
@@ -10166,6 +10204,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
         }
+        if (this._docsWallTexture) {
+            this._docsWallTexture.destroy(true);
+            this._docsWallTexture = null;
+        }
         // Textures and meshes the 3D view made itself (MZ frees the sprites' textures, not their pictures).
         if (this._docsTerrainMesh) { this._docsTerrainMesh.destroy(); this._docsTerrainMesh = null; }
         this._docsTerrainTopo = null;
@@ -10403,6 +10445,7 @@ DocsDoodads.Terrain.vertex = [
     'attribute vec2 aShade;',
     'attribute float aDepth;',
     'attribute float aHeight;',
+    'attribute float aWall;',
     'uniform mat3 projectionMatrix;',
     'uniform mat3 translationMatrix;',
     'varying vec2 vUv;',
@@ -10410,9 +10453,11 @@ DocsDoodads.Terrain.vertex = [
     'varying vec2 vScreen;',
     'varying float vDepth;',
     'varying float vHeight;',
+    'varying float vWall;',
     'void main() {',
     '    vUv = aUv;',
     '    vHeight = aHeight;',
+    '    vWall = aWall;',
     '    vShade = aShade;',
     '    vScreen = aVertexPosition;',
     '    vDepth = aDepth;',
@@ -10427,6 +10472,9 @@ DocsDoodads.Terrain.fragment = [
     'varying vec2 vScreen;',
     'varying float vDepth;',
     'uniform sampler2D uSampler;',
+    // The ground without floor decals, for walls (a rug runs under a wall, not up it).
+    'uniform sampler2D uWallSampler;',
+    'varying float vWall;',
     'uniform vec3 uVoid;',
     'uniform vec4 uFog;',
     'uniform float uAlpha;',
@@ -10447,7 +10495,7 @@ DocsDoodads.Terrain.fragment = [
     '    vec2 p = vUv * uGround;',
     DocsDoodads.Water3D.applyGlsl,
     '    vec4 c = vec4(0.0);',
-    '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
+    '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = mix(texture2D(uSampler, uv), texture2D(uWallSampler, uv), step(0.5, vWall));',
     '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x * docsWaterShade + vec3(docsWaterSpec);',
     DocsDoodads.SnowCover.glsl,
     // Low fog lies below the fog height (tiles above the lowest ground).
@@ -10466,6 +10514,29 @@ DocsDoodads.Terrain.fragment = [
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain;
+
+    // The ground without floor decals (Below characters), for wall tiles: drawn only on maps with walls
+    // and visible floor decals. null when the walls can use the normal ground.
+    Spriteset_Map.prototype.docsWallGround = function(renderer, tilemap, gw, gh) {
+        const grid = T.grid();
+        const decals = grid && grid.heights && grid.heights.wall
+            ? (this._docsDoodadSprites || []).filter(sp => sp.visible && sp.renderable !== false && sp.parent === tilemap && DocsDoodads.Depth.resolve(sp._data) === 'below')
+            : [];
+        if (!decals.length) {
+            this._docsWallUsed = false;
+            return null;
+        }
+        if (!this._docsWallTexture || this._docsWallTexture.width !== gw || this._docsWallTexture.height !== gh) {
+            if (this._docsWallTexture) this._docsWallTexture.destroy(true);
+            this._docsWallTexture = PIXI.RenderTexture.create({ width: gw, height: gh });
+        }
+        this._docsWallTexture.baseTexture.scaleMode = this._docs3dTexture.baseTexture.scaleMode;
+        for (const sp of decals) sp.renderable = false;
+        renderer.render(tilemap, this._docsWallTexture, true);
+        for (const sp of decals) sp.renderable = true;
+        this._docsWallUsed = true;
+        return this._docsWallTexture;
+    };
 
     // The tiles the terrain draws this frame: the view plus a tile and a half on each side.
     Spriteset_Map.prototype.docsTerrainWindow = function(s) {
@@ -10492,6 +10563,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             tx0, ty0, cols, rows,
             vertices: mesh.vertices, triangles: mesh.triangles,
             positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2), depths: new Float32Array(n), heights: new Float32Array(mesh.vertices.map(v => v.h - (grid.min || 0))),
+            walls: new Float32Array(mesh.vertices.map(v => v.wall || 0)),
             depth: new Float64Array(n), ok: new Uint8Array(n),
             index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length),
             sort: T.sortBuffers(mesh.triangles.length / 3), triOf: new Uint32Array(mesh.triangles.length / 3),
@@ -10507,8 +10579,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aShade', topo.shades, 2)
             .addAttribute('aDepth', topo.depths, 1)
             .addAttribute('aHeight', topo.heights, 1)
+            .addAttribute('aWall', topo.walls, 1)
             .addIndex(topo.index);
-        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
+        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uWallSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
             uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4, uSnow: 0, uClouds: [0, 1, 0, 0], uMist: [0, 1, 0, 0],
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
@@ -10598,6 +10671,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         geo.getIndex().update(topo.index);
         const u = mesh.shader.uniforms;
         u.uSampler = rt;
+        u.uWallSampler = this._docsWallUsed && this._docsWallTexture ? this._docsWallTexture : rt;
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;

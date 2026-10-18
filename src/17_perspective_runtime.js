@@ -403,6 +403,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
         }
+        if (this._docsWallTexture) {
+            this._docsWallTexture.destroy(true);
+            this._docsWallTexture = null;
+        }
         this._docs3dGround = null;
         this._docs3dSize = null;
         const tilemap = this._tilemap;
@@ -480,12 +484,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         tilemap.renderable = true;
         renderer.render(tilemap, rt, true);
+        // Walls rising through floor decals draw from the ground drawn again without them.
+        const wallRt = this.docsWallGround(renderer, tilemap, gw, gh);
         for (const child of billboards) child.renderable = child._docsWasRenderable !== false;
         tilemap.renderable = false;
         for (const o of [this._docsLightOverlay, this._docsGlowLayer, this._docsSelectionOutline]) {
             if (!o) continue;
             o.renderable = true;
-            if (o.visible) renderer.render(o, rt, false);
+            if (o.visible) {
+                renderer.render(o, rt, false);
+                if (wallRt) renderer.render(o, wallRt, false);
+            }
             o.renderable = false;
         }
 
@@ -992,6 +1001,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
         }
+        if (this._docsWallTexture) {
+            this._docsWallTexture.destroy(true);
+            this._docsWallTexture = null;
+        }
         // Textures and meshes the 3D view made itself (MZ frees the sprites' textures, not their pictures).
         if (this._docsTerrainMesh) { this._docsTerrainMesh.destroy(); this._docsTerrainMesh = null; }
         this._docsTerrainTopo = null;
@@ -1229,6 +1242,7 @@ DocsDoodads.Terrain.vertex = [
     'attribute vec2 aShade;',
     'attribute float aDepth;',
     'attribute float aHeight;',
+    'attribute float aWall;',
     'uniform mat3 projectionMatrix;',
     'uniform mat3 translationMatrix;',
     'varying vec2 vUv;',
@@ -1236,9 +1250,11 @@ DocsDoodads.Terrain.vertex = [
     'varying vec2 vScreen;',
     'varying float vDepth;',
     'varying float vHeight;',
+    'varying float vWall;',
     'void main() {',
     '    vUv = aUv;',
     '    vHeight = aHeight;',
+    '    vWall = aWall;',
     '    vShade = aShade;',
     '    vScreen = aVertexPosition;',
     '    vDepth = aDepth;',
@@ -1253,6 +1269,9 @@ DocsDoodads.Terrain.fragment = [
     'varying vec2 vScreen;',
     'varying float vDepth;',
     'uniform sampler2D uSampler;',
+    // The ground without floor decals, for walls (a rug runs under a wall, not up it).
+    'uniform sampler2D uWallSampler;',
+    'varying float vWall;',
     'uniform vec3 uVoid;',
     'uniform vec4 uFog;',
     'uniform float uAlpha;',
@@ -1273,7 +1292,7 @@ DocsDoodads.Terrain.fragment = [
     '    vec2 p = vUv * uGround;',
     DocsDoodads.Water3D.applyGlsl,
     '    vec4 c = vec4(0.0);',
-    '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
+    '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = mix(texture2D(uSampler, uv), texture2D(uWallSampler, uv), step(0.5, vWall));',
     '    vec3 rgb = (c.rgb + uVoid * (1.0 - c.a)) * vShade.x * docsWaterShade + vec3(docsWaterSpec);',
     DocsDoodads.SnowCover.glsl,
     // Low fog lies below the fog height (tiles above the lowest ground).
@@ -1292,6 +1311,29 @@ DocsDoodads.Terrain.fragment = [
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain;
+
+    // The ground without floor decals (Below characters), for wall tiles: drawn only on maps with walls
+    // and visible floor decals. null when the walls can use the normal ground.
+    Spriteset_Map.prototype.docsWallGround = function(renderer, tilemap, gw, gh) {
+        const grid = T.grid();
+        const decals = grid && grid.heights && grid.heights.wall
+            ? (this._docsDoodadSprites || []).filter(sp => sp.visible && sp.renderable !== false && sp.parent === tilemap && DocsDoodads.Depth.resolve(sp._data) === 'below')
+            : [];
+        if (!decals.length) {
+            this._docsWallUsed = false;
+            return null;
+        }
+        if (!this._docsWallTexture || this._docsWallTexture.width !== gw || this._docsWallTexture.height !== gh) {
+            if (this._docsWallTexture) this._docsWallTexture.destroy(true);
+            this._docsWallTexture = PIXI.RenderTexture.create({ width: gw, height: gh });
+        }
+        this._docsWallTexture.baseTexture.scaleMode = this._docs3dTexture.baseTexture.scaleMode;
+        for (const sp of decals) sp.renderable = false;
+        renderer.render(tilemap, this._docsWallTexture, true);
+        for (const sp of decals) sp.renderable = true;
+        this._docsWallUsed = true;
+        return this._docsWallTexture;
+    };
 
     // The tiles the terrain draws this frame: the view plus a tile and a half on each side.
     Spriteset_Map.prototype.docsTerrainWindow = function(s) {
@@ -1318,6 +1360,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             tx0, ty0, cols, rows,
             vertices: mesh.vertices, triangles: mesh.triangles,
             positions: new Float32Array(n * 2), uvs: new Float32Array(n * 2), shades: new Float32Array(n * 2), depths: new Float32Array(n), heights: new Float32Array(mesh.vertices.map(v => v.h - (grid.min || 0))),
+            walls: new Float32Array(mesh.vertices.map(v => v.wall || 0)),
             depth: new Float64Array(n), ok: new Uint8Array(n),
             index: n < 65536 ? new Uint16Array(mesh.triangles.length) : new Uint32Array(mesh.triangles.length),
             sort: T.sortBuffers(mesh.triangles.length / 3), triOf: new Uint32Array(mesh.triangles.length / 3),
@@ -1333,8 +1376,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addAttribute('aShade', topo.shades, 2)
             .addAttribute('aDepth', topo.depths, 1)
             .addAttribute('aHeight', topo.heights, 1)
+            .addAttribute('aWall', topo.walls, 1)
             .addIndex(topo.index);
-        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
+        const shader = PIXI.Shader.from(T.vertex, T.fragment, { uSampler: PIXI.Texture.EMPTY, uWallSampler: PIXI.Texture.EMPTY, uVoid: [0, 0, 0], uFog: [0, 0, 0, 0], uAlpha: 1,
             uCam: [0, 0, 1], uGround: [1, 1], uSee: [0, 0, 1, 1], uSeeDepth: 0, uSeeAlpha: 0.4, uSnow: 0, uClouds: [0, 1, 0, 0], uMist: [0, 1, 0, 0],
             uWater: [0, 0, 0, 0], uWaterTime: 0, uWaterMask: PIXI.Texture.EMPTY, uMapTiles: [1, 1], uTile: [48, 48], uOrigin: [0, 0], uLoop: [0, 0],
             uLightDir: DocsDoodads.Terrain.light.slice(), uWakes: new Float32Array(DocsDoodads.Water3D.maxWakes * 4) });
@@ -1424,6 +1468,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         geo.getIndex().update(topo.index);
         const u = mesh.shader.uniforms;
         u.uSampler = rt;
+        u.uWallSampler = this._docsWallUsed && this._docsWallTexture ? this._docsWallTexture : rt;
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uAlpha = 1;
