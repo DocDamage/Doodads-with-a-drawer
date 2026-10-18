@@ -416,7 +416,7 @@ Plugin commands change an actor's look without equipment:
 
 In the editor, open **Visual Equipment** in the map panel to turn each place on or off, and to try gear on. Pick an actor, tick items, and watch the preview walk in any direction. The **notetag builder** writes the tags for you.
 
-Character shadows use the body's outline only; gear layers don't add to them.
+Character shadows include gear layers: a cape, hat or shield changes the shadow's shape.
 
 ### Destination marker
 The marker MZ shows where the player clicks or taps to walk can be restyled under **Destination Marker** in the map panel:

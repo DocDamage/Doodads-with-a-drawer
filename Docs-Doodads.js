@@ -6419,14 +6419,63 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
         shadow.y = footY;
         shadow.rotation = t.rotation;
         shadow.scale.set(this.scale.x, scaleY * this.scale.y);
-        shadow.alpha = t.alpha * (this.opacity / 255);
-        shadow.visible = scaleY > 0.02 && shadow.alpha > 0.005;
+        const alpha = t.alpha * (this.opacity / 255);
+        const gear = this.updateDocsShadowGear(shadow);
+        shadow.visible = scaleY > 0.02 && alpha > 0.005;
         shadow.z = DocsDoodads.Depth.shadowZ;
         shadow._docsSortY = footY;
-        if (shadow._docsBlur !== t.blur) {
-            shadow._docsBlur = t.blur;
-            shadow.filters = t.blur > 0 && PIXI.filters && PIXI.filters.BlurFilter ? [new PIXI.filters.BlurFilter(Math.min(16, t.blur))] : null;
+        // With gear, the parts are drawn solid and faded once together, so overlaps don't darken twice.
+        const fadeOnce = gear > 0 && PIXI.filters && PIXI.filters.AlphaFilter;
+        shadow.alpha = fadeOnce ? 1 : alpha;
+        if (fadeOnce) {
+            shadow._docsFade = shadow._docsFade || new PIXI.filters.AlphaFilter(alpha);
+            shadow._docsFade.alpha = alpha;
         }
+        const key = t.blur + '|' + Boolean(fadeOnce);
+        if (shadow._docsFilterKey !== key) {
+            shadow._docsFilterKey = key;
+            if (shadow._docsBlur !== t.blur) {
+                shadow._docsBlur = t.blur;
+                shadow._docsBlurFilter = t.blur > 0 && PIXI.filters && PIXI.filters.BlurFilter ? new PIXI.filters.BlurFilter(Math.min(16, t.blur)) : null;
+            }
+            const filters = [shadow._docsBlurFilter, fadeOnce ? shadow._docsFade : null].filter(Boolean);
+            shadow.filters = filters.length ? filters : null;
+        }
+    };
+
+    // Gear layers (capes, hats) join the shadow, so it has the shape of what the character wears.
+    // Returns how many layers are in it.
+    Sprite_Character.prototype.updateDocsShadowGear = function(shadow) {
+        const gear = (this._docsVisualSprites || []).filter(sp => sp.visible && sp._docsRect && sp.bitmap && sp.bitmap.isReady());
+        const parts = shadow._docsGear = shadow._docsGear || [];
+        while (parts.length < gear.length) {
+            const part = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            part.anchor.set(0.5, 1);
+            part.tint = 0x000000;
+            part._docsFrames = new Map();
+            shadow.addChild(part);
+            parts.push(part);
+        }
+        gear.forEach((sp, i) => {
+            const part = parts[i], r = sp._docsRect, base = sp.bitmap.baseTexture || sp.bitmap._baseTexture;
+            const frameKey = r.x + ',' + r.y + ',' + r.w + ',' + r.h;
+            if (part._docsBase !== base) {
+                part._docsBase = base;
+                part._docsFrames.clear();
+            }
+            let texture = part._docsFrames.get(frameKey);
+            if (!texture) {
+                texture = new PIXI.Texture(base, new PIXI.Rectangle(r.x, r.y, r.w, r.h));
+                if (part._docsFrames.size > 32) part._docsFrames.clear();
+                part._docsFrames.set(frameKey, texture);
+            }
+            part.texture = texture;
+            // The shadow already has the body's scale; a mirrored layer (8-direction sheets) flips.
+            part.scale.set(Math.sign(sp.scale.x || 1) * Math.sign(this.scale.x || 1), 1);
+            part.visible = true;
+        });
+        for (let i = gear.length; i < parts.length; i++) parts[i].visible = false;
+        return gear.length;
     };
 
     Sprite_Character.prototype.updateDocsMotionBlur = function(settings, tags, playerLike) {

@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Character sun shadows now include visual equipment layers, so capes, hats and shields change the shadow's shape.
 - 3D rain and snow are now drawn in depth bands sorted in with trees, characters and hills, so drops behind them no longer show through.
 - Fixed MZ's Effekseer animations in the 3D view: they played where the target would be on the flat map, off to one side, and didn't shrink with distance. They now play on the target as drawn, at its size.
 - Added tileset objects standing up in the 3D view: a per-map option lifts B–E objects with ☆ tiles (tree tops and their trunks), or every B–E tile, off the ground as billboards, without changing the map.
