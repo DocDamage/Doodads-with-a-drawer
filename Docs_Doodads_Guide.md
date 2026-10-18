@@ -456,7 +456,7 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 ### What works in 3D
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
 - **Sun and doodad shadows** lie on the ground.
-- **Particles, VFX, balloons and animations** stand with their character or doodad.
+- **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play at their target's spot on screen but don't shrink with distance; MV-style animations do.
 - **Post-processing and day/night tint** apply to the whole view.
 - **Touch and mouse:** clicking the ground walks there.
 - **Editor:**
