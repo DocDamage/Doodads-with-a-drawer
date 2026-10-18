@@ -450,8 +450,13 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 | Fog colour | Fade into a colour instead of into the sky. |
 | Sky colour | The colour above the horizon. A map's parallax becomes the sky instead, and turns with the camera. |
 | Beyond the map edge | The colour of ground past the map's edges. |
+| Round world | **Planet**: the ground curves away all round, like a small world. **Rolling log**: it curves away only ahead, so things rise over the horizon as you walk toward them. |
+| World radius | How tight the curve is, in tiles. 0 sizes a planet so one lap is the map's width: on a looping world map, walking all the way round brings you back. |
+| Things lean with the curve | Standing things lean outwards with the ground. Turn it off to keep them upright. |
 | Q / W turn the camera 90° | Players can turn the view. The arrow keys follow the camera (up walks away from it), and characters show the side facing it. |
 | Smooth distant ground | Blends distant pixels instead of keeping them crisp. |
+
+On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
 
 ### What works in 3D
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
