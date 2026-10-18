@@ -6029,7 +6029,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             gradient.addColorStop(1, 'rgba(255,255,255,0)');
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, size, size);
-            DocsDoodads._lightGradient = PIXI.Texture.from(canvas);
+            DocsDoodads._lightGradient = DocsDoodads.sharedTexture(canvas);
         }
         return DocsDoodads._lightGradient;
     };
@@ -6665,6 +6665,15 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
 
 // ---- Particles, VFX and reactive doodads on the map ----
 // Small white textures (one per shape), tinted per particle.
+// A texture drawn once and shared by every scene. MZ destroys the textures of all sprites in a scene
+// when it leaves it (the menu, battle, a map transfer), and the next scene is built before the old one
+// goes, so a shared texture must ignore that, as PIXI's own Texture.WHITE does.
+DocsDoodads.sharedTexture = function(canvas) {
+    const texture = PIXI.Texture.from(canvas);
+    texture.destroy = function() {};
+    return texture;
+};
+
 DocsDoodads.ParticleTextures = {
     _cache: {},
     size: 32,
@@ -6711,7 +6720,7 @@ DocsDoodads.ParticleTextures = {
             g.closePath();
             g.fill();
         }
-        this._cache[shape] = PIXI.Texture.from(c);
+        this._cache[shape] = DocsDoodads.sharedTexture(c);
         return this._cache[shape];
     }
 };
@@ -8887,7 +8896,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             const c = document.createElement('canvas');
             c.width = w; c.height = h;
             draw(c.getContext('2d'), w, h);
-            return PIXI.Texture.from(c);
+            return DocsDoodads.sharedTexture(c);
         };
         this._textures = {
             streak: make(4, 32, (g, w, h) => {
