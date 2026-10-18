@@ -515,6 +515,8 @@ Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (t
 
 Terrain height shows only in the 3D view. It works on round worlds too.
 
+**Interiors: walls stand up.** Tick **Walls stand up** (and choose the **Stepped** shape) to raise A4 walls and A3 roofs: in each column the wall top and the wall face below it rise to the face's height (usually two tiles), the front of the wall shows the face art as drawn in 2D (decorations hung on it included), and the top shows the wall top. A wall top with no face below it uses **Wall height where there is no wall face**. Painted and region heights win over walls. Use a fairly steep camera tilt inside rooms; with See-Through on, walls between the camera and the player fade where they cover the player.
+
 ### What works in 3D
 - **See-through:** with See-Through on (section 8), hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player, to the See-Through opacity. In 3D it always fades (the outline mode is for flat maps).
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.

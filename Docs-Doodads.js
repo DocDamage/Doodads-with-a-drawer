@@ -5300,7 +5300,7 @@ DocsDoodads.Terrain = {
         { value: 'smooth', label: 'Smooth (hills and mountains)' },
         { value: 'stepped', label: 'Stepped (cliffs and plateaus)' }
     ],
-    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5, drop: false, hop: 0 },
+    defaults: { enabled: false, style: 'smooth', auto: true, mountain: 1, forest: 0.25, tags: [], regions: [], paint: {}, block: false, climb: 0.5, drop: false, hop: 0, walls: false, wallHeight: 2 },
     // Smooth ground: heights are sampled 4 times per tile and blurred, so ranges stay full height inside
     // and round off at their edges with low foothills, and art isn't stretched up sharp spikes.
     smoothSamples: 4,
@@ -5338,8 +5338,50 @@ DocsDoodads.Terrain = {
             block: s.block === true,
             climb: num(s.climb, d.climb, 0, 20),
             drop: s.drop === true,
-            hop: num(s.hop, d.hop, 0, 20)
+            hop: num(s.hop, d.hop, 0, 20),
+            walls: s.walls === true,
+            wallHeight: num(s.wallHeight, d.wallHeight, 0.5, 10)
         };
+    },
+
+    // Wall autotiles: 'top' (A4 wall tops, A3 roofs) or 'side' (the wall face below them), else null.
+    wallKind(tileId) {
+        if (!(tileId >= 2048 && tileId < 8192)) return null;
+        const kind = Math.floor((tileId - 2048) / 48);
+        if (kind >= 48 && kind < 80) return Math.floor((kind - 48) / 8) % 2 === 0 ? 'top' : 'side';
+        if (kind >= 80 && kind < 128) return Math.floor((kind - 80) / 8) % 2 === 0 ? 'top' : 'side';
+        return null;
+    },
+
+    // Interior walls: in each column, a wall face (side tiles) and the wall top above it rise to the
+    // face's height. faceRows: for a side tile, how many rows up the wall top is (its top shows that art);
+    // faceDown: on the face's lowest tile, the face height (its front shows the face art above it).
+    buildWalls(map, settings, out, keep) {
+        const w = map.width, h = map.height, data = map.data || [];
+        const kindAt = (x, y) => this.wallKind(data[(0 * h + y) * w + x] || 0) || this.wallKind(data[(1 * h + y) * w + x] || 0);
+        out.faceRows = new Uint8Array(w * h);
+        out.faceDown = new Float32Array(w * h);
+        for (let x = 0; x < w; x++) {
+            let y = 0;
+            while (y < h) {
+                const kind = kindAt(x, y);
+                if (!kind) { y++; continue; }
+                let top = y;
+                while (y < h && kindAt(x, y) === 'top') y++;
+                const sideStart = y;
+                while (y < h && kindAt(x, y) === 'side') y++;
+                const sides = y - sideStart;
+                const height = sides > 0 ? sides : settings.wallHeight;
+                for (let r = top; r < y; r++) {
+                    const i = r * w + x;
+                    if (keep[i]) continue;
+                    out[i] = Math.max(out[i], height);
+                    if (r >= sideStart) out.faceRows[i] = r - sideStart + 1;
+                }
+                if (sides > 0 && !keep[(y - 1) * w + x]) out.faceDown[(y - 1) * w + x] = height;
+                if (y === top) y++;
+            }
+        }
     },
 
     // World tilesets: impassable ground autotiles (A2) are mountains; passable ones airships can't land on are forests.
@@ -5363,13 +5405,15 @@ DocsDoodads.Terrain = {
         const tagHeight = {}, regionHeight = {};
         for (const t of settings.tags) tagHeight[t.tag] = t.height;
         for (const r of settings.regions) regionHeight[r.region] = r.height;
+        // Painted and region heights win over walls.
+        const keep = new Uint8Array(w * h);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 const i = y * w + x;
                 const painted = settings.paint[x + ',' + y];
-                if (painted !== undefined) { out[i] = painted; continue; }
+                if (painted !== undefined) { out[i] = painted; keep[i] = 1; continue; }
                 const region = data[(5 * h + y) * w + x] || 0;
-                if (region && regionHeight[region] !== undefined) { out[i] = regionHeight[region]; continue; }
+                if (region && regionHeight[region] !== undefined) { out[i] = regionHeight[region]; keep[i] = 1; continue; }
                 let tag = 0;
                 for (let z = 3; z >= 0 && !tag; z--) {
                     const id = data[(z * h + y) * w + x] || 0;
@@ -5387,7 +5431,18 @@ DocsDoodads.Terrain = {
                 }
             }
         }
+        if (settings.walls) this.buildWalls(map, settings, out, keep);
         return out;
+    },
+
+    // A per-tile wall value (faceRows / faceDown), wrapped like tileHeight; 0 where there is none.
+    wallMeta(grid, list, tx, ty) {
+        const arr = grid.heights && grid.heights[list];
+        if (!arr) return 0;
+        if (grid.loopX) tx = ((tx % grid.width) + grid.width) % grid.width;
+        if (grid.loopY) ty = ((ty % grid.height) + grid.height) % grid.height;
+        if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return 0;
+        return arr[ty * grid.width + tx];
     },
 
     signature(map, tileset, settings) {
@@ -5456,7 +5511,9 @@ DocsDoodads.Terrain = {
                 for (let tx = tx0; tx < tx0 + cols; tx++) {
                     const h = this.tileHeight(grid, tx, ty);
                     const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
-                    const a = add(x0, y0, h, x0, y0, 1), b = add(x1, y0, h, x1, y0, 1), c = add(x1, y1, h, x1, y1, 1), d = add(x0, y1, h, x0, y1, 1);
+                    // A raised wall face shows the wall top's art on top (rows up the column).
+                    const up = this.wallMeta(grid, 'faceRows', tx, ty) * th;
+                    const a = add(x0, y0, h, x0, y0 - up, 1), b = add(x1, y0, h, x1, y0 - up, 1), c = add(x1, y1, h, x1, y1 - up, 1), d = add(x0, y1, h, x0, y1 - up, 1);
                     triangles.push(a, b, c, a, c, d);
                     // Walls down to lower neighbours, textured with this tile and shaded by the way they face.
                     const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
@@ -5464,8 +5521,10 @@ DocsDoodads.Terrain = {
                         const low = this.tileHeight(grid, tx + dx, ty + dy);
                         if (low >= h) continue;
                         const sh = shadeOf(dx, dy, 0) * 0.85;
-                        // The wall shows the tile squashed from its far edge down to this edge.
-                        const fu = dx === 0 ? 0 : -dx * tw, fv = dy === 0 ? 0 : -dy * th;
+                        // The wall shows the tile squashed from its far edge down to this edge; the front of an
+                        // interior wall shows the wall face art drawn above it in 2D.
+                        const face = dy === 1 ? this.wallMeta(grid, 'faceDown', tx, ty) : 0;
+                        const fu = dx === 0 ? 0 : -dx * tw, fv = face > 0 ? -face * th : dy === 0 ? 0 : -dy * th;
                         const p = add(ax, ay, h, ax + fu, ay + fv, sh), q = add(bx, by, h, bx + fu, by + fv, sh);
                         const r = add(bx, by, low, bx, by, sh), t = add(ax, ay, low, ax, ay, sh);
                         triangles.push(p, q, r, p, r, t);
@@ -18988,7 +19047,9 @@ DocsDoodads.Workspace = {
             check('block', 'Steep steps block walking'),
             number('climb', 'Highest step you can walk (tiles)'),
             check('drop', 'Walk off ledges (jump down)'),
-            number('hop', 'Hop up steps up to (tiles; 0 = off)')
+            number('hop', 'Hop up steps up to (tiles; 0 = off)'),
+            check('walls', 'Walls stand up (A3/A4 wall tiles; use the Stepped shape)'),
+            number('wallHeight', 'Wall height where there is no wall face (tiles)')
         ];
     },
 
