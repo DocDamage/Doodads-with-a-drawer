@@ -451,6 +451,7 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 | Sky colour | The colour above the horizon. A map's parallax becomes the sky instead, and turns with the camera. |
 | Beyond the map edge | The colour of ground past the map's edges. |
 | Round world | **Planet**: the ground curves away all round, like a small world. **Rolling log**: it curves away only ahead, so things rise over the horizon as you walk toward them. |
+| Curvature | How round the world is: 0 is flat, 10 is gentle, 100 is a tiny planet. Moving it off 0 turns a flat map into a planet; the radius below follows it. |
 | World radius | How tight the curve is, in tiles. 0 sizes a planet so one lap is the map's width: on a looping world map, walking all the way round brings you back. |
 | Things lean with the curve | Standing things lean outwards with the ground. Turn it off to keep them upright. |
 | Q / W turn the camera 90° | Players can turn the view. The arrow keys follow the camera (up walks away from it), and characters show the side facing it. |
@@ -472,7 +473,7 @@ On a round world, things past the horizon are hidden, and clicks, fog and editor
   - The grid, paths and guides are drawn on the ground.
 
 ### Plugin commands
-- **Set Camera (3D):** tilt, turn, zoom and field of view, absolute or added to the current values, eased over a number of frames, with optional wait. Use it for cutscenes.
+- **Set Camera (3D):** tilt, turn, zoom, field of view, round-world shape and curvature, absolute or added to the current values, eased over a number of frames, with optional wait. Use it for cutscenes: ease a flat map into a planet to show the whole world, or set the shape to Flat to ease the curve back out.
 - **Reset Camera (3D):** returns to the map's own camera.
 - **Set 3D View:** turns 3D on or off for the current map, or back to the map's setting.
 
