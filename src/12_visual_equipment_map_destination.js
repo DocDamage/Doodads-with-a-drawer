@@ -113,13 +113,16 @@ DocsDoodads.VisualEquip = {
                 if (overrides[set].hue !== undefined && overrides[set].hue !== null) hue = Number(overrides[set].hue) || 0;
                 if (overrides[set].tint !== undefined) tint = overrides[set].tint;
             }
-            out.push({ image: fill(layer.image), z: layer.z, up: layer.up, part: layer.part, index: layer.index, sv: fill(layer.sv), hue, tint });
+            // An Aseprite layer (Hero.aseprite#Sword) draws from its generated sheet; one that can't be found is skipped.
+            const image = DocsDoodads.AsepriteVisuals.resolve(fill(layer.image));
+            if (!image) continue;
+            out.push({ image, z: layer.z, up: layer.up, part: layer.part, index: layer.index, sv: fill(layer.sv), hue, tint });
         }
         return out.sort((a, b) => a.z - b.z);
     },
 
     signature(layers) {
-        return (layers || []).map(l => [l.image, l.z, l.up, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
+        return DocsDoodads.AsepriteVisuals.version + '/' + (layers || []).map(l => [l.image, l.z, l.up, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
     },
 
     // The draw order for a facing: "up" replaces z while facing up (a cape goes in front of the back).
@@ -619,6 +622,202 @@ DocsDoodads.AsepriteSheets = {
         let at = 0;
         for (const part of parts) { png.set(part, at); at += part.length; }
         return png;
+    }
+};
+
+// Gear drawn straight from Aseprite: <visual: Hero.aseprite#Sword> names a layer of a layered .aseprite
+// walk cycle (in img/characters, or a project path such as art/Hero.aseprite). The layer's sheet is made
+// in img/characters (as Make Layer Sheets does) and used like any other: in a playtest it's written when
+// missing or older than the .aseprite, and remade when the .aseprite is saved again, so the character
+// changes in the running game. A small manifest (data/DocsDoodadsAseprite.json) lets games without file
+// access (browsers) find the sheets.
+DocsDoodads.AsepriteVisuals = {
+    manifestPath: 'data/DocsDoodadsAseprite.json',
+    manifest: { version: 1, refs: {} },
+    // Bumped whenever a sheet is remade, so characters wearing it rebuild their layers.
+    version: 0,
+    _names: new Map(),
+    _files: new Map(),
+    _warned: new Set(),
+    watchers: new Map(),
+    pending: new Set(),
+    timer: null,
+    delay: 300,
+
+    // { file, layer } for "Hero.aseprite#Sword" (or .ase), else null.
+    parseRef(image) {
+        const m = /^(.+?\.(?:aseprite|ase))\s*#\s*(.+)$/i.exec(String(image || '').trim());
+        return m ? { file: m[1].trim(), layer: m[2].trim() } : null;
+    },
+
+    // A bare name is in img/characters; anything with a folder is a path from the project folder.
+    pathFor(file) {
+        const f = String(file).replace(/\\/g, '/').replace(/^\.?\/+/, '');
+        return f.includes('/') ? f : 'img/characters/' + f;
+    },
+
+    key(path, layer) {
+        return path.toLowerCase() + '#' + String(layer).toLowerCase();
+    },
+
+    // The sheet name to draw for a layer image: unchanged for plain sheet names, the generated sheet's
+    // name for an Aseprite layer, or '' when that layer can't be found.
+    resolve(image) {
+        const ref = this.parseRef(image);
+        if (!ref) return image;
+        const path = this.pathFor(ref.file);
+        const key = this.key(path, ref.layer);
+        if (this._names.has(key)) return this._names.get(key);
+        const name = this.build(path, ref.layer) || this.manifest.refs[key] || '';
+        this._names.set(key, name);
+        return name;
+    },
+
+    // The file's layer sheets (parsed once per version of the file), or null without file access.
+    sheetsOf(path) {
+        const FS = DocsDoodads.FS;
+        if (!FS.fs || typeof require === 'undefined' || !FS.existsSync(path)) return null;
+        const mtime = FS.fs.statSync(path).mtimeMs;
+        const hit = this._files.get(path);
+        if (hit && hit.mtime === mtime) return hit;
+        const zlib = require('zlib');
+        const A = DocsDoodads.AsepriteSheets;
+        const base = FS.path.basename(path).replace(/\.(aseprite|ase)$/i, '');
+        const sheets = A.sheets(A.parse(FS.fs.readFileSync(path), data => zlib.inflateSync(data)), base);
+        const entry = { mtime, sheets };
+        this._files.set(path, entry);
+        return entry;
+    },
+
+    // The sheet name for one layer, making the file's sheets first where they're missing or older.
+    build(path, layer) {
+        let entry;
+        try {
+            entry = this.sheetsOf(path);
+        } catch (e) {
+            this.warn(path, 'Could not read ' + path + ': ' + e.message);
+            return null;
+        }
+        if (!entry) return null;
+        const sheet = entry.sheets.find(sh => String(sh.name).toLowerCase() === String(layer).toLowerCase());
+        if (!sheet) {
+            this.warn(path + '#' + layer, `${path} has no visible layer named "${layer}" (it has: ${entry.sheets.map(sh => sh.name).join(', ')}).`);
+            return null;
+        }
+        if (DocsDoodads.FS.writable()) {
+            this.writeSheets(path, entry);
+            this.watch(path);
+        }
+        return sheet.fileName.replace(/\.png$/i, '');
+    },
+
+    // Writes the file's sheets to img/characters where missing or older than the .aseprite, and records
+    // them in the manifest. Returns the sheet paths written.
+    writeSheets(path, entry) {
+        const FS = DocsDoodads.FS;
+        const zlib = require('zlib');
+        const A = DocsDoodads.AsepriteSheets;
+        const written = [];
+        let manifestChanged = false;
+        FS.mkdirp('img/characters');
+        for (const sheet of entry.sheets) {
+            const out = 'img/characters/' + sheet.fileName;
+            if (!FS.existsSync(out) || FS.fs.statSync(out).mtimeMs < entry.mtime) {
+                FS.fs.writeFileSync(out, A.encodePng(sheet.width, sheet.height, sheet.rgba, data => zlib.deflateSync(data)));
+                written.push(out);
+            }
+            const key = this.key(path, sheet.name), name = sheet.fileName.replace(/\.png$/i, '');
+            if (this.manifest.refs[key] !== name) { this.manifest.refs[key] = name; manifestChanged = true; }
+        }
+        if (manifestChanged) FS.atomicWriteJson(this.manifestPath, this.manifest);
+        if (written.length) this.reloadSheets(written);
+        return written;
+    },
+
+    // Pictures already loaded for these sheets are loaded again from the new files (a fresh URL, so the
+    // browser doesn't hand back the old picture), and characters wearing them rebuild.
+    reloadSheets(paths) {
+        this.version++;
+        if (typeof ImageManager === 'undefined' || !ImageManager._cache || typeof Bitmap === 'undefined') return;
+        for (const p of paths) {
+            const url = 'img/characters/' + (typeof Utils !== 'undefined' && Utils.encodeURI ? Utils.encodeURI(p.replace(/^img\/characters\//, '').replace(/\.png$/i, '')) : p) + '.png';
+            if (ImageManager._cache[url]) ImageManager._cache[url] = Bitmap.load(url + '?v=' + this.version);
+        }
+        if (DocsDoodads.VisualEquip && DocsDoodads.VisualEquip._recolored) DocsDoodads.VisualEquip._recolored.clear();
+    },
+
+    warn(key, message) {
+        if (this._warned.has(key)) return;
+        this._warned.add(key);
+        console.warn('[DocsDoodads] ' + message);
+    },
+
+    // Watches the folders of the .aseprite files in use (playtest only); a save there remakes the sheets.
+    watch(path) {
+        const FS = DocsDoodads.FS;
+        const dir = FS.path.dirname(path);
+        if (this.watchers.has(dir) || typeof FS.fs.watch !== 'function') return;
+        try {
+            this.watchers.set(dir, FS.fs.watch(dir, (event, file) => {
+                if (file && /\.(aseprite|ase)$/i.test(String(file))) this.queue((dir + '/' + String(file)).replace(/\\/g, '/'));
+            }));
+        } catch (e) {
+            this.watchers.set(dir, null);
+        }
+    },
+
+    queue(path) {
+        this.pending.add(path);
+        clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.flush(), this.delay);
+    },
+
+    // Remakes the sheets of the .aseprite files that changed; returns the files remade.
+    flush() {
+        const files = [...this.pending];
+        this.pending.clear();
+        const done = [];
+        for (const path of files) {
+            const known = [...this._names.keys()].some(k => k.startsWith(path.toLowerCase() + '#'));
+            if (!known) continue;
+            this._files.delete(path);
+            for (const k of [...this._names.keys()]) if (k.startsWith(path.toLowerCase() + '#')) this._names.delete(k);
+            for (const k of [...this._warned]) if (k.startsWith(path)) this._warned.delete(k);
+            try {
+                const entry = this.sheetsOf(path);
+                if (entry && DocsDoodads.FS.writable()) this.writeSheets(path, entry);
+                done.push(path);
+            } catch (e) {
+                // A file caught half-saved is read again on the next change.
+            }
+        }
+        if (done.length) {
+            this.version++;
+            const ws = DocsDoodads.Workspace;
+            if (ws && ws.mounted && ws.showToast) ws.showToast('Reloaded ' + done.map(p => p.split('/').pop()).join(', ') + '.');
+        }
+        return done;
+    },
+
+    stop() {
+        for (const w of this.watchers.values()) { try { if (w) w.close(); } catch (e) {} }
+        this.watchers.clear();
+        clearTimeout(this.timer);
+        this.pending.clear();
+    },
+
+    // "File.aseprite#Layer" for every layer of every .aseprite in img/characters (for the notetag builder).
+    refs() {
+        const FS = DocsDoodads.FS;
+        if (!FS.fs || !FS.existsSync('img/characters')) return [];
+        const out = [];
+        for (const f of FS.fs.readdirSync('img/characters').filter(n => /\.(aseprite|ase)$/i.test(n)).sort()) {
+            try {
+                const entry = this.sheetsOf('img/characters/' + f);
+                for (const sh of (entry && entry.sheets) || []) out.push(f + '#' + sh.name);
+            } catch (e) {}
+        }
+        return out;
     }
 };
 
