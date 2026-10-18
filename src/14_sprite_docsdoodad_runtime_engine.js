@@ -214,6 +214,12 @@ if (typeof PIXI !== 'undefined') {
 
     // Fades a tall doodad while the player is hidden behind it (and flags the player for the silhouette).
     Sprite_DocsDoodad.prototype.updateSeeThrough = function(editing) {
+        // The 3D view fades by what's on screen after the camera (docsSeeThroughBillboards); the flat
+        // rectangles here would fade the wrong doodads on top of that.
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.active()) {
+            this._seeAlpha = 1;
+            return 1;
+        }
         const settings = DocsDoodads.World.settings().seeThrough;
         const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         let target = 1;

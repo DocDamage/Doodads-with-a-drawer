@@ -407,7 +407,7 @@ function install() {
     }
     g.Spriteset_Map = Spriteset_Map;
     g.Spriteset_Battle = class extends Spriteset_Base {};
-    class Scene_Base extends Container { constructor() { super(); this._active = true; } create() {} start() {} update() {} terminate() {} isActive() { return this._active; } popScene() {} }
+    class Scene_Base extends Container { constructor() { super(); this._active = true; } initialize() { Container.call(this); this._active = true; } create() {} start() {} update() {} terminate() {} isActive() { return this._active; } popScene() {} }
     g.Scene_Base = Scene_Base;
     class Scene_Map extends Scene_Base { create() {} onMapLoaded() {} terminate() {} snapForBattleBackground() {} isMenuEnabled() { return true; } }
     g.Scene_Map = Scene_Map;

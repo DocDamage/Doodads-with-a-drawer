@@ -99,6 +99,10 @@ DocsDoodads.Workspace = {
                 if (panel.parentNode) panel.parentNode.removeChild(panel);
             }
         }
+        // The undo history floats on the page too (it isn't a glass panel).
+        const history = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-undo-history') : null;
+        if (history && history.parentNode) history.parentNode.removeChild(history);
+        this._undoHistoryOpen = false;
         this.postFxCompare = false;
         this.mounted = false;
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {

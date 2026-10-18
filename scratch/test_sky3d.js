@@ -79,7 +79,7 @@ assert.notStrictEqual(S.lightKey([0.1, 0.2, 0.97]), S.lightKey([0.3, 0.2, 0.93])
 {
     const Pv = DocsDoodads.Perspective;
     const d = Pv.normalize({});
-    assert.deepStrictEqual([d.clouds, d.mist, d.cloudScale, d.cloudSpeed, d.mistHeight], [0, 0, 12, 1, 1]);
+    assert.deepStrictEqual([d.clouds, d.mist, d.cloudScale, d.cloudSpeed, d.mistHeight], [0, 0, 6, 1, 1]);
     const v = Pv.normalize({ clouds: 5, mist: -1, cloudScale: 0, cloudSpeed: 99, mistHeight: 0 });
     assert.deepStrictEqual([v.clouds, v.mist, v.cloudScale, v.cloudSpeed, v.mistHeight], [1, 0, 2, 5, 0.25]);
     assert.deepStrictEqual(Pv.cloudDrift(0, 1), { x: 0, y: 0 });

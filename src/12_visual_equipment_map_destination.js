@@ -339,6 +339,12 @@ DocsDoodads.Gltf = {
             const node = j.nodes[index];
             const m = this.multiply(parent, this.nodeMatrix(node));
             if (node.mesh !== undefined) {
+                // Normals turn by the cofactor matrix (right under uneven scaling); a mirrored node
+                // (negative determinant) has its triangles' winding reversed so they still face out.
+                const a0 = [m[0], m[1], m[2]], a1 = [m[4], m[5], m[6]], a2 = [m[8], m[9], m[10]];
+                const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+                const c0 = cross(a1, a2), c1 = cross(a2, a0), c2 = cross(a0, a1);
+                const mirrored = a0[0] * c0[0] + a0[1] * c0[1] + a0[2] * c0[2] < 0;
                 for (const p of j.meshes[node.mesh].primitives) {
                     if (p.mode !== undefined && p.mode !== 4) continue;
                     if (p.attributes.POSITION === undefined) continue;
@@ -357,13 +363,15 @@ DocsDoodads.Gltf = {
                         }
                         if (nor) {
                             const nx = nor[v * 3], ny = nor[v * 3 + 1], nz = nor[v * 3 + 2];
-                            const a = m[0] * nx + m[4] * ny + m[8] * nz, b = m[1] * nx + m[5] * ny + m[9] * nz, c = m[2] * nx + m[6] * ny + m[10] * nz;
+                            const sign = mirrored ? -1 : 1;
+                            const a = sign * (c0[0] * nx + c1[0] * ny + c2[0] * nz), b = sign * (c0[1] * nx + c1[1] * ny + c2[1] * nz), c = sign * (c0[2] * nx + c1[2] * ny + c2[2] * nz);
                             const len = Math.hypot(a, b, c) || 1;
                             normals[v * 3] = a / len; normals[v * 3 + 1] = b / len; normals[v * 3 + 2] = c / len;
                         } else normals[v * 3 + 1] = 1;
                         if (uv) { uvs[v * 2] = uv[v * 2]; uvs[v * 2 + 1] = uv[v * 2 + 1]; }
                     }
                     const indices = p.indices !== undefined ? Uint32Array.from(this.accessor(doc, p.indices)) : Uint32Array.from({ length: count }, (_, i) => i);
+                    if (mirrored) for (let t = 0; t + 2 < indices.length; t += 3) { const b = indices[t + 1]; indices[t + 1] = indices[t + 2]; indices[t + 2] = b; }
                     const mat = p.material !== undefined ? j.materials[p.material] : {};
                     const pbr = mat.pbrMetallicRoughness || {};
                     const f = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -371,8 +379,8 @@ DocsDoodads.Gltf = {
                     if (pbr.baseColorTexture && j.textures) {
                         const tex = j.textures[pbr.baseColorTexture.index];
                         const img = tex && j.images[tex.source];
-                        if (img && img.bufferView !== undefined) image = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png' };
-                        else if (img && img.uri) image = { uri: img.uri, mime: img.mimeType || '' };
+                        if (img && img.bufferView !== undefined) image = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png', source: tex.source };
+                        else if (img && img.uri) image = { uri: img.uri, mime: img.mimeType || '', source: tex.source };
                         const sampler = tex && tex.sampler !== undefined && j.samplers ? j.samplers[tex.sampler] : null;
                         nearest = Boolean(sampler && sampler.magFilter === 9728);
                     }
@@ -549,13 +557,15 @@ DocsDoodads.AsepriteSheets = {
     },
 
     // A sheet per visible image layer: { name, fileName, width, height, rgba }. Single-character sheets
-    // ('$' prefix); rows of more or fewer than 3 frames say so in the name ([f4]).
+    // ('$' prefix); rows of more or fewer than 3 frames say so in the name ([f4]). Layers whose names
+    // come out the same (two "Hair" layers, or "Hair" and "hair" on Windows) get _2, _3... so none is lost.
     sheets(ase, baseName) {
         const plan = this.plan(ase);
         const fw = ase.width, fh = ase.height;
         const width = fw * plan.perRow, height = fh * 4;
         const safe = n => String(n).replace(/[\\/:*?"<>|\[\]$!]/g, '').replace(/\s+/g, '_') || 'Layer';
         const out = [];
+        const taken = new Set();
         ase.layers.forEach((layer, index) => {
             if (layer.type !== 0 || !layer.visible) return;
             const rgba = new Uint8ClampedArray(width * height * 4);
@@ -568,7 +578,10 @@ DocsDoodads.AsepriteSheets = {
             }));
             if (!rgba.some((v, i) => i % 4 === 3 && v > 0)) return;
             const tag = plan.perRow === 3 ? '' : `[f${plan.perRow}]`;
-            out.push({ name: layer.name, fileName: `$${safe(baseName)}_${safe(layer.name)}${tag}.png`, width, height, rgba });
+            let part = safe(layer.name);
+            for (let n = 2; taken.has(part.toLowerCase()); n++) part = safe(layer.name) + '_' + n;
+            taken.add(part.toLowerCase());
+            out.push({ name: layer.name, fileName: `$${safe(baseName)}_${part}${tag}.png`, width, height, rgba });
         });
         return out;
     },

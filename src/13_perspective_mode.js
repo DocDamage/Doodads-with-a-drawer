@@ -11,7 +11,7 @@ DocsDoodads.Perspective = {
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
-        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
+        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
     },
 
     curves: [

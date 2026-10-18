@@ -4345,6 +4345,12 @@ DocsDoodads.Gltf = {
             const node = j.nodes[index];
             const m = this.multiply(parent, this.nodeMatrix(node));
             if (node.mesh !== undefined) {
+                // Normals turn by the cofactor matrix (right under uneven scaling); a mirrored node
+                // (negative determinant) has its triangles' winding reversed so they still face out.
+                const a0 = [m[0], m[1], m[2]], a1 = [m[4], m[5], m[6]], a2 = [m[8], m[9], m[10]];
+                const cross = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+                const c0 = cross(a1, a2), c1 = cross(a2, a0), c2 = cross(a0, a1);
+                const mirrored = a0[0] * c0[0] + a0[1] * c0[1] + a0[2] * c0[2] < 0;
                 for (const p of j.meshes[node.mesh].primitives) {
                     if (p.mode !== undefined && p.mode !== 4) continue;
                     if (p.attributes.POSITION === undefined) continue;
@@ -4363,13 +4369,15 @@ DocsDoodads.Gltf = {
                         }
                         if (nor) {
                             const nx = nor[v * 3], ny = nor[v * 3 + 1], nz = nor[v * 3 + 2];
-                            const a = m[0] * nx + m[4] * ny + m[8] * nz, b = m[1] * nx + m[5] * ny + m[9] * nz, c = m[2] * nx + m[6] * ny + m[10] * nz;
+                            const sign = mirrored ? -1 : 1;
+                            const a = sign * (c0[0] * nx + c1[0] * ny + c2[0] * nz), b = sign * (c0[1] * nx + c1[1] * ny + c2[1] * nz), c = sign * (c0[2] * nx + c1[2] * ny + c2[2] * nz);
                             const len = Math.hypot(a, b, c) || 1;
                             normals[v * 3] = a / len; normals[v * 3 + 1] = b / len; normals[v * 3 + 2] = c / len;
                         } else normals[v * 3 + 1] = 1;
                         if (uv) { uvs[v * 2] = uv[v * 2]; uvs[v * 2 + 1] = uv[v * 2 + 1]; }
                     }
                     const indices = p.indices !== undefined ? Uint32Array.from(this.accessor(doc, p.indices)) : Uint32Array.from({ length: count }, (_, i) => i);
+                    if (mirrored) for (let t = 0; t + 2 < indices.length; t += 3) { const b = indices[t + 1]; indices[t + 1] = indices[t + 2]; indices[t + 2] = b; }
                     const mat = p.material !== undefined ? j.materials[p.material] : {};
                     const pbr = mat.pbrMetallicRoughness || {};
                     const f = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -4377,8 +4385,8 @@ DocsDoodads.Gltf = {
                     if (pbr.baseColorTexture && j.textures) {
                         const tex = j.textures[pbr.baseColorTexture.index];
                         const img = tex && j.images[tex.source];
-                        if (img && img.bufferView !== undefined) image = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png' };
-                        else if (img && img.uri) image = { uri: img.uri, mime: img.mimeType || '' };
+                        if (img && img.bufferView !== undefined) image = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png', source: tex.source };
+                        else if (img && img.uri) image = { uri: img.uri, mime: img.mimeType || '', source: tex.source };
                         const sampler = tex && tex.sampler !== undefined && j.samplers ? j.samplers[tex.sampler] : null;
                         nearest = Boolean(sampler && sampler.magFilter === 9728);
                     }
@@ -4555,13 +4563,15 @@ DocsDoodads.AsepriteSheets = {
     },
 
     // A sheet per visible image layer: { name, fileName, width, height, rgba }. Single-character sheets
-    // ('$' prefix); rows of more or fewer than 3 frames say so in the name ([f4]).
+    // ('$' prefix); rows of more or fewer than 3 frames say so in the name ([f4]). Layers whose names
+    // come out the same (two "Hair" layers, or "Hair" and "hair" on Windows) get _2, _3... so none is lost.
     sheets(ase, baseName) {
         const plan = this.plan(ase);
         const fw = ase.width, fh = ase.height;
         const width = fw * plan.perRow, height = fh * 4;
         const safe = n => String(n).replace(/[\\/:*?"<>|\[\]$!]/g, '').replace(/\s+/g, '_') || 'Layer';
         const out = [];
+        const taken = new Set();
         ase.layers.forEach((layer, index) => {
             if (layer.type !== 0 || !layer.visible) return;
             const rgba = new Uint8ClampedArray(width * height * 4);
@@ -4574,7 +4584,10 @@ DocsDoodads.AsepriteSheets = {
             }));
             if (!rgba.some((v, i) => i % 4 === 3 && v > 0)) return;
             const tag = plan.perRow === 3 ? '' : `[f${plan.perRow}]`;
-            out.push({ name: layer.name, fileName: `$${safe(baseName)}_${safe(layer.name)}${tag}.png`, width, height, rgba });
+            let part = safe(layer.name);
+            for (let n = 2; taken.has(part.toLowerCase()); n++) part = safe(layer.name) + '_' + n;
+            taken.add(part.toLowerCase());
+            out.push({ name: layer.name, fileName: `$${safe(baseName)}_${part}${tag}.png`, width, height, rgba });
         });
         return out;
     },
@@ -4794,7 +4807,7 @@ DocsDoodads.Perspective = {
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
-        clouds: 0, cloudScale: 12, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
+        clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
     },
 
     curves: [
@@ -6411,6 +6424,12 @@ if (typeof PIXI !== 'undefined') {
 
     // Fades a tall doodad while the player is hidden behind it (and flags the player for the silhouette).
     Sprite_DocsDoodad.prototype.updateSeeThrough = function(editing) {
+        // The 3D view fades by what's on screen after the camera (docsSeeThroughBillboards); the flat
+        // rectangles here would fade the wrong doodads on top of that.
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.active()) {
+            this._seeAlpha = 1;
+            return 1;
+        }
         const settings = DocsDoodads.World.settings().seeThrough;
         const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         let target = 1;
@@ -6780,8 +6799,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (!this._baseSprite || typeof PIXI === 'undefined') return;
         const settings = DocsDoodads.World.settings().seeThrough;
         const sprite = this.docsPlayerSprite();
+        // Flat maps only: in 3D the player isn't where the flat sprite is, and things fade instead.
         const show = DocsDoodads.Atmosphere._playerHidden && settings.mode !== 'fade' && sprite && sprite._docsFrameTexture
-            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) && !(DocsDoodads.Perspective && DocsDoodads.Perspective.active());
         let ghost = this._docsSilhouette;
         if (!show) {
             if (ghost) ghost.visible = false;
@@ -9341,7 +9361,11 @@ if (typeof Sprite_Animation !== 'undefined') {
     // ...and plays where the target is drawn, not where it would be on the flat map.
     $.Sprite_Animation_targetSpritePosition_3d = Sprite_Animation.prototype.targetSpritePosition;
     Sprite_Animation.prototype.targetSpritePosition = function(sprite) {
-        const m = sprite && sprite._docs3dMatrix;
+        // The target as drawn in the last frame or this one; a target not drawn (hidden, blinking, past
+        // the fog) has an old matrix, so the animation's own (made at its first target) is used instead.
+        const frame = DocsDoodads.frameCount();
+        const fresh = sp => sp && sp._docs3dMatrix && frame - (sp._docs3dFrame || 0) <= 1 ? sp._docs3dMatrix : null;
+        const m = fresh(sprite) || fresh(this);
         const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene && SceneManager._scene._spriteset;
         const view = spriteset && spriteset._docs3dBillboards;
         if (!m || !view || !DocsDoodads.Perspective.liveCamera()) return $.Sprite_Animation_targetSpritePosition_3d.call(this, sprite);
@@ -9552,10 +9576,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const mesh = this.docsGroundMesh(W, H);
         mesh.visible = !terrain;
         const u = mesh.shader.uniforms;
-        if (s.water) {
-            this.docsWaterMask();
-            this.updateDocsWakes(s, DocsDoodads.frameCount() / 60);
-        }
+        // Settled snow keeps off water, so it needs the water mask as well.
+        if (s.water || s.snowCover) this.docsWaterMask();
+        if (s.water) this.updateDocsWakes(s, DocsDoodads.frameCount() / 60);
         u.uSampler = rt;
         u.uCam = [cam.C.x, cam.C.y, cam.C.z];
         u.uF = [cam.F.x, cam.F.y, cam.F.z];
@@ -9599,6 +9622,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 if (models) {
                     for (const it of models) items.push(it);
                     obj._docs3dMatrix = m;
+                    obj._docs3dFrame = DocsDoodads.frameCount();
                     continue;
                 }
             }
@@ -9606,6 +9630,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             // Effekseer draws in screen space at its target; it shrinks with distance like the target does.
             if (isEffekseer) obj._docs3dScale = Math.hypot(m.a, m.b);
             obj._docs3dMatrix = m;
+            obj._docs3dFrame = DocsDoodads.frameCount();
             // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
             items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
@@ -10034,6 +10059,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             this._docs3dTexture.destroy(true);
             this._docs3dTexture = null;
         }
+        // Textures and meshes the 3D view made itself (MZ frees the sprites' textures, not their pictures).
+        if (this._docsTerrainMesh) { this._docsTerrainMesh.destroy(); this._docsTerrainMesh = null; }
+        this._docsTerrainTopo = null;
+        if (this._docsLightTexture) { this._docsLightTexture.destroy(true); this._docsLightTexture = null; }
+        if (this._docsSkyTexture) { this._docsSkyTexture.destroy(true); this._docsSkyTexture = null; }
+        for (const bitmap of this._docsStandBitmaps ? this._docsStandBitmaps.values() : []) if (bitmap) bitmap.destroy();
+        this._docsStandBitmaps = null;
+        if (this.docsDestroyMinimap) this.docsDestroyMinimap();
         P._cam = null;
         $.Spriteset_Map_destroy_3d.call(this, options);
     };
@@ -10504,10 +10537,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     };
 
     // Groups near the camera get a billboard from a pool, standing on their foot line like a doodad.
+    // A group keeps the same sprite while it stays in view, so its fade (See-Through) stays with it.
     Spriteset_Map.prototype.updateDocsStandTiles = function(s) {
         const stand = this.docsStandGroups(s);
         const pool = this._docsStandSprites = this._docsStandSprites || [];
-        let used = 0;
+        const shown = this._docsStandShown = this._docsStandShown || new Map();
+        shown.clear();
         if (stand.list.length && this._docs3dSize) {
             const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
             const { width: gw, height: gh } = this._docs3dSize;
@@ -10515,24 +10550,35 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 const x = $gameMap.adjustX(g.x + g.w / 2) * tw, y = $gameMap.adjustY(g.y + g.h) * th;
                 if (x < -g.w * tw || y < 0 || x > gw + g.w * tw || y > gh + g.h * th) continue;
                 const bitmap = this.docsStandBitmap(g);
-                if (!bitmap) continue;
-                let sprite = pool[used];
+                if (bitmap) shown.set(g, { bitmap, x, y });
+            }
+        }
+        const owned = new Map(), free = [];
+        for (const sprite of pool) {
+            if (sprite._docsStandGroup && shown.has(sprite._docsStandGroup)) owned.set(sprite._docsStandGroup, sprite);
+            else { sprite._docsStandGroup = null; sprite.visible = false; free.push(sprite); }
+        }
+        for (const [g, at] of shown) {
+            let sprite = owned.get(g);
+            if (!sprite) {
+                sprite = free.pop();
                 if (!sprite) {
-                    sprite = pool[used] = new Sprite();
+                    sprite = new Sprite();
                     sprite.anchor.set(0.5, 1);
                     sprite.z = 3;
                     sprite._docsStandTile = true;
+                    pool.push(sprite);
                     this._tilemap.addChild(sprite);
                 }
-                if (sprite.bitmap !== bitmap) sprite.bitmap = bitmap;
-                sprite.x = x;
-                sprite.y = y;
+                sprite._docsStandGroup = g;
+                sprite.alpha = 1;
                 sprite.spriteId = g.y * 100000 + g.x;
-                sprite.visible = true;
-                used++;
             }
+            if (sprite.bitmap !== at.bitmap) sprite.bitmap = at.bitmap;
+            sprite.x = at.x;
+            sprite.y = at.y;
+            sprite.visible = true;
         }
-        for (let i = used; i < pool.length; i++) pool[i].visible = false;
     };
 
     // Back to a flat map: the tiles return to the ground.
@@ -10579,7 +10625,13 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const cellH = Math.round(texture.frame.height);
         const key = (base.cacheId || base.uid) + '|' + cellH;
         this._caps = this._caps || new Map();
-        if (this._caps.has(key)) return this._caps.get(key);
+        if (this._caps.has(key)) {
+            // Most recently used last, so the oldest unused one goes first.
+            const hit = this._caps.get(key);
+            this._caps.delete(key);
+            this._caps.set(key, hit);
+            return hit;
+        }
         const w = source.width, h = source.height;
         const canvas = document.createElement('canvas');
         canvas.width = w;
@@ -10595,8 +10647,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             image.data[i * 4 + 3] = cap[i];
         }
         ctx.putImageData(image, 0, 0);
-        const out = PIXI.BaseTexture.from(canvas);
-        if (this._caps.size > 64) this._caps.clear();
+        const out = new PIXI.BaseTexture(canvas);
+        // At most 64 kept: the oldest goes (Maps keep insertion order).
+        while (this._caps.size >= 64) {
+            const oldest = this._caps.keys().next().value;
+            const old = this._caps.get(oldest);
+            this._caps.delete(oldest);
+            if (old && old.destroy) old.destroy();
+        }
         this._caps.set(key, out);
         return out;
     };
@@ -10624,6 +10682,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             const key = base.uid + '|' + f.x + ',' + f.y + ',' + f.width + ',' + f.height;
             if (cap._docsKey !== key) {
                 cap._docsKey = key;
+                if (cap.texture && cap.texture !== PIXI.Texture.EMPTY) cap.texture.destroy(false);
                 cap.texture = new PIXI.Texture(base, new PIXI.Rectangle(f.x, f.y, f.width, f.height));
             }
             // Same place and size as the picture it caps (a child, so it shares the transform).
@@ -10634,10 +10693,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     };
 
     // Where the player is drawn this frame ({ rect: [centre x, centre y, half width, half height], depth }),
-    // so hills between them and the camera can fade there. null when the player isn't drawn.
+    // so hills between them and the camera can fade there. null when the player isn't drawn, or while
+    // editing (everything shows as placed). The 3D view has no silhouette, so Silhouette mode fades too.
     Spriteset_Map.prototype.docsPlayerSeeThrough = function() {
         const settings = DocsDoodads.World.settings().seeThrough;
         if (!settings || !settings.enabled || !DocsDoodads.Atmosphere.featureOn('seeThrough')) return null;
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return null;
         const sprite = (this._characterSprites || []).find(sp => sp._character === $gamePlayer);
         const m = sprite && sprite.visible && sprite._docs3dMatrix;
         if (!m || !(sprite.width > 0)) return null;
@@ -10717,10 +10778,10 @@ if (typeof Game_CharacterBase !== 'undefined') {
     Game_CharacterBase.prototype.isMapPassable = function(x, y, d) {
         if (!$.Game_CharacterBase_isMapPassable_terrain.call(this, x, y, d)) return false;
         const T = DocsDoodads.Terrain;
-        const s = T.active();
-        if (!s || !s.block) return true;
+        // Pathfinding asks this thousands of times a frame: the grid (and its settings) is kept per frame.
         const g = T.grid();
-        if (!g) return true;
+        const s = g && g.settings;
+        if (!s || !s.block) return true;
         const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
         return T.stepKind(T.tileHeight(g, x, y), T.tileHeight(g, x2, y2), s) !== 'blocked';
     };
@@ -10729,11 +10790,11 @@ if (typeof Game_CharacterBase !== 'undefined') {
     $.Game_CharacterBase_moveStraight_terrain = Game_CharacterBase.prototype.moveStraight;
     Game_CharacterBase.prototype.moveStraight = function(d) {
         const T = DocsDoodads.Terrain;
-        const s = T.active();
-        if (s && s.block && (s.drop || s.hop > 0) && !this.isJumping() && this.canPass(this._x, this._y, d)) {
-            const g = T.grid();
+        const g = T.grid();
+        const s = g && g.settings;
+        if (s && s.block && (s.drop || s.hop > 0) && !this.isJumping() && this.docsWalksTerrain() && this.canPass(this._x, this._y, d)) {
             const x2 = $gameMap.roundXWithDirection(this._x, d), y2 = $gameMap.roundYWithDirection(this._y, d);
-            const kind = g ? T.stepKind(T.tileHeight(g, this._x, this._y), T.tileHeight(g, x2, y2), s) : 'walk';
+            const kind = T.stepKind(T.tileHeight(g, this._x, this._y), T.tileHeight(g, x2, y2), s);
             if (kind === 'drop' || kind === 'hop') {
                 this.setMovementSuccess(true);
                 this.setDirection(d);
@@ -10743,6 +10804,14 @@ if (typeof Game_CharacterBase !== 'undefined') {
             }
         }
         $.Game_CharacterBase_moveStraight_terrain.call(this, d);
+    };
+
+    // Ledges are for walkers: not vehicles, the party aboard one, or characters set to Through.
+    Game_CharacterBase.prototype.docsWalksTerrain = function() {
+        if (this.isThrough() || (this.isDebugThrough && this.isDebugThrough())) return false;
+        if (typeof Game_Vehicle !== 'undefined' && this instanceof Game_Vehicle) return false;
+        if (this.isInVehicle && this.isInVehicle()) return false;
+        return true;
     };
 }
 
@@ -10799,11 +10868,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (!map) return;
         let mini = this._docsMinimap;
         if (!mini || mini._docsData !== map.data) {
-            if (mini) { this.removeChild(mini); mini.destroy({ children: true, texture: true, baseTexture: true }); }
+            this.docsDestroyMinimap();
             mini = this._docsMinimap = new PIXI.Container();
             mini._docsData = map.data;
-            const pic = new PIXI.Sprite(PIXI.Texture.from(DocsDoodads.Minimap.canvasFor(map.pixels, map.width, map.height)));
-            pic.texture.baseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST;
+            // Its own picture (not in PIXI's shared cache), freed with the minimap.
+            const base = new PIXI.BaseTexture(DocsDoodads.Minimap.canvasFor(map.pixels, map.width, map.height), { scaleMode: PIXI.SCALE_MODES.NEAREST });
+            const pic = new PIXI.Sprite(new PIXI.Texture(base));
             const scale = 140 / Math.max(map.width, map.height);
             pic.scale.set(scale);
             const frame = new PIXI.Graphics();
@@ -10826,46 +10896,123 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         arrow.y = ($gamePlayer._realY + 0.5) * sc;
         arrow.rotation = { 2: Math.PI, 4: -Math.PI / 2, 6: Math.PI / 2, 8: 0 }[$gamePlayer.direction()] || 0;
     };
+
+    Spriteset_Map.prototype.docsDestroyMinimap = function() {
+        const mini = this._docsMinimap;
+        this._docsMinimap = null;
+        if (!mini || mini._destroyed) return;
+        if (mini.parent) mini.parent.removeChild(mini);
+        mini.destroy({ children: true, texture: true, baseTexture: true });
+    };
 }
 
 // Loaded models by path (project-relative): { ready, error, primitives, textures }.
 DocsDoodads.Models = {
     _cache: {},
+    // A model that failed to load (missing, half-copied, broken) is tried again after this long.
+    retryAfter: 5000,
+
+    // Models, and the files they point to, have to be inside the project folder.
+    inside(root, target) {
+        const path = DocsDoodads.FS.path;
+        const rel = path.relative(root, target);
+        return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    },
 
     get(path) {
         if (!path) return null;
         const key = String(path).replace(/\\/g, '/');
-        if (this._cache[key]) return this._cache[key];
+        const cached = this._cache[key];
+        if (cached && !(cached.error && Date.now() - cached.failedAt >= this.retryAfter)) return cached;
+        if (cached) this.release(cached);
         const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [] };
         try {
             const FS = DocsDoodads.FS;
             if (!FS.fs) throw new Error('Models need the desktop game.');
-            const dir = FS.path.dirname(key);
-            const doc = DocsDoodads.Gltf.parse(FS.fs.readFileSync(key), uri => FS.fs.readFileSync(FS.path.join(dir, decodeURIComponent(uri))));
+            const root = FS.path.resolve('.');
+            const file = FS.path.resolve(root, key);
+            if (!this.inside(root, file)) throw new Error('Models have to be inside the project folder.');
+            const dir = FS.path.dirname(file);
+            const local = uri => {
+                const target = FS.path.resolve(dir, decodeURIComponent(uri));
+                if (!this.inside(root, target)) throw new Error('"' + uri + '" is outside the project folder.');
+                return target;
+            };
+            const doc = DocsDoodads.Gltf.parse(FS.fs.readFileSync(file), uri => FS.fs.readFileSync(local(uri)));
             const mesh = DocsDoodads.Gltf.meshes(doc);
             entry.primitives = mesh.primitives;
             entry.min = mesh.min;
             entry.max = mesh.max;
-            entry.textures = mesh.primitives.map(prim => this.texture(prim, dir));
+            // Image files load by their place in the project, as the game's own pictures do.
+            const url = uri => FS.path.relative(root, local(uri)).split(FS.path.sep).map(encodeURIComponent).join('/');
+            const images = new Map();
+            entry.textures = mesh.primitives.map(prim => this.texture(prim, url, images));
             entry.ready = true;
         } catch (e) {
             entry.error = e.message;
-            console.warn('[DocsDoodads] Could not load model ' + key + ': ' + e.message);
+            entry.failedAt = Date.now();
+            if (!cached || cached.error !== e.message) console.warn('[DocsDoodads] Could not load model ' + key + ': ' + e.message);
         }
         return entry;
     },
 
-    // The primitive's colour texture (shared between scenes), or plain white until it has loaded.
-    texture(prim, dir) {
+    // Loads the models a map's doodads use when the map is set up, not in the middle of drawing a frame.
+    preload(list) {
+        for (const d of list || []) if (d && d.model && d.model.path) this.get(d.model.path);
+    },
+
+    // The primitive's colour texture (shared between scenes, and between parts using the same image),
+    // or plain white until it has loaded.
+    texture(prim, url, images) {
         if (!prim.image || typeof Image === 'undefined') return PIXI.Texture.WHITE;
+        const id = prim.image.source !== undefined ? prim.image.source + (prim.nearest ? 'n' : 'l') : null;
+        if (id !== null && images && images.has(id)) return images.get(id);
         const img = new Image();
         const texture = new PIXI.Texture(new PIXI.BaseTexture(img, { scaleMode: prim.nearest ? PIXI.SCALE_MODES.NEAREST : PIXI.SCALE_MODES.LINEAR }));
+        // Scenes come and go; the texture stays until the model is let go of (release).
         texture.destroy = function() {};
-        if (prim.image.bytes) img.src = URL.createObjectURL(new Blob([prim.image.bytes], { type: prim.image.mime }));
-        else img.src = DocsDoodads.FS.path.join(dir, prim.image.uri).replace(/\\/g, '/');
+        if (prim.image.bytes) {
+            const src = URL.createObjectURL(new Blob([prim.image.bytes], { type: prim.image.mime }));
+            if (img.addEventListener) {
+                const done = () => URL.revokeObjectURL(src);
+                img.addEventListener('load', done, { once: true });
+                img.addEventListener('error', done, { once: true });
+            }
+            img.src = src;
+        } else if (/^data:/i.test(prim.image.uri)) {
+            img.src = prim.image.uri;
+        } else {
+            img.src = url(prim.image.uri);
+        }
+        if (id !== null && images) images.set(id, texture);
         return texture;
+    },
+
+    // Frees a model's textures (a model loaded again, or dropped from the cache).
+    release(entry) {
+        const seen = new Set();
+        for (const texture of entry.textures || []) {
+            if (!texture || texture === PIXI.Texture.WHITE || seen.has(texture)) continue;
+            seen.add(texture);
+            PIXI.Texture.prototype.destroy.call(texture, true);
+        }
+        entry.textures = [];
+    },
+
+    forget(path) {
+        const key = String(path || '').replace(/\\/g, '/');
+        if (this._cache[key]) this.release(this._cache[key]);
+        delete this._cache[key];
     }
 };
+
+if (typeof Spriteset_Map !== 'undefined' && Spriteset_Map.prototype.addDocsDoodads) {
+    $.Spriteset_Map_addDocsDoodads_models = Spriteset_Map.prototype.addDocsDoodads;
+    Spriteset_Map.prototype.addDocsDoodads = function() {
+        DocsDoodads.Models.preload(DocsDoodads.doodads());
+        $.Spriteset_Map_addDocsDoodads_models.call(this);
+    };
+}
 
 DocsDoodads.Models.vertex = [
     'precision highp float;',
@@ -10900,7 +11047,9 @@ DocsDoodads.Models.fragment = [
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     // A model doodad's draw items for this frame (one per primitive, sorted far to near), or null to draw
-    // the picture instead (no model, or still loading).
+    // the picture instead (no model, or still loading). Each part keeps its placed points and shading
+    // until the model is turned, scaled or lit differently, and its projected triangles until the camera
+    // or the doodad moves, so a still view costs almost nothing.
     Spriteset_Map.prototype.docsModelItems = function(obj, cam, pivot, fog, light, s) {
         const d = obj._data;
         const entry = d && d.model && d.model.path ? DocsDoodads.Models.get(d.model.path) : null;
@@ -10910,14 +11059,30 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const scale = (Number(d.model.scale) || 1) * tw * s.doodadScale, yaw = Number(d.model.yaw) || 0;
         const dir = this._docsSkyLight || T.light;
         const flat = cam.curve === 'flat';
-        const meshes = obj._docsModelMeshes = obj._docsModelMeshes || [];
+        let meshes = obj._docsModelMeshes = obj._docsModelMeshes || [];
+        // Another model (the path changed, or it was loaded again): the old parts go.
+        if (obj._docsModelEntry !== entry) {
+            for (const m of meshes) if (m && !m._destroyed) m.destroy();
+            meshes = obj._docsModelMeshes = [];
+            obj._docsModelEntry = entry;
+        }
         const items = [];
-        const pivotDepth = P.project(cam, pivot.x, pivot.y, pivot.h || 0);
+        const ph = pivot.h || 0;
+        const pivotDepth = P.project(cam, pivot.x, pivot.y, ph);
         if (!pivotDepth) return [];
+        const placeKey = scale + '|' + yaw;
+        const shadeKey = yaw + '|' + dir[0] + ',' + dir[1] + ',' + dir[2];
+        const C = cam.C, F = cam.F, R = cam.R, U = cam.U;
+        const frameKey = [C.x, C.y, C.z, F.x, F.y, F.z, R.x, R.y, U.z, cam.focal, cam.width, cam.height, cam.curve, cam.radius,
+            cam.target.x, cam.target.y, pivot.x, pivot.y, ph, placeKey].join(',');
+        // A doodad flipped by a negative scale turns its faces inside out.
+        const mirrored = scale < 0;
+        const hw = cam.width / 2, hh = cam.height / 2, focal = cam.focal;
         entry.primitives.forEach((prim, pi) => {
             const n = prim.positions.length / 3, triCount = prim.indices.length / 3;
             let m = meshes[pi];
-            if (!m || m._docsCount !== n) {
+            if (!m || m._destroyed || m._docsCount !== n || m._docsTris !== triCount) {
+                if (m && !m._destroyed) m.destroy();
                 const geometry = new PIXI.Geometry()
                     .addAttribute('aVertexPosition', new Float32Array(n * 2), 2)
                     .addAttribute('aUv', new Float32Array(prim.uvs), 2)
@@ -10927,52 +11092,86 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                     { uSampler: entry.textures[pi], uColor: prim.color, uTint: [1, 1, 1], uAlpha: 1 });
                 m = meshes[pi] = new PIXI.Mesh(geometry, shader);
                 m._docsCount = n;
+                m._docsTris = triCount;
+                m._docsPlaced = new Float64Array(n * 3);
                 m._docsDepth = new Float64Array(n);
                 m._docsOk = new Uint8Array(n);
                 m._docsSort = T.sortBuffers(triCount);
                 m._docsTri = new Uint32Array(triCount);
+                m._docsPlaceKey = m._docsShadeKey = m._docsFrameKey = null;
             }
-            const pos = m.geometry.getBuffer('aVertexPosition').data, shade = m.geometry.getBuffer('aShade').data;
-            for (let v = 0; v < n; v++) {
-                const w = G.place(prim.positions[v * 3], prim.positions[v * 3 + 1], prim.positions[v * 3 + 2], scale, yaw);
-                const g = flat ? { x: pivot.x + w.dx, y: pivot.y + w.dy, z: (pivot.h || 0) + w.h, visible: true } : P.groundPoint(cam, pivot.x + w.dx, pivot.y + w.dy, (pivot.h || 0) + w.h);
-                const p = g.visible ? P.project(cam, g.x, g.y, g.z) : null;
-                m._docsOk[v] = p ? 1 : 0;
-                if (p) { pos[v * 2] = p.x; pos[v * 2 + 1] = p.y; m._docsDepth[v] = p.depth; }
-                shade[v] = G.shade(prim.normals[v * 3], prim.normals[v * 3 + 1], prim.normals[v * 3 + 2], yaw, dir);
-            }
-            const idx = prim.indices, buf = m._docsSort;
-            let count = 0, sum = 0;
-            for (let t = 0; t < triCount; t++) {
-                const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
-                if (!m._docsOk[a] || !m._docsOk[b] || !m._docsOk[c]) continue;
-                // Single-sided faces turned away from the camera are skipped.
-                if (!prim.doubleSided) {
-                    const area = (pos[b * 2] - pos[a * 2]) * (pos[c * 2 + 1] - pos[a * 2 + 1]) - (pos[c * 2] - pos[a * 2]) * (pos[b * 2 + 1] - pos[a * 2 + 1]);
-                    if (area > 0) continue;
+            const placed = m._docsPlaced;
+            if (m._docsPlaceKey !== placeKey) {
+                for (let v = 0; v < n; v++) {
+                    const w = G.place(prim.positions[v * 3], prim.positions[v * 3 + 1], prim.positions[v * 3 + 2], scale, yaw);
+                    placed[v * 3] = w.dx; placed[v * 3 + 1] = w.dy; placed[v * 3 + 2] = w.h;
                 }
-                const depth = (m._docsDepth[a] + m._docsDepth[b] + m._docsDepth[c]) / 3;
-                buf.depth[count] = depth;
-                m._docsTri[count++] = t;
-                sum += depth;
+                m._docsPlaceKey = placeKey;
+                m._docsFrameKey = null;
             }
-            const sorted = T.sortFarToNear(buf, count);
-            const out = m.geometry.getIndex().data;
-            for (let i = 0; i < count; i++) {
-                const t = m._docsTri[sorted[i]];
-                out[i * 3] = idx[t * 3]; out[i * 3 + 1] = idx[t * 3 + 1]; out[i * 3 + 2] = idx[t * 3 + 2];
+            if (m._docsShadeKey !== shadeKey) {
+                const shade = m.geometry.getBuffer('aShade').data;
+                for (let v = 0; v < n; v++) shade[v] = G.shade(prim.normals[v * 3], prim.normals[v * 3 + 1], prim.normals[v * 3 + 2], yaw, dir);
+                m.geometry.getBuffer('aShade').update();
+                m._docsShadeKey = shadeKey;
             }
-            m.geometry.getBuffer('aVertexPosition').update();
-            m.geometry.getBuffer('aShade').update();
-            m.geometry.getIndex().update();
+            if (m._docsFrameKey !== frameKey) {
+                const pos = m.geometry.getBuffer('aVertexPosition').data, ok = m._docsOk, depthOf = m._docsDepth;
+                // P.project, written out so the loop allocates nothing on flat maps.
+                for (let v = 0; v < n; v++) {
+                    let x = pivot.x + placed[v * 3], y = pivot.y + placed[v * 3 + 1], z = ph + placed[v * 3 + 2];
+                    if (!flat) {
+                        const g = P.groundPoint(cam, x, y, z);
+                        if (!g.visible) { ok[v] = 0; continue; }
+                        x = g.x; y = g.y; z = g.z;
+                    }
+                    const vx = x - C.x, vy = y - C.y, vz = z - C.z;
+                    const depth = vx * F.x + vy * F.y + vz * F.z;
+                    if (depth < 1) { ok[v] = 0; continue; }
+                    const k = focal / depth;
+                    pos[v * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * k;
+                    pos[v * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * k;
+                    depthOf[v] = depth;
+                    ok[v] = 1;
+                }
+                const idx = prim.indices, buf = m._docsSort;
+                let count = 0, sum = 0;
+                for (let t = 0; t < triCount; t++) {
+                    const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+                    if (!ok[a] || !ok[b] || !ok[c]) continue;
+                    // Single-sided faces turned away from the camera are skipped.
+                    if (!prim.doubleSided) {
+                        const area = (pos[b * 2] - pos[a * 2]) * (pos[c * 2 + 1] - pos[a * 2 + 1]) - (pos[c * 2] - pos[a * 2]) * (pos[b * 2 + 1] - pos[a * 2 + 1]);
+                        if (mirrored ? area < 0 : area > 0) continue;
+                    }
+                    const depth = (depthOf[a] + depthOf[b] + depthOf[c]) / 3;
+                    buf.depth[count] = depth;
+                    m._docsTri[count++] = t;
+                    sum += depth;
+                }
+                const sorted = T.sortFarToNear(buf, count);
+                const out = m.geometry.getIndex().data;
+                for (let i = 0; i < count; i++) {
+                    const t = m._docsTri[sorted[i]];
+                    out[i * 3] = idx[t * 3]; out[i * 3 + 1] = idx[t * 3 + 1]; out[i * 3 + 2] = idx[t * 3 + 2];
+                }
+                m.geometry.getBuffer('aVertexPosition').update();
+                m.geometry.getIndex().update();
+                m._docsFrameKey = frameKey;
+                m._docsDrawn = count;
+                m._docsMean = count ? sum / count : pivotDepth.depth;
+            }
             const u = m.shader.uniforms;
             u.uSampler = entry.textures[pi];
             u.uAlpha = 1 - fog;
             u.uTint = light !== null && light !== undefined ? [((light >> 16) & 255) / 255, ((light >> 8) & 255) / 255, (light & 255) / 255] : [1, 1, 1];
             // Parts sort among themselves by their own depth, all at the model's place among billboards.
-            const own = count ? sum / count : pivotDepth.depth;
-            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: pivotDepth.depth + (own - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
+            const count = m._docsDrawn;
+            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: pivotDepth.depth + (m._docsMean - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
         });
+        // Parts the model no longer has.
+        for (let i = entry.primitives.length; i < meshes.length; i++) if (meshes[i] && !meshes[i]._destroyed) meshes[i].destroy();
+        meshes.length = entry.primitives.length;
         return items;
     };
 }
@@ -11022,7 +11221,7 @@ if (typeof Scene_Map !== 'undefined') {
     Scene_Map.prototype.snapForBattleBackground = function() {
         $.Scene_Map_snapForBattleBackground_3d.call(this);
         if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
-        $gameTemp._docsBattleBack = null;
+        DocsDoodads.Perspective.releaseBattleBack();
         const s = DocsDoodads.Perspective.active();
         if (s && s.battleBack && this._spriteset && this._spriteset.docsBattleSnapshot) {
             $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s);
@@ -11037,17 +11236,28 @@ if (typeof Sprite_Battleback !== 'undefined') {
         return back || $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
     };
     $.Sprite_Battleback_battleback2Bitmap_3d = Sprite_Battleback.prototype.battleback2Bitmap;
+    // The map picture covers both layers; the second is left empty (one blank picture, shared).
     Sprite_Battleback.prototype.battleback2Bitmap = function() {
         const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
-        return back ? new Bitmap(1, 1) : $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
+        if (!back) return $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
+        if (!DocsDoodads.Perspective._blankBack || !DocsDoodads.Perspective._blankBack.baseTexture) DocsDoodads.Perspective._blankBack = new Bitmap(1, 1);
+        return DocsDoodads.Perspective._blankBack;
     };
 }
+
+// The map picture taken for a battle is freed when the battle ends or another is taken.
+DocsDoodads.Perspective.releaseBattleBack = function() {
+    if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
+    const back = $gameTemp._docsBattleBack;
+    $gameTemp._docsBattleBack = null;
+    if (back && back.destroy && back.baseTexture) back.destroy();
+};
 
 if (typeof Scene_Battle !== 'undefined') {
     $.Scene_Battle_terminate_3d = Scene_Battle.prototype.terminate;
     Scene_Battle.prototype.terminate = function() {
         $.Scene_Battle_terminate_3d.call(this);
-        if (typeof $gameTemp !== 'undefined' && $gameTemp) $gameTemp._docsBattleBack = null;
+        DocsDoodads.Perspective.releaseBattleBack();
     };
 }
 
@@ -11055,6 +11265,7 @@ if (typeof Scene_Battle !== 'undefined') {
 function Scene_DocsWorldMap() {
     this.initialize(...arguments);
 }
+DocsDoodads.Scene_DocsWorldMap = Scene_DocsWorldMap;
 
 if (typeof Scene_MenuBase !== 'undefined') {
     Scene_DocsWorldMap.prototype = Object.create(Scene_MenuBase.prototype);
@@ -11083,8 +11294,9 @@ if (typeof Scene_MenuBase !== 'undefined') {
         if (this._globe) {
             const size = Math.min(Graphics.width, Graphics.height) - 60;
             const canvas = M.canvasFor(M.globePixels(map.pixels, map.width, map.height, size, px + 0.5, py + 0.5, this._spin), size, size);
-            this._picture.bitmap = new Bitmap(size, size);
-            this._picture.bitmap.context.drawImage(canvas, 0, 0);
+            const bitmap = this.worldMapBitmap(size, size);
+            bitmap.context.clearRect(0, 0, size, size);
+            bitmap.context.drawImage(canvas, 0, 0);
             this._picture.bitmap.baseTexture.update();
             this._picture.x = (Graphics.width - size) / 2;
             this._picture.y = (Graphics.height - size) / 2;
@@ -11094,13 +11306,30 @@ if (typeof Scene_MenuBase !== 'undefined') {
             const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (Graphics.height - 60) / map.height));
             const canvas = M.canvasFor(map.pixels, map.width, map.height);
             const w = Math.round(map.width * scale), h = Math.round(map.height * scale);
-            this._picture.bitmap = new Bitmap(w, h);
+            this.worldMapBitmap(w, h);
             this._picture.bitmap.context.imageSmoothingEnabled = false;
             this._picture.bitmap.context.drawImage(canvas, 0, 0, w, h);
             this._picture.bitmap.baseTexture.update();
             this._picture.x = (Graphics.width - w) / 2;
             this._picture.y = (Graphics.height - h) / 2;
             this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(this._picture.x + (px + 0.5) * scale, this._picture.y + (py + 0.5) * scale, 5).endFill();
+        }
+    };
+
+    // One picture, redrawn while the globe turns (a new one each frame would pile up until the scene ends).
+    Scene_DocsWorldMap.prototype.worldMapBitmap = function(w, h) {
+        const old = this._picture.bitmap;
+        if (old && old.width === w && old.height === h) return old;
+        if (old) old.destroy();
+        return (this._picture.bitmap = new Bitmap(w, h));
+    };
+
+    Scene_DocsWorldMap.prototype.terminate = function() {
+        Scene_MenuBase.prototype.terminate.call(this);
+        if (this._picture && this._picture.bitmap) {
+            const bitmap = this._picture.bitmap;
+            this._picture.bitmap = null;
+            bitmap.destroy();
         }
     };
 
@@ -16032,6 +16261,10 @@ DocsDoodads.Workspace = {
                 if (panel.parentNode) panel.parentNode.removeChild(panel);
             }
         }
+        // The undo history floats on the page too (it isn't a glass panel).
+        const history = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-undo-history') : null;
+        if (history && history.parentNode) history.parentNode.removeChild(history);
+        this._undoHistoryOpen = false;
         this.postFxCompare = false;
         this.mounted = false;
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
@@ -19428,8 +19661,16 @@ DocsDoodads.Workspace = {
             const sheets = A.sheets(ase, base);
             if (!sheets.length) return this.showToast('No visible layers with pictures in that file.', 'info');
             FS.mkdirp('img/characters');
+            const target = sheet => FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
+            // Sheets made before (from an earlier version of the file) are replaced only when asked.
+            const existing = sheets.filter(sheet => FS.existsSync(target(sheet))).map(sheet => sheet.fileName);
+            if (existing.length && typeof confirm === 'function'
+                && !confirm(`Replace ${existing.length} sheet(s) already in img/characters (${existing.join(', ')})?`)) {
+                this.showToast('Nothing was written.', 'info');
+                return null;
+            }
             const written = sheets.map(sheet => {
-                const out = FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
+                const out = target(sheet);
                 FS.fs.writeFileSync(out, A.encodePng(sheet.width, sheet.height, sheet.rgba, data => zlib.deflateSync(data)));
                 return out;
             });

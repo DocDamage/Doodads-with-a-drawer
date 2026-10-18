@@ -103,8 +103,16 @@
             const sheets = A.sheets(ase, base);
             if (!sheets.length) return this.showToast('No visible layers with pictures in that file.', 'info');
             FS.mkdirp('img/characters');
+            const target = sheet => FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
+            // Sheets made before (from an earlier version of the file) are replaced only when asked.
+            const existing = sheets.filter(sheet => FS.existsSync(target(sheet))).map(sheet => sheet.fileName);
+            if (existing.length && typeof confirm === 'function'
+                && !confirm(`Replace ${existing.length} sheet(s) already in img/characters (${existing.join(', ')})?`)) {
+                this.showToast('Nothing was written.', 'info');
+                return null;
+            }
             const written = sheets.map(sheet => {
-                const out = FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
+                const out = target(sheet);
                 FS.fs.writeFileSync(out, A.encodePng(sheet.width, sheet.height, sheet.rgba, data => zlib.deflateSync(data)));
                 return out;
             });

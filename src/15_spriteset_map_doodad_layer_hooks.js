@@ -209,8 +209,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (!this._baseSprite || typeof PIXI === 'undefined') return;
         const settings = DocsDoodads.World.settings().seeThrough;
         const sprite = this.docsPlayerSprite();
+        // Flat maps only: in 3D the player isn't where the flat sprite is, and things fade instead.
         const show = DocsDoodads.Atmosphere._playerHidden && settings.mode !== 'fade' && sprite && sprite._docsFrameTexture
-            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+            && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) && !(DocsDoodads.Perspective && DocsDoodads.Perspective.active());
         let ghost = this._docsSilhouette;
         if (!show) {
             if (ghost) ghost.visible = false;
