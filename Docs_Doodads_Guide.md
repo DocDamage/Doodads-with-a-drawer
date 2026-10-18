@@ -3,6 +3,7 @@
 **Plugin:** `Docs-Doodads.js` (v2.0)  
 **Compatibility:** RPG Maker MZ. MV is untested since 2.0 and unsupported (see the README).  
 **License:** MIT License. Based on QJ-Doodads by Qiu Jiu.  
+**Quick reference:** every notetag, image name tag and plugin command is listed in the [Cheat Sheet](CHEAT_SHEET.md).  
 
 ---
 

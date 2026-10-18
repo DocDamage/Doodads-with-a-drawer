@@ -15,7 +15,7 @@ RPG Maker MZ is supported. An MV compatibility layer from the original editor is
 
 Coming from QJ-Doodads? Replace `QJ-Doodads.js` with `Docs-Doodads.js` in Plugin Manager. Existing doodads, the asset library, templates, layouts, backups, and plugin settings are picked up automatically and saved under the new names on your next save.
 
-See [Docs_Doodads_Guide.md](Docs_Doodads_Guide.md) for usage, [CHANGELOG.md](CHANGELOG.md) for what changed, and [RECOMMENDATIONS.md](RECOMMENDATIONS.md) for what is planned. The original implementation plan is kept in [docs/archive](docs/archive/Docs_Doodads_Implementation_Plan.md) for history.
+See [Docs_Doodads_Guide.md](Docs_Doodads_Guide.md) for usage, [CHEAT_SHEET.md](CHEAT_SHEET.md) for every notetag and plugin command on one page, [CHANGELOG.md](CHANGELOG.md) for what changed, and [RECOMMENDATIONS.md](RECOMMENDATIONS.md) for what is planned. The original implementation plan is kept in [docs/archive](docs/archive/Docs_Doodads_Implementation_Plan.md) for history.
 
 ## Verification
 
