@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added mouse look to the editor in 3D: middle-drag orbits, Shift + middle-drag pans, the wheel zooms, and a middle click resets to the map's camera.
 - Fixed the airship in the 3D view: in flight it was sorted as if it stood a tile north, so trees beside the player hid it, and its shadow stood up instead of lying on the ground. Ship wakes on the open sea, flying and landing were checked.
 - Character sun shadows now include visual equipment layers, so capes, hats and shields change the shadow's shape.
 - 3D rain and snow are now drawn in depth bands sorted in with trees, characters and hills, so drops behind them no longer show through.

@@ -506,6 +506,7 @@ Terrain height shows only in the 3D view. It works on round worlds too.
 - **Post-processing and day/night tint** apply to the whole view.
 - **Touch and mouse:** clicking the ground walks there.
 - **Editor:**
+  - **Mouse look:** middle-drag orbits the camera (left and right turn it, up and down tilt it), Shift + middle-drag pans across the ground, and the mouse wheel zooms. A middle click without dragging goes back to the map's own camera. Like Set Camera, this only changes the view while editing; the map's 3D View settings stay as they are.
   - Clicks go through to the ground.
   - Clicking a tree or lamp picks the nearest one drawn under the mouse.
   - The selection shows as a yellow box.

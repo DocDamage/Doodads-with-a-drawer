@@ -4413,6 +4413,20 @@ DocsDoodads.Perspective = {
         return this.curvatureFromRadius(radius);
     },
 
+    // Mouse look in the editor: dragging right turns right, dragging down looks more steeply down.
+    orbit(s, dx, dy) {
+        return {
+            yaw: ((s.yaw + dx * 0.4) % 360 + 360) % 360,
+            pitch: Math.max(20, Math.min(89, s.pitch + dy * 0.3))
+        };
+    },
+
+    // The wheel zooms in steps of about 10%, within the zoom setting's range.
+    wheelZoom(zoom, deltaY) {
+        const next = deltaY < 0 ? zoom * 1.1 : deltaY > 0 ? zoom / 1.1 : zoom;
+        return Math.round(Math.max(0.25, Math.min(4, next)) * 1000) / 1000;
+    },
+
     resolve(mapSettings, override) {
         const merged = Object.assign({}, mapSettings || {});
         for (const key of Object.keys(override || {})) {
@@ -20665,6 +20679,7 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseDown = (e) => {
+            if (e.button === 1 && this.beginCameraDrag(e)) return;
             if (this.placementTool === 'brush' && this.selectedAsset) {
                 this.isBrushActive = true;
                 this.currentBrushBatch = [];
@@ -20702,6 +20717,10 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseMove = (e) => {
+            if (this._camDrag) {
+                this.updateCameraDrag(e);
+                return;
+            }
             if (this._drag) {
                 // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
                 if (e.buttons === 0) {
@@ -20756,6 +20775,10 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseUp = (e) => {
+            if (this._camDrag) {
+                this.endCameraDrag();
+                return;
+            }
             if (this._drag) {
                 if (this.endDoodadDrag()) this._suppressNextClick = true;
                 this._dragActive = false;
@@ -20822,6 +20845,8 @@ DocsDoodads.Workspace = {
             canvas.addEventListener('click', this._onCanvasClick);
             canvas.addEventListener('mousedown', this._onCanvasMouseDown);
             canvas.addEventListener('contextmenu', this._onCanvasContextMenu);
+            this._onCanvasWheel = (e) => this.wheelCamera(e);
+            canvas.addEventListener('wheel', this._onCanvasWheel, { passive: false });
             this._onCanvasDblClick = (e) => {
                 if (this.placementTool === 'path') {
                     e.preventDefault();
@@ -20836,6 +20861,71 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // ---- 3D camera with the mouse (editor only) ----
+    // Middle-drag orbits, Shift + middle-drag pans, the wheel zooms, a middle click resets. The view is a
+    // camera change for this visit (like Set Camera): the map's own camera settings are not changed.
+    canvasPoint(e) {
+        if (typeof Graphics !== 'undefined' && Graphics.pageToCanvasX) return { x: Graphics.pageToCanvasX(e.pageX), y: Graphics.pageToCanvasY(e.pageY) };
+        return { x: e.clientX, y: e.clientY };
+    },
+
+    beginCameraDrag(e) {
+        if (!this.mounted || !DocsDoodads.Perspective.liveCamera()) return false;
+        if (e.preventDefault) e.preventDefault();
+        const at = this.canvasPoint(e);
+        const cam = DocsDoodads.Perspective.liveCamera();
+        this._camDrag = { x: e.clientX, y: e.clientY, pan: Boolean(e.shiftKey), moved: false,
+            ground: DocsDoodads.Perspective.unproject(cam, at.x, at.y) };
+        return true;
+    },
+
+    updateCameraDrag(e) {
+        const drag = this._camDrag;
+        const P = DocsDoodads.Perspective;
+        const s = P.active();
+        if (!s || e.buttons === 0) return this.endCameraDrag();
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        drag.moved = true;
+        if (drag.pan) {
+            // Keep the ground point grabbed under the mouse.
+            const cam = P.liveCamera(), at = this.canvasPoint(e);
+            const now = cam && drag.ground ? P.unproject(cam, at.x, at.y) : null;
+            if (now) {
+                const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+                $gameMap.setDisplayPos($gameMap.displayX() + (drag.ground.x - now.x) / tw, $gameMap.displayY() + (drag.ground.y - now.y) / th);
+            }
+        } else {
+            this.setCameraView(P.orbit(s, dx, dy));
+            drag.x = e.clientX;
+            drag.y = e.clientY;
+        }
+    },
+
+    endCameraDrag() {
+        const drag = this._camDrag;
+        this._camDrag = null;
+        if (drag && !drag.moved) {
+            this.setCameraView(null);
+            if (typeof $gamePlayer !== 'undefined' && $gamePlayer) $gamePlayer.center($gamePlayer.x, $gamePlayer.y);
+            this.showToast("3D view reset to the map's camera");
+        }
+    },
+
+    wheelCamera(e) {
+        if (!this.mounted || !DocsDoodads.Perspective.liveCamera()) return;
+        e.preventDefault();
+        const s = DocsDoodads.Perspective.active();
+        if (s) this.setCameraView({ zoom: DocsDoodads.Perspective.wheelZoom(s.zoom, e.deltaY) });
+    },
+
+    // null goes back to the map's own camera.
+    setCameraView(change) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        $gameMap._docsCameraTween = null;
+        $gameMap._docsCamera = change ? Object.assign({}, $gameMap._docsCamera, change) : null;
+    },
+
     detachCanvasListeners() {
         this.setCanvasOverlaysPassthrough(false);
         const canvas = DocsDoodads.Compat.getCanvas();
@@ -20846,7 +20936,9 @@ DocsDoodads.Workspace = {
             if (this._onCanvasMouseDown) canvas.removeEventListener('mousedown', this._onCanvasMouseDown);
             if (this._onCanvasContextMenu) canvas.removeEventListener('contextmenu', this._onCanvasContextMenu);
             if (this._onCanvasDblClick) canvas.removeEventListener('dblclick', this._onCanvasDblClick);
+            if (this._onCanvasWheel) canvas.removeEventListener('wheel', this._onCanvasWheel);
         }
+        this._camDrag = null;
         if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
             if (this._onCanvasMouseMove) window.removeEventListener('mousemove', this._onCanvasMouseMove);
             if (this._onCanvasMouseUp) window.removeEventListener('mouseup', this._onCanvasMouseUp);
