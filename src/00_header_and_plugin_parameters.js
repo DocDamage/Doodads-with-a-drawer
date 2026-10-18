@@ -128,6 +128,13 @@
  *      louder and far ones fade sooner; ambience layers (water, trees, open ground and wind,
  *      doodads, regions, terrain tags) and footsteps by ground come forward.
  *
+ *    - Traversal (World panel): jump with C (over gaps, up small ledges, gliding off high
+ *      ground), swim through deep water (slower, in to the waist, an optional swimming
+ *      sheet), dive with C to the map set under the water, fly with F (over everything,
+ *      with a shadow, landing where you can stand), climb walls and cliffs in chosen regions
+ *      or terrain tags, and slide on ice. Each can need a switch; Set Traversal and
+ *      Traversal Action control them from events.
+ *
  * 16. 3D View (map panel: 3D View (this map)):
  *    - Tiles, floor doodads, shadows and lighting lie on a perspective ground plane;
  *      characters, gear and standing doodads stand up as billboards, sorted by distance.
@@ -1054,6 +1061,58 @@
  * @option Off
  * @value off
  * @default map
+ *
+ * @command setTraversal
+ * @text Set Traversal
+ * @desc Turns a way of getting around on or off for this game (or back to the World settings),
+ * e.g. when the hero learns to swim.
+ *
+ * @arg ability
+ * @text Ability
+ * @type select
+ * @option Jump
+ * @value jump
+ * @option Glide
+ * @value glide
+ * @option Swim
+ * @value swim
+ * @option Dive
+ * @value dive
+ * @option Fly
+ * @value fly
+ * @option Climb
+ * @value climb
+ * @option Slide on ice
+ * @value ice
+ * @default swim
+ *
+ * @arg state
+ * @text State
+ * @type select
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @option As in the World settings
+ * @value default
+ * @default on
+ *
+ * @command traversalAction
+ * @text Traversal Action
+ * @desc The player jumps, takes off, lands or dives, as if they pressed the key (if allowed).
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Jump
+ * @value jump
+ * @option Take off
+ * @value takeOff
+ * @option Land
+ * @value land
+ * @option Dive / surface
+ * @value dive
+ * @default jump
  *
  * @command setZoom
  * @text Set Zoom

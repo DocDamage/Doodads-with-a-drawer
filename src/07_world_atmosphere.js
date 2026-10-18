@@ -33,6 +33,16 @@ DocsDoodads.World = {
         focus: { enabled: true, music: 0.6, reach: 0.5, boost: 1.5 },
         ambience: { layers: [] },
         footsteps: { enabled: false, volume: 70, quiet: 0.35, dash: 1.2, followers: false, rows: [] },
+        // Getting around (each can need a switch; Set Traversal changes them during the game).
+        traversal: {
+            jump: { enabled: false, distance: 2, up: 1, sound: 'Jump1', switchId: 0, noRegion: 0 },
+            glide: { enabled: false, perHeight: 1.5, max: 6, switchId: 0 },
+            swim: { enabled: false, speed: -1, sink: 20, suffix: '_swim', sound: '', switchId: 0, noRegion: 0 },
+            dive: { enabled: false, sound: 'Dive', switchId: 0 },
+            fly: { enabled: false, altitude: 48, speed: 1, sound: 'Up1', landSound: 'Down1', encounters: false, switchId: 0, noRegion: 0 },
+            climb: { enabled: false, regions: '', tags: '', speed: -1, switchId: 0 },
+            ice: { enabled: false, regions: '', tags: '', speed: 1, switchId: 0 }
+        },
         biomes: { list: [] },
         dress: { rules: [] },
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
@@ -46,7 +56,8 @@ DocsDoodads.World = {
         return typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
     },
 
-    // Merged with the defaults one group deep. The result is shared and cached: read it, never change it.
+    // Merged with the defaults (objects inside a group too, so traversal.jump keeps the jump defaults it
+    // doesn't set; lists are taken whole). The result is shared and cached: read it, never change it.
     settings() {
         const data = this.data();
         const stored = data && data.world && typeof data.world === 'object' ? data.world : null;
@@ -54,10 +65,18 @@ DocsDoodads.World = {
         if (c && c.data === data && c.stored === stored && c.version === this._version) return c.value;
         const value = {};
         for (const group of Object.keys(this.defaults)) {
-            value[group] = Object.assign(cloneJson(this.defaults[group]), stored && stored[group] ? cloneJson(stored[group]) : {});
+            value[group] = this.merge(cloneJson(this.defaults[group]), stored && stored[group] ? cloneJson(stored[group]) : {});
         }
         this._cache = { data, stored, version: this._version, value };
         return value;
+    },
+
+    merge(base, over) {
+        const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+        for (const key of Object.keys(over || {})) {
+            base[key] = plain(base[key]) && plain(over[key]) ? this.merge(base[key], over[key]) : over[key];
+        }
+        return base;
     },
 
     get(path) {
@@ -67,26 +86,40 @@ DocsDoodads.World = {
     // The value saved in the project, or undefined when the default applies.
     raw(path) {
         const data = this.data();
-        const [group, field] = String(path).split('.');
-        const stored = data && data.world && data.world[group];
-        return stored ? stored[field] : undefined;
+        return String(path).split('.').reduce((node, key) => (node === undefined || node === null ? undefined : node[key]), data && data.world);
     },
 
     // undefined removes the field (and empty groups) so the default applies again.
+    // Any depth (traversal.jump.enabled); undefined removes the field and any groups it leaves empty.
     set(path, value) {
         const data = this.data();
         if (!data) return;
-        const [group, field] = String(path).split('.');
+        const keys = String(path).split('.');
+        const last = keys.pop();
         if (value === undefined) {
-            if (data.world && data.world[group]) {
-                delete data.world[group][field];
-                if (Object.keys(data.world[group]).length === 0) delete data.world[group];
-                if (Object.keys(data.world).length === 0) delete data.world;
+            const chain = [];
+            let node = data.world;
+            for (const key of keys) {
+                if (!node || typeof node[key] !== 'object') { node = null; break; }
+                chain.push([node, key]);
+                node = node[key];
+            }
+            if (node) {
+                delete node[last];
+                for (let i = chain.length - 1; i >= 0; i--) {
+                    const [parent, key] = chain[i];
+                    if (Object.keys(parent[key]).length === 0) delete parent[key];
+                }
+                if (data.world && Object.keys(data.world).length === 0) delete data.world;
             }
         } else {
             data.world = data.world || {};
-            data.world[group] = data.world[group] || {};
-            data.world[group][field] = value;
+            let node = data.world;
+            for (const key of keys) {
+                if (!node[key] || typeof node[key] !== 'object' || Array.isArray(node[key])) node[key] = {};
+                node = node[key];
+            }
+            node[last] = value;
         }
         this._version++;
     },

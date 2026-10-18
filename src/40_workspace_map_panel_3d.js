@@ -340,6 +340,11 @@
                     ${rows}
                     <datalist id="dd-bgs-files">${bgs.map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
                     <button class="dd-btn" id="dd-region-add">Add Region Sound</button>
+                    <div style="margin-top: 6px;">Diving (Traversal): the map under this map's deep water, and the map above (for an underwater map):</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
+                        <input type="number" min="0" id="dd-map-dive" value="${escapeHtml(String(mapSettings.diveMap || 0))}" title="Dive to map (0 = none)" style="${inputStyle}" />
+                        <input type="number" min="0" id="dd-map-surface" value="${escapeHtml(String(mapSettings.surfaceMap || 0))}" title="Surface to map (0 = none)" style="${inputStyle}" />
+                    </div>
                 </div>
             </details>`;
     },
@@ -347,6 +352,10 @@
     bindMapSoundPanel(mapSettings) {
         const echo = () => Object.assign({}, DocsDoodads.SpatialSound.echoDefaults, (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).echo || {});
         const byId = id => document.getElementById(id);
+        for (const [id, key] of [['dd-map-dive', 'diveMap'], ['dd-map-surface', 'surfaceMap']]) {
+            const input = byId(id);
+            if (input) input.onchange = () => this.setMapSetting(key, Math.max(0, parseInt(input.value, 10) || 0));
+        }
         const toggle = byId('dd-map-echo');
         if (toggle) toggle.onchange = () => this.setMapSetting('echo', Object.assign(echo(), { enabled: Boolean(toggle.checked) }));
         for (const field of ['delay', 'feedback', 'mix']) {

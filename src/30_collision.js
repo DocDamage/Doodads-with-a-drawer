@@ -62,52 +62,41 @@ DocsDoodads.Collision = {
     }
 };
 
+// Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
+// Doodads hidden by their switch, condition, season or a layer hidden in game never block.
+DocsDoodads.Collision.blocksTile = function(tx, ty) {
+    const doodads = DocsDoodads.doodads();
+    if (!doodads || doodads.length === 0) return false;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const tileBox = DocsDoodads.box(tx * tw + tw / 2, ty * th + th / 2, tw * 2 / 3, th * 2 / 3);
+    const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+    for (const dData of doodads) {
+        if (!dData || !dData.collision || dData.collision.preset === "none") continue;
+        if (!DocsDoodads.Layers.visibleInGame(dData, mapSettings) || !DocsDoodads.Appearance.isVisible(dData, {})) continue;
+        const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
+        if (!shape) continue;
+        const dw = (dData.frameW || 48) * (dData.scaleX || 1);
+        const dh = (dData.frameH || 48) * (dData.scaleY || 1);
+        const ax = dData.anchorX !== undefined ? dData.anchorX : 0.5;
+        const ay = dData.anchorY !== undefined ? dData.anchorY : 1.0;
+        const originX = dData.x - dw * ax;
+        const originY = dData.y - dh * ay;
+        const colBody = DocsDoodads.box(originX + shape.x * dw + (shape.w * dw) / 2, originY + shape.y * dh + (shape.h * dh) / 2, shape.w * dw, shape.h * dh);
+        if (DocsDoodads.judge(colBody, tileBox)) return true;
+    }
+    return false;
+};
+
 if (typeof Game_CharacterBase !== 'undefined') {
     const _Game_CharacterBase_canPass = Game_CharacterBase.prototype.canPass;
     Game_CharacterBase.prototype.canPass = function(x, y, d) {
         if (!_Game_CharacterBase_canPass.apply(this, arguments)) return false;
-        // Through characters (and Ctrl-walking in a playtest) and the party in an airship pass doodads too.
+        // Through characters (and Ctrl-walking in a playtest), the party in an airship, and anyone
+        // flying (Traversal) pass doodads too.
         if (this.isThrough() || this.isDebugThrough()) return true;
         if (this.isInAirship && this.isInAirship()) return true;
-
-        const doodads = DocsDoodads.doodads();
-        if (!doodads || doodads.length === 0) return true;
-
-        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        const targetMapX = $gameMap.roundXWithDirection(x, d);
-        const targetMapY = $gameMap.roundYWithDirection(y, d);
-        const targetPx = targetMapX * tw + tw / 2;
-        const targetPy = targetMapY * th + th / 2;
-        const playerSATBox = DocsDoodads.box(targetPx, targetPy, tw * 2 / 3, th * 2 / 3);
-        const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
-
-        for (const dData of doodads) {
-            if (dData && dData.collision && dData.collision.preset !== "none") {
-                // Only doodads that are showing block: not one hidden by its switch, condition, season or layer.
-                if (!DocsDoodads.Layers.visibleInGame(dData, mapSettings) || !DocsDoodads.Appearance.isVisible(dData, {})) continue;
-                const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
-                if (shape) {
-                    const dw = (dData.frameW || 48) * (dData.scaleX || 1);
-                    const dh = (dData.frameH || 48) * (dData.scaleY || 1);
-                    const ax = dData.anchorX !== undefined ? dData.anchorX : 0.5;
-                    const ay = dData.anchorY !== undefined ? dData.anchorY : 1.0;
-
-                    const originX = dData.x - dw * ax;
-                    const originY = dData.y - dh * ay;
-
-                    const colX = originX + shape.x * dw + (shape.w * dw) / 2;
-                    const colY = originY + shape.y * dh + (shape.h * dh) / 2;
-                    const colW = shape.w * dw;
-                    const colH = shape.h * dh;
-
-                    const colBody = DocsDoodads.box(colX, colY, colW, colH);
-                    if (DocsDoodads.judge(colBody, playerSATBox)) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
+        if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
+        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d));
     };
 }
 
