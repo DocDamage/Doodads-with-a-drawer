@@ -12,9 +12,9 @@ These are about trust in what already exists, not new features.
 
 | # | Recommendation | Why | Size |
 |---|---|---|---|
-| 1.1 | **Run the manual test checklist.** `MANUAL_TEST_CHECKLIST.md` has 111 unchecked items. Run it once on a copy of a real project, not only the test project. | Every feature was playtested as it was built, but never all together, in a real game, start to finish. | M |
+| 1.1 | **Run the manual test checklist.** `MANUAL_TEST_CHECKLIST.md` has 112 unchecked items. Run it once on a copy of a real project, not only the test project. | Every feature was playtested as it was built, but never all together, in a real game, start to finish. | M |
 | 1.2 | **3D performance pass.** Measure frame rate on a large map with view distance 40 and 64, terrain on, a storm, 100+ doodads and night lights. Lower-spec machines too. | Untested so far. Each frame redraws the ground texture and terrain mesh, sorts billboards, and steps up to 2,000 weather particles. | M |
-| 1.3 | **3D quality presets.** Add Low / Medium / High under the Effects Quality option players already have. Low: shorter view distance, no wakes, fewer drops, no terrain subdivision. | Slower machines need a way down without the developer re-tuning every map. | S |
+| 1.3 | ~~**3D quality presets.**~~ **Done:** Effects Quality (High / Medium / Low / Off) now scales the 3D view: view distance and fog, weather drops, wakes and hill detail. Still worth timing on a slow machine as part of 1.2. | Slower machines need a way down without the developer re-tuning every map. | S |
 | 1.4 | **Deployed-build test.** Build a deployment (with encrypted images) and play the 3D, weather and visual equipment features in it. | The editor is removed from deployed games, and image loading differs there. Several features read art at runtime. | S |
 | 1.5 | **MV compatibility check.** The README says MZ/MV. Either test the core workflow in MV or narrow the claim to MZ. | Nothing added since the rename has been tried in MV. Its renderer, scene code and animation system all differ. | S–M |
 | 1.6 | **Raise test coverage** from 65% to 75%, starting with the runtime hooks: Sprite_Character layers, the 3D renderer, the Sprite_Destination override. | Most of the untested code is drawing code, which is where the bugs found in Playtests have been. | M |

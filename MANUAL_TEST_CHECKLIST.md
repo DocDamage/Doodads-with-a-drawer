@@ -131,6 +131,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] 3D height: shrink and grow standing doodads and characters; check feet stay put, gear and balloons follow, and clicking and dragging doodads in the editor still lands on them.
 - [ ] 3D day and night: run the clock and preview times in the editor; look east at dawn and west at dusk for the sun; stars at night; hills and water lit from the sun's side; a map with a parallax; the option off.
 - [ ] 3D weather: Set Weather Effect rain, storm and snow at powers 1, 5 and 9, with fades; at night; on water; with terrain; on a planet; turn 3D weather off (MZ's flat weather returns); leave 3D.
+- [ ] 3D quality: in a project with a 3D map and no post-processing, Effects Quality shows in Options. At Medium and Low, check the view gets shorter without the ground's edge showing, rain and snow thin out, wakes stop on Low, and hills still look like hills (characters stay on them). Open the editor: the map shows as set. Save and reload the option.
 - [ ] Curvature slider from 0 to 100 and back; Set Camera easing flat to planet, planet to rolling log, and back to flat.
 - [ ] Round world: planet and rolling log at several radii, radius 0 on a looping map (walk a full lap), lean on and off, turning, clicking the ground near the horizon, and the editor on the curve.
 

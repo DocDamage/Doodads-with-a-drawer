@@ -236,7 +236,7 @@ Click **Post FX** in the toolbar to open the builder. Changes show live on the m
 - **Presets**: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it.
 - **Hold to Compare** shows the map without effects while the button is held. **Show while editing** turns effects off in the editor only.
 - **Affect pictures**: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected.
-- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it.
+- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14).
 
 ### During play
 - **Set Post-Processing Look** fades to a preset, to no effects, or back to the map's own look, over a number of frames. Use it for flashbacks, poison, night vision or boss rooms.
@@ -466,6 +466,17 @@ Tileset tiles always lie flat, including tree tops and roofs from the B–E tile
 
 On a round world, things past the horizon are hidden, and clicks, fog and editor boxes follow the curve.
 
+### Quality on slower machines
+When any map uses the 3D view, players get the **Effects Quality** option in the Options menu, the same one post-processing uses. It lowers the 3D detail you set, and never raises it:
+
+| Effects Quality | 3D view |
+| :--- | :--- |
+| High | As you set it. |
+| Medium | View distance at most 32 tiles, 60% of the weather, hills split 2 × 2 per tile instead of 4 × 4. |
+| Low (and Off) | View distance at most 24 tiles, a third of the weather, no wakes, one piece per hill tile. |
+
+When the view distance is shortened, the fog is pulled in by the same amount, so the ground's edge stays hidden. A map already set to a shorter view distance keeps its own. Off also turns post-processing off; the 3D view itself stays on. The editor always shows a map as you set it, whatever the option says.
+
 ### Terrain height
 Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (this map)** in the map panel and tick **Raise the ground**. Heights are in tiles and come from four places. The higher one in this list wins:
 1. **The Terrain brush** (toolbar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map.
@@ -691,6 +702,9 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ### Q: Post-processing makes my game slow on older PCs or phones.
 - Set **Quality** to *Low* in the Post FX builder (it skips tilt-shift and lightens bloom), use fewer effects, or let players pick a lower **Effects Quality** in Options.
+
+### Q: The 3D view is slow on older PCs or phones.
+- Lower **View distance** for the map, or let players pick a lower **Effects Quality** in Options: Medium and Low draw less ground, fewer weather drops and simpler hills, and Low drops wakes (see *Quality on slower machines* in section 14).
 
 ### Q: My character sheet with more frames shows the wrong part of the image.
 - Put the layout in the file name: `[f8]` for frames per row and `[d1]`/`[d8]` for rows. A tagged sheet holds one character and is split evenly, so every frame must be the same size.

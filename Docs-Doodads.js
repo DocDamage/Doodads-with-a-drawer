@@ -130,6 +130,8 @@
  *    - Day and night: a sky following the clock, sun, moon and stars, light from the sun.
  *    - Terrain height (map panel and the Terrain brush): automatic mountains and forests on
  *      world tilesets, heights by region or terrain tag, smooth or stepped, optional blocking.
+ *    - Effects Quality in Options lowers 3D detail for slower machines (view distance,
+ *      weather, wakes, hill detail).
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
  *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
  *      through the ground; selected doodads show 3D boxes.
@@ -4429,6 +4431,28 @@ DocsDoodads.Perspective = {
         return s.enabled ? s : null;
     },
 
+    // The player's Effects Quality also scales the 3D view down: 0 high (as set), 1 medium, 2 low.
+    // Off (3) counts as low, since the 3D view itself stays on.
+    qualityPresets: [
+        null,
+        { viewTiles: 32, weather: 0.6, wakes: true, terrainSteps: 2 },
+        { viewTiles: 24, weather: 0.35, wakes: false, terrainSteps: 1 }
+    ],
+
+    withQuality(s, playerOption) {
+        const level = Math.max(0, Math.min(2, Math.round(Number(playerOption) || 0)));
+        const q = this.qualityPresets[level];
+        if (!s || !q) return s;
+        const out = Object.assign({}, s, { weatherDensity: s.weatherDensity * q.weather, terrainSteps: q.terrainSteps });
+        if (s.viewTiles > q.viewTiles) {
+            // The fog closes in with the view, so the ground's edge stays hidden.
+            const k = q.viewTiles / s.viewTiles;
+            Object.assign(out, { viewTiles: q.viewTiles, fogStart: s.fogStart * k, fogEnd: s.fogEnd * k });
+        }
+        if (!q.wakes) out.waterWakes = false;
+        return out;
+    },
+
     // spec: { target: {x, y} (flat pixels), pitch, yaw (degrees), fov (vertical, degrees), zoom, width, height }
     camera(spec) {
         const rad = Math.PI / 180;
@@ -4868,7 +4892,7 @@ DocsDoodads.Terrain = {
 
     // Mesh over cols x rows tiles from (tx0, ty0): vertices in map pixels with height h (tiles), texture
     // position u, v (map pixels) and shade 0-1; triangles as vertex index triples.
-    buildMesh(grid, tx0, ty0, cols, rows, tw, th, style, light) {
+    buildMesh(grid, tx0, ty0, cols, rows, tw, th, style, light, detail) {
         const vertices = [], triangles = [];
         const L = light || this.light;
         const shadeOf = (nx, ny, nz) => {
@@ -4899,8 +4923,10 @@ DocsDoodads.Terrain = {
             }
             return { vertices, triangles };
         }
-        // Smooth: tiles near raised ground are split 4 x 4 and follow the field; flat tiles are one quad.
+        // Smooth: tiles near raised ground are split 4 x 4 (or detail x detail, for lower quality) and
+        // follow the field; flat tiles are one quad.
         const n = this.smoothSamples;
+        const split = Math.max(1, Math.min(n, Math.round(Number(detail)) || n));
         const near = (tx, ty) => {
             for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== 0) return true;
             return false;
@@ -4913,13 +4939,13 @@ DocsDoodads.Terrain = {
         };
         for (let ty = ty0; ty < ty0 + rows; ty++) {
             for (let tx = tx0; tx < tx0 + cols; tx++) {
-                const steps = near(tx, ty) ? n : 1;
+                const raised = near(tx, ty), steps = raised ? split : 1;
                 const base = vertices.length;
                 for (let j = 0; j <= steps; j++) {
                     for (let i = 0; i <= steps; i++) {
                         const x = tx + i / steps, y = ty + j / steps;
-                        const h = steps === 1 ? 0 : this.heightAt(grid, x, y, 'smooth');
-                        add(x * tw, y * th, h, x * tw, y * th, steps === 1 ? 1 : shadeAt(x, y));
+                        const h = raised ? this.heightAt(grid, x, y, 'smooth') : 0;
+                        add(x * tw, y * th, h, x * tw, y * th, raised ? shadeAt(x, y) : 1);
                     }
                 }
                 for (let j = 0; j < steps; j++) {
@@ -6318,7 +6344,18 @@ DocsDoodads.PostFX.offeredInOptions = function() {
     return Object.keys(maps).some(id => maps[id] && maps[id].postfx && maps[id].postfx.mode === 'custom' && this.isActive(this.normalizeLook(maps[id].postfx.look)));
 };
 
-// Options menu: players can switch motion blur off and lower the effects quality.
+// Any map shown in 3D: Effects Quality scales the 3D view down too.
+DocsDoodads.Perspective.usedInProject = function() {
+    const maps = (typeof window !== 'undefined' && window.$dataDocsDoodads && window.$dataDocsDoodads.mapSettings) || {};
+    return Object.keys(maps).some(id => maps[id] && maps[id].perspective && maps[id].perspective.enabled === true);
+};
+
+DocsDoodads.fxQualityOffered = function() {
+    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject();
+};
+
+// Options menu: players can switch motion blur off and lower the effects quality
+// (post-processing and the 3D view).
 DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off'];
 if (typeof ConfigManager !== 'undefined') {
     ConfigManager.docsMotionBlur = true;
@@ -6338,14 +6375,14 @@ if (typeof ConfigManager !== 'undefined') {
     };
 }
 DocsDoodads.extraOptionCount = function() {
-    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.PostFX.offeredInOptions() ? 1 : 0);
+    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.fxQualityOffered() ? 1 : 0);
 };
 if (typeof Window_Options !== 'undefined') {
     $.Window_Options_addGeneralOptions = Window_Options.prototype.addGeneralOptions;
     Window_Options.prototype.addGeneralOptions = function() {
         $.Window_Options_addGeneralOptions.call(this);
         if (DocsDoodads.World.settings().motionBlur.enabled) this.addCommand('Motion Blur', 'docsMotionBlur');
-        if (DocsDoodads.PostFX.offeredInOptions()) this.addCommand('Effects Quality', 'docsFxQuality');
+        if (DocsDoodads.fxQualityOffered()) this.addCommand('Effects Quality', 'docsFxQuality');
     };
     // Effects Quality cycles High > Medium > Low > Off.
     $.Window_Options_statusText = Window_Options.prototype.statusText;
@@ -8146,7 +8183,10 @@ DocsDoodads.Perspective.active = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
     if (this._suspended) return null;
     const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
-    return this.resolve(mine, $gameMap._docsCamera || null);
+    const s = this.resolve(mine, $gameMap._docsCamera || null);
+    // The editor shows the map as it was set; the player's Effects Quality applies in play.
+    if (!s || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return s;
+    return this.withQuality(s, typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0);
 };
 
 // The camera used for the last frame drawn (null when the map is flat).
@@ -9254,11 +9294,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const viewTiles = s.viewTiles;
         const tx0 = Math.floor($gameMap.displayX()) - 1, ty0 = Math.floor($gameMap.displayY()) - 1;
         const light = this._docsSkyLight || T.light;
-        const key = [grid.sig, tx0, ty0, viewTiles, DocsDoodads.Sky3D.lightKey(light)].join('|');
+        const key = [grid.sig, tx0, ty0, viewTiles, s.terrainSteps || 0, DocsDoodads.Sky3D.lightKey(light)].join('|');
         if (this._docsTerrainKey === key && this._docsTerrainTopo) return this._docsTerrainTopo;
         this._docsTerrainKey = key;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style, light);
+        const mesh = T.buildMesh(grid, tx0, ty0, viewTiles + 3, viewTiles + 3, tw, th, grid.style, light, s.terrainSteps);
         const n = mesh.vertices.length;
         const topo = this._docsTerrainTopo = {
             vertices: mesh.vertices, triangles: mesh.triangles,
