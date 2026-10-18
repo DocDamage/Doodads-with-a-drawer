@@ -615,7 +615,7 @@
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
             sound: DocsDoodads.SpatialSound.emitterDefaults,
             react: DocsDoodads.React.defaults,
-            model: { path: '', scale: 1, yaw: 0 }
+            model: { path: '', scale: 1, yaw: 0, animation: '', speed: 1 }
         };
     },
 
@@ -822,7 +822,9 @@
             { title: '3D Model', fields: [
                 { key: 'model.path', label: 'glTF model shown in 3D instead of the picture (e.g. models/Tree.glb)', type: 'text' },
                 number('model.scale', 'Size (tiles per model unit)', 0.05),
-                range('model.yaw', 'Turn (degrees)', 0, 359, 1)
+                range('model.yaw', 'Turn (degrees)', 0, 359, 1),
+                { key: 'model.animation', label: "Animation to play (its name or number; blank plays the first, none for none)", type: 'text' },
+                range('model.speed', 'Animation speed', 0, 3, 0.05)
             ] },
             { title: 'Atmosphere', fields: [
                 { key: 'seeThrough', label: 'See-through when the player is behind', type: 'select', options: D.SeeThrough.options },

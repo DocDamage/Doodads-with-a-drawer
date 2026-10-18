@@ -338,8 +338,11 @@ DocsDoodads.Gltf = {
         const scene = j.scenes ? j.scenes[j.scene || 0] : { nodes: (j.nodes || []).map((n, i) => i) };
         const prims = [];
         const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-        const visit = (index, parent) => {
+        const nodes = (j.nodes || []).map(n => ({ parent: -1, translation: n.translation || [0, 0, 0], rotation: n.rotation || [0, 0, 0, 1],
+            scale: n.scale || [1, 1, 1], matrix: n.matrix ? n.matrix.slice() : null, children: n.children || [] }));
+        const visit = (index, parent, parentIndex) => {
             const node = j.nodes[index];
+            nodes[index].parent = parentIndex;
             const m = this.multiply(parent, this.nodeMatrix(node));
             if (node.mesh !== undefined) {
                 // Normals turn by the cofactor matrix (right under uneven scaling); a mirrored node
@@ -387,15 +390,203 @@ DocsDoodads.Gltf = {
                         const sampler = tex && tex.sampler !== undefined && j.samplers ? j.samplers[tex.sampler] : null;
                         nearest = Boolean(sampler && sampler.magFilter === 9728);
                     }
+                    // Vertex colours (COLOR_0, RGB or RGBA, linear) as sRGB RGBA, or null.
+                    let colors = null;
+                    if (p.attributes.COLOR_0 !== undefined) {
+                        const raw = this.accessor(doc, p.attributes.COLOR_0);
+                        const n = j.accessors[p.attributes.COLOR_0].type === 'VEC3' ? 3 : 4;
+                        colors = new Float32Array(count * 4);
+                        for (let v = 0; v < count; v++) {
+                            for (let k = 0; k < 3; k++) colors[v * 4 + k] = this.toSrgb(raw[v * n + k]);
+                            colors[v * 4 + 3] = n === 4 ? raw[v * n + 3] : 1;
+                        }
+                    }
+                    // Skinned parts: four joints and weights per vertex; they pose from their skin, not their node.
+                    let joints = null, weights = null;
+                    if (node.skin !== undefined && p.attributes.JOINTS_0 !== undefined && p.attributes.WEIGHTS_0 !== undefined) {
+                        joints = Uint16Array.from(this.accessor(doc, p.attributes.JOINTS_0));
+                        weights = Float32Array.from(this.accessor(doc, p.attributes.WEIGHTS_0));
+                    }
+                    const e = mat.emissiveFactor || [0, 0, 0];
+                    const unlit = Boolean(mat.extensions && mat.extensions.KHR_materials_unlit);
                     prims.push({ positions, normals, uvs, indices, color: [this.toSrgb(f[0]), this.toSrgb(f[1]), this.toSrgb(f[2]), f[3]], image, nearest,
-                        doubleSided: mat.doubleSided === true });
+                        doubleSided: mat.doubleSided === true,
+                        // Materials: metal and roughness (glTF's defaults, 1 and 1), glow, transparency, unlit.
+                        metallic: pbr.metallicFactor !== undefined ? Number(pbr.metallicFactor) : 1,
+                        roughness: pbr.roughnessFactor !== undefined ? Number(pbr.roughnessFactor) : 1,
+                        emissive: [this.toSrgb(e[0]), this.toSrgb(e[1]), this.toSrgb(e[2])],
+                        alphaMode: mat.alphaMode === 'MASK' || mat.alphaMode === 'BLEND' ? mat.alphaMode : 'OPAQUE',
+                        alphaCutoff: mat.alphaCutoff !== undefined ? Number(mat.alphaCutoff) : 0.5,
+                        unlit, colors,
+                        // For posing: the part's own points, its node, and its skin.
+                        node: index, local: { positions: Float32Array.from(pos), normals: nor ? Float32Array.from(nor) : null }, mirrored,
+                        skin: joints ? node.skin : undefined, joints, weights });
                 }
             }
-            for (const child of node.children || []) visit(child, m);
+            for (const child of node.children || []) visit(child, m, index);
         };
         const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-        for (const root of scene.nodes || []) visit(root, identity);
-        return { primitives: prims, min, max };
+        for (const root of scene.nodes || []) visit(root, identity, -1);
+        const skins = (j.skins || []).map(s => ({
+            joints: s.joints || [],
+            inverseBind: s.inverseBindMatrices !== undefined ? this.accessor(doc, s.inverseBindMatrices) : null
+        }));
+        const animations = (j.animations || []).map((a, i) => {
+            const channels = [];
+            let duration = 0;
+            for (const c of a.channels || []) {
+                const sampler = a.samplers[c.sampler];
+                if (!c.target || c.target.node === undefined || !['translation', 'rotation', 'scale'].includes(c.target.path)) continue;
+                const times = this.accessor(doc, sampler.input), values = this.accessor(doc, sampler.output);
+                duration = Math.max(duration, times[times.length - 1] || 0);
+                channels.push({ node: c.target.node, path: c.target.path, times, values, interpolation: sampler.interpolation || 'LINEAR' });
+            }
+            return { name: a.name || 'Animation ' + (i + 1), duration, channels };
+        }).filter(a => a.channels.length);
+        const model = { primitives: prims, min, max, nodes, skins, animations };
+        // Skinned parts start in their rest pose (from the skin, not the node).
+        if (prims.some(p => p.skin !== undefined)) {
+            const rest = this.pose(model, null, 0);
+            prims.forEach((p, i) => { if (p.skin !== undefined) { p.positions = rest.positions[i]; p.normals = rest.normals[i]; } });
+            for (let k = 0; k < 3; k++) { min[k] = Infinity; max[k] = -Infinity; }
+            for (const p of prims) for (let v = 0; v < p.positions.length; v += 3) for (let k = 0; k < 3; k++) {
+                const w = p.positions[v + k];
+                if (w < min[k]) min[k] = w;
+                if (w > max[k]) max[k] = w;
+            }
+        }
+        return model;
+    },
+
+    // Whether a model moves: it has an animation to play, or skinned parts.
+    animated(model) {
+        return Boolean(model && model.animations && model.animations.length);
+    },
+
+    // The animation a doodad plays: its name or number (1 = the first), 'none' for none, or '' for the first.
+    pickAnimation(model, wanted) {
+        const list = (model && model.animations) || [];
+        const w = String(wanted === undefined || wanted === null ? '' : wanted).trim();
+        if (!list.length || /^none$/i.test(w)) return null;
+        if (!w) return list[0];
+        const byName = list.find(a => a.name.toLowerCase() === w.toLowerCase());
+        if (byName) return byName;
+        const n = parseInt(w, 10);
+        return n >= 1 && n <= list.length ? list[n - 1] : list[0];
+    },
+
+    // One channel's value at time t (looping): translation/scale [x, y, z] or rotation [x, y, z, w].
+    sample(ch, t) {
+        const times = ch.times, n = ch.path === 'rotation' ? 4 : 3, cubic = ch.interpolation === 'CUBICSPLINE';
+        const stride = cubic ? n * 3 : n, at = (k, part) => ch.values.subarray ? Array.from(ch.values.subarray(k * stride + part * n, k * stride + part * n + n)) : [];
+        const value = k => at(k, cubic ? 1 : 0);
+        const last = times.length - 1;
+        if (last <= 0 || t <= times[0]) return value(0);
+        if (t >= times[last]) return value(last);
+        let k = 0;
+        while (k < last - 1 && times[k + 1] <= t) k++;
+        const t0 = times[k], t1 = times[k + 1], dt = t1 - t0, u = dt > 0 ? (t - t0) / dt : 0;
+        let out;
+        if (ch.interpolation === 'STEP') out = value(k);
+        else if (cubic) {
+            const p0 = value(k), p1 = value(k + 1), m0 = at(k, 2), m1 = at(k + 1, 0);
+            const u2 = u * u, u3 = u2 * u;
+            const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u, h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
+            out = p0.map((v, i) => h00 * v + h10 * dt * m0[i] + h01 * p1[i] + h11 * dt * m1[i]);
+        } else {
+            const a = value(k), b = value(k + 1);
+            if (n === 4) {
+                // The shorter way round between two rotations.
+                const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+                const s = dot < 0 ? -1 : 1;
+                out = a.map((v, i) => v + (s * b[i] - v) * u);
+            } else out = a.map((v, i) => v + (b[i] - v) * u);
+        }
+        if (n === 4) { const len = Math.hypot(out[0], out[1], out[2], out[3]) || 1; out = out.map(v => v / len); }
+        return out;
+    },
+
+    // The model's points and normals at time t (seconds, looping) of an animation (or the rest pose with
+    // null): { positions: [Float32Array per part], normals: [...] }.
+    pose(model, animation, t) {
+        const nodes = model.nodes;
+        const local = nodes.map(n => ({ translation: n.translation, rotation: n.rotation, scale: n.scale, matrix: n.matrix }));
+        if (animation && animation.duration > 0) {
+            const time = ((t % animation.duration) + animation.duration) % animation.duration;
+            for (const ch of animation.channels) {
+                const l = local[ch.node];
+                if (!l) continue;
+                l[ch.path] = this.sample(ch, time);
+                l.matrix = null;
+            }
+        }
+        const world = new Array(nodes.length);
+        const worldOf = i => {
+            if (world[i]) return world[i];
+            const l = local[i];
+            const own = l.matrix || this.nodeMatrix(l);
+            world[i] = nodes[i].parent >= 0 ? this.multiply(worldOf(nodes[i].parent), own) : own;
+            return world[i];
+        };
+        const positions = [], normals = [];
+        for (const p of model.primitives) {
+            const src = p.local.positions, nsrc = p.local.normals, count = src.length / 3;
+            const out = new Float32Array(count * 3), nout = new Float32Array(count * 3);
+            const skin = p.skin !== undefined ? model.skins[p.skin] : null;
+            const jointMats = skin ? skin.joints.map((jn, k) => {
+                const ib = skin.inverseBind ? Array.from(skin.inverseBind.subarray(k * 16, k * 16 + 16)) : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+                return this.multiply(worldOf(jn), ib);
+            }) : null;
+            const nodeMat = skin ? null : worldOf(p.node);
+            for (let v = 0; v < count; v++) {
+                const x = src[v * 3], y = src[v * 3 + 1], z = src[v * 3 + 2];
+                const nx = nsrc ? nsrc[v * 3] : 0, ny = nsrc ? nsrc[v * 3 + 1] : 1, nz = nsrc ? nsrc[v * 3 + 2] : 0;
+                let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
+                const add = (m, w) => {
+                    px += w * (m[0] * x + m[4] * y + m[8] * z + m[12]);
+                    py += w * (m[1] * x + m[5] * y + m[9] * z + m[13]);
+                    pz += w * (m[2] * x + m[6] * y + m[10] * z + m[14]);
+                    qx += w * (m[0] * nx + m[4] * ny + m[8] * nz);
+                    qy += w * (m[1] * nx + m[5] * ny + m[9] * nz);
+                    qz += w * (m[2] * nx + m[6] * ny + m[10] * nz);
+                };
+                if (jointMats) {
+                    let total = 0;
+                    for (let k = 0; k < 4; k++) {
+                        const w = p.weights[v * 4 + k];
+                        if (w > 0 && jointMats[p.joints[v * 4 + k]]) { add(jointMats[p.joints[v * 4 + k]], w); total += w; }
+                    }
+                    if (total <= 0) add(nodes.length ? worldOf(p.node) : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 1);
+                } else add(nodeMat, 1);
+                out[v * 3] = px; out[v * 3 + 1] = py; out[v * 3 + 2] = pz;
+                const sign = p.mirrored ? -1 : 1, len = Math.hypot(qx, qy, qz) || 1;
+                nout[v * 3] = sign * qx / len; nout[v * 3 + 1] = sign * qy / len; nout[v * 3 + 2] = sign * qz / len;
+            }
+            positions.push(out);
+            normals.push(nout);
+        }
+        return { positions, normals };
+    },
+
+    // Light on a surface (model normal) for a material: [shade 0.45-1 like shade(), highlight 0-1]. The
+    // highlight is a Blinn-Phong glint from the light towards the viewer (view: towards the camera, map
+    // x, y, up), sharper and stronger on smooth surfaces; metal darkens the diffuse light.
+    light(nx, ny, nz, yaw, dir, view, prim) {
+        if (prim && prim.unlit) return [1, 0];
+        const r = (yaw || 0) * Math.PI / 180, c = Math.cos(r), s = Math.sin(r);
+        const mx = nx * c - nz * s, my = nx * s + nz * c, up = ny;
+        const diffuse = 0.45 + 0.55 * Math.max(0, mx * dir[0] + my * dir[1] + up * dir[2]);
+        const rough = prim ? Math.max(0.02, Math.min(1, prim.roughness)) : 1, metal = prim ? Math.max(0, Math.min(1, prim.metallic)) : 0;
+        const smooth = 1 - rough;
+        if (smooth <= 0 || !view) return [diffuse, 0];
+        let hx = dir[0] + view[0], hy = dir[1] + view[1], hz = dir[2] + view[2];
+        const hl = Math.hypot(hx, hy, hz) || 1;
+        hx /= hl; hy /= hl; hz /= hl;
+        // Light is worked out at the vertices, so the glint is kept broad enough to land on some (a sharper
+        // one would fall between a cube's corners and never show).
+        const shininess = Math.max(2, Math.min(32, 2 / (rough * rough * rough * rough + 0.001) - 2));
+        const spec = smooth * smooth * Math.pow(Math.max(0, mx * hx + my * hy + up * hz), shininess);
+        return [diffuse * (1 - 0.6 * metal * smooth), Math.min(1, spec)];
     },
 
     // A model point (x, y up, z towards the viewer) placed on the map: turned by yaw degrees and scaled

@@ -901,6 +901,15 @@
         const at = d.posMode === 1 && window.$gameMap ? DocsDoodads.mapToScreen(d.x, d.y) : { x: d.x, y: d.y };
         const rect = { x: at.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5), y: at.y - h * (d.anchorY !== undefined ? d.anchorY : 1.0), w, h };
         const pivot = { x: at.x, y: at.y + (DocsDoodads.Depth.baseY(d) - d.y) };
+        // A doodad shown as a 3D model: the box is the model's size (turned to any side), standing on the pivot.
+        const model = DocsDoodads.Perspective.active() && d.model && d.model.path ? DocsDoodads.Models.get(d.model.path) : null;
+        if (model && model.ready && model.primitives.length) {
+            const unit = Math.abs(Number(d.model.scale) || 1) * (window.$gameMap ? $gameMap.tileWidth() : 48);
+            const half = Math.max(Math.abs(model.min[0]), Math.abs(model.max[0]), Math.abs(model.min[2]), Math.abs(model.max[2])) * unit;
+            const tall = Math.max(1, model.max[1]) * unit;
+            rect.x = pivot.x - half; rect.w = half * 2;
+            rect.y = pivot.y - tall; rect.h = tall;
+        }
         pivot.h = DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, w / 2);
         // In 3D, standing doodads can be drawn smaller or larger; picking and boxes match.
         const p3d = DocsDoodads.Perspective.active();
@@ -928,6 +937,13 @@
         let best = null, bestDepth = Infinity;
         for (const d of DocsDoodads.doodads() || []) {
             if (d.editorHidden || !this.layerAllowsEditing(d)) continue;
+            // Models are picked by what's drawn: their triangles, not a box around them.
+            const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene ? SceneManager._scene._spriteset : null;
+            const modelDepth = d.model && d.model.path && spriteset && spriteset.docsModelHit ? spriteset.docsModelHit(d, screen.x, screen.y) : undefined;
+            if (modelDepth !== undefined && spriteset._docsDoodadSprites && spriteset._docsDoodadSprites.some(sp => sp._data === d && sp._docsModelMeshes && sp._docsModelMeshes.some(m => m && m._docsDrawn))) {
+                if (modelDepth !== null && modelDepth < bestDepth) { best = d; bestDepth = modelDepth; }
+                continue;
+            }
             const box = this.doodadFlatBox(d);
             const r = P.screenRect(cam, box.rect, box.pivot);
             if (!r || screen.x < r.x || screen.x > r.x + r.w || screen.y < r.y || screen.y > r.y + r.h) continue;
