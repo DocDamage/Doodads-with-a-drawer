@@ -302,7 +302,8 @@ function install() {
         isJumping() { return this._jumpCount > 0; } isMoving() { return this._realX !== this._x || this._realY !== this._y; }
         pattern() { return this._pattern; } setPattern(p) { this._pattern = p; } maxPattern() { return 4; } isOriginalPattern() { return this._pattern === 1; } resetPattern() { this._pattern = 1; }
         canPass(x, y, d) { const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d); return $gameMap.isValid(x2, y2) && this.isMapPassable(x, y, d); }
-        isMapPassable(x, y, d) { return true; }
+        isMapPassable(x, y, d) { const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d); return $gameMap.isPassable(x, y, d) && $gameMap.isPassable(x2, y2, 10 - d); }
+        isOnLadder() { return $gameMap.isLadder(this._x, this._y); } refreshBushDepth() { this._bushDepth = 0; } hasWalkAnime() { return this._walkAnime; }
         setMovementSuccess(s) { this._movementSuccess = s; } isMovementSucceeded() { return this._movementSuccess; }
         moveStraight(d) { this.setMovementSuccess(this.canPass(this._x, this._y, d)); if (this.isMovementSucceeded()) { this.setDirection(d);
             this._x = $gameMap.roundXWithDirection(this._x, d); this._y = $gameMap.roundYWithDirection(this._y, d); this._realX = this._x; this._realY = this._y; this.increaseSteps(); } }
@@ -317,6 +318,7 @@ function install() {
     class Game_Player extends Game_Character {
         constructor() { super(); this._followers = { _data: [], data() { return this._data; }, visibleFollowers() { return this._data; }, updateMove() {}, isVisible: () => true, forEach(f) { this._data.forEach(f); } };
             this._vehicleType = 'walk'; }
+        canStartLocalEvents() { return !this.isInAirship(); } canEncounter() { return true; } moveByInput() {} isTransferring() { return Boolean(this._newMapId); }
         center() {} searchLimit() { return 12; } reserveTransfer(m, x, y) { this._newMapId = m; this.locate(x, y); } canMove() { return true; } executeMove(d) { this.moveStraight(d); } getInputDirection() { return 0; } isInAirship() { return false; } isInVehicle() { return false; } isInShip() { return false; }
         followers() { return this._followers; } isDashing() { return false; } vehicle() { return null; } refresh() {}
     }
@@ -347,7 +349,10 @@ function install() {
         tileId(x, y, z) { const w = this.width(), h = this.height(); return ($dataMap.data || [])[(z * h + y) * w + x] || 0; }
         layeredTiles(x, y) { return [3, 2, 1, 0].map(z => this.tileId(x, y, z)); }
         regionId(x, y) { return this.isValid(x, y) ? this.tileId(x, y, 5) : 0; } terrainTag() { return 0; }
-        isPassable(x, y, d) { const flags = (this.tileset() || {}).flags || []; for (const id of this.layeredTiles(x, y)) { const f = flags[id] || 0; if ((f & 0x10) !== 0) continue; return (f & 0x0f) !== 0x0f; } return true; }
+        // MZ's checkPassage: from the top layer down, skipping empty and star (no effect) tiles; a direction
+        // bit clear means passable that way.
+        isPassable(x, y, d) { const flags = (this.tileset() || {}).flags || []; const bit = (1 << (d / 2 - 1)) & 0x0f;
+            for (const id of this.layeredTiles(x, y)) { if (!id) continue; const f = flags[id] || 0; if ((f & 0x10) !== 0) continue; if ((f & bit) === 0) return true; if ((f & bit) === bit) return false; } return false; }
         isBoatPassable() { return false; } isShipPassable() { return false; } isAirshipLandOk() { return true; } isLadder() { return false; } isBush() { return false; } isCounter() { return false; } isDamageFloor() { return false; }
         events() { return this._events.filter(Boolean); } event(id) { return this._events[id]; } eventsXy(x, y) { return this.events().filter(e => e.pos(x, y)); } eventsXyNt(x, y) { return this.eventsXy(x, y); }
         vehicles() { return this._vehicles; } boat() { return this._vehicles[0]; } ship() { return this._vehicles[1]; } airship() { return this._vehicles[2]; }

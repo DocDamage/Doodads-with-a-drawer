@@ -363,7 +363,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             // A jump or a flying airship stands on its own tile and is drawn higher up.
             const ch = obj._character;
             const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
-            const flying = typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle && ch.isAirship && ch.isAirship() ? ch._altitude || 0 : 0;
+            let flying = typeof Game_Vehicle !== 'undefined' && ch instanceof Game_Vehicle && ch.isAirship && ch.isAirship() ? ch._altitude || 0 : 0;
+            // The party flying (Traversal) is drawn up in the air above its own tile too.
+            if (DocsDoodads.Traversal && DocsDoodads.Traversal.isPartyMember(ch)) flying += DocsDoodads.Traversal.altitude();
             return { x: obj.x, y: obj.y + jump + flying };
         }
         if (typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad && obj._docsSortY !== undefined) return { x: obj.x, y: obj._docsSortY };
@@ -1933,6 +1935,8 @@ if (typeof Game_CharacterBase !== 'undefined') {
     // Ledges are for walkers: not vehicles, the party aboard one, or characters set to Through.
     Game_CharacterBase.prototype.docsWalksTerrain = function() {
         if (this.isThrough() || (this.isDebugThrough && this.isDebugThrough())) return false;
+        // Flying, and climbing a climbable cliff (Traversal), aren't walking.
+        if (DocsDoodads.Traversal && DocsDoodads.Traversal.bypassesTerrain(this)) return false;
         if (typeof Game_Vehicle !== 'undefined' && this instanceof Game_Vehicle) return false;
         if (this.isInVehicle && this.isInVehicle()) return false;
         return true;
