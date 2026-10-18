@@ -1,9 +1,45 @@
 //==========================================================
 // SECTION 10: DocsDoodads.FS (FILESYSTEM, ATOMIC WRITES, BACKUPS)
 //==========================================================
+// Files are only written in a playtest. A deployed game reads its data and never changes the project's
+// files, even if a script calls the editor's save, import or export: every write through FS.fs (and
+// FS.fs.promises) throws there, and the callers' own error handling reports it. Reads are untouched.
 DocsDoodads.FS = {
-    fs: (typeof require !== 'undefined') ? require('fs') : null,
+    fs: null,
     path: (typeof require !== 'undefined') ? require('path') : null,
+
+    writeMethods: ['writeFileSync', 'appendFileSync', 'copyFileSync', 'renameSync', 'unlinkSync', 'rmSync', 'rmdirSync',
+        'mkdirSync', 'utimesSync', 'chmodSync', 'truncateSync', 'symlinkSync', 'linkSync', 'cpSync',
+        'writeFile', 'appendFile', 'copyFile', 'rename', 'unlink', 'rm', 'rmdir', 'mkdir', 'utimes', 'chmod', 'truncate',
+        'symlink', 'link', 'cp', 'createWriteStream'],
+
+    writable() {
+        return typeof Utils !== 'undefined' && typeof Utils.isOptionValid === 'function' && Boolean(Utils.isOptionValid('test'));
+    },
+
+    // Node's fs with every write method checking writable() first (looked up when called, so tests that
+    // stub a method on fs still reach their stub).
+    guard(nodeFs) {
+        if (!nodeFs) return null;
+        const FS = this;
+        const refuse = name => new Error("Doc's Doodads only writes files in a playtest (" + name + ').');
+        const wrap = (target, source, names, fail) => {
+            for (const name of names) {
+                if (typeof source[name] !== 'function') continue;
+                target[name] = function(...args) {
+                    if (!FS.writable()) return fail(name);
+                    return source[name].apply(source, args);
+                };
+            }
+            return target;
+        };
+        const guarded = wrap(Object.create(nodeFs), nodeFs, this.writeMethods, name => { throw refuse(name); });
+        if (nodeFs.promises) {
+            const promises = wrap(Object.create(nodeFs.promises), nodeFs.promises, this.writeMethods, name => Promise.reject(refuse(name)));
+            Object.defineProperty(guarded, 'promises', { value: promises });
+        }
+        return guarded;
+    },
 
     existsSync(filePath) {
         return this.fs && this.fs.existsSync(filePath);
@@ -237,16 +273,34 @@ DocsDoodads.FS = {
             return JSON.parse(this.readFileSync(filePath, 'utf8'));
         } catch(e) {
             console.warn(`[DocsDoodads.FS] Corrupt JSON encountered reading ${filePath}:`, e);
+            // The next save would replace the unreadable file, so a copy is kept first (for repair by hand).
+            const kept = this.keepUnreadable(filePath);
+            const keptNote = kept ? ` The unreadable file was kept as ${kept}.` : '';
             const fallback = this.findLatestBackup(filePath);
             if (fallback) {
                 try {
                     const recovered = JSON.parse(this.readFileSync(fallback, 'utf8'));
                     console.warn(`[DocsDoodads.FS] Automatically recovered ${filePath} from backup ${fallback}`);
-                    this.recoveryNotices.push(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.`);
+                    this.recoveryNotices.push(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.${keptNote}`);
                     return recovered;
                 } catch(e2) {}
             }
-            this.recoveryNotices.push(`${filePath} was unreadable and no backup exists; defaults were used.`);
+            this.recoveryNotices.push(`${filePath} was unreadable and no backup exists; defaults were used.${keptNote}`);
+            return null;
+        }
+    },
+
+    // A copy of an unreadable file beside the backups (named .unreadable, so it's never loaded as one).
+    // Returns its path, or null (nothing to copy, or not in a playtest).
+    keepUnreadable(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
+        if (!this.fs || !this.path || !this.writable() || !this.existsSync(filePath)) return null;
+        try {
+            this.mkdirp(backupDirectory);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const target = this.path.join(backupDirectory, `${this.path.basename(filePath)}.${stamp}.unreadable`).replace(/\\/g, '/');
+            this.fs.copyFileSync(filePath, target);
+            return target;
+        } catch (error) {
             return null;
         }
     },
@@ -266,4 +320,5 @@ DocsDoodads.FS = {
         return { size: s.size, mtimeMs: s.mtimeMs };
     }
 };
+DocsDoodads.FS.fs = DocsDoodads.FS.guard((typeof require !== 'undefined') ? require('fs') : null);
 

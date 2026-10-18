@@ -97,7 +97,7 @@ if (typeof DataManager !== 'undefined') {
 
     DataManager.saveDocsDoodadsData = function() {
         if (typeof StorageManager !== 'undefined') {
-            const fs = (typeof require !== 'undefined') ? require('fs') : null;
+            const fs = DocsDoodads.FS.fs;
             if (fs) {
                 const filePath = 'data/' + dataFileName;
                 const content = saveMode ? JSON.stringify(window.$dataDocsDoodads) : JSON.stringify(window.$dataDocsDoodads, null, 2);

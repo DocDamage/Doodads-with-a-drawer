@@ -46,6 +46,71 @@ DocsDoodads.Slicing.Editor = {
         };
     },
 
+    // Auto-Slice. Large sheets are analysed after a frame, and pressing the button again (it reads Cancel)
+    // stops it; returns a promise of the result, or null when cancelled.
+    autoSlice() {
+        const V = DocsDoodads.Slicing.Visual;
+        const button = document.getElementById('dd-slicer-auto-btn');
+        if (this._autoToken) {
+            this._autoToken.isCancelled = true;
+            return Promise.resolve(null);
+        }
+        const finish = res => {
+            this.saveState();
+            this.regions = res.regions;
+            this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
+            this.render();
+            this.updateRegionList();
+            const confidence = Math.round((Number(res.confidence) || 0) * 100);
+            const verdict = res.status === 'review' ? 'Review required' : 'Auto-slice complete';
+            DocsDoodads.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
+            return res;
+        };
+        const w = this.img.naturalWidth || this.img.width, h = this.img.naturalHeight || this.img.height;
+        if (w * h <= this.asyncPixels) return Promise.resolve(finish(V.analyze(this.img)));
+        const token = this._autoToken = { isCancelled: false };
+        if (button) button.textContent = 'Cancel';
+        return V.analyzeAsync(this.img, {}, null, token).then(res => {
+            this._autoToken = null;
+            if (button) button.textContent = 'Auto-Slice';
+            if (!res) {
+                DocsDoodads.Workspace.showToast('Auto-slice cancelled.');
+                return null;
+            }
+            return finish(res);
+        });
+    },
+
+    // Sheets bigger than this (2048 x 1024) are analysed asynchronously, with Cancel.
+    asyncPixels: 2048 * 1024,
+
+    // Merge: the selected region and the next one in the list become one region covering both.
+    mergeWithNext() {
+        const i = this.selectedRegionIdx;
+        if (!(i >= 0 && i + 1 < this.regions.length)) return false;
+        this.saveState();
+        const a = this.regions[i], b = this.regions[i + 1];
+        const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        const merged = Object.assign({}, a, { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y });
+        this.regions.splice(i, 2, merged);
+        this.render();
+        this.updateRegionList();
+        return true;
+    },
+
+    // Reorder: moves the selected region up (-1) or down (1) the list (the export order).
+    moveRegion(delta) {
+        const i = this.selectedRegionIdx, j = i + delta;
+        if (!(i >= 0 && i < this.regions.length && j >= 0 && j < this.regions.length)) return false;
+        this.saveState();
+        const [r] = this.regions.splice(i, 1);
+        this.regions.splice(j, 0, r);
+        this.selectedRegionIdx = j;
+        this.render();
+        this.updateRegionList();
+        return true;
+    },
+
     saveState() {
         this.undoStack.push(JSON.stringify(this.regions));
         if (this.undoStack.length > 50) this.undoStack.shift();
@@ -121,6 +186,9 @@ DocsDoodads.Slicing.Editor = {
                     <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
                     <button class="dd-btn" id="dd-slicer-splitv-btn" title="Split vertical">Split Vert</button>
                     <button class="dd-btn" id="dd-slicer-splith-btn" title="Split horizontal">Split Horz</button>
+                    <button class="dd-btn" id="dd-slicer-merge-btn" title="Merge the selected region with the next one in the list">Merge</button>
+                    <button class="dd-btn" id="dd-slicer-up-btn" title="Move the selected region up the list">▲</button>
+                    <button class="dd-btn" id="dd-slicer-down-btn" title="Move the selected region down the list">▼</button>
                     <button class="dd-btn" id="dd-slicer-export-btn" title="Export individual PNG files">Export PNGs</button>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -203,17 +271,7 @@ DocsDoodads.Slicing.Editor = {
         document.getElementById('dd-slicer-redo').onclick = () => this.redo();
 
         // Visual auto-slice
-        document.getElementById('dd-slicer-auto-btn').onclick = () => {
-            this.saveState();
-            const res = DocsDoodads.Slicing.Visual.analyze(this.img);
-            this.regions = res.regions;
-            this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
-            this.render();
-            this.updateRegionList();
-            const confidence = Math.round((Number(res.confidence) || 0) * 100);
-            const verdict = res.status === 'review' ? 'Review required' : 'Auto-slice complete';
-            DocsDoodads.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
-        };
+        document.getElementById('dd-slicer-auto-btn').onclick = () => this.autoSlice();
 
         // Fixed Grid
         document.getElementById('dd-slicer-grid-btn').onclick = () => {
@@ -302,6 +360,10 @@ DocsDoodads.Slicing.Editor = {
                 this.updateRegionList();
             }
         };
+
+        document.getElementById('dd-slicer-merge-btn').onclick = () => this.mergeWithNext();
+        document.getElementById('dd-slicer-up-btn').onclick = () => this.moveRegion(-1);
+        document.getElementById('dd-slicer-down-btn').onclick = () => this.moveRegion(1);
 
         document.getElementById('dd-slicer-export-btn').onclick = () => {
             this.asset.slice.regions = this.regions;

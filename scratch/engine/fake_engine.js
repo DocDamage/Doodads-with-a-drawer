@@ -300,7 +300,7 @@ function install() {
         jump(xPlus, yPlus) { this._x += xPlus; this._y += yPlus; this._jumpPeak = 10; this._jumpCount = 20; }
         increaseSteps() {} straighten() {} resetStopCount() {} isOnBush() { return false; }
         update() { if (this._jumpCount > 0) { this._jumpCount--; if (!this._jumpCount) { this._realX = this._x; this._realY = this._y; } } }
-        isNormalPriority() { return this._priorityType === 1; } isCollidedWithCharacters() { return false; } isThrough() { return this._through; }
+        isNormalPriority() { return this._priorityType === 1; } isCollidedWithCharacters() { return false; } isThrough() { return this._through; } isDebugThrough() { return false; }
         animationWait() { return 9; } isDashing() { return false; } realMoveSpeed() { return this._moveSpeed; } distancePerFrame() { return 1 / 8; } checkStop() { return false; }
     }
     class Game_Character extends Game_CharacterBase { processMoveCommand() {} }

@@ -1574,7 +1574,7 @@ if (typeof DataManager !== 'undefined') {
 
     DataManager.saveDocsDoodadsData = function() {
         if (typeof StorageManager !== 'undefined') {
-            const fs = (typeof require !== 'undefined') ? require('fs') : null;
+            const fs = DocsDoodads.FS.fs;
             if (fs) {
                 const filePath = 'data/' + dataFileName;
                 const content = saveMode ? JSON.stringify(window.$dataDocsDoodads) : JSON.stringify(window.$dataDocsDoodads, null, 2);
@@ -11743,9 +11743,45 @@ DocsDoodads.Compat = {
 //==========================================================
 // SECTION 10: DocsDoodads.FS (FILESYSTEM, ATOMIC WRITES, BACKUPS)
 //==========================================================
+// Files are only written in a playtest. A deployed game reads its data and never changes the project's
+// files, even if a script calls the editor's save, import or export: every write through FS.fs (and
+// FS.fs.promises) throws there, and the callers' own error handling reports it. Reads are untouched.
 DocsDoodads.FS = {
-    fs: (typeof require !== 'undefined') ? require('fs') : null,
+    fs: null,
     path: (typeof require !== 'undefined') ? require('path') : null,
+
+    writeMethods: ['writeFileSync', 'appendFileSync', 'copyFileSync', 'renameSync', 'unlinkSync', 'rmSync', 'rmdirSync',
+        'mkdirSync', 'utimesSync', 'chmodSync', 'truncateSync', 'symlinkSync', 'linkSync', 'cpSync',
+        'writeFile', 'appendFile', 'copyFile', 'rename', 'unlink', 'rm', 'rmdir', 'mkdir', 'utimes', 'chmod', 'truncate',
+        'symlink', 'link', 'cp', 'createWriteStream'],
+
+    writable() {
+        return typeof Utils !== 'undefined' && typeof Utils.isOptionValid === 'function' && Boolean(Utils.isOptionValid('test'));
+    },
+
+    // Node's fs with every write method checking writable() first (looked up when called, so tests that
+    // stub a method on fs still reach their stub).
+    guard(nodeFs) {
+        if (!nodeFs) return null;
+        const FS = this;
+        const refuse = name => new Error("Doc's Doodads only writes files in a playtest (" + name + ').');
+        const wrap = (target, source, names, fail) => {
+            for (const name of names) {
+                if (typeof source[name] !== 'function') continue;
+                target[name] = function(...args) {
+                    if (!FS.writable()) return fail(name);
+                    return source[name].apply(source, args);
+                };
+            }
+            return target;
+        };
+        const guarded = wrap(Object.create(nodeFs), nodeFs, this.writeMethods, name => { throw refuse(name); });
+        if (nodeFs.promises) {
+            const promises = wrap(Object.create(nodeFs.promises), nodeFs.promises, this.writeMethods, name => Promise.reject(refuse(name)));
+            Object.defineProperty(guarded, 'promises', { value: promises });
+        }
+        return guarded;
+    },
 
     existsSync(filePath) {
         return this.fs && this.fs.existsSync(filePath);
@@ -11979,16 +12015,34 @@ DocsDoodads.FS = {
             return JSON.parse(this.readFileSync(filePath, 'utf8'));
         } catch(e) {
             console.warn(`[DocsDoodads.FS] Corrupt JSON encountered reading ${filePath}:`, e);
+            // The next save would replace the unreadable file, so a copy is kept first (for repair by hand).
+            const kept = this.keepUnreadable(filePath);
+            const keptNote = kept ? ` The unreadable file was kept as ${kept}.` : '';
             const fallback = this.findLatestBackup(filePath);
             if (fallback) {
                 try {
                     const recovered = JSON.parse(this.readFileSync(fallback, 'utf8'));
                     console.warn(`[DocsDoodads.FS] Automatically recovered ${filePath} from backup ${fallback}`);
-                    this.recoveryNotices.push(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.`);
+                    this.recoveryNotices.push(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.${keptNote}`);
                     return recovered;
                 } catch(e2) {}
             }
-            this.recoveryNotices.push(`${filePath} was unreadable and no backup exists; defaults were used.`);
+            this.recoveryNotices.push(`${filePath} was unreadable and no backup exists; defaults were used.${keptNote}`);
+            return null;
+        }
+    },
+
+    // A copy of an unreadable file beside the backups (named .unreadable, so it's never loaded as one).
+    // Returns its path, or null (nothing to copy, or not in a playtest).
+    keepUnreadable(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
+        if (!this.fs || !this.path || !this.writable() || !this.existsSync(filePath)) return null;
+        try {
+            this.mkdirp(backupDirectory);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const target = this.path.join(backupDirectory, `${this.path.basename(filePath)}.${stamp}.unreadable`).replace(/\\/g, '/');
+            this.fs.copyFileSync(filePath, target);
+            return target;
+        } catch (error) {
             return null;
         }
     },
@@ -12008,6 +12062,7 @@ DocsDoodads.FS = {
         return { size: s.size, mtimeMs: s.mtimeMs };
     }
 };
+DocsDoodads.FS.fs = DocsDoodads.FS.guard((typeof require !== 'undefined') ? require('fs') : null);
 
 //==========================================================
 // SECTION 11: DocsDoodads.ASSETINDEX & METADATA CACHE
@@ -13782,112 +13837,32 @@ DocsDoodads.Slicing.Visual = {
         return out;
     },
 
+    // analyze, giving the page a frame first (so a Cancel click can land) and checking the token before and
+    // after: resolves null when cancelled. The analysis itself is quick (a 4096 x 4096 sheet with 4,000
+    // sprites takes about a third of a second), so it runs in one go.
     analyzeAsync(imageElement, options = {}, onProgress = null, cancellationToken = null) {
-        return new Promise((resolve, reject) => {
-            if (cancellationToken && cancellationToken.isCancelled) {
-                return resolve(null);
-            }
-            if (typeof document === 'undefined') {
-                return resolve({ status: "none", regions: [] });
-            }
+        const cancelled = () => Boolean(cancellationToken && cancellationToken.isCancelled);
+        return new Promise(resolve => {
+            if (cancelled()) return resolve(null);
+            if (typeof document === 'undefined') return resolve({ status: "none", regions: [] });
             if (onProgress) onProgress("Loading Pixels", 10);
-
             const canvas = document.createElement('canvas');
             canvas.width = imageElement.naturalWidth || imageElement.width;
             canvas.height = imageElement.naturalHeight || imageElement.height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(imageElement, 0, 0);
-
             const w = canvas.width, h = canvas.height;
-            const imgData = ctx.getImageData(0, 0, w, h);
-            const data = imgData.data;
-
-            if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-            if (onProgress) onProgress("Calculating Threshold", 25);
-
-            // Step 1: Alpha histogram and Otsu threshold
-            const hist = new Uint32Array(256);
-            for (let i = 3; i < data.length; i += 4) {
-                hist[data[i]]++;
-            }
-            let threshold = this.otsuThreshold(hist);
-            if (threshold < 8) threshold = 16;
-
-            if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-            if (onProgress) onProgress("Binarizing Image", 40);
-
-            // Step 2: Binary grid foreground
-            const binary = new Uint8Array(w * h);
-            for (let i = 0, p = 3; p < data.length; i++, p += 4) {
-                binary[i] = data[p] >= threshold ? 1 : 0;
-            }
-
-            if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-            if (onProgress) onProgress("Connected Components Analysis", 60);
-
-            // Step 3: Connected Components (4-connected)
-            const labels = new Int32Array(w * h);
-            let currentLabel = 1;
-            const components = {};
-
-            let y = 0;
-            const processChunk = () => {
-                const chunkStart = Date.now();
-                while (y < h && (Date.now() - chunkStart < 12)) {
-                    if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-                    for (let x = 0; x < w; x++) {
-                        const idx = y * w + x;
-                        if (binary[idx] === 1 && labels[idx] === 0) {
-                            const comp = { minX: x, maxX: x, minY: y, maxY: y, count: 0 };
-                            const queue = [idx];
-                            labels[idx] = currentLabel;
-
-                            while (queue.length > 0) {
-                                const cur = queue.pop();
-                                const cx = cur % w;
-                                const cy = Math.floor(cur / w);
-                                comp.count++;
-
-                                if (cx < comp.minX) comp.minX = cx;
-                                if (cx > comp.maxX) comp.maxX = cx;
-                                if (cy < comp.minY) comp.minY = cy;
-                                if (cy > comp.maxY) comp.maxY = cy;
-
-                                const nList = [
-                                    cy > 0 ? (cy - 1) * w + cx : -1,
-                                    cy < h - 1 ? (cy + 1) * w + cx : -1,
-                                    cx > 0 ? cy * w + (cx - 1) : -1,
-                                    cx < w - 1 ? cy * w + (cx + 1) : -1
-                                ];
-                                for (const nIdx of nList) {
-                                    if (nIdx >= 0 && binary[nIdx] === 1 && labels[nIdx] === 0) {
-                                        labels[nIdx] = currentLabel;
-                                        queue.push(nIdx);
-                                    }
-                                }
-                            }
-                            if (comp.count > 12) {
-                                components[currentLabel] = comp;
-                            }
-                            currentLabel++;
-                        }
-                    }
-                    y++;
-                }
-
-                if (y < h) {
-                    if (onProgress) onProgress("Connected Components Analysis", Math.round(60 + (y / h) * 25));
-                    if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(processChunk);
-                    else setTimeout(processChunk, 1);
-                } else {
-                    if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-                    if (onProgress) onProgress("Splitting Gutters & Finalizing", 90);
-
-                    if (onProgress) onProgress("Complete", 100);
-                    resolve(this.analyzePixels(data, w, h, options));
-                }
+            const data = ctx.getImageData(0, 0, w, h).data;
+            const run = () => {
+                if (cancelled()) return resolve(null);
+                if (onProgress) onProgress("Finding Sprites", 50);
+                const result = this.analyzePixels(data, w, h, options);
+                if (cancelled()) return resolve(null);
+                if (onProgress) onProgress("Complete", 100);
+                resolve(result);
             };
-            processChunk();
+            if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(run);
+            else setTimeout(run, 1);
         });
     }
 };
@@ -14023,6 +13998,71 @@ DocsDoodads.Slicing.Editor = {
         };
     },
 
+    // Auto-Slice. Large sheets are analysed after a frame, and pressing the button again (it reads Cancel)
+    // stops it; returns a promise of the result, or null when cancelled.
+    autoSlice() {
+        const V = DocsDoodads.Slicing.Visual;
+        const button = document.getElementById('dd-slicer-auto-btn');
+        if (this._autoToken) {
+            this._autoToken.isCancelled = true;
+            return Promise.resolve(null);
+        }
+        const finish = res => {
+            this.saveState();
+            this.regions = res.regions;
+            this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
+            this.render();
+            this.updateRegionList();
+            const confidence = Math.round((Number(res.confidence) || 0) * 100);
+            const verdict = res.status === 'review' ? 'Review required' : 'Auto-slice complete';
+            DocsDoodads.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
+            return res;
+        };
+        const w = this.img.naturalWidth || this.img.width, h = this.img.naturalHeight || this.img.height;
+        if (w * h <= this.asyncPixels) return Promise.resolve(finish(V.analyze(this.img)));
+        const token = this._autoToken = { isCancelled: false };
+        if (button) button.textContent = 'Cancel';
+        return V.analyzeAsync(this.img, {}, null, token).then(res => {
+            this._autoToken = null;
+            if (button) button.textContent = 'Auto-Slice';
+            if (!res) {
+                DocsDoodads.Workspace.showToast('Auto-slice cancelled.');
+                return null;
+            }
+            return finish(res);
+        });
+    },
+
+    // Sheets bigger than this (2048 x 1024) are analysed asynchronously, with Cancel.
+    asyncPixels: 2048 * 1024,
+
+    // Merge: the selected region and the next one in the list become one region covering both.
+    mergeWithNext() {
+        const i = this.selectedRegionIdx;
+        if (!(i >= 0 && i + 1 < this.regions.length)) return false;
+        this.saveState();
+        const a = this.regions[i], b = this.regions[i + 1];
+        const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        const merged = Object.assign({}, a, { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y });
+        this.regions.splice(i, 2, merged);
+        this.render();
+        this.updateRegionList();
+        return true;
+    },
+
+    // Reorder: moves the selected region up (-1) or down (1) the list (the export order).
+    moveRegion(delta) {
+        const i = this.selectedRegionIdx, j = i + delta;
+        if (!(i >= 0 && i < this.regions.length && j >= 0 && j < this.regions.length)) return false;
+        this.saveState();
+        const [r] = this.regions.splice(i, 1);
+        this.regions.splice(j, 0, r);
+        this.selectedRegionIdx = j;
+        this.render();
+        this.updateRegionList();
+        return true;
+    },
+
     saveState() {
         this.undoStack.push(JSON.stringify(this.regions));
         if (this.undoStack.length > 50) this.undoStack.shift();
@@ -14098,6 +14138,9 @@ DocsDoodads.Slicing.Editor = {
                     <div style="width: 1px; height: 20px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
                     <button class="dd-btn" id="dd-slicer-splitv-btn" title="Split vertical">Split Vert</button>
                     <button class="dd-btn" id="dd-slicer-splith-btn" title="Split horizontal">Split Horz</button>
+                    <button class="dd-btn" id="dd-slicer-merge-btn" title="Merge the selected region with the next one in the list">Merge</button>
+                    <button class="dd-btn" id="dd-slicer-up-btn" title="Move the selected region up the list">▲</button>
+                    <button class="dd-btn" id="dd-slicer-down-btn" title="Move the selected region down the list">▼</button>
                     <button class="dd-btn" id="dd-slicer-export-btn" title="Export individual PNG files">Export PNGs</button>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -14180,17 +14223,7 @@ DocsDoodads.Slicing.Editor = {
         document.getElementById('dd-slicer-redo').onclick = () => this.redo();
 
         // Visual auto-slice
-        document.getElementById('dd-slicer-auto-btn').onclick = () => {
-            this.saveState();
-            const res = DocsDoodads.Slicing.Visual.analyze(this.img);
-            this.regions = res.regions;
-            this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
-            this.render();
-            this.updateRegionList();
-            const confidence = Math.round((Number(res.confidence) || 0) * 100);
-            const verdict = res.status === 'review' ? 'Review required' : 'Auto-slice complete';
-            DocsDoodads.Workspace.showToast(`${verdict}: ${this.regions.length} regions (${confidence}% confidence)`);
-        };
+        document.getElementById('dd-slicer-auto-btn').onclick = () => this.autoSlice();
 
         // Fixed Grid
         document.getElementById('dd-slicer-grid-btn').onclick = () => {
@@ -14279,6 +14312,10 @@ DocsDoodads.Slicing.Editor = {
                 this.updateRegionList();
             }
         };
+
+        document.getElementById('dd-slicer-merge-btn').onclick = () => this.mergeWithNext();
+        document.getElementById('dd-slicer-up-btn').onclick = () => this.moveRegion(-1);
+        document.getElementById('dd-slicer-down-btn').onclick = () => this.moveRegion(1);
 
         document.getElementById('dd-slicer-export-btn').onclick = () => {
             this.asset.slice.regions = this.regions;
@@ -15217,18 +15254,25 @@ if (typeof Game_CharacterBase !== 'undefined') {
     const _Game_CharacterBase_canPass = Game_CharacterBase.prototype.canPass;
     Game_CharacterBase.prototype.canPass = function(x, y, d) {
         if (!_Game_CharacterBase_canPass.apply(this, arguments)) return false;
+        // Through characters (and Ctrl-walking in a playtest) and the party in an airship pass doodads too.
+        if (this.isThrough() || this.isDebugThrough()) return true;
+        if (this.isInAirship && this.isInAirship()) return true;
 
         const doodads = DocsDoodads.doodads();
         if (!doodads || doodads.length === 0) return true;
 
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
         const targetMapX = $gameMap.roundXWithDirection(x, d);
         const targetMapY = $gameMap.roundYWithDirection(y, d);
-        const targetPx = targetMapX * 48 + 24;
-        const targetPy = targetMapY * 48 + 24;
-        const playerSATBox = DocsDoodads.box(targetPx, targetPy, 32, 32);
+        const targetPx = targetMapX * tw + tw / 2;
+        const targetPy = targetMapY * th + th / 2;
+        const playerSATBox = DocsDoodads.box(targetPx, targetPy, tw * 2 / 3, th * 2 / 3);
+        const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
 
         for (const dData of doodads) {
-            if (dData.collision && dData.collision.preset !== "none") {
+            if (dData && dData.collision && dData.collision.preset !== "none") {
+                // Only doodads that are showing block: not one hidden by its switch, condition, season or layer.
+                if (!DocsDoodads.Layers.visibleInGame(dData, mapSettings) || !DocsDoodads.Appearance.isVisible(dData, {})) continue;
                 const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
                 if (shape) {
                     const dw = (dData.frameW || 48) * (dData.scaleX || 1);
@@ -20318,7 +20362,7 @@ DocsDoodads.Workspace = {
             return null;
         }
         try {
-            const fsMod = require('fs');
+            const fsMod = DocsDoodads.FS.fs;
             const pathMod = require('path');
             this.showToast('Rendering the map...', 'info');
             const { canvas, plan } = DocsDoodads.MapExport.capture(spriteset, options);
@@ -21623,7 +21667,8 @@ DocsDoodads.Workspace = {
         this.commitPlacement(asset, { x: mapX, y: mapY, tileX: $gamePlayer.x, tileY: $gamePlayer.y });
     },
 
-    commitPlacement(asset, coords, modeOverride) {
+    // templateKey: the event template for an event (else the one picked in the panel, else NPC).
+    commitPlacement(asset, coords, modeOverride, templateKey) {
         if (asset && asset.type === 'prefab') {
             this.placePrefab(DocsDoodads.Prefabs.get(asset.prefabId), coords);
             return;
@@ -21631,8 +21676,8 @@ DocsDoodads.Workspace = {
         const mode = modeOverride || asset.placement.defaultMode || "doodad";
 
         if (mode === "event" || asset.type === "character_sheet" || asset.type === "single_character") {
-            const templateKey = document.getElementById('dd-event-template') ? document.getElementById('dd-event-template').value : 'npc';
-            const template = DocsDoodads.EventTemplates.get(templateKey);
+            const picked = document.getElementById('dd-event-template');
+            const template = DocsDoodads.EventTemplates.get(templateKey || (picked ? picked.value : 'npc'));
             const mapId = $gameMap.mapId();
             DocsDoodads.Persistence.stagedFor(mapId);
             const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
@@ -21644,7 +21689,12 @@ DocsDoodads.Workspace = {
                     : 0,
                 list: template.list,
                 trigger: template.trigger,
-                priorityType: template.priorityType
+                priorityType: template.priorityType,
+                // The template's movement options too (a chest keeps facing one way, a door doesn't walk).
+                directionFix: template.directionFix,
+                stepAnime: template.stepAnime,
+                walkAnime: template.walkAnime,
+                through: template.through
             });
 
             const cmd = {

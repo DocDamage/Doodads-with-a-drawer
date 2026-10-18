@@ -518,112 +518,32 @@ DocsDoodads.Slicing.Visual = {
         return out;
     },
 
+    // analyze, giving the page a frame first (so a Cancel click can land) and checking the token before and
+    // after: resolves null when cancelled. The analysis itself is quick (a 4096 x 4096 sheet with 4,000
+    // sprites takes about a third of a second), so it runs in one go.
     analyzeAsync(imageElement, options = {}, onProgress = null, cancellationToken = null) {
-        return new Promise((resolve, reject) => {
-            if (cancellationToken && cancellationToken.isCancelled) {
-                return resolve(null);
-            }
-            if (typeof document === 'undefined') {
-                return resolve({ status: "none", regions: [] });
-            }
+        const cancelled = () => Boolean(cancellationToken && cancellationToken.isCancelled);
+        return new Promise(resolve => {
+            if (cancelled()) return resolve(null);
+            if (typeof document === 'undefined') return resolve({ status: "none", regions: [] });
             if (onProgress) onProgress("Loading Pixels", 10);
-
             const canvas = document.createElement('canvas');
             canvas.width = imageElement.naturalWidth || imageElement.width;
             canvas.height = imageElement.naturalHeight || imageElement.height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(imageElement, 0, 0);
-
             const w = canvas.width, h = canvas.height;
-            const imgData = ctx.getImageData(0, 0, w, h);
-            const data = imgData.data;
-
-            if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-            if (onProgress) onProgress("Calculating Threshold", 25);
-
-            // Step 1: Alpha histogram and Otsu threshold
-            const hist = new Uint32Array(256);
-            for (let i = 3; i < data.length; i += 4) {
-                hist[data[i]]++;
-            }
-            let threshold = this.otsuThreshold(hist);
-            if (threshold < 8) threshold = 16;
-
-            if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-            if (onProgress) onProgress("Binarizing Image", 40);
-
-            // Step 2: Binary grid foreground
-            const binary = new Uint8Array(w * h);
-            for (let i = 0, p = 3; p < data.length; i++, p += 4) {
-                binary[i] = data[p] >= threshold ? 1 : 0;
-            }
-
-            if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-            if (onProgress) onProgress("Connected Components Analysis", 60);
-
-            // Step 3: Connected Components (4-connected)
-            const labels = new Int32Array(w * h);
-            let currentLabel = 1;
-            const components = {};
-
-            let y = 0;
-            const processChunk = () => {
-                const chunkStart = Date.now();
-                while (y < h && (Date.now() - chunkStart < 12)) {
-                    if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-                    for (let x = 0; x < w; x++) {
-                        const idx = y * w + x;
-                        if (binary[idx] === 1 && labels[idx] === 0) {
-                            const comp = { minX: x, maxX: x, minY: y, maxY: y, count: 0 };
-                            const queue = [idx];
-                            labels[idx] = currentLabel;
-
-                            while (queue.length > 0) {
-                                const cur = queue.pop();
-                                const cx = cur % w;
-                                const cy = Math.floor(cur / w);
-                                comp.count++;
-
-                                if (cx < comp.minX) comp.minX = cx;
-                                if (cx > comp.maxX) comp.maxX = cx;
-                                if (cy < comp.minY) comp.minY = cy;
-                                if (cy > comp.maxY) comp.maxY = cy;
-
-                                const nList = [
-                                    cy > 0 ? (cy - 1) * w + cx : -1,
-                                    cy < h - 1 ? (cy + 1) * w + cx : -1,
-                                    cx > 0 ? cy * w + (cx - 1) : -1,
-                                    cx < w - 1 ? cy * w + (cx + 1) : -1
-                                ];
-                                for (const nIdx of nList) {
-                                    if (nIdx >= 0 && binary[nIdx] === 1 && labels[nIdx] === 0) {
-                                        labels[nIdx] = currentLabel;
-                                        queue.push(nIdx);
-                                    }
-                                }
-                            }
-                            if (comp.count > 12) {
-                                components[currentLabel] = comp;
-                            }
-                            currentLabel++;
-                        }
-                    }
-                    y++;
-                }
-
-                if (y < h) {
-                    if (onProgress) onProgress("Connected Components Analysis", Math.round(60 + (y / h) * 25));
-                    if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(processChunk);
-                    else setTimeout(processChunk, 1);
-                } else {
-                    if (cancellationToken && cancellationToken.isCancelled) return resolve(null);
-                    if (onProgress) onProgress("Splitting Gutters & Finalizing", 90);
-
-                    if (onProgress) onProgress("Complete", 100);
-                    resolve(this.analyzePixels(data, w, h, options));
-                }
+            const data = ctx.getImageData(0, 0, w, h).data;
+            const run = () => {
+                if (cancelled()) return resolve(null);
+                if (onProgress) onProgress("Finding Sprites", 50);
+                const result = this.analyzePixels(data, w, h, options);
+                if (cancelled()) return resolve(null);
+                if (onProgress) onProgress("Complete", 100);
+                resolve(result);
             };
-            processChunk();
+            if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(run);
+            else setTimeout(run, 1);
         });
     }
 };

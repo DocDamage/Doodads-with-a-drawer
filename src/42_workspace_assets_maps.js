@@ -824,7 +824,8 @@
         this.commitPlacement(asset, { x: mapX, y: mapY, tileX: $gamePlayer.x, tileY: $gamePlayer.y });
     },
 
-    commitPlacement(asset, coords, modeOverride) {
+    // templateKey: the event template for an event (else the one picked in the panel, else NPC).
+    commitPlacement(asset, coords, modeOverride, templateKey) {
         if (asset && asset.type === 'prefab') {
             this.placePrefab(DocsDoodads.Prefabs.get(asset.prefabId), coords);
             return;
@@ -832,8 +833,8 @@
         const mode = modeOverride || asset.placement.defaultMode || "doodad";
 
         if (mode === "event" || asset.type === "character_sheet" || asset.type === "single_character") {
-            const templateKey = document.getElementById('dd-event-template') ? document.getElementById('dd-event-template').value : 'npc';
-            const template = DocsDoodads.EventTemplates.get(templateKey);
+            const picked = document.getElementById('dd-event-template');
+            const template = DocsDoodads.EventTemplates.get(templateKey || (picked ? picked.value : 'npc'));
             const mapId = $gameMap.mapId();
             DocsDoodads.Persistence.stagedFor(mapId);
             const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
@@ -845,7 +846,12 @@
                     : 0,
                 list: template.list,
                 trigger: template.trigger,
-                priorityType: template.priorityType
+                priorityType: template.priorityType,
+                // The template's movement options too (a chest keeps facing one way, a door doesn't walk).
+                directionFix: template.directionFix,
+                stepAnime: template.stepAnime,
+                walkAnime: template.walkAnime,
+                through: template.through
             });
 
             const cmd = {

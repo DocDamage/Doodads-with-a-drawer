@@ -66,18 +66,25 @@ if (typeof Game_CharacterBase !== 'undefined') {
     const _Game_CharacterBase_canPass = Game_CharacterBase.prototype.canPass;
     Game_CharacterBase.prototype.canPass = function(x, y, d) {
         if (!_Game_CharacterBase_canPass.apply(this, arguments)) return false;
+        // Through characters (and Ctrl-walking in a playtest) and the party in an airship pass doodads too.
+        if (this.isThrough() || this.isDebugThrough()) return true;
+        if (this.isInAirship && this.isInAirship()) return true;
 
         const doodads = DocsDoodads.doodads();
         if (!doodads || doodads.length === 0) return true;
 
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
         const targetMapX = $gameMap.roundXWithDirection(x, d);
         const targetMapY = $gameMap.roundYWithDirection(y, d);
-        const targetPx = targetMapX * 48 + 24;
-        const targetPy = targetMapY * 48 + 24;
-        const playerSATBox = DocsDoodads.box(targetPx, targetPy, 32, 32);
+        const targetPx = targetMapX * tw + tw / 2;
+        const targetPy = targetMapY * th + th / 2;
+        const playerSATBox = DocsDoodads.box(targetPx, targetPy, tw * 2 / 3, th * 2 / 3);
+        const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
 
         for (const dData of doodads) {
-            if (dData.collision && dData.collision.preset !== "none") {
+            if (dData && dData.collision && dData.collision.preset !== "none") {
+                // Only doodads that are showing block: not one hidden by its switch, condition, season or layer.
+                if (!DocsDoodads.Layers.visibleInGame(dData, mapSettings) || !DocsDoodads.Appearance.isVisible(dData, {})) continue;
                 const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
                 if (shape) {
                     const dw = (dData.frameW || 48) * (dData.scaleX || 1);

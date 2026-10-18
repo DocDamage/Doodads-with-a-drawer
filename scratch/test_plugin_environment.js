@@ -165,15 +165,21 @@ global.Spriteset_Map.prototype.update = function() {};
 
 global.Game_CharacterBase = function() {};
 global.Game_CharacterBase.prototype.canPass = function(x, y, d) { return true; };
+global.Game_CharacterBase.prototype.isThrough = function() { return Boolean(this._through); };
+global.Game_CharacterBase.prototype.isDebugThrough = function() { return false; };
 
 global.Game_Player = function() { this.x = 5; this.y = 5; };
 global.Game_Player.prototype = Object.create(global.Game_CharacterBase.prototype);
 global.Game_Player.prototype.center = function() {};
+global.Game_Player.prototype.isDebugThrough = function() { return Boolean(this._debugThrough); };
+global.Game_Player.prototype.isInAirship = function() { return Boolean(this._inAirship); };
 
 global.Game_Map = function() {};
 global.Game_Map.prototype.mapId = () => 1;
 global.Game_Map.prototype.displayX = () => 0;
 global.Game_Map.prototype.displayY = () => 0;
+global.Game_Map.prototype.tileWidth = function() { return this._tile || 48; };
+global.Game_Map.prototype.tileHeight = function() { return this._tile || 48; };
 global.Game_Map.prototype.roundXWithDirection = (x, d) => x + (d === 6 ? 1 : d === 4 ? -1 : 0);
 global.Game_Map.prototype.roundYWithDirection = (y, d) => y + (d === 2 ? 1 : d === 8 ? -1 : 0);
 
@@ -294,6 +300,33 @@ window.$dataDocsDoodads = {
 assert.strictEqual(player.canPass(5, 5, 2), false, "Passability should be blocked by doodad");
 // Moving right (d=6) into (6,5) should be allowed!
 assert.strictEqual(player.canPass(5, 5, 6), true, "Passability should be clear to the right");
+// Through characters, Ctrl-walking in a playtest and the party in an airship pass doodads.
+player._through = true;
+assert.strictEqual(player.canPass(5, 5, 2), true, "a Through character passes");
+player._through = false; player._debugThrough = true;
+assert.strictEqual(player.canPass(5, 5, 2), true, "Ctrl-walking passes");
+player._debugThrough = false; player._inAirship = true;
+assert.strictEqual(player.canPass(5, 5, 2), true, "an airship flies over");
+player._inAirship = false;
+// A doodad that isn't showing doesn't block: one behind an off switch, one on a layer hidden in game.
+global.$gameSwitches = { value: () => false };
+const solid = window.$dataDocsDoodads[1][0];
+solid.switch = [[3, true]];
+assert.strictEqual(player.canPass(5, 5, 2), true, "hidden by its switch: no block");
+solid.switch = [];
+solid.layer = 'roof';
+window.$dataDocsDoodads.mapSettings = { 1: { layers: [{ id: 'roof', name: 'Roof', gameHidden: true }] } };
+assert.strictEqual(DocsDoodads.Layers.visibleInGame(solid, DocsDoodads.Lighting.mapSettings(1)), false, 'the layer is hidden in game');
+assert.strictEqual(player.canPass(5, 5, 2), true, "on a layer hidden in game: no block");
+delete solid.layer;
+delete window.$dataDocsDoodads.mapSettings;
+assert.strictEqual(player.canPass(5, 5, 2), false, "showing again: blocks");
+// Maps with other tile sizes: the tile in front is measured in that size.
+$gameMap._tile = 32;
+solid.x = 5 * 32 + 16; solid.y = 6 * 32 + 16; solid.frameW = 32; solid.frameH = 32;
+assert.strictEqual(player.canPass(5, 5, 2), false, "32-pixel tiles: blocked in front");
+assert.strictEqual(player.canPass(5, 5, 6), true, "and clear to the side");
+$gameMap._tile = 48;
 console.log("✓ Direct Physical Doodad SAT Collision passability verified.");
 
 // Test Undo / Redo
