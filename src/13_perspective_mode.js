@@ -10,7 +10,7 @@ DocsDoodads.Perspective = {
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
-        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', snowCover: false,
+        weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', standFlatRegion: 0, snowCover: false,
         clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false
     },
 
@@ -56,6 +56,7 @@ DocsDoodads.Perspective = {
             doodadScale: num(s.doodadScale, d.doodadScale, 0.25, 2),
             characterScale: num(s.characterScale, d.characterScale, 0.25, 2),
             standTiles: s.standTiles === 'star' || s.standTiles === 'all' ? s.standTiles : 'off',
+            standFlatRegion: Math.round(num(s.standFlatRegion, d.standFlatRegion, 0, 255)),
             snowCover: s.snowCover === true,
             clouds: num(s.clouds, d.clouds, 0, 1),
             cloudScale: num(s.cloudScale, d.cloudScale, 2, 100),
@@ -360,6 +361,15 @@ DocsDoodads.Perspective = {
             tx: m.tx + (1 - k) * (m.a * pivot.x + m.c * pivot.y), ty: m.ty + (1 - k) * (m.b * pivot.x + m.d * pivot.y), depth: m.depth };
     },
 
+    // How far ahead of the camera a point on the ground (x, y in flat pixels) is: the order things are
+    // drawn in. Height is left out, so a wall top behind a tree never counts as in front of it.
+    groundDepth(cam, x, y) {
+        const C = cam.C, F = cam.F;
+        if (cam.curve === 'flat') return (x - C.x) * F.x + (y - C.y) * F.y - C.z * F.z;
+        const g = this.surfacePoint(cam, x, y);
+        return (g.x - C.x) * F.x + (g.y - C.y) * F.y + (g.z - C.z) * F.z;
+    },
+
     compareBillboards(a, b) {
         if (a.depth !== b.depth) return b.depth - a.depth;
         if (a.z !== b.z) return a.z - b.z;
@@ -572,12 +582,17 @@ DocsDoodads.Terrain = {
 
     // Interior walls: in each column, a wall face (side tiles) and the wall top above it rise to the
     // face's height. faceRows: for a side tile, how many rows up the wall top is (its top shows that art);
-    // faceDown: on the face's lowest tile, the face height (its front shows the face art above it).
+    // faceDown: on the face's lowest tile, the face height (its front shows the face art above it);
+    // faceStart / faceLen: for every tile of a column with a face, the face's first row (+1) and its
+    // length, so the wall's other sides can show the same art; wall: which tiles are wall.
     buildWalls(map, settings, out, keep) {
         const w = map.width, h = map.height, data = map.data || [];
         const kindAt = (x, y) => this.wallKind(data[(0 * h + y) * w + x] || 0) || this.wallKind(data[(1 * h + y) * w + x] || 0);
         out.faceRows = new Uint8Array(w * h);
         out.faceDown = new Float32Array(w * h);
+        out.faceStart = new Int32Array(w * h);
+        out.faceLen = new Uint8Array(w * h);
+        out.wall = new Uint8Array(w * h);
         for (let x = 0; x < w; x++) {
             let y = 0;
             while (y < h) {
@@ -593,7 +608,9 @@ DocsDoodads.Terrain = {
                     const i = r * w + x;
                     if (keep[i]) continue;
                     out[i] = Math.max(out[i], height);
+                    out.wall[i] = 1;
                     if (r >= sideStart) out.faceRows[i] = r - sideStart + 1;
+                    if (sides > 0) { out.faceStart[i] = sideStart + 1; out.faceLen[i] = sides; }
                 }
                 if (sides > 0 && !keep[(y - 1) * w + x]) out.faceDown[(y - 1) * w + x] = height;
                 if (y === top) y++;
@@ -648,7 +665,12 @@ DocsDoodads.Terrain = {
                 }
             }
         }
-        if (settings.walls) this.buildWalls(map, settings, out, keep);
+        // The ground without walls: Smooth blurs this, and walls stand on it as sharp blocks.
+        if (settings.walls) {
+            const ground = Float64Array.from(out);
+            this.buildWalls(map, settings, out, keep);
+            out.ground = ground;
+        }
         return out;
     },
 
@@ -679,7 +701,9 @@ DocsDoodads.Terrain = {
         if (grid._field && grid._field.owner === grid) return grid._field;
         const n = this.smoothSamples, w = grid.width * n, h = grid.height * n;
         const raw = new Float64Array(w * h);
-        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw[y * w + x] = grid.heights[Math.floor(y / n) * grid.width + Math.floor(x / n)];
+        const wall = grid.heights.wall, ground = grid.heights.ground;
+        const base = i => (wall && wall[i] ? ground[i] : grid.heights[i]);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw[y * w + x] = base(Math.floor(y / n) * grid.width + Math.floor(x / n));
         const sigma = this.smoothSigma * n, r = Math.ceil(sigma * 2.5);
         const kernel = [];
         let total = 0;
@@ -703,9 +727,19 @@ DocsDoodads.Terrain = {
         return grid._field;
     },
 
-    // Height under a point (in tiles). Stepped: the tile's height. Smooth: the blurred field, bilinear.
+    // Height under a point (in tiles). Stepped: the tile's height. Smooth: the blurred field, bilinear
+    // (walls stay sharp blocks on top of it).
     heightAt(grid, x, y, style) {
-        if (style === 'stepped') return this.tileHeight(grid, Math.floor(x), Math.floor(y));
+        if (style === 'stepped' || this.isWall(grid, Math.floor(x), Math.floor(y))) return this.tileHeight(grid, Math.floor(x), Math.floor(y));
+        return this.fieldAt(grid, x, y);
+    },
+
+    isWall(grid, tx, ty) {
+        return Boolean(grid.heights && grid.heights.wall) && this.wallMeta(grid, 'wall', tx, ty) > 0;
+    },
+
+    // The blurred ground under a point, walls left out.
+    fieldAt(grid, x, y) {
         const f = this.smoothField(grid);
         const fx = x * f.n - 0.5, fy = y * f.n - 0.5;
         const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
@@ -723,30 +757,52 @@ DocsDoodads.Terrain = {
             return Math.max(0.35, Math.min(1, 0.55 + 0.45 * ((nx * L[0] + ny * L[1] + nz * L[2]) / n) / L[2]));
         };
         const add = (x, y, h, u, v, shade) => { vertices.push({ x, y, h, u, v, shade }); return vertices.length - 1; };
+        // A tile as a block: its top, and sides down to lower ground. low(dx, dy, ax, ay, bx, by, h) gives
+        // the heights at the foot of a side ([at a, at b]), or null where there is no side.
+        const block = (tx, ty, low) => {
+            const h = this.tileHeight(grid, tx, ty);
+            const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
+            // A raised wall face shows the wall top's art on top (rows up the column).
+            const up = this.wallMeta(grid, 'faceRows', tx, ty) * th;
+            const a = add(x0, y0, h, x0, y0 - up, 1), b = add(x1, y0, h, x1, y0 - up, 1), c = add(x1, y1, h, x1, y1 - up, 1), d = add(x0, y1, h, x0, y1 - up, 1);
+            triangles.push(a, b, c, a, c, d);
+            const faceStart = this.wallMeta(grid, 'faceStart', tx, ty), faceLen = this.wallMeta(grid, 'faceLen', tx, ty);
+            const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
+            for (const [dx, dy, ax, ay, bx, by] of sides) {
+                const foot = low(dx, dy, ax, ay, bx, by, h);
+                if (!foot) continue;
+                const [la, lb] = foot;
+                const sh = shadeOf(dx, dy, 0) * 0.85;
+                const face = dy === 1 ? this.wallMeta(grid, 'faceDown', tx, ty) : 0;
+                let p, q, r, t;
+                if (face > 0) {
+                    // The front of an interior wall shows the wall face art drawn above it in 2D.
+                    p = add(ax, ay, h, ax, ay - face * th, sh); q = add(bx, by, h, bx, by - face * th, sh);
+                    r = add(bx, by, lb, bx, by, sh); t = add(ax, ay, la, ax, ay, sh);
+                } else if (faceStart > 0 && h > 0) {
+                    // The wall's other sides show the same face art, so turning the camera shows walls, not
+                    // stretched wall tops.
+                    const v0 = (faceStart - 1) * th, span = faceLen * th;
+                    const vAt = z => v0 + Math.max(0, Math.min(1, (h - z) / h)) * span;
+                    p = add(ax, ay, h, x0, v0, sh); q = add(bx, by, h, x1, v0, sh);
+                    r = add(bx, by, lb, x1, vAt(lb), sh); t = add(ax, ay, la, x0, vAt(la), sh);
+                } else {
+                    // Elsewhere the side shows the tile squashed from its far edge down to this edge.
+                    const fu = dx === 0 ? 0 : -dx * tw, fv = dy === 0 ? 0 : -dy * th;
+                    p = add(ax, ay, h, ax + fu, ay + fv, sh); q = add(bx, by, h, bx + fu, by + fv, sh);
+                    r = add(bx, by, lb, bx, by, sh); t = add(ax, ay, la, ax, ay, sh);
+                }
+                triangles.push(p, q, r, p, r, t);
+            }
+        };
+        // Stepped: every tile is a block, with sides down to lower neighbours.
+        const stepLow = (dx, dy, ax, ay, bx, by, h, tx, ty) => {
+            const low = this.tileHeight(grid, tx + dx, ty + dy);
+            return low >= h ? null : [low, low];
+        };
         if (style === 'stepped') {
             for (let ty = ty0; ty < ty0 + rows; ty++) {
-                for (let tx = tx0; tx < tx0 + cols; tx++) {
-                    const h = this.tileHeight(grid, tx, ty);
-                    const x0 = tx * tw, y0 = ty * th, x1 = x0 + tw, y1 = y0 + th;
-                    // A raised wall face shows the wall top's art on top (rows up the column).
-                    const up = this.wallMeta(grid, 'faceRows', tx, ty) * th;
-                    const a = add(x0, y0, h, x0, y0 - up, 1), b = add(x1, y0, h, x1, y0 - up, 1), c = add(x1, y1, h, x1, y1 - up, 1), d = add(x0, y1, h, x0, y1 - up, 1);
-                    triangles.push(a, b, c, a, c, d);
-                    // Walls down to lower neighbours, textured with this tile and shaded by the way they face.
-                    const sides = [[0, -1, x0, y0, x1, y0], [1, 0, x1, y0, x1, y1], [0, 1, x1, y1, x0, y1], [-1, 0, x0, y1, x0, y0]];
-                    for (const [dx, dy, ax, ay, bx, by] of sides) {
-                        const low = this.tileHeight(grid, tx + dx, ty + dy);
-                        if (low >= h) continue;
-                        const sh = shadeOf(dx, dy, 0) * 0.85;
-                        // The wall shows the tile squashed from its far edge down to this edge; the front of an
-                        // interior wall shows the wall face art drawn above it in 2D.
-                        const face = dy === 1 ? this.wallMeta(grid, 'faceDown', tx, ty) : 0;
-                        const fu = dx === 0 ? 0 : -dx * tw, fv = face > 0 ? -face * th : dy === 0 ? 0 : -dy * th;
-                        const p = add(ax, ay, h, ax + fu, ay + fv, sh), q = add(bx, by, h, bx + fu, by + fv, sh);
-                        const r = add(bx, by, low, bx, by, sh), t = add(ax, ay, low, ax, ay, sh);
-                        triangles.push(p, q, r, p, r, t);
-                    }
-                }
+                for (let tx = tx0; tx < tx0 + cols; tx++) block(tx, ty, (dx, dy, ax, ay, bx, by, h) => stepLow(dx, dy, ax, ay, bx, by, h, tx, ty));
             }
             return { vertices, triangles };
         }
@@ -756,25 +812,36 @@ DocsDoodads.Terrain = {
         const split = Math.max(1, Math.min(n, Math.round(Number(detail)) || n));
         // The blur reaches less than a tile, so a tile whose neighbours all share its height is level
         // at that height (open ground, the inside of a range or a forest): one quad is exact there.
+        // Walls stand as sharp blocks on the blurred ground; the ground around them ignores them.
+        const ground = (tx, ty) => (this.isWall(grid, tx, ty) ? this.wallMeta(grid, 'ground', tx, ty) : this.tileHeight(grid, tx, ty));
         const level = (tx, ty) => {
-            const h = this.tileHeight(grid, tx, ty);
-            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (this.tileHeight(grid, tx + ox, ty + oy) !== h) return null;
+            const h = ground(tx, ty);
+            for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (ground(tx + ox, ty + oy) !== h) return null;
             return h;
         };
         const shadeAt = (x, y) => {
             const e = 1 / n;
-            const nx = (this.heightAt(grid, x - e, y, 'smooth') - this.heightAt(grid, x + e, y, 'smooth')) * th;
-            const ny = (this.heightAt(grid, x, y - e, 'smooth') - this.heightAt(grid, x, y + e, 'smooth')) * tw;
+            const nx = (this.fieldAt(grid, x - e, y) - this.fieldAt(grid, x + e, y)) * th;
+            const ny = (this.fieldAt(grid, x, y - e) - this.fieldAt(grid, x, y + e)) * tw;
             return shadeOf(nx, ny, 2 * e * tw);
+        };
+        const wallLow = (dx, dy, ax, ay, bx, by, h, tx, ty) => {
+            if (this.isWall(grid, tx + dx, ty + dy)) return stepLow(dx, dy, ax, ay, bx, by, h, tx, ty);
+            const la = Math.min(h, this.fieldAt(grid, ax / tw, ay / th)), lb = Math.min(h, this.fieldAt(grid, bx / tw, by / th));
+            return la >= h && lb >= h ? null : [la, lb];
         };
         for (let ty = ty0; ty < ty0 + rows; ty++) {
             for (let tx = tx0; tx < tx0 + cols; tx++) {
+                if (this.isWall(grid, tx, ty)) {
+                    block(tx, ty, (dx, dy, ax, ay, bx, by, h) => wallLow(dx, dy, ax, ay, bx, by, h, tx, ty));
+                    continue;
+                }
                 const flatAt = level(tx, ty), sloped = flatAt === null, steps = sloped ? split : 1;
                 const base = vertices.length;
                 for (let j = 0; j <= steps; j++) {
                     for (let i = 0; i <= steps; i++) {
                         const x = tx + i / steps, y = ty + j / steps;
-                        const h = sloped ? this.heightAt(grid, x, y, 'smooth') : flatAt;
+                        const h = sloped ? this.fieldAt(grid, x, y) : flatAt;
                         add(x * tw, y * th, h, x * tw, y * th, sloped ? shadeAt(x, y) : 1);
                     }
                 }
@@ -923,7 +990,8 @@ DocsDoodads.Terrain = {
 // Tileset objects standing up in the 3D view. Trees, signs and lamps drawn with B-E tiles normally lie
 // flat on the ground; these settings lift them into upright billboards, without changing the map.
 // 'star': objects with a star (above characters) tile, like tree tops, plus the tile under them (the
-// trunk). 'all': every B-E tile, grouped the same way.
+// trunk). 'all': every B-E tile, grouped the same way. Objects drawn entirely over roofs and walls (A3
+// and A4: eaves, chimneys, windows, paintings) stay flat, and so does anything in the map's keep-flat region.
 DocsDoodads.StandTiles = {
     modes: [
         { value: 'off', label: 'Lie flat' },
@@ -938,12 +1006,17 @@ DocsDoodads.StandTiles = {
     // Groups of tiles that stand as one billboard: { x, y, w, h } in tiles (x, y top left; the foot is
     // the bottom edge), and cells: [{ dx, dy, tiles: [tileId by layer] }]. Also mask: which (x, y, z)
     // tiles are lifted off the ground. map: { width, height, data }; flags: the tileset's flags.
-    groups(map, flags, mode) {
+    groups(map, flags, mode, options) {
         const w = map.width, h = map.height, data = map.data || [];
         const mask = new Uint8Array(w * h * 4);
         if (mode !== 'star' && mode !== 'all') return { list: [], mask };
         const at = (x, y, z) => data[(z * h + y) * w + x] || 0;
+        const flatRegion = (options && Number(options.flatRegion)) || 0;
+        const T = DocsDoodads.Terrain;
+        const inFlatRegion = (x, y) => flatRegion > 0 && at(x, y, 5) === flatRegion;
+        const onBuilding = (x, y) => Boolean(T.wallKind(at(x, y, 0)) || T.wallKind(at(x, y, 1)));
         const objects = (x, y) => {
+            if (inFlatRegion(x, y)) return [];
             const out = [];
             for (let z = 0; z < 4; z++) { const id = at(x, y, z); if (this.isObjectTile(id)) out.push(z); }
             return out;
@@ -960,11 +1033,14 @@ DocsDoodads.StandTiles = {
                     let bottom = y;
                     while (bottom + 1 < h && objects(x, bottom + 1).length && star(x, bottom + 1)) bottom++;
                     if (bottom + 1 < h && objects(x, bottom + 1).length) bottom++;
-                    for (let yy = y; yy <= bottom; yy++) used[yy * w + x] = 1;
-                    columns.push({ x, y, h: bottom - y + 1 });
+                    let building = true;
+                    for (let yy = y; yy <= bottom; yy++) { used[yy * w + x] = 1; if (!onBuilding(x, yy)) building = false; }
+                    // All of it on a roof or wall (eaves, a chimney): it stays flat. A tree in front of a house
+                    // (its trunk on the ground) still stands.
+                    if (!building) columns.push({ x, y, h: bottom - y + 1 });
                 } else if (mode === 'all') {
                     used[y * w + x] = 1;
-                    columns.push({ x, y, h: 1 });
+                    if (!onBuilding(x, y)) columns.push({ x, y, h: 1 });
                 }
             }
         }

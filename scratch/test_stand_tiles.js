@@ -65,4 +65,28 @@ assert.deepStrictEqual(S.source(128, 48, 48), { set: 5, x: 384, y: 0 });
 assert.deepStrictEqual(S.source(256 + 3, 48, 48), { set: 6, x: 144, y: 0 });
 assert.ok(!S.isObjectTile(0) && !S.isObjectTile(1536) && !S.isObjectTile(2816) && S.isObjectTile(1023));
 
-console.log("✓ Standing tileset objects: modes, star groups with trunks, wide objects, 'all' mode and tile sources verified.");
+// 5. Roofs and walls stay flat: a star tile over an A3 roof (eaves) or an A4 wall (a window) isn't a
+// tree. A keep-flat region keeps anything flat; elsewhere trees still stand.
+{
+    const ROOF = 4352, WALL_TOP = 5888;
+    const m2 = { width: W, height: H, data: map.data.slice() };
+    const put = (x, y, z, id) => { m2.data[(z * H + y) * W + x] = id; };
+    put(4, 4, 2, 0);
+    put(0, 4, 0, ROOF); put(0, 4, 2, TOP);          // eaves over a roof
+    put(2, 4, 0, WALL_TOP); put(2, 4, 2, BARREL);   // a window on a wall
+    const g = S.groups(m2, flags, 'all');
+    assert.ok(!g.list.some(gr => gr.x === 0 && gr.y === 4), 'eaves on a roof stay flat');
+    assert.ok(!g.list.some(gr => gr.x === 2 && gr.y === 4), 'a window on a wall stays flat');
+    assert.ok(g.list.some(gr => gr.x === 1 && gr.y === 1), 'the tree still stands');
+    // A tree in front of a house: its top over the wall, its trunk on the ground. It still stands.
+    put(5, 2, 0, WALL_TOP); put(5, 2, 2, TOP); put(5, 3, 2, TRUNK);
+    assert.ok(S.groups(m2, flags, 'star').list.some(gr => gr.x === 5 && gr.y === 2 && gr.h === 2), 'a tree against a wall stands');
+    put(1, 1, 5, 7); put(1, 2, 5, 7);
+    const kept = S.groups(m2, flags, 'star', { flatRegion: 7 });
+    assert.ok(!kept.list.some(gr => gr.x === 1 && gr.y === 1), 'a tree in the keep-flat region stays flat');
+    assert.ok(kept.list.some(gr => gr.x === 3), 'others still stand');
+    assert.strictEqual(P.normalize({}).standFlatRegion, 0);
+    assert.strictEqual(P.normalize({ standFlatRegion: 300 }).standFlatRegion, 255);
+}
+
+console.log("✓ Standing tileset objects: modes, star groups with trunks, wide objects, 'all' mode, tile sources, roofs and walls kept flat and the keep-flat region verified.");
