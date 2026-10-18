@@ -6799,7 +6799,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (!this._baseSprite || typeof PIXI === 'undefined') return;
         const settings = DocsDoodads.World.settings().seeThrough;
         const sprite = this.docsPlayerSprite();
-        // Flat maps only: in 3D the player isn't where the flat sprite is, and things fade instead.
+        // Flat maps only: in 3D the player isn't where the flat sprite is (the 3D view draws its own).
         const show = DocsDoodads.Atmosphere._playerHidden && settings.mode !== 'fade' && sprite && sprite._docsFrameTexture
             && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) && !(DocsDoodads.Perspective && DocsDoodads.Perspective.active());
         let ghost = this._docsSilhouette;
@@ -9290,27 +9290,6 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         if (!this.visible || !this.renderable || this.worldAlpha <= 0) return;
         const temp = this._temp;
         const wt = this.worldTransform;
-        const tinted = [];
-        // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or
-        // the next frame of a sheet), and MZ bitmaps filter smoothly. A half-texel inset while drawing keeps them inside.
-        const inset = [];
-        const shrink = obj => {
-            const tex = obj && obj instanceof PIXI.Sprite ? obj.texture : null;
-            if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
-                && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
-                const f = tex.frame;
-                inset.push([tex, f.x, f.y, f.width, f.height]);
-                tex.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
-            }
-            for (const child of (obj && obj.children) || []) shrink(child);
-        };
-        const tint = (obj, color) => {
-            if (obj && obj.tint !== undefined && obj instanceof PIXI.Sprite) {
-                tinted.push([obj, obj.tint]);
-                obj.tint = DocsDoodads.Perspective.multiplyTint(obj.tint, color);
-            }
-            for (const child of (obj && obj.children) || []) tint(child, color);
-        };
         for (const it of this.items) {
             if (it.terrain) {
                 // A run of terrain triangles, already in screen space.
@@ -9328,31 +9307,80 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
                 mesh.transform._parentID = -1;
                 continue;
             }
-            const obj = it.obj;
-            if (!obj || obj._destroyed || !obj.parent || !obj.visible) continue;
-            const m = it.matrix;
-            const world = temp.transform.worldTransform;
-            if (m) world.set(wt.a * m.a + wt.c * m.b, wt.b * m.a + wt.d * m.b, wt.a * m.c + wt.c * m.d, wt.b * m.c + wt.d * m.d,
-                wt.a * m.tx + wt.c * m.ty + wt.tx, wt.b * m.tx + wt.d * m.ty + wt.ty);
-            else world.copyFrom(wt);
-            temp.transform._worldID++;
-            temp.worldAlpha = this.worldAlpha * it.alpha;
-            const parent = obj.parent;
-            obj.parent = temp;
-            obj.updateTransform();
-            if (it.tint !== null && it.tint !== undefined) tint(obj, it.tint);
-            if (it.matrix) shrink(obj);
-            obj.render(renderer);
-            // The batch reads tints and texture coordinates when it flushes: draw before restoring them.
-            if ((tinted.length || inset.length) && renderer.batch) renderer.batch.flush();
-            for (const [o, old] of tinted) o.tint = old;
-            tinted.length = 0;
-            for (const [tex, x, y, w, h] of inset) tex.frame = new PIXI.Rectangle(x, y, w, h);
-            inset.length = 0;
-            obj.parent = parent;
-            // Recompute against the real parent next frame, even if transform ids happen to match.
-            obj.transform._parentID = -1;
+            this.drawDocsItem(renderer, it, false);
         }
+        if (this.silhouette && this.silhouette.length) this.drawDocsSilhouette(renderer);
+    };
+
+    // One standing thing, drawn with its billboard transform (tinted by the light unless `plain`).
+    Sprite_DocsBillboards.prototype.drawDocsItem = function(renderer, it, plain) {
+        const obj = it.obj;
+        if (!obj || obj._destroyed || !obj.parent || !obj.visible) return;
+        const temp = this._temp;
+        const wt = this.worldTransform;
+        const tinted = [];
+        // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or
+        // the next frame of a sheet), and MZ bitmaps filter smoothly. A half-texel inset while drawing keeps them inside.
+        const inset = [];
+        const shrink = o => {
+            const tex = o && o instanceof PIXI.Sprite ? o.texture : null;
+            if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
+                && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
+                const f = tex.frame;
+                inset.push([tex, f.x, f.y, f.width, f.height]);
+                tex.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
+            }
+            for (const child of (o && o.children) || []) shrink(child);
+        };
+        const tint = (o, color) => {
+            if (o && o.tint !== undefined && o instanceof PIXI.Sprite) {
+                tinted.push([o, o.tint]);
+                o.tint = DocsDoodads.Perspective.multiplyTint(o.tint, color);
+            }
+            for (const child of (o && o.children) || []) tint(child, color);
+        };
+        const m = it.matrix;
+        const world = temp.transform.worldTransform;
+        if (m) world.set(wt.a * m.a + wt.c * m.b, wt.b * m.a + wt.d * m.b, wt.a * m.c + wt.c * m.d, wt.b * m.c + wt.d * m.d,
+            wt.a * m.tx + wt.c * m.ty + wt.tx, wt.b * m.tx + wt.d * m.ty + wt.ty);
+        else world.copyFrom(wt);
+        temp.transform._worldID++;
+        temp.worldAlpha = this.worldAlpha * it.alpha;
+        const parent = obj.parent;
+        obj.parent = temp;
+        obj.updateTransform();
+        if (!plain && it.tint !== null && it.tint !== undefined) tint(obj, it.tint);
+        if (m) shrink(obj);
+        obj.render(renderer);
+        // The batch reads tints and texture coordinates when it flushes: draw before restoring them.
+        if ((tinted.length || inset.length) && renderer.batch) renderer.batch.flush();
+        for (const [o, old] of tinted) o.tint = old;
+        for (const [tex, x, y, w, h] of inset) tex.frame = new PIXI.Rectangle(x, y, w, h);
+        obj.parent = parent;
+        // Recompute against the real parent next frame, even if transform ids happen to match.
+        obj.transform._parentID = -1;
+    };
+
+    // The player (and their gear) hidden behind something, drawn again on top as one tinted outline:
+    // drawn together and then coloured, so gear over the body doesn't show darker.
+    Sprite_DocsBillboards.prototype.drawDocsSilhouette = function(renderer) {
+        let ghost = this._ghost;
+        if (!ghost) {
+            ghost = this._ghost = new PIXI.Container();
+            ghost._render = r => { for (const it of this.silhouette || []) this.drawDocsItem(r, it, true); };
+            try {
+                ghost._docsFilter = new PIXI.Filter(undefined, DocsDoodads.SeeThrough.silhouetteFragment, { uColor: [0.5, 0.8, 1], uAlpha: 0.55 });
+                ghost.filters = [ghost._docsFilter];
+            } catch (error) {
+                ghost._docsFilter = null;
+            }
+        }
+        // Without filters there's no outline to draw; the player stays hidden as before.
+        if (!ghost._docsFilter) return;
+        ghost._docsFilter.uniforms.uColor = this.silhouetteColor || [0.5, 0.8, 1];
+        ghost.filterArea = renderer.screen;
+        ghost.worldAlpha = this.worldAlpha;
+        ghost.render(renderer);
     };
 }
 
@@ -9635,11 +9663,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             items.push({ obj, depth: m.depth, bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
                 alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
-        this._docs3dSee = this.docsPlayerSeeThrough();
-        this.docsSeeThroughBillboards(items, this._docs3dSee);
+        const see = this._docs3dSee = this.docsPlayerSeeThrough();
+        const hidden = this.docsSeeThroughBillboards(items, see);
         this.updateDocsSnowCaps(items, snow);
         for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
         items.sort(P.compareBillboards);
+        const seeSettings = DocsDoodads.World.settings().seeThrough;
+        this._docs3dBillboards.silhouette = hidden && seeSettings.mode !== 'fade' ? this.docsSilhouetteItems(items, see) : null;
+        this._docs3dBillboards.silhouetteColor = DocsDoodads.Lighting.channels(seeSettings.silhouetteColor);
         this._docs3dBillboards.items = terrain ? this.docsInterleaveTerrain(items, this.updateDocsTerrain(cam, s, terrain, rt, fogRange)) : items;
         this.updateDocsGizmos(cam);
     };
@@ -10696,7 +10727,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     // Where the player is drawn this frame ({ rect: [centre x, centre y, half width, half height], depth }),
     // so hills between them and the camera can fade there. null when the player isn't drawn, or while
-    // editing (everything shows as placed). The 3D view has no silhouette, so Silhouette mode fades too.
+    // editing (everything shows as placed). Hills fade in every mode; doodads follow the mode.
     Spriteset_Map.prototype.docsPlayerSeeThrough = function() {
         const settings = DocsDoodads.World.settings().seeThrough;
         if (!settings || !settings.enabled || !DocsDoodads.Atmosphere.featureOn('seeThrough')) return null;
@@ -10712,9 +10743,13 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     };
 
     // Tall doodads and tileset objects in front of the player fade (like See-Through on flat maps).
+    // Returns whether something in front hides the player. Fade and Both fade it; Silhouette and Both
+    // show the player's outline over it instead (docsSilhouetteItems).
     Spriteset_Map.prototype.docsSeeThroughBillboards = function(items, see) {
         const settings = DocsDoodads.World.settings().seeThrough;
         const th = $gameMap.tileHeight();
+        const fade = settings.mode !== 'silhouette';
+        let hidden = false;
         for (const it of items) {
             const obj = it.obj;
             if (!obj || !it.matrix) continue;
@@ -10732,11 +10767,23 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 const w = Math.abs(obj.width), h = Math.abs(obj.height);
                 const ax = obj.anchor ? obj.anchor.x : 0.5, ay = obj.anchor ? obj.anchor.y : 1;
                 const box = P.screenBox(it.matrix, obj.x - ax * w, obj.y - ay * h, w, h);
-                if (P.hidesPlayer(box, it.matrix.depth, see)) target = see.opacity;
+                if (P.hidesPlayer(box, it.matrix.depth, see)) {
+                    hidden = true;
+                    if (fade) target = see.opacity;
+                }
             }
             obj._docs3dSeeAlpha = DocsDoodads.SeeThrough.step(obj._docs3dSeeAlpha !== undefined ? obj._docs3dSeeAlpha : 1, target, see ? see.speed : 1);
             it.alpha *= obj._docs3dSeeAlpha;
         }
+        return hidden;
+    };
+
+    // What the silhouette draws: the player and their gear, in the order they're drawn (items sorted).
+    Spriteset_Map.prototype.docsSilhouetteItems = function(items, see) {
+        const player = see && see.player;
+        if (!player) return null;
+        const out = items.filter(it => it.obj && it.matrix && (it.obj === player || it.obj._docsBillboardOwner === player));
+        return out.length ? out : null;
     };
 
     // Billboards between the terrain's triangles, so hills hide what's behind them. Each billboard
