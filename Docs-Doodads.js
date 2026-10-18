@@ -100,7 +100,7 @@
  * 12. Particles, VFX & Character Animation (More: Effects Maker):
  *    - Particle emitters on doodads (smoke, embers, fire, fireflies, leaves,
  *      mist, dust, sparkles, snow, bubbles, magic); grass that bends when walked through.
- *    - VFX builder: particle and sprite-sheet layers; Play VFX plugin command.
+ *    - Effects Maker (VFX): particle and sprite-sheet layers; Play VFX plugin command.
  *    - Character sheets: [f8] frames per row, [d1] single row, [d8] 8 directions;
  *      Name_idle / Name_run cycles; Play Character Action; optional diagonal movement.
  *

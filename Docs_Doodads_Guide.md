@@ -12,6 +12,7 @@
 **Doc's Doodads** transforms the traditional RPG Maker in-game doodad editor into a high-performance visual asset management, placement, slicing, and event-authoring workspace. 
 
 It eliminates the friction of traditional sprite-sheet pickers and multi-click file dialogue boxes by providing:
+- **A friendly, game-like editor**: big named tools in one top bar, an Item Bag to pick from, a Details panel for whatever is picked, a hint bubble that says what to do next, and a welcome card the first time.
 - **Instant visual browsing** with virtualized cards capable of smoothly scrolling 10,000+ assets.
 - **Intelligent sprite sheet detection & slicing** (standard MZ formats, sidecar JSON atlas files, and automatic alpha-threshold visual detection).
 - **Direct drag-and-drop placement** onto the live game map with real-time ghost previews.
@@ -19,6 +20,7 @@ It eliminates the friction of traditional sprite-sheet pickers and multi-click f
 - **Direct physical collision** with interactive relative collision editing.
 - **Modern editor operations**: Marquee selection box, Shift+Click multi-select, alignment, distribution, grouping, locking, hiding, Z-order layering, copy/paste, and 300-level command undo/redo.
 - **Windows Explorer native file/folder drop import** with intelligent categorization and collision renaming.
+- **A living world**: lights, day and night, shadows, weather, post-processing, particles and effects, spatial sound with ambience and footsteps, visual equipment, traversal (jump, glide, swim, dive, fly, climb, ice) and a full 3D view with terrain, walls, models and a video sky.
 - **Enterprise-grade project safety**: session snapshots, pre-save external conflict protection, timestamped backups in `data/docs_doodads_cache/backups/`, atomic writes, and crash autosave recovery.
 
 ---
@@ -33,10 +35,10 @@ It eliminates the friction of traditional sprite-sheet pickers and multi-click f
    ```
 2. Open RPG Maker MZ, go to **Plugin Manager**, and activate **`Docs-Doodads`**.
 3. Launch Playtest (**F5**).
-4. Press **F10** (or your configured `editKey`) while on any map to open the Asset Workspace!
+4. Press **F10** (or your configured `editKey`) while on any map to open the editor. The first time, a welcome card shows the first steps.
 
 > [!NOTE]
-> All editor UI, indexing, and authoring tools are strictly isolated to Playtest mode (`Utils.isOptionValid("test")`). In production builds, the plugin operates purely as a lightweight doodad rendering and collision engine with zero editor memory overhead.
+> All editor UI, indexing, and authoring tools are strictly isolated to Playtest mode (`Utils.isOptionValid("test")`), and every file write goes through a guard that refuses outside a playtest. In production builds, the plugin operates purely as a lightweight doodad rendering and collision engine with zero editor memory overhead.
 
 ---
 
@@ -202,6 +204,7 @@ These settings apply to the whole game. With nothing selected, Details shows the
 When the player walks behind a tall doodad (a tree, a roof, a tower), it fades so the player stays visible. Or the player is drawn as a coloured outline, or both.
 - **Auto** applies to standing doodads at least 1.5 tiles tall.
 - Set **See-through** to *Always* or *Never* per doodad in its Atmosphere section.
+- In the 3D view, hills and standing tileset objects are revealed too (section 14). There the outline is drawn over whatever hides the player: the player and their gear as one shape in the **Outline colour**.
 
 ### Water Reflections
 - Characters and standing doodads get a rippling mirrored copy on the water tiles below them. Bridges over water are left alone.
@@ -262,7 +265,7 @@ Saves the whole map as one PNG in the project's `screenshots` folder and opens i
 
 ---
 
-## 10. Particles, VFX & Character Animation
+## 10. Particles, VFX, Character Animation & Traversal
 
 ### Particles on doodads
 Select a doodad and open **Particles** in Details.
@@ -270,14 +273,14 @@ Select a doodad and open **Particles** in Details.
 - **Amount** scales the preset's rate.
 - **Draw** places the particles above characters, or below them for ground mist.
 - **Offsets** move the emitter from the doodad's centre.
-- **Attached VFX** loops any effect from the VFX builder on the doodad, for example a magic circle on an altar.
+- **Attached VFX** loops any effect from the Effects Maker on the doodad, for example a magic circle on an altar.
 
 Fire and embers combine well with a Light set to *After dark* (section 8).
 
 ### Grass that reacts
 **Interaction → Bend when walked through** makes grass, bushes and reeds lean away from whoever passes and spring back. Faster walkers push harder. **Drop leaves when disturbed** shakes out a few leaves each time someone enters.
 
-### VFX builder
+### Effects Maker (VFX)
 Open **More → Effects Maker**.
 - An effect is a list of layers:
   - **Particles**: start from a preset, then adjust rate, burst, life, speed, direction, spread, gravity, wind, size, opacity, colours, blend, shape, spawn area, flutter, twinkle and stretch (elongates particles along their motion, for flames and sparks).
@@ -311,6 +314,16 @@ Open **More → Effects Maker**.
   - The event can **wait** until the action finishes.
   - **Clear Character Action** returns the character to normal.
 
+### Traversal
+Open **Traversal** in the map panel (*All maps*) to give the player more ways to get around. Each ability can need a switch (0 = always), and **Set Traversal** (plugin command) turns one on or off for this game, or back to these settings (the player learns to swim). **Traversal Action** makes the player jump, take off, land or dive from an event, as if they pressed the key.
+- **Jump** (C key): a hop forward, over gaps and fences up to *Jump over gaps up to* tiles, and up ledges as high as *Jump up ledges* (terrain height). It never lands on someone or a solid doodad, and ground that is too high stops it. Optional sound; *No jumping into region* blocks it.
+- **Glide:** jumping off high ground carries further, by *tiles further per tile of height*, up to a limit.
+- **Swim:** the player walks into water nobody could walk in and back out onto land. Slower (*Swimming speed change*), in the water up to the waist (*in the water up to* pixels), with an optional swimming sheet (the character's name plus a suffix such as `_swim`, used when the file is there) and stroke sound. *No swimming in region* keeps them out.
+- **Dive** (C in deep water): to the map set under this one, and back up from an underwater map. Set both maps in the map panel's **Sound (this map)** section, under *Diving*.
+- **Fly** (F key; again to land): over everything but the map's edge and *No flying over region*, above tree tops, with a shadow below, and drawn up off the ground in 3D. No events trigger from the air, battles only if *Random battles while flying* is on, and the party lands only where it could stand.
+- **Climb:** chosen regions or terrain tags climb like ladders, past terrain-height blocking.
+- **Ice:** chosen regions or terrain tags slide the player on until something stops them.
+
 ---
 
 ## 11. Spatial Sound
@@ -337,6 +350,21 @@ Each has a volume, a pitch and a **Heard within** radius in tiles. Volume and pa
 
 ### Background sound by region
 Also in **Sound (this map)**: give a region ID a background sound with a volume and a fade time. When the player walks into the region the sound fades in. Walking out brings back whatever the map was playing. Use it for a waterfall's roar, a windy cliff, or the hum of a shop.
+
+### Zoom and sound focus
+In the map panel's **Zoom and Sound Focus** section (*All maps*), let players zoom in on their character with the mouse wheel, the **+** and **-** keys, or both, up to **Closest zoom**. **Set Zoom** (plugin command) does it from an event, eased over a number of frames, with optional wait. The zoom is kept in save files. Flat maps zoom MZ's screen around the player; 3D maps move the camera in.
+
+With **Zooming in brings the nearby sound forward** on, zooming in lowers the music (*Music drops by*), makes sounds carry less far (*Sounds carry less far by*) and makes nearby ones louder (*Nearby sounds louder by*): event sounds, Play SE At and doodad sounds all follow it.
+
+### Ambience layers
+**Add Ambience** (same section) adds a looping background sound that is as loud as there is of its kind around the player, panned towards it:
+- near water (rivers, sea), near trees (forests, ☆ tree tops), out in the open (wind, louder up high on raised terrain);
+- near doodads whose picture name contains some text, near a region, or near a terrain tag.
+
+Each layer has a sound, a volume, a **heard within** radius, its share at normal zoom (it swells as you zoom in) and a pitch.
+
+### Footsteps
+Tick **Footsteps** and add footstep sounds by ground: a region, a terrain tag, shallow water, bushes and tall grass, forest, or anywhere else (regions are checked first, then terrain tags, then the kind of ground). They are quiet at normal zoom (*Footsteps at normal zoom*), clear when zoomed in, louder when dashing, and optionally play for followers too, softer.
 
 ---
 
@@ -382,7 +410,7 @@ Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing 
 The map panel has many sections. Type in **Search settings** at its top (for example *fog*, *shadow* or *snow*) to show only the sections that mention every word, opened; clear it to get the panel back as it was.
 
 ### Undo history
-The **☰** button next to Undo and Redo lists the undo steps by name (Place doodad, Move doodads, Terrain height, Dress map...), oldest first, with the current point highlighted. Click a step to go back to just after it, or forward again to a greyed-out step; *(Start)* undoes everything. Making a new change after going back drops the greyed-out steps, as Undo does. The list holds the last 300 steps.
+The **Steps** button next to Undo and Redo lists the undo steps by name (Place doodad, Move doodads, Terrain height, Dress map...), oldest first, with the current point highlighted. Click a step to go back to just after it, or forward again to a greyed-out step; *(Start)* undoes everything. Making a new change after going back drops the greyed-out steps, as Undo does. The list holds the last 300 steps.
 
 ### Command palette (Ctrl+K)
 Type a few letters of anything and press Enter:
@@ -437,6 +465,8 @@ Character shadows include gear layers: a cape, hat or shield changes the shadow'
 
 **Layer sheets from Aseprite.** Draw the character once in Aseprite with a layer per part (body, hair, clothes...) and the walk cycle as frames: either tag the frames `down`, `left`, `right` and `up`, or put them in that order (three frames each). In the map panel's Visual Equipment section, **Make Layer Sheets from .aseprite…** writes one sheet per visible layer to `img/characters`, already in MZ's layout: `$Name_Body.png`, `$Name_Hair.png` and so on (single-character sheets; rows with other than three frames get `[fN]` in the name). Hidden layers and empty layers are skipped. RGB, grayscale and indexed files work.
 
+**Gear straight from Aseprite.** Instead of making sheets first, name a layer of a layered `.aseprite` walk cycle in the tag: `<visual: Hero.aseprite#Sword, z 1>` (the file in `img/characters`, or a project path such as `art/Hero.aseprite`). In a playtest the layer's sheet is written to `img/characters` when it is missing or older than the `.aseprite`, and recorded in `data/DocsDoodadsAseprite.json`, so deployed and browser games find it. Save the `.aseprite` again while the game runs and its sheets are made again: everyone wearing it updates straight away. A layer that isn't in the file is skipped, with a console warning naming the layers it has. The notetag builder lists every layer of every `.aseprite` in `img/characters`.
+
 ### Destination marker
 The marker MZ shows where the player clicks or taps to walk can be restyled under **Destination Marker** in the map panel:
 - **Marker:** MZ's square, a rounded square, circle, ring, diamond, cross or arrow drawn in any colour. It can also be an image from `img/system` (`Marker[f4]` plays four frames side by side), a database animation that loops, a VFX effect, or hidden.
@@ -469,6 +499,10 @@ Tileset tiles lie flat by default, including tree tops and roofs from the B–E 
 | Fog starts / ends | Distant ground and billboards fade out between these distances, in tiles from the camera's target. The ground's edge never shows. |
 | Fog colour | Fade into a colour instead of into the sky. |
 | Sky colour | The colour above the horizon. A map's parallax becomes the sky instead, and turns with the camera. |
+| Sky video | A looping, muted movie as the sky, for example `movies/Sky.webm` (blank for none). It shows once the video has its first frame (the sky colour until then); the sun, moon and stars still draw over it. |
+| Sky video shape | *360° panorama*: an equirectangular video (north in the middle) that turns with the camera, one camera turn being the whole video, its equator on the horizon. *Fill the sky*: stretched over the sky above the horizon and staying put. |
+| Sky video speed / follows day and night | Playback speed (1 is normal), and whether the video darkens at night with the sky light. |
+| Also show the sky video behind this map when it is flat | Uses the video in place of the parallax on the flat map too. |
 | Beyond the map edge | The colour of ground past the map's edges. |
 | Round world | **Planet**: the ground curves away all round, like a small world. **Rolling log**: it curves away only ahead, so things rise over the horizon as you walk toward them. |
 | Curvature | How round the world is: 0 is flat, 10 is gentle, 100 is a tiny planet. Moving it off 0 turns a flat map into a planet; the radius below follows it. |
@@ -478,7 +512,7 @@ Tileset tiles lie flat by default, including tree tops and roofs from the B–E 
 | Rippling water | Water tiles move with gentle waves that bend what shows through them (including water reflections) and catch the light. Shores stay dry. |
 | Ripple strength / speed / sparkle | How far the waves bend the water, how fast they move, and how bright the glints are. Glints dim at night. |
 | Wakes behind boats and waders | Boats, ships and anything moving through water leave spreading rings with a little foam. |
-| Tileset objects (B–E tiles) | *Lie flat* (default). *Objects with ☆ tiles*: anything with a ☆ (above characters) tile, like a tree top, stands up with the tile under it (the trunk); side-by-side columns of the same height stand as one wide object. *Every B–E tile*: also lifts every other B–E tile (barrels, signs, fences) as one-tile billboards. The map itself isn't changed: in 2D, or with this off, the tiles lie on the ground as before. They use the standing doodads' height setting. Roof edges and wall tops drawn with ☆ tiles stand up too, so check buildings. |
+| Tileset objects (B–E tiles) | *Lie flat* (default). *Objects with ☆ tiles*: anything with a ☆ (above characters) tile, like a tree top, stands up with the tile under it (the trunk); side-by-side columns of the same height stand as one wide object. *Every B–E tile*: also lifts every other B–E tile (barrels, signs, fences) as one-tile billboards. The map itself isn't changed: in 2D, or with this off, the tiles lie on the ground as before. They use the standing doodads' height setting. Objects drawn entirely on roofs and walls (A3/A4: eaves, chimneys, windows) stay flat; a tree in front of a house still stands. **Keep tileset objects flat in region** keeps anything in that region flat. |
 | Standing doodads / Characters: height in 3D | Shrink or grow things that stand up, in the 3D view only (the 2D map is unchanged). Tileset-sized art is often tall next to a one-tile hero: a 3-tile lamp at 0.65 stands about twice the hero's height. They stay on their feet, and gear, effects and balloons go with their owner. Editor clicks and selection boxes match. |
 | Sky, sun, moon and stars follow the time of day | With the day/night clock running (section 8), the sky fades from blue by day to an orange sunrise and sunset and a dark night with twinkling stars. The sun and moon cross the sky on the same path the shadows use, low ones show near the horizon, hills are shaded from wherever the light is, and water glints toward the sun or moon. Ambient darkness and lamps work as on flat maps. A map's parallax still replaces the sky. |
 | 3D rain and snow | MZ's **Set Weather Effect** (rain, storm, snow, power 1–9, with fades) falls through the 3D world around the camera: rain and storms slant with the wind and splash on the ground (raised terrain too), some drops ripple water, and snow drifts down. Trees, characters and hills in front hide the drops behind them. The screen dims with the weather like MZ's own. Off: MZ's flat weather is used instead. |
@@ -527,10 +561,10 @@ Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (t
 
 Terrain height shows only in the 3D view. It works on round worlds too.
 
-**Interiors: walls stand up.** Tick **Walls stand up** (and choose the **Stepped** shape) to raise A4 walls and A3 roofs: in each column the wall top and the wall face below it rise to the face's height (usually two tiles), the front of the wall shows the face art as drawn in 2D (decorations hung on it included), and the top shows the wall top. A wall top with no face below it uses **Wall height where there is no wall face**. Painted and region heights win over walls. Use a fairly steep camera tilt inside rooms; with See-Through on, walls between the camera and the player fade where they cover the player.
+**Interiors: walls stand up.** Tick **Walls stand up** to raise A4 walls and A3 roofs, in either shape (in Smooth the ground is rounded but walls stay sharp blocks): in each column the wall top and the wall face below it rise to the face's height (usually two tiles), the front of the wall shows the face art as drawn in 2D (decorations hung on it included), and the top shows the wall top. A wall top with no face below it uses **Wall height where there is no wall face**. Every exposed side of a wall shows the column's face art, so a turned camera sees walls, and a wall seen end-on borrows the face art of the nearest wall column. Floor decals (Below characters) that cross a wall stay on the floor. Painted and region heights win over walls. Use a fairly steep camera tilt inside rooms; with See-Through on, walls between the camera and the player fade where they cover the player.
 
 ### What works in 3D
-- **See-through:** with See-Through on (section 8), hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player, to the See-Through opacity. In 3D it always fades (the outline mode is for flat maps).
+- **See-through:** with See-Through on (section 8), tall doodads and standing tileset objects between the camera and the player fade where they cover the player (*Fade* and *Both*), to the See-Through opacity. *Outline* and *Both* draw the player and their gear again on top as one outline in the Outline colour. Hills fade in every mode.
 - **Lighting:** ambient darkness lights the ground, and lights pool around each lamp's base. Characters and doodads are lit by the lights near them.
 - **Sun and doodad shadows** lie on the ground.
 - **Particles, VFX, balloons and animations** stand with their character or doodad. Effekseer animations (MZ's own format) play where their target is drawn and shrink with distance like it; MV-style animations do too.
@@ -547,7 +581,15 @@ Terrain height shows only in the 3D view. It works on round worlds too.
 ### 3D models
 A doodad can be drawn as a real 3D model in the 3D view. Put a glTF 2.0 model (`.glb`, or `.gltf` with its files) in your project, for example in a `models` folder, select the doodad, and in its **3D Model** section enter the path (`models/Tree.glb`), its **Size** (tiles per model unit: a 3-unit-tall tree at size 1 is 3 tiles tall) and its **Turn**. On a flat map and in 2D the doodad still shows its picture, so pick a picture that matches.
 
-Models are lit by the sun or moon, fade with the fog, take the lighting tint where they stand, and are sorted with the billboards, so characters walk in front of and behind them. They use the standing doodads' 3D height setting. Supported: meshes with base colours and base colour textures (embedded or next to the model), node transforms and single- or double-sided faces. Not supported: animation, skinning, morph targets, PBR lighting (metal, roughness, normal maps) and transparency sorting inside a model. Keep models small: each one is drawn on the CPU every frame; a few hundred triangles each is comfortable.
+Models are lit by the sun or moon, fade with the fog, take the lighting tint where they stand, and are sorted with the billboards, so characters walk in front of and behind them. They use the standing doodads' 3D height setting.
+
+- **Animation:** a model's glTF animations play on their own. **Animation to play** takes a name or number (blank plays the first, `none` plays none), and **Animation speed** speeds it up or slows it down (0 holds the first pose). Translation, rotation and scale, with linear, step and cubic-spline easing, are read.
+- **Skinned models** (characters, creatures) are posed from their joints, up to four weights a vertex.
+- **Materials:** base colours and textures (embedded or next to the model), vertex colours, metal and roughness (a highlight towards the sun), glow (emissive), cut-out (MASK) and see-through (BLEND) alpha, unlit (`KHR_materials_unlit`), and single- or double-sided faces.
+- **Live reload:** while the editor is open, saving the model, its buffers or its textures in another program loads it again, and its doodads redraw.
+- **In the editor**, a model doodad is picked by the triangles drawn under the mouse, and its selection box is the model's size.
+
+Not read: morph targets (shape keys) and normal maps. Light is worked out per vertex, so a highlight on a flat face brightens the whole face. The selection box follows the rest pose, not the animation. Keep models small: they are posed and drawn on the CPU (a still view of a still model reuses the last frame); a few hundred triangles each is comfortable.
 
 ### Battles on 3D maps
 Tick **Battles show this map in 3D behind the fight** in the 3D View panel to use the map itself as the battle background: when a battle starts, the 3D view around the encounter is drawn again from a low camera looking the same way, without characters, pictures or the minimap, and replaces the battlebacks for that battle. Enemies and side-view actors are drawn over it as usual.
@@ -561,6 +603,8 @@ The **Show World Map** plugin command opens the whole map full screen with the p
 - **Set Camera (3D):** tilt, turn, zoom, field of view, round-world shape and curvature, absolute or added to the current values, eased over a number of frames, with optional wait. Use it for cutscenes: ease a flat map into a planet to show the whole world, or set the shape to Flat to ease the curve back out.
 - **Reset Camera (3D):** returns to the map's own camera.
 - **Set 3D View:** turns 3D on or off for the current map, or back to the map's setting.
+- **Set Sky Video:** another sky video for the rest of this visit, with its shape and speed; `none` for none, blank for the map's own.
+- **Set Zoom:** zooms in on the player (section 11); in 3D the camera moves in.
 
 Camera changes last until the party leaves the map. Changing the 3D View settings in the editor clears them, so the preview always shows the map's own camera.
 
@@ -707,7 +751,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
-| **F10** (or `editKey`) | Open / Close Asset Workspace | Global (Playtest) |
+| **F10** (or `editKey`) | Open / Close the editor | Global (Playtest) |
 | **Ctrl + Z** | Undo last action (300-level command stack) | Workspace |
 | **Ctrl + Y** | Redo last undone action | Workspace |
 | **Ctrl + S** | Explicit Save (Atomic save with backups & conflict check) | Workspace |
@@ -724,7 +768,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **G** | Toggle 48px Tile Grid visual overlay | Workspace |
 | **H** | Fold or open the Details panel | Workspace |
 | **F** | Find: type in the Item Bag's search box | Workspace |
-| **Escape** | Cancel active tool (Stamp/Brush/Path/Eyedropper) / Deselect / Close Modals | Workspace |
+| **Escape** | Cancel active tool (Stamp/Scatter/Path/Grab) / Deselect / Close Mirror, More, the welcome card and dialogs | Workspace |
 | **Enter** / **Double-click** | Place props along the path being drawn | Path tool |
 | **Backspace** | Remove the last path point | Path tool |
 | **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map Canvas |
@@ -735,7 +779,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ## 24. Troubleshooting & FAQ
 
-### Q: Why isn't the Asset Workspace opening when I press F10?
+### Q: Why isn't the editor opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
 - Verify in **Plugin Manager** that `Docs-Doodads` is turned **ON** and `Editor Enabled` is set to `true`.
 - Check if another plugin intercepts `F10`; you can change the `editKey` parameter to `F6`, `F7`, `F8`, or `F9`.
@@ -744,13 +788,13 @@ Editing real map data in playtest mode requires rigorous file protection:
 - **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads, effects, lights and collision render normally. If you packed map art, pack again after changing source images; a pack built before a change keeps the old art.
 - In **File → Deployment**, leave **Exclude unused files** off: MZ only knows the files its own database and events use, so it leaves out every doodad picture (all of `img/doodads`) and sounds that only Doc's Doodads uses. If a doodad's picture is missing anyway, the game doesn't stop at MZ's "Failed to load" screen: that doodad is skipped and the console says which file it was. Image and audio encryption are fine; the plugin reads encrypted files.
 - The deploy script's build was checked against MZ's own (same key): every file is the same byte for byte, except `data/System.json`, which MZ writes again from the editor.
-- To try a deployed build without the editor, run `npm run deploy -- <project folder> <output folder>` in this repository. It makes a Windows build the way MZ's Deployment does with encryption on (Game.exe, encrypted `img/` and `audio/`, the key in `System.json`); run its `Game.exe`. Add `--no-encrypt` for a plain build or `--key <text>` for your own key.
+- To try a deployed build without the editor, run `npm run deploy -- <project folder> <output folder>` in this repository. It makes a Windows build the way MZ's Deployment does with encryption on (Game.exe, encrypted `img/` and `audio/`, the key in `System.json`, developer tools off); run its `Game.exe`. Add `--no-encrypt` for a plain build, `--key <text>` for your own key, `--devtools` to keep the developer tools, or `--runtime <folder>` if MZ's `nwjs-win` folder isn't found.
 
 ### Q: Why do my house interiors get dark at night?
 - The day/night clock applies to every map that doesn't set its own darkness. In the map panel, set **Day and night on this map** to *Ignore (indoors)* for interiors, or give the map its own ambient darkness.
 
 ### Q: Post-processing makes my game slow on older PCs or phones.
-- Set **Quality** to *Low* in the Post FX builder (it skips tilt-shift and lightens bloom), use fewer effects, or let players pick a lower **Effects Quality** in Options.
+- Set **Quality** to *Low* in **More → Screen Looks** (it skips tilt-shift and lightens bloom), use fewer effects, or let players pick a lower **Effects Quality** in Options.
 
 ### Q: The 3D view is slow on older PCs or phones.
 - Lower **View distance** for the map, or let players pick a lower **Effects Quality** in Options: Medium and Low draw less ground, fewer weather drops and simpler hills, and Low drops wakes (see *Quality on slower machines* in section 14).
@@ -767,3 +811,4 @@ Editing real map data in playtest mode requires rigorous file protection:
 ## 25. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
+- **Font**: the editor's font is Nunito, under the SIL Open Font License 1.1 (`art/fonts/Nunito-OFL.txt`).

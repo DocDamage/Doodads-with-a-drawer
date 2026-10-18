@@ -83,6 +83,17 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | :--- | :--- |
 | `DocsDoodads.Terrain.heightOf($gamePlayer) >= 2` | Conditional Branch on the ground height under the player (or `this.character(0)`). |
 
+## Player keys
+
+Each only when it is turned on in the map panel's World settings.
+
+| Key | Does | Guide |
+| :--- | :--- | :--- |
+| C | Jump (Traversal); in deep water, dive | 10 |
+| F | Take off and land (Traversal: Fly) | 10 |
+| Mouse wheel, + and - | Zoom in on the player (Zoom and Sound Focus) | 11 |
+| Q / W | Turn the 3D camera 90° (3D View) | 14 |
+
 ## Editor mouse in 3D
 
 | Mouse | Does |

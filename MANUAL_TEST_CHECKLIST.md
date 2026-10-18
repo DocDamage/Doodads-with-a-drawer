@@ -6,13 +6,13 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 - [ ] Copy `Docs-Doodads.js` into `js/plugins/` and enable it after UltraMode7, if used.
 - [ ] Confirm the project opens normally before enabling the plugin.
-- [ ] Start Playtest and confirm no console error appears before opening the workspace.
+- [ ] Start Playtest and confirm no console error appears before opening the editor.
 
 ## Definition-of-done workflow
 
-- [ ] Press F10; the workspace opens and the map remains interactive.
+- [ ] Press F10; the editor opens and the map remains interactive. On a first run the welcome card appears; the hint bubble changes as you pick a tool or an item.
 - [ ] Confirm cached assets appear immediately and indexing progress finishes without freezing.
-- [ ] Search by text and with `type:`, `tag:`, `folder:`, `favorite:`, and a negative term.
+- [ ] Search by text and with `type:`, `tag:`, `folder:`, `category:`, `favorite:`, and a negative term (`-tag:`). Add items to a collection and pick it beside the search box.
 - [ ] Open a standard 8-character sheet, `$` character, Face sheet, IconSet, and grid sheet.
 - [ ] Open transparent, opaque-white, noisy, and irregular sheets in the slicer.
 - [ ] Confirm low-confidence results request review instead of claiming a clean detection.
@@ -44,8 +44,8 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Go to another map, paste, Copy/Move to Map, link neighbours, mirror an edge tree, and open World View.
 - [ ] On a looping map, stand near the seam and confirm doodads and lights stay put while the camera wraps.
 - [ ] Where Used and Rename/Move a character sheet used by events; open the project in MZ and confirm events still show it.
-- [ ] Find Unused Files and Find Duplicates; check More Like This.
-- [ ] Edit an image in another program while the workspace is open; the drawer and placed doodad update. Replace it with a smaller image and confirm the game keeps running.
+- [ ] More → File Check: Find Unused Files and Find Duplicates; check More Like This.
+- [ ] Edit an image in another program while the editor is open; the Item Bag and placed doodad update. Replace it with a smaller image and confirm the game keeps running.
 - [ ] Pack a map's art, preview it in Playtest, change a source image, and confirm the stale warning.
 
 ## World atmosphere
@@ -65,19 +65,19 @@ Test these on an exterior map and on a looping world map.
 
 ## Post-processing
 
-- [ ] Open Post FX, apply each preset, and adjust sliders; undo a slider drag in one step. Hold to Compare.
+- [ ] Open More → Screen Looks, apply each preset, and adjust sliders; undo a slider drag in one step. Hold to Compare.
 - [ ] Give one map its own look and another No effects; walk between them. Confirm battles use the game-wide look.
 - [ ] Turn Affect pictures off and show a picture; it stays crisp. Message windows are never affected.
 - [ ] Use Set Post-Processing Look with a fade, then Back to the map's look. Play each screen effect centred on the player and on an event.
 - [ ] Set Quality to Low, and Effects Quality in Options to each value; Off removes every effect.
 - [ ] Export a map image at 100% and 50%, with and without characters; open it and check there are no seams.
-- [ ] Close the editor with Post FX and Asset Tools open; both close too.
+- [ ] Close the editor with Screen Looks and File Check open; both close too.
 
 ## Particles, VFX and character animation
 
 - [ ] Give doodads each particle preset; check Above/Below, Amount and offsets; delete and undo one.
 - [ ] Turn on Bend when walked through for a grass patch; walk, dash and stand in it; Drop leaves.
-- [ ] In VFX, duplicate Explosion, add a sprite-sheet layer, change values with Replay on change, rename and delete; undo.
+- [ ] In More → Effects Maker, duplicate Explosion, add a sprite-sheet layer, change values with Replay on change, rename and delete; undo.
 - [ ] Play VFX on the player (following), an event, a tile and the screen centre, with and without wait. Open the menu mid-effect.
 - [ ] Use a [f8] walking sheet, Name_idle and Name_run variants (Add All Detected), and dash; no blinking when switching.
 - [ ] Turn on diagonal movement with a [d8] sheet; walk diagonally and into corners.
@@ -96,12 +96,36 @@ Test these on an exterior map and on a looping world map.
 ## Editor tools
 
 - [ ] Add layers; place on the active layer; hide in editor, lock (click and box-select skip it), hide in game; move doodads between layers; delete a layer; undo each.
-- [ ] Symmetry left/right, top/bottom and four ways with the stamp, scatter brush and biome brush; move the axis; undo.
+- [ ] Mirror left/right, top/bottom and four ways with Stamp, Scatter and Paint; move the axis; undo.
 - [ ] Build a biome from two or three assets (Add to Biome), paint, adjust spacing, edge thinning and patchiness.
 - [ ] Make dressing rules for water edges, wall bases and a path region; Dress Map, Re-roll, Clear; check events and blank tiles are skipped.
-- [ ] Save, change doodads and events, open History, compare, and restore single items.
-- [ ] Hover character, door and sliced-strip assets in the drawer.
+- [ ] Save, change doodads and events, open More → Old Saves, compare, and restore single items.
+- [ ] Hover character, door and sliced-strip assets in the Item Bag.
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+
+## Editor look and layout
+
+- [ ] Each top bar tool shows its name and highlights while on; its options card opens under it and closes with Esc or a click elsewhere.
+- [ ] More opens and closes; each tool in it opens its panel and closes More.
+- [ ] Fold the Item Bag and Details to their tabs and open them again; reopen the editor and confirm they stay as left. Press H.
+- [ ] Details is titled with what is picked (a doodad, an event, several things, the map).
+- [ ] Sounds on and off in More; the editor's own font shows (rounded letters), and Japanese text in names falls back cleanly.
+- [ ] Each layout (Mapping, Events, Characters, Tiles, Compact) leaves the map in view.
+
+## Traversal, zoom and sound focus
+
+Test on an exterior map with water, a looping world map and a map with terrain height.
+
+- [ ] Jump (C) over a one-tile gap and a fence, up a small ledge; not onto an event or a solid doodad. Glide off high ground.
+- [ ] Swim into deep water and out; the swimming sheet and stroke sound when set; a no-swimming region.
+- [ ] Dive (C in deep water) to the map set under it and surface again.
+- [ ] Fly (F) over trees and water, past a no-fly region's edge; no events or battles from the air; land only where the party can stand. Repeat in 3D.
+- [ ] Climb a climbable region; slide on ice into a wall.
+- [ ] Give an ability a switch; use Set Traversal and Traversal Action; save and load.
+- [ ] Zoom in with the wheel and + / -, and with Set Zoom (with wait); on a flat map and in 3D; save and load at a zoom.
+- [ ] Zoomed in: the music drops, nearby event and doodad sounds get louder, far ones fade sooner.
+- [ ] Ambience layers near water, trees, open ground, a doodad name, a region and a terrain tag; walk past them and listen for panning.
+- [ ] Footsteps on a region, a terrain tag, shallow water, bushes, forest and elsewhere; dash; followers.
 
 ## Visual equipment and destination marker
 
@@ -114,6 +138,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Fight a side-view battle with layers that have sv sheets; check attack, guard, damage and victory motions.
 - [ ] Try each destination marker style, pulse, spin, bob and layer; path dots; a database animation and a VFX; Set Destination Marker mid-game, save and load.
 - [ ] Use the try-on preview and the notetag builder in the map panel.
+- [ ] Tag a weapon `<visual: Hero.aseprite#Sword>`; equip it in a playtest; save the `.aseprite` with a change and watch the wearer update. Name a layer that isn't there and read the warning.
 
 ## 3D view
 
@@ -133,6 +158,10 @@ Test these on an exterior map and on a looping world map.
 - [ ] 3D weather: Set Weather Effect rain, storm and snow at powers 1, 5 and 9, with fades; at night; on water; with terrain; on a planet; turn 3D weather off (MZ's flat weather returns); leave 3D.
 - [ ] 3D quality: in a project with a 3D map and no post-processing, Effects Quality shows in Options. At Medium and Low, check the view gets shorter without the ground's edge showing, rain and snow thin out, wakes stop on Low, and hills still look like hills (characters stay on them). Open the editor: the map shows as set. Save and reload the option.
 - [ ] Curvature slider from 0 to 100 and back; Set Camera easing flat to planet, planet to rolling log, and back to flat.
+- [ ] Walls stand up in Stepped and Smooth; turn the camera to see their sides and ends; a floor decal crossing a wall stays on the floor; roofs and wall decorations stay flat; a flat region.
+- [ ] See-Through in 3D: Fade, Outline and Both behind a tree and a wall; the outline includes gear.
+- [ ] Sky video: a 360° panorama turning with the camera, Fill, speed, day and night, behind a flat map; Set Sky Video to another, none and back.
+- [ ] Models: an animated model (name, number, none, speed), a skinned character, a cut-out and a see-through material; pick and drag one in the editor; save the model in another program and watch it reload.
 - [ ] Round world: planet and rolling log at several radii, radius 0 on a looping map (walk a full lap), lean on and off, turning, clicking the ground near the horizon, and the editor on the curve.
 
 ## Safety and recovery
@@ -140,7 +169,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
 - [ ] Cancel that save and confirm staged work remains available.
 - [ ] Force overwrite only in the disposable project and confirm a timestamped backup exists.
-- [ ] Restore the latest map backup from Diagnostics and reload the map.
+- [ ] Restore the latest map backup from More → Info and reload the map.
 - [ ] Terminate Playtest with unsaved work, restart, and accept recovery.
 - [ ] Make unsaved event edits on one map, change maps, save, and confirm each map file only contains its own edits.
 - [ ] Make a recovery/metadata JSON file invalid and confirm fallback is safe and visible.
@@ -150,8 +179,8 @@ Test these on an exterior map and on a looping world map.
 
 - [ ] Browse a project with at least 10,000 indexed assets and watch memory while scrolling repeatedly.
 - [ ] Cancel analysis of a very large atlas and confirm work stops promptly.
-- [ ] Run a 30-minute editing session and check that thumbnail memory stabilizes.
-- [ ] Repeat the core open, browse, place, undo, and save workflow in MV if MV support is required.
-- [ ] Build a deployment and confirm F10/editor UI/filesystem authoring are unavailable outside Playtest.
+- [ ] Run a 30-minute editing session and check that thumbnail memory stabilizes; close the editor and confirm its panels and listeners are gone.
+- [ ] Build a deployment (File > Deployment, or `npm run deploy`) and confirm F10/editor UI/filesystem authoring are unavailable outside Playtest.
+- [ ] Deploy once with **Exclude unused files** on: the game keeps running, missing doodads are skipped, and the console names them.
 
 Record the RPG Maker version, NW.js version, test project copy, failures, screenshots, and console logs with the release candidate.
