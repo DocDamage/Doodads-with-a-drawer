@@ -2,7 +2,7 @@
 
 A walk from a flat map to a 3D one with hills, water, weather and day and night. It takes about ten minutes. The screenshots are RPG Maker MZ's sample "World" map with nothing added but the settings below.
 
-Everything here is in the editor's map panel (press **F10** in a playtest, then look at the panel on the right with nothing selected). Each setting is one undo step, and the map changes as you go. Type a word into **Search settings** at the top of the panel to jump to a setting.
+Everything here is in the editor's map panel (press **F10** in a playtest, then look at the **Details** panel on the right with nothing picked). Each setting is one undo step, and the map changes as you go. Type a word into **Search settings** at the top of the panel to jump to a setting.
 
 ## 1. Start from a normal map
 
@@ -37,7 +37,7 @@ Open **Terrain Height (this map)** and tick **Raise the ground**. On a world til
 
 ![Mountains rising](images/first3d_4_terrain.jpg)
 
-To shape the land yourself, pick the **Terrain** tool in the toolbar: raise, lower, flatten, set or erase, with a radius. The tiles a stroke will change are shown on the ground before you paint. Each stroke is one undo step.
+To shape the land yourself, pick the **Hills** tool in the top bar: raise, lower, flatten, set or erase, with a radius. The tiles a stroke will change are shown on the ground before you paint. Each stroke is one undo step.
 
 Tileset trees and objects (the B–E tiles) lie flat by default. To stand them up, set **Tileset objects** in the 3D View section to *Objects with ☆ tiles*, or place real doodads.
 
@@ -60,6 +60,8 @@ Turn on the day/night clock in **Day and Night** (project-wide: a running clock,
 - **Minimap in the corner**, and the **Show World Map** plugin command (a globe on planet-shaped maps).
 - **Battles show this map in 3D behind the fight.**
 - **Round world**: *Planet* with a radius of 0 wraps a looping map into a small world.
+- **Sky video**: a looping movie as the sky, either a 360° panorama that turns with the camera or one that fills the sky.
+- **Models**: a doodad can show a glTF model (animated ones too) in its **3D Model** section.
 - Players on slower machines can lower **Effects Quality** in Options: Medium and Low draw less ground, less weather and simpler hills.
 
 Section 14 of the [User Guide](../Docs_Doodads_Guide.md#14-3d-view) describes every 3D setting, and the [Cheat Sheet](../CHEAT_SHEET.md) lists the plugin commands (Set Camera, Set 3D View and the rest) for cutscenes.
