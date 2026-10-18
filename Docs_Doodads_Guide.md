@@ -72,6 +72,7 @@ Press **F10** in a playtest. The first time, a short welcome card shows the thre
 - **More** holds the rest: **Cut Up Sheet** (the slicer), **Screen Looks** (post-processing and map image export), **Effects Maker** (VFX), **Old Saves** (save history), **File Check** (duplicates and unused files), **Info** (numbers, cache and backups), **Show Grid**, **Sounds** on/off, **Find a Tool** (Ctrl+K), **How to Use** (the welcome card again) and the panel layouts.
 - **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
 - The **hint bubble** at the bottom always says what to do next for the tool or the thing you have picked.
+- The editor carries its own rounded font (Nunito, under the SIL Open Font License; the licence is in `art/fonts`), so it looks the same on every computer. Letters it doesn't have, such as Japanese, use MZ's own font. Icons and the font are built from `art/` with `npm run icons` and `npm run fonts`.
 
 The left panel is the **Item Bag**, providing virtualized access to all graphics and audio in your project. It opens on **Doodads** (or **Everything** in a project that has none yet).
 

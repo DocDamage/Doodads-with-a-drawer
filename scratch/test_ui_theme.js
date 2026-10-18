@@ -63,6 +63,20 @@ assert.strictEqual(U.icon('no such icon'), '');
 assert.ok(U.styleText().includes('--dd-icons: url(data:image/png;base64,'), 'the stylesheet carries the icon sheet');
 console.log('✓ icons: built from the art, placed by name');
 
+// 1b. The editor's rounded font (Nunito) travels inside the plugin with its licence.
+const fontMeta = JSON.parse(fs.readFileSync(path.join(root, 'art', 'fonts', 'fonts.json'), 'utf8'));
+const F = D.UiFonts;
+assert.strictEqual(F.family, fontMeta.family);
+for (const file of Object.keys(fontMeta.files)) {
+    const data = fs.readFileSync(path.join(root, 'art', 'fonts', file)).toString('base64');
+    assert.ok(F.css.includes(data), file + ' is the current file (run npm run fonts after changing art/fonts)');
+}
+assert.strictEqual((F.css.match(/@font-face/g) || []).length, Object.keys(fontMeta.files).length);
+assert.ok(/SIL Open Font License/.test(fs.readFileSync(path.join(root, 'src', '36_ui_fonts.js'), 'utf8')), 'the licence goes with the font');
+assert.ok(U.styleText().startsWith('@font-face'), 'the stylesheet starts with the font');
+assert.ok(U.css.includes(`--dd-font: '${F.family}'`), 'and uses it first');
+console.log('✓ font: built in, with its licence');
+
 // 2. Choices kept on this computer; broken or blocked storage never breaks the editor.
 assert.deepStrictEqual(U.prefs(), {});
 U.setPref('sounds', false);

@@ -89,7 +89,7 @@ DocsDoodads.Ui = {
     --dd-pink: #f2559c;
     --dd-tint: rgba(46, 155, 255, 0.08);
     --dd-shadow: 0 4px 0 rgba(47, 42, 67, 0.10), 0 12px 30px rgba(20, 16, 40, 0.30);
-    --dd-font: 'Nunito', 'M PLUS Rounded 1c', 'Varela Round', 'Arial Rounded MT Bold', 'Segoe UI', system-ui, sans-serif;
+    --dd-font: 'Doodads Nunito', 'Nunito', 'M PLUS Rounded 1c', 'rmmz-mainfont', 'Segoe UI', system-ui, sans-serif;
 }
 #dd-asset-workspace-root, .dd-glass { font-family: var(--dd-font); }
 #dd-asset-workspace-root *, .dd-glass * { box-sizing: border-box; }
@@ -290,10 +290,12 @@ DocsDoodads.Ui = {
 @keyframes dd-rise { 0% { opacity: 0; transform: translateY(-6px); } 100% { opacity: 1; transform: translateY(0); } }
 `,
 
-    // The look for the page: the stylesheet with the icon sheet in it.
+    // The look for the page: the editor's font, then the stylesheet with the icon sheet in it.
+    // (Letters the font doesn't have, such as Japanese, come from MZ's own rmmz-mainfont.)
     styleText() {
         const url = DocsDoodads.UiIcons ? DocsDoodads.UiIcons.url : '';
-        return this.css.replace(':root {', `:root {\n    --dd-icons: url(${url});`);
+        const fonts = DocsDoodads.UiFonts ? DocsDoodads.UiFonts.css + '\n' : '';
+        return fonts + this.css.replace(':root {', `:root {\n    --dd-icons: url(${url});`);
     }
 };
 
