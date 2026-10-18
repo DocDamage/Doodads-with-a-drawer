@@ -18,6 +18,7 @@
 - Added snow that settles in the 3D view (per map): the ground whitens and standing objects get white tops while it snows, it melts afterwards, and a season named Winter keeps it white.
 - Added see-through to the 3D view: hills, tall doodads and standing tileset objects between the camera and the player fade where they cover the player.
 - Added mouse look to the editor in 3D: middle-drag orbits, Shift + middle-drag pans, the wheel zooms, and a middle click resets to the map's camera.
+- Fixed the 3D camera stopping near the edges of non-looping maps: within half the view distance of an edge, or anywhere on a map no bigger than the view (Starting Town), the party walked off the bottom of the screen. The camera now keeps following past the edges, over the void colour; looping maps wrap as before.
 - Fixed the airship in the 3D view: in flight it was sorted as if it stood a tile north, so trees beside the player hid it, and its shadow stood up instead of lying on the ground. Ship wakes on the open sea, flying and landing were checked.
 - Character sun shadows now include visual equipment layers, so capes, hats and shields change the shadow's shape.
 - 3D rain and snow are now drawn in depth bands sorted in with trees, characters and hills, so drops behind them no longer show through.
