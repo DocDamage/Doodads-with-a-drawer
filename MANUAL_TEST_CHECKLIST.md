@@ -125,6 +125,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Click the ground to walk; open the menu and return.
 - [ ] Editor in 3D: pick a tree behind another, drag it, box-select, use the grid, place with the stamp and scatter brush.
 - [ ] Check frame rate with view distance 40 and 64 on a large map.
+- [ ] Round world: planet and rolling log at several radii, radius 0 on a looping map (walk a full lap), lean on and off, turning, clicking the ground near the horizon, and the editor on the curve.
 
 ## Safety and recovery
 

@@ -124,6 +124,7 @@
  *    - Tiles, floor doodads, shadows and lighting lie on a perspective ground plane;
  *      characters, gear and standing doodads stand up as billboards, sorted by distance.
  *    - Camera tilt, turn, field of view, zoom, fog and sky; the parallax becomes the sky.
+ *    - Round world: a planet or a rolling log; radius 0 fits a looping map in one lap.
  *    - Optional Q / W camera turning (arrow keys and facings follow the camera).
  *    - Set Camera / Reset Camera / Set 3D View plugin commands; touch and the editor click
  *      through the ground; selected doodads show 3D boxes.
@@ -4317,8 +4318,15 @@ DocsDoodads.Destination = {
 DocsDoodads.Perspective = {
     defaults: {
         enabled: false, pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
-        fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false
+        fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
+        curve: 'flat', curveRadius: 60, lean: true
     },
+
+    curves: [
+        { value: 'flat', label: 'Flat' },
+        { value: 'sphere', label: 'Planet (curves away all round)' },
+        { value: 'cylinder', label: 'Rolling log (curves away ahead)' }
+    ],
 
     normalize(s) {
         s = s || {};
@@ -4341,7 +4349,10 @@ DocsDoodads.Perspective = {
             skyColor: color(s.skyColor, d.skyColor),
             voidColor: color(s.voidColor, d.voidColor),
             rotate: s.rotate === true,
-            smoothGround: s.smoothGround === true
+            smoothGround: s.smoothGround === true,
+            curve: this.curves.some(c => c.value === s.curve) ? s.curve : 'flat',
+            curveRadius: Number(s.curveRadius) === 0 && s.curveRadius !== '' && s.curveRadius !== null && s.curveRadius !== undefined ? 0 : num(s.curveRadius, d.curveRadius, 6, 2000),
+            lean: s.lean !== false
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -4368,7 +4379,36 @@ DocsDoodads.Perspective = {
         const focal = (spec.height / 2) / Math.tan(spec.fov * rad / 2);
         const dist = focal / (spec.zoom || 1);
         const C = { x: spec.target.x - F.x * dist, y: spec.target.y - F.y * dist, z: -F.z * dist };
-        return { C, F, R, U, focal, dist, width: spec.width, height: spec.height, target: spec.target };
+        // Round worlds: a sphere or a cylinder (axis left-right) touching the ground at the target.
+        const curve = (spec.curve === 'sphere' || spec.curve === 'cylinder') && spec.radius > 0 ? spec.curve : 'flat';
+        return { C, F, R, U, focal, dist, width: spec.width, height: spec.height, target: spec.target,
+            curve, radius: curve === 'flat' ? 0 : spec.radius, lean: spec.lean !== false,
+            axis: { x: cp, y: sp }, ahead: { x: sp, y: -cp } };
+    },
+
+    // A planet sized so that walking once across a looping map is one lap.
+    fitRadius(mapWidthTiles, tileWidth) {
+        return (mapWidthTiles * tileWidth) / (2 * Math.PI);
+    },
+
+    // Where a flat point sits in the world: on the plane, or wrapped onto the curve keeping distances
+    // along the ground. n is the surface's up direction; visible is false past the far side.
+    groundPoint(cam, x, y) {
+        const T = cam.target, R = cam.radius;
+        if (cam.curve === 'sphere') {
+            const ox = x - T.x, oy = y - T.y, s = Math.hypot(ox, oy);
+            if (s < 1e-9) return { x, y, z: 0, nx: 0, ny: 0, nz: 1, visible: true };
+            const a = s / R, dx = ox / s, dy = oy / s, sa = Math.sin(a), ca = Math.cos(a);
+            return { x: T.x + dx * R * sa, y: T.y + dy * R * sa, z: R * ca - R, nx: dx * sa, ny: dy * sa, nz: ca, visible: a < Math.PI - 1e-9 };
+        }
+        if (cam.curve === 'cylinder') {
+            const ox = x - T.x, oy = y - T.y;
+            const u = ox * cam.axis.x + oy * cam.axis.y, w = ox * cam.ahead.x + oy * cam.ahead.y;
+            const a = w / R, sa = Math.sin(a), ca = Math.cos(a);
+            return { x: T.x + cam.axis.x * u + cam.ahead.x * R * sa, y: T.y + cam.axis.y * u + cam.ahead.y * R * sa, z: R * ca - R,
+                nx: cam.ahead.x * sa, ny: cam.ahead.y * sa, nz: ca, visible: Math.abs(a) < Math.PI - 1e-9 };
+        }
+        return { x, y, z: 0, nx: 0, ny: 0, nz: 1, visible: true };
     },
 
     project(cam, x, y, z) {
@@ -4389,9 +4429,35 @@ DocsDoodads.Perspective = {
         const dx = cam.F.x + a * cam.R.x + b * cam.U.x;
         const dy = cam.F.y + a * cam.R.y + b * cam.U.y;
         const dz = cam.F.z + a * cam.R.z + b * cam.U.z;
+        const C = cam.C, T = cam.target, R = cam.radius;
+        // Nearest root of a t^2 + b t + c = 0 in front of the camera.
+        const nearest = (qa, qb, qc) => {
+            const disc = qb * qb - 4 * qa * qc;
+            if (disc < 0 || qa < 1e-12) return null;
+            const t = (-qb - Math.sqrt(disc)) / (2 * qa);
+            return t > 0 ? t : null;
+        };
+        if (cam.curve === 'sphere') {
+            const cx = C.x - T.x, cy = C.y - T.y, cz = C.z + R;
+            const t = nearest(dx * dx + dy * dy + dz * dz, 2 * (dx * cx + dy * cy + dz * cz), cx * cx + cy * cy + cz * cz - R * R);
+            if (t === null) return null;
+            const vx = cx + t * dx, vy = cy + t * dy, vz = cz + t * dz;
+            const ang = Math.acos(Math.max(-1, Math.min(1, vz / R))), h = Math.hypot(vx, vy);
+            return h < 1e-9 ? { x: T.x, y: T.y } : { x: T.x + vx / h * R * ang, y: T.y + vy / h * R * ang };
+        }
+        if (cam.curve === 'cylinder') {
+            const ox = C.x - T.x, oy = C.y - T.y;
+            const cu = ox * cam.axis.x + oy * cam.axis.y, cw = ox * cam.ahead.x + oy * cam.ahead.y, cz = C.z + R;
+            const du = dx * cam.axis.x + dy * cam.axis.y, dw = dx * cam.ahead.x + dy * cam.ahead.y;
+            const t = nearest(dw * dw + dz * dz, 2 * (cw * dw + cz * dz), cw * cw + cz * cz - R * R);
+            if (t === null) return null;
+            const u = cu + t * du, w = cw + t * dw, z = cz + t * dz;
+            const along = R * Math.atan2(w, z);
+            return { x: T.x + cam.axis.x * u + cam.ahead.x * along, y: T.y + cam.axis.y * u + cam.ahead.y * along };
+        }
         if (dz > -1e-6) return null;
-        const t = -cam.C.z / dz;
-        return { x: cam.C.x + t * dx, y: cam.C.y + t * dy };
+        const t = -C.z / dz;
+        return { x: C.x + t * dx, y: C.y + t * dy };
     },
 
     horizonY(cam) {
@@ -4401,15 +4467,27 @@ DocsDoodads.Perspective = {
 
     // A point `height` pixels up from a foot point, drawn upright like a billboard.
     billboardTop(cam, x, y, height) {
-        const p = this.project(cam, x, y, 0);
+        const g = this.groundPoint(cam, x, y);
+        const p = g.visible ? this.project(cam, g.x, g.y, g.z) : null;
         return p ? { x: p.x, y: p.y - height * p.scale, scale: p.scale } : null;
     },
 
     // Flat space to screen for something standing at `pivot`: scale around the projected foot.
     billboardMatrix(cam, pivot) {
-        const p = this.project(cam, pivot.x, pivot.y, 0);
+        const g = this.groundPoint(cam, pivot.x, pivot.y);
+        if (!g.visible) return null;
+        // On a round world, the far side of the horizon faces away from the camera.
+        if (cam.curve !== 'flat' && g.nx * (cam.C.x - g.x) + g.ny * (cam.C.y - g.y) + g.nz * (cam.C.z - g.z) <= 0) return null;
+        const p = this.project(cam, g.x, g.y, g.z);
         if (!p) return null;
-        return { a: p.scale, b: 0, c: 0, d: p.scale, tx: p.x - p.scale * pivot.x, ty: p.y - p.scale * pivot.y, depth: p.depth };
+        let angle = 0;
+        if (cam.curve !== 'flat' && cam.lean) {
+            const top = this.project(cam, g.x + g.nx * 48, g.y + g.ny * 48, g.z + g.nz * 48);
+            if (top) angle = Math.atan2(top.x - p.x, p.y - top.y);
+        }
+        const s = p.scale, cos = Math.cos(angle), sin = Math.sin(angle);
+        const a = s * cos, b = s * sin, c = -s * sin, d = s * cos;
+        return { a, b, c, d, tx: p.x - (a * pivot.x + c * pivot.y), ty: p.y - (b * pivot.x + d * pivot.y), depth: p.depth };
     },
 
     compareBillboards(a, b) {
@@ -4480,14 +4558,23 @@ DocsDoodads.Perspective = {
     screenRect(cam, rect, pivot) {
         const m = this.billboardMatrix(cam, pivot);
         if (!m) return null;
-        return { x: m.a * rect.x + m.tx, y: m.d * rect.y + m.ty, w: m.a * rect.w, h: m.d * rect.h, depth: m.depth };
+        const xs = [], ys = [];
+        for (const [x, y] of [[rect.x, rect.y], [rect.x + rect.w, rect.y], [rect.x, rect.y + rect.h], [rect.x + rect.w, rect.y + rect.h]]) {
+            xs.push(m.a * x + m.c * y + m.tx);
+            ys.push(m.b * x + m.d * y + m.ty);
+        }
+        const x0 = Math.min(...xs), y0 = Math.min(...ys);
+        return { x: x0, y: y0, w: Math.max(...xs) - x0, h: Math.max(...ys) - y0, depth: m.depth };
     },
 
     // The 12 edges of a box around a billboard: its footprint on the ground and its upright height.
     gizmoBox(cam, rect, pivot) {
         const half = rect.w / 4, height = Math.max(1, pivot.y - rect.y);
         const ground = [[rect.x, pivot.y - half], [rect.x + rect.w, pivot.y - half], [rect.x + rect.w, pivot.y + half], [rect.x, pivot.y + half]];
-        const bottom = ground.map(([x, y]) => this.project(cam, x, y, 0));
+        const bottom = ground.map(([x, y]) => {
+            const g = this.groundPoint(cam, x, y);
+            return g.visible ? this.project(cam, g.x, g.y, g.z) : null;
+        });
         if (bottom.some(p => !p)) return null;
         const top = bottom.map(p => ({ x: p.x, y: p.y - height * p.scale }));
         const edges = [];
@@ -7390,13 +7477,47 @@ DocsDoodads.Perspective.groundFragment = [
     'uniform vec4 uFog;',
     'uniform vec2 uFogRange;',
     'uniform vec2 uTarget;',
+    'uniform float uCurve;',
+    'uniform float uRadius;',
+    'uniform vec2 uAxis;',
+    'uniform vec2 uAhead;',
     'uniform vec3 uVoid;',
     'uniform float uAlpha;',
     'void main() {',
     '    vec3 dir = uF + ((vScreen.x - uHalf.x) / uFocal) * uR + ((uHalf.y - vScreen.y) / uFocal) * uU;',
-    '    if (dir.z > -0.00001) discard;',
-    '    float t = -uCam.z / dir.z;',
-    '    vec2 p = uCam.xy + t * dir.xy;',
+    '    vec2 p;',
+    '    if (uCurve > 1.5) {',
+    '        vec2 o = uCam.xy - uTarget;',
+    '        vec3 c = vec3(dot(o, uAxis), dot(o, uAhead), uCam.z + uRadius);',
+    '        vec3 d = vec3(dot(dir.xy, uAxis), dot(dir.xy, uAhead), dir.z);',
+    '        float qa = d.y * d.y + d.z * d.z;',
+    '        float qb = 2.0 * (c.y * d.y + c.z * d.z);',
+    '        float qc = c.y * c.y + c.z * c.z - uRadius * uRadius;',
+    '        float disc = qb * qb - 4.0 * qa * qc;',
+    '        if (disc < 0.0 || qa < 1e-9) discard;',
+    '        float t = (-qb - sqrt(disc)) / (2.0 * qa);',
+    '        if (t <= 0.0) discard;',
+    '        vec3 h = c + t * d;',
+    '        float along = uRadius * atan(h.y, h.z);',
+    '        p = uTarget + uAxis * h.x + uAhead * along;',
+    '    } else if (uCurve > 0.5) {',
+    '        vec3 c = vec3(uCam.xy - uTarget, uCam.z + uRadius);',
+    '        float qa = dot(dir, dir);',
+    '        float qb = 2.0 * dot(dir, c);',
+    '        float qc = dot(c, c) - uRadius * uRadius;',
+    '        float disc = qb * qb - 4.0 * qa * qc;',
+    '        if (disc < 0.0) discard;',
+    '        float t = (-qb - sqrt(disc)) / (2.0 * qa);',
+    '        if (t <= 0.0) discard;',
+    '        vec3 v = c + t * dir;',
+    '        float ang = acos(clamp(v.z / uRadius, -1.0, 1.0));',
+    '        float hl = length(v.xy);',
+    '        p = hl < 0.0001 ? uTarget : uTarget + v.xy / hl * uRadius * ang;',
+    '    } else {',
+    '        if (dir.z > -0.00001) discard;',
+    '        float t = -uCam.z / dir.z;',
+    '        p = uCam.xy + t * dir.xy;',
+    '    }',
     '    vec2 uv = p / uGround;',
     '    vec4 c = vec4(0.0);',
     '    if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture2D(uSampler, uv);',
@@ -7452,6 +7573,19 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         const temp = this._temp;
         const wt = this.worldTransform;
         const tinted = [];
+        // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or
+        // the next frame of a sheet), and MZ bitmaps filter smoothly. A half-texel inset while drawing keeps them inside.
+        const inset = [];
+        const shrink = obj => {
+            const tex = obj && obj instanceof PIXI.Sprite ? obj.texture : null;
+            if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
+                && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
+                const f = tex.frame;
+                inset.push([tex, f.x, f.y, f.width, f.height]);
+                tex.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
+            }
+            for (const child of (obj && obj.children) || []) shrink(child);
+        };
         const tint = (obj, color) => {
             if (obj && obj.tint !== undefined && obj instanceof PIXI.Sprite) {
                 tinted.push([obj, obj.tint]);
@@ -7473,9 +7607,14 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
             obj.parent = temp;
             obj.updateTransform();
             if (it.tint !== null && it.tint !== undefined) tint(obj, it.tint);
+            if (it.matrix) shrink(obj);
             obj.render(renderer);
+            // The batch reads tints and texture coordinates when it flushes: draw before restoring them.
+            if ((tinted.length || inset.length) && renderer.batch) renderer.batch.flush();
             for (const [o, old] of tinted) o.tint = old;
             tinted.length = 0;
+            for (const [tex, x, y, w, h] of inset) tex.frame = new PIXI.Rectangle(x, y, w, h);
+            inset.length = 0;
             obj.parent = parent;
             // Recompute against the real parent next frame, even if transform ids happen to match.
             obj.transform._parentID = -1;
@@ -7556,7 +7695,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             .addIndex([0, 1, 2, 0, 2, 3]);
         const shader = PIXI.Shader.from(P.groundVertex, P.groundFragment, {
             uSampler: PIXI.Texture.EMPTY, uCam: [0, 0, 1], uF: [0, 0, -1], uR: [1, 0, 0], uU: [0, -1, 0], uFocal: 1,
-            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uVoid: [0, 0, 0], uAlpha: 1
+            uHalf: [width / 2, height / 2], uGround: [1, 1], uFog: [0, 0, 0, 0], uFogRange: [1, 2], uTarget: [0, 0], uCurve: 0, uRadius: 1, uAxis: [1, 0], uAhead: [0, -1], uVoid: [0, 0, 0], uAlpha: 1
         });
         const mesh = new PIXI.Mesh(geometry, shader);
         mesh._docsW = width;
@@ -7591,7 +7730,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const rt = this._docs3dTexture;
         rt.baseTexture.scaleMode = s.smoothGround ? PIXI.SCALE_MODES.LINEAR : PIXI.SCALE_MODES.NEAREST;
         const W = Graphics.width, H = Graphics.height;
-        const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H });
+        const radius = s.curve === 'flat' ? 0 : (s.curveRadius > 0 ? s.curveRadius * tw : P.fitRadius($gameMap.width(), tw));
+        const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H,
+            curve: s.curve, radius, lean: s.lean });
 
         // Ground pass: everything flat, with billboards switched off.
         const billboards = [];
@@ -7636,6 +7777,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const fogRange = [s.fogStart * tw, s.fogEnd * tw];
         u.uFogRange = fogRange;
         u.uTarget = [cam.target.x, cam.target.y];
+        u.uCurve = cam.curve === 'sphere' ? 1 : cam.curve === 'cylinder' ? 2 : 0;
+        u.uRadius = cam.radius || 1;
+        u.uAxis = [cam.axis.x, cam.axis.y];
+        u.uAhead = [cam.ahead.x, cam.ahead.y];
         u.uFog = s.fogColor ? P.hexToRgb(s.fogColor).concat([1]) : [0, 0, 0, 0];
         u.uVoid = P.hexToRgb(s.voidColor);
         u.uAlpha = 1;
@@ -15446,6 +15591,9 @@ DocsDoodads.Workspace = {
             { key: 'fogColor', label: 'Fog colour', type: 'color' },
             { key: 'skyColor', label: 'Sky colour (maps without a parallax)', type: 'color' },
             { key: 'voidColor', label: 'Beyond the map edge', type: 'color' },
+            { key: 'curve', label: 'Round world', type: 'select', options: DocsDoodads.Perspective.curves },
+            number('curveRadius', 'World radius (tiles; 0 = one lap across a looping map)'),
+            check('lean', 'Things lean with the curve'),
             check('rotate', 'Q / W turn the camera 90°'),
             check('smoothGround', 'Smooth distant ground (less pixelated)')
         ];
