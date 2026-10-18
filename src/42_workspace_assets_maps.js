@@ -99,11 +99,11 @@
         }));
     },
 
-    renamePrefab(prefabId) {
+    async renamePrefab(prefabId) {
         const prefab = DocsDoodads.Prefabs.get(prefabId);
         if (!prefab) return;
-        const name = prompt('Prefab name:', prefab.name);
-        if (!name || !name.trim()) return;
+        const name = await DocsDoodads.Ui.prompt('A new name for this prefab:', prefab.name, { title: 'Rename prefab', ok: 'Rename', icon: 'box' });
+        if (!name || !name.trim() || DocsDoodads.Prefabs.get(prefabId) !== prefab) return;
         prefab.name = name.trim();
         prefab.updatedAt = Date.now();
         DocsDoodads.Prefabs.save();
@@ -112,9 +112,12 @@
         this.refreshInspector();
     },
 
-    deletePrefab(prefabId) {
+    async deletePrefab(prefabId) {
         const prefab = DocsDoodads.Prefabs.get(prefabId);
-        if (!prefab || !confirm(`Delete prefab "${prefab.name}"? Copies already placed stay on the map.`)) return;
+        if (!prefab) return;
+        if (!(await DocsDoodads.Ui.confirm(`The prefab "${prefab.name}" will be deleted from the Item Bag. Copies already placed stay on their maps as plain doodads.`,
+            { title: 'Delete prefab?', ok: 'Delete Prefab', danger: true }))) return;
+        if (DocsDoodads.Prefabs.get(prefabId) !== prefab) return;
         DocsDoodads.Prefabs.remove(prefabId);
         DocsDoodads.Prefabs.save();
         this.selectedAsset = null;
@@ -189,12 +192,15 @@
 
     bindSelectionTools(items) {
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
-        on('dd-sel-save-prefab', () => {
-            const name = prompt('Prefab name:', 'Prefab ' + (DocsDoodads.Prefabs.ensureLoaded().length + 1));
-            if (!name || !name.trim()) return;
+        on('dd-sel-save-prefab', async () => {
             const events = this.eventsWithin(items);
-            const includeEvents = events.length === 0 || confirm(`Include the ${events.length} event(s) under the selection in the prefab?`);
-            this.savePrefabFromSelection(name.trim(), includeEvents);
+            const values = await DocsDoodads.Ui.form({
+                title: 'Save as prefab', text: 'The picked doodads become one item in the Item Bag that you can place again.', ok: 'Save Prefab', icon: 'box',
+                fields: [{ key: 'name', label: 'Name', value: 'Prefab ' + (DocsDoodads.Prefabs.ensureLoaded().length + 1) }]
+                    .concat(events.length ? [{ key: 'events', type: 'checkbox', value: true, label: `Also keep the ${events.length} event(s) under them` }] : [])
+            });
+            if (!values || !values.name.trim() || !this.mounted) return;
+            this.savePrefabFromSelection(values.name.trim(), events.length === 0 || values.events);
         });
         on('dd-sel-copy-map', () => this.showMapPicker('Copy selection to map', mapId => this.sendDoodadsToMap(items, mapId, 'copy')));
         on('dd-sel-move-map', () => this.showMapPicker('Move selection to map', mapId => { this.sendDoodadsToMap(items, mapId, 'move'); this.refreshInspector(); }));
@@ -755,13 +761,16 @@
                 ? 'Not used by any map, event, database entry, doodad or prefab.'
                 : `<div style="color: var(--dd-text);">Used in ${refs.length} place(s):</div>` + refs.slice(0, 40).map(r => `<div>• ${escapeHtml(r.label)}</div>`).join('') + (refs.length > 40 ? `<div>...and ${refs.length - 40} more</div>` : '');
         };
-        document.getElementById('dd-asset-rename').onclick = () => {
-            const target = prompt('New path (rename or move; engine files must stay in their folder):', a.path);
+        document.getElementById('dd-asset-rename').onclick = async () => {
+            const U = DocsDoodads.Ui;
+            const target = await U.prompt('A new name or folder for this file. Pictures the engine uses (characters, tilesets...) must stay in their folder.', a.path,
+                { title: 'Rename or move', ok: 'Next', icon: 'folder' });
             if (!target || target.trim() === a.path) return;
             const refs = this.assetUsage(a);
-            if (!confirm(`Rename ${a.path} to ${target.trim()} and update ${refs.length} reference(s)? Changed files are backed up first. If this project is open in RPG Maker MZ, reload it there afterwards.`)) return;
+            if (!(await U.confirm(`${a.path} becomes ${target.trim()}, and ${refs.length} place(s) that use it are updated. Changed files are backed up first. If this project is open in RPG Maker MZ, reload it there afterwards.`,
+                { title: 'Rename this file?', ok: 'Rename' }))) return;
             const result = this.renameAsset(a, target.trim());
-            if (!result.ok) alert(result.error);
+            if (!result.ok) this.showToast(result.error, 'error');
         };
         document.getElementById('dd-asset-similar').onclick = () => this.showSimilarTo(a);
     },

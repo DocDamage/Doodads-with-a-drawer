@@ -9,6 +9,8 @@ if (typeof Scene_Map !== 'undefined') {
     };
 }
 
+DocsDoodads.editChord = DocsDoodads.KeyChord.parse(editKey);
+
 DocsDoodads.isEditableTarget = function(target) {
     return Boolean(target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
 };
@@ -89,8 +91,10 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 
     window.addEventListener('keydown', (e) => {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs()) return;
-        // editKey is a KeyboardEvent.code ("F10"), which Input.keyMapper never reports, so opening is handled here.
-        if (e.code === editKey) {
+        if (DocsDoodads.Ui.dialogOpen()) return; // a question card is answered first
+        // editKey is a KeyboardEvent.code ("F10"), maybe with Ctrl, Shift or Alt, which Input.keyMapper never
+        // reports, so opening is handled here. A key that types is left to fields being typed in.
+        if (DocsDoodads.KeyChord.matches(DocsDoodads.editChord, e) && !(DocsDoodads.KeyChord.types(DocsDoodads.editChord) && DocsDoodads.isEditableTarget(e.target))) {
             const onMap = typeof Scene_Map !== 'undefined' && typeof SceneManager !== 'undefined' && SceneManager._scene instanceof Scene_Map;
             if (!DocsDoodads.Workspace.mounted && !onMap) return;
             e.preventDefault();
@@ -119,13 +123,18 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             DocsDoodads.Workspace.copySelected();
         } else if (e.ctrlKey && (e.key === 'v' || e.key === 'V')) {
             e.preventDefault();
-            DocsDoodads.Workspace.pasteCopied();
+            DocsDoodads.Workspace.pasteCopied(e.shiftKey);
+        } else if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
+            e.preventDefault();
+            DocsDoodads.Workspace.selectAllDoodads();
         } else if (e.key === 'Delete') {
             if (DocsDoodads.Workspace.selectedEvent) {
                 DocsDoodads.Workspace.deleteSelectedEvent();
             } else {
                 DocsDoodads.Workspace.deleteSelectedDoodad();
             }
+        } else if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.altKey) {
+            if (DocsDoodads.Workspace.resizeBrush(e.key === ']' ? 1 : -1)) e.preventDefault();
         } else if (e.key === 'g' || e.key === 'G') {
             e.preventDefault();
             DocsDoodads.Workspace.toggleGrid();
@@ -168,6 +177,50 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             DocsDoodads.Workspace.selectDoodad(null);
         }
     });
+}
+
+// Closing the Playtest window or reloading it (F5) with unsaved work asks first: Save, Don't Save or
+// Keep Editing. Anything going wrong while asking lets the window close rather than trapping it open.
+DocsDoodads.leaveGuard = {
+    asking: false,
+
+    // proceed() closes or reloads. Returns true when it ran (or will once answered).
+    request(action, proceed) {
+        if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Persistence.hasUnsavedWork()) {
+            proceed();
+            return true;
+        }
+        if (this.asking) return false;
+        this.asking = true;
+        let answer;
+        try {
+            answer = DocsDoodads.Workspace.confirmLeave(action, false);
+        } catch (e) {
+            answer = Promise.resolve(true);
+        }
+        Promise.resolve(answer).catch(() => true).then(go => {
+            this.asking = false;
+            if (go) proceed();
+        });
+        return false;
+    }
+};
+if (typeof nw !== 'undefined' && nw && nw.Window && typeof nw.Window.get === 'function' && editorMode && DocsDoodads.Compat.isTest()) {
+    try {
+        // MZ's main.js quits on 'close' straight away; this listener takes its place and quits the same way
+        // (nw.App.quit, MZ's fix for NW.js staying in memory) once it may.
+        const win = nw.Window.get();
+        if (typeof win.removeAllListeners === 'function') win.removeAllListeners('close');
+        win.on('close', () => DocsDoodads.leaveGuard.request('close the game', () => {
+            if (nw.App && typeof nw.App.quit === 'function') nw.App.quit(); else win.close(true);
+        }));
+    } catch (e) {}
+}
+if (typeof SceneManager !== 'undefined' && typeof SceneManager.reloadGame === 'function') {
+    $.SceneManager_reloadGame = SceneManager.reloadGame;
+    SceneManager.reloadGame = function() {
+        DocsDoodads.leaveGuard.request('reload the game', () => $.SceneManager_reloadGame.call(SceneManager));
+    };
 }
 
 // Auto-recovery heartbeat

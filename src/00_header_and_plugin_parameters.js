@@ -197,15 +197,19 @@
  *
  * @param editKey
  * @text Editor Toggle Key
- * @type select
+ * @type combo
  * @option F1
  * @option F6
  * @option F7
  * @option F8
  * @option F9
  * @option F10
+ * @option Ctrl+F10
+ * @option Shift+F10
+ * @option Ctrl+E
+ * @option `
  * @default F10
- * @desc Key to open/close the Asset Workspace editor during test play.
+ * @desc Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.
  *
  * @param editorMode
  * @text Editor Enabled

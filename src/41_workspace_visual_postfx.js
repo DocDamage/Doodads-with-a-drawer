@@ -93,7 +93,7 @@
     },
 
     // Writes one character sheet per layer of an Aseprite file to img/characters.
-    makeLayerSheets(filePath) {
+    async makeLayerSheets(filePath) {
         const FS = DocsDoodads.FS;
         if (!FS.fs || typeof require === 'undefined') return this.showToast('Needs the desktop playtest.', 'error');
         try {
@@ -107,8 +107,8 @@
             const target = sheet => FS.path.join('img/characters', sheet.fileName).replace(/\\/g, '/');
             // Sheets made before (from an earlier version of the file) are replaced only when asked.
             const existing = sheets.filter(sheet => FS.existsSync(target(sheet))).map(sheet => sheet.fileName);
-            if (existing.length && typeof confirm === 'function'
-                && !confirm(`Replace ${existing.length} sheet(s) already in img/characters (${existing.join(', ')})?`)) {
+            if (existing.length && !(await DocsDoodads.Ui.confirm(`${existing.length} sheet(s) with these names are already in img/characters and will be replaced: ${existing.join(', ')}.`,
+                { title: 'Replace sheets?', ok: 'Replace', danger: true }))) {
                 this.showToast('Nothing was written.', 'info');
                 return null;
             }

@@ -29,7 +29,61 @@ DocsDoodads.Workspace = {
     selectedDoodads: [],
 
     toggle() {
-        if (this.mounted) this.close(); else this.open();
+        if (this.mounted) return this.requestClose();
+        this.open();
+        return true;
+    },
+
+    // Done and the toggle key. With unsaved work, asks first: Save (then close), Discard (the work is
+    // thrown away, then close) or Keep Editing. Resolves whether the editor closed.
+    async requestClose() {
+        if (!this.mounted) return true;
+        if (!(await this.confirmLeave('close the editor', true))) return false;
+        if (this.mounted) this.close();
+        return true;
+    },
+
+    // Before work could be lost (closing the editor, the window or reloading): resolves true to go ahead.
+    // revert: Discard also puts the doodads and events back as saved (the game carries on with them).
+    async confirmLeave(action, revert) {
+        const P = DocsDoodads.Persistence;
+        if (!P.hasUnsavedWork()) return true;
+        const answer = await DocsDoodads.Ui.choose(`Some changes aren't saved yet. Save them before you ${action}?`, [
+            { label: 'Keep Editing', value: null },
+            { label: "Don't Save", value: 'discard', kind: 'danger' },
+            { label: 'Save', value: 'save', kind: 'good', main: true }
+        ], { title: 'Unsaved changes', icon: 'save' });
+        if (answer === 'save') return P.saveAll();
+        if (answer !== 'discard') return false;
+        if (revert) {
+            P.discardUnsaved();
+            if (this.mounted) this.refreshSpriteset();
+        } else {
+            P.clearRecovery();
+        }
+        return true;
+    },
+
+    // The Save button: a dot while there is unsaved work, and "Saved" for a moment after a save.
+    updateSaveState(justSaved) {
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-save-btn') : null;
+        if (!btn) return;
+        const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
+        if (btn.classList) btn.classList.toggle('dd-unsaved', unsaved);
+        btn.title = unsaved ? 'Save everything (Ctrl+S): some changes are not saved yet' : 'Save everything (Ctrl+S): everything is saved';
+        const label = btn.querySelector ? btn.querySelector('b') : null;
+        clearTimeout(this._savedTimer);
+        if (justSaved && !unsaved) {
+            if (btn.classList) btn.classList.add('dd-just-saved');
+            if (label) label.textContent = 'Saved';
+            this._savedTimer = setTimeout(() => {
+                if (btn.classList) btn.classList.remove('dd-just-saved');
+                if (label) label.textContent = 'Save';
+            }, 1600);
+        } else {
+            if (btn.classList) btn.classList.remove('dd-just-saved');
+            if (label) label.textContent = 'Save';
+        }
     },
 
     // One placement tool at a time: its button lights up, its options card opens under it, and the hint
@@ -81,11 +135,13 @@ DocsDoodads.Workspace = {
         if (recovery) {
             const dateStr = new Date(recovery.timestamp).toLocaleTimeString();
             DocsDoodads.Persistence.markRecoveryAnswered(recovery);
-            if (confirm(`Unfinished session from ${dateStr} found. Would you like to recover it?`)) {
+            return DocsDoodads.Ui.confirm(`The editor closed at ${dateStr} without saving. Bring back that work?`,
+                { title: 'Unsaved work found', ok: 'Bring It Back', cancel: 'Not Now', icon: 'history' }).then(yes => {
+                if (!yes || !this.mounted) return;
                 this.applyRecovery(recovery);
                 this.showToast(recovery.mapId && recovery.mapId !== this.currentMapId()
                     ? `Session recovered into map ${recovery.mapId}.` : "Session Recovered!");
-            }
+            });
         }
     },
 
@@ -248,7 +304,7 @@ DocsDoodads.Workspace = {
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
             ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
             ${tool('dd-save-btn', 'save', 'Save', 'Save everything (Ctrl+S)', 'dd-btn-good')}
-            ${tool('dd-close-btn', 'done', 'Done', 'Close the editor and play (F10)', 'dd-btn-primary')}
+            ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
         wrap.appendChild(toolbar);
 
@@ -258,9 +314,10 @@ DocsDoodads.Workspace = {
             <div id="dd-brush-popover" class="dd-glass dd-pop" style="display: none;">
                 <div class="dd-pop-title">${U.icon('brush', 1)} Scatter</div>
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
-                    ${slider('dd-brush-rad', 'Size', 'dd-brush-rad-val', '80px', 20, 250)}
+                    ${slider('dd-brush-rad', 'Size ([ and ])', 'dd-brush-rad-val', '80px', 20, 250)}
                     ${slider('dd-brush-den', 'How many', 'dd-brush-den-val', '3', 1, 10)}
                     ${slider('dd-brush-min', 'Space between', 'dd-brush-min-val', '32px', 0, 160)}
+                    <div style="line-height: 1.4; color: var(--dd-muted);">Right-drag to erase this item inside the circle.</div>
                     <details>
                         <summary>Variety</summary>
                         <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
@@ -284,7 +341,7 @@ DocsDoodads.Workspace = {
                 <div class="dd-pop-title">${U.icon('biome', 1)} Paint</div>
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
                     <select id="dd-biome-tool-pick" style="width: 100%;"></select>
-                    ${slider('dd-biome-rad', 'Size', 'dd-biome-rad-val', '96px', 24, 320)}
+                    ${slider('dd-biome-rad', 'Size ([ and ])', 'dd-biome-rad-val', '96px', 24, 320)}
                     <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-biome-avoid" checked /> Not where you can't walk</label>
                     <div style="line-height: 1.4;">Drag on the map. Make mixes in Details (with nothing picked), under Biomes.</div>
                 </div>
@@ -294,9 +351,10 @@ DocsDoodads.Workspace = {
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
                     <select id="dd-terrain-mode" style="width: 100%;"></select>
                     <div>Strength: <b id="dd-terrain-amount-val" style="color: var(--dd-text);">0.5</b> tiles<input type="range" id="dd-terrain-amount" min="0.1" max="3" step="0.1" value="0.5" style="width: 100%;" /></div>
-                    <div>Size: <b id="dd-terrain-radius-val" style="color: var(--dd-text);">1</b> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
+                    <div>Size ([ and ]): <b id="dd-terrain-radius-val" style="color: var(--dd-text);">1</b> tiles<input type="range" id="dd-terrain-radius" min="0" max="6" step="1" value="1" style="width: 100%;" /></div>
+                    <label>Edge<select id="dd-terrain-falloff" style="width: 100%;"></select></label>
                     <label>Height for "Set" (tiles)<input type="number" step="0.25" id="dd-terrain-value" value="1" style="width: 100%;" /></label>
-                    <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step. Heights show in the 3D view.</div>
+                    <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step. The numbers are each tile's height; the hills show in the 3D view.</div>
                 </div>
             </div>
             <div id="dd-sym-popover" class="dd-glass dd-pop" style="display: none;">
@@ -430,6 +488,7 @@ DocsDoodads.Workspace = {
         this.inspectorEl = inspector;
 
         this.bindEvents();
+        this.updateSaveState();
         const prefs = DocsDoodads.Ui.prefs();
         if (prefs.drawerFolded) this.foldPanel('drawer', true);
         if (prefs.inspectorFolded) this.foldPanel('inspector', true);
@@ -611,7 +670,7 @@ DocsDoodads.Workspace = {
     },
 
     bindEvents() {
-        document.getElementById('dd-close-btn').onclick = () => { DocsDoodads.Ui.sound('cancel'); this.close(); };
+        document.getElementById('dd-close-btn').onclick = () => { DocsDoodads.Ui.sound('cancel'); return this.requestClose(); };
         document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
         document.getElementById('dd-undo-btn').onclick = () => DocsDoodads.Undo.undo();
         document.getElementById('dd-undo-list-btn').onclick = () => this.toggleUndoHistory();
@@ -627,8 +686,9 @@ DocsDoodads.Workspace = {
 
         const saveLayoutBtn = document.getElementById('dd-save-layout-btn');
         if (saveLayoutBtn) {
-            saveLayoutBtn.onclick = () => {
-                const name = prompt("Enter a name for this custom layout:", "Custom Layout " + (Object.keys(DocsDoodads.Layout.custom).length + 1));
+            saveLayoutBtn.onclick = async () => {
+                const name = await DocsDoodads.Ui.prompt('Name this layout of panel sizes:', 'Custom Layout ' + (Object.keys(DocsDoodads.Layout.custom).length + 1),
+                    { title: 'Save layout', ok: 'Save Layout', icon: 'window' });
                 if (name && name.trim()) {
                     DocsDoodads.Layout.saveCurrentAs(name.trim());
                     this.refreshLayoutSelector();
@@ -639,9 +699,10 @@ DocsDoodads.Workspace = {
 
         const delLayoutBtn = document.getElementById('dd-del-layout-btn');
         if (delLayoutBtn) {
-            delLayoutBtn.onclick = () => {
+            delLayoutBtn.onclick = async () => {
                 const cur = DocsDoodads.Layout.current;
-                if (confirm(`Delete custom layout "${cur}"?`)) {
+                if (await DocsDoodads.Ui.confirm(`The layout "${cur}" will be deleted. Your panels keep their current sizes.`,
+                    { title: 'Delete layout?', ok: 'Delete Layout', danger: true })) {
                     DocsDoodads.Layout.deleteCustomLayout(cur);
                     this.refreshLayoutSelector();
                     this.showToast(`Deleted layout "${cur}".`);
@@ -716,9 +777,10 @@ DocsDoodads.Workspace = {
         if (collectionSel) collectionSel.onchange = e => this.setSearchCollection(e.target.value);
         const delCollectionBtn = document.getElementById('dd-del-collection-btn');
         if (delCollectionBtn) {
-            delCollectionBtn.onclick = () => {
+            delCollectionBtn.onclick = async () => {
                 const name = this.searchCollection();
-                if (!name || !confirm(`Delete the collection "${name}"? Its assets stay in the library.`)) return;
+                if (!name || !(await DocsDoodads.Ui.confirm(`The collection "${name}" will be deleted. The pictures in it stay in the Item Bag.`,
+                    { title: 'Delete collection?', ok: 'Delete Collection', danger: true }))) return;
                 DocsDoodads.AssetIndex.deleteCollection(name);
                 this.setSearchCollection('');
                 this.showToast(`Deleted collection "${name}".`);
@@ -789,7 +851,7 @@ DocsDoodads.Workspace = {
 
         document.getElementById('dd-slicer-btn').onclick = () => {
             if (this.selectedAsset) DocsDoodads.Slicing.Editor.open(this.selectedAsset);
-            else alert("First pick a sprite sheet in the Item Bag.");
+            else this.showToast('First pick a sprite sheet in the Item Bag.', 'info');
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
@@ -1017,11 +1079,16 @@ DocsDoodads.Workspace = {
             const items = [
                 { label: 'Place as Doodad', icon: '📌', onClick: () => this.placeAssetOnMapCenter(asset) },
                 {
-                    label: 'Place as Real MZ Event...', icon: '⚡', onClick: () => {
-                        const templateKey = prompt("Enter Template Key (e.g. npc, door, chest, signpost, switch, save_point):", "npc") || "npc";
-                        const prev = document.getElementById('dd-event-template');
-                        if (prev) prev.value = templateKey;
-                        this.commitPlacement(asset, this.clientToMapCoords(e.clientX, e.clientY), 'event');
+                    label: 'Place as Real MZ Event...', icon: '⚡', onClick: async () => {
+                        const coords = this.clientToMapCoords(e.clientX, e.clientY);
+                        const picked = document.getElementById('dd-event-template');
+                        const values = await DocsDoodads.Ui.form({
+                            title: 'Place as an event', text: `What should ${asset.fileName} do?`, ok: 'Place Event', icon: 'person',
+                            fields: [{ key: 'template', type: 'select', label: 'Event template', value: (picked && picked.value) || 'npc',
+                                options: Object.entries(DocsDoodads.EventTemplates.templates).map(([key, t]) => ({ value: key, label: t.name || key })) }]
+                        });
+                        if (!values || !this.mounted) return;
+                        this.commitPlacement(asset, coords, 'event', values.template || 'npc');
                     }
                 },
                 { separator: true },
@@ -1037,10 +1104,11 @@ DocsDoodads.Workspace = {
                 {
                     label: 'Add to Collection...',
                     icon: '📁',
-                    onClick: () => {
+                    onClick: async () => {
                         const existing = DocsDoodads.AssetIndex.getCollections().filter(name => !(asset.collections || []).includes(name));
-                        const hint = existing.length ? ` (or one of: ${existing.slice(0, 6).join(', ')})` : '';
-                        const answer = prompt(`Collection name, e.g. Castle Set${hint}:`, this.searchCollection() || existing[0] || 'Custom Collection');
+                        const answer = await DocsDoodads.Ui.prompt(`Which collection should ${asset.fileName} go in? Type a new name or pick one.`,
+                            this.searchCollection() || existing[0] || 'Custom Collection',
+                            { title: 'Add to collection', ok: 'Add', icon: 'folder', choices: existing, placeholder: 'Castle Set' });
                         // Quotes would break the collection:"..." search term.
                         const colName = String(answer || '').replace(/["']/g, '').trim();
                         if (colName) {
@@ -1051,6 +1119,9 @@ DocsDoodads.Workspace = {
                         }
                     }
                 },
+                ...(/^img\//i.test(String(asset.path || '').replace(/\\/g, '/')) ? [{
+                    label: 'Replace Art on Maps...', icon: '🔁', onClick: () => this.showReplaceArt(asset.path)
+                }] : []),
                 ...(asset.collections || []).map(name => ({
                     label: `Remove from "${name}"`,
                     icon: '📂',

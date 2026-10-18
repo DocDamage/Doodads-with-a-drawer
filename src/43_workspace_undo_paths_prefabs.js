@@ -113,13 +113,14 @@
         return true;
     },
 
-    // Same map: the copy is offset so it is visible. Another map: it lands at the same position.
-    pasteCopied() {
+    // Same map: the copy is offset so it is visible. Another map, or inPlace (Paste in Place,
+    // Ctrl+Shift+V): it lands at the copied position.
+    pasteCopied(inPlace) {
         if (!this.loadClipboard()) return;
         const mapId = this.currentMapId();
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         const sameMap = this._clipboardSourceMapId === undefined || this._clipboardSourceMapId === mapId;
-        const duplicates = this.cloneDoodadsForCopy(this._clipboardDoodads, sameMap ? 16 : 0);
+        const duplicates = this.cloneDoodadsForCopy(this._clipboardDoodads, sameMap && !inPlace ? 16 : 0);
 
         const cmd = {
             type: 'paste_doodads',
@@ -139,7 +140,124 @@
         cmd.type = cmd.type || 'paste_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
-        this.showToast(`Pasted ${duplicates.length} doodad(s)${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
+        this.showToast(`Pasted ${duplicates.length} doodad(s)${inPlace ? ' in place' : ''}${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
+    },
+
+    // ---- Picking many at once ----
+    // The doodads Select can reach on this map: not hidden in the editor, on a shown, unlocked layer.
+    pickableDoodads() {
+        return (DocsDoodads.doodads(this.currentMapId()) || []).filter(d => d && !d.editorHidden && this.layerAllowsEditing(d));
+    },
+
+    // What a doodad shows: its picture (by path) for picture doodads, else its whole source.
+    artKey(d) {
+        if (!d || !d.bit) return '';
+        if (d.bit[0] === 3) return 'img:' + String(d.bit[1] || '').replace(/\\/g, '/').toLowerCase();
+        return JSON.stringify(d.bit);
+    },
+
+    pickDoodads(items, what) {
+        this.selectDoodads(items);
+        this.showToast(items.length ? `Picked ${items.length} ${what}.` : `Nothing picked: no ${what}.`, 'info');
+        return items.length;
+    },
+
+    selectAllDoodads() {
+        return this.pickDoodads(this.pickableDoodads(), 'doodad(s)');
+    },
+
+    selectSameArt(d) {
+        d = d || this.selectedDoodad;
+        if (!d) return 0;
+        const key = this.artKey(d);
+        return this.pickDoodads(this.pickableDoodads().filter(x => this.artKey(x) === key), 'doodad(s) with the same art');
+    },
+
+    selectLayer(layerId) {
+        const layer = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId())).find(l => l.id === layerId);
+        return this.pickDoodads(this.pickableDoodads().filter(d => DocsDoodads.Layers.of(d) === layerId), `doodad(s) on ${layer ? layer.name : 'that layer'}`);
+    },
+
+    invertSelection() {
+        const picked = new Set(this.selectionItems());
+        return this.pickDoodads(this.pickableDoodads().filter(d => !picked.has(d)), 'doodad(s)');
+    },
+
+    // ---- Replace Art: a new picture for doodads; position, depth, motion, lights and the rest stay ----
+    // The picture doodads showing `path`: on this map ('map') or on every map ('all'). Locked ones stay.
+    doodadsShowing(path, scope) {
+        const key = this.artKey({ bit: [3, path] });
+        const data = window.$dataDocsDoodads || {};
+        const lists = scope === 'all'
+            ? Object.keys(data).filter(id => /^\d+$/.test(id) && Array.isArray(data[id])).map(id => data[id])
+            : [DocsDoodads.doodads(this.currentMapId())];
+        return [].concat(...lists).filter(d => d && !d.locked && d.bit && d.bit[0] === 3 && this.artKey(d) === key);
+    },
+
+    // The pictures Replace Art can use: library images in img/.
+    replaceArtChoices() {
+        const list = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.list ? DocsDoodads.AssetIndex.list : [];
+        return list.filter(a => a && a.path && a.type !== 'prefab' && a.category !== 'Audio' && /^img\//i.test(String(a.path).replace(/\\/g, '/')));
+    },
+
+    imageAssetAt(path) {
+        const want = String(path || '').trim().replace(/\\/g, '/').toLowerCase();
+        return want ? this.replaceArtChoices().find(a => String(a.path).replace(/\\/g, '/').toLowerCase() === want) || null : null;
+    },
+
+    // One undo step. The frame size follows the new picture (split by the doodad's frame count when it
+    // is animated); the frame offset starts again at the top left.
+    replaceArt(items, asset) {
+        items = (items || []).filter(d => d && !d.locked && d.bit && d.bit[0] === 3);
+        if (!asset || !asset.path || items.length === 0) return 0;
+        const w = Number(asset.frameW || asset.width) || 0, h = Number(asset.frameH || asset.height) || 0;
+        this.editDoodads(items, d => {
+            d.bit = [3, asset.path];
+            if (w > 0 && h > 0) {
+                d.frameW = Math.max(1, Math.round(w / Math.max(1, Number(d.xFrame) || 1)));
+                d.frameH = Math.max(1, Math.round(h / Math.max(1, Number(d.yFrame) || 1)));
+            }
+            d.frameX = 0;
+            d.frameY = 0;
+        }, 'replace_art');
+        if (asset.id) DocsDoodads.AssetIndex.recordUsage(asset.id);
+        return items.length;
+    },
+
+    // Asks for the new picture and which doodads change: the picked ones, or every doodad showing the
+    // same picture on this map or on every map. fromPath: start from a picture instead of the selection.
+    async showReplaceArt(fromPath) {
+        const picked = fromPath ? [] : this.selectionItems().filter(d => d.bit && d.bit[0] === 3);
+        const source = fromPath || (picked[0] ? picked[0].bit[1] : '');
+        if (!source) {
+            this.showToast('Pick a picture doodad on the map first.', 'info');
+            return 0;
+        }
+        const name = String(source).split('/').pop();
+        const scopes = [];
+        if (picked.length) scopes.push({ value: 'selected', label: `The ${picked.length} picked doodad(s)` });
+        scopes.push({ value: 'map', label: `Every ${name} on this map (${this.doodadsShowing(source, 'map').length})` });
+        scopes.push({ value: 'all', label: `Every ${name} on every map (${this.doodadsShowing(source, 'all').length})` });
+        const suggestion = this.lastAsset && this.lastAsset.path && this.lastAsset.path !== source ? this.lastAsset.path : '';
+        const values = await DocsDoodads.Ui.form({
+            title: 'Replace art', icon: 'picture', ok: 'Replace',
+            text: `Show a different picture instead of ${name}. Position, size, depth, motion, lights and collision stay.`,
+            fields: [
+                { key: 'path', label: 'New picture', value: suggestion, choices: this.replaceArtChoices().map(a => a.path), placeholder: 'img/doodads/...' },
+                { key: 'scope', type: 'select', label: 'Change', value: scopes[0].value, options: scopes }
+            ]
+        });
+        if (!values || !this.mounted) return 0;
+        const asset = this.imageAssetAt(values.path);
+        if (!asset) {
+            this.showToast(`No picture at "${values.path}" in the Item Bag.`, 'error');
+            return 0;
+        }
+        const items = values.scope === 'selected' ? picked : this.doodadsShowing(source, values.scope);
+        const n = this.replaceArt(items, asset);
+        this.refreshInspector();
+        this.showToast(n ? `Now showing ${asset.fileName} on ${n} doodad(s).` : 'Nothing to change (locked doodads stay as they are).', n ? 'success' : 'info');
+        return n;
     },
 
     // ---- Shared undo for whole per-map arrays (prefab sync, mirroring, send to map) ----

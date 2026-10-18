@@ -22,6 +22,9 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 - [ ] Drag a character and create a genuine event from at least NPC, Door, Chest, and Transfer templates.
 - [ ] Assign no collision, full bounds, bottom third, trunk, wall, and a custom collision rectangle.
 - [ ] Exercise selection, marquee, copy/paste, duplicate, nudge, align, distribute, group, lock, hide, and Z-order.
+- [ ] Ctrl+A, Select Same Art, Select Everything on a layer and Invert Selection pick only reachable doodads; right-clicking one of several picked keeps them picked.
+- [ ] Paste in Place (Ctrl+Shift+V) on the same map and on another map lands at the copied position.
+- [ ] Replace Art for the picked doodads, for this map and for every map: pictures change, positions and lights stay, Undo brings them back, locked doodads are skipped.
 - [ ] Undo and redo each destructive operation.
 - [ ] Preview BGM/BGS/ME/SE; verify Stop; drop audio on the map and on an existing event.
 - [ ] Import one image, a mixed batch, and a nested folder from Explorer.
@@ -40,6 +43,7 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Draw a fence with the path tool using end and corner pieces; undo it in one step.
 - [ ] Save a prefab with an event under it, place copies, update the master from one copy, and sync all copies.
 - [ ] Scatter with min spacing, a region rule, and Skip impassable tiles along a shoreline.
+- [ ] Scatter's circle follows the mouse; right-drag erases only the picked item inside it (red circle, no menu); undo the stroke; `[` and `]` resize Scatter, Paint and Hills.
 - [ ] Drag doodads with smart guides, Alt and Shift; undo.
 - [ ] Go to another map, paste, Copy/Move to Map, link neighbours, mirror an edge tree, and open World View.
 - [ ] On a looping map, stand near the seam and confirm doodads and lights stay put while the camera wraps.
@@ -111,6 +115,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Details is titled with what is picked (a doodad, an event, several things, the map).
 - [ ] Sounds on and off in More; the editor's own font shows (rounded letters), and Japanese text in names falls back cleanly.
 - [ ] Each layout (Mapping, Events, Characters, Tiles, Compact) leaves the map in view.
+- [ ] Question cards (save a layout, add to a collection, rename a prefab, Cut into a grid): the name is selected to type over, Enter answers, Esc and a click outside cancel, and editor shortcuts don't fire behind the card.
+- [ ] Delete a layer with doodads on it, a collection and a prefab: each asks with a red button; an empty layer goes without asking.
 
 ## Traversal, zoom and sound focus
 
@@ -152,6 +158,8 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Check frame rate with view distance 40 and 64 on a large map.
 - [ ] Terrain height on a world map (automatic mountains and forests), then a region and a terrain tag height; smooth and stepped; walk behind a hill; click on a slope; turn on Steep steps block walking.
 - [ ] Terrain brush: raise, lower, flatten, set and erase with different radii; undo each stroke; Clear Painted Heights.
+- [ ] Hills shows height numbers under the brush; a Hard edge raises the whole circle the same, Soft less towards the rim.
+- [ ] Set Editor Toggle Key to `Ctrl+F10`: F10 alone does nothing, Ctrl+F10 opens and closes, the Done tip says Ctrl+F10. Set it to `E`: typing E in the search box does not close the editor.
 - [ ] 3D water: ripples on a sea and a lake, strength/speed/sparkle sliders, ripples off; sail a boat and a ship and watch the wakes; cross a looping map's seam; night; with terrain on.
 - [ ] 3D height: shrink and grow standing doodads and characters; check feet stay put, gear and balloons follow, and clicking and dragging doodads in the editor still lands on them.
 - [ ] 3D day and night: run the clock and preview times in the editor; look east at dawn and west at dusk for the sun; stars at night; hills and water lit from the sun's side; a map with a parallax; the option off.
@@ -171,6 +179,8 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Force overwrite only in the disposable project and confirm a timestamped backup exists.
 - [ ] Restore the latest map backup from More → Info and reload the map.
 - [ ] Terminate Playtest with unsaved work, restart, and accept recovery.
+- [ ] Place a doodad: Save shows an orange dot; save and it flashes "Saved" and the dot goes.
+- [ ] With unsaved work press the toggle key, then Done, then F5, then the window's close button: each asks Save, Don't Save or Keep Editing. Keep Editing stays, Save saves first (a conflict keeps the editor open), Don't Save puts the doodads and moved events back and leaves no recovery offer. With nothing unsaved, each closes at once and NW.js exits.
 - [ ] Make unsaved event edits on one map, change maps, save, and confirm each map file only contains its own edits.
 - [ ] Make a recovery/metadata JSON file invalid and confirm fallback is safe and visible.
 - [ ] Make the data directory temporarily read-only and confirm save failure leaves the workspace dirty.

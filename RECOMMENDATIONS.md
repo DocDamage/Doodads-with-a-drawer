@@ -15,7 +15,7 @@ Status as of 18 October 2026 (after PR #40). Every item on the 17 October list i
 | 1.3 | 3D quality presets. | **Done.** Effects Quality scales the 3D view (view distance and fog, weather, wakes, hill detail). |
 | 1.4 | Deployed-build test. | **Done**, both with `npm run deploy` and with MZ's own Deployment dialog (encrypted, same key: every file identical except `System.json`). 3D, terrain, weather, standing tiles, models, the minimap and visual equipment work; the editor is unavailable and nothing is written. MZ's "Exclude unused files" leaves out `img/doodads`; the game now carries on without the missing art instead of stopping. |
 | 1.5 | MV compatibility check, or narrow the claim. | **Done: the claim is narrowed to MZ.** MV was not available to test. |
-| 1.6 | Raise test coverage from 65% to 75%. | **Done: 82%** (92 suites). Drawing code runs on a stand-in engine in Node (`scratch/engine/fake_engine.js`); the coverage gate is now 72%. |
+| 1.6 | Raise test coverage from 65% to 75%. | **Done: 82%** (95 suites). Drawing code runs on a stand-in engine in Node (`scratch/engine/fake_engine.js`); the coverage gate is now 72%. |
 | 1.7 | Audit: dead code, unfinished wiring, leaks. | **Done** (PR #37). The MV layer, SAT engine and other dead paths are gone; half-wired features (collections, Clear Cache, Move to Layer, event position and trigger, grid snap, search terms) are finished; leaks and bugs found are fixed. |
 | 1.8 | An editor that's easy to pick up. | **Done** (PRs #38–#39). A bright, rounded, game-like look with named tools, Item Bag and Details panels that fold away, a hint bubble, a welcome card, pixel icons and its own font. |
 
@@ -85,19 +85,19 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 
 | # | Suggestion | Size |
 |---|---|---|
-| 6.1.1 | **Themed dialogs.** The slicer's grid prompt, layout and collection names, template keys, effect names and the recovery question still use the browser's `prompt`, `confirm` and `alert` (25 calls). Replace them with the editor's own cards so they match the new look and can be styled, cancelled with Esc and read on a small window. | S |
-| 6.1.2 | **Ask before losing work.** Done, the toggle key and closing the playtest with unsaved doodads or staged events should offer Save, Discard or Keep editing. Today only crash recovery stands between the user and lost work. | S |
+| 6.1.1 | **Themed dialogs.** **Done.** All 25 prompt, confirm and alert calls are the editor's own cards (`DocsDoodads.Ui.confirm`, `prompt`, `form`, `choose`, `alert`): Enter answers, Esc cancels, Tab stays inside, names are shown as text. Placing an asset as an event picks its template from a list. | S |
+| 6.1.2 | **Ask before losing work.** **Done.** Done, the toggle key, closing the Playtest window and F5 ask Save, Don't Save or Keep Editing; Don't Save puts the saved doodads and events back. | S |
 | 6.1.3 | **One shortcut table.** Keep every binding in one table that drives the key handler, an in-app shortcut list under More, and the guide's cheat sheet, which still says "48px tile grid", "pointer tool" and "Slicer Modal". Let the user rebind keys there. | M |
-| 6.1.4 | **Any toggle key.** `editKey` offers only F1 and F6–F10; accept any key or a chord such as Ctrl+F10 for projects where another plugin owns those keys. | S |
+| 6.1.4 | **Any toggle key.** **Done.** `editKey` takes any key or a chord (`Ctrl+F10`, `Ctrl+Shift+E`); a key that types is ignored while typing in a field. | S |
 | 6.1.5 | **Item Bag sorting.** Sort by name, date added, image size, times placed and last placed; today there is only search order. | S |
-| 6.1.6 | **More ways to select.** Select All (Ctrl+A), Select Same Art, Select by Layer and Invert Selection, in the canvas context menu and the palette. | S |
-| 6.1.7 | **Replace Art.** Swap the picture of the selected doodads, or of every doodad using a picture on this map or every map, keeping position, depth, motion and lights. Pairs with Where Used. | S |
-| 6.1.8 | **Paste in Place.** Paste at the copied coordinates (and at the same coordinates on another map through the cross-map clipboard), beside the current offset paste. | S |
+| 6.1.6 | **More ways to select.** **Done.** Select All (Ctrl+A), Select Same Art, Select Everything on a layer and Invert Selection, in the canvas menu and the palette; right-clicking inside a multi-selection keeps it. | S |
+| 6.1.7 | **Replace Art.** **Done.** The picked doodads, or every doodad showing a picture on this map or every map, get a new picture; position, depth, motion, lights and collision stay. From the canvas menu, the palette and the Item Bag (beside Where Used). | S |
+| 6.1.8 | **Paste in Place.** **Done.** Ctrl+Shift+V or the canvas menu pastes at the copied coordinates on this map or another. | S |
 | 6.1.9 | **Collision overlay.** A toggle that draws every doodad's collision box at once, coloured by preset, with blocked tiles shaded, so a map's walkability can be read at a glance instead of one doodad at a time. | S |
 | 6.1.10 | **Undo per map.** Keep each map's undo history when switching with Go to Map, so returning to a map restores its Steps panel. | M |
 | 6.1.11 | **Drag readout.** While dragging, show the position and size in pixels and tiles beside the cursor, and let smart guides also snap to tile lines and to other doodads' base lines. | S |
-| 6.1.12 | **Scatter eraser.** Right-drag with Scatter removes placed doodads under the brush, limited to the brush's own art, with the same radius ring. | S |
-| 6.1.13 | **Hills brush feel.** Hard and soft falloff, `[` and `]` for brush size, and height numbers drawn on the tiles under the brush. | S |
+| 6.1.12 | **Scatter eraser.** **Done.** Right-drag with Scatter removes the picked item's doodads under the brush, inside a circle drawn on the map, one undo step a stroke. | S |
+| 6.1.13 | **Hills brush feel.** **Done.** Hard and soft edges, `[` and `]` for brush size (Scatter and Paint too), and height numbers on the tiles under the brush. | S |
 | 6.1.14 | **Prefab overrides.** Let a copy change a few named settings (a lamp's colour, a sign's switch) without leaving the prefab, and allow a prefab inside a prefab. | M |
 | 6.1.15 | **Saved searches.** Name a search and keep it as a chip under the search box; show active tokens as removable chips. | S |
 | 6.1.16 | **Richer hover card.** The Item Bag's hover preview shows size, frame count, where-used count and the asset's default depth, with Edit links. | S |
@@ -142,14 +142,14 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.3.5 | **Mixed values.** With several doodads picked, Details shows "—" where values differ and lets one edit set them all; numbers scrub by dragging and step with arrows. | S |
 | 6.3.6 | **Per-tool tours.** A short dismissible walkthrough the first time each tool is used, replayable from How to Use, building on the hint bubble. | S |
 | 6.3.7 | **Status bar.** Cursor tile and pixel, map name and id, selection count, active layer, zoom, an unsaved marker and the time of the last save. | S |
-| 6.3.8 | **Save feedback.** A dot on Save while there are unsaved changes, and a brief "Saved" state after a save. | S |
+| 6.3.8 | **Save feedback.** **Done.** An orange dot on Save while there are unsaved changes, and "Saved" for a moment after a save. | S |
 | 6.3.9 | **Docking.** Drag the Item Bag and Details to either side or the bottom, with resizable splitters, remembered per layout. | M |
 | 6.3.10 | **Map tabs.** Recently opened maps as tabs along the top for one-click switching, with the unsaved marker per tab. | S |
 | 6.3.11 | **Folder view.** A collapsible folder tree of `img/doodads` as an alternative to the flat search results. | S |
 | 6.3.12 | **Handles.** Scale and rotate handles on the selection box, with Shift to keep proportions and snapping to 15 degrees. | S |
 | 6.3.13 | **Quick menu.** A right-click radial or compact menu on the canvas with the eight most-used actions, learned from use. | S |
 | 6.3.14 | **Toast history.** A drawer that keeps recent toasts (131 call sites) so a missed message can be read again, and an Undo button on toasts for destructive actions. | S |
-| 6.3.15 | **Clear destructive confirmations.** Deleting a layer, a collection or forcing a save over an outside change gets a red button and a plain sentence on what will happen. | S |
+| 6.3.15 | **Clear destructive confirmations.** **Done.** Deleting a layer that has doodads, a collection, a layout or a prefab, replacing sheets, restoring a backup and saving over MZ's changes each say what will happen, with a red button. | S |
 | 6.3.16 | **Empty states.** An empty Item Bag tab explains what goes there (drop art here, make a prefab by...) with a button to do it. | S |
 | 6.3.17 | **Palette upgrades.** Fuzzy matching, recent commands first, the shortcut shown, and commands that take a value ("time 18:00", "go to Map003"). | S |
 | 6.3.18 | **Details memory.** Pin favourite sections to the top and remember each section's open or closed state. | S |

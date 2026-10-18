@@ -19,7 +19,7 @@ DocsDoodads.Undo = {
         restore_event: 'Restore event', move_to_map: 'Move to map', copy_to_map: 'Copy to map', mirror_edges: 'Mirror edges',
         terrain_paint: 'Terrain brush stroke', biome_paint: 'Biome brush stroke', nudge_doodads: 'Nudge',
         event_trigger: 'Event trigger', event_priority: 'Event priority', transform_doodad: 'Move / scale',
-        set_collision: 'Collision'
+        set_collision: 'Collision', scatter_erase: 'Scatter eraser', replace_art: 'Replace art'
     },
 
     markDirty() {

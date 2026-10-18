@@ -33,7 +33,7 @@ DocsDoodads.Export = {
         const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
         if (!fs || !path) return false;
         if (!asset.slice || !asset.slice.regions || asset.slice.regions.length === 0) {
-            alert("No slice regions defined for this asset.");
+            DocsDoodads.Workspace.showToast("This picture has no slices yet: cut it up in the Slicer first.", 'error');
             return false;
         }
 

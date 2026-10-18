@@ -1049,16 +1049,27 @@ DocsDoodads.Terrain = {
         { value: 'erase', label: 'Erase (back to automatic)' }
     ],
 
+    brushFalloffs: [
+        { value: 'soft', label: 'Soft (gentle slopes)' },
+        { value: 'hard', label: 'Hard (the whole circle the same)' }
+    ],
+
+    // How strongly a dab changes a tile d tiles from its centre: softly less towards the edge, or (hard)
+    // the same across the whole circle.
+    brushWeight(d, r, falloff) {
+        return falloff === 'hard' ? 1 : 1 - d / (r + 1);
+    },
+
     // The tiles one dab around (cx, cy) touches, with how strongly (1 at the centre): what the brush
     // preview shows before painting. Uses the same circle and falloff as applyBrush.
-    brushFootprint(cx, cy, radius) {
+    brushFootprint(cx, cy, radius, falloff) {
         const r = Math.max(0, Math.round(Number(radius) || 0));
         const out = [];
         for (let dy = -r; dy <= r; dy++) {
             for (let dx = -r; dx <= r; dx++) {
                 const d = Math.hypot(dx, dy);
                 if (d > r + 0.25) continue;
-                out.push({ x: cx + dx, y: cy + dy, weight: 1 - d / (r + 1) });
+                out.push({ x: cx + dx, y: cy + dy, weight: this.brushWeight(d, r, falloff) });
             }
         }
         return out;
@@ -1067,7 +1078,7 @@ DocsDoodads.Terrain = {
     brushColors: { raise: 0x22c55e, lower: 0xf97316, flatten: 0x38bdf8, set: 0xa855f7, erase: 0xef4444 },
 
     // One dab of the height brush around tile (cx, cy). Returns the new painted heights.
-    // opts: { mode, amount (tiles), radius (tiles), value (set), target (flatten) }
+    // opts: { mode, amount (tiles), radius (tiles), value (set), target (flatten), falloff ('soft' | 'hard') }
     applyBrush(paint, grid, cx, cy, opts) {
         const out = Object.assign({}, paint);
         const r = Math.max(0, Math.round(Number(opts.radius) || 0));
@@ -1082,7 +1093,7 @@ DocsDoodads.Terrain = {
                 if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
                 const key = x + ',' + y;
                 if (opts.mode === 'erase') { delete out[key]; continue; }
-                const falloff = 1 - d / (r + 1);
+                const falloff = this.brushWeight(d, r, opts.falloff);
                 const current = out[key] !== undefined ? out[key] : this.tileHeight(grid, x, y);
                 let next = current;
                 if (opts.mode === 'raise') next = current + amount * falloff;

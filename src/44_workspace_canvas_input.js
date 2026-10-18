@@ -80,16 +80,26 @@
 
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
+        let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
             const color = T.brushColors[this.terrainBrush.mode] || 0xffffff;
-            for (const t of T.brushFootprint(this._terrainHover.tileX, this._terrainHover.tileY, this.terrainBrush.radius)) {
-                // Stronger towards the centre, as the brush is.
+            heightTiles = T.brushFootprint(this._terrainHover.tileX, this._terrainHover.tileY, this.terrainBrush.radius, this.terrainBrush.falloff);
+            for (const t of heightTiles) {
+                // Stronger towards the centre, as the brush is (the same all over with a hard edge).
                 g.lineStyle(2, color, 0.35 + 0.55 * t.weight);
                 g.beginFill(color, 0.15 + 0.4 * t.weight);
                 g.drawRect($gameMap.adjustX(t.x) * tw + 3, $gameMap.adjustY(t.y) * th + 3, tw - 6, th - 6);
                 g.endFill();
             }
+            g.lineStyle(0);
+        }
+        this.drawHeightLabels(g, heightTiles);
+        // Scatter's circle: green to paint, red while right-dragging to erase.
+        if (this.placementTool === 'brush' && this._brushHover && typeof $gameMap !== 'undefined' && $gameMap) {
+            const at = DocsDoodads.mapToScreen(this._brushHover.x, this._brushHover.y);
+            g.lineStyle(2, this._scatterErase ? 0xef4444 : 0x22c55e, 0.9);
+            g.drawCircle(at.x, at.y, Math.max(4, Number(this.brushSettings.radius) || 0));
             g.lineStyle(0);
         }
         // Offsets from the screen position of the map origin's nearest copy keep lines continuous on looping maps.
@@ -175,6 +185,52 @@
         const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene ? SceneManager._scene._spriteset : null;
         if (spriteset && spriteset.addDocsDoodadSprites) spriteset.addDocsDoodadSprites(items);
         else this.refreshSpriteset();
+    },
+
+    // Each tile's height (in tiles) as a number on the tiles under the Hills brush. The labels are PIXI
+    // text kept on the overlay and reused; the ones not needed this frame are hidden.
+    drawHeightLabels(g, tiles) {
+        if (!g || typeof g.addChild !== 'function' || typeof PIXI === 'undefined' || !PIXI.Text) return;
+        const pool = g._ddHeightLabels = g._ddHeightLabels || [];
+        const T = DocsDoodads.Terrain;
+        const grid = tiles.length ? T.grid(true) : null;
+        const tw = tiles.length ? $gameMap.tileWidth() : 0, th = tiles.length ? $gameMap.tileHeight() : 0;
+        tiles.forEach((t, i) => {
+            let label = pool[i];
+            if (!label) {
+                label = new PIXI.Text('', { fontFamily: 'sans-serif', fontSize: 13, fontWeight: 'bold', fill: '#ffffff', stroke: '#2f2a43', strokeThickness: 4 });
+                if (label.anchor && label.anchor.set) label.anchor.set(0.5);
+                pool.push(label);
+                g.addChild(label);
+            }
+            const text = this.heightLabel(grid ? T.tileHeight(grid, t.x, t.y) : 0);
+            if (label.text !== text) label.text = text;
+            label.x = ($gameMap.adjustX(t.x) + 0.5) * tw;
+            label.y = ($gameMap.adjustY(t.y) + 0.5) * th;
+            label.visible = true;
+        });
+        for (let i = tiles.length; i < pool.length; i++) pool[i].visible = false;
+    },
+
+    heightLabel(h) {
+        const n = Math.round((Number(h) || 0) * 100) / 100;
+        return n === 0 ? '0' : String(n);
+    },
+
+    // [ and ]: the size of the tool that is out (Scatter, Paint or Hills), through its own slider.
+    brushSizeSteps: { brush: ['dd-brush-rad', 10, 20, 250], biome: ['dd-biome-rad', 16, 24, 320], terrain: ['dd-terrain-radius', 1, 0, 6] },
+
+    resizeBrush(dir) {
+        const spec = this.brushSizeSteps[this.placementTool];
+        const el = spec && typeof document !== 'undefined' ? document.getElementById(spec[0]) : null;
+        if (!el) return false;
+        const current = Number(el.value);
+        const fallback = { brush: this.brushSettings.radius, biome: this.biomeSettings && this.biomeSettings.radius, terrain: this.terrainBrush.radius }[this.placementTool];
+        const from = Number.isFinite(current) && el.value !== '' ? current : Number(fallback) || spec[2];
+        const next = Math.max(spec[2], Math.min(spec[3], from + (dir > 0 ? spec[1] : -spec[1])));
+        el.value = String(next);
+        if (typeof el.oninput === 'function') el.oninput({ target: el });
+        return true;
     },
 
     refreshSpriteset(sortOnly) {
@@ -382,22 +438,7 @@
                 this.activeDragPayload = null;
                 const coords = this.clientToMapCoords(e.clientX, e.clientY);
 
-                if (payload.category === 'Audio') {
-                    if (window.$gameMap && window.$gameMap.eventsXy) {
-                        const existingEvents = window.$gameMap.eventsXy(coords.tileX, coords.tileY);
-                        if (existingEvents && existingEvents.length > 0) {
-                            const targetEv = existingEvents[0];
-                            if (confirm(`Append sound command for ${payload.fileName} to existing Event EV${String(targetEv.eventId()).padStart(3, '0')} on this tile?`)) {
-                                this.appendAudioCommandToEvent(payload, targetEv);
-                                return;
-                            }
-                        }
-                    }
-                    if (confirm(`Create a sound trigger event for ${payload.fileName} at this tile?`)) {
-                        this.createAudioEvent(payload, coords);
-                    }
-                    return;
-                }
+                if (payload.category === 'Audio') return this.askAudioDrop(payload, coords);
 
                 if (payload.type === 'prefab') {
                     this.placePrefab(DocsDoodads.Prefabs.get(payload.prefabId), e.altKey ? coords : this.snapToTile(coords));
@@ -415,6 +456,8 @@
         this._onCanvasContextMenu = (e) => {
             if (!this.mounted) return;
             e.preventDefault();
+            // With Scatter out, the right button erases instead.
+            if (this.placementTool === 'brush') return;
             const coords = this.clientToMapCoords(e.clientX, e.clientY);
             const items = [];
 
@@ -422,7 +465,8 @@
             const clickedDoodad = this.doodadAt(coords.x, coords.y);
 
             if (clickedDoodad) {
-                this.selectDoodad(clickedDoodad);
+                // Right-clicking one of several picked doodads keeps them all picked.
+                if (!this.selectionItems().includes(clickedDoodad)) this.selectDoodad(clickedDoodad);
                 items.push({ label: 'Bring Forward (+1 Z)', icon: '⬆️', onClick: () => this.bringForward([clickedDoodad]) });
                 items.push({ label: 'Send Backward (-1 Z)', icon: '⬇️', onClick: () => this.sendBackward([clickedDoodad]) });
                 items.push({ label: 'Bring to Front', icon: '⏫', onClick: () => this.bringToFront([clickedDoodad]) });
@@ -436,6 +480,13 @@
                 for (const layer of layers.length > 1 ? layers : []) {
                     if (layer.id !== onLayer) items.push({ label: `Move to Layer: ${layer.name}`, icon: '🗂️', onClick: () => this.moveSelectionToLayer(layer.id) });
                 }
+                items.push({ separator: true });
+                items.push({ label: 'Select Same Art', icon: '🖼️', onClick: () => this.selectSameArt(clickedDoodad) });
+                if (layers.length > 1) {
+                    const layerName = (layers.find(l => l.id === onLayer) || { name: 'Main' }).name;
+                    items.push({ label: `Select Everything on ${layerName}`, icon: '🗂️', onClick: () => this.selectLayer(onLayer) });
+                }
+                if (clickedDoodad.bit && clickedDoodad.bit[0] === 3) items.push({ label: 'Replace Art...', icon: '🔁', onClick: () => this.showReplaceArt() });
                 items.push({ label: 'Delete (Del)', icon: '🗑️', danger: true, onClick: () => this.deleteSelectedDoodad() });
                 this.showContextMenu(e.clientX, e.clientY, items);
                 return;
@@ -450,14 +501,7 @@
                     const evObj = staged || ge.event();
                     this.selectEvent({ gameEvent: ge, stagedEvent: evObj });
                     items.push({
-                        label: 'Save as Event Template...', icon: '💾', onClick: () => {
-                            const name = prompt("Enter a name for this new Event Template:", evObj.name || ("Template_EV" + ge.eventId()));
-                            if (name && name.trim()) {
-                                const cat = prompt("Category (Interaction, Mechanics, Atmosphere, Custom):", "Custom") || "Custom";
-                                DocsDoodads.EventTemplates.saveCustomTemplate(name.trim(), evObj, cat.trim());
-                                this.showToast(`Saved template "${name.trim()}"!`);
-                            }
-                        }
+                        label: 'Save as Event Template...', icon: '💾', onClick: () => this.saveEventAsTemplate(evObj, evObj.name || ("Template_EV" + ge.eventId()))
                     });
                     items.push({ label: 'Duplicate Event', icon: '📄', onClick: () => this.duplicateSelectedEvent() });
                     items.push({ label: 'Delete Event', icon: '🗑️', danger: true, onClick: () => this.deleteSelectedEvent() });
@@ -470,7 +514,10 @@
             items.push({ label: this.gridSnapShow ? 'Hide Grid Overlay (G)' : 'Show Grid Overlay (G)', icon: '📐', onClick: () => this.toggleGrid() });
             if (this._clipboardDoodads && this._clipboardDoodads.length > 0) {
                 items.push({ label: `Paste ${this._clipboardDoodads.length} Doodad(s) (Ctrl+V)`, icon: '📑', onClick: () => this.pasteCopied() });
+                items.push({ label: 'Paste in Place (Ctrl+Shift+V)', icon: '📌', onClick: () => this.pasteCopied(true) });
             }
+            items.push({ label: 'Select All (Ctrl+A)', icon: '⬚', onClick: () => this.selectAllDoodads() });
+            if (this.selectionItems().length > 0) items.push({ label: 'Invert Selection', icon: '◪', onClick: () => this.invertSelection() });
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
             }
@@ -517,6 +564,10 @@
 
         this._onCanvasMouseDown = (e) => {
             if (e.button === 1 && this.beginCameraDrag(e)) return;
+            if (this.placementTool === 'brush' && e.button === 2) {
+                this.beginScatterErase(e.clientX, e.clientY);
+                return;
+            }
             if (this.placementTool === 'brush' && this.selectedAsset && e.button === 0) {
                 this.isBrushActive = true;
                 this.currentBrushBatch = [];
@@ -581,8 +632,11 @@
                 return;
             }
             if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
+            if (this.placementTool === 'brush') this._brushHover = this.clientToMapCoords(e.clientX, e.clientY);
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 this.showGhost(this.selectedAsset, e.clientX, e.clientY, e.altKey);
+            } else if (this.isBrushActive && this._scatterErase) {
+                this.scatterEraseAt(e.clientX, e.clientY);
             } else if (this.isBrushActive && this.placementTool === 'brush' && this.selectedAsset) {
                 this.scatterAt(e.clientX, e.clientY);
             } else if (this.isBrushActive && this.placementTool === 'biome') {
@@ -629,6 +683,7 @@
             }
             if (this.isBrushActive) {
                 this.isBrushActive = false;
+                if (this._scatterErase) this.endScatterErase();
                 if (this._terrainStroke) this.endTerrainStroke();
                 if (this.currentBrushBatch.length > 0) {
                     const batch = [...this.currentBrushBatch];
@@ -818,6 +873,47 @@
             }
         }
         this.addDoodadSprites(placed);
+    },
+
+    // Scatter's eraser (right-drag): takes away the picked item's doodads inside the brush circle, never
+    // locked ones or ones on hidden or locked layers. One undo step a stroke.
+    beginScatterErase(clientX, clientY) {
+        if (!this.selectedAsset || !this.selectedAsset.path) {
+            this.showToast('Pick the item to erase in the Item Bag first.', 'info');
+            return false;
+        }
+        const mapId = this.currentMapId();
+        this.isBrushActive = true;
+        this.currentBrushBatch = [];
+        this._scatterErase = { mapId, key: this.artKey({ bit: [3, this.selectedAsset.path] }), before: this.snapshotMapLists([mapId]), removed: 0 };
+        this.scatterEraseAt(clientX, clientY);
+        return true;
+    },
+
+    scatterEraseAt(clientX, clientY) {
+        const erase = this._scatterErase;
+        if (!erase) return 0;
+        const at = this.clientToMapCoords(clientX, clientY);
+        this._brushHover = at;
+        const list = (window.$dataDocsDoodads || {})[erase.mapId] || [];
+        const r = Math.max(4, Number(this.brushSettings.radius) || 0);
+        const gone = new Set(list.filter(d => d && !d.locked && !d.editorHidden && this.layerAllowsEditing(d) &&
+            this.artKey(d) === erase.key && Math.hypot(d.x - at.x, d.y - at.y) <= r));
+        if (gone.size === 0) return 0;
+        for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i])) list.splice(i, 1);
+        erase.removed += gone.size;
+        if (this.selectionItems().some(d => gone.has(d))) this.selectDoodads(this.selectionItems().filter(d => !gone.has(d)));
+        this.refreshSpriteset();
+        return gone.size;
+    },
+
+    endScatterErase() {
+        const erase = this._scatterErase;
+        this._scatterErase = null;
+        if (!erase || !erase.removed) return 0;
+        this.recordMapListsEdit(erase.before, 'scatter_erase');
+        this.showToast(`Erased ${erase.removed} prop(s).`);
+        return erase.removed;
     },
 
     handleEyedropper(coords) {
@@ -1385,48 +1481,49 @@
         overlay.onclick = event => { if (event.target === overlay && !activeCancellation) close(); };
     },
 
-    showConflictModal() {
-        const modal = document.createElement('div');
-        modal.className = 'dd-glass';
-        modal.style.cssText = `
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 440px; padding: 22px; z-index: 10025; text-align: center;
-            border: 2px solid var(--dd-danger);
-        `;
-        modal.innerHTML = `
-            <div class="dd-pop-title" style="justify-content: center; font-size: 15px;">${DocsDoodads.Ui.icon('help', 2)} This map was changed in RPG Maker MZ</div>
-            <div style="font-size: 12px; line-height: 1.6; color: var(--dd-text); margin-bottom: 16px;">
-                Someone saved this map in the MZ editor after the Doodads editor was opened.
-                Saving now would replace those changes with yours.
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="dd-btn" id="dd-conf-cancel" style="padding: 8px;">Don't Save Yet</button>
-                <button class="dd-btn" id="dd-conf-reload" style="padding: 8px;">Use MZ's Version (my event changes are dropped)</button>
-                <button class="dd-btn dd-btn-danger" id="dd-conf-force" style="padding: 8px;">Save Mine Anyway (MZ's changes are replaced)</button>
-            </div>
-        `;
-        document.body.appendChild(modal);
+    // A sound dropped on the map: add it to the event on that tile, or make a new event that plays it.
+    async askAudioDrop(payload, coords) {
+        const existing = window.$gameMap && window.$gameMap.eventsXy ? window.$gameMap.eventsXy(coords.tileX, coords.tileY) : [];
+        const targetEv = existing && existing.length > 0 ? existing[0] : null;
+        const evName = targetEv ? `EV${String(targetEv.eventId()).padStart(3, '0')}` : '';
+        const answer = await DocsDoodads.Ui.choose(targetEv
+            ? `Play ${payload.fileName} from ${evName}, the event on this tile, or from a new event?`
+            : `Make an event on this tile that plays ${payload.fileName}?`, [
+            { label: 'Cancel', value: null },
+            ...(targetEv ? [{ label: 'New Event', value: 'new' }] : []),
+            targetEv ? { label: `Add to ${evName}`, value: 'append', kind: 'primary' } : { label: 'Make Event', value: 'new', kind: 'primary' }
+        ], { title: 'Sound on the map', icon: 'sound' });
+        if (!this.mounted) return null;
+        if (answer === 'append') this.appendAudioCommandToEvent(payload, targetEv);
+        else if (answer === 'new') this.createAudioEvent(payload, coords);
+        return answer;
+    },
 
-        const closeM = () => modal.parentNode && modal.parentNode.removeChild(modal);
-
-        document.getElementById('dd-conf-force').onclick = () => {
-            closeM();
+    // Save found the map changed in MZ since the editor opened it. Resolves the answer: 'force' (saved
+    // over MZ's changes), 'reload' (MZ's version kept, event edits dropped) or null (nothing done).
+    async showConflictModal() {
+        const answer = await DocsDoodads.Ui.choose(
+            "This map was saved in RPG Maker MZ after the Doodads editor opened it. Saving now would replace MZ's changes with yours.", [
+            { label: "Don't Save Yet", value: null },
+            { label: "Use MZ's Version (drop my event changes)", value: 'reload' },
+            { label: "Save Mine Anyway (replace MZ's changes)", value: 'force', kind: 'danger' }
+        ], { title: 'This map was changed in RPG Maker MZ', tone: 'danger', icon: 'help', stack: true });
+        if (answer === 'force') {
             DocsDoodads.Persistence.saveAll(true);
-        };
-        document.getElementById('dd-conf-reload').onclick = () => {
-            closeM();
+        } else if (answer === 'reload') {
             const persistence = DocsDoodads.Persistence;
             for (const entry of persistence.pendingMapEntries()) {
                 const file = persistence.mapFilePath(entry.mapId);
                 persistence.sessionSnapshots[file] = DocsDoodads.FS.stat(file);
             }
             persistence.stagedMaps = {};
-            if ($gameMap) { $gameMap._stagedMapData = null; delete $gameMap._stagedMapDataId; }
+            if (window.$gameMap) { $gameMap._stagedMapData = null; delete $gameMap._stagedMapDataId; }
             persistence.dirtyMap = false;
             persistence.captureSession();
+            this.updateSaveState();
             this.showToast("External Map Data Reloaded!");
-        };
-        document.getElementById('dd-conf-cancel').onclick = closeM;
+        }
+        return answer;
     },
 
     openDiagnosticsModal() {
@@ -1532,11 +1629,14 @@
         };
         targetSelect.onchange = refreshBackups;
         document.getElementById('dd-restore-cancel').onclick = close;
-        restoreButton.onclick = () => {
+        restoreButton.onclick = async () => {
             if (!backupSelect.value) return;
             const targetPath = targetSelect.value;
-            if (!confirm(`Restore ${targetPath} from the selected backup?`)) return;
-            const result = DocsDoodads.FS.restoreBackup(targetPath, backupSelect.value);
+            const backupPath = backupSelect.value;
+            if (!(await DocsDoodads.Ui.confirm(`${targetPath} will be replaced by the backup you picked. The file as it is now is backed up first, so this can be undone the same way.`,
+                { title: 'Restore this backup?', ok: 'Restore', danger: true }))) return;
+            if (!modal.parentNode) return;
+            const result = DocsDoodads.FS.restoreBackup(targetPath, backupPath);
             if (!result.ok) {
                 this.showToast(`Restore failed: ${result.error}`);
                 return;

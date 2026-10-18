@@ -278,9 +278,9 @@ DocsDoodads.Slicing.Editor = {
         document.getElementById('dd-slicer-auto-btn').onclick = () => this.autoSlice();
 
         // Fixed Grid
-        document.getElementById('dd-slicer-grid-btn').onclick = () => {
-            const input = prompt("Enter grid columns and rows (e.g. 8x4):", "4x2");
-            if (!input) return;
+        document.getElementById('dd-slicer-grid-btn').onclick = async () => {
+            const input = await DocsDoodads.Ui.prompt('How many columns and rows? For example 8x4.', '4x2', { title: 'Cut into a grid', ok: 'Cut', icon: 'grid' });
+            if (!input || !this.modal) return;
             const parts = input.split(/[xX, ]+/);
             if (parts.length >= 2) {
                 const cols = parseInt(parts[0], 10);
