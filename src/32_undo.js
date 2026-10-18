@@ -17,7 +17,13 @@ DocsDoodads.Undo = {
         map_ambient: 'Map setting', map_setting: 'Map setting', world_setting: 'Project setting', map_neighbors: 'Neighbouring maps',
         delete_layer: 'Delete layer', dress_map: 'Dress map', clear_dressing: 'Clear dressing', restore_history: 'Restore from history',
         restore_event: 'Restore event', move_to_map: 'Move to map', copy_to_map: 'Copy to map', mirror_edges: 'Mirror edges',
-        terrain_paint: 'Terrain brush stroke', biome_paint: 'Biome brush stroke'
+        terrain_paint: 'Terrain brush stroke', biome_paint: 'Biome brush stroke', nudge_doodads: 'Nudge',
+        event_trigger: 'Event trigger', event_priority: 'Event priority', transform_doodad: 'Move / scale',
+        set_collision: 'Collision'
+    },
+
+    markDirty() {
+        if (DocsDoodads.Persistence) DocsDoodads.Persistence.dirtyDoodads = true;
     },
 
     labelFor(command) {
@@ -55,6 +61,7 @@ DocsDoodads.Undo = {
             moved++;
         }
         if (moved) {
+            this.markDirty();
             DocsDoodads.Workspace.updateUndoButtons();
             if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
         }
@@ -74,6 +81,7 @@ DocsDoodads.Undo = {
         this.undoStack.push(command);
         if (this.undoStack.length > this.maxDepth) this.undoStack.shift();
         this.redoStack = [];
+        this.markDirty();
         DocsDoodads.Workspace.updateUndoButtons();
     },
 
@@ -82,6 +90,7 @@ DocsDoodads.Undo = {
         const cmd = this.undoStack.pop();
         cmd.revert();
         this.redoStack.push(cmd);
+        this.markDirty();
         DocsDoodads.Workspace.updateUndoButtons();
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
         if (typeof SoundManager !== 'undefined') SoundManager.playCancel();
@@ -93,6 +102,7 @@ DocsDoodads.Undo = {
         const cmd = this.redoStack.pop();
         cmd.apply();
         this.undoStack.push(cmd);
+        this.markDirty();
         DocsDoodads.Workspace.updateUndoButtons();
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
         if (typeof SoundManager !== 'undefined') SoundManager.playOk();

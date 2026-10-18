@@ -24,6 +24,7 @@ DocsDoodads.AssetIndex = {
     entryRevision: 4,
 
     init() {
+        this.flushUsage();
         const loaded = DocsDoodads.FS.readJson(this.libraryPath);
         if (loaded && loaded.version === 1) {
             this.data = loaded;
@@ -69,16 +70,6 @@ DocsDoodads.AssetIndex = {
         return this.supportedExtensions.has(DocsDoodads.FS.path.extname(filePath).toLowerCase());
     },
 
-    scan() {
-        if (!DocsDoodads.FS.fs) return;
-        this.init();
-        for (const r of this.roots) {
-            this.scanDirectory(r);
-        }
-        this.save();
-        this.rebuildList();
-    },
-
     async scanAsync(options = {}) {
         const fs = DocsDoodads.FS.fs;
         const path = DocsDoodads.FS.path;
@@ -97,6 +88,8 @@ DocsDoodads.AssetIndex = {
         const isCancelled = () => Boolean(cancellationToken && (cancellationToken.cancelled || cancellationToken.isCancelled));
         const files = [];
         const directories = roots.map(root => ({ absolute: path.resolve(projectRoot, root), relative: root }));
+        // Folders that couldn't be read (locked, no permission): what the library knows under them stays.
+        const unreadable = [];
 
         while (directories.length > 0) {
             if (isCancelled()) { result.cancelled = true; return result; }
@@ -113,7 +106,10 @@ DocsDoodads.AssetIndex = {
                     else if (entry.isFile() && this.isSupportedAssetFile(entry.name)) files.push({ absolute, relative });
                 }
             } catch (error) {
-                if (!error || error.code !== 'ENOENT') result.errors.push(`${directory.relative}: ${error.message || error}`);
+                if (!error || error.code !== 'ENOENT') {
+                    result.errors.push(`${directory.relative}: ${error.message || error}`);
+                    unreadable.push(directory.relative.toLowerCase() + '/');
+                }
             }
             if (directories.length % batchSize === 0) await new Promise(resolve => setTimeout(resolve, 0));
         }
@@ -150,7 +146,8 @@ DocsDoodads.AssetIndex = {
         const rootPrefixes = roots.map(root => root.toLowerCase() + '/');
         for (const [assetId, asset] of Object.entries(this.data.assets)) {
             const normalizedPath = String(asset.path || assetId).replace(/\\/g, '/').toLowerCase();
-            const inScannedRoot = rootPrefixes.some(prefix => normalizedPath.startsWith(prefix));
+            const inScannedRoot = rootPrefixes.some(prefix => normalizedPath.startsWith(prefix)) &&
+                !unreadable.some(prefix => normalizedPath.startsWith(prefix));
             if (inScannedRoot && !seen.has(assetId.toLowerCase())) {
                 delete this.data.assets[assetId];
                 result.removed++;
@@ -172,23 +169,6 @@ DocsDoodads.AssetIndex = {
             DocsDoodads.FS.atomicWriteJson(target, this.data);
         }
         return result;
-    },
-
-    scanDirectory(dirPath) {
-        const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
-        if (!fs || !fs.existsSync(dirPath)) return;
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        for (const ent of entries) {
-            const fullPath = path.join(dirPath, ent.name).replace(/\\/g, '/');
-            if (ent.isDirectory()) {
-                if (!this.isIgnoredDirectory(ent.name)) this.scanDirectory(fullPath);
-            } else if (ent.isFile()) {
-                const ext = path.extname(ent.name).toLowerCase();
-                if (this.isSupportedAssetFile(ent.name)) {
-                    this.indexFile(fullPath, ent.name, ext);
-                }
-            }
-        }
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
@@ -302,6 +282,7 @@ DocsDoodads.AssetIndex = {
     },
 
     save() {
+        if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
         DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
     },
 
@@ -321,13 +302,24 @@ DocsDoodads.AssetIndex = {
         }
     },
 
+    // Placing counts as a use; the library (large) is written a moment after the last placement.
     recordUsage(assetId) {
-        if (this.data.assets[assetId]) {
-            const u = this.data.assets[assetId].usage;
-            u.useCount = (u.useCount || 0) + 1;
-            u.lastUsedAt = Date.now();
-            this.save();
-        }
+        const asset = this.data.assets[assetId];
+        if (!asset) return;
+        const u = asset.usage = asset.usage || { lastUsedAt: 0, useCount: 0 };
+        u.useCount = (u.useCount || 0) + 1;
+        u.lastUsedAt = Date.now();
+        clearTimeout(this._usageTimer);
+        this._usageTimer = setTimeout(() => { this._usageTimer = null; this.save(); }, 1500);
+        if (this._usageTimer && typeof this._usageTimer.unref === 'function') this._usageTimer.unref();
+    },
+
+    // A usage write still waiting happens now (before the library is saved or replaced).
+    flushUsage() {
+        if (!this._usageTimer) return;
+        clearTimeout(this._usageTimer);
+        this._usageTimer = null;
+        this.save();
     },
 
     createCollection(name) {
@@ -341,7 +333,7 @@ DocsDoodads.AssetIndex = {
     deleteCollection(name) {
         if (this.data.collections && this.data.collections[name]) {
             delete this.data.collections[name];
-            for (const a of this.list) {
+            for (const a of Object.values(this.data.assets)) {
                 if (a.collections) {
                     a.collections = a.collections.filter(c => c !== name);
                 }

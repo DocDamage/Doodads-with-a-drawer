@@ -124,7 +124,7 @@
 
     placePrefabAtPlayer(prefabId) {
         if (!window.$gamePlayer || !window.$gameMap) return;
-        this.placePrefab(DocsDoodads.Prefabs.get(prefabId), this.snapToTile({ x: 0, y: 0, tileX: $gamePlayer.x, tileY: $gamePlayer.y }));
+        this.placePrefab(DocsDoodads.Prefabs.get(prefabId), this.snapToTile({ tileX: $gamePlayer.x, tileY: $gamePlayer.y }));
     },
 
     prefabMenuItems(asset) {
@@ -360,6 +360,10 @@
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
+        // The save-history panel compares against the map it was opened on.
+        this._historyDiff = null;
+        if (this._historyPanel && this._historyPanel.parentNode) this._historyPanel.parentNode.removeChild(this._historyPanel);
+        this._historyPanel = null;
         this.refreshInspector();
         const status = document.getElementById('dd-status-left');
         if (status) status.textContent = `Doc's Doodads v${pluginVersion} | Map ${this.currentMapId()} | Hold Alt for free placement`;
@@ -851,7 +855,9 @@
                 directionFix: template.directionFix,
                 stepAnime: template.stepAnime,
                 walkAnime: template.walkAnime,
-                through: template.through
+                through: template.through,
+                after: template.after,
+                pages: template.pages
             });
 
             const cmd = {
@@ -861,6 +867,7 @@
                 },
                 revert: () => {
                     delete $gameMap._stagedMapData.events[newId];
+                    DocsDoodads.Persistence.dirtyMap = true;
                 }
             };
             cmd.type = cmd.type || 'create_event';
@@ -896,44 +903,20 @@
         DocsDoodads.AssetIndex.recordUsage(asset.id);
     },
 
+    // The selected doodads, or the one selected doodad.
+    selectionItems() {
+        return this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
+    },
+
     alignSelected(mode) {
         const items = (this.selectedDoodads || []).filter(d => !d.locked);
         if (items.length < 2) return;
-        const before = items.map(d => ({ doodad: d, x: d.x, y: d.y }));
-
-        if (mode === 'left') {
-            const minX = Math.min(...items.map(d => d.x));
-            items.forEach(d => d.x = minX);
-        } else if (mode === 'right') {
-            const maxX = Math.max(...items.map(d => d.x));
-            items.forEach(d => d.x = maxX);
-        } else if (mode === 'top') {
-            const minY = Math.min(...items.map(d => d.y));
-            items.forEach(d => d.y = minY);
-        } else if (mode === 'bottom') {
-            const maxY = Math.max(...items.map(d => d.y));
-            items.forEach(d => d.y = maxY);
-        } else if (mode === 'centerX') {
-            const avgX = Math.round(items.reduce((sum, d) => sum + d.x, 0) / items.length);
-            items.forEach(d => d.x = avgX);
-        } else if (mode === 'centerY') {
-            const avgY = Math.round(items.reduce((sum, d) => sum + d.y, 0) / items.length);
-            items.forEach(d => d.y = avgY);
-        }
-
-        const after = items.map(d => ({ doodad: d, x: d.x, y: d.y }));
-        DocsDoodads.Undo.execute({
-            type: 'align_doodads',
-            apply: () => {
-                after.forEach(a => { a.doodad.x = a.x; a.doodad.y = a.y; });
-                this.refreshSpriteset(true);
-            },
-            revert: () => {
-                before.forEach(b => { b.doodad.x = b.x; b.doodad.y = b.y; });
-                this.refreshSpriteset(true);
-            }
-        });
-        this.refreshSpriteset(true);
+        const xs = items.map(d => d.x), ys = items.map(d => d.y);
+        const avg = list => Math.round(list.reduce((sum, v) => sum + v, 0) / list.length);
+        const target = { left: ['x', Math.min(...xs)], right: ['x', Math.max(...xs)], centerX: ['x', avg(xs)],
+            top: ['y', Math.min(...ys)], bottom: ['y', Math.max(...ys)], centerY: ['y', avg(ys)] }[mode];
+        if (!target) return;
+        this.editDoodads(items, d => { d[target[0]] = target[1]; }, 'align_doodads');
         this.refreshInspector();
         this.showToast(`Aligned ${items.length} doodads (${mode}).`);
     },
@@ -944,35 +927,11 @@
             this.showToast("Select at least 3 doodads to distribute.");
             return;
         }
-        const before = items.map(d => ({ doodad: d, x: d.x, y: d.y }));
-
-        if (mode === 'horizontal') {
-            items.sort((a, b) => a.x - b.x);
-            const minX = items[0].x;
-            const maxX = items[items.length - 1].x;
-            const step = (maxX - minX) / (items.length - 1);
-            items.forEach((d, idx) => { d.x = Math.round(minX + idx * step); });
-        } else if (mode === 'vertical') {
-            items.sort((a, b) => a.y - b.y);
-            const minY = items[0].y;
-            const maxY = items[items.length - 1].y;
-            const step = (maxY - minY) / (items.length - 1);
-            items.forEach((d, idx) => { d.y = Math.round(minY + idx * step); });
-        }
-
-        const after = items.map(d => ({ doodad: d, x: d.x, y: d.y }));
-        DocsDoodads.Undo.execute({
-            type: 'distribute_doodads',
-            apply: () => {
-                after.forEach(a => { a.doodad.x = a.x; a.doodad.y = a.y; });
-                this.refreshSpriteset(true);
-            },
-            revert: () => {
-                before.forEach(b => { b.doodad.x = b.x; b.doodad.y = b.y; });
-                this.refreshSpriteset(true);
-            }
-        });
-        this.refreshSpriteset(true);
+        const axis = mode === 'vertical' ? 'y' : 'x';
+        const order = items.slice().sort((a, b) => a[axis] - b[axis]);
+        const min = order[0][axis], step = (order[order.length - 1][axis] - min) / (order.length - 1);
+        const spot = new Map(order.map((d, idx) => [d, Math.round(min + idx * step)]));
+        this.editDoodads(items, d => { d[axis] = spot.get(d); }, 'distribute_doodads');
         this.refreshInspector();
         this.showToast(`Distributed ${items.length} doodads (${mode}).`);
     },
@@ -981,13 +940,7 @@
         const items = this.selectedDoodads || [];
         if (items.length < 2) return;
         const grpId = 'grp_' + Date.now();
-        const before = items.map(d => ({ doodad: d, groupId: d.groupId }));
-        items.forEach(d => d.groupId = grpId);
-        DocsDoodads.Undo.execute({
-            type: 'group_doodads',
-            apply: () => { items.forEach(d => d.groupId = grpId); },
-            revert: () => { before.forEach(b => { if (b.groupId) b.doodad.groupId = b.groupId; else delete b.doodad.groupId; }); }
-        });
+        this.editDoodads(items, d => { d.groupId = grpId; }, 'group_doodads');
         this.refreshInspector();
         this.showToast(`Grouped ${items.length} doodads.`);
     },
@@ -995,48 +948,23 @@
     ungroupSelected() {
         const items = this.selectedDoodads || [];
         if (items.length === 0) return;
-        const before = items.map(d => ({ doodad: d, groupId: d.groupId }));
-        items.forEach(d => delete d.groupId);
-        DocsDoodads.Undo.execute({
-            type: 'ungroup_doodads',
-            apply: () => { items.forEach(d => delete d.groupId); },
-            revert: () => { before.forEach(b => { if (b.groupId) b.doodad.groupId = b.groupId; else delete b.doodad.groupId; }); }
-        });
+        this.editDoodads(items, d => { delete d.groupId; }, 'ungroup_doodads');
         this.refreshInspector();
         this.showToast(`Ungrouped ${items.length} doodads.`);
     },
 
     lockSelected(locked) {
-        const items = this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
+        const items = this.selectionItems();
         if (items.length === 0) return;
-        const before = items.map(d => ({ doodad: d, locked: d.locked }));
-        items.forEach(d => d.locked = !!locked);
-        DocsDoodads.Undo.execute({
-            type: 'lock_doodads',
-            apply: () => { items.forEach(d => d.locked = !!locked); },
-            revert: () => { before.forEach(b => b.doodad.locked = !!b.locked); }
-        });
+        this.editDoodads(items, d => { d.locked = !!locked; }, 'lock_doodads');
         this.refreshInspector();
         this.showToast(locked ? `Locked ${items.length} doodads.` : `Unlocked ${items.length} doodads.`);
     },
 
     hideSelected(hidden) {
-        const items = this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
+        const items = this.selectionItems();
         if (items.length === 0) return;
-        const before = items.map(d => ({ doodad: d, editorHidden: d.editorHidden }));
-        items.forEach(d => d.editorHidden = !!hidden);
-        DocsDoodads.Undo.execute({
-            type: 'hide_doodads',
-            apply: () => {
-                items.forEach(d => d.editorHidden = !!hidden);
-                this.refreshSpriteset(true);
-            },
-            revert: () => {
-                before.forEach(b => b.doodad.editorHidden = !!b.editorHidden);
-                this.refreshSpriteset(true);
-            }
-        });
-        this.refreshSpriteset(true);
+        this.editDoodads(items, d => { d.editorHidden = !!hidden; }, 'hide_doodads');
         this.refreshInspector();
         this.showToast(hidden ? `Hidden ${items.length} doodads in editor.` : `Showing ${items.length} doodads.`);
     },

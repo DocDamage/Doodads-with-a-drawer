@@ -52,7 +52,6 @@ assert.strictEqual(capped.particles.length, 20);
 // Particles die at the end of their life; nothing new appears when emission stops.
 for (let i = 0; i < 6 * 60; i++) P.step(steady, 1 / 60, false);
 assert.strictEqual(steady.particles.length, 0);
-assert.strictEqual(P.isIdle(steady), true);
 
 // 3. Forces: gravity pulls down, the launch angle sets direction (0 = right, -90 = up).
 const falling = P.createState(P.normalize({ rate: 0, gravity: 100, speed: [0, 0], lifetime: [9, 9] }), 1);

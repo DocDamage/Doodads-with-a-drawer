@@ -72,7 +72,6 @@ DocsDoodads.Collision.blocksTile = function(tx, ty) {
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
     for (const dData of doodads) {
         if (!dData || !dData.collision || dData.collision.preset === "none") continue;
-        if (!DocsDoodads.Layers.visibleInGame(dData, mapSettings) || !DocsDoodads.Appearance.isVisible(dData, {})) continue;
         const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
         if (!shape) continue;
         const dw = (dData.frameW || 48) * (dData.scaleX || 1);
@@ -82,7 +81,9 @@ DocsDoodads.Collision.blocksTile = function(tx, ty) {
         const originX = dData.x - dw * ax;
         const originY = dData.y - dh * ay;
         const colBody = DocsDoodads.box(originX + shape.x * dw + (shape.w * dw) / 2, originY + shape.y * dh + (shape.h * dh) / 2, shape.w * dw, shape.h * dh);
-        if (DocsDoodads.judge(colBody, tileBox)) return true;
+        // The box test is cheap; switches and conditions are only checked for doodads on this tile.
+        if (!DocsDoodads.judge(colBody, tileBox)) continue;
+        if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {})) return true;
     }
     return false;
 };

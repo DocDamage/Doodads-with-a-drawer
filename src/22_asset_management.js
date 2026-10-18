@@ -395,11 +395,22 @@ DocsDoodads.LiveReload = {
         for (const dir of DocsDoodads.Models.directories()) {
             if (this.modelWatchers.has(dir) || !FS.fs.existsSync(dir)) continue;
             try {
-                this.modelWatchers.set(dir, FS.fs.watch(dir, (event, file) => { if (file) this.queueModel(FS.path.join(dir, String(file))); }));
+                this.modelWatchers.set(dir, this.quietOnError(FS.fs.watch(dir, (event, file) => { if (file) this.queueModel(FS.path.join(dir, String(file))); })));
             } catch (error) {
                 DocsDoodads.Core.log(`Live reload unavailable for models in ${dir}`, error);
             }
         }
+    },
+
+    // A watched folder deleted or renamed (EPERM on Windows) stops that watcher instead of throwing.
+    quietOnError(watcher) {
+        if (watcher && typeof watcher.on === 'function') {
+            watcher.on('error', error => {
+                DocsDoodads.Core.log('Live reload stopped watching a folder', error);
+                try { watcher.close(); } catch (e) {}
+            });
+        }
+        return watcher;
     },
 
     queueModel(file) {
@@ -431,7 +442,7 @@ DocsDoodads.LiveReload = {
         for (const root of ['img', 'audio']) {
             if (!fs.existsSync(root)) continue;
             try {
-                this.watchers.push(fs.watch(root, { recursive: true }, (event, file) => this.queue(this.classify(root, file))));
+                this.watchers.push(this.quietOnError(fs.watch(root, { recursive: true }, (event, file) => this.queue(this.classify(root, file)))));
             } catch (error) {
                 DocsDoodads.Core.log(`Live reload unavailable for ${root}`, error);
             }
@@ -569,12 +580,6 @@ DocsDoodads.Packer = {
             const size = sizeOf(r.path);
             return size ? Object.assign({}, r, { rect: DocsDoodads.safeFrame(r.rect, size.w, size.h) }) : r;
         });
-    },
-
-    load() {
-        const loaded = DocsDoodads.FS.fs ? DocsDoodads.FS.readJson(this.manifestPath) : null;
-        if (loaded && loaded.maps) this.data = loaded;
-        return this.data;
     }
 };
 

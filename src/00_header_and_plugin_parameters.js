@@ -51,7 +51,7 @@
  *    - "Save Event as Template" command to capture any map event for reuse.
  *
  * 5. Direct Physical Doodad Collision:
- *    - Direct physical SAT collision without creating invisible blocker events.
+ *    - Direct box collision without creating invisible blocker events.
  *    - Collision presets: Full Bounds, Bottom Half, Bottom Third, Center Box, Trunk, Wall.
  *    - Interactive visual collision rectangle editor in Inspector using relative coordinates.
  *
@@ -206,12 +206,6 @@
  * @default true
  * @desc Enables the Asset Workspace and in-game editing tools during test play.
  *
- * @param folderName
- * @text Doodads Image Folder
- * @type text
- * @default doodads/
- * @desc Default subfolder inside img/ for decorative doodads.
- *
  * @param dataFileName
  * @text Doodads Data File Name
  * @type text
@@ -292,20 +286,16 @@
  * @param gridSnapWidth
  * @text Grid Snap Width
  * @type number
- * @default 48
- * @desc Width of the placement snapping grid.
+ * @min 0
+ * @default 0
+ * @desc Width of the placement snapping grid in pixels (0 = the map's tile width).
  *
  * @param gridSnapHeight
  * @text Grid Snap Height
  * @type number
- * @default 48
- * @desc Height of the placement snapping grid.
- *
- * @param enableMVCompatibility
- * @text Enable MV Compatibility
- * @type boolean
- * @default true
- * @desc A leftover compatibility layer for RPG Maker MV (unsupported: Doc's Doodads is for MZ).
+ * @min 0
+ * @default 0
+ * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
  * @param devDiagnostics
  * @text Developer Diagnostics
@@ -1199,9 +1189,6 @@ var Imported = (typeof window !== 'undefined' ? (window.Imported = window.Import
 Imported.DocsDoodads = true;
 
 function Sprite_DocsDoodad() {
-    this.initialize(...arguments);
-}
-function Sprite_DocsDoodadsMouseCursor() {
     this.initialize(...arguments);
 }
 

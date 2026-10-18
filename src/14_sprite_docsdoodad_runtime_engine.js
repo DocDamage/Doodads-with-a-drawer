@@ -15,6 +15,20 @@ DocsDoodads.mapToScreen = function(x, y) {
     };
 };
 
+// Puts one filter in (on) or out of a sprite's filter list, copying the list only when it changes.
+// The list is checked every frame: MZ replaces it when it adds its own colour filter.
+DocsDoodads.toggleFilter = function(obj, filter, on) {
+    const list = obj.filters || null;
+    const index = filter && list ? list.indexOf(filter) : -1;
+    if (on && filter && index < 0) {
+        obj.filters = (list || []).concat([filter]);
+    } else if (!on && index >= 0) {
+        const next = list.slice();
+        next.splice(index, 1);
+        obj.filters = next.length ? next : null;
+    }
+};
+
 // Screen pixels back to map pixels, wrapped into the map on looping maps.
 DocsDoodads.screenToMap = function(screenX, screenY) {
     const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
@@ -73,11 +87,13 @@ if (typeof PIXI !== 'undefined') {
             this._regionSize = packed ? { w: packed.w, h: packed.h } : null;
             bmp = DocsDoodads.loadBitmap(packed ? packed.sheet : path);
         }
+        // Only the newest request is shown: an older picture finishing later doesn't replace it.
+        this._pendingBmp = bmp || null;
         if (bmp) {
             if (bmp.isReady()) {
                 this.setupBitmap(bmp);
             } else {
-                bmp.addLoadListener(() => this.setupBitmap(bmp));
+                bmp.addLoadListener(() => { if (this._pendingBmp === bmp) this.setupBitmap(bmp); });
             }
         }
     };
@@ -100,6 +116,8 @@ if (typeof PIXI !== 'undefined') {
     Sprite_DocsDoodad.prototype.setupBitmap = function(bmp) {
         if (!bmp || !bmp._baseTexture) return;
         this._bmp = bmp;
+        // Doodad Scaling Mode: smooth (MZ's default) or pixelated.
+        if (bmp.smooth !== doodadScaleMode) bmp.smooth = doodadScaleMode;
         const fw = this._data.frameW || bmp.width;
         const fh = this._data.frameH || bmp.height;
         const fx = this._regionOrigin ? this._regionOrigin.x : (this._data.frameX || 0);
@@ -238,13 +256,8 @@ if (typeof PIXI !== 'undefined') {
     // Dissolve and crumble transitions add a noise filter only while they run.
     Sprite_DocsDoodad.prototype.updateDissolve = function(fx) {
         const active = Boolean(fx && fx.dissolve > 0 && fx.dissolve < 1);
-        const filters = this.filters ? this.filters.slice() : [];
-        const index = this._dissolveFilter ? filters.indexOf(this._dissolveFilter) : -1;
         if (!active) {
-            if (index >= 0) {
-                filters.splice(index, 1);
-                this.filters = filters.length ? filters : null;
-            }
+            DocsDoodads.toggleFilter(this, this._dissolveFilter, false);
             return;
         }
         if (!this._dissolveFilter) {
@@ -259,10 +272,7 @@ if (typeof PIXI !== 'undefined') {
         this._dissolveFilter.uniforms.uAmount = fx.dissolve;
         this._dissolveFilter.uniforms.uBlock = crumble ? 4 : 1;
         this._dissolveFilter.uniforms.uFall = crumble ? 10 : 0;
-        if (index < 0) {
-            filters.push(this._dissolveFilter);
-            this.filters = filters;
-        }
+        DocsDoodads.toggleFilter(this, this._dissolveFilter, true);
     };
 
     // Rebuilds the filter stack only when tint, hue, blur, blend or shimmer settings change.
@@ -369,11 +379,17 @@ if (typeof PIXI !== 'undefined') {
         const xF = this._data.xFrame || 1;
         const col = this._currentFrame % xF;
         const row = Math.floor(this._currentFrame / xF);
-        const fw = this._data.frameW || 32;
-        const fh = this._data.frameH || 32;
+        const fw = this._data.frameW || this._bmp.width;
+        const fh = this._data.frameH || this._bmp.height;
         const startX = this._regionOrigin ? this._regionOrigin.x : (this._data.frameX || 0);
         const startY = this._regionOrigin ? this._regionOrigin.y : (this._data.frameY || 0);
-        const frame = DocsDoodads.safeFrame({ x: startX + col * fw, y: startY + row * fh, w: fw, h: fh }, this._bmp.width, this._bmp.height);
+        // In a packed sheet the frames stay inside this doodad's region (as setupBitmap does).
+        const limitW = this._regionSize ? Math.min(this._bmp.width, startX + this._regionSize.w) : this._bmp.width;
+        const limitH = this._regionSize ? Math.min(this._bmp.height, startY + this._regionSize.h) : this._bmp.height;
+        let fx = Math.floor(startX + col * fw), fy = Math.floor(startY + row * fh);
+        // A frame clipped off the region shows the first frame instead.
+        if (fx >= limitW || fy >= limitH) { fx = Math.floor(startX); fy = Math.floor(startY); }
+        const frame = { x: fx, y: fy, w: Math.max(1, Math.min(fw, limitW - fx)), h: Math.max(1, Math.min(fh, limitH - fy)) };
         this.texture.frame = new PIXI.Rectangle(frame.x, frame.y, frame.w, frame.h);
     };
 }

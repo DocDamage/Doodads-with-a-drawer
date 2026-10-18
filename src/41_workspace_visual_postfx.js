@@ -184,6 +184,8 @@
                 this._veTimer = null;
                 return;
             }
+            // Nothing to draw while its section is folded away (the panel stays open behind it).
+            if (canvas.offsetParent === null) return;
             this.drawVisualPreview(canvas, step++);
         };
         draw();
@@ -257,6 +259,7 @@
 
     // Slider drags change the look live; commitLookPreview records one undo step.
     previewLookValue(target, key, value) {
+        if (this._lookPreview && this._lookPreview.target !== target) this.commitLookPreview();
         const look = this.lookWith(target, key, value);
         if (!this._lookPreview) {
             const mapId = this.currentMapId();
@@ -436,6 +439,7 @@
                         this.previewLookValue(target, f.key, read());
                         this.commitLookPreview();
                     };
+                    input.onpointerup = input.onblur = () => setTimeout(() => this.commitLookPreview(), 0);
                 } else {
                     input.onchange = () => {
                         this.setLookValue(target, f.key, read());
@@ -1015,7 +1019,8 @@
             ${this.renderLayersPanel(mapSettings)}
             ${this.renderWorldSections()}
             ${this.renderMapNavigation()}
-            ${this.renderPackingPanel()}`;
+            ${this.renderPackingPanel()}
+            ${this.doodadFilesDatalist()}`;
 
         const search = document.getElementById('dd-map-search');
         if (search && content.querySelectorAll) {

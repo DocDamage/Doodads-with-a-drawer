@@ -38,8 +38,9 @@ DocsDoodads.Slicing.Editor = {
         this.redoStack = [];
 
         this.img = new Image();
-        this.img.src = asset.path;
+        this.img.src = DocsDoodads.LiveReload.urlFor(asset.path);
         this.img.onload = () => {
+            if (this.asset !== asset) return;
             this.buildUI();
             this.fitToScreen();
             this.render();
@@ -325,7 +326,7 @@ DocsDoodads.Slicing.Editor = {
                 const cur = this.regions[this.selectedRegionIdx];
                 const dup = JSON.parse(JSON.stringify(cur));
                 dup.id = 'reg_' + Date.now();
-                dup.name = dup.name + '_copy';
+                dup.name = this.uniqueRegionName(dup.name + '_copy');
                 dup.x += 16; dup.y += 16;
                 this.regions.push(dup);
                 this.selectedRegionIdx = this.regions.length - 1;
@@ -341,7 +342,7 @@ DocsDoodads.Slicing.Editor = {
                 const cur = this.regions[this.selectedRegionIdx];
                 const halfW = Math.round(cur.w / 2);
                 const a = { ...cur, w: halfW };
-                const b = { ...cur, id: 'reg_' + Date.now(), name: cur.name + '_2', x: cur.x + halfW, w: cur.w - halfW };
+                const b = { ...cur, id: 'reg_' + Date.now(), name: this.uniqueRegionName(cur.name + '_2'), x: cur.x + halfW, w: cur.w - halfW };
                 this.regions.splice(this.selectedRegionIdx, 1, a, b);
                 this.render();
                 this.updateRegionList();
@@ -354,7 +355,7 @@ DocsDoodads.Slicing.Editor = {
                 const cur = this.regions[this.selectedRegionIdx];
                 const halfH = Math.round(cur.h / 2);
                 const a = { ...cur, h: halfH };
-                const b = { ...cur, id: 'reg_' + Date.now(), name: cur.name + '_2', y: cur.y + halfH, h: cur.h - halfH };
+                const b = { ...cur, id: 'reg_' + Date.now(), name: this.uniqueRegionName(cur.name + '_2'), y: cur.y + halfH, h: cur.h - halfH };
                 this.regions.splice(this.selectedRegionIdx, 1, a, b);
                 this.render();
                 this.updateRegionList();
@@ -366,8 +367,8 @@ DocsDoodads.Slicing.Editor = {
         document.getElementById('dd-slicer-down-btn').onclick = () => this.moveRegion(1);
 
         document.getElementById('dd-slicer-export-btn').onclick = () => {
-            this.asset.slice.regions = this.regions;
-            DocsDoodads.Export.exportSlices(this.asset);
+            const regions = JSON.parse(JSON.stringify(this.regions));
+            DocsDoodads.Export.exportSlices(Object.assign({}, this.asset, { slice: Object.assign({}, this.asset.slice, { regions }) }));
         };
 
         // Mouse interactions on Canvas
@@ -395,8 +396,8 @@ DocsDoodads.Slicing.Editor = {
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            // Middle click or Space held -> Pan
-            if (e.button === 1 || e.spaceKey || e.altKey) {
+            // Middle click, Space held or Alt -> Pan
+            if (e.button === 1 || this._spaceHeld || e.altKey) {
                 this.isPanning = true;
                 this.panStartX = mouseX - this.panX;
                 this.panStartY = mouseY - this.panY;
@@ -441,122 +442,127 @@ DocsDoodads.Slicing.Editor = {
             }
         });
 
-        window.addEventListener('mousemove', (e) => {
-            if (!this.modal) return;
-            const rect = container.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+        this.container = container;
+        // bindEvents runs on every open; window listeners must only be registered once.
+        if (!this._windowListenersBound) {
+            this._windowListenersBound = true;
+            window.addEventListener('mousemove', e => this.onWindowMouseMove(e));
+            window.addEventListener('mouseup', e => this.onWindowMouseUp(e));
+            window.addEventListener('keydown', e => this.handleKeyDown(e));
+            window.addEventListener('keyup', e => { if (e.code === 'Space') this._spaceHeld = false; });
+            window.addEventListener('blur', () => { this._spaceHeld = false; });
+        }
+    },
 
-            if (this.isPanning) {
-                this.panX = mouseX - this.panStartX;
-                this.panY = mouseY - this.panStartY;
-                this.render();
+    // Moves the dragged edges of region s by dx, dy (image pixels); a region is at least 4 x 4.
+    resizeRegion(s, handle, dx, dy) {
+        let x0 = s.x, y0 = s.y, x1 = s.x + s.w, y1 = s.y + s.h;
+        if (handle.includes('w')) x0 = Math.max(0, Math.min(x1 - 4, x0 + dx));
+        if (handle.includes('e')) x1 = Math.max(x0 + 4, x1 + dx);
+        if (handle.includes('n')) y0 = Math.max(0, Math.min(y1 - 4, y0 + dy));
+        if (handle.includes('s')) y1 = Math.max(y0 + 4, y1 + dy);
+        return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    },
+
+    onWindowMouseMove(e) {
+        const container = this.container;
+        if (!this.modal || !container) return;
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        if (this.isPanning) {
+            this.panX = mouseX - this.panStartX;
+            this.panY = mouseY - this.panStartY;
+            this.render();
+            return;
+        }
+
+        if (this.isDraggingHandle && this.dragStartRegion) {
+            const imgNow = this.screenToImage(mouseX, mouseY);
+            const imgStart = this.screenToImage(this.dragStartMouse.x, this.dragStartMouse.y);
+            const dx = Math.round(imgNow.x - imgStart.x);
+            const dy = Math.round(imgNow.y - imgStart.y);
+            const r = this.regions[this.selectedRegionIdx];
+            const s = this.dragStartRegion;
+
+            this.activeGuides = [];
+            if (this.activeHandle === 'body') {
+                // Snapping
+                r.x = Math.max(0, this.snapCoordX(s.x + dx, s.w));
+                r.y = Math.max(0, this.snapCoordY(s.y + dy, s.h));
+            } else {
+                Object.assign(r, this.resizeRegion(s, this.activeHandle, dx, dy));
+            }
+            this.render();
+            this.updateInspectorValues();
+            return;
+        }
+
+        if (this.isCreatingRegion) {
+            this.createCurrent = this.screenToImage(mouseX, mouseY);
+            this.render();
+            return;
+        }
+
+        // Update hover cursor
+        if (this.selectedRegionIdx >= 0 && this.selectedRegionIdx < this.regions.length) {
+            const h = this.hitTestHandles(mouseX, mouseY, this.regions[this.selectedRegionIdx]);
+            if (h) {
+                container.style.cursor = h === 'body' ? 'move' : h + '-resize';
                 return;
             }
+        }
+        container.style.cursor = 'crosshair';
+    },
 
-            if (this.isDraggingHandle && this.dragStartRegion) {
-                const imgNow = this.screenToImage(mouseX, mouseY);
-                const imgStart = this.screenToImage(this.dragStartMouse.x, this.dragStartMouse.y);
-                const dx = Math.round(imgNow.x - imgStart.x);
-                const dy = Math.round(imgNow.y - imgStart.y);
-                const r = this.regions[this.selectedRegionIdx];
-                const s = this.dragStartRegion;
+    onWindowMouseUp() {
+        const container = this.container;
+        if (!this.modal || !container) return;
+        if (this.isPanning) {
+            this.isPanning = false;
+            container.style.cursor = 'default';
+        }
+        if (this.isDraggingHandle) {
+            this.isDraggingHandle = false;
+            this.activeHandle = null;
+            this.activeGuides = [];
+            this.render();
+            this.updateRegionList();
+        }
+        if (this.isCreatingRegion) {
+            this.isCreatingRegion = false;
+            const minX = Math.round(Math.min(this.createStart.x, this.createCurrent.x));
+            const minY = Math.round(Math.min(this.createStart.y, this.createCurrent.y));
+            const rw = Math.round(Math.abs(this.createCurrent.x - this.createStart.x));
+            const rh = Math.round(Math.abs(this.createCurrent.y - this.createStart.y));
 
-                this.activeGuides = [];
-                let nx = s.x, ny = s.y, nw = s.w, nh = s.h;
-
-                if (this.activeHandle === 'body') {
-                    nx = s.x + dx;
-                    ny = s.y + dy;
-                    // Snapping
-                    nx = this.snapCoordX(nx, nw);
-                    ny = this.snapCoordY(ny, nh);
-                } else if (this.activeHandle === 'se') {
-                    nw = Math.max(s.w + dx, 4);
-                    nh = Math.max(s.h + dy, 4);
-                } else if (this.activeHandle === 'e') {
-                    nw = Math.max(s.w + dx, 4);
-                } else if (this.activeHandle === 's') {
-                    nh = Math.max(s.h + dy, 4);
-                } else if (this.activeHandle === 'nw') {
-                    nx = s.x + dx; ny = s.y + dy;
-                    nw = s.w - dx; nh = s.h - dy;
-                } else if (this.activeHandle === 'w') {
-                    nx = s.x + dx; nw = s.w - dx;
-                } else if (this.activeHandle === 'n') {
-                    ny = s.y + dy; nh = s.h - dy;
-                }
-
-                r.x = Math.max(0, nx);
-                r.y = Math.max(0, ny);
-                r.w = Math.max(4, nw);
-                r.h = Math.max(4, nh);
-                this.render();
-                this.updateInspectorValues();
-                return;
-            }
-
-            if (this.isCreatingRegion) {
-                this.createCurrent = this.screenToImage(mouseX, mouseY);
-                this.render();
-                return;
-            }
-
-            // Update hover cursor
-            if (this.selectedRegionIdx >= 0 && this.selectedRegionIdx < this.regions.length) {
-                const h = this.hitTestHandles(mouseX, mouseY, this.regions[this.selectedRegionIdx]);
-                if (h) {
-                    container.style.cursor = h === 'body' ? 'move' : h + '-resize';
-                    return;
-                }
-            }
-            container.style.cursor = 'crosshair';
-        });
-
-        window.addEventListener('mouseup', () => {
-            if (this.isPanning) {
-                this.isPanning = false;
-                container.style.cursor = 'default';
-            }
-            if (this.isDraggingHandle) {
-                this.isDraggingHandle = false;
-                this.activeHandle = null;
-                this.activeGuides = [];
+            if (rw >= 6 && rh >= 6) {
+                this.saveState();
+                const newReg = {
+                    id: 'reg_' + Date.now(),
+                    name: this.uniqueRegionName('Region_' + (this.regions.length + 1)),
+                    x: Math.max(0, minX),
+                    y: Math.max(0, minY),
+                    w: rw, h: rh,
+                    pivotX: 0.5, pivotY: 1.0
+                };
+                this.regions.push(newReg);
+                this.selectedRegionIdx = this.regions.length - 1;
                 this.render();
                 this.updateRegionList();
+            } else {
+                this.render();
             }
-            if (this.isCreatingRegion) {
-                this.isCreatingRegion = false;
-                const minX = Math.round(Math.min(this.createStart.x, this.createCurrent.x));
-                const minY = Math.round(Math.min(this.createStart.y, this.createCurrent.y));
-                const rw = Math.round(Math.abs(this.createCurrent.x - this.createStart.x));
-                const rh = Math.round(Math.abs(this.createCurrent.y - this.createStart.y));
-
-                if (rw >= 6 && rh >= 6) {
-                    this.saveState();
-                    const newReg = {
-                        id: 'reg_' + Date.now(),
-                        name: 'Region_' + (this.regions.length + 1),
-                        x: Math.max(0, minX),
-                        y: Math.max(0, minY),
-                        w: rw, h: rh,
-                        pivotX: 0.5, pivotY: 1.0
-                    };
-                    this.regions.push(newReg);
-                    this.selectedRegionIdx = this.regions.length - 1;
-                    this.render();
-                    this.updateRegionList();
-                } else {
-                    this.render();
-                }
-            }
-        });
-
-        // bindEvents runs on every open; window listeners must only be registered once.
-        if (!this._windowKeyListenerBound) {
-            this._windowKeyListenerBound = true;
-            window.addEventListener('keydown', (e) => this.handleKeyDown(e));
         }
+    },
+
+    // A region name not used yet (export file names come from them).
+    uniqueRegionName(name) {
+        const used = new Set(this.regions.map(r => String(r.name)));
+        let out = name, n = 2;
+        while (used.has(out)) out = `${name}_${n++}`;
+        return out;
     },
 
     handleKeyDown(e) {
@@ -566,15 +572,22 @@ DocsDoodads.Slicing.Editor = {
             return;
         }
         if (DocsDoodads.isEditableTarget(e.target)) return;
+        if (e.code === 'Space') {
+            e.preventDefault();
+            this._spaceHeld = true;
+            return;
+        }
         if (e.key === 'Delete' || e.key === 'Backspace') {
-            document.getElementById('dd-slicer-del-btn').click();
+            const del = document.getElementById('dd-slicer-del-btn');
+            if (del) del.click();
         } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
             this.undo();
         } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
             this.redo();
         } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
             e.preventDefault();
-            document.getElementById('dd-slicer-dup-btn').click();
+            const dup = document.getElementById('dd-slicer-dup-btn');
+            if (dup) dup.click();
         }
     },
 
@@ -691,13 +704,16 @@ DocsDoodads.Slicing.Editor = {
         ctx.clearRect(0, 0, w, h);
 
         // 1. Checkerboard background pattern
-        const chkSize = 16;
-        for (let y = 0; y < h; y += chkSize) {
-            for (let x = 0; x < w; x += chkSize) {
-                ctx.fillStyle = ((x / chkSize + y / chkSize) % 2 === 0) ? '#0f172a' : '#1e293b';
-                ctx.fillRect(x, y, chkSize, chkSize);
-            }
+        if (!this._checker) {
+            const tile = document.createElement('canvas');
+            tile.width = tile.height = 32;
+            const t = tile.getContext('2d');
+            t.fillStyle = '#0f172a'; t.fillRect(0, 0, 32, 32);
+            t.fillStyle = '#1e293b'; t.fillRect(16, 0, 16, 16); t.fillRect(0, 16, 16, 16);
+            this._checker = tile;
         }
+        ctx.fillStyle = ctx.createPattern(this._checker, 'repeat');
+        ctx.fillRect(0, 0, w, h);
 
         ctx.save();
         ctx.translate(this.panX, this.panY);
@@ -711,12 +727,13 @@ DocsDoodads.Slicing.Editor = {
         if (this.zoom >= 4.0) {
             ctx.strokeStyle = 'rgba(255,255,255,0.06)';
             ctx.lineWidth = 1 / this.zoom;
-            for (let x = 0; x <= this.img.naturalWidth; x++) {
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, this.img.naturalHeight); ctx.stroke();
-            }
-            for (let y = 0; y <= this.img.naturalHeight; y++) {
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(this.img.naturalWidth, y); ctx.stroke();
-            }
+            const iw = this.img.naturalWidth, ih = this.img.naturalHeight;
+            const x0 = Math.max(0, Math.floor(-this.panX / this.zoom)), x1 = Math.min(iw, Math.ceil((w - this.panX) / this.zoom));
+            const y0 = Math.max(0, Math.floor(-this.panY / this.zoom)), y1 = Math.min(ih, Math.ceil((h - this.panY) / this.zoom));
+            ctx.beginPath();
+            for (let x = x0; x <= x1; x++) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+            for (let y = y0; y <= y1; y++) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+            ctx.stroke();
         }
 
         // 4. Draw Regions
@@ -917,7 +934,19 @@ DocsDoodads.Slicing.Editor = {
         if (this.modal && this.modal.parentNode) {
             this.modal.parentNode.removeChild(this.modal);
         }
+        if (this._autoToken) this._autoToken.isCancelled = true;
+        if (this.img) this.img.onload = null;
         this.modal = null;
+        this.container = null;
+        this.asset = null;
+        this.img = null;
+        this.canvas = null;
+        this.ctx = null;
+        this.regions = [];
+        this.undoStack = [];
+        this.redoStack = [];
+        this.isPanning = this.isDraggingHandle = this.isCreatingRegion = false;
+        this._spaceHeld = false;
     }
 };
 

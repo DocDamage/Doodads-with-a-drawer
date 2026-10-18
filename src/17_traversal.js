@@ -77,6 +77,11 @@ DocsDoodads.Traversal = {
         return typeof $gamePlayer !== 'undefined' && $gamePlayer ? $gamePlayer._docsFlyAlt || 0 : 0;
     },
 
+    // How far up a character is drawn by flying (its shadow and reflection stay on the ground).
+    liftOf(ch) {
+        return this.isPartyMember(ch) ? this.altitude() : 0;
+    },
+
     isFlying(ch) {
         return Boolean(ch && this.isPartyMember(ch) && $gamePlayer._docsFlying);
     },
@@ -243,8 +248,17 @@ if (typeof Game_Player !== 'undefined') {
 
     $.Game_Player_isMapPassable_traversal = Game_Player.prototype.isMapPassable;
     Game_Player.prototype.isMapPassable = function(x, y, d) {
+        // A boat or ship goes where it can; swimming and climbing are for the player on foot.
+        if (this.isInVehicle && this.isInVehicle()) return $.Game_Player_isMapPassable_traversal.call(this, x, y, d);
         if (X().isFlying(this)) return X().passable(x, y, d);
         return $.Game_Player_isMapPassable_traversal.call(this, x, y, d) || X().passable(x, y, d);
+    };
+
+    // No boarding from the air (land first).
+    $.Game_Player_getOnVehicle_traversal = Game_Player.prototype.getOnVehicle;
+    Game_Player.prototype.getOnVehicle = function() {
+        if (this._docsFlying) return false;
+        return $.Game_Player_getOnVehicle_traversal.call(this);
     };
 
     // Flying over the others; nobody is met or triggered from the air.
@@ -347,12 +361,27 @@ if (typeof Game_CharacterBase !== 'undefined') {
 }
 
 DocsDoodads.Traversal._sheets = new Map();
+// Whether img/characters has this sheet: on disk (an encrypted build has .png_ files), or for a web
+// build by asking the server once; the sheet is used from when it answers yes.
 DocsDoodads.Traversal.sheetExists = function(name) {
-    if (this._sheets.has(name)) return this._sheets.get(name);
+    if (this._sheets.has(name)) return this._sheets.get(name) === true;
+    const encrypted = typeof Utils !== 'undefined' && typeof Utils.hasEncryptedImages === 'function' && Utils.hasEncryptedImages();
+    const file = 'img/characters/' + name + '.png' + (encrypted ? '_' : '');
     const FS = DocsDoodads.FS;
-    const there = Boolean(FS.fs && FS.existsSync('img/characters/' + name + '.png'));
-    this._sheets.set(name, there);
-    return there;
+    if (FS.fs) {
+        const there = Boolean(FS.existsSync(file));
+        this._sheets.set(name, there);
+        return there;
+    }
+    this._sheets.set(name, 'asking');
+    if (typeof XMLHttpRequest !== 'undefined') {
+        const xhr = new XMLHttpRequest();
+        xhr.open('HEAD', encodeURI(file));
+        xhr.onload = () => this._sheets.set(name, xhr.status < 400);
+        xhr.onerror = () => this._sheets.set(name, false);
+        xhr.send();
+    }
+    return false;
 };
 
 if (typeof Scene_Map !== 'undefined') {

@@ -48,7 +48,4 @@ DocsDoodads.standardStruct = function() {
         JSON.parse(JSON.stringify(DocsDoodads.standardStructData));
 };
 
-DocsDoodads.initPluginData = {
-    version: pluginVersion
-};
 

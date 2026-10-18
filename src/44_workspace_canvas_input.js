@@ -129,19 +129,19 @@
         }
     },
 
-    // The grid itself is drawn by Spriteset_Map (updateDocsEditorOverlay) in map space so it stays
-    // on tile edges at any window scale or scroll position; this only clears the old DOM overlay.
-    renderPlacementGrid() {
-        const gridEl = document.getElementById('dd-map-grid-overlay');
-        if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
-    },
-
     // Screen-space x/y positions of tile edges for a width x height area at the current scroll.
-    placementGridLines(width, height) {
+    // The snapping grid: the plugin's Grid Snap Width / Height, or the map's tiles.
+    snapGrid() {
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const ox = window.$gameMap ? $gameMap.displayX() * tw : 0;
-        const oy = window.$gameMap ? $gameMap.displayY() * th : 0;
+        return { w: gridSnapWidth > 0 ? gridSnapWidth : tw, h: gridSnapHeight > 0 ? gridSnapHeight : th, tw, th };
+    },
+
+    placementGridLines(width, height) {
+        const g = this.snapGrid();
+        const ox = window.$gameMap ? $gameMap.displayX() * g.tw : 0;
+        const oy = window.$gameMap ? $gameMap.displayY() * g.th : 0;
+        const tw = g.w, th = g.h;
         const lines = (size, offset, limit) => {
             const out = [];
             let first = ((-offset % size) + size) % size;
@@ -152,8 +152,8 @@
     },
 
     toggleGrid() {
+        // Spriteset_Map (updateDocsEditorOverlay) draws the grid in map space, on tile edges at any scale.
         this.gridSnapShow = !this.gridSnapShow;
-        this.renderPlacementGrid();
         this.showToast(this.gridSnapShow ? "Grid Overlay Enabled" : "Grid Overlay Disabled");
     },
 
@@ -173,6 +173,14 @@
             inp.focus();
             inp.select();
         }
+    },
+
+    // Shows newly placed doodads without rebuilding the others' sprites.
+    addDoodadSprites(items) {
+        if (!items || items.length === 0) return;
+        const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene ? SceneManager._scene._spriteset : null;
+        if (spriteset && spriteset.addDocsDoodadSprites) spriteset.addDocsDoodadSprites(items);
+        else this.refreshSpriteset();
     },
 
     refreshSpriteset(sortOnly) {
@@ -301,12 +309,15 @@
     },
 
     // Bottom-centre of the tile under a map point (the default placement spot).
+    // A doodad stands at the bottom middle of its grid cell; tileX / tileY are the map tile (for events).
     snapToTile(coords) {
-        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
-        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const g = this.snapGrid(), tw = g.tw, th = g.th;
         const tileX = coords.tileX !== undefined ? coords.tileX : Math.floor(coords.x / tw);
         const tileY = coords.tileY !== undefined ? coords.tileY : Math.floor(coords.y / th);
-        return { x: tileX * tw + tw / 2, y: tileY * th + th, tileX, tileY };
+        if ((g.w === tw && g.h === th) || !Number.isFinite(coords.x) || !Number.isFinite(coords.y)) {
+            return { x: tileX * tw + tw / 2, y: tileY * th + th, tileX, tileY };
+        }
+        return { x: Math.floor(coords.x / g.w) * g.w + g.w / 2, y: Math.floor(coords.y / g.h) * g.h + g.h, tileX, tileY };
     },
 
     clientToMapCoords(clientX, clientY) {
@@ -401,12 +412,7 @@
                 if (payload.placementMode === 'ask') {
                     this.showAskEventModal(payload, coords, e.altKey);
                 } else {
-                    const snapCoords = e.altKey ? coords : {
-                        x: coords.tileX * 48 + 24,
-                        y: coords.tileY * 48 + 48,
-                        tileX: coords.tileX,
-                        tileY: coords.tileY
-                    };
+                    const snapCoords = e.altKey ? coords : this.snapToTile(coords);
                     this.commitPlacement(payload, snapCoords, payload.placementMode);
                 }
             }
@@ -429,8 +435,13 @@
                 items.push({ label: 'Send to Back', icon: '⏬', onClick: () => this.sendToBack([clickedDoodad]) });
                 items.push({ separator: true });
                 items.push({ label: 'Duplicate (Ctrl+D)', icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
-                items.push({ label: clickedDoodad.locked ? 'Unlock' : 'Lock', icon: clickedDoodad.locked ? '🔓' : '🔒', onClick: () => { clickedDoodad.locked = !clickedDoodad.locked; this.refreshInspector(); } });
-                items.push({ label: 'Hide in Editor', icon: '👁️', onClick: () => { clickedDoodad.editorHidden = true; this.refreshSpriteset(true); this.refreshInspector(); } });
+                items.push({ label: clickedDoodad.locked ? 'Unlock' : 'Lock', icon: clickedDoodad.locked ? '🔓' : '🔒', onClick: () => this.lockSelected(!clickedDoodad.locked) });
+                items.push({ label: 'Hide in Editor', icon: '👁️', onClick: () => this.hideSelected(true) });
+                const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
+                const onLayer = DocsDoodads.Layers.of(clickedDoodad);
+                for (const layer of layers.length > 1 ? layers : []) {
+                    if (layer.id !== onLayer) items.push({ label: `Move to Layer: ${layer.name}`, icon: '🗂️', onClick: () => this.moveSelectionToLayer(layer.id) });
+                }
                 items.push({ label: 'Delete (Del)', icon: '🗑️', danger: true, onClick: () => this.deleteSelectedDoodad() });
                 this.showContextMenu(e.clientX, e.clientY, items);
                 return;
@@ -499,12 +510,7 @@
 
             // 3. Stamp Tool
             if (this.placementTool === 'stamp' && this.selectedAsset) {
-                const snapCoords = e.altKey ? coords : {
-                    x: coords.tileX * 48 + 24,
-                    y: coords.tileY * 48 + 48,
-                    tileX: coords.tileX,
-                    tileY: coords.tileY
-                };
+                const snapCoords = e.altKey ? coords : this.snapToTile(coords);
                 this.commitPlacement(this.selectedAsset, snapCoords);
                 return;
             }
@@ -517,7 +523,7 @@
 
         this._onCanvasMouseDown = (e) => {
             if (e.button === 1 && this.beginCameraDrag(e)) return;
-            if (this.placementTool === 'brush' && this.selectedAsset) {
+            if (this.placementTool === 'brush' && this.selectedAsset && e.button === 0) {
                 this.isBrushActive = true;
                 this.currentBrushBatch = [];
                 this.scatterAt(e.clientX, e.clientY);
@@ -547,13 +553,17 @@
             if (!this.placementTool && e.button === 0) {
                 this.isMarqueeActive = true;
                 this.marqueeStartClient = { x: e.clientX, y: e.clientY };
-                this.marqueeStartMap = this.clientToMapCoords(e.clientX, e.clientY);
                 this.marqueeShift = e.shiftKey;
                 this.hasMarqueeMoved = false;
             }
         };
 
         this._onCanvasMouseMove = (e) => {
+            // The button came up outside the window: the stroke ends there, not on the next hover.
+            if (this.isBrushActive && e.buttons === 0) {
+                this._onCanvasMouseUp(e);
+                return;
+            }
             if (this._camDrag) {
                 this.updateCameraDrag(e);
                 return;
@@ -645,7 +655,7 @@
                             if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDocsDoodads();
                         }
                     };
-                    cmd.type = cmd.type || 'scatter_doodads';
+                    cmd.type = this.placementTool === 'biome' ? 'biome_paint' : 'scatter_doodads';
                     DocsDoodads.Undo.execute(cmd);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
@@ -653,15 +663,8 @@
             if (this.isMarqueeActive) {
                 const overlay = document.getElementById('dd-marquee-overlay');
                 if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
-                if (this.hasMarqueeMoved && this.marqueeStartMap) {
-                    const currentMap = this.clientToMapCoords(e.clientX, e.clientY);
-                    const minX = Math.min(this.marqueeStartMap.x, currentMap.x);
-                    const maxX = Math.max(this.marqueeStartMap.x, currentMap.x);
-                    const minY = Math.min(this.marqueeStartMap.y, currentMap.y);
-                    const maxY = Math.max(this.marqueeStartMap.y, currentMap.y);
-
-                    const all = DocsDoodads.doodads() || [];
-                    const enclosed = all.filter(d => !d.editorHidden && this.layerAllowsEditing(d) && d.x >= minX && d.x <= maxX && d.y >= minY && d.y <= maxY);
+                if (this.hasMarqueeMoved && this.marqueeStartClient) {
+                    const enclosed = this.doodadsInClientBox(this.marqueeStartClient, { x: e.clientX, y: e.clientY });
 
                     if (this.marqueeShift) {
                         const current = this.selectedDoodads ? [...this.selectedDoodads] : [];
@@ -803,17 +806,9 @@
             terrainTags: DocsDoodads.Scatter.parseIdList(b.terrainTags),
             avoidBlocked: Boolean(b.avoidBlocked)
         };
-        const gameMap = window.$gameMap;
-        const query = {
-            tileWidth: gameMap && gameMap.tileWidth ? gameMap.tileWidth() : 48,
-            tileHeight: gameMap && gameMap.tileHeight ? gameMap.tileHeight() : 48,
-            width: gameMap && gameMap.width ? gameMap.width() : Infinity,
-            height: gameMap && gameMap.height ? gameMap.height() : Infinity,
-            regionId: (x, y) => (gameMap && gameMap.regionId ? gameMap.regionId(x, y) : 0),
-            terrainTag: (x, y) => (gameMap && gameMap.terrainTag ? gameMap.terrainTag(x, y) : 0),
-            isPassable: (x, y) => (gameMap && gameMap.isPassable ? [2, 4, 6, 8].some(d => gameMap.isPassable(x, y, d)) : true)
-        };
+        const query = this.scatterQuery();
 
+        const placed = [];
         for (const p of points) {
             if (!DocsDoodads.Scatter.allowed(p, rules, query)) continue;
             const v = DocsDoodads.Scatter.variation(b, rng);
@@ -825,9 +820,10 @@
             for (const item of this.withMirrors(d)) {
                 list.push(item);
                 this.currentBrushBatch.push(item);
+                placed.push(item);
             }
         }
-        this.refreshSpriteset();
+        this.addDoodadSprites(placed);
     },
 
     handleEyedropper(coords) {
@@ -877,6 +873,39 @@
     },
 
     // Screen-space boxes for the selected doodads, matching Sprite_DocsDoodad placement.
+    // Page (client) pixels to the game canvas's own pixels.
+    clientToCanvas(clientX, clientY) {
+        const canvas = DocsDoodads.Compat.getCanvas();
+        if (!canvas || typeof canvas.getBoundingClientRect !== 'function') return { x: clientX, y: clientY };
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width && rect.width ? canvas.width / rect.width : 1;
+        const scaleY = canvas.height && rect.height ? canvas.height / rect.height : 1;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    },
+
+    // Where a doodad's foot is drawn, in canvas pixels: on the copy in view on a looping map, and on the
+    // ground of a 3D map (any camera turn). null when it is behind the camera.
+    doodadFootOnScreen(d) {
+        const flat = d.posMode === 1 && window.$gameMap ? DocsDoodads.mapToScreen(d.x, d.y) : { x: d.x, y: d.y };
+        const P = DocsDoodads.Perspective;
+        const cam = P.liveCamera ? P.liveCamera() : null;
+        if (!cam) return flat;
+        const grid = DocsDoodads.Terrain.grid();
+        const z = grid && (grid.max !== 0 || grid.min !== 0) ? DocsDoodads.Terrain.heightPxAtFlat(flat.x, flat.y) : 0;
+        return P.project(cam, flat.x, flat.y, z);
+    },
+
+    // The editable doodads whose foot is inside the box dragged between two page points.
+    doodadsInClientBox(c0, c1) {
+        const a = this.clientToCanvas(c0.x, c0.y), b = this.clientToCanvas(c1.x, c1.y);
+        const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x), minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
+        return (DocsDoodads.doodads() || []).filter(d => {
+            if (!d || d.editorHidden || !this.layerAllowsEditing(d)) return false;
+            const p = this.doodadFootOnScreen(d);
+            return Boolean(p) && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+        });
+    },
+
     selectionScreenRects() {
         const items = this.selectedDoodads && this.selectedDoodads.length > 0
             ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
@@ -1008,12 +1037,7 @@
         `;
         document.body.appendChild(modal);
 
-        const snapCoords = isAlt ? coords : {
-            x: coords.tileX * 48 + 24,
-            y: coords.tileY * 48 + 48,
-            tileX: coords.tileX,
-            tileY: coords.tileY
-        };
+        const snapCoords = isAlt ? coords : this.snapToTile(coords);
 
         const closeM = () => modal.parentNode && modal.parentNode.removeChild(modal);
 
@@ -1048,11 +1072,7 @@
         const mapId = $gameMap.mapId();
         DocsDoodads.Persistence.stagedFor(mapId);
         const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
-        const baseName = payload.fileName.replace(/\.[^/.]+$/, "");
-        let code = 250;
-        if (payload.path.includes('/bgm/')) code = 241;
-        else if (payload.path.includes('/bgs/')) code = 245;
-        else if (payload.path.includes('/me/')) code = 249;
+        const { name: baseName, code } = DocsDoodads.Audio.soundFor(payload);
 
         const ev = DocsDoodads.Events.createEventObject(newId, coords.tileX, coords.tileY, {
             name: `Sound_${baseName}`,
@@ -1065,8 +1085,12 @@
             ]
         });
 
-        $gameMap._stagedMapData.events[newId] = ev;
-        DocsDoodads.Persistence.dirtyMap = true;
+        const staged = $gameMap._stagedMapData;
+        DocsDoodads.Undo.execute({
+            type: 'create_event',
+            apply: () => { staged.events[newId] = ev; DocsDoodads.Persistence.dirtyMap = true; },
+            revert: () => { delete staged.events[newId]; DocsDoodads.Persistence.dirtyMap = true; }
+        });
         this.showToast(`Created Sound Event EV${String(newId).padStart(3, '0')}`);
     },
 
@@ -1098,6 +1122,35 @@
         DocsDoodads.Undo.execute(cmd);
         this.selectEvent(null);
         this.showToast(`Deleted Event EV${String(evId).padStart(3, '0')}`);
+    },
+
+    // The selected event's staged copy (what Save writes); the selection is pointed at it.
+    selectedStagedEvent() {
+        const info = this.selectedEvent;
+        if (!info || !window.$gameMap) return null;
+        const id = info.gameEvent ? info.gameEvent.eventId() : (info.stagedEvent && info.stagedEvent.id);
+        const staged = DocsDoodads.Persistence.stagedFor();
+        const ev = staged && staged.events ? staged.events[id] : null;
+        if (ev) info.stagedEvent = ev;
+        return ev || null;
+    },
+
+    // mutate(ev) changes the selected event; one undo step, and the event on the map follows it.
+    editSelectedEvent(type, mutate) {
+        const ev = this.selectedStagedEvent();
+        if (!ev) return false;
+        const ge = this.selectedEvent.gameEvent;
+        const before = JSON.parse(JSON.stringify(ev));
+        mutate(ev);
+        const after = JSON.parse(JSON.stringify(ev));
+        const set = snapshot => {
+            for (const key of Object.keys(ev)) delete ev[key];
+            Object.assign(ev, JSON.parse(JSON.stringify(snapshot)));
+            if (ge && (ge.x !== ev.x || ge.y !== ev.y)) ge.locate(ev.x, ev.y);
+            DocsDoodads.Persistence.dirtyMap = true;
+        };
+        DocsDoodads.Undo.execute({ type, apply: () => set(after), revert: () => set(before) });
+        return true;
     },
 
     duplicateSelectedEvent() {
@@ -1195,11 +1248,7 @@
         const ev = $gameMap._stagedMapData.events[evId] || gameEvent.event();
         if (!ev || !ev.pages || !ev.pages[0]) return;
 
-        const baseName = payload.fileName.replace(/\.[^/.]+$/, "");
-        let code = 250;
-        if (payload.path.includes('/bgm/')) code = 241;
-        else if (payload.path.includes('/bgs/')) code = 245;
-        else if (payload.path.includes('/me/')) code = 249;
+        const { name: baseName, code } = DocsDoodads.Audio.soundFor(payload);
 
         const soundCmd = { code: code, indent: 0, parameters: [{ name: baseName, volume: 90, pitch: 100, pan: 0 }] };
         const pageList = ev.pages[0].list;
@@ -1427,7 +1476,8 @@
         };
 
         document.getElementById('dd-clear-cache-btn').onclick = () => {
-            DocsDoodads.Thumbnail.cache = {};
+            DocsDoodads.Thumbnail.clearCache();
+            this.refreshDrawerCards();
             this.showToast("Thumbnail Cache Cleared!");
             diag.parentNode.removeChild(diag);
         };
@@ -1528,11 +1578,15 @@
         if (notices.length > 0) this.showToast(notices.join(' '), 9000);
     },
 
-    showToast(msg, duration = 2200) {
+    // kind: a duration in ms, or 'info' / 'success' / 'error' (colour, and errors stay longer).
+    showToast(msg, kind) {
+        const styles = { info: ['#2563eb', 2200], success: ['#15803d', 2200], error: ['#b91c1c', 5000] };
+        const [background, wait] = typeof kind === 'number' ? ['#2563eb', kind] : (styles[kind] || styles.info);
+        const duration = Math.max(800, Number(wait) || 2200);
         const toast = document.createElement('div');
         toast.style.cssText = `
             position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            background: #2563eb; color: #fff; padding: 8px 16px; border-radius: 20px;
+            background: ${background}; color: #fff; padding: 8px 16px; border-radius: 20px;
             font-size: 12px; font-weight: bold; z-index: 10030; box-shadow: 0 4px 14px rgba(0,0,0,0.5);
             pointer-events: none; transition: opacity 0.3s;
         `;

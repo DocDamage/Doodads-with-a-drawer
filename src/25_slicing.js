@@ -100,19 +100,6 @@ DocsDoodads.Slicing.Known = {
 
 // 14.2 Divisor Fixed Grid Slicing
 DocsDoodads.Slicing.Grid = {
-    findCandidates(width, height) {
-        const candidates = [];
-        const commonCellSizes = [16, 24, 32, 48, 64, 96, 128];
-        for (const s of commonCellSizes) {
-            if (width % s === 0 && height % s === 0) {
-                const cols = width / s;
-                const rows = height / s;
-                candidates.push({ cellW: s, cellH: s, cols, rows, score: 0.9 });
-            }
-        }
-        return candidates;
-    },
-
     sliceToGrid(width, height, cols, rows) {
         const cellW = width / cols;
         const cellH = height / rows;
@@ -476,46 +463,6 @@ DocsDoodads.Slicing.Visual = {
             }
         }
         return threshold;
-    },
-
-    gutterSplitRegions(regions, binary, w, h) {
-        const out = [];
-        for (const r of regions) {
-            if (r.w > 64) {
-                const colSums = new Int32Array(r.w);
-                for (let x = 0; x < r.w; x++) {
-                    for (let y = 0; y < r.h; y++) {
-                        if (binary[(r.y + y) * w + (r.x + x)] === 1) {
-                            colSums[x]++;
-                        }
-                    }
-                }
-                let splitCol = -1;
-                for (let x = 8; x < r.w - 8; x++) {
-                    if (colSums[x] === 0) {
-                        splitCol = x;
-                        break;
-                    }
-                }
-                if (splitCol > 0) {
-                    out.push({
-                        id: r.id + '_a',
-                        name: r.name + '_A',
-                        x: r.x, y: r.y, w: splitCol, h: r.h,
-                        pivotX: 0.5, pivotY: 1.0
-                    });
-                    out.push({
-                        id: r.id + '_b',
-                        name: r.name + '_B',
-                        x: r.x + splitCol, y: r.y, w: r.w - splitCol, h: r.h,
-                        pivotX: 0.5, pivotY: 1.0
-                    });
-                    continue;
-                }
-            }
-            out.push(r);
-        }
-        return out;
     },
 
     // analyze, giving the page a frame first (so a Cancel click can land) and checking the token before and

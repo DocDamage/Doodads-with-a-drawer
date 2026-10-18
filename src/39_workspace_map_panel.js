@@ -120,8 +120,8 @@
     },
 
     moveSelectionToLayer(id) {
-        const items = this.selectedDoodads && this.selectedDoodads.length ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
-        this.setDoodadProperty(items, 'layer', id);
+        this.setDoodadProperty(this.selectionItems(), 'layer', id);
+        this.refreshInspector();
     },
 
     layerAllowsEditing(d) {
@@ -152,7 +152,7 @@
                     <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: #64748b;"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
                     ${rows}
                     <button class="dd-btn" id="dd-layer-add">Add Layer</button>
-                    <div style="font-size: 10px; color: #64748b; line-height: 1.4;">The selected layer receives new doodads. Ed = shown while editing, Lk = locked, Gm = shown in the game. Move doodads with the Layer field in their inspector.</div>
+                    <div style="font-size: 10px; color: #64748b; line-height: 1.4;">The selected layer receives new doodads. Ed = shown while editing, Lk = locked, Gm = shown in the game. Move doodads with the Layer field in their inspector, or right-click one: Move to Layer.</div>
                 </div>
             </details>`;
     },
@@ -289,6 +289,7 @@
         this._biomeRng = this._biomeRng || DocsDoodads.Scatter.rng(Date.now());
         const rules = { regions: [], terrainTags: [], avoidBlocked: Boolean(s.avoidBlocked) };
         const query = this.scatterQuery();
+        const placed = [];
         for (const p of DocsDoodads.Biome.paint(biome, coords, s.radius, existing, this._biomeRng)) {
             if (!DocsDoodads.Scatter.allowed(p, rules, query)) continue;
             const d = this.newDoodadFromAsset(this.assetByPath(p.path), p.x, p.y);
@@ -297,9 +298,10 @@
             for (const item of this.withMirrors(d)) {
                 doodads.push(item);
                 this.currentBrushBatch.push(item);
+                placed.push(item);
             }
         }
-        this.refreshSpriteset();
+        this.addDoodadSprites(placed);
     },
 
     // ---- Map dressing ----
@@ -430,8 +432,7 @@
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 4px;">
                 <input type="text" list="dd-doodad-files" id="dd-biome-add-path" placeholder="img/doodads/..." style="${inputStyle}" />
                 <button class="dd-btn" id="dd-biome-add">Add</button>
-            </div>` : ''}
-            ${this.doodadFilesDatalist()}`;
+            </div>` : ''}`;
     },
 
     doodadFilesDatalist() {
@@ -497,8 +498,7 @@
                 <button class="dd-btn dd-btn-primary" id="dd-dress-run">Dress Map</button>
                 <button class="dd-btn" id="dd-dress-reroll" title="Clear this map's dressing and dress it again">Re-roll</button>
                 <button class="dd-btn" id="dd-dress-clear">Clear</button>
-            </div>
-            ${this.doodadFilesDatalist()}`;
+            </div>`;
     },
 
     bindDressEditor() {
@@ -575,14 +575,16 @@
         if (backup.kind === 'map') {
             const staged = DocsDoodads.Persistence.stagedFor(mapId);
             const current = staged ? staged.events : (window.$dataMap ? window.$dataMap.events : []);
-            return { kind: 'map', backup, events: DocsDoodads.History.diffEvents(current, data.events || []) };
+            return { kind: 'map', mapId, backup, events: DocsDoodads.History.diffEvents(current, data.events || []) };
         }
-        return { kind: 'doodads', backup, doodads: DocsDoodads.History.diffDoodads(DocsDoodads.doodads(mapId), Array.isArray(data[mapId]) ? data[mapId] : []) };
+        return { kind: 'doodads', mapId, backup, doodads: DocsDoodads.History.diffDoodads(DocsDoodads.doodads(mapId), Array.isArray(data[mapId]) ? data[mapId] : []) };
     },
 
     // item.kind: added / removed / changed (doodads), addedEvent / removedEvent / changedEvent.
     restoreHistoryItem(item) {
         const mapId = this.currentMapId();
+        // A comparison made on another map never writes into this one.
+        if (this._historyDiff && this._historyDiff.mapId && this._historyDiff.mapId !== mapId) return false;
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         const exec = (apply, revert) => DocsDoodads.Undo.execute({ type: 'restore_history', apply: () => { apply(); this.afterDoodadEdit(); }, revert: () => { revert(); this.afterDoodadEdit(); } });
         if (item.kind === 'removed') {
@@ -781,11 +783,21 @@
     attachThumbAnimation(card, imgEl, asset) {
         const frames = DocsDoodads.AnimatedThumb.framesFor(asset);
         if (!frames || typeof Image === 'undefined') return;
-        let timer = null, canvas = null;
+        // The drawer rebuilds its cards while scrolling, and a removed card gets no mouseleave: the
+        // animation stops itself once its card is gone. hover counts visits, so a late image is ignored.
+        let timer = null, canvas = null, hover = 0;
+        const stop = () => {
+            if (timer) clearInterval(timer);
+            timer = null;
+            if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+            canvas = null;
+        };
         card.onmouseenter = () => {
+            const visit = ++hover;
+            stop();
             const img = new Image();
             img.onload = () => {
-                if (!card.matches || !card.matches(':hover')) return;
+                if (visit !== hover || !card.isConnected || !card.matches || !card.matches(':hover')) return;
                 const box = imgEl.getBoundingClientRect ? imgEl.getBoundingClientRect() : { width: 64, height: 64 };
                 const f0 = frames[0];
                 const scale = Math.min((box.width || 64) / f0.w, (box.height || 64) / f0.h, 4);
@@ -797,6 +809,7 @@
                 ctx.imageSmoothingEnabled = false;
                 let i = 0;
                 const step = () => {
+                    if (!card.isConnected) { stop(); return; }
                     const f = frames[i % frames.length];
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, canvas.width, canvas.height);
@@ -807,13 +820,11 @@
                 imgEl.style.display = 'none';
                 card.insertBefore(canvas, imgEl);
             };
-            img.src = asset.path;
+            img.src = DocsDoodads.LiveReload.urlFor(asset.path);
         };
         card.onmouseleave = () => {
-            if (timer) clearInterval(timer);
-            timer = null;
-            if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
-            canvas = null;
+            hover++;
+            stop();
             imgEl.style.display = '';
         };
     },
@@ -971,13 +982,21 @@
         });
     },
 
+    // One preview at a time: a new one (every edit replays it) ends the last, looping or not.
     previewVfx(id) {
         let x = 0, y = 0;
         if (typeof $gamePlayer !== 'undefined' && $gamePlayer && window.$gameMap) {
             x = ($gamePlayer._realX + 0.5) * $gameMap.tileWidth();
             y = ($gamePlayer._realY + 0.5) * $gameMap.tileHeight();
         }
-        return DocsDoodads.Vfx.play({ id, x, y });
+        this.stopVfxPreview();
+        this._vfxPreview = DocsDoodads.Vfx.play({ id, x, y });
+        return this._vfxPreview;
+    },
+
+    stopVfxPreview() {
+        if (this._vfxPreview) this._vfxPreview.done = true;
+        this._vfxPreview = null;
     },
 
     vfxLayerFields(layer) {
@@ -1100,7 +1119,11 @@
             this.refreshVfxBuilder();
             if (this.vfxAutoPlay !== false) this.previewVfx(id);
         };
-        on('dd-vfx-close', 'onclick', () => { if (this._vfxPanel && this._vfxPanel.parentNode) this._vfxPanel.parentNode.removeChild(this._vfxPanel); });
+        on('dd-vfx-close', 'onclick', () => {
+            this.stopVfxPreview();
+            if (this._vfxPanel && this._vfxPanel.parentNode) this._vfxPanel.parentNode.removeChild(this._vfxPanel);
+            this._vfxPanel = null;
+        });
         on('dd-vfx-pick', 'onchange', e => { this.vfxSelected = e.target.value; this._openVfxLayer = null; this.refreshVfxBuilder(); });
         on('dd-vfx-new', 'onclick', () => { this.vfxSelected = this.newVfx('New Effect'); this.refreshVfxBuilder(); });
         on('dd-vfx-dup', 'onclick', () => { const copy = this.duplicateVfx(id); if (copy) this.vfxSelected = copy; this.refreshVfxBuilder(); });

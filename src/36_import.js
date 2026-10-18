@@ -139,6 +139,7 @@ DocsDoodads.Import = {
         const collected = this.collectFiles(sourcePaths);
         plan.errors.push(...collected.errors);
         const reserved = new Map();
+        const reservedKey = destination => process.platform === 'win32' ? destination.toLowerCase() : destination;
 
         for (const source of collected.files) {
             if (!this.isSupported(source)) {
@@ -178,8 +179,8 @@ DocsDoodads.Import = {
             let overwrite = false;
             let suffix = 0;
 
-            while (fs.existsSync(destination) || reserved.has(destination)) {
-                const comparisonSource = reserved.has(destination) ? reserved.get(destination) : destination;
+            while (fs.existsSync(destination) || reserved.has(reservedKey(destination))) {
+                const comparisonSource = reserved.has(reservedKey(destination)) ? reserved.get(reservedKey(destination)) : destination;
                 if (this.filesEqual(source, comparisonSource)) {
                     plan.duplicates.push({ source, destination });
                     destination = null;
@@ -208,7 +209,7 @@ DocsDoodads.Import = {
             }
             if (!destination) continue;
 
-            reserved.set(destination, source);
+            reserved.set(reservedKey(destination), source);
             plan.operations.push({
                 source,
                 destination,
@@ -218,91 +219,6 @@ DocsDoodads.Import = {
             });
         }
         return plan;
-    },
-
-    executeBatch(plan) {
-        const fs = DocsDoodads.FS.fs;
-        const path = DocsDoodads.FS.path;
-        const result = {
-            ok: false,
-            imported: [],
-            overwritten: [],
-            duplicates: (plan && plan.duplicates) ? plan.duplicates.slice() : [],
-            skipped: (plan && plan.skipped) ? plan.skipped.slice() : [],
-            unsupported: (plan && plan.unsupported) ? plan.unsupported.slice() : [],
-            errors: (plan && plan.errors) ? plan.errors.slice() : [],
-            rolledBack: false
-        };
-        if (!fs || !path || !plan || result.errors.length > 0) return result;
-        const validationError = this.validateExecutionPlan(plan);
-        if (validationError) {
-            result.errors.push({ message: validationError });
-            return result;
-        }
-
-        const completed = [];
-        const tempFiles = [];
-        const transactionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        try {
-            for (let index = 0; index < plan.operations.length; index++) {
-                const operation = plan.operations[index];
-                DocsDoodads.FS.ensureDir(path.dirname(operation.destination));
-
-                const existed = fs.existsSync(operation.destination);
-                if (existed && !operation.overwrite) {
-                    throw new Error(`Destination changed after import preview: ${operation.destination}`);
-                }
-
-                let backup = null;
-                if (existed) {
-                    backup = `${operation.destination}.ddimport-${transactionId}.bak`;
-                    fs.copyFileSync(operation.destination, backup);
-                    tempFiles.push(backup);
-                }
-
-                const temporary = `${operation.destination}.ddimport-${transactionId}-${index}.tmp`;
-                tempFiles.push(temporary);
-                fs.copyFileSync(operation.source, temporary);
-                if (existed) {
-                    completed.push({ operation, existed, backup });
-                    fs.copyFileSync(temporary, operation.destination);
-                    fs.unlinkSync(temporary);
-                } else {
-                    fs.renameSync(temporary, operation.destination);
-                    completed.push({ operation, existed, backup });
-                }
-
-                result.imported.push(operation.destination);
-                if (existed) result.overwritten.push(operation.destination);
-            }
-
-            for (const record of completed) {
-                if (record.backup && fs.existsSync(record.backup)) fs.unlinkSync(record.backup);
-            }
-            result.ok = true;
-            return result;
-        } catch (error) {
-            result.errors.push({ message: error && error.message ? error.message : String(error) });
-            for (let index = completed.length - 1; index >= 0; index--) {
-                const record = completed[index];
-                try {
-                    if (record.existed && record.backup && fs.existsSync(record.backup)) {
-                        fs.copyFileSync(record.backup, record.operation.destination);
-                    } else if (!record.existed && fs.existsSync(record.operation.destination)) {
-                        fs.unlinkSync(record.operation.destination);
-                    }
-                } catch (rollbackError) {
-                    result.errors.push({ path: record.operation.destination, message: `Rollback failed: ${rollbackError.message || rollbackError}` });
-                }
-            }
-            for (const temporary of tempFiles) {
-                try { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); } catch (cleanupError) {}
-            }
-            result.imported = [];
-            result.overwritten = [];
-            result.rolledBack = completed.length > 0;
-            return result;
-        }
     },
 
     async executeBatchAsync(plan, options = {}) {
@@ -420,10 +336,6 @@ DocsDoodads.Import = {
             result.rolledBack = completed.length > 0;
             return result;
         }
-    },
-
-    importBatch(sourcePaths, options = {}) {
-        return this.executeBatch(this.planBatch(sourcePaths, options));
     }
 };
 

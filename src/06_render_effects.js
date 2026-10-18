@@ -114,6 +114,8 @@ DocsDoodads.Appearance = {
         let fn = this._conditionCache[source];
         if (fn === undefined) {
             try { fn = new Function(`return (${source});`); } catch (error) { fn = null; }
+            // Typing a condition in the inspector compiles every partial version; keep the cache small.
+            if (Object.keys(this._conditionCache).length >= 500) this._conditionCache = {};
             this._conditionCache[source] = fn;
         }
         if (!fn) return true;

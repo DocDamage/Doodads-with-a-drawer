@@ -78,7 +78,7 @@ process.on('exit', () => fs.rmSync(testStateDir, { recursive: true, force: true 
 DocsDoodads.AssetIndex.libraryPath = path.join(testStateDir, 'DocsDoodadsLibrary.json');
 DocsDoodads.AssetIndex.data = { version: 1, projectId: 'test', generatedAt: 0, assets: {}, collections: {}, settings: {} };
 DocsDoodads.AssetIndex.rebuildList();
-DocsDoodads.EventTemplates.filePath = path.join(testStateDir, 'DocsDoodadsEventTemplates.json');
+DocsDoodads.EventTemplates.customPath = path.join(testStateDir, 'DocsDoodadsEventTemplates.json');
 DocsDoodads.EventTemplates.custom = {};
 
 // Test 1: Virtual Collections management in DocsDoodads.AssetIndex

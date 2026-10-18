@@ -61,9 +61,12 @@ DocsDoodads.FS = {
             this.mkdirp(dir);
         }
         const tmpPath = filePath + '.tmp';
-        const jsonStr = indent ? JSON.stringify(data, null, indent) : JSON.stringify(data);
+        // What JSON.stringify gives back is valid JSON; only nothing (undefined data) or a throw (a cycle)
+        // means there is nothing to write.
+        let jsonStr;
         try {
-            JSON.parse(jsonStr);
+            jsonStr = indent ? JSON.stringify(data, null, indent) : JSON.stringify(data);
+            if (typeof jsonStr !== 'string') throw new Error('nothing to write');
         } catch(e) {
             console.error("[DocsDoodads.FS] Validation failed for atomic JSON write:", e);
             return false;
@@ -100,31 +103,26 @@ DocsDoodads.FS = {
         return backupPath;
     },
 
+    // Keeps the newest maxCount backups of one file (prefix: its file name), and its newest few
+    // unreadable copies.
     pruneBackups(dir, prefix, maxCount) {
         if (!this.fs || !this.path || !this.existsSync(dir)) return;
-        const files = this.fs.readdirSync(dir)
-            .filter(f => f.startsWith(prefix) && f.endsWith('.bak'))
-            .map(f => ({ name: f, time: this.fs.statSync(this.path.join(dir, f)).mtimeMs }))
-            .sort((a, b) => b.time - a.time);
-        while (files.length > maxCount) {
-            const toRemove = files.pop();
-            try { this.fs.unlinkSync(this.path.join(dir, toRemove.name)); } catch(e) {}
-        }
+        const prune = (ending, keep) => {
+            const files = this.fs.readdirSync(dir)
+                .filter(f => f.startsWith(prefix + '.') && f.endsWith(ending))
+                .map(f => ({ name: f, time: this.fs.statSync(this.path.join(dir, f)).mtimeMs }))
+                .sort((a, b) => b.time - a.time);
+            while (files.length > keep) {
+                const toRemove = files.pop();
+                try { this.fs.unlinkSync(this.path.join(dir, toRemove.name)); } catch(e) {}
+            }
+        };
+        prune('.bak', maxCount);
+        prune('.unreadable', 3);
     },
 
     findLatestBackup(filePath) {
-        if (!this.fs || !this.path) return null;
-        const baseName = this.path.basename(filePath);
-        const backups = [];
-        for (const cacheDir of ['data/docs_doodads_cache/backups', DocsDoodads.Legacy.backupDirectory]) {
-            if (!this.existsSync(cacheDir)) continue;
-            for (const f of this.fs.readdirSync(cacheDir)) {
-                if (f.startsWith(baseName) && f.endsWith('.bak')) {
-                    backups.push({ path: this.path.join(cacheDir, f), time: this.fs.statSync(this.path.join(cacheDir, f)).mtimeMs });
-                }
-            }
-        }
-        backups.sort((a, b) => b.time - a.time);
+        const backups = this.listBackups(filePath);
         return backups.length > 0 ? backups[0].path : null;
     },
 
@@ -168,7 +166,7 @@ DocsDoodads.FS = {
 
                 const indent = entry.indent === undefined ? 2 : entry.indent;
                 const json = indent ? JSON.stringify(entry.data, null, indent) : JSON.stringify(entry.data);
-                JSON.parse(json);
+                if (typeof json !== 'string') throw new Error(`Entry ${index} has nothing to write.`);
                 this.ensureDir(this.path.dirname(targetPath));
                 const temporary = `${targetPath}.ddtxn-${transactionId}-${index}.tmp`;
                 this.fs.writeFileSync(temporary, json, 'utf8');
@@ -272,20 +270,27 @@ DocsDoodads.FS = {
             }
             return JSON.parse(this.readFileSync(filePath, 'utf8'));
         } catch(e) {
-            console.warn(`[DocsDoodads.FS] Corrupt JSON encountered reading ${filePath}:`, e);
+            // The same unreadable file read again (some are read on every open) is copied once, and its
+            // notice waits once until it's shown (it comes back while the file stays unreadable).
+            const s = this.stat(filePath);
+            const seenKey = s ? `${s.mtimeMs}:${s.size}` : 'gone';
+            const firstTime = this._unreadableSeen[filePath] !== seenKey;
+            this._unreadableSeen[filePath] = seenKey;
+            const notice = text => { if (!this.recoveryNotices.some(n => n.startsWith(`${filePath} was unreadable`))) this.recoveryNotices.push(text); };
+            if (firstTime) console.warn(`[DocsDoodads.FS] Corrupt JSON encountered reading ${filePath}:`, e);
             // The next save would replace the unreadable file, so a copy is kept first (for repair by hand).
-            const kept = this.keepUnreadable(filePath);
+            const kept = firstTime ? this.keepUnreadable(filePath) : null;
             const keptNote = kept ? ` The unreadable file was kept as ${kept}.` : '';
             const fallback = this.findLatestBackup(filePath);
             if (fallback) {
                 try {
                     const recovered = JSON.parse(this.readFileSync(fallback, 'utf8'));
-                    console.warn(`[DocsDoodads.FS] Automatically recovered ${filePath} from backup ${fallback}`);
-                    this.recoveryNotices.push(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.${keptNote}`);
+                    if (firstTime) console.warn(`[DocsDoodads.FS] Automatically recovered ${filePath} from backup ${fallback}`);
+                    notice(`${filePath} was unreadable; loaded backup ${this.path.basename(fallback)}. Save to repair it.${keptNote}`);
                     return recovered;
                 } catch(e2) {}
             }
-            this.recoveryNotices.push(`${filePath} was unreadable and no backup exists; defaults were used.${keptNote}`);
+            notice(`${filePath} was unreadable and no backup exists; defaults were used.${keptNote}`);
             return null;
         }
     },
@@ -307,6 +312,8 @@ DocsDoodads.FS = {
 
     // Unreadable-file fallbacks waiting to be shown to the user.
     recoveryNotices: [],
+    // filePath -> the modified time and size it had when found unreadable.
+    _unreadableSeen: {},
 
     takeRecoveryNotices() {
         const notices = this.recoveryNotices.slice();

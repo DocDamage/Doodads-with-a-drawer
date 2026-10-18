@@ -36,10 +36,48 @@ DocsDoodads.migrateData = function(data, type) {
 };
 
 if (typeof DataManager !== 'undefined') {
+    // Files still loading; the game starts (Scene_Boot) once they are all in.
+    DataManager._docsLoading = 0;
+
     $.DataManager_loadDatabase = DataManager.loadDatabase;
     DataManager.loadDatabase = function() {
         $.DataManager_loadDatabase.call(this);
         this.loadDocsDoodadsData();
+    };
+
+    $.DataManager_isDatabaseLoaded = DataManager.isDatabaseLoaded;
+    DataManager.isDatabaseLoaded = function() {
+        return $.DataManager_isDatabaseLoaded.call(this) && !(this._docsLoading > 0);
+    };
+
+    // A GET of a JSON file the plugin needs before the game starts; done(xhr) runs when it's over.
+    DataManager.docsRequest = function(url, done) {
+        const xhr = new XMLHttpRequest();
+        this._docsLoading++;
+        let finished = false;
+        const finish = () => {
+            if (finished) return;
+            finished = true;
+            this._docsLoading--;
+            done(xhr);
+        };
+        xhr.open('GET', url);
+        xhr.overrideMimeType('application/json');
+        xhr.onload = finish;
+        xhr.onerror = finish;
+        xhr.send();
+    };
+
+    // Doodad data that won't parse (a half-written file) doesn't stop the game: a playtest loads the
+    // latest backup (and says so in the editor); otherwise the map starts without doodads.
+    DataManager.parseDocsDoodadsData = function(text, url) {
+        try {
+            return JSON.parse(text);
+        } catch (error) {
+            console.warn(`[DocsDoodads] ${url} could not be read:`, error);
+            const recovered = DocsDoodads.FS.fs ? DocsDoodads.FS.readJson(url) : null;
+            return recovered && typeof recovered === 'object' ? recovered : {};
+        }
     };
 
     DataManager.loadDocsDoodadsData = function() {
@@ -47,46 +85,30 @@ if (typeof DataManager !== 'undefined') {
         const candidates = ['data/' + dataFileName];
         if (dataFileName === 'DocsDoodads.json') candidates.push('data/' + DocsDoodads.Legacy.dataFileName);
         const tryLoad = (index) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', candidates[index]);
-            xhr.overrideMimeType('application/json');
-            const next = () => {
-                if (index + 1 < candidates.length) {
+            DataManager.docsRequest(candidates[index], xhr => {
+                if (xhr.status < 400 && xhr.responseText) {
+                    window.$dataDocsDoodads = DataManager.parseDocsDoodadsData(xhr.responseText, candidates[index]);
+                    DataManager.checkDocsDoodadsData();
+                } else if (index + 1 < candidates.length) {
                     tryLoad(index + 1);
                 } else {
                     window.$dataDocsDoodads = {};
                     DataManager.checkDocsDoodadsData();
                 }
-            };
-            xhr.onload = function() {
-                if (xhr.status < 400) {
-                    window.$dataDocsDoodads = JSON.parse(xhr.responseText);
-                    DataManager.checkDocsDoodadsData();
-                } else {
-                    next();
-                }
-            };
-            xhr.onerror = next;
-            xhr.send();
+            });
         };
         tryLoad(0);
     };
 
     DataManager.loadDocsDoodadsPacked = function() {
         if (!DocsDoodads.Packer.shouldRequestManifest()) return;
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', DocsDoodads.Packer.manifestPath);
-        xhr.overrideMimeType('application/json');
-        xhr.onload = function() {
-            if (xhr.status < 400) {
-                try {
-                    const data = JSON.parse(xhr.responseText);
-                    if (data && data.maps) DocsDoodads.Packer.data = data;
-                } catch (e) {}
-            }
-        };
-        xhr.onerror = function() {};
-        xhr.send();
+        this.docsRequest(DocsDoodads.Packer.manifestPath, xhr => {
+            if (xhr.status >= 400 || !xhr.responseText) return;
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data && data.maps) DocsDoodads.Packer.data = data;
+            } catch (e) {}
+        });
     };
 
     DataManager.checkDocsDoodadsData = function() {
@@ -100,44 +122,19 @@ if (typeof DataManager !== 'undefined') {
     DataManager.loadDocsDoodadsAseprite = function() {
         if (typeof XMLHttpRequest === 'undefined') return;
         const AV = DocsDoodads.AsepriteVisuals;
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', AV.manifestPath);
-        xhr.overrideMimeType('application/json');
-        xhr.onload = function() {
-            if (xhr.status >= 400) return;
+        this.docsRequest(AV.manifestPath, xhr => {
+            if (xhr.status >= 400 || !xhr.responseText) return;
             try {
                 const data = JSON.parse(xhr.responseText);
-                if (data && data.refs) AV.manifest = { version: 1, refs: Object.assign({}, data.refs, AV.manifest.refs) };
+                if (data && data.refs) {
+                    AV.manifest = { version: 1, refs: Object.assign({}, data.refs, AV.manifest.refs) };
+                    // Gear looked up before the manifest came in is looked up again.
+                    AV._names.clear();
+                }
             } catch (e) {}
-        };
-        xhr.onerror = function() {};
-        xhr.send();
+        });
     };
 
-    DataManager.saveDocsDoodadsData = function() {
-        if (typeof StorageManager !== 'undefined') {
-            const fs = DocsDoodads.FS.fs;
-            if (fs) {
-                const filePath = 'data/' + dataFileName;
-                const content = saveMode ? JSON.stringify(window.$dataDocsDoodads) : JSON.stringify(window.$dataDocsDoodads, null, 2);
-                fs.writeFileSync(filePath, content);
-            }
-        }
-    };
-
-    DataManager.loadMapDataSyncDocsDoodads = function(type, mapId) {
-        const fs = (typeof require !== 'undefined') ? require('fs') : null;
-        if (!fs) return null;
-        const filePath = 'data/Map' + String(mapId).padStart(3, '0') + '.json';
-        if (fs.existsSync(filePath)) {
-            try {
-                return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-            } catch(e) {
-                return null;
-            }
-        }
-        return null;
-    };
 }
 
 DocsDoodads.doodads = function(mapId) {

@@ -276,7 +276,7 @@ function install() {
         updateBufferParameters(b, v, a) { if (b && a) { b.volume = (v * (a.volume || 0)) / 10000; b.pitch = (a.pitch || 100) / 100; b.pan = (a.pan || 0) / 100; } },
         makeEmptyAudioObject() { return { name: '', volume: 0, pitch: 0 }; }, stopSe() {}, checkErrors() {} };
     g.ConfigManager = { docsFxQuality: 0, docsMotionBlur: true, touchUI: false, makeData: () => ({}), applyData() {}, save() {} };
-    g.DataManager = { isBattleTest: () => false, isEventTest: () => false };
+    g.DataManager = { isBattleTest: () => false, isEventTest: () => false, loadDatabase() {}, isDatabaseLoaded: () => true };
     g.StorageManager = {};
     g.PluginManager = { parameters: () => ({}), _commands: {}, registerCommand(p, n, f) { this._commands[p + ':' + n] = f; },
         callCommand(self, p, n, args) { const f = this._commands[p + ':' + n]; if (f) f.call(self, args); } };
@@ -319,7 +319,7 @@ function install() {
         constructor() { super(); this._followers = { _data: [], data() { return this._data; }, visibleFollowers() { return this._data; }, updateMove() {}, isVisible: () => true, forEach(f) { this._data.forEach(f); } };
             this._vehicleType = 'walk'; }
         canStartLocalEvents() { return !this.isInAirship(); } canEncounter() { return true; } moveByInput() {} isTransferring() { return Boolean(this._newMapId); }
-        center() {} searchLimit() { return 12; } reserveTransfer(m, x, y) { this._newMapId = m; this.locate(x, y); } canMove() { return true; } executeMove(d) { this.moveStraight(d); } getInputDirection() { return 0; } isInAirship() { return false; } isInVehicle() { return false; } isInShip() { return false; }
+        center() {} searchLimit() { return 12; } reserveTransfer(m, x, y) { this._newMapId = m; this.locate(x, y); } canMove() { return true; } executeMove(d) { this.moveStraight(d); } getInputDirection() { return 0; } isInAirship() { return false; } isInVehicle() { return false; } isInShip() { return false; } getOnVehicle() { return false; }
         followers() { return this._followers; } isDashing() { return false; } vehicle() { return null; } refresh() {}
     }
     class Game_Follower extends Game_Character { constructor(i) { super(); this._memberIndex = i; } actor() { return null; } isVisible() { return true; } }
@@ -365,7 +365,7 @@ function install() {
         update() {} refresh() {} requestRefresh() {}
     }
     g.Game_Map = Game_Map;
-    class Game_Interpreter { constructor() { this._list = null; } updateWaitMode() { return false; } character() { return $gamePlayer; } isRunning() { return false; } }
+    class Game_Interpreter { constructor() { this._list = null; this._waitMode = ''; this._eventId = 0; } setWaitMode(m) { this._waitMode = m; } eventId() { return this._eventId; } updateWaitMode() { return false; } character() { return $gamePlayer; } isRunning() { return false; } }
     g.Game_Interpreter = Game_Interpreter;
 
     // ---------------- Sprites and spritesets ----------------

@@ -35,77 +35,38 @@
         if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' });
     },
 
-    bringForward(items) {
-        items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
-        if (!items || items.length === 0) return;
-        const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
-        const after = items.map(d => ({ doodad: d, z: (d.z || 0) + 1 }));
-        DocsDoodads.Undo.execute({
-            type: 'z_order_fwd',
-            apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
-            revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
-        });
-        this.refreshSpriteset(true);
+    // z(d) gives each doodad's new Z; one undo step.
+    setZOrder(items, z, type) {
+        items = items || this.selectionItems();
+        if (!items || items.length === 0) return false;
+        this.editDoodads(items, d => { d.z = z(d); }, type);
         this.refreshInspector();
-        this.showToast(`Brought ${items.length} doodad(s) forward (+1 Z)`);
+        return true;
+    },
+
+    bringForward(items) {
+        if (this.setZOrder(items, d => (d.z || 0) + 1, 'z_order_fwd')) this.showToast(`Brought ${(items || this.selectionItems()).length} doodad(s) forward (+1 Z)`);
     },
 
     sendBackward(items) {
-        items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
-        if (!items || items.length === 0) return;
-        const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
-        const after = items.map(d => ({ doodad: d, z: (d.z || 0) - 1 }));
-        DocsDoodads.Undo.execute({
-            type: 'z_order_back',
-            apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
-            revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
-        });
-        this.refreshSpriteset(true);
-        this.refreshInspector();
-        this.showToast(`Sent ${items.length} doodad(s) backward (-1 Z)`);
+        if (this.setZOrder(items, d => (d.z || 0) - 1, 'z_order_back')) this.showToast(`Sent ${(items || this.selectionItems()).length} doodad(s) backward (-1 Z)`);
     },
 
     bringToFront(items) {
-        items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
-        if (!items || items.length === 0) return;
-        const all = DocsDoodads.doodads() || [];
-        let maxZ = 0;
-        all.forEach(d => { if ((d.z || 0) > maxZ) maxZ = d.z; });
-        const targetZ = maxZ + 1;
-        const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
-        const after = items.map(d => ({ doodad: d, z: targetZ }));
-        DocsDoodads.Undo.execute({
-            type: 'z_order_front',
-            apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
-            revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
-        });
-        this.refreshSpriteset(true);
-        this.refreshInspector();
-        this.showToast(`Brought ${items.length} doodad(s) to front (Z: ${targetZ})`);
+        const targetZ = Math.max(0, ...(DocsDoodads.doodads() || []).map(d => d.z || 0)) + 1;
+        if (this.setZOrder(items, () => targetZ, 'z_order_front')) this.showToast(`Brought ${(items || this.selectionItems()).length} doodad(s) to front (Z: ${targetZ})`);
     },
 
     sendToBack(items) {
-        items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
-        if (!items || items.length === 0) return;
-        const all = DocsDoodads.doodads() || [];
-        let minZ = 0;
-        all.forEach(d => { if ((d.z || 0) < minZ) minZ = d.z; });
-        const targetZ = minZ - 1;
-        const before = items.map(d => ({ doodad: d, z: d.z || 0 }));
-        const after = items.map(d => ({ doodad: d, z: targetZ }));
-        DocsDoodads.Undo.execute({
-            type: 'z_order_bottom',
-            apply: () => { after.forEach(a => { a.doodad.z = a.z; }); this.refreshSpriteset(true); },
-            revert: () => { before.forEach(b => { b.doodad.z = b.z; }); this.refreshSpriteset(true); }
-        });
-        this.refreshSpriteset(true);
-        this.refreshInspector();
-        this.showToast(`Sent ${items.length} doodad(s) to back (Z: ${targetZ})`);
+        const targetZ = Math.min(0, ...(DocsDoodads.doodads() || []).map(d => d.z || 0)) - 1;
+        if (this.setZOrder(items, () => targetZ, 'z_order_bottom')) this.showToast(`Sent ${(items || this.selectionItems()).length} doodad(s) to back (Z: ${targetZ})`);
     },
 
-    // Copies are unlocked and get fresh ids; each copied group becomes one new, independent group.
+    // Copies are unlocked and get fresh ids; each copied group becomes one new, independent group, and
+    // each copied prefab copy a new placed copy (its own instance, at the moved origin).
     cloneDoodadsForCopy(items, offset = 16) {
         const groupIds = new Map();
+        const instances = new Map();
         return items.map(orig => {
             const dup = JSON.parse(JSON.stringify(orig));
             dup.x += offset;
@@ -113,6 +74,12 @@
             dup.locked = false;
             delete dup.uid;
             delete dup.mirrorOf;
+            if (orig.prefabRef) {
+                if (!instances.has(orig.prefabRef.instance)) instances.set(orig.prefabRef.instance, DocsDoodads.Prefabs.newId('pi_'));
+                dup.prefabRef.instance = instances.get(orig.prefabRef.instance);
+                dup.prefabRef.ox = (Number(orig.prefabRef.ox) || 0) + offset;
+                dup.prefabRef.oy = (Number(orig.prefabRef.oy) || 0) + offset;
+            }
             if (orig.groupId) {
                 if (!groupIds.has(orig.groupId)) groupIds.set(orig.groupId, 'grp_' + Date.now() + '_' + groupIds.size + '_' + Math.random().toString(36).slice(2, 6));
                 dup.groupId = groupIds.get(orig.groupId);

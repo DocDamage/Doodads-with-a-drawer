@@ -43,14 +43,6 @@ function parseNumberParameter(value, fallback, min, max) {
     return Math.min(max, Math.max(min, parsed));
 }
 
-function safePluginFolder(value) {
-    const segments = String(value || 'doodads').replace(/\\/g, '/').split('/')
-        .filter(segment => segment && segment !== '.' && segment !== '..')
-        .map(segment => segment.replace(/[<>:"|?*\x00-\x1f]/g, '_'))
-        .filter(Boolean);
-    return (segments.length ? segments.join('/') : 'doodads') + '/';
-}
-
 function safeDataBaseName(value) {
     const safe = String(value || 'DocsDoodads')
         .replace(/\.json$/i, '')
@@ -69,12 +61,15 @@ DocsDoodads.Security = DocsDoodads.Security || {
 
 const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
-const folderName = "img/" + safePluginFolder(parameters.folderName);
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
 const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
 const pluginVersion = 2.0;
 const doodadScaleMode = parseBooleanParameter(parameters.doodadScaleMode, true);
 const saveMode = parseBooleanParameter(parameters.saveMode, false);
+const gridSnapShow = parseBooleanParameter(parameters.gridSnapShow, false);
+// 0 (or blank): snap to the map's tiles.
+const gridSnapWidth = Math.round(parseNumberParameter(parameters.gridSnapWidth, 0, 0, 960));
+const gridSnapHeight = Math.round(parseNumberParameter(parameters.gridSnapHeight, 0, 0, 960));
 
 const defaultLayoutName = String(parameters.defaultLayout || "Mapping");
 const defaultThumbnailSize = parseNumberParameter(parameters.defaultThumbnailSize, 96, 32, 256);
@@ -82,6 +77,5 @@ const cacheEnabled = parseBooleanParameter(parameters.cacheEnabled, true);
 const backgroundWorkBudget = parseNumberParameter(parameters.backgroundWorkBudget, 4, 1, 16);
 const autosaveRecoveryInterval = parseNumberParameter(parameters.autosaveRecoveryInterval, 60, 0, 600);
 const backupRetentionCount = Math.round(parseNumberParameter(parameters.backupRetentionCount, 10, 1, 50));
-const enableMVCompatibility = parseBooleanParameter(parameters.enableMVCompatibility, true);
 const devDiagnostics = parseBooleanParameter(parameters.devDiagnostics, false);
 

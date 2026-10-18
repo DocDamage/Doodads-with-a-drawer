@@ -79,7 +79,7 @@ const testStateDir = path.join(__dirname, 'interactive_systems_fixture');
 fs.rmSync(testStateDir, { recursive: true, force: true });
 fs.mkdirSync(testStateDir, { recursive: true });
 process.on('exit', () => fs.rmSync(testStateDir, { recursive: true, force: true }));
-DocsDoodads.EventTemplates.filePath = path.join(testStateDir, 'DocsDoodadsEventTemplates.json');
+DocsDoodads.EventTemplates.customPath = path.join(testStateDir, 'DocsDoodadsEventTemplates.json');
 DocsDoodads.EventTemplates.custom = {};
 
 // Test 1: Slicer Editor Snapping

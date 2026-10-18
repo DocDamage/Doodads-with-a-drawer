@@ -52,6 +52,18 @@ if (typeof Spriteset_Map !== 'undefined') {
         this.sortDocsDoodads();
     };
 
+    // Sprites for new doodads only (the brushes add some on every mouse move); the others are kept.
+    Spriteset_Map.prototype.addDocsDoodadSprites = function(items) {
+        if (!this._docsDoodadsContainer) return;
+        for (const data of items || []) {
+            if (!data) continue;
+            const spr = new Sprite_DocsDoodad(data, this);
+            this._docsDoodadsContainer.addChild(spr);
+            this._docsDoodadSprites.push(spr);
+            spr.updatePlacement();
+        }
+    };
+
     Spriteset_Map.prototype.sortDocsDoodads = function() {
         if (!this._docsDoodadsContainer) return;
         for (const sprite of this._docsDoodadSprites || []) sprite.updatePlacement();
@@ -136,7 +148,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             const ch = sprite._character;
             if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
             if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
-            const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
+            const jump = (typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0) + DocsDoodads.Traversal.liftOf(ch);
             const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, alpha: sprite.opacity / 255, rotation: 0 };
             // Gear layers reflect too, behind and in front of the body.
             const gear = (sprite._docsVisualSprites || []).filter(l => l.visible);
@@ -543,7 +555,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
         const sun = DocsDoodads.Atmosphere.sun();
         const t = DocsDoodads.Sun.transform(sun, DocsDoodads.CharacterShadow.styleFor(settings, tags));
         const ch = this._character;
-        const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
+        const jump = (typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0) + DocsDoodads.Traversal.liftOf(ch);
         const footX = this.x + t.offsetX;
         const footY = this.y + jump + t.offsetY;
         let scaleY = t.scaleY;
@@ -635,14 +647,8 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
         this._docsLastReal = real;
         const blur = this._docsBlurVector = DocsDoodads.MotionBlur.step(this._docsBlurVector || { x: 0, y: 0 }, target, 0.5);
         const active = blur.x !== 0 || blur.y !== 0;
-        // MZ replaces the filter list when it adds its colour filter, so membership is checked every frame.
-        const filters = this.filters ? this.filters.slice() : [];
-        const index = this._docsBlurFilter ? filters.indexOf(this._docsBlurFilter) : -1;
         if (!active) {
-            if (index >= 0) {
-                filters.splice(index, 1);
-                this.filters = filters.length ? filters : null;
-            }
+            DocsDoodads.toggleFilter(this, this._docsBlurFilter, false);
             return;
         }
         if (!this._docsBlurFilter) {
@@ -654,10 +660,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
             }
         }
         this._docsBlurFilter.uniforms.uVelocity = [blur.x, blur.y];
-        if (index < 0) {
-            filters.push(this._docsBlurFilter);
-            this.filters = filters;
-        }
+        DocsDoodads.toggleFilter(this, this._docsBlurFilter, true);
     };
 }
 
@@ -913,6 +916,10 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
         for (const chunk of plan.chunks) {
             $gameMap.setDisplayPos(chunk.displayX, chunk.displayY);
             spriteset.update();
+            // Doodads update once per frame and the frame doesn't move on here: place them for this
+            // piece's camera (with their shadows and emitters) by hand.
+            for (const sprite of spriteset._docsDoodadSprites || []) sprite._lastParticleFrame = -1;
+            if (spriteset.sortDocsDoodads) spriteset.sortDocsDoodads();
             spriteset.scale.set(1, 1);
             spriteset.x = 0;
             spriteset.y = 0;
@@ -1225,7 +1232,10 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
         const centerY = pos.y + h * (0.5 - (d.anchorY !== undefined ? d.anchorY : 1));
         const parent = this.parent;
         const wanted = d.particles && d.particles.preset && d.particles.preset !== 'none' ? d.particles : null;
-        const sig = wanted ? JSON.stringify(wanted) : '';
+        // In play the settings only change by being replaced; the editor changes them in place.
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const sig = !wanted ? '' : (!editing && wanted === this._particleSrc && this._particleSig) ? this._particleSig : JSON.stringify(wanted);
+        this._particleSrc = wanted;
         if (sig !== this._particleSig) {
             this._particleSig = sig;
             this.destroyDocsParticles();
@@ -1307,7 +1317,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         $.Spriteset_Map_removeDocsDoodadSprites.call(this);
     };
 
-    // Effects started by "Play VFX" belong to the map they started on; they survive the menu.
+    // Effects started by "Play VFX" belong to the map they started on; they survive the menu and
+    // carry on from where they were.
     $.Spriteset_Map_createCharacters = Spriteset_Map.prototype.createCharacters;
     Spriteset_Map.prototype.createCharacters = function() {
         $.Spriteset_Map_createCharacters.call(this);
@@ -1315,7 +1326,6 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (DocsDoodads.Vfx._mapId !== mapId) DocsDoodads.Vfx._playing = [];
         DocsDoodads.Vfx._mapId = mapId;
         for (const instance of DocsDoodads.Vfx._playing) instance.view = null;
-        this._docsVfxViews = [];
         DocsDoodads.CharacterAnim.preload();
     };
 
@@ -1327,16 +1337,17 @@ if (typeof Spriteset_Map !== 'undefined') {
 
     Spriteset_Map.prototype.updateDocsVfx = function() {
         if (!this._tilemap || typeof Sprite_DocsVfx === 'undefined') return;
-        this._docsVfxViews = this._docsVfxViews || [];
         const playing = DocsDoodads.Vfx._playing;
         for (const instance of playing) {
+            if (instance.done) continue;
             if (!instance.view) {
                 instance.view = new Sprite_DocsVfx(instance.def, instance.seed);
                 instance.view.z = 5.5;
                 // Effects on a character are drawn 24px up; in 3D they stand on its foot.
                 instance.view._docsPivotDy = instance.follow ? 24 : 0;
                 instance.view._docsSortY = 0;
-                this._docsVfxViews.push(instance.view);
+                // Back from the menu: run the effect up to where it was (at most 10 seconds of it).
+                for (let t = 0, until = Math.min(10, instance.time || 0); t < until; t += 1 / 30) instance.view.step(1 / 30);
             }
             if (instance.view.parent !== this._tilemap) this._tilemap.addChild(instance.view);
             let at;
@@ -1355,8 +1366,11 @@ if (typeof Spriteset_Map !== 'undefined') {
         for (let i = playing.length - 1; i >= 0; i--) {
             const instance = playing[i];
             if (!instance.done) continue;
-            if (instance.view.parent) instance.view.parent.removeChild(instance.view);
-            instance.view.destroy({ children: true });
+            if (instance.view) {
+                if (instance.view.parent) instance.view.parent.removeChild(instance.view);
+                instance.view.destroy({ children: true });
+                instance.view = null;
+            }
             playing.splice(i, 1);
         }
     };
@@ -1538,20 +1552,23 @@ if (typeof Sprite_Character !== 'undefined') {
     };
 }
 
-// The interpreter can wait for an action or a VFX to finish.
+// The interpreter can wait for an action or a VFX to finish. Interpreters are saved with the game, so
+// they keep only ids: the character as 'player' or an event id, the effect by its number.
 if (typeof Game_Interpreter !== 'undefined') {
     $.Game_Interpreter_updateWaitMode = Game_Interpreter.prototype.updateWaitMode;
     Game_Interpreter.prototype.updateWaitMode = function() {
         if (this._waitMode === 'docsAction') {
-            const waiting = Boolean(this._docsWaitCharacter && this._docsWaitCharacter._docsAction);
+            const ch = DocsDoodads.characterFor(this, this._docsWaitTarget === 'player' ? 'player' : 'event', this._docsWaitTarget);
+            const waiting = Boolean(ch && ch._docsAction);
             if (!waiting) {
                 this._waitMode = '';
-                this._docsWaitCharacter = null;
+                this._docsWaitTarget = null;
             }
             return waiting;
         }
         if (this._waitMode === 'docsVfx') {
-            const waiting = Boolean(this._docsWaitVfx && !this._docsWaitVfx.done && DocsDoodads.Vfx._playing.includes(this._docsWaitVfx));
+            const id = this._docsWaitVfx;
+            const waiting = DocsDoodads.Vfx._playing.some(instance => instance.uid === id && !instance.done);
             if (!waiting) {
                 this._waitMode = '';
                 this._docsWaitVfx = null;
@@ -1578,7 +1595,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         ch._docsAction = action;
         if (typeof ImageManager !== 'undefined') ImageManager.loadCharacter(action.sheet);
         if (String(args.wait) === 'true' && !action.hold && action.loops > 0 && this && this.setWaitMode) {
-            this._docsWaitCharacter = ch;
+            this._docsWaitTarget = ch === $gamePlayer ? 'player' : (ch.eventId ? ch.eventId() : null);
             this.setWaitMode('docsAction');
         }
     });
@@ -1606,7 +1623,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         }
         const instance = DocsDoodads.Vfx.play(spec);
         if (instance && String(args.wait) === 'true' && this && this.setWaitMode) {
-            this._docsWaitVfx = instance;
+            this._docsWaitVfx = instance.uid;
             this.setWaitMode('docsVfx');
         }
     });
@@ -1727,7 +1744,9 @@ DocsDoodads.PlayerZoom = {
 if (typeof AudioManager !== 'undefined' && AudioManager.updateBgmParameters) {
     $.AudioManager_updateBgmParameters_focus = AudioManager.updateBgmParameters;
     AudioManager.updateBgmParameters = function(bgm) {
-        const k = DocsDoodads.PlayerZoom.musicScale();
+        // Only on the map: battle and title music play at their own volume whatever the zoom.
+        const onMap = typeof SceneManager !== 'undefined' && typeof Scene_Map !== 'undefined' && SceneManager._scene instanceof Scene_Map;
+        const k = onMap ? DocsDoodads.PlayerZoom.musicScale() : 1;
         $.AudioManager_updateBgmParameters_focus.call(this, bgm && k < 1 ? Object.assign({}, bgm, { volume: (Number(bgm.volume) || 0) * k }) : bgm);
     };
 }
@@ -2004,14 +2023,30 @@ DocsDoodads.RegionSounds = {
     _state: null,
     _mapId: null,
     _saved: null,
+    _playing: null,
+
+    // The sound to go back to on leaving a region: what played before, unless that was a region's own
+    // sound (a save loaded inside a region brings it back), then the map's own BGS.
+    bgsBefore(list) {
+        const current = AudioManager.saveBgs();
+        const regionNames = new Set((list || []).map(e => e && e.name).filter(Boolean));
+        if (current && current.name && !regionNames.has(current.name)) return current;
+        const map = typeof $dataMap !== 'undefined' ? $dataMap : null;
+        return map && map.autoplayBgs && map.bgs && map.bgs.name ? Object.assign({ pos: 0 }, map.bgs) : null;
+    },
 
     update() {
         if (typeof AudioManager === 'undefined' || typeof $gamePlayer === 'undefined' || !$gamePlayer || !$gameMap) return;
         const SS = DocsDoodads.SpatialSound;
         if (this._mapId !== $gameMap.mapId() || !this._state) {
+            // A region's sound doesn't follow the player to a map that plays no BGS of its own.
+            const current = this._playing && this._mapId !== null ? AudioManager.saveBgs() : null;
+            const map = typeof $dataMap !== 'undefined' ? $dataMap : null;
+            if (current && current.name === this._playing && !(map && map.autoplayBgs)) AudioManager.fadeOutBgs(1);
             this._mapId = $gameMap.mapId();
             this._state = SS.regionStart();
             this._saved = null;
+            this._playing = null;
         }
         const list = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).regionSounds;
         if (!Array.isArray(list) || list.length === 0) {
@@ -2022,7 +2057,8 @@ DocsDoodads.RegionSounds = {
         const action = step.action;
         if (!action) return;
         if (action.type === 'play') {
-            if (action.save) this._saved = AudioManager.saveBgs();
+            if (action.save) this._saved = this.bgsBefore(list);
+            this._playing = action.entry.name;
             AudioManager.playBgs({ name: action.entry.name, volume: Number(action.entry.volume) || 90, pitch: Number(action.entry.pitch) || 100, pan: 0 });
             AudioManager.fadeInBgs(Math.max(0, Number(action.entry.fade) || 0));
         } else if (action.type === 'restore') {
@@ -2033,6 +2069,7 @@ DocsDoodads.RegionSounds = {
                 AudioManager.fadeOutBgs(Math.max(0, Number(action.fade) || 0));
             }
             this._saved = null;
+            this._playing = null;
         }
     }
 };

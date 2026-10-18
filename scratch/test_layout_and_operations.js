@@ -54,7 +54,7 @@ DocsDoodads.Layout.init();
 assert.deepStrictEqual(DocsDoodads.Layout.custom, {}, "Initial custom layouts should be empty");
 
 // Save a custom layout
-DocsDoodads.Layout.custom["SuperWide"] = { drawerWidth: 500, inspectorWidth: 350, thumbSize: 128, viewMode: 'grid' };
+DocsDoodads.Layout.custom["SuperWide"] = { drawerWidth: 500, inspectorWidth: 350, thumbSize: 128 };
 DocsDoodads.FS.atomicWriteJson(testLayoutPath, DocsDoodads.Layout.custom);
 
 // Re-init and verify
