@@ -5131,6 +5131,23 @@ DocsDoodads.Terrain = {
         { value: 'erase', label: 'Erase (back to automatic)' }
     ],
 
+    // The tiles one dab around (cx, cy) touches, with how strongly (1 at the centre): what the brush
+    // preview shows before painting. Uses the same circle and falloff as applyBrush.
+    brushFootprint(cx, cy, radius) {
+        const r = Math.max(0, Math.round(Number(radius) || 0));
+        const out = [];
+        for (let dy = -r; dy <= r; dy++) {
+            for (let dx = -r; dx <= r; dx++) {
+                const d = Math.hypot(dx, dy);
+                if (d > r + 0.25) continue;
+                out.push({ x: cx + dx, y: cy + dy, weight: 1 - d / (r + 1) });
+            }
+        }
+        return out;
+    },
+
+    brushColors: { raise: 0x22c55e, lower: 0xf97316, flatten: 0x38bdf8, set: 0xa855f7, erase: 0xef4444 },
+
     // One dab of the height brush around tile (cx, cy). Returns the new painted heights.
     // opts: { mode, amount (tiles), radius (tiles), value (set), target (flatten) }
     applyBrush(paint, grid, cx, cy, opts) {
@@ -18087,6 +18104,16 @@ DocsDoodads.Workspace = {
     // ---- Terrain brush ----
     terrainBrush: { mode: 'raise', amount: 0.5, radius: 1, value: 1 },
 
+    // The tile under the mouse while the Terrain tool is out, for the brush preview (null off the map).
+    trackTerrainHover(e) {
+        const canvas = DocsDoodads.Compat.getCanvas();
+        const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+        const inside = !rect || (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom);
+        if (!inside) { this._terrainHover = null; return; }
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        this._terrainHover = { tileX: at.tileX, tileY: at.tileY };
+    },
+
     beginTerrainStroke(clientX, clientY) {
         const mapId = this.currentMapId();
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
@@ -20656,6 +20683,18 @@ DocsDoodads.Workspace = {
 
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
+        if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
+            const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const color = T.brushColors[this.terrainBrush.mode] || 0xffffff;
+            for (const t of T.brushFootprint(this._terrainHover.tileX, this._terrainHover.tileY, this.terrainBrush.radius)) {
+                // Stronger towards the centre, as the brush is.
+                g.lineStyle(2, color, 0.35 + 0.55 * t.weight);
+                g.beginFill(color, 0.15 + 0.4 * t.weight);
+                g.drawRect($gameMap.adjustX(t.x) * tw + 3, $gameMap.adjustY(t.y) * th + 3, tw - 6, th - 6);
+                g.endFill();
+            }
+            g.lineStyle(0);
+        }
         // Offsets from the screen position of the map origin's nearest copy keep lines continuous on looping maps.
         const anchor = this._drag && this._drag.primary ? this._drag.primary : (this.pathPoints && this.pathPoints[0]) || { x: 0, y: 0 };
         const anchorScreen = DocsDoodads.mapToScreen(anchor.x, anchor.y);
@@ -21138,6 +21177,7 @@ DocsDoodads.Workspace = {
                 this._pathHover = e.altKey ? { x: hover.x, y: hover.y } : this.snapToTile(hover);
                 return;
             }
+            if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 this.showGhost(this.selectedAsset, e.clientX, e.clientY, e.altKey);
             } else if (this.isBrushActive && this.placementTool === 'brush' && this.selectedAsset) {
@@ -21146,6 +21186,7 @@ DocsDoodads.Workspace = {
                 this.biomePaintAt(e.clientX, e.clientY);
             } else if (this.isBrushActive && this.placementTool === 'terrain') {
                 this.terrainPaintAt(e.clientX, e.clientY);
+                this.trackTerrainHover(e);
             } else if (this.isMarqueeActive && this.marqueeStartClient) {
                 const dx = e.clientX - this.marqueeStartClient.x;
                 const dy = e.clientY - this.marqueeStartClient.y;

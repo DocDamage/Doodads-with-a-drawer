@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Added a Terrain brush preview: the tiles a stroke will change are shown on the ground before painting, stronger towards the centre.
 - Added a 3D preview to the asset inspector on 3D maps: the selected image standing beside the party leader at the map's tilt and 3D height settings.
 - Added drifting cloud shadows and low fog to the 3D view (per map); the fog lies in valleys when terrain height is on.
 - Added snow that settles in the 3D view (per map): the ground whitens and standing objects get white tops while it snows, it melts afterwards, and a season named Winter keeps it white.
