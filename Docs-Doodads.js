@@ -109,7 +109,16 @@
  *      Dressing Rules (water edges, wall bases, beside paths...), visual save History,
  *      animated drawer thumbnails, and the Ctrl+K command palette.
  *
- * 15. Modern Operations & Safety:
+ * 15. Visual Equipment & Destination Marker (map panel):
+ *    - <visual: Sheet, z -1> on weapons/armors/states draws gear layers on the
+ *      player, followers, events and side-view battlers (sv SheetName). Also
+ *      <visual base: ...>, <visual hide: hair>, <visual color: hair, switch 12, hue 120>,
+ *      <visual alias: Elf> ({alias} in image names) and <visual actor: N> on events.
+ *    - The equip screen previews the highlighted item; save files show the gear.
+ *    - The click-to-walk marker: shapes, images, animations or VFX, pulse, spin,
+ *      bob, path dots; Set Destination Marker changes it mid-game.
+ *
+ * 16. Modern Operations & Safety:
  *    - 300-level command-based Undo / Redo (Ctrl+Z, Ctrl+Y).
  *    - Duplicate (Ctrl+D), Copy/Paste (Ctrl+C, Ctrl+V), Nudge (Arrows / Shift+Arrows).
  *    - Windows Explorer drag-and-drop file/folder import with destination routing & conflict dialog.
@@ -660,6 +669,274 @@
  * @type number
  * @min 0
  * @default 0
+ *
+ * @command setVisualAlias
+ * @text Set Visual Alias
+ * @desc Changes the {alias} an actor's gear images use (body type, race, outfit set). Blank uses the notetag.
+ *
+ * @arg actor
+ * @text Actor
+ * @type select
+ * @option Party leader
+ * @value leader
+ * @option Actor by ID
+ * @value id
+ * @default leader
+ *
+ * @arg actorId
+ * @text Actor ID
+ * @type actor
+ * @default 0
+ *
+ * @arg alias
+ * @text Alias
+ * @type string
+ * @default
+ *
+ * @command addVisualLayer
+ * @text Add Visual Layer
+ * @desc Puts a layer on an actor without equipment (a costume, a hat from a quest). Replaces a layer with the same part.
+ *
+ * @arg actor
+ * @text Actor
+ * @type select
+ * @option Party leader
+ * @value leader
+ * @option Actor by ID
+ * @value id
+ * @default leader
+ *
+ * @arg actorId
+ * @text Actor ID
+ * @type actor
+ * @default 0
+ *
+ * @arg image
+ * @text Layer Sheet (img/characters)
+ * @type file
+ * @dir img/characters/
+ * @require 1
+ *
+ * @arg z
+ * @text Order (negative = behind the body)
+ * @type number
+ * @min -99
+ * @max 99
+ * @default 1
+ *
+ * @arg part
+ * @text Part Name
+ * @type string
+ * @default
+ * @desc Used by hide and colour tags, and by Remove Visual Layer. Blank uses the image name.
+ *
+ * @arg sv
+ * @text Side-View Sheet (img/sv_actors)
+ * @type file
+ * @dir img/sv_actors/
+ *
+ * @command removeVisualLayer
+ * @text Remove Visual Layer
+ * @desc Removes layers added with Add Visual Layer, by part name (blank removes them all).
+ *
+ * @arg actor
+ * @text Actor
+ * @type select
+ * @option Party leader
+ * @value leader
+ * @option Actor by ID
+ * @value id
+ * @default leader
+ *
+ * @arg actorId
+ * @text Actor ID
+ * @type actor
+ * @default 0
+ *
+ * @arg part
+ * @text Part Name
+ * @type string
+ * @default
+ *
+ * @command setVisualColor
+ * @text Set Visual Colour
+ * @desc Recolours one part of an actor's look (hair dye, team colours), over any colour tags.
+ *
+ * @arg actor
+ * @text Actor
+ * @type select
+ * @option Party leader
+ * @value leader
+ * @option Actor by ID
+ * @value id
+ * @default leader
+ *
+ * @arg actorId
+ * @text Actor ID
+ * @type actor
+ * @default 0
+ *
+ * @arg part
+ * @text Part Name
+ * @type string
+ * @default hair
+ *
+ * @arg hue
+ * @text Hue Shift (degrees)
+ * @type number
+ * @min -360
+ * @max 360
+ * @default 0
+ *
+ * @arg tint
+ * @text Tint (#rrggbb, blank for none)
+ * @type string
+ * @default
+ *
+ * @arg reset
+ * @text Back to the Notetags
+ * @type boolean
+ * @default false
+ *
+ * @command setDestination
+ * @text Set Destination Marker
+ * @desc Changes the marker shown where the player clicks to walk. Blank fields keep the current value.
+ *
+ * @arg style
+ * @text Style
+ * @type select
+ * @option (keep)
+ * @value
+ * @option MZ square
+ * @value default
+ * @option Rounded square
+ * @value square
+ * @option Circle
+ * @value circle
+ * @option Ring
+ * @value ring
+ * @option Diamond
+ * @value diamond
+ * @option Cross
+ * @value cross
+ * @option Arrow
+ * @value arrow
+ * @option Image (img/system)
+ * @value image
+ * @option Database animation
+ * @value animation
+ * @option VFX effect
+ * @value vfx
+ * @option Hidden
+ * @value none
+ * @default
+ *
+ * @arg color
+ * @text Colour (#rrggbb)
+ * @type string
+ * @default
+ *
+ * @arg opacity
+ * @text Opacity (0-255)
+ * @type string
+ * @default
+ *
+ * @arg blend
+ * @text Blend
+ * @type select
+ * @option (keep)
+ * @value
+ * @option Add (glow)
+ * @value add
+ * @option Normal
+ * @value normal
+ * @option Multiply
+ * @value multiply
+ * @option Screen
+ * @value screen
+ * @default
+ *
+ * @arg scale
+ * @text Size (1 = one tile)
+ * @type string
+ * @default
+ *
+ * @arg pulse
+ * @text Pulse
+ * @type select
+ * @option (keep)
+ * @value
+ * @option MZ pulse
+ * @value mz
+ * @option Breathe
+ * @value breathe
+ * @option Ripple
+ * @value ripple
+ * @option Still
+ * @value none
+ * @default
+ *
+ * @arg spin
+ * @text Spin (degrees per second)
+ * @type string
+ * @default
+ *
+ * @arg bob
+ * @text Bob Height (pixels)
+ * @type string
+ * @default
+ *
+ * @arg layer
+ * @text Drawn
+ * @type select
+ * @option (keep)
+ * @value
+ * @option Above characters
+ * @value above
+ * @option On the ground
+ * @value ground
+ * @default
+ *
+ * @arg image
+ * @text Image (img/system, name[f4] for 4 frames)
+ * @type file
+ * @dir img/system/
+ *
+ * @arg fps
+ * @text Image Frames per Second
+ * @type string
+ * @default
+ *
+ * @arg animationId
+ * @text Animation
+ * @type animation
+ * @default 0
+ *
+ * @arg vfx
+ * @text VFX Effect ID
+ * @type string
+ * @default
+ *
+ * @arg pathDots
+ * @text Path Dots
+ * @type select
+ * @option (keep)
+ * @value
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @default
+ *
+ * @arg dotColor
+ * @text Dot Colour (#rrggbb)
+ * @type string
+ * @default
+ *
+ * @arg reset
+ * @text Back to the Project's Marker
+ * @type boolean
+ * @default false
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -1617,7 +1894,9 @@ DocsDoodads.World = {
         characterAnim: { diagonal: false, sets: [] },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
         biomes: { list: [] },
-        dress: { rules: [] }
+        dress: { rules: [] },
+        visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
+        destination: {}
     },
 
     _cache: null,
@@ -3595,6 +3874,342 @@ DocsDoodads.AnimatedThumb = {
     }
 };
 
+//==========================================================
+// SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
+//==========================================================
+// Gear drawn on characters. Notetags (weapons, armors, states, actors, classes, events):
+//   <visual: image, z N, part P, index I, sv SVIMAGE>   a layer (z < 0 is behind the body)
+//   <visual base: ...>                                  a layer the actor always wears (hair, ears)
+//   <visual hide: part, part>                           parts this hides (a helmet hides the hair)
+//   <visual color: part, switch N | variable N, hue N, tint #rrggbb>
+//   <visual alias: X>                                   fills {alias} in image names (body types)
+//   <visual actor: N>                                   an event wears actor N's look
+DocsDoodads.VisualEquip = {
+    _notes: {},
+
+    parseLayer(text) {
+        const parts = String(text || '').split(',').map(p => p.trim()).filter(Boolean);
+        const image = parts.shift() || '';
+        const layer = { image, z: 1, part: image, index: null, sv: '' };
+        for (const p of parts) {
+            const m = /^(z|part|index|sv)\s*[:=]?\s*(.+)$/i.exec(p);
+            if (!m) continue;
+            const key = m[1].toLowerCase(), value = m[2].trim();
+            if (key === 'z') layer.z = Number(value) || 0;
+            else if (key === 'index') {
+                const n = parseInt(value, 10);
+                layer.index = n >= 0 && n < 8 ? n : null;
+            } else layer[key] = value;
+        }
+        return layer;
+    },
+
+    parseColor(text) {
+        const parts = String(text || '').split(',').map(p => p.trim()).filter(Boolean);
+        const rule = { part: parts.shift() || '', switchId: 0, variableId: 0, hue: null, tint: null };
+        for (const p of parts) {
+            const m = /^(switch|variable|hue|tint)\s*[:=]?\s*(.+)$/i.exec(p);
+            if (!m) continue;
+            const key = m[1].toLowerCase(), value = m[2].trim();
+            if (key === 'switch') rule.switchId = Math.max(0, parseInt(value, 10) || 0);
+            else if (key === 'variable') rule.variableId = Math.max(0, parseInt(value, 10) || 0);
+            else if (key === 'hue') rule.hue = Number(value) || 0;
+            else {
+                const hex = /^#?([0-9a-f]{6})$/i.exec(value);
+                if (hex) rule.tint = parseInt(hex[1], 16);
+            }
+        }
+        return rule;
+    },
+
+    // Cached by text: notes are read every frame. Callers must not change the result.
+    parseNote(note) {
+        const text = String(note || '');
+        if (this._notes[text]) return this._notes[text];
+        const out = { layers: [], base: [], hides: [], colors: [], alias: '', actorId: 0 };
+        if (/<\s*visual/i.test(text)) {
+            const re = /<\s*visual(?:\s+(base|hide|alias|colou?r|actor))?\s*:\s*([^>]*)>/gi;
+            let m;
+            while ((m = re.exec(text))) {
+                const kind = (m[1] || '').toLowerCase(), body = m[2].trim();
+                if (!kind) out.layers.push(this.parseLayer(body));
+                else if (kind === 'base') out.base.push(this.parseLayer(body));
+                else if (kind === 'hide') out.hides.push(...body.split(',').map(s => s.trim()).filter(Boolean));
+                else if (kind === 'alias') out.alias = body;
+                else if (kind === 'actor') out.actorId = Math.max(0, parseInt(body, 10) || 0);
+                else out.colors.push(this.parseColor(body));
+            }
+        }
+        if (Object.keys(this._notes).length > 2000) this._notes = {};
+        this._notes[text] = out;
+        return out;
+    },
+
+    // ctx: { actorNote, equipNotes[], extraNotes[], alias?, colors? { part: { hue, tint } } }
+    // env: { switch(id), variable(id) }. Returns the layers to draw, back to front.
+    resolve(ctx, env) {
+        env = env || {};
+        const sources = [this.parseNote(ctx.actorNote)]
+            .concat((ctx.equipNotes || []).map(n => this.parseNote(n)), (ctx.extraNotes || []).map(n => this.parseNote(n)));
+        const alias = ctx.alias ? String(ctx.alias) : sources.map(s => s.alias).filter(Boolean).pop() || '';
+        const hides = new Set();
+        const rules = [];
+        const all = [];
+        for (const s of sources) {
+            s.hides.forEach(h => hides.add(h.toLowerCase()));
+            rules.push(...s.colors);
+            all.push(...s.base, ...s.layers);
+        }
+        const fill = v => String(v || '').replace(/\{alias\}/gi, alias);
+        const switchOn = id => (typeof env.switch === 'function' ? Boolean(env.switch(id)) : false);
+        const variable = id => (typeof env.variable === 'function' ? Number(env.variable(id)) || 0 : 0);
+        const overrides = ctx.colors || {};
+        const out = [];
+        for (const layer of all) {
+            const part = String(layer.part || '').toLowerCase();
+            if (!layer.image || hides.has(part)) continue;
+            let hue = 0, tint = null;
+            for (const rule of rules) {
+                if (String(rule.part).toLowerCase() !== part) continue;
+                if (rule.switchId && !switchOn(rule.switchId)) continue;
+                if (rule.variableId) hue = variable(rule.variableId);
+                else if (rule.hue !== null) hue = rule.hue;
+                if (rule.tint !== null) tint = rule.tint;
+            }
+            const set = Object.keys(overrides).find(k => k.toLowerCase() === part);
+            if (set) {
+                if (overrides[set].hue !== undefined && overrides[set].hue !== null) hue = Number(overrides[set].hue) || 0;
+                if (overrides[set].tint !== undefined) tint = overrides[set].tint;
+            }
+            out.push({ image: fill(layer.image), z: layer.z, part: layer.part, index: layer.index, sv: fill(layer.sv), hue, tint });
+        }
+        return out.sort((a, b) => a.z - b.z);
+    },
+
+    signature(layers) {
+        return (layers || []).map(l => [l.image, l.z, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
+    },
+
+    // The cell of a layer sheet for frame column `col` and row `row`, laid out like a character sheet
+    // ($ single sheets, 8-character sheets, or [fN]/[dN] tagged sheets).
+    frameRect(name, width, height, index, col, row) {
+        const layout = DocsDoodads.CharacterAnim.parseName(name);
+        const single = layout.tagged || /^!?\$/.test(String(name || ''));
+        const i = ((Number(index) || 0) % 8 + 8) % 8;
+        const block = single ? { x: 0, y: 0, w: width, h: height } : { x: (i % 4) * width / 4, y: Math.floor(i / 4) * height / 2, w: width / 4, h: height / 2 };
+        const pw = Math.floor(block.w / layout.frames), ph = Math.floor(block.h / layout.dirs);
+        const f = ((Math.floor(col) % layout.frames) + layout.frames) % layout.frames;
+        const r = Math.max(0, Math.min(layout.dirs - 1, Math.floor(row) || 0));
+        return { x: block.x + f * pw, y: block.y + r * ph, w: pw, h: ph };
+    },
+
+    // Side-view battlers: the same cell of the layer's sheet, scaled when the layer is a different size.
+    svRect(layerW, layerH, frame, baseW, baseH) {
+        const sx = baseW > 0 ? layerW / baseW : 1, sy = baseH > 0 ? layerH / baseH : 1;
+        return { x: Math.round(frame.x * sx), y: Math.round(frame.y * sy), w: Math.round(frame.width * sx), h: Math.round(frame.height * sy) };
+    },
+
+    savefileLayers(lists) {
+        return (lists || []).map(list => (list || []).map(l => ({ image: l.image, z: l.z, index: l.index, hue: l.hue, tint: l.tint })));
+    },
+
+    // Hue rotation (like MZ's sprite hue) and a multiply tint on RGBA pixels, for drawing in windows.
+    recolor(data, hue, tint) {
+        hue = Number(hue) || 0;
+        const tr = tint === null || tint === undefined ? 255 : (tint >> 16) & 255;
+        const tg = tint === null || tint === undefined ? 255 : (tint >> 8) & 255;
+        const tb = tint === null || tint === undefined ? 255 : tint & 255;
+        if (!hue && tr === 255 && tg === 255 && tb === 255) return data;
+        const shift = (((hue / 360) % 1) + 1) % 1;
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] === 0) continue;
+            let r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+            if (shift) {
+                const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+                if (d > 0) {
+                    let h = max === r ? (((g - b) / d + 6) % 6) / 6 : max === g ? ((b - r) / d + 2) / 6 : ((r - g) / d + 4) / 6;
+                    const s = l < 1 ? d / (1 - Math.abs(2 * l - 1)) : 0;
+                    h = (h + shift) % 1;
+                    const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h * 6) % 2 - 1)), m = l - c / 2;
+                    const k = Math.floor(h * 6);
+                    [r, g, b] = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.min(5, k)].map(v => v + m);
+                }
+            }
+            data[i] = Math.round(r * tr);
+            data[i + 1] = Math.round(g * tg);
+            data[i + 2] = Math.round(b * tb);
+        }
+        return data;
+    }
+};
+
+// The marker where the player clicks or taps to walk.
+DocsDoodads.Destination = {
+    styles: [
+        { value: 'default', label: 'MZ square' },
+        { value: 'square', label: 'Rounded square' },
+        { value: 'circle', label: 'Circle' },
+        { value: 'ring', label: 'Ring' },
+        { value: 'diamond', label: 'Diamond' },
+        { value: 'cross', label: 'Cross' },
+        { value: 'arrow', label: 'Arrow' },
+        { value: 'image', label: 'Image (img/system)' },
+        { value: 'animation', label: 'Database animation' },
+        { value: 'vfx', label: 'VFX effect' },
+        { value: 'none', label: 'Hidden' }
+    ],
+    pulses: [
+        { value: 'mz', label: 'MZ pulse' },
+        { value: 'breathe', label: 'Breathe' },
+        { value: 'ripple', label: 'Ripple' },
+        { value: 'none', label: 'Still' }
+    ],
+    blends: [
+        { value: 'add', label: 'Add (glow)' },
+        { value: 'normal', label: 'Normal' },
+        { value: 'multiply', label: 'Multiply' },
+        { value: 'screen', label: 'Screen' }
+    ],
+    layers: [
+        { value: 'above', label: 'Above characters (MZ)' },
+        { value: 'ground', label: 'On the ground' }
+    ],
+    defaults: {
+        style: 'default', color: '#ffffff', opacity: 120, blend: 'add', scale: 1, pulse: 'mz', spin: 0, bob: 0,
+        layer: 'above', image: '', fps: 8, animationId: 0, vfx: '', pathDots: false, dotColor: '#ffffff', dotSpacing: 1
+    },
+
+    normalize(s) {
+        s = s || {};
+        const d = this.defaults;
+        const pick = (list, v, fallback) => (list.some(o => o.value === v) ? v : fallback);
+        const num = (v, fallback, min, max) => {
+            const n = Number(v);
+            return Number.isFinite(n) && v !== '' && v !== null ? Math.max(min, Math.min(max, n)) : fallback;
+        };
+        const color = (v, fallback) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : fallback);
+        return {
+            style: pick(this.styles, s.style, d.style),
+            color: color(s.color, d.color),
+            opacity: num(s.opacity, d.opacity, 0, 255),
+            blend: pick(this.blends, s.blend, d.blend),
+            scale: num(s.scale, d.scale, 0.1, 4),
+            pulse: pick(this.pulses, s.pulse, d.pulse),
+            spin: num(s.spin, d.spin, -720, 720),
+            bob: num(s.bob, d.bob, 0, 48),
+            layer: pick(this.layers, s.layer, d.layer),
+            image: String(s.image || ''),
+            fps: num(s.fps, d.fps, 1, 60) || 1,
+            animationId: Math.max(0, Math.floor(Number(s.animationId) || 0)),
+            vfx: String(s.vfx || ''),
+            pathDots: s.pathDots === true,
+            dotColor: color(s.dotColor, d.dotColor),
+            dotSpacing: Math.max(1, Math.floor(num(s.dotSpacing, d.dotSpacing, 1, 8)))
+        };
+    },
+
+    // The project's marker with mid-game changes from the plugin command on top.
+    merge(project, override) {
+        const out = Object.assign({}, project || {});
+        for (const key of Object.keys(override || {})) {
+            if (override[key] !== undefined && override[key] !== null) out[key] = override[key];
+        }
+        return this.normalize(out);
+    },
+
+    blendMode(blend) {
+        return { normal: 0, add: 1, multiply: 2, screen: 3 }[blend] !== undefined ? { normal: 0, add: 1, multiply: 2, screen: 3 }[blend] : 1;
+    },
+
+    // Scale and opacity multipliers `frame` frames after the marker appeared.
+    pulse(kind, frame) {
+        frame = Math.max(0, Math.floor(frame) || 0);
+        if (kind === 'mz') {
+            const f = frame % 20;
+            return { scale: 1 + f / 20, alpha: (20 - f) / 20 };
+        }
+        if (kind === 'breathe') {
+            const w = Math.sin(frame / 60 * Math.PI * 2);
+            return { scale: 1 + 0.08 * w, alpha: 0.8 + 0.2 * w };
+        }
+        if (kind === 'ripple') {
+            const f = (frame % 60) / 60;
+            return { scale: 0.6 + 0.9 * f, alpha: 1 - f };
+        }
+        return { scale: 1, alpha: 1 };
+    },
+
+    rotation(degreesPerSecond, frame) {
+        return (Number(degreesPerSecond) || 0) * Math.PI / 180 * (Math.max(0, frame) / 60);
+    },
+
+    // Pixels up and down (negative is up), one bob a second.
+    bob(height, frame) {
+        if (!height) return 0;
+        return -height * (0.5 - 0.5 * Math.cos(frame / 60 * Math.PI * 2));
+    },
+
+    // One row of frames: Marker[f4] is four frames side by side.
+    imageFrame(name, width, height, frame, fps) {
+        const layout = DocsDoodads.CharacterAnim.parseName(name);
+        if (!layout.tagged) return { x: 0, y: 0, w: width, h: height };
+        const w = Math.floor(width / layout.frames);
+        const i = DocsDoodads.CharacterAnim.cycleFrame(frame, fps, layout.frames);
+        return { x: i * w, y: 0, w, h: height };
+    },
+
+    // Breadth-first search like MZ's route search. canEnter(x, y, fromX, fromY, dir) says whether a step
+    // is allowed; opts.wrap(x, y) handles looping maps; opts.distance(ax, ay, bx, by) measures closeness.
+    // When the goal can't be reached, the path ends at the reachable tile closest to it (as MZ walks).
+    path(start, goal, canEnter, limit, opts) {
+        opts = opts || {};
+        const wrap = opts.wrap || ((x, y) => ({ x, y }));
+        const distance = opts.distance || ((ax, ay, bx, by) => Math.abs(ax - bx) + Math.abs(ay - by));
+        const key = (x, y) => x + ',' + y;
+        if (start.x === goal.x && start.y === goal.y) return [];
+        const from = new Map([[key(start.x, start.y), null]]);
+        const cost = new Map([[key(start.x, start.y), 0]]);
+        const queue = [{ x: start.x, y: start.y }];
+        let best = { x: start.x, y: start.y, h: distance(start.x, start.y, goal.x, goal.y) };
+        let found = null;
+        const steps = [[0, 1, 2], [-1, 0, 4], [1, 0, 6], [0, -1, 8]];
+        while (queue.length && !found) {
+            const cur = queue.shift();
+            const g = cost.get(key(cur.x, cur.y));
+            if (g >= (limit || 12)) continue;
+            for (const [dx, dy, dir] of steps) {
+                const n = wrap(cur.x + dx, cur.y + dy);
+                const k = key(n.x, n.y);
+                if (from.has(k) || !canEnter(n.x, n.y, cur.x, cur.y, dir)) continue;
+                from.set(k, cur);
+                cost.set(k, g + 1);
+                if (n.x === goal.x && n.y === goal.y) {
+                    found = n;
+                    break;
+                }
+                const h = distance(n.x, n.y, goal.x, goal.y);
+                if (h < best.h) best = { x: n.x, y: n.y, h };
+                queue.push(n);
+            }
+        }
+        const end = found || best;
+        if (end.x === start.x && end.y === start.y) return [];
+        const out = [];
+        for (let p = { x: end.x, y: end.y }; p && !(p.x === start.x && p.y === start.y); p = from.get(key(p.x, p.y))) out.unshift({ x: p.x, y: p.y });
+        return out;
+    },
+
+    // Dots along a path, every `spacing` tiles, leaving the last tile for the marker.
+    dots(path, spacing) {
+        spacing = Math.max(1, Math.floor(spacing) || 1);
+        return (path || []).slice(0, -1).filter((_, i) => (i + 1) % spacing === 0);
+    },
+
+    zFor(layer) {
+        return layer === 'ground' ? 0.6 : 9;
+    }
+};
+
 // A frame clipped to the image. Images replaced by smaller ones would otherwise make PIXI throw
 // "frame does not fit inside the base Texture" and stop the game.
 DocsDoodads.safeFrame = function(rect, width, height) {
@@ -4116,8 +4731,16 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
             if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
             const jump = typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0;
-            sources.push({ texture: sprite._docsFrameTexture, x: sprite.x, y: sprite.y + jump * 2, sx: sprite.scale.x, sy: sprite.scale.y,
-                anchorX: 0.5, alpha: sprite.opacity / 255, rotation: 0 });
+            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, alpha: sprite.opacity / 255, rotation: 0 };
+            // Gear layers reflect too, behind and in front of the body.
+            const gear = (sprite._docsVisualSprites || []).filter(l => l.visible);
+            const layer = l => {
+                const texture = sprite.docsVisualTexture(l);
+                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint }));
+            };
+            gear.filter(l => l._docsLayer.z < 0).forEach(layer);
+            sources.push(Object.assign({}, at, { texture: sprite._docsFrameTexture, sx: sprite.scale.x }));
+            gear.filter(l => l._docsLayer.z >= 0).forEach(layer);
         }
         for (const sprite of this._docsDoodadSprites || []) {
             const d = sprite._data;
@@ -4144,6 +4767,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set(src.sx, -src.sy);
             s.rotation = src.rotation;
             s.alpha = src.alpha * opacity;
+            s.tint = src.tint !== undefined ? src.tint : 0xffffff;
         });
     };
 
@@ -5740,6 +6364,651 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         if (args.target === 'tile') out = DocsDoodads.SpatialSound.forTile(se, Number(args.x) || 0, Number(args.y) || 0);
         else out = DocsDoodads.SpatialSound.forCharacter(se, DocsDoodads.characterFor(this, args.target, args.eventId));
         if (out) AudioManager.playSe(out);
+    });
+}
+
+//==========================================================
+// SECTION 7H: VISUAL EQUIPMENT & MAP DESTINATION RUNTIME
+//==========================================================
+DocsDoodads.VisualEquip.settings = function() {
+    return DocsDoodads.World.settings().visualEquip;
+};
+
+DocsDoodads.VisualEquip.env = function() {
+    return {
+        switch: id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false),
+        variable: id => (typeof $gameVariables !== 'undefined' && $gameVariables ? $gameVariables.value(id) : 0)
+    };
+};
+
+// Everything an actor wears: actor and class notes, equipment, states, and plugin-command changes.
+DocsDoodads.VisualEquip.contextFor = function(actor, extraNotes) {
+    const data = typeof actor.actor === 'function' ? actor.actor() : null;
+    const cls = typeof actor.currentClass === 'function' ? actor.currentClass() : null;
+    const v = actor._docsVisual || {};
+    const equips = typeof actor.equips === 'function' ? actor.equips().filter(Boolean).map(e => e.note) : [];
+    const states = typeof actor.states === 'function' ? actor.states().map(s => s.note) : [];
+    return {
+        actorNote: [data && data.note, cls && cls.note].filter(Boolean).join('\n'),
+        equipNotes: equips.concat(states, v.notes || []),
+        extraNotes: extraNotes || [],
+        alias: v.alias || '',
+        colors: v.colors || null
+    };
+};
+
+DocsDoodads.VisualEquip.layersForActor = function(actor, extraNotes) {
+    if (!actor) return extraNotes && extraNotes.length ? this.resolve({ extraNotes }, this.env()) : [];
+    return this.resolve(this.contextFor(actor, extraNotes), this.env());
+};
+
+// An event's note and the comments on its current page.
+DocsDoodads.VisualEquip._eventText = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+DocsDoodads.VisualEquip.eventText = function(ev) {
+    const cache = this._eventText;
+    const hit = cache ? cache.get(ev) : null;
+    if (hit && hit.page === ev._pageIndex) return hit.text;
+    const lines = [(ev.event() || {}).note || ''];
+    const page = typeof ev.page === 'function' ? ev.page() : null;
+    for (const cmd of (page && page.list) || []) {
+        if (cmd && (cmd.code === 108 || cmd.code === 408) && cmd.parameters) lines.push(String(cmd.parameters[0] || ''));
+    }
+    const text = lines.join('\n');
+    if (cache) cache.set(ev, { page: ev._pageIndex, text });
+    return text;
+};
+
+// Gear shows while the character uses the actor's own image, so a transformation hides it.
+DocsDoodads.VisualEquip.layersForCharacter = function(ch) {
+    const s = this.settings();
+    if (!s.enabled || !ch) return [];
+    const sameImage = actor => actor && ch.characterName() === actor.characterName() && ch.characterIndex() === actor.characterIndex();
+    if (typeof Game_Player !== 'undefined' && ch instanceof Game_Player) {
+        const leader = $gameParty.leader();
+        return sameImage(leader) ? this.layersForActor(leader) : [];
+    }
+    if (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower) {
+        const actor = ch.actor();
+        return s.followers && sameImage(actor) ? this.layersForActor(actor) : [];
+    }
+    if (typeof Game_Event !== 'undefined' && ch instanceof Game_Event && s.events) {
+        // A page without an image (a hidden or removed NPC) shows no gear either.
+        if (!ch.event() || !ch.characterName()) return [];
+        const text = this.eventText(ch);
+        if (!/<\s*visual/i.test(text)) return [];
+        const note = this.parseNote(text);
+        const actor = note.actorId && typeof $gameActors !== 'undefined' ? $gameActors.actor(note.actorId) : null;
+        return this.layersForActor(actor, [text]);
+    }
+    return [];
+};
+
+// A layer sheet recoloured for drawing in windows (cached), or null while it loads.
+DocsDoodads.VisualEquip._recolored = new Map();
+DocsDoodads.VisualEquip.windowBitmap = function(layer, onReady) {
+    const source = ImageManager.loadCharacter(layer.image);
+    if (!source.isReady()) {
+        if (onReady && !source.isError()) source.addLoadListener(onReady);
+        return null;
+    }
+    if (!layer.hue && (layer.tint === null || layer.tint === undefined)) return source;
+    const key = layer.image + '|' + layer.hue + '|' + layer.tint;
+    let out = this._recolored.get(key);
+    if (out && out._docsSource === source) return out;
+    out = new Bitmap(source.width, source.height);
+    out.blt(source, 0, 0, source.width, source.height, 0, 0);
+    const ctx = out.context;
+    const image = ctx.getImageData(0, 0, out.width, out.height);
+    this.recolor(image.data, layer.hue, layer.tint);
+    ctx.putImageData(image, 0, 0);
+    out.baseTexture.update();
+    out._docsSource = source;
+    if (this._recolored.size > 64) this._recolored.clear();
+    this._recolored.set(key, out);
+    return out;
+};
+
+if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
+    const VE = DocsDoodads.VisualEquip;
+    const C = DocsDoodads.CharacterAnim;
+
+    $.Sprite_Character_update_visual = Sprite_Character.prototype.update;
+    Sprite_Character.prototype.update = function() {
+        $.Sprite_Character_update_visual.call(this);
+        this.updateDocsVisual();
+    };
+
+    Sprite_Character.prototype.updateDocsVisual = function() {
+        const ch = this._character;
+        const layers = ch && this.parent && !(ch.tileId() > 0) ? VE.layersForCharacter(ch) : [];
+        const sig = VE.signature(layers);
+        if (sig !== this._docsVisualSig) {
+            this._docsVisualSig = sig;
+            this.rebuildDocsVisual(layers);
+        }
+        if (this._docsVisualSprites && this._docsVisualSprites.length) this.updateDocsVisualSprites();
+    };
+
+    Sprite_Character.prototype.removeDocsVisual = function() {
+        for (const sprite of this._docsVisualSprites || []) {
+            if (sprite.parent) sprite.parent.removeChild(sprite);
+            sprite.destroy({ children: true });
+        }
+        this._docsVisualSprites = [];
+    };
+
+    Sprite_Character.prototype.rebuildDocsVisual = function(layers) {
+        this.removeDocsVisual();
+        let behind = 0, front = 0;
+        for (const layer of layers) {
+            const sprite = new Sprite(ImageManager.loadCharacter(layer.image));
+            sprite.anchor.set(0.5, 1);
+            sprite.setHue(layer.hue || 0);
+            if (layer.tint !== null && layer.tint !== undefined) sprite.tint = layer.tint;
+            // Ties in the tilemap sort break by spriteId: just under or just over the body.
+            sprite._docsOrder = layer.z < 0 ? -0.5 + (behind++) * 0.001 : 0.01 + (front++) * 0.001;
+            sprite._docsLayer = layer;
+            this._docsVisualSprites.push(sprite);
+        }
+    };
+
+    // Bush depth: a translucent lower half, like MZ does for the body.
+    Sprite_Character.prototype.docsVisualHalves = function(sprite) {
+        if (!sprite._docsUpper) {
+            sprite._docsUpper = new Sprite(sprite.bitmap);
+            sprite._docsLower = new Sprite(sprite.bitmap);
+            sprite._docsUpper.anchor.set(0.5, 1);
+            sprite._docsLower.anchor.set(0.5, 1);
+            sprite._docsLower.opacity = 128;
+            sprite.addChild(sprite._docsUpper);
+            sprite.addChild(sprite._docsLower);
+        }
+        return [sprite._docsUpper, sprite._docsLower];
+    };
+
+    Sprite_Character.prototype.updateDocsVisualSprites = function() {
+        const ch = this._character;
+        const anim = this._docsAnim;
+        const facing = anim ? anim.facing : ch.direction();
+        const col = anim ? anim.frame : this.characterPatternX();
+        const visible = this.visible && !ch.isTransparent();
+        for (const sprite of this._docsVisualSprites) {
+            if (sprite.parent !== this.parent) this.parent.addChild(sprite);
+            const layer = sprite._docsLayer;
+            const bitmap = sprite.bitmap;
+            sprite.visible = visible && bitmap.isReady();
+            if (!sprite.visible) continue;
+            const layout = C.parseName(layer.image);
+            const row = C.rowFor(facing, layout.dirs);
+            const rect = DocsDoodads.safeFrame(VE.frameRect(layer.image, bitmap.width, bitmap.height,
+                layer.index !== null ? layer.index : ch.characterIndex(), col, row.row), bitmap.width, bitmap.height);
+            const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h) : 0;
+            if (depth > 0) {
+                const [upper, lower] = this.docsVisualHalves(sprite);
+                upper.visible = lower.visible = true;
+                sprite.setFrame(rect.x, rect.y, 0, rect.h);
+                upper.setFrame(rect.x, rect.y, rect.w, rect.h - depth);
+                upper.y = -depth;
+                lower.setFrame(rect.x, rect.y + rect.h - depth, rect.w, depth);
+            } else {
+                if (sprite._docsUpper) sprite._docsUpper.visible = sprite._docsLower.visible = false;
+                sprite.setFrame(rect.x, rect.y, rect.w, rect.h);
+            }
+            sprite._docsRect = rect;
+            sprite.x = this.x;
+            sprite.y = this.y;
+            sprite.z = this.z;
+            sprite.spriteId = this.spriteId + sprite._docsOrder;
+            if (this._docsSortY !== undefined) sprite._docsSortY = this._docsSortY;
+            sprite.scale.set(Math.abs(this.scale.x) * (row.mirror ? -1 : 1), this.scale.y);
+            sprite.rotation = this.rotation;
+            sprite.opacity = this.opacity;
+            sprite.blendMode = this.blendMode;
+            sprite.setBlendColor(this.getBlendColor());
+            sprite.setColorTone(this.getColorTone());
+        }
+    };
+
+    // A whole-frame texture for a layer (reflections draw it upside down).
+    Sprite_Character.prototype.docsVisualTexture = function(sprite) {
+        const rect = sprite._docsRect;
+        const base = sprite.bitmap && sprite.bitmap.baseTexture;
+        if (!rect || !base) return null;
+        const last = sprite._docsFullRect;
+        if (!sprite._docsFull || !last || last.x !== rect.x || last.y !== rect.y || last.w !== rect.w || last.h !== rect.h) {
+            sprite._docsFull = new PIXI.Texture(base, new PIXI.Rectangle(rect.x, rect.y, rect.w, rect.h));
+            sprite._docsFullRect = rect;
+        }
+        return sprite._docsFull;
+    };
+}
+
+if (typeof Sprite_Actor !== 'undefined' && typeof Sprite !== 'undefined') {
+    const VE = DocsDoodads.VisualEquip;
+
+    // Side-view battlers: layers from each item's "sv" sheet, in the same cell as the battler.
+    $.Sprite_Actor_updateFrame = Sprite_Actor.prototype.updateFrame;
+    Sprite_Actor.prototype.updateFrame = function() {
+        $.Sprite_Actor_updateFrame.call(this);
+        this.updateDocsVisual();
+    };
+
+    Sprite_Actor.prototype.updateDocsVisual = function() {
+        const s = VE.settings();
+        const main = this._mainSprite;
+        if (!main) return;
+        const layers = s.enabled && s.battlers && this._actor ? VE.layersForActor(this._actor).filter(l => l.sv) : [];
+        const sig = VE.signature(layers);
+        if (sig !== this._docsVisualSig) {
+            this._docsVisualSig = sig;
+            for (const sprite of this._docsVisualSprites || []) {
+                if (sprite.parent) sprite.parent.removeChild(sprite);
+                sprite.destroy();
+            }
+            this._docsVisualSprites = [];
+            let front = 0;
+            for (const layer of layers) {
+                const sprite = new Sprite(ImageManager.loadSvActor(layer.sv));
+                sprite.anchor.set(0.5, 1);
+                sprite.setHue(layer.hue || 0);
+                if (layer.tint !== null && layer.tint !== undefined) sprite.tint = layer.tint;
+                const at = this.children.indexOf(main);
+                if (layer.z < 0) this.addChildAt(sprite, at);
+                else this.addChildAt(sprite, at + 1 + (front++));
+                this._docsVisualSprites.push(sprite);
+            }
+        }
+        const base = main.bitmap;
+        for (const sprite of this._docsVisualSprites || []) {
+            const bitmap = sprite.bitmap;
+            sprite.visible = main.visible && Boolean(base) && base.isReady() && bitmap.isReady() && base.width > 0;
+            if (!sprite.visible) continue;
+            const rect = DocsDoodads.safeFrame(VE.svRect(bitmap.width, bitmap.height, main._frame, base.width, base.height), bitmap.width, bitmap.height);
+            sprite.setFrame(rect.x, rect.y, rect.w, rect.h);
+            sprite.x = main.x;
+            sprite.y = main.y;
+            sprite.scale.set(main.scale.x * base.width / bitmap.width, main.scale.y * base.height / bitmap.height);
+            sprite.opacity = main.opacity;
+            sprite.blendMode = main.blendMode;
+        }
+    };
+}
+
+// Menus and save files draw the same layers.
+if (typeof Window_Base !== 'undefined') {
+    const VE = DocsDoodads.VisualEquip;
+    const C = DocsDoodads.CharacterAnim;
+
+    // Draws a character standing and facing down, with its layers; `zoom` scales it up.
+    Window_Base.prototype.drawDocsCharacter = function(characterName, characterIndex, x, y, layers, zoom) {
+        zoom = zoom || 1;
+        const refresh = () => { if (typeof this.refresh === 'function' && !this._destroyed) this.refresh(); };
+        const ctx = this.contents.context;
+        const smooth = ctx.imageSmoothingEnabled;
+        if (zoom !== 1) ctx.imageSmoothingEnabled = false;
+        const drawSheet = (bitmap, name, index) => {
+            const layout = C.parseName(name);
+            const rect = VE.frameRect(name, bitmap.width, bitmap.height, index, C.standingFrame(layout.frames), C.rowFor(2, layout.dirs).row);
+            const w = rect.w * zoom, h = rect.h * zoom;
+            this.contents.blt(bitmap, rect.x, rect.y, rect.w, rect.h, x - w / 2, y - h, w, h);
+        };
+        const drawLayers = list => {
+            for (const layer of list) {
+                const bitmap = VE.windowBitmap(layer, refresh);
+                if (bitmap) drawSheet(bitmap, layer.image, layer.index !== null && layer.index !== undefined ? layer.index : characterIndex);
+            }
+        };
+        drawLayers(layers.filter(l => l.z < 0));
+        if (characterName) {
+            const body = ImageManager.loadCharacter(characterName);
+            if (body.isReady()) drawSheet(body, characterName, characterIndex);
+            else if (!body.isError()) body.addLoadListener(refresh);
+        }
+        drawLayers(layers.filter(l => l.z >= 0));
+        ctx.imageSmoothingEnabled = smooth;
+    };
+}
+
+if (typeof Window_StatusBase !== 'undefined') {
+    const VE = DocsDoodads.VisualEquip;
+    $.Window_StatusBase_drawActorCharacter = Window_StatusBase.prototype.drawActorCharacter;
+    Window_StatusBase.prototype.drawActorCharacter = function(actor, x, y) {
+        const s = VE.settings();
+        const layers = s.enabled && s.menus ? VE.layersForActor(actor) : [];
+        if (!layers.length) return $.Window_StatusBase_drawActorCharacter.call(this, actor, x, y);
+        this.drawDocsCharacter(actor.characterName(), actor.characterIndex(), x, y, layers);
+    };
+}
+
+// The equip screen shows the actor wearing what is highlighted (try before you equip).
+if (typeof Window_EquipStatus !== 'undefined') {
+    const VE = DocsDoodads.VisualEquip;
+    $.Window_EquipStatus_refresh = Window_EquipStatus.prototype.refresh;
+    Window_EquipStatus.prototype.refresh = function() {
+        $.Window_EquipStatus_refresh.call(this);
+        const s = VE.settings();
+        const actor = this._tempActor || this._actor;
+        if (!actor || !s.enabled || !s.equipPreview) return;
+        const layers = VE.layersForActor(actor);
+        const all = layers.length || VE.layersForActor(this._actor).length;
+        if (!all) return;
+        const left = this.itemPadding() + ImageManager.standardFaceWidth;
+        const room = this.innerWidth - left;
+        if (room < 60) return;
+        const zoom = room >= 110 ? 2 : 1;
+        this.drawDocsCharacter(actor.characterName(), actor.characterIndex(), left + room / 2, this.lineHeight() + ImageManager.standardFaceHeight, layers, zoom);
+    };
+}
+
+if (typeof DataManager !== 'undefined') {
+    const VE = DocsDoodads.VisualEquip;
+    $.DataManager_makeSavefileInfo = DataManager.makeSavefileInfo;
+    DataManager.makeSavefileInfo = function() {
+        const info = $.DataManager_makeSavefileInfo.call(this);
+        const s = VE.settings();
+        if (s.enabled && s.menus && typeof $gameParty !== 'undefined' && $gameParty) {
+            const lists = VE.savefileLayers($gameParty.battleMembers().map(a => VE.layersForActor(a)));
+            if (lists.some(l => l.length)) info.docsVisual = lists;
+        }
+        return info;
+    };
+    $.DataManager_loadSavefileImages = DataManager.loadSavefileImages;
+    DataManager.loadSavefileImages = function(info) {
+        $.DataManager_loadSavefileImages.call(this, info);
+        for (const list of (info && info.docsVisual) || []) for (const layer of list || []) ImageManager.loadCharacter(layer.image);
+    };
+}
+
+if (typeof Window_SavefileList !== 'undefined') {
+    $.Window_SavefileList_drawPartyCharacters = Window_SavefileList.prototype.drawPartyCharacters;
+    Window_SavefileList.prototype.drawPartyCharacters = function(info, x, y) {
+        if (!info.docsVisual || !info.characters) return $.Window_SavefileList_drawPartyCharacters.call(this, info, x, y);
+        info.characters.forEach((data, i) => this.drawDocsCharacter(data[0], data[1], x + i * 48, y, info.docsVisual[i] || []));
+    };
+}
+
+// ---- Map destination ----
+DocsDoodads.World.defaults.destination = Object.assign({}, DocsDoodads.Destination.defaults);
+
+DocsDoodads.Destination.current = function() {
+    const project = DocsDoodads.World.settings().destination;
+    const over = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsDestination || null : null;
+    const c = this._current;
+    if (c && c.project === project && c.over === over) return c.value;
+    const value = this.merge(project, over);
+    this._current = { project, over, value };
+    return value;
+};
+
+if (typeof Sprite_Destination !== 'undefined') {
+    const D = DocsDoodads.Destination;
+
+    $.Sprite_Destination_destroy = Sprite_Destination.prototype.destroy;
+    Sprite_Destination.prototype.destroy = function(options) {
+        this.stopDocsEffect();
+        if (this._docsDots && this._docsDots.parent) this._docsDots.parent.removeChild(this._docsDots);
+        if (this._docsAnchor && this._docsAnchor.parent) this._docsAnchor.parent.removeChild(this._docsAnchor);
+        // Images from img/system are shared through ImageManager's cache; only drawn markers are ours.
+        if (!this._docsOwnBitmap) this.bitmap = null;
+        $.Sprite_Destination_destroy.call(this, options);
+    };
+
+    Sprite_Destination.prototype.update = function() {
+        Sprite.prototype.update.call(this);
+        const s = D.current();
+        this.updateDocsStyle(s);
+        this.z = D.zFor(s.layer);
+        if (!$gameTemp.isDestinationValid()) {
+            this._frameCount = 0;
+            this.visible = false;
+            this._docsKey = null;
+            this.stopDocsEffect();
+            if (this._docsDots) this._docsDots.visible = false;
+            return;
+        }
+        const key = $gameTemp.destinationX() + ',' + $gameTemp.destinationY() + ',' + s.style;
+        if (key !== this._docsKey) {
+            this._docsKey = key;
+            this._frameCount = 0;
+            this.stopDocsEffect();
+        }
+        this.updatePosition();
+        this._frameCount++;
+        const p = D.pulse(s.pulse, this._frameCount);
+        const drawn = !['none', 'animation', 'vfx'].includes(s.style);
+        this.visible = true;
+        this.opacity = drawn ? s.opacity * p.alpha : 0;
+        this.scale.set(s.scale * p.scale, s.scale * p.scale);
+        this.rotation = D.rotation(s.spin, this._frameCount);
+        this.y += D.bob(s.bob, this._frameCount);
+        this.blendMode = D.blendMode(s.blend);
+        if (s.style === 'image' && this.bitmap && this.bitmap.isReady()) {
+            const f = D.imageFrame(s.image, this.bitmap.width, this.bitmap.height, this._frameCount, s.fps);
+            this.setFrame(f.x, f.y, f.w, f.h);
+        }
+        this.updateDocsEffect(s);
+        this.updateDocsDots(s);
+    };
+
+    // The marker's picture: a shape drawn in its colour, or an image.
+    Sprite_Destination.prototype.updateDocsStyle = function(s) {
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const sig = [s.style, s.color, s.image, tw, th].join('|');
+        if (sig === this._docsStyleSig) return;
+        this._docsStyleSig = sig;
+        if (this._docsOwnBitmap && this.bitmap) this.bitmap.destroy();
+        this.tint = 0xffffff;
+        if (s.style === 'image') {
+            this._docsOwnBitmap = false;
+            this.bitmap = s.image ? ImageManager.loadSystem(s.image) : new Bitmap(1, 1);
+            this._docsOwnBitmap = !s.image;
+            if (s.image) this.tint = parseInt(s.color.slice(1), 16);
+        } else {
+            this._docsOwnBitmap = true;
+            this.bitmap = D.drawMarker(new Bitmap(tw, th), s.style, s.color);
+            // An image style leaves its frame behind; drawn markers use the whole bitmap.
+            this.setFrame(0, 0, tw, th);
+        }
+        this.anchor.set(0.5, 0.5);
+    };
+
+    Sprite_Destination.prototype.stopDocsEffect = function() {
+        if (this._docsAnimation) {
+            if (this._docsAnimation.parent) this._docsAnimation.parent.removeChild(this._docsAnimation);
+            this._docsAnimation.destroy();
+            this._docsAnimation = null;
+        }
+        if (this._docsVfx) {
+            this._docsVfx.done = true;
+            this._docsVfx = null;
+        }
+    };
+
+    // A database animation (looped) or a VFX at the destination.
+    Sprite_Destination.prototype.updateDocsEffect = function(s) {
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const x = $gameTemp.destinationX(), y = $gameTemp.destinationY();
+        if (s.style === 'vfx' && s.vfx) {
+            if (!this._docsVfx || this._docsVfx.done) {
+                this._docsVfx = DocsDoodads.Vfx.play({ id: s.vfx, x: (x + 0.5) * tw, y: (y + 0.5) * th, loop: true });
+            }
+            return;
+        }
+        if (s.style !== 'animation' || !this.parent || typeof $dataAnimations === 'undefined') return;
+        const animation = $dataAnimations[s.animationId];
+        if (!animation) return;
+        if (!this._docsAnchor) {
+            // Animations play centred on a tile-high target standing on the tile.
+            this._docsAnchor = new Sprite(new Bitmap(1, th));
+            this._docsAnchor.anchor.set(0.5, 1);
+            this._docsAnchor.opacity = 0;
+        }
+        if (this._docsAnchor.parent !== this.parent) this.parent.addChild(this._docsAnchor);
+        this._docsAnchor.x = ($gameMap.adjustX(x) + 0.5) * tw;
+        this._docsAnchor.y = ($gameMap.adjustY(y) + 1) * th;
+        this._docsAnchor.z = this.z;
+        if (this._docsAnimation && !this._docsAnimation.isPlaying()) this.stopDocsEffect();
+        if (!this._docsAnimation) {
+            const mv = Boolean(animation.frames);
+            const sprite = new (mv ? Sprite_AnimationMV : Sprite_Animation)();
+            sprite.targetObjects = [];
+            sprite.setup([this._docsAnchor], animation, false, 0, null);
+            sprite.z = this.z + 0.01;
+            this.parent.addChild(sprite);
+            this._docsAnimation = sprite;
+        }
+    };
+
+    // Dots along the way the player will walk.
+    Sprite_Destination.prototype.updateDocsDots = function(s) {
+        if (!s.pathDots || !this.parent || typeof PIXI === 'undefined') {
+            if (this._docsDots) this._docsDots.visible = false;
+            return;
+        }
+        if (!this._docsDots) {
+            this._docsDots = new PIXI.Graphics();
+            this._docsDots.z = D.zFor('ground');
+            this._docsDots.blendMode = 0;
+        }
+        const dots = this._docsDots;
+        if (dots.parent !== this.parent) this.parent.addChild(dots);
+        dots.visible = true;
+        const gx = $gameTemp.destinationX(), gy = $gameTemp.destinationY();
+        const key = [gx, gy, $gamePlayer.x, $gamePlayer.y, s.dotSpacing].join(',');
+        if (key !== this._docsPathKey) {
+            this._docsPathKey = key;
+            const path = D.path({ x: $gamePlayer.x, y: $gamePlayer.y }, { x: gx, y: gy },
+                (nx, ny, fx, fy, d) => $gamePlayer.canPass(fx, fy, d), $gamePlayer.searchLimit(),
+                { wrap: (nx, ny) => ({ x: $gameMap.roundX(nx), y: $gameMap.roundY(ny) }), distance: (ax, ay, bx, by) => $gameMap.distance(ax, ay, bx, by) });
+            this._docsDotTiles = D.dots(path, s.dotSpacing);
+        }
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const color = parseInt(s.dotColor.slice(1), 16);
+        const r = Math.max(3, Math.min(tw, th) * 0.11);
+        dots.clear();
+        (this._docsDotTiles || []).forEach((t, i) => {
+            const fade = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin((this._frameCount - i * 6) / 60 * Math.PI * 2));
+            dots.beginFill(color, fade);
+            dots.drawCircle(($gameMap.adjustX(t.x) + 0.5) * tw, ($gameMap.adjustY(t.y) + 0.5) * th, r);
+            dots.endFill();
+        });
+    };
+}
+
+DocsDoodads.Destination.drawMarker = function(bitmap, style, color) {
+    const w = bitmap.width, h = bitmap.height, ctx = bitmap.context;
+    const r = Math.min(w, h) / 2;
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (style === 'default') {
+        ctx.fillRect(0, 0, w, h);
+    } else if (style === 'square') {
+        const inset = 4, rad = Math.min(10, r / 2);
+        ctx.moveTo(inset + rad, inset);
+        ctx.arcTo(w - inset, inset, w - inset, h - inset, rad);
+        ctx.arcTo(w - inset, h - inset, inset, h - inset, rad);
+        ctx.arcTo(inset, h - inset, inset, inset, rad);
+        ctx.arcTo(inset, inset, w - inset, inset, rad);
+        ctx.fill();
+    } else if (style === 'circle') {
+        ctx.arc(w / 2, h / 2, r - 3, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (style === 'ring') {
+        ctx.lineWidth = Math.max(3, r * 0.18);
+        ctx.arc(w / 2, h / 2, r - ctx.lineWidth, 0, Math.PI * 2);
+        ctx.stroke();
+    } else if (style === 'diamond') {
+        ctx.moveTo(w / 2, 3);
+        ctx.lineTo(w - 3, h / 2);
+        ctx.lineTo(w / 2, h - 3);
+        ctx.lineTo(3, h / 2);
+        ctx.closePath();
+        ctx.fill();
+    } else if (style === 'cross') {
+        ctx.lineWidth = Math.max(4, r * 0.25);
+        const a = r * 0.45;
+        ctx.moveTo(w / 2 - a, h / 2 - a);
+        ctx.lineTo(w / 2 + a, h / 2 + a);
+        ctx.moveTo(w / 2 + a, h / 2 - a);
+        ctx.lineTo(w / 2 - a, h / 2 + a);
+        ctx.stroke();
+    } else if (style === 'arrow') {
+        // Pointing down at the tile.
+        ctx.moveTo(w / 2, h * 0.9);
+        ctx.lineTo(w * 0.15, h * 0.45);
+        ctx.lineTo(w * 0.36, h * 0.45);
+        ctx.lineTo(w * 0.36, h * 0.1);
+        ctx.lineTo(w * 0.64, h * 0.1);
+        ctx.lineTo(w * 0.64, h * 0.45);
+        ctx.lineTo(w * 0.85, h * 0.45);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.restore();
+    bitmap.baseTexture.update();
+    return bitmap;
+};
+
+// Plugin commands.
+DocsDoodads.VisualEquip.actorFor = function(args) {
+    if (typeof $gameActors === 'undefined' || !$gameActors) return null;
+    if (String(args.actor) === 'leader') return $gameParty.leader();
+    return $gameActors.actor(Number(args.actorId) || 0);
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    const VE = DocsDoodads.VisualEquip;
+    const visual = actor => (actor._docsVisual = actor._docsVisual || {});
+    PluginManager.registerCommand(pluginName, 'setVisualAlias', function(args) {
+        const actor = VE.actorFor(args);
+        if (actor) visual(actor).alias = String(args.alias || '').trim();
+    });
+    PluginManager.registerCommand(pluginName, 'addVisualLayer', function(args) {
+        const actor = VE.actorFor(args);
+        const image = String(args.image || '').trim();
+        if (!actor || !image) return;
+        const part = String(args.part || '').trim() || image;
+        const v = visual(actor);
+        v.notes = (v.notes || []).filter(n => VE.parseNote(n).layers.every(l => String(l.part).toLowerCase() !== part.toLowerCase()));
+        const sv = String(args.sv || '').trim();
+        v.notes.push(`<visual: ${image}, z ${Number(args.z) || 0}, part ${part}${sv ? ', sv ' + sv : ''}>`);
+    });
+    PluginManager.registerCommand(pluginName, 'removeVisualLayer', function(args) {
+        const actor = VE.actorFor(args);
+        const part = String(args.part || '').trim().toLowerCase();
+        if (!actor || !actor._docsVisual) return;
+        const v = actor._docsVisual;
+        v.notes = part ? (v.notes || []).filter(n => VE.parseNote(n).layers.every(l => String(l.part).toLowerCase() !== part && String(l.image).toLowerCase() !== part)) : [];
+    });
+    PluginManager.registerCommand(pluginName, 'setVisualColor', function(args) {
+        const actor = VE.actorFor(args);
+        const part = String(args.part || '').trim();
+        if (!actor || !part) return;
+        const v = visual(actor);
+        v.colors = Object.assign({}, v.colors);
+        const tint = /^#?([0-9a-f]{6})$/i.exec(String(args.tint || '').trim());
+        if (String(args.reset) === 'true') delete v.colors[part];
+        else v.colors[part] = { hue: Number(args.hue) || 0, tint: tint ? parseInt(tint[1], 16) : null };
+    });
+    PluginManager.registerCommand(pluginName, 'setDestination', function(args) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return;
+        if (String(args.reset) === 'true') {
+            $gameSystem._docsDestination = null;
+            return;
+        }
+        const next = Object.assign({}, $gameSystem._docsDestination);
+        const text = ['style', 'color', 'blend', 'pulse', 'layer', 'image', 'vfx', 'dotColor'];
+        const numbers = ['opacity', 'scale', 'spin', 'bob', 'fps'];
+        for (const key of text) if (String(args[key] || '').trim() !== '') next[key] = String(args[key]).trim();
+        for (const key of numbers) if (String(args[key] === undefined ? '' : args[key]).trim() !== '') next[key] = Number(args[key]);
+        if (Number(args.animationId) > 0) next.animationId = Number(args.animationId);
+        if (args.pathDots === 'on' || args.pathDots === 'off') next.pathDots = args.pathDots === 'on';
+        // A new object, so the cached marker settings refresh.
+        $gameSystem._docsDestination = next;
     });
 }
 
@@ -13491,6 +14760,178 @@ DocsDoodads.Workspace = {
         };
     },
 
+    // ---- Visual equipment try-on and notetag builder ----
+    visualItems() {
+        const out = [];
+        const add = (list, kind) => (list || []).forEach(item => {
+            if (item && /<\s*visual/i.test(item.note || '')) out.push({ key: kind + item.id, kind, id: item.id, name: item.name || `${kind} ${item.id}`, note: item.note });
+        });
+        add(typeof $dataWeapons !== 'undefined' ? $dataWeapons : null, 'w');
+        add(typeof $dataArmors !== 'undefined' ? $dataArmors : null, 'a');
+        return out;
+    },
+
+    // The items an actor starts with or (in a running game) has on.
+    visualWornKeys(actorId) {
+        const game = typeof $gameActors !== 'undefined' && $gameActors ? $gameActors.actor(actorId) : null;
+        if (game && typeof game.equips === 'function') {
+            return game.equips().filter(Boolean).map(e => (DataManager.isWeapon(e) ? 'w' : 'a') + e.id);
+        }
+        const data = typeof $dataActors !== 'undefined' && $dataActors ? $dataActors[actorId] : null;
+        return ((data && data.equips) || []).map((id, slot) => (id > 0 ? (slot === 0 ? 'w' : 'a') + id : null)).filter(Boolean);
+    },
+
+    visualTryOnLayers(actorId, keys) {
+        const VE = DocsDoodads.VisualEquip;
+        const data = typeof $dataActors !== 'undefined' && $dataActors ? $dataActors[actorId] : null;
+        const cls = data && typeof $dataClasses !== 'undefined' && $dataClasses ? $dataClasses[data.classId] : null;
+        const items = this.visualItems();
+        const game = typeof $gameActors !== 'undefined' && $gameActors ? $gameActors.actor(actorId) : null;
+        const v = (game && game._docsVisual) || {};
+        return VE.resolve({
+            actorNote: [data && data.note, cls && cls.note].filter(Boolean).join('\n'),
+            equipNotes: items.filter(i => (keys || []).includes(i.key)).map(i => i.note).concat(v.notes || []),
+            alias: v.alias || '',
+            colors: v.colors || null
+        }, VE.env());
+    },
+
+    visualNotetag(spec) {
+        const image = String(spec.image || '').trim();
+        if (!image) return '';
+        const bits = [image];
+        const z = Number(spec.z);
+        if (Number.isFinite(z) && z !== 1) bits.push('z ' + z);
+        if (String(spec.part || '').trim()) bits.push('part ' + String(spec.part).trim());
+        if (String(spec.sv || '').trim()) bits.push('sv ' + String(spec.sv).trim());
+        const tags = [`<visual: ${bits.join(', ')}>`];
+        const hides = String(spec.hide || '').split(',').map(h => h.trim()).filter(Boolean);
+        if (hides.length) tags.push(`<visual hide: ${hides.join(', ')}>`);
+        return tags.join('\n');
+    },
+
+    renderVisualTryOn() {
+        const actors = (typeof $dataActors !== 'undefined' && $dataActors ? $dataActors : []).filter(a => a && a.name);
+        const t = this._veTry = this._veTry || { actorId: actors[0] ? actors[0].id : 0, dir: 2, keys: null };
+        if (t.keys === null) t.keys = this.visualWornKeys(t.actorId);
+        const inputStyle = 'width: 100%; background: #0f172a; color: #fff; border: 1px solid #334155; padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        const items = this.visualItems();
+        const rows = items.map(i => `<label style="display: flex; gap: 6px; align-items: center; font-size: 10px; color: #cbd5e1;">
+                <input type="checkbox" id="dd-ve-item-${escapeHtml(i.key)}" ${t.keys.includes(i.key) ? 'checked' : ''} /> <span title="${i.kind === 'w' ? 'Weapon' : 'Armor'} ${i.id}">${escapeHtml(i.name)}</span></label>`).join('');
+        const layers = this.visualTryOnLayers(t.actorId, t.keys);
+        const list = layers.map(l => `${escapeHtml(l.image)} <span style="color: #64748b;">z ${l.z}${l.hue ? ', hue ' + l.hue : ''}${l.tint !== null ? ', tint #' + ('000000' + l.tint.toString(16)).slice(-6) : ''}</span>`).join('<br>');
+        return `
+            <div style="font-size: 10px; color: #94a3b8; line-height: 1.4;">Tag weapons and armors with <b>&lt;visual: Sheet, z 1&gt;</b>. Layers are drawn over the body (negative z draws behind it). Layer sheets use the same layout as the body's sheet.</div>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">Try on:</div>
+            <select id="dd-ve-actor" style="${inputStyle}">${actors.map(a => `<option value="${a.id}" ${a.id === t.actorId ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('')}</select>
+            <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px; align-items: start;">
+                <div>
+                    <canvas id="dd-ve-canvas" width="96" height="96" style="width: 96px; height: 96px; image-rendering: pixelated; background: #0f172a; border: 1px solid #334155; border-radius: 4px;"></canvas>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;">
+                        ${[[4, '&#9664;'], [2, '&#9660;'], [8, '&#9650;'], [6, '&#9654;']].map(([d, s]) => `<button class="dd-btn" id="dd-ve-dir-${d}" style="padding: 0;">${s}</button>`).join('')}
+                    </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px; max-height: 140px; overflow: auto;">${rows || '<span style="font-size: 10px; color: #64748b;">No weapons or armors have &lt;visual&gt; tags yet.</span>'}</div>
+            </div>
+            <div id="dd-ve-layers" style="font-size: 10px; color: #cbd5e1;">${list || '<span style="color: #64748b;">No layers.</span>'}</div>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 6px;">Notetag builder:</div>
+            <div style="display: grid; grid-template-columns: 1fr 44px; gap: 3px;">
+                <input type="text" list="dd-char-files" id="dd-ve-tag-image" placeholder="Layer sheet" style="${inputStyle}" />
+                <input type="number" id="dd-ve-tag-z" value="1" title="Order (negative = behind)" style="${inputStyle}" />
+                <input type="text" id="dd-ve-tag-part" placeholder="Part (e.g. helmet)" style="${inputStyle}" />
+                <span></span>
+                <input type="text" id="dd-ve-tag-hide" placeholder="Hides parts (e.g. hair)" style="${inputStyle}" />
+                <span></span>
+                <input type="text" id="dd-ve-tag-sv" placeholder="Side-view sheet (optional)" style="${inputStyle}" />
+                <span></span>
+            </div>
+            <textarea id="dd-ve-tag-out" readonly rows="2" style="${inputStyle} resize: vertical;"></textarea>
+            <button class="dd-btn" id="dd-ve-tag-copy">Copy Notetag</button>`;
+    },
+
+    bindVisualTryOn() {
+        const t = this._veTry;
+        if (!t) return;
+        const actor = document.getElementById('dd-ve-actor');
+        if (actor) actor.onchange = () => {
+            t.actorId = Number(actor.value) || 0;
+            t.keys = this.visualWornKeys(t.actorId);
+            this.refreshInspector();
+        };
+        for (const item of this.visualItems()) {
+            const box = document.getElementById(`dd-ve-item-${item.key}`);
+            if (box) box.onchange = () => {
+                t.keys = box.checked ? t.keys.concat(item.key) : t.keys.filter(k => k !== item.key);
+                this.refreshInspector();
+            };
+        }
+        for (const d of [2, 4, 6, 8]) {
+            const b = document.getElementById(`dd-ve-dir-${d}`);
+            if (b) b.onclick = () => { t.dir = d; };
+        }
+        const read = id => (document.getElementById(id) || {}).value || '';
+        const out = document.getElementById('dd-ve-tag-out');
+        const update = () => {
+            if (out) out.value = this.visualNotetag({ image: read('dd-ve-tag-image'), z: read('dd-ve-tag-z'), part: read('dd-ve-tag-part'), hide: read('dd-ve-tag-hide'), sv: read('dd-ve-tag-sv') });
+        };
+        for (const id of ['dd-ve-tag-image', 'dd-ve-tag-z', 'dd-ve-tag-part', 'dd-ve-tag-hide', 'dd-ve-tag-sv']) {
+            const input = document.getElementById(id);
+            if (input) input.oninput = update;
+        }
+        const copy = document.getElementById('dd-ve-tag-copy');
+        if (copy) copy.onclick = () => {
+            if (!out || !out.value) return this.showToast('Choose a layer sheet first.', 'info');
+            if (navigator.clipboard) navigator.clipboard.writeText(out.value);
+            this.showToast('Notetag copied. Paste it into a weapon or armor note.', 'success');
+        };
+        this.startVisualPreview();
+    },
+
+    // Walks the try-on preview in the chosen direction until the panel closes.
+    startVisualPreview() {
+        if (this._veTimer) clearInterval(this._veTimer);
+        let step = 0;
+        const draw = () => {
+            const canvas = document.getElementById('dd-ve-canvas');
+            if (!canvas || !canvas.isConnected || typeof canvas.getContext !== 'function' || !this._veTry) {
+                clearInterval(this._veTimer);
+                this._veTimer = null;
+                return;
+            }
+            this.drawVisualPreview(canvas, step++);
+        };
+        draw();
+        this._veTimer = setInterval(draw, 200);
+    },
+
+    drawVisualPreview(canvas, step) {
+        const VE = DocsDoodads.VisualEquip, C = DocsDoodads.CharacterAnim;
+        const t = this._veTry;
+        const data = typeof $dataActors !== 'undefined' && $dataActors ? $dataActors[t.actorId] : null;
+        const ctx = canvas.getContext('2d');
+        if (!ctx || typeof ImageManager === 'undefined') return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = false;
+        const layers = this.visualTryOnLayers(t.actorId, t.keys);
+        const body = data && data.characterName ? { image: data.characterName, index: data.characterIndex, hue: 0, tint: null } : null;
+        const sheets = layers.filter(l => l.z < 0).concat(body ? [body] : [], layers.filter(l => l.z >= 0));
+        for (const sheet of sheets) {
+            const bitmap = VE.windowBitmap(sheet, null);
+            if (!bitmap) continue;
+            const layout = C.parseName(sheet.image);
+            const row = C.rowFor(t.dir, layout.dirs);
+            const rect = VE.frameRect(sheet.image, bitmap.width, bitmap.height,
+                sheet.index !== null && sheet.index !== undefined ? sheet.index : (data ? data.characterIndex : 0), C.walkFrame(step, layout.frames), row.row);
+            const zoom = Math.min(2, canvas.width / rect.w, canvas.height / rect.h);
+            const w = rect.w * zoom, h = rect.h * zoom;
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height - (canvas.height - h) / 2);
+            if (row.mirror) ctx.scale(-1, 1);
+            ctx.drawImage(bitmap.canvas, rect.x, rect.y, rect.w, rect.h, -w / 2, -h, w, h);
+            ctx.restore();
+        }
+    },
+
     // ---- Post-processing builder ----
     storedLook(target) {
         if (target === 'map') {
@@ -13827,6 +15268,34 @@ DocsDoodads.Workspace = {
             { title: 'Characters', extra: 'animsets', fields: [
                 check('characterAnim.diagonal', 'Diagonal movement (8 directions)')
             ] },
+            { title: 'Visual Equipment', extra: 'visual', fields: [
+                check('visualEquip.enabled', 'Draw gear layers from <visual> notetags'),
+                check('visualEquip.followers', 'On followers'),
+                check('visualEquip.events', 'On events with <visual> tags'),
+                check('visualEquip.battlers', 'On side-view battlers (layers with an sv sheet)'),
+                check('visualEquip.menus', 'In menus and save files'),
+                check('visualEquip.equipPreview', 'Equip screen shows the highlighted item on the actor')
+            ] },
+            { title: 'Destination Marker', fields: [
+                select('destination.style', 'Marker', D.Destination.styles),
+                { key: 'destination.color', label: 'Colour', type: 'color' },
+                range('destination.opacity', 'Opacity', 0, 255, 5),
+                select('destination.blend', 'Blend', D.Destination.blends),
+                range('destination.scale', 'Size (tiles)', 0.25, 3, 0.05),
+                select('destination.pulse', 'Pulse', D.Destination.pulses),
+                number('destination.spin', 'Spin (degrees per second)', 5),
+                number('destination.bob', 'Bob height (pixels)'),
+                select('destination.layer', 'Drawn', D.Destination.layers),
+                { key: 'destination.image', label: 'Image in img/system (Name[f4] = 4 frames)', type: 'text' },
+                number('destination.fps', 'Image frames per second'),
+                select('destination.animationId', 'Database animation', [{ value: 0, label: '(none)' }].concat(
+                    (typeof $dataAnimations !== 'undefined' && $dataAnimations ? $dataAnimations : []).filter(a => a).map(a => ({ value: a.id, label: `${a.id}: ${a.name || '(unnamed)'}` })))),
+                select('destination.vfx', 'VFX effect', [{ value: '', label: '(none)' }].concat(
+                    D.Vfx.builtIns.concat(D.Vfx.library()).map(v => ({ value: v.id, label: v.name || v.id })))),
+                check('destination.pathDots', 'Dots along the path the player will walk'),
+                { key: 'destination.dotColor', label: 'Dot colour', type: 'color' },
+                number('destination.dotSpacing', 'Dot every N tiles')
+            ] },
             { title: 'Biomes', extra: 'biomes', fields: [] },
             { title: 'Dressing Rules', extra: 'dress', fields: [] },
             { title: 'Spatial Sound', fields: [
@@ -13854,7 +15323,7 @@ DocsDoodads.Workspace = {
                 return this.fieldHtml(`dd-world-${si}-${fi}`, f, f.format ? f.format(raw) : raw);
             }).join('');
             const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor()
-                : section.extra === 'animsets' ? this.renderAnimSetEditor()
+                : section.extra === 'animsets' ? this.renderAnimSetEditor() : section.extra === 'visual' ? this.renderVisualTryOn()
                 : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor() : '';
             return `
                 <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; margin-top: 6px;">
@@ -13902,6 +15371,7 @@ DocsDoodads.Workspace = {
         this.bindKeyframeEditor();
         this.bindSeasonEditor();
         this.bindAnimSetEditor();
+        this.bindVisualTryOn();
         this.bindBiomeEditor();
         this.bindDressEditor();
     },

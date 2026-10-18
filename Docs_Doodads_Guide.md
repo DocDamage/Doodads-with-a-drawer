@@ -380,7 +380,51 @@ Hover a character sheet in the drawer to watch it walk, and a door or chest shee
 
 ---
 
-## 13. Genuine RPG Maker MZ Event Creation & Templates
+## 13. Visual Equipment & the Map Destination Marker
+
+### Visual equipment
+Gear can be drawn on characters as extra sprite layers. A layer sheet has the same layout as a character sheet: 8 characters (or `$` for one), 3 frames, 4 directions, or the `[fN]` / `[dN]` tags from section 10. Draw only the piece of gear, in the same frames as the body, on a transparent background. Put the sheets in `img/characters`.
+
+Notetags go on weapons, armors, states, actors and classes:
+
+| Tag | What it does |
+| :--- | :--- |
+| `<visual: Cape_Red, z -1>` | Draws the layer. A negative `z` is behind the body; 0 or more is in front. Higher numbers are drawn over lower ones. |
+| `<visual: Helm, part helmet>` | Names the part, for hide and colour tags. Without it, the part is the image name. |
+| `<visual: Armor_{alias}, sv SV_Armor_{alias}>` | `sv` is the matching side-view battler sheet in `img/sv_actors`. Layers without one don't show in battle. |
+| `<visual: Wings, index 3>` | Uses character 3 of an 8-character layer sheet, instead of the body's index. |
+| `<visual base: Hair_Short, part hair, z 2>` | On actors and classes: a layer the actor always wears (hair, ears, a tail). |
+| `<visual hide: hair, ears>` | Hides those parts while this item is worn, so hair doesn't poke through a helmet. |
+| `<visual alias: Elf>` | On actors: fills `{alias}` in image names. One armor tag then shows the right art for each body type. |
+| `<visual color: hair, switch 12, hue 120>` | Shifts a part's hue while a switch is on. `variable 7` instead reads the hue from a variable. `tint #ff8800` multiplies the colour. |
+
+The layers show:
+- on the player and followers, while they use the actor's own image (changing the player's graphic to something else hides the gear);
+- on events tagged in their note or in a comment on the current page, with `<visual: ...>` tags or `<visual actor: 4>` to wear actor 4's look (pages without an image show nothing);
+- on side-view battlers, using each layer's `sv` sheet and following every battle motion;
+- in water reflections, in the save and load screens, and on the equip screen. The equip screen shows the actor wearing the item you're highlighting before you equip it.
+
+Plugin commands change an actor's look without equipment:
+- **Set Visual Alias**: switch body type or outfit set.
+- **Add Visual Layer** and **Remove Visual Layer**: for a costume, a quest hat or a disguise.
+- **Set Visual Colour**: for hair dye or team colours.
+
+In the editor, open **Visual Equipment** in the map panel to turn each place on or off, and to try gear on. Pick an actor, tick items, and watch the preview walk in any direction. The **notetag builder** writes the tags for you.
+
+Character shadows use the body's outline only; gear layers don't add to them.
+
+### Destination marker
+The marker MZ shows where the player clicks or taps to walk can be restyled under **Destination Marker** in the map panel:
+- **Marker:** MZ's square, a rounded square, circle, ring, diamond, cross or arrow drawn in any colour. It can also be an image from `img/system` (`Marker[f4]` plays four frames side by side), a database animation that loops, a VFX effect, or hidden.
+- **Look:** opacity, blend (add, normal, multiply, screen), size, pulse (MZ's, breathe, ripple or still), spin and bob.
+- **Drawn:** above characters, like MZ, or on the ground beneath them.
+- **Path dots:** dots along the way the player will walk, spaced every N tiles.
+
+The **Set Destination Marker** plugin command changes any of these mid-game. The change is saved with the game, and blank fields keep their current value. **Back to the Project's Marker** undoes it.
+
+---
+
+## 14. Genuine RPG Maker MZ Event Creation & Templates
 
 When an asset is dropped with **Place As Event** (or prompted via the interactive placement dialog), the workspace creates a genuine RPG Maker MZ event stored directly inside the active `MapXXX.json` file.
 
@@ -415,7 +459,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 
 ---
 
-## 14. Direct SAT Physical Collision System
+## 15. Direct SAT Physical Collision System
 
 Doodads do not require invisible blocker events to obstruct the player. The workspace features direct Separating Axis Theorem (SAT) runtime physics:
 
@@ -433,7 +477,7 @@ Doodads do not require invisible blocker events to obstruct the player. The work
 
 ---
 
-## 15. Audio Drawer Integration
+## 16. Audio Drawer Integration
 
 Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 - **Click Preview**: Click any audio card to play live in-editor. An animated blue waveform indicator shows playback.
@@ -443,7 +487,7 @@ Click the **Audio** tab in the Drawer to browse BGM, BGS, ME, and SE files:
 
 ---
 
-## 16. Windows Explorer Native Drag-and-Drop Ingestion
+## 17. Windows Explorer Native Drag-and-Drop Ingestion
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -463,7 +507,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 ---
 
-## 17. Maps: Switching, Cross-Map Editing, Neighbours & World View
+## 18. Maps: Switching, Cross-Map Editing, Neighbours & World View
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
@@ -475,7 +519,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 18. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+## 19. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 - **Where Used** (asset Inspector) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
@@ -486,7 +530,7 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
-## 19. Workspace Layouts & Custom Layout Persistence
+## 20. Workspace Layouts & Custom Layout Persistence
 
 Switch workspace layout presets in the top toolbar:
 - **Mapping Preset**: Wide map viewport, compact drawer, full inspector.
@@ -499,7 +543,7 @@ Switch workspace layout presets in the top toolbar:
 
 ---
 
-## 20. Project Safety, Conflict Detection & Crash Recovery
+## 21. Project Safety, Conflict Detection & Crash Recovery
 
 Editing real map data in playtest mode requires rigorous file protection:
 
@@ -517,7 +561,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 21. Complete Keyboard Shortcuts Cheat Sheet
+## 22. Complete Keyboard Shortcuts Cheat Sheet
 
 | Shortcut | Action | Scope |
 | :--- | :--- | :--- |
@@ -547,7 +591,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 22. Troubleshooting & FAQ
+## 23. Troubleshooting & FAQ
 
 ### Q: Why isn't the Asset Workspace opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
@@ -572,6 +616,6 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ---
 
-## 23. Credits & Licensing
+## 24. Credits & Licensing
 
 - **Origins**: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool.
