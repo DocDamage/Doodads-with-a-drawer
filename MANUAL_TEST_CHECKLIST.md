@@ -115,6 +115,17 @@ Test these on an exterior map and on a looping world map.
 - [ ] Try each destination marker style, pulse, spin, bob and layer; path dots; a database animation and a VFX; Set Destination Marker mid-game, save and load.
 - [ ] Use the try-on preview and the notetag builder in the map panel.
 
+## 3D view
+
+- [ ] Turn on 3D for an outdoor map with doodad trees and lamps; walk around, including along the map edge and on a looping map.
+- [ ] Change tilt, turn, field of view, zoom, view distance and fog in the panel; undo each.
+- [ ] Turn on Q / W turning; turn the camera and walk with the arrow keys; check character facings, followers and gear layers.
+- [ ] Use Set Camera (with and without wait), Reset Camera and Set 3D View in events; save and load.
+- [ ] Night: ambient darkness and lamp lights; sun shadows; particles, VFX, balloons and a battle animation on the map.
+- [ ] Click the ground to walk; open the menu and return.
+- [ ] Editor in 3D: pick a tree behind another, drag it, box-select, use the grid, place with the stamp and scatter brush.
+- [ ] Check frame rate with view distance 40 and 64 on a large map.
+
 ## Safety and recovery
 
 - [ ] Modify `MapXXX.json` externally during a workspace session and confirm the conflict dialog blocks a normal save.
