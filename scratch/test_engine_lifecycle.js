@@ -353,7 +353,31 @@ $gameMap.setDisplayPos(0, 0);
     }
 }
 
-// 16. Clouds default to a size that shows on screen.
+// 16. Walls and floor decals: on a map with walls, wall tiles draw from the ground drawn again without
+// floor decals (a rug runs under a wall, not up it); without decals they use the normal ground.
+{
+    $dataDocsDoodads[1] = [E.doodad(18, 14, { depth: 'below', frameW: 96, frameH: 192 })];
+    DocsDoodads.Lighting.setMapSettings(1, {
+        perspective: { enabled: true, pitch: 45 },
+        terrain: { enabled: true, style: 'stepped', auto: false, regions: [], paint: {}, walls: true }
+    });
+    const map = new Spriteset_Map();
+    SceneManager._scene = { _spriteset: map };
+    run('decal frames', () => E.frames(map, 2));
+    assert.deepStrictEqual(errors, []);
+    const wallRt = map._docsWallTexture;
+    assert.ok(wallRt && map._docsWallUsed, 'the ground without decals is drawn');
+    assert.strictEqual(map._docsTerrainMesh.shader.uniforms.uWallSampler, wallRt, 'walls use it');
+    assert.ok(map._docsTerrainMesh.geometry.getBuffer('aWall'), 'wall vertices are marked for the shader');
+    map._docsDoodadSprites[0]._data.depth = 'sorted';
+    map._docsDoodadSprites[0].z = DocsDoodads.Depth.spriteZ(map._docsDoodadSprites[0]._data);
+    run('no decal frames', () => E.frames(map, 2));
+    assert.ok(!map._docsWallUsed && map._docsTerrainMesh.shader.uniforms.uWallSampler === map._docs3dTexture, 'no decals: the normal ground');
+    map.destroy({ children: true, texture: true });
+    assert.ok(wallRt.valid === false || wallRt.baseTexture === null, 'freed with the map');
+}
+
+// 17. Clouds default to a size that shows on screen.
 assert.strictEqual(P.normalize({}).cloudScale, 6);
 
 assert.deepStrictEqual(errors, []);

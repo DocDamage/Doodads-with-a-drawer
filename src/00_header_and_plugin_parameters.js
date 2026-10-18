@@ -1,5 +1,5 @@
 //==========================================================
-// RPG Maker MZ & MV: Doc's Doodads
+// RPG Maker MZ: Doc's Doodads
 //==========================================================
 /*:
  * @target MZ
@@ -282,7 +282,7 @@
  * @text Enable MV Compatibility
  * @type boolean
  * @default true
- * @desc Enable compatibility layer when running under RPG Maker MV.
+ * @desc A leftover compatibility layer for RPG Maker MV (unsupported: Doc's Doodads is for MZ).
  *
  * @param devDiagnostics
  * @text Developer Diagnostics
