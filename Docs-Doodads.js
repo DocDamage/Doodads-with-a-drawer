@@ -14363,6 +14363,61 @@ DocsDoodads.Undo = {
     redoStack: [],
     maxDepth: 300,
 
+    labels: {
+        edit_doodads: 'Edit doodads', move_doodads: 'Move doodads', adjust_doodads: 'Adjust doodads', trace_collision: 'Trace collision',
+        place_doodad: 'Place doodad', paste_doodads: 'Paste doodads', delete_doodads: 'Delete doodads', duplicate_doodads: 'Duplicate doodads',
+        scatter_doodads: 'Scatter brush', place_path: 'Draw path', place_prefab: 'Place prefab', sync_prefab: 'Sync prefab copies',
+        align_doodads: 'Align', distribute_doodads: 'Distribute', group_doodads: 'Group', ungroup_doodads: 'Ungroup',
+        lock_doodads: 'Lock or unlock', hide_doodads: 'Hide or show', z_order_fwd: 'Bring forward', z_order_back: 'Send backward',
+        z_order_front: 'Bring to front', z_order_bottom: 'Send to back', create_event: 'Create event', delete_event: 'Delete event',
+        duplicate_event: 'Duplicate event', move_event: 'Move event', append_audio_command: 'Add sound to event',
+        map_ambient: 'Map setting', map_setting: 'Map setting', world_setting: 'Project setting', map_neighbors: 'Neighbouring maps',
+        delete_layer: 'Delete layer', dress_map: 'Dress map', clear_dressing: 'Clear dressing', restore_history: 'Restore from history',
+        restore_event: 'Restore event', move_to_map: 'Move to map', copy_to_map: 'Copy to map', mirror_edges: 'Mirror edges',
+        terrain_paint: 'Terrain brush stroke', biome_paint: 'Biome brush stroke'
+    },
+
+    labelFor(command) {
+        if (!command) return '';
+        if (command.label) return String(command.label);
+        const type = String(command.type || '');
+        if (this.labels[type]) return this.labels[type];
+        if (!type) return 'Edit';
+        const words = type.replace(/[_-]+/g, ' ').trim();
+        return words.charAt(0).toUpperCase() + words.slice(1);
+    },
+
+    // The steps, oldest first: { index, label, done } (done: still applied). The current point is
+    // after the last done step.
+    history() {
+        const done = this.undoStack.map((c, i) => ({ index: i, label: this.labelFor(c), done: true }));
+        const undone = this.redoStack.slice().reverse().map((c, i) => ({ index: done.length + i, label: this.labelFor(c), done: false }));
+        return done.concat(undone);
+    },
+
+    // Undo or redo until `count` steps are applied (0 = before everything that can be undone).
+    goTo(count) {
+        const target = Math.max(0, Math.min(this.undoStack.length + this.redoStack.length, Math.round(Number(count) || 0)));
+        let moved = 0;
+        while (this.undoStack.length > target && this.undoStack.length) {
+            const cmd = this.undoStack.pop();
+            cmd.revert();
+            this.redoStack.push(cmd);
+            moved++;
+        }
+        while (this.undoStack.length < target && this.redoStack.length) {
+            const cmd = this.redoStack.pop();
+            cmd.apply();
+            this.undoStack.push(cmd);
+            moved++;
+        }
+        if (moved) {
+            DocsDoodads.Workspace.updateUndoButtons();
+            if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.refreshInspector();
+        }
+        return moved;
+    },
+
     clear() {
         this.undoStack = [];
         this.redoStack = [];
@@ -15350,6 +15405,7 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-del-layout-btn" title="Delete current custom layout" style="display: none; background: #7f1d1d; border-color: #991b1b; padding: 4px 8px;">✕</button>
                 <button class="dd-btn" id="dd-undo-btn">Undo</button>
                 <button class="dd-btn" id="dd-redo-btn">Redo</button>
+                <button class="dd-btn" id="dd-undo-list-btn" title="Undo history: step back to any point">☰</button>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
                 <button class="dd-btn" id="dd-eyedropper-btn" title="Eyedropper: Alt+Click map object">Eyedropper</button>
@@ -15594,6 +15650,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-close-btn').onclick = () => this.close();
         document.getElementById('dd-save-btn').onclick = () => DocsDoodads.Persistence.saveAll();
         document.getElementById('dd-undo-btn').onclick = () => DocsDoodads.Undo.undo();
+        document.getElementById('dd-undo-list-btn').onclick = () => this.toggleUndoHistory();
         document.getElementById('dd-redo-btn').onclick = () => DocsDoodads.Undo.redo();
 
         this.refreshLayoutSelector();
@@ -16935,7 +16992,7 @@ DocsDoodads.Workspace = {
         const next = Object.assign({}, previous || {});
         if (value === undefined) delete next[key];
         else next[key] = value;
-        DocsDoodads.Undo.execute({ type: 'map_setting', apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
+        DocsDoodads.Undo.execute({ type: 'map_setting', label: key === 'terrain' ? 'Terrain height' : 'Map setting: ' + key, apply: () => this.writeMapSettings(mapId, next), revert: () => this.writeMapSettings(mapId, previous) });
     },
 
     // ---- World (project-wide) settings ----
@@ -16949,7 +17006,7 @@ DocsDoodads.Workspace = {
             World.set(key, copy(v));
             DocsDoodads.Persistence.dirtyDoodads = true;
         };
-        DocsDoodads.Undo.execute({ type: 'world_setting', apply: () => write(after), revert: () => write(before) });
+        DocsDoodads.Undo.execute({ type: 'world_setting', label: 'Project setting: ' + key, apply: () => write(after), revert: () => write(before) });
     },
 
     // ---- Layers (per map) ----
@@ -20259,6 +20316,7 @@ DocsDoodads.Workspace = {
                     delete $gameMap._stagedMapData.events[newId];
                 }
             };
+            cmd.type = cmd.type || 'create_event';
             DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
@@ -20284,6 +20342,7 @@ DocsDoodads.Workspace = {
                     this.refreshSpriteset();
                 }
             };
+            cmd.type = cmd.type || 'place_doodad';
             DocsDoodads.Undo.execute(cmd);
             this.showToast("Placed Doodad on Map!");
         }
@@ -20435,6 +20494,43 @@ DocsDoodads.Workspace = {
         this.showToast(hidden ? `Hidden ${items.length} doodads in editor.` : `Showing ${items.length} doodads.`);
     },
 
+    // ---- Undo history panel ----
+    toggleUndoHistory() {
+        const existing = document.getElementById('dd-undo-history');
+        if (existing) { existing.remove(); this._undoHistoryOpen = false; return; }
+        this._undoHistoryOpen = true;
+        const panel = document.createElement('div');
+        panel.id = 'dd-undo-history';
+        panel.style.cssText = 'position: fixed; right: 260px; top: 70px; width: 240px; max-height: 60vh; overflow-y: auto; z-index: 10007; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px; font: 11px sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.5);';
+        document.body.appendChild(panel);
+        this.renderUndoHistory();
+    },
+
+    renderUndoHistory() {
+        const panel = document.getElementById('dd-undo-history');
+        if (!panel || !panel.querySelectorAll) { this._undoHistoryOpen = false; return; }
+        const steps = DocsDoodads.Undo.history();
+        const applied = DocsDoodads.Undo.undoStack.length;
+        const row = (count, label, state) => `<div class="dd-undo-step" data-count="${count}" style="padding: 3px 6px; border-radius: 3px; cursor: pointer; ${state === 'current' ? 'background: #1d4ed8; color: #fff;' : state === 'undone' ? 'color: #64748b; font-style: italic;' : ''}">${escapeHtml(label)}</div>`;
+        panel.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <b style="color: #38bdf8;">Undo History</b>
+                <button class="dd-btn" id="dd-undo-history-close" style="padding: 0 6px;">×</button>
+            </div>
+            <div style="color: #64748b; margin-bottom: 4px;">Click a step to go back (or forward) to just after it.</div>
+            ${row(0, '(Start)', applied === 0 ? 'current' : 'done')}
+            ${steps.map(st => row(st.index + 1, (st.index + 1) + '. ' + st.label, st.index + 1 === applied ? 'current' : st.done ? 'done' : 'undone')).join('')}`;
+        document.getElementById('dd-undo-history-close').onclick = () => { panel.remove(); this._undoHistoryOpen = false; };
+        for (const el of panel.querySelectorAll('.dd-undo-step')) {
+            el.onclick = () => {
+                DocsDoodads.Undo.goTo(Number(el.getAttribute('data-count')));
+                this.renderUndoHistory();
+            };
+        }
+        const current = panel.querySelector('[style*="#1d4ed8"]');
+        if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest' });
+    },
+
     bringForward(items) {
         items = items || (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []));
         if (!items || items.length === 0) return;
@@ -20567,6 +20663,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             }
         };
+        cmd.type = cmd.type || 'paste_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
         this.showToast(`Pasted ${duplicates.length} doodad(s)${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
@@ -21050,6 +21147,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             }
         };
+        cmd.type = cmd.type || 'delete_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectedDoodad = null;
         this.selectedDoodads = [];
@@ -21079,6 +21177,7 @@ DocsDoodads.Workspace = {
                 this.refreshSpriteset();
             }
         };
+        cmd.type = cmd.type || 'duplicate_doodads';
         DocsDoodads.Undo.execute(cmd);
         this.selectDoodads(duplicates);
         this.showToast(`Duplicated ${duplicates.length} Doodad(s)`);
@@ -21480,6 +21579,7 @@ DocsDoodads.Workspace = {
                             if (SceneManager._scene && SceneManager._scene._spriteset) SceneManager._scene._spriteset.addDocsDoodads();
                         }
                     };
+                    cmd.type = cmd.type || 'scatter_doodads';
                     DocsDoodads.Undo.execute(cmd);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
@@ -22367,6 +22467,7 @@ DocsDoodads.Workspace = {
         const rBtn = document.getElementById('dd-redo-btn');
         if (uBtn) uBtn.style.opacity = DocsDoodads.Undo.undoStack.length > 0 ? '1' : '0.5';
         if (rBtn) rBtn.style.opacity = DocsDoodads.Undo.redoStack.length > 0 ? '1' : '0.5';
+        if (this._undoHistoryOpen) this.renderUndoHistory();
     }
 };
 
