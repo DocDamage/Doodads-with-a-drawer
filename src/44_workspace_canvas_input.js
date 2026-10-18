@@ -50,7 +50,8 @@
             dy += Math.round(py / th) * th - py;
         } else if (!modifiers.altKey) {
             const rects = drag.items.map((d, i) => DocsDoodads.Guides.rectOf(Object.assign({}, d, { x: drag.origin[i].x + dx, y: drag.origin[i].y + dy })));
-            const snap = DocsDoodads.Guides.snap(DocsDoodads.Guides.unionRect(rects), drag.others, 6);
+            const tile = { w: window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48, h: window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48 };
+            const snap = DocsDoodads.Guides.snap(DocsDoodads.Guides.unionRect(rects), drag.others, 6, { tile });
             dx += snap.dx;
             dy += snap.dy;
             this.activeGuides = snap.lines;
@@ -72,6 +73,7 @@
         const drag = this._drag;
         this._drag = null;
         this.activeGuides = [];
+        this.hideDragReadout();
         if (!drag || !drag.moved) return false;
         this.recordDoodadEdit(drag.items, drag.before, 'move_doodads');
         this.refreshInspector();
@@ -80,10 +82,11 @@
 
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
+        this.drawCollisionOverlay(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-            const color = T.brushColors[this.terrainBrush.mode] || 0xffffff;
+            const color = DocsDoodads.Ui.mapColor(this.terrainBrush.mode) || T.brushColors[this.terrainBrush.mode] || 0xffffff;
             heightTiles = T.brushFootprint(this._terrainHover.tileX, this._terrainHover.tileY, this.terrainBrush.radius, this.terrainBrush.falloff);
             for (const t of heightTiles) {
                 // Stronger towards the centre, as the brush is (the same all over with a hard edge).
@@ -98,7 +101,7 @@
         // Scatter's circle: green to paint, red while right-dragging to erase.
         if (this.placementTool === 'brush' && this._brushHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const at = DocsDoodads.mapToScreen(this._brushHover.x, this._brushHover.y);
-            g.lineStyle(2, this._scatterErase ? 0xef4444 : 0x22c55e, 0.9);
+            g.lineStyle(2, DocsDoodads.Ui.mapColor(this._scatterErase ? 'brushErase' : 'brushPaint'), 0.9);
             g.drawCircle(at.x, at.y, Math.max(4, Number(this.brushSettings.radius) || 0));
             g.lineStyle(0);
         }
@@ -108,7 +111,8 @@
         const ox = anchor.x - anchorScreen.x;
         const oy = anchor.y - anchorScreen.y;
         for (const line of this.activeGuides || []) {
-            g.lineStyle(1, line.kind === 'spacing' ? 0xf59e0b : 0xec4899, 1);
+            // Pink: lined up with a doodad; orange: equal spacing; teal: on a tile line.
+            g.lineStyle(1, DocsDoodads.Ui.mapColor(line.kind === 'spacing' ? 'guideSpacing' : line.kind === 'tile' ? 'guideTile' : 'guideAlign'), 1);
             if (line.axis === 'x') { g.moveTo(line.at - ox, line.from - oy); g.lineTo(line.at - ox, line.to - oy); }
             else if (line.axis === 'y') { g.moveTo(line.from - ox, line.at - oy); g.lineTo(line.to - ox, line.at - oy); }
             else if (line.axis === 'x-gap') { g.moveTo(line.from - ox, line.at - oy); g.lineTo(line.to - ox, line.at - oy); }
@@ -118,7 +122,7 @@
         if (sym.mode !== 'off') {
             const at = DocsDoodads.mapToScreen(sym.axisX, sym.axisY);
             const width = typeof Graphics !== 'undefined' ? Graphics.width : 816, height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
-            g.lineStyle(1, 0xa78bfa, 0.9);
+            g.lineStyle(1, DocsDoodads.Ui.mapColor('mirror'), 0.9);
             if (sym.mode === 'x' || sym.mode === 'xy') { g.moveTo(at.x, 0); g.lineTo(at.x, height); }
             if (sym.mode === 'y' || sym.mode === 'xy') { g.moveTo(0, at.y); g.lineTo(width, at.y); }
         }
@@ -128,11 +132,11 @@
         }
         if (this.placementTool === 'path' && this.pathPoints && this.pathPoints.length > 0) {
             const points = this.pathPoints.concat(this._pathHover ? [this._pathHover] : []);
-            g.lineStyle(2, 0x22d3ee, 0.9);
+            g.lineStyle(2, DocsDoodads.Ui.mapColor('path'), 0.9);
             points.forEach((p, i) => { if (i === 0) g.moveTo(p.x - ox, p.y - oy); else g.lineTo(p.x - ox, p.y - oy); });
             g.lineStyle(0);
             for (const s of DocsDoodads.Paths.sample(points, this.pathSettings.spacing, { smooth: this.pathSettings.smooth })) {
-                g.beginFill(s.kind === 'segment' ? 0x22d3ee : 0xf59e0b, 0.9);
+                g.beginFill(DocsDoodads.Ui.mapColor(s.kind === 'segment' ? 'path' : 'pathCorner'), 0.9);
                 g.drawCircle(s.x - ox, s.y - oy, s.kind === 'segment' ? 3 : 5);
                 g.endFill();
             }
@@ -276,7 +280,7 @@
         this.selectedDoodad = null;
         this.selectedDoodads = [];
         this.refreshInspector();
-        this.showToast(`Deleted ${toDelete.length} Doodad(s)`);
+        this.toastUndo(`Deleted ${toDelete.length} Doodad(s)`);
     },
 
     duplicateSelectedDoodad() {
@@ -613,6 +617,7 @@
                 this.updateCameraDrag(e);
                 return;
             }
+            this.trackCursor(e.clientX, e.clientY, e.target);
             if (this._drag) {
                 // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
                 if (e.buttons === 0) {
@@ -624,6 +629,7 @@
                 if (!this._dragActive && Math.hypot(e.clientX - this._dragClientStart.x, e.clientY - this._dragClientStart.y) < 4) return;
                 this._dragActive = true;
                 this.updateDoodadDrag(this.clientToMapCoords(e.clientX, e.clientY), { shiftKey: e.shiftKey, altKey: e.altKey });
+                this.showDragReadout(e.clientX, e.clientY);
                 return;
             }
             if (this.placementTool === 'path') {
@@ -912,7 +918,7 @@
         this._scatterErase = null;
         if (!erase || !erase.removed) return 0;
         this.recordMapListsEdit(erase.before, 'scatter_erase');
-        this.showToast(`Erased ${erase.removed} prop(s).`);
+        this.toastUndo(`Erased ${erase.removed} prop(s).`);
         return erase.removed;
     },
 
@@ -1211,7 +1217,7 @@
         };
         DocsDoodads.Undo.execute(cmd);
         this.selectEvent(null);
-        this.showToast(`Deleted Event EV${String(evId).padStart(3, '0')}`);
+        this.toastUndo(`Deleted Event EV${String(evId).padStart(3, '0')}`);
     },
 
     // The selected event's staged copy (what Save writes); the selection is pointed at it.
@@ -1444,41 +1450,42 @@
         const warning = document.getElementById('dd-import-warning');
         const confirmButton = document.getElementById('dd-import-confirm');
         const cancelButton = document.getElementById('dd-import-cancel');
-        let activeCancellation = null;
 
         collision.onchange = () => {
             warning.style.display = collision.value === 'overwrite' ? 'block' : 'none';
         };
-        cancelButton.onclick = () => {
-            if (activeCancellation) {
-                activeCancellation.cancelled = true;
-                cancelButton.disabled = true;
-                cancelButton.textContent = 'Cancelling…';
-            } else {
-                close();
-            }
-        };
+        cancelButton.onclick = () => close();
+        // The import runs on in a progress pill (with Cancel), so the editor stays usable meanwhile.
         confirmButton.onclick = async () => {
-            activeCancellation = { cancelled: false };
-            confirmButton.disabled = true;
-            destination.disabled = true;
-            collision.disabled = true;
-            autoSlice.disabled = true;
-            const result = await this.runAssetImport(sourcePaths, {
-                destination: destination.value,
-                collisionPolicy: collision.value,
-                autoSlice: Boolean(autoSlice.checked),
-                cancellationToken: activeCancellation,
-                onProgress: progress => {
-                    confirmButton.textContent = `Importing ${progress.completed}/${progress.total}…`;
-                }
-            });
-            activeCancellation = null;
+            const token = { cancelled: false };
+            const options = { destination: destination.value, collisionPolicy: collision.value, autoSlice: Boolean(autoSlice.checked) };
             close();
+            const pill = DocsDoodads.Ui.progress('Bringing in files', { onCancel: () => { token.cancelled = true; } });
+            pill.update(0, sourcePaths.length);
+            let result;
+            try {
+                result = await this.runAssetImport(sourcePaths, Object.assign(options, {
+                    cancellationToken: token,
+                    onProgress: progress => pill.update(progress.completed, progress.total)
+                }));
+            } finally {
+                pill.finish();
+            }
             this.showToast(DocsDoodads.Import.describeResult(result), result.ok ? 3500 : 6000);
             this.updateIndexStatus();
         };
-        overlay.onclick = event => { if (event.target === overlay && !activeCancellation) close(); };
+        overlay.onclick = event => { if (event.target === overlay) close(); };
+    },
+
+    // A message after a step that throws work away, with Undo while that step is still the last one.
+    toastUndo(msg, kind) {
+        const Undo = DocsDoodads.Undo;
+        const cmd = Undo.undoStack[Undo.undoStack.length - 1];
+        if (!cmd) return this.showToast(msg, kind);
+        return this.showToast(msg, kind, { action: { label: 'Undo', run: () => {
+            if (Undo.undoStack[Undo.undoStack.length - 1] === cmd) Undo.undo();
+            else this.showToast('Other changes came after it: open Steps to go back further.', 'info');
+        } } });
     },
 
     // A sound dropped on the map: add it to the event on that tile, or make a new event that plays it.
@@ -1666,10 +1673,17 @@
     },
 
     // kind: a duration in ms, or 'info' / 'success' / 'error' (colour, and errors stay longer).
-    showToast(msg, kind) {
+    // opts.action: { label, run } adds a button (Undo, for one) and keeps the message up longer.
+    // Every message is kept in the Messages list (More), so a missed one can be read again.
+    toastLog: [],
+
+    showToast(msg, kind, opts = {}) {
         const styles = { info: ['info', 2200], success: ['done', 2200], error: ['close', 5000] };
         const [icon, wait] = typeof kind === 'number' ? ['info', kind] : (styles[kind] || styles.info);
-        const duration = Math.max(800, Number(wait) || 2200);
+        const action = opts && opts.action && typeof opts.action.run === 'function' ? opts.action : null;
+        const duration = Math.max(action ? 8000 : 800, Number(wait) || 2200);
+        this.toastLog = [{ msg: String(msg), kind: typeof kind === 'string' ? kind : 'info', at: Date.now() }].concat(this.toastLog || []).slice(0, 60);
+        if (this._toastHistoryOpen) this.renderToastHistory();
         // One at a time: a new message replaces the last.
         const old = document.getElementById('dd-toast');
         if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -1680,10 +1694,27 @@
         const text = toast.querySelector ? toast.querySelector('span') : null;
         if (text) text.textContent = msg; else toast.textContent = msg;
         if (kind === 'error') DocsDoodads.Ui.sound('buzzer');
+        if (action) {
+            toast.style.pointerEvents = 'auto';
+            const btn = document.createElement('button');
+            btn.className = 'dd-btn';
+            btn.type = 'button';
+            btn.textContent = action.label || 'Undo';
+            btn.onclick = () => { if (toast.parentNode) toast.parentNode.removeChild(toast); action.run(); };
+            toast.appendChild(btn);
+            toast._ddAction = btn;
+            // While the mouse is on it, it stays.
+            toast.onmouseenter = () => { toast._ddHover = true; };
+            toast.onmouseleave = () => { toast._ddHover = false; if (toast._ddExpired) fade(); };
+        }
         document.body.appendChild(toast);
-        setTimeout(() => {
+        const fade = () => {
             toast.style.opacity = '0';
             setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
+        };
+        setTimeout(() => {
+            toast._ddExpired = true;
+            if (!toast._ddHover) fade();
         }, duration);
     },
 

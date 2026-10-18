@@ -87,6 +87,13 @@ DocsDoodads.Ui = {
     --dd-warn-soft: #fff4c9;
     --dd-purple: #8a63f0;
     --dd-pink: #f2559c;
+    --dd-rim: #ffffff;
+    --dd-primary-line: #b8dbff;
+    --dd-check-a: #f4f2fa;
+    --dd-check-b: #e8e5f1;
+    --dd-switch-off: #d9d4e7;
+    --dd-switch-line: #cbc5dc;
+    --dd-scroll: #d6d1e6;
     --dd-tint: rgba(46, 155, 255, 0.08);
     --dd-shadow: 0 4px 0 rgba(47, 42, 67, 0.10), 0 12px 30px rgba(20, 16, 40, 0.30);
     --dd-font: 'Doodads Nunito', 'Nunito', 'M PLUS Rounded 1c', 'rmmz-mainfont', 'Segoe UI', system-ui, sans-serif;
@@ -95,7 +102,7 @@ DocsDoodads.Ui = {
 #dd-asset-workspace-root *, .dd-glass * { box-sizing: border-box; }
 .dd-glass {
     background: var(--dd-panel);
-    border: 3px solid #ffffff;
+    border: 3px solid var(--dd-rim);
     border-radius: 20px;
     color: var(--dd-text);
     box-shadow: var(--dd-shadow);
@@ -109,12 +116,12 @@ DocsDoodads.Ui = {
 /* Buttons: white, rounded, and they press down. */
 .dd-btn {
     font-family: inherit; font-weight: 800; font-size: 12px; line-height: 1.15; color: var(--dd-text);
-    background: #ffffff; border: 2px solid var(--dd-line); border-radius: 12px; padding: 5px 11px;
+    background: var(--dd-panel); border: 2px solid var(--dd-line); border-radius: 12px; padding: 5px 11px;
     box-shadow: 0 3px 0 var(--dd-line); cursor: pointer; white-space: nowrap;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 #b8dbff; transform: translateY(-1px); }
+.dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 var(--dd-primary-line); transform: translateY(-1px); }
 .dd-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--dd-line); }
 .dd-btn:focus { outline: none; }
 .dd-btn:focus-visible { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
@@ -143,7 +150,7 @@ DocsDoodads.Ui = {
 #dd-save-btn { position: relative; }
 #dd-save-btn.dd-unsaved::after {
     content: ''; position: absolute; top: 3px; right: 4px; width: 11px; height: 11px; border-radius: 50%;
-    background: var(--dd-warn); border: 2px solid #ffffff; animation: dd-pop 0.22s ease;
+    background: var(--dd-warn); border: 2px solid var(--dd-panel); animation: dd-pop 0.22s ease;
 }
 #dd-save-btn.dd-just-saved { animation: dd-pop 0.3s ease; filter: brightness(1.08); }
 
@@ -171,17 +178,17 @@ DocsDoodads.Ui = {
 
 /* Item cards. */
 .dd-card {
-    background: #ffffff; border: 2px solid var(--dd-line); border-radius: 14px; box-shadow: 0 3px 0 var(--dd-line);
+    background: var(--dd-panel); border: 2px solid var(--dd-line); border-radius: 14px; box-shadow: 0 3px 0 var(--dd-line);
     cursor: pointer; position: relative; overflow: hidden; color: var(--dd-text);
     transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .dd-card img, .dd-card canvas {
     border-radius: 8px;
-    background-color: #f4f2fa;
-    background-image: linear-gradient(45deg, #e8e5f1 25%, transparent 25%, transparent 75%, #e8e5f1 75%), linear-gradient(45deg, #e8e5f1 25%, transparent 25%, transparent 75%, #e8e5f1 75%);
+    background-color: var(--dd-check-a);
+    background-image: linear-gradient(45deg, var(--dd-check-b) 25%, transparent 25%, transparent 75%, var(--dd-check-b) 75%), linear-gradient(45deg, var(--dd-check-b) 25%, transparent 25%, transparent 75%, var(--dd-check-b) 75%);
     background-size: 12px 12px; background-position: 0 0, 6px 6px;
 }
-.dd-card:hover { transform: translateY(-2px); border-color: var(--dd-primary); box-shadow: 0 4px 0 #b8dbff; }
+.dd-card:hover { transform: translateY(-2px); border-color: var(--dd-primary); box-shadow: 0 4px 0 var(--dd-primary-line); }
 .dd-card.selected { border-color: var(--dd-primary); box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.35), 0 3px 0 var(--dd-primary-dark); animation: dd-pop 0.22s ease; }
 .dd-card > div { color: var(--dd-text) !important; font-weight: 700; }
 .dd-badge { position: absolute; top: 4px; right: 4px; background: var(--dd-warn-soft); border: 2px solid #f2b600; padding: 0 5px; border-radius: 10px; font-size: 10px; color: var(--dd-warn); font-weight: 900; }
@@ -196,10 +203,10 @@ DocsDoodads.Ui = {
 }
 #dd-asset-workspace-root input:focus, #dd-asset-workspace-root select:focus, #dd-asset-workspace-root textarea:focus,
 .dd-glass input:focus, .dd-glass select:focus, .dd-glass textarea:focus {
-    border-color: var(--dd-primary) !important; background: #ffffff !important; box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.22);
+    border-color: var(--dd-primary) !important; background: var(--dd-panel) !important; box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.22);
 }
 .dd-glass input[type=color], #dd-asset-workspace-root input[type=color] {
-    -webkit-appearance: none; border: 2px solid var(--dd-line) !important; border-radius: 10px; padding: 2px; background: #fff !important; height: 28px; cursor: pointer;
+    -webkit-appearance: none; border: 2px solid var(--dd-line) !important; border-radius: 10px; padding: 2px; background: var(--dd-panel) !important; height: 28px; cursor: pointer;
 }
 .dd-glass input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
 .dd-glass input[type=color]::-webkit-color-swatch { border: none; border-radius: 7px; }
@@ -218,7 +225,7 @@ DocsDoodads.Ui = {
 /* Check boxes are on/off switches; radios are round. */
 .dd-glass input[type=checkbox] {
     -webkit-appearance: none; width: 34px; height: 20px; margin: 0 2px; border-radius: 20px; flex: none; vertical-align: middle;
-    background: #d9d4e7; border: 2px solid #cbc5dc; position: relative; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
+    background: var(--dd-switch-off); border: 2px solid var(--dd-switch-line); position: relative; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
 }
 .dd-glass input[type=checkbox]::after {
     content: ''; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%;
@@ -228,7 +235,7 @@ DocsDoodads.Ui = {
 .dd-glass input[type=checkbox]:checked::after { left: 15px; }
 .dd-glass input[type=radio] {
     -webkit-appearance: none; width: 16px; height: 16px; margin: 0 2px; border-radius: 50%; flex: none; vertical-align: middle;
-    background: #ffffff; border: 2px solid #cbc5dc; cursor: pointer;
+    background: var(--dd-panel); border: 2px solid var(--dd-switch-line); cursor: pointer;
 }
 .dd-glass input[type=radio]:checked { border: 5px solid var(--dd-primary); }
 
@@ -237,7 +244,7 @@ DocsDoodads.Ui = {
     background: var(--dd-panel-2); border: 2px solid var(--dd-line-soft) !important; border-radius: 14px;
     padding: 6px 10px !important; margin-top: 8px !important;
 }
-.dd-glass details[open] { background: #ffffff; border-color: var(--dd-line) !important; }
+.dd-glass details[open] { background: var(--dd-panel); border-color: var(--dd-line) !important; }
 .dd-glass summary {
     list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px;
     font-weight: 900 !important; font-size: 12px !important; color: var(--dd-text) !important; padding: 2px 0;
@@ -251,7 +258,7 @@ DocsDoodads.Ui = {
 
 /* Scroll bars. */
 .dd-glass ::-webkit-scrollbar, #dd-asset-workspace-root ::-webkit-scrollbar { width: 10px; height: 10px; }
-.dd-glass ::-webkit-scrollbar-thumb, #dd-asset-workspace-root ::-webkit-scrollbar-thumb { background: #d6d1e6; border-radius: 10px; border: 2px solid #ffffff; }
+.dd-glass ::-webkit-scrollbar-thumb, #dd-asset-workspace-root ::-webkit-scrollbar-thumb { background: var(--dd-scroll); border-radius: 10px; border: 2px solid var(--dd-panel); }
 .dd-glass ::-webkit-scrollbar-track { background: transparent; }
 
 /* Panel insides: labels, and buttons that wrap rather than spill out of narrow panels. */
@@ -270,7 +277,7 @@ DocsDoodads.Ui = {
 .dd-toast {
     position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 10030; pointer-events: none;
     display: flex; align-items: center; gap: 8px; padding: 8px 16px 8px 10px; border-radius: 22px;
-    font-family: var(--dd-font); font-size: 13px; font-weight: 800; color: var(--dd-text); background: #ffffff;
+    font-family: var(--dd-font); font-size: 13px; font-weight: 800; color: var(--dd-text); background: var(--dd-panel);
     border: 3px solid var(--dd-primary); box-shadow: 0 4px 0 var(--dd-primary-dark), 0 10px 24px rgba(20, 16, 40, 0.3);
     animation: dd-bounce 0.35s ease; transition: opacity 0.3s ease;
 }

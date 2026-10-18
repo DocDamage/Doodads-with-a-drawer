@@ -45,6 +45,9 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Scatter with min spacing, a region rule, and Skip impassable tiles along a shoreline.
 - [ ] Scatter's circle follows the mouse; right-drag erases only the picked item inside it (red circle, no menu); undo the stroke; `[` and `]` resize Scatter, Paint and Hills.
 - [ ] Drag doodads with smart guides, Alt and Shift; undo.
+- [ ] While dragging, the readout follows the cursor with position, tile and size; base lines line up with a neighbour's; alone, edges and the base snap to tile lines (teal).
+- [ ] Show Collision: boxes by preset, red tiles under them, grey tiles where the map blocks; the key lists the presets on the map and updates when one changes; a doodad on a layer hidden in game is faint; reopening the editor keeps it on.
+- [ ] Status bar: tile and pixel follow the mouse; picked count, layer, zoom; "Not saved" after an edit and the save time after saving.
 - [ ] Go to another map, paste, Copy/Move to Map, link neighbours, mirror an edge tree, and open World View.
 - [ ] On a looping map, stand near the seam and confirm doodads and lights stay put while the camera wraps.
 - [ ] Where Used and Rename/Move a character sheet used by events; open the project in MZ and confirm events still show it.
@@ -105,6 +108,10 @@ Test these on an exterior map and on a looping world map.
 - [ ] Make dressing rules for water edges, wall bases and a path region; Dress Map, Re-roll, Clear; check events and blank tiles are skipped.
 - [ ] Save, change doodads and events, open More → Old Saves, compare, and restore single items.
 - [ ] Hover character, door and sliced-strip assets in the Item Bag.
+- [ ] Rest on an item: the hover card shows size, frames, depth, uses; its buttons work; moving onto the card keeps it open.
+- [ ] Sort the bag each way; reopen the editor and the sort is kept.
+- [ ] Type a search with several terms: chips appear; × removes one; save it, reopen the editor, click the saved chip; × forgets it.
+- [ ] Open an empty Favourites, Prefabs and Recent tab and a search with no results: each says what to do, and the button works (Bring In Files opens a file picker).
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
 
 ## Editor look and layout
@@ -115,6 +122,11 @@ Test these on an exterior map and on a looping world map.
 - [ ] Details is titled with what is picked (a doodad, an event, several things, the map).
 - [ ] Sounds on and off in More; the editor's own font shows (rounded letters), and Japanese text in names falls back cleanly.
 - [ ] Each layout (Mapping, Events, Characters, Tiles, Compact) leaves the map in view.
+- [ ] Look: 125% and 150% fill the window, popovers open under their buttons, the bag and Details resize with the mouse; Dark and High contrast are readable everywhere (bag, Details, cards, dialogs, pills, Messages); Colour-blind safe changes guides, brushes and collision colours, and the key matches.
+- [ ] Details: open and close sections, change selection and come back: they stay as left; pin two sections and they lead in pin order; unpin.
+- [ ] Tooltips appear after a short rest with the shortcut in a key cap; clicking or typing hides them; no browser tooltip shows as well.
+- [ ] Delete doodads: the message has Undo, which brings them back; it stays while the mouse is on it. More > Messages lists the recent messages; Clear empties it.
+- [ ] Bring in a folder of files: the card closes and a pill counts them; Cancel stops it. Pack a map with many pictures and Cancel: nothing is written. Auto-Slice a big sheet: a pill with Cancel.
 - [ ] Question cards (save a layout, add to a collection, rename a prefab, Cut into a grid): the name is selected to type over, Enter answers, Esc and a click outside cancel, and editor shortcuts don't fire behind the card.
 - [ ] Delete a layer with doodads on it, a collection and a prefab: each asks with a red button; an empty layer goes without asking.
 

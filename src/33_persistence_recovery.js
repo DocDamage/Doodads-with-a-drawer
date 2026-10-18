@@ -137,6 +137,7 @@ DocsDoodads.Persistence = {
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
         this.stagedMaps = {};
 
+        this.lastSavedAt = Date.now();
         this.dirtyMap = false;
         this.dirtyDoodads = false;
         this.clearRecovery();

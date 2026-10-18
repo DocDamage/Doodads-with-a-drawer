@@ -2,6 +2,18 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- More > Look sets the editor's size (100, 125 or 150%), a light, dark or high-contrast theme, and the map colours: standard, or colour-blind safe (the Okabe-Ito colours) for selection, guides, the mirror line, paths, Old Saves, the Scatter and Hills brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer; also in the palette. The theme's surface colours are now all theme tokens.
+- Details remembers which sections were open, and a ☆ on each section pins it to the top (in the order pinned).
+- Long jobs show a progress pill with a bar and Cancel at the top right of the map, without blocking the editor: finding art when the editor opens (only when it takes a moment), packing map art (Cancel writes nothing), Auto-Slice on big sheets, and bringing in files (the import card now closes and the import carries on in its pill).
+- Every message is kept: More > Messages lists them newest first, to read one again. Deleting doodads, an event or a layer, erasing with Scatter, clearing map dressing and Replace Art show an Undo button on their message, which stays while the mouse is on it.
+- Editor buttons show a themed tooltip after a short rest, with the shortcut in a key cap, instead of the browser's plain one; buttons with only an icon keep their name for screen readers.
+- The Item Bag sorts by best match, name, newest first, biggest first, most placed or last placed (remembered; Recent and Look-alikes keep their own order). New files in the library remember when they were added.
+- Search terms show as chips under the search box, each with × to take it out, and a search can be saved under a name as a chip of its own (kept with the library, like collections; also in the palette).
+- Resting the mouse on an item shows a card with its size, frame count, default depth, how often it was placed and where it is used, with Details, Cut Up and Where Used buttons.
+- An empty Item Bag tab says what goes there and offers a button: bring in files, show everything, or clear the search.
+- Show Collision (More, or the palette) draws every doodad's collision box, coloured by preset, shades the tiles doodads block in red and the tiles the map blocks in grey, with a key to the colours; doodads hidden in game are drawn faintly and block nothing. Flat maps only; the choice is remembered.
+- While dragging, a readout beside the cursor gives the doodad's position, tile and size in pixels and tiles. Smart guides also line up base lines (where doodads stand) and, when nothing else is near, snap edges and base lines to tile lines (teal).
+- A status bar along the bottom of the map shows the tile and pixel under the cursor, the map's number and name, what is picked, the active layer, the zoom, and whether everything is saved (and when it last was).
 - Scatter has an eraser: right-drag takes away the picked item's doodads inside the brush circle (not locked ones, nor ones on hidden or locked layers), one undo step a stroke. Scatter now shows its circle on the map, green to paint and red to erase.
 - The Hills brush has a hard or soft edge (a hard edge changes the whole circle the same), shows each tile's height as a number on the tiles under it, and `[` and `]` change the size of Scatter, Paint and Hills.
 - The Editor Toggle Key can be any key or a chord, such as `Ctrl+F10` or `Ctrl+Shift+E`, for projects where another plugin owns F10 (a key that types, such as a letter, is left alone while typing in a field). The Done button's tip shows the key.

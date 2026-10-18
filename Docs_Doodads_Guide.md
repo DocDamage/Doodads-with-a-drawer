@@ -76,9 +76,19 @@ Press **F10** in a playtest. The first time, a short welcome card shows the thre
 - **More** holds the rest: **Cut Up Sheet** (the slicer), **Screen Looks** (post-processing and map image export), **Effects Maker** (VFX), **Old Saves** (save history), **File Check** (duplicates and unused files), **Info** (numbers, cache and backups), **Show Grid**, **Sounds** on/off, **Find a Tool** (Ctrl+K), **How to Use** (the welcome card again) and the panel layouts.
 - **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
 - The **hint bubble** at the bottom always says what to do next for the tool or the thing you have picked.
+- Rest the mouse on a button for its **tooltip**, with the shortcut in a key cap.
+- **Look** (More): the editor's **size** (100, 125 or 150%), its **theme** (Light, Dark or High contrast) and the **map colours**: Standard, or **Colour-blind safe** (colours that stay apart for red-green and blue-yellow colour blindness) for the selection, guides, mirror line, paths, Old Saves, brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer.
+- **Details** remembers which sections you opened or closed. The ☆ on a section's title pins it to the top; ★ unpins it.
+- **Messages** (More) lists every message the editor has shown, newest first. After deleting doodads, an event or a layer, erasing with Scatter, clearing map dressing or Replace Art, the message has an **Undo** button (it stays while the mouse is on it).
+- **Long jobs** (finding art, packing, Auto-Slice, bringing in files) show a progress pill at the top right of the map with **Cancel**; you can keep working meanwhile.
 - The editor carries its own rounded font (Nunito, under the SIL Open Font License; the licence is in `art/fonts`), so it looks the same on every computer. Letters it doesn't have, such as Japanese, use MZ's own font. Icons and the font are built from `art/` with `npm run icons` and `npm run fonts`.
 
 The left panel is the **Item Bag**, providing virtualized access to all graphics and audio in your project. It opens on **Doodads** (or **Everything** in a project that has none yet).
+
+- **Sort** (beside the item count): Best match, Name, Newest first, Biggest first, Most placed or Last placed. The choice is remembered; Recent and Look-alikes keep their own order.
+- **Search chips**: a search with more than one term shows each term as a chip under the search box; × takes it out. **☆ Save search** keeps the search as a named chip (stored with the library, like collections); click it to search again, × to forget it. Saved searches are in the command palette too.
+- **Hover card**: rest the mouse on an item for its size, frame count, default depth, times placed and where it is used, with **Details**, **Cut Up** and **Where Used** buttons.
+- **Empty tabs** say what goes there, with a button: **Bring In Files...** (the same import as dropping files on the window), **Show Everything** or **Clear the Search**.
 
 ### Navigation & Views
 - **Category Tabs**: icon tabs for Doodads, People, Tiles, Pictures, Prefabs, Sounds, Favourites, Recently used, Everything, Faces, Battlers, Backdrops and System (hover for the name; the bag's title shows the open one).
@@ -136,7 +146,9 @@ The workspace features a multi-tiered slicing engine that segments composite she
 
 ### Selection, Multi-Selection & Right-Click Context Menu
 - **Click**: Select a placed doodad or genuine MZ Event on the map.
-- **Drag to Move**: Press on a doodad and drag. Pink **smart guides** snap its edges and centre to nearby doodads; orange guides show equal spacing between neighbours. Hold **Alt** to move freely or **Shift** to snap to the tile grid. A drag is one undo step.
+- **Drag to Move**: Press on a doodad and drag. Pink **smart guides** snap its edges, centre and base line (where it stands) to nearby doodads; orange guides show equal spacing between neighbours; with nothing near, teal guides snap an edge or the base line to a tile line. A readout beside the cursor gives the position, tile and size in pixels and tiles. Hold **Alt** to move freely or **Shift** to snap to the tile grid. A drag is one undo step.
+- **Show Collision** (More, or Ctrl+K): every doodad's collision box, coloured by preset, with the tiles doodads block shaded red and the tiles the map itself blocks shaded grey, and a key to the colours. Doodads hidden in the game are drawn faintly and block nothing. Flat maps only; the choice is remembered.
+- **Status bar** (along the bottom of the map): the tile and pixel under the cursor, the map, what is picked, the layer new doodads go on, the zoom, and **Not saved** or the time of the last save.
 - **Right-Click Canvas Context Menu**:
   - *On Doodad*: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Move to Layer, Select Same Art, Select Everything on its layer, Replace Art..., Delete (Del). Right-clicking one of several picked doodads keeps them all picked.
   - *On MZ Event*: Save as Event Template..., Duplicate Event, Delete Event.

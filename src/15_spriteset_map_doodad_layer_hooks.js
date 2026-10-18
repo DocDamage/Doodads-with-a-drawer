@@ -395,7 +395,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             for (const y of grid.ys) { outline.moveTo(0, y); outline.lineTo(width, y); }
         }
         for (const rect of this._docs3d ? [] : workspace.selectionScreenRects()) {
-            outline.lineStyle(2, 0x38bdf8, 1);
+            outline.lineStyle(2, DocsDoodads.Ui.mapColor('selection'), 1);
             outline.drawRect(rect.x, rect.y, rect.w, rect.h);
         }
         if (typeof workspace.drawEditorOverlayExtras === 'function') workspace.drawEditorOverlayExtras(outline);

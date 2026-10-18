@@ -195,6 +195,8 @@ DocsDoodads.AssetIndex = {
             extension: ext,
             mtimeMs: stat.mtimeMs,
             sizeBytes: stat.size,
+            // When the bag first saw the file (Newest first); older entries fall back to the file's time.
+            addedAt: existing && existing.addedAt ? existing.addedAt : (existing ? existing.mtimeMs || 0 : Date.now()),
             entryRevision: this.entryRevision,
             width: 0,
             height: 0,
@@ -370,6 +372,32 @@ DocsDoodads.AssetIndex = {
 
     getCollections() {
         return Object.keys(this.data.collections || {});
+    },
+
+    // Named searches kept as chips under the search box, saved with the library like collections.
+    savedSearches() {
+        const list = Array.isArray(this.data.savedSearches) ? this.data.savedSearches : [];
+        return list.filter(s => s && typeof s.name === 'string' && typeof s.query === 'string');
+    },
+
+    saveSearch(name, query) {
+        name = String(name || '').trim();
+        query = String(query || '').trim();
+        if (!name || !query) return false;
+        const list = this.savedSearches().filter(s => s.name !== name);
+        list.push({ name, query });
+        this.data.savedSearches = list;
+        this.save();
+        return true;
+    },
+
+    deleteSearch(name) {
+        const list = this.savedSearches();
+        const next = list.filter(s => s.name !== name);
+        if (next.length === list.length) return false;
+        this.data.savedSearches = next;
+        this.save();
+        return true;
     }
 };
 

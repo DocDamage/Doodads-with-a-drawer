@@ -767,14 +767,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 const item = ws.doodadFlatBox(d);
                 const box = P.gizmoBox(cam, item.rect, item.pivot);
                 if (!box) continue;
-                g.lineStyle(1.5, 0xef4444, 0.9);
+                g.lineStyle(1.5, DocsDoodads.Ui.mapColor('warning'), 0.9);
                 for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
             }
         }
         for (const item of ws.selection3d ? ws.selection3d() : []) {
             const box = P.gizmoBox(cam, item.rect, item.pivot);
             if (!box) continue;
-            g.lineStyle(1.5, 0xfacc15, 0.95);
+            g.lineStyle(1.5, DocsDoodads.Ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
         }
     };
