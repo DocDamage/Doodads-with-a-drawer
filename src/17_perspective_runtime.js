@@ -995,6 +995,26 @@ if (typeof Game_Map !== 'undefined') {
         return s ? s.viewTiles : $.Game_Map_screenTileY_3d.call(this);
     };
 
+    // MZ stops scrolling at the map's edges (and centres maps smaller than the screen), which in 3D
+    // leaves the camera still while the party walks off the bottom of the window. The void colour
+    // shows past the edges, so in 3D the display follows freely; looping axes keep MZ's wrapping.
+    $.Game_Map_setDisplayPos_3d = Game_Map.prototype.setDisplayPos;
+    Game_Map.prototype.setDisplayPos = function(x, y) {
+        $.Game_Map_setDisplayPos_3d.call(this, x, y);
+        if (!P.active()) return;
+        if (!this.isLoopHorizontal()) this._displayX = this._parallaxX = x;
+        if (!this.isLoopVertical()) this._displayY = this._parallaxY = y;
+    };
+    for (const [name, axis, sign] of [['scrollDown', 'Y', 1], ['scrollUp', 'Y', -1], ['scrollRight', 'X', 1], ['scrollLeft', 'X', -1]]) {
+        const base = $['Game_Map_' + name + '_3d'] = Game_Map.prototype[name];
+        Game_Map.prototype[name] = function(distance) {
+            const loops = axis === 'X' ? this.isLoopHorizontal() : this.isLoopVertical();
+            if (loops || !P.active()) return base.call(this, distance);
+            this['_display' + axis] += sign * distance;
+            this['_parallax' + axis] += sign * distance;
+        };
+    }
+
     // Map touch: MZ asks for x and y separately, so both use the touch point.
     $.Game_Map_canvasToMapX_3d = Game_Map.prototype.canvasToMapX;
     Game_Map.prototype.canvasToMapX = function(x) {
