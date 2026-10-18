@@ -128,6 +128,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Terrain height on a world map (automatic mountains and forests), then a region and a terrain tag height; smooth and stepped; walk behind a hill; click on a slope; turn on Steep steps block walking.
 - [ ] Terrain brush: raise, lower, flatten, set and erase with different radii; undo each stroke; Clear Painted Heights.
 - [ ] 3D water: ripples on a sea and a lake, strength/speed/sparkle sliders, ripples off; sail a boat and a ship and watch the wakes; cross a looping map's seam; night; with terrain on.
+- [ ] 3D height: shrink and grow standing doodads and characters; check feet stay put, gear and balloons follow, and clicking and dragging doodads in the editor still lands on them.
 - [ ] 3D day and night: run the clock and preview times in the editor; look east at dawn and west at dusk for the sun; stars at night; hills and water lit from the sun's side; a map with a parallax; the option off.
 - [ ] 3D weather: Set Weather Effect rain, storm and snow at powers 1, 5 and 9, with fades; at night; on water; with terrain; on a planet; turn 3D weather off (MZ's flat weather returns); leave 3D.
 - [ ] Curvature slider from 0 to 100 and back; Set Camera easing flat to planet, planet to rolling log, and back to flat.
