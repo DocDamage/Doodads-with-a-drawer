@@ -21,7 +21,9 @@ DocsDoodads.Ui.mapColorMeanings.push(['reach', 'Check Reach: can walk here']);
 Object.assign(DocsDoodads.Workspace, {
     problemGroups: [
         ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['offMap', 'Off the map'],
-        ['darkLamp', 'Lamps that never show'], ['blockedEvent', 'Events that can\'t be reached or touched'], ['unreachable', 'Out of reach']
+        ['darkLamp', 'Lamps that never show'], ['blockedEvent', 'Events that can\'t be reached or touched'], ['unreachable', 'Out of reach'],
+        // Project-wide, from the LPC character library (44_workspace_lpc_library.js).
+        ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out']
     ],
 
     // ---- Collecting problems ----
@@ -147,6 +149,8 @@ Object.assign(DocsDoodads.Workspace, {
             }
         }
         if (this._reach && this._reach.mapId === here) out = out.concat(this._reach.flagged);
+        // Project-wide: LPC pictures and their credits (no map to go to).
+        if (typeof this.lpcProblems === 'function') out = out.concat(this.lpcProblems());
         return out;
     },
 
@@ -328,12 +332,14 @@ Object.assign(DocsDoodads.Workspace, {
                     text.className = 'dd-pr-text';
                     text.textContent = p.text;
                     row.appendChild(text);
-                    const go = document.createElement('button');
-                    go.className = 'dd-btn';
-                    go.type = 'button';
-                    go.textContent = 'Go To';
-                    go.onclick = () => this.goToProblem(p);
-                    row.appendChild(go);
+                    if (!p.global) {
+                        const go = document.createElement('button');
+                        go.className = 'dd-btn';
+                        go.type = 'button';
+                        go.textContent = 'Go To';
+                        go.onclick = () => this.goToProblem(p);
+                        row.appendChild(go);
+                    }
                     if (p.fix) {
                         const fix = document.createElement('button');
                         fix.className = 'dd-btn dd-btn-primary';
