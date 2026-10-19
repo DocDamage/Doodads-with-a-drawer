@@ -43,8 +43,9 @@ Object.assign(DocsDoodads.Workspace, {
         try { return FS.existsSync(p) ? FS.fs.readFileSync(p) : null; } catch (e) { return null; }
     },
 
-    // Makes the pack and writes it to packs/<name>.ddpack. Returns { path, pack } or null.
-    exportPack(name, sel = this.packSelection) {
+    // Makes the pack and writes it to packs/<name>.ddpack (asking first if one of that name is there; written
+    // whole or not at all). Returns { path, pack }, or null.
+    async exportPack(name, sel = this.packSelection) {
         const D = DocsDoodads, P = D.Packs, FS = D.FS;
         const gathered = P.gather(sel, this.packSources(), n => this.packAudioFile(n));
         const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
@@ -52,9 +53,11 @@ Object.assign(DocsDoodads.Workspace, {
         if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
         const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
         const out = FS.path.join('packs', P.fileName(pack.name));
+        if (FS.existsSync(out) && !(await D.Ui.confirm(`${out.replace(/\\/g, '/')} is already there. Replace it with this pack?`,
+            { title: 'Replace the pack?', ok: 'Replace', danger: true }))) return null;
         try {
             FS.mkdirp('packs');
-            FS.writeFileSync(out, JSON.stringify(pack), 'utf8');
+            FS.atomicWriteFile(out, JSON.stringify(pack), 'utf8');
         } catch (e) {
             this.showToast('Could not save the pack: ' + (e.message || e), 'error');
             return null;
@@ -102,7 +105,7 @@ Object.assign(DocsDoodads.Workspace, {
             try {
                 if (f.state === 'different') FS.createTimestampedBackup(f.path);
                 FS.mkdirp(FS.path.dirname(f.path));
-                FS.fs.writeFileSync(f.path, P.fromBase64(pack.files[f.path]));
+                FS.atomicWriteFile(f.path, P.fromBase64(pack.files[f.path]));
                 written.push(f.path);
             } catch (e) {
                 this.showToast(`Could not write ${f.path}: ${e.message || e}`, 'error');

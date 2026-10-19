@@ -11,6 +11,34 @@ DocsDoodads.Events = {
         return events.length > 0 ? events.length : 1;
     },
 
+    // The free tile (inside the map, no event on it) nearest to x, y (moved inside the map first): x, y
+    // itself, else the closest in the rings around it. Null when every tile has an event. A size that
+    // isn't known doesn't limit it.
+    nearestFreeTile(mapData, x, y, width, height) {
+        const size = v => (Number(v) > 0 ? Number(v) : Infinity);
+        const w = size(width), h = size(height);
+        const taken = new Set(((mapData && mapData.events) || []).filter(Boolean).map(ev => ev.x + ',' + ev.y));
+        const cx = Math.max(0, Math.min(w - 1, Math.round(Number(x) || 0)));
+        const cy = Math.max(0, Math.min(h - 1, Math.round(Number(y) || 0)));
+        // Each ring holds at least one tile of the map, so a free one is no further out than the events.
+        const last = Math.min(Math.max(w, h) - 1, taken.size);
+        for (let r = 0; r <= last; r++) {
+            const ring = [];
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    const tx = cx + dx, ty = cy + dy;
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || tx < 0 || ty < 0 || tx >= w || ty >= h || taken.has(tx + ',' + ty)) continue;
+                    ring.push({ x: tx, y: ty, d: dx * dx + dy * dy });
+                }
+            }
+            if (ring.length) {
+                ring.sort((a, b) => a.d - b.d);
+                return { x: ring[0].x, y: ring[0].y };
+            }
+        }
+        return null;
+    },
+
     // The MZ editor lists each Set Movement Route step as a 505 line after the 205 command and
     // stores route steps with indent: null. The game ignores 505s, but the editor needs them.
     withRouteDisplayLines(list) {

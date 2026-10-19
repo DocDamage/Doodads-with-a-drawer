@@ -38,6 +38,8 @@ DocsDoodads.Workspace = {
     // thrown away, then close) or Keep Editing. Resolves whether the editor closed.
     async requestClose() {
         if (!this.mounted) return true;
+        // Pieces being cut in the slicer are asked about first.
+        if (DocsDoodads.Slicing.Editor.modal && !(await DocsDoodads.Slicing.Editor.requestClose())) return false;
         if (!(await this.confirmLeave('close the editor', true))) return false;
         if (this.mounted) this.close();
         return true;
@@ -133,9 +135,8 @@ DocsDoodads.Workspace = {
         const sort = DocsDoodads.Ui.prefs().bagSort;
         this.bagSort = this.bagSorts.some(s => s.value === sort) ? sort : 'search';
         DocsDoodads.Persistence.captureSession();
-        DocsDoodads.AssetIndex.init();
-        // init() reloads every asset; a selection kept from last time must be the new object.
-        if (this.selectedAsset) this.selectedAsset = DocsDoodads.AssetIndex.data.assets[this.selectedAsset.id] || null;
+        // The library is read again only if its file changed; then what points at the old entries is moved over.
+        if (DocsDoodads.AssetIndex.init()) this.reresolveAssets();
         this.buildDom();
         this.attachCanvasListeners();
         this._onWindowResize = () => this.layoutPanels();

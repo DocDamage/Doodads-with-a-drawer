@@ -32,12 +32,24 @@ DocsDoodads.Import = {
         }
         if (!this.imageExtensions.has(ext)) return null;
 
-        if (normalizedSource.includes('/characters/') || lower.startsWith('$') || lower.includes('character') || lower.includes('actor')) return 'img/characters';
-        if (normalizedSource.includes('/faces/') || lower.includes('face')) return 'img/faces';
-        if (normalizedSource.includes('/parallaxes/') || lower.includes('parall')) return 'img/parallaxes';
-        if (normalizedSource.includes('/pictures/') || /(^|[_\-.])pic(ture)?([_\-.]|$)/.test(lower)) return 'img/pictures';
-        if (normalizedSource.includes('/tilesets/') || lower.includes('tile')) return 'img/tilesets';
+        // Whole words of the name, not pieces of them: "surface" is not a face, "tractor" not an actor.
+        const words = new Set(this.nameWords(fileName));
+        const any = list => list.some(w => words.has(w));
+        if (normalizedSource.includes('/characters/') || /^[!$]/.test(lower) || any(['character', 'characters', 'chara', 'actor', 'actors'])) return 'img/characters';
+        if (normalizedSource.includes('/faces/') || any(['face', 'faces', 'portrait', 'portraits'])) return 'img/faces';
+        if (normalizedSource.includes('/parallaxes/') || any(['parallax', 'parallaxes'])) return 'img/parallaxes';
+        if (normalizedSource.includes('/pictures/') || any(['pic', 'pics', 'picture', 'pictures'])) return 'img/pictures';
+        // MZ's tileset sheets are named like Outside_A2 or Inside_B.
+        if (normalizedSource.includes('/tilesets/') || any(['tile', 'tiles', 'tileset', 'tilesets']) || /_(a[1-5]|[b-e])$/i.test(path.basename(fileName, path.extname(fileName)))) return 'img/tilesets';
         return 'img/doodads';
+    },
+
+    // A file name's words in lower case: split at spaces, _ - . and other marks, where a capital starts a
+    // word and between letters and numbers ("ForestFace2" is forest, face, 2; "Actor1" is actor, 1).
+    nameWords(fileName) {
+        const base = String(fileName || '').replace(/\.[^.]+$/, '');
+        return base.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([a-zA-Z])([0-9])/g, '$1 $2').replace(/([0-9])([a-zA-Z])/g, '$1 $2')
+            .toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
     },
 
     normalizeDestination(destination) {

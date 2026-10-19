@@ -23,13 +23,43 @@ DocsDoodads.AssetIndex = {
     // Bump when indexFile derives new fields so unchanged files are re-indexed once.
     entryRevision: 4,
 
+    // Reads the library file, unless it is unchanged since it was last read or written here (opening the
+    // editor again keeps the same objects). True when it was read.
     init() {
         this.flushUsage();
+        const stat = this.libraryStat();
+        const same = stat && this._loadedStat && this._loadedData === this.data &&
+            stat.mtimeMs === this._loadedStat.mtimeMs && stat.size === this._loadedStat.size;
+        if (same) return false;
         const loaded = DocsDoodads.FS.readJson(this.libraryPath);
         if (loaded && loaded.version === 1) {
             this.data = loaded;
         }
+        this.noteLoaded(stat);
         this.rebuildList();
+        return true;
+    },
+
+    libraryStat() {
+        try {
+            const fs = DocsDoodads.FS.fs;
+            return fs && fs.existsSync(this.libraryPath) ? fs.statSync(this.libraryPath) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    noteLoaded(stat = this.libraryStat()) {
+        this._loadedStat = stat ? { mtimeMs: stat.mtimeMs, size: stat.size } : null;
+        this._loadedData = this.data;
+    },
+
+    // Rebuild Index: every file is read again, keeping what people set on each one (tags, favourites,
+    // collections, hand-cut pieces, collision, placement and use counts): only the derived fields are new.
+    async rebuild(options = {}) {
+        this.flushUsage();
+        for (const asset of Object.values(this.data.assets || {})) if (asset) asset.entryRevision = -1;
+        return this.scanAsync(Object.assign({}, options, { loadCache: false }));
     },
 
     rebuildList() {
@@ -166,7 +196,7 @@ DocsDoodads.AssetIndex = {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
-            DocsDoodads.FS.atomicWriteJson(target, this.data);
+            if (DocsDoodads.FS.atomicWriteJson(target, this.data) && target === this.libraryPath) this.noteLoaded();
         }
         return result;
     },
@@ -285,7 +315,16 @@ DocsDoodads.AssetIndex = {
 
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
-        DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+        const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+        if (ok) this.noteLoaded();
+        return ok;
+    },
+
+    // A save a moment after the last of several quick changes (a dropdown scrolled through, many placements).
+    saveSoon(delay = 1500) {
+        clearTimeout(this._usageTimer);
+        this._usageTimer = setTimeout(() => { this._usageTimer = null; this.save(); }, delay);
+        if (this._usageTimer && typeof this._usageTimer.unref === 'function') this._usageTimer.unref();
     },
 
     // Accepts "a, b ,a" style input; stores lowercase, trimmed, de-duplicated tags.
@@ -311,9 +350,7 @@ DocsDoodads.AssetIndex = {
         const u = asset.usage = asset.usage || { lastUsedAt: 0, useCount: 0 };
         u.useCount = (u.useCount || 0) + 1;
         u.lastUsedAt = Date.now();
-        clearTimeout(this._usageTimer);
-        this._usageTimer = setTimeout(() => { this._usageTimer = null; this.save(); }, 1500);
-        if (this._usageTimer && typeof this._usageTimer.unref === 'function') this._usageTimer.unref();
+        this.saveSoon();
     },
 
     // A usage write still waiting happens now (before the library is saved or replaced).

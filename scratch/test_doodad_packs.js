@@ -75,8 +75,8 @@ ws.mounted = true;
 
     // 2. Making the pack: written into packs/, files as base64, a missing file is listed.
     D.Prefabs.get(lamp.id).doodads.push({ bit: [3, 'img/doodads/gone.png'], x: 0, y: -48, pk: 'k1' });
-    assert.strictEqual(ws.exportPack('Town Kit!', {}), null, 'nothing picked');
-    const made = ws.exportPack('Town Kit!', { prefabs: ['pf_plaza'], rooms: ['room_hut'], biomes: ['biome_meadow'], dress: [0], collections: ['Garden'] });
+    assert.strictEqual(await ws.exportPack('Town Kit!', {}), null, 'nothing picked');
+    const made = await ws.exportPack('Town Kit!', { prefabs: ['pf_plaza'], rooms: ['room_hut'], biomes: ['biome_meadow'], dress: [0], collections: ['Garden'] });
     assert.strictEqual(made.path.replace(/\\/g, '/'), 'packs/Town_Kit.ddpack');
     assert.ok(fs.existsSync(path.join(projectA, 'packs', 'Town_Kit.ddpack')));
     assert.deepStrictEqual(made.pack.missing, ['img/doodads/gone.png']);

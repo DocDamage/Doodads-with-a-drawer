@@ -131,15 +131,25 @@
 
     renderLayersPanel(mapSettings) {
         const layers = DocsDoodads.Layers.list(mapSettings);
-        const counts = {};
-        for (const d of DocsDoodads.doodads(this.currentMapId())) if (d) counts[DocsDoodads.Layers.of(d)] = (counts[DocsDoodads.Layers.of(d)] || 0) + 1;
+        const counts = {}, hidden = {};
+        for (const d of DocsDoodads.doodads(this.currentMapId())) {
+            if (!d) continue;
+            const id = DocsDoodads.Layers.of(d);
+            counts[id] = (counts[id] || 0) + 1;
+            if (d.editorHidden) hidden[id] = (hidden[id] || 0) + 1;
+        }
+        const hiddenTotal = Object.values(hidden).reduce((a, b) => a + b, 0);
         const active = layers.some(l => l.id === this.activeLayer) ? this.activeLayer : 'main';
         const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        // The count says how many are hidden in the editor, in brackets: those can't be clicked until shown.
+        const count = l => hidden[l.id]
+            ? `<span style="color: var(--dd-faint);" title="${counts[l.id]} doodad(s) on this layer, ${hidden[l.id]} hidden in the editor">${counts[l.id]} <b style="color: var(--dd-warn);">(${hidden[l.id]})</b></span>`
+            : `<span style="color: var(--dd-faint);" title="Doodads on this layer">${counts[l.id] || 0}</span>`;
         const rows = layers.map((l, i) => `
-            <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; align-items: center; font-size: 10px; color: var(--dd-text);">
+            <div style="display: grid; grid-template-columns: 16px 1fr 40px 18px 18px 18px 20px; gap: 3px; align-items: center; font-size: 10px; color: var(--dd-text);">
                 <input type="radio" name="dd-layer-active" id="dd-layer-active-${i}" ${l.id === active ? 'checked' : ''} title="New doodads go on this layer" />
                 ${l.id === 'main' ? `<span>${escapeHtml(l.name)}</span>` : `<input type="text" id="dd-layer-name-${i}" value="${escapeHtml(l.name)}" style="${inputStyle}" />`}
-                <span style="color: var(--dd-faint);" title="Doodads on this layer">${counts[l.id] || 0}</span>
+                ${count(l)}
                 <input type="checkbox" id="dd-layer-show-${i}" ${l.hidden ? '' : 'checked'} title="Show in the editor" />
                 <input type="checkbox" id="dd-layer-lock-${i}" ${l.locked ? 'checked' : ''} title="Locked (can't be selected)" />
                 <input type="checkbox" id="dd-layer-game-${i}" ${l.gameHidden ? '' : 'checked'} title="Show in the game" />
@@ -149,8 +159,9 @@
             <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;" ${this._openLayers ? 'open' : ''} id="dd-layers-sec">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Layers</summary>
                 <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-                    <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
+                    <div style="display: grid; grid-template-columns: 16px 1fr 40px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
                     ${rows}
+                    ${hiddenTotal ? `<button class="dd-btn" id="dd-layer-show-hidden" title="Hidden doodads can't be clicked or selected">Show Hidden Doodads (${hiddenTotal})</button>` : ''}
                     <button class="dd-btn" id="dd-layer-add">Add Layer</button>
                     <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">The selected layer receives new doodads. Ed = shown while editing, Lk = locked, Gm = shown in the game. Move doodads with the Layer field in their details, or right-click one: Move to Layer.</div>
                 </div>
@@ -180,6 +191,8 @@
         });
         const add = byId('dd-layer-add');
         if (add) add.onclick = () => { this.activeLayer = this.addLayer(); this._openLayers = true; this.refreshInspector(); };
+        const showHidden = byId('dd-layer-show-hidden');
+        if (showHidden) showHidden.onclick = () => this.showHiddenDoodads();
     },
 
     // ---- Symmetry ----
@@ -772,6 +785,7 @@
         add('Tool: Select', () => this.setPlacementTool(null), null, K('toolSelect'));
         add('Select All', () => this.selectAllDoodads(), null, K('selectAll'));
         add('Invert Selection', () => this.invertSelection());
+        add('Show Hidden Doodads', () => this.showHiddenDoodads());
         add('Select Same Art as Picked', () => this.selectSameArt());
         add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());

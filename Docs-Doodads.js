@@ -6128,6 +6128,20 @@ DocsDoodads.Shortcuts = {
         return null;
     },
 
+    // Keys a text field leaves to the editor (Ctrl+S right after typing in Details): chords with Ctrl or Alt,
+    // and the F-keys. Not the field's own editing keys (Ctrl+Z, Y, A, C, V, X, moving and deleting by word),
+    // and not Ctrl+Alt with a character (AltGr types on many keyboards).
+    passesField(e) {
+        if (!e) return false;
+        const key = String(e.key || '');
+        const ctrl = Boolean(e.ctrlKey || e.metaKey), alt = Boolean(e.altKey);
+        if (/^F\d{1,2}$/.test(key)) return true;
+        if (!ctrl && !alt) return false;
+        if (ctrl && alt && key.length === 1) return false;
+        if (ctrl && !alt && (/^[zyacvx]$/i.test(key) || /^(Arrow|Home|End|Backspace|Delete)/.test(key))) return false;
+        return true;
+    },
+
     // A key press while changing a binding: the chord it makes, or null for a lone Ctrl, Shift or Alt.
     chordFromEvent(e) {
         if (!e || /^(Control|Shift|Alt|Meta|OS|AltGraph|CapsLock)$/.test(String(e.key || ''))) return null;
@@ -17033,6 +17047,21 @@ DocsDoodads.FS = {
         }
     },
 
+    // Text or bytes written whole or not at all: a temporary file beside the target, then a rename. Throws
+    // (with the temporary file removed) when it can't write.
+    atomicWriteFile(filePath, data, encoding) {
+        if (!this.fs || !this.path) throw new Error('Filesystem access is unavailable.');
+        const tmpPath = filePath + '.tmp';
+        try {
+            this.fs.writeFileSync(tmpPath, data, encoding);
+            this.fs.renameSync(tmpPath, filePath);
+        } catch (e) {
+            try { if (this.existsSync(tmpPath)) this.fs.unlinkSync(tmpPath); } catch (cleanupError) {}
+            throw e;
+        }
+        return true;
+    },
+
     createTimestampedBackup(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
         if (!this.fs || !this.path || !this.existsSync(filePath)) return null;
         const cacheDir = backupDirectory;
@@ -17304,13 +17333,43 @@ DocsDoodads.AssetIndex = {
     // Bump when indexFile derives new fields so unchanged files are re-indexed once.
     entryRevision: 4,
 
+    // Reads the library file, unless it is unchanged since it was last read or written here (opening the
+    // editor again keeps the same objects). True when it was read.
     init() {
         this.flushUsage();
+        const stat = this.libraryStat();
+        const same = stat && this._loadedStat && this._loadedData === this.data &&
+            stat.mtimeMs === this._loadedStat.mtimeMs && stat.size === this._loadedStat.size;
+        if (same) return false;
         const loaded = DocsDoodads.FS.readJson(this.libraryPath);
         if (loaded && loaded.version === 1) {
             this.data = loaded;
         }
+        this.noteLoaded(stat);
         this.rebuildList();
+        return true;
+    },
+
+    libraryStat() {
+        try {
+            const fs = DocsDoodads.FS.fs;
+            return fs && fs.existsSync(this.libraryPath) ? fs.statSync(this.libraryPath) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    noteLoaded(stat = this.libraryStat()) {
+        this._loadedStat = stat ? { mtimeMs: stat.mtimeMs, size: stat.size } : null;
+        this._loadedData = this.data;
+    },
+
+    // Rebuild Index: every file is read again, keeping what people set on each one (tags, favourites,
+    // collections, hand-cut pieces, collision, placement and use counts): only the derived fields are new.
+    async rebuild(options = {}) {
+        this.flushUsage();
+        for (const asset of Object.values(this.data.assets || {})) if (asset) asset.entryRevision = -1;
+        return this.scanAsync(Object.assign({}, options, { loadCache: false }));
     },
 
     rebuildList() {
@@ -17447,7 +17506,7 @@ DocsDoodads.AssetIndex = {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
-            DocsDoodads.FS.atomicWriteJson(target, this.data);
+            if (DocsDoodads.FS.atomicWriteJson(target, this.data) && target === this.libraryPath) this.noteLoaded();
         }
         return result;
     },
@@ -17566,7 +17625,16 @@ DocsDoodads.AssetIndex = {
 
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
-        DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+        const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+        if (ok) this.noteLoaded();
+        return ok;
+    },
+
+    // A save a moment after the last of several quick changes (a dropdown scrolled through, many placements).
+    saveSoon(delay = 1500) {
+        clearTimeout(this._usageTimer);
+        this._usageTimer = setTimeout(() => { this._usageTimer = null; this.save(); }, delay);
+        if (this._usageTimer && typeof this._usageTimer.unref === 'function') this._usageTimer.unref();
     },
 
     // Accepts "a, b ,a" style input; stores lowercase, trimmed, de-duplicated tags.
@@ -17592,9 +17660,7 @@ DocsDoodads.AssetIndex = {
         const u = asset.usage = asset.usage || { lastUsedAt: 0, useCount: 0 };
         u.useCount = (u.useCount || 0) + 1;
         u.lastUsedAt = Date.now();
-        clearTimeout(this._usageTimer);
-        this._usageTimer = setTimeout(() => { this._usageTimer = null; this.save(); }, 1500);
-        if (this._usageTimer && typeof this._usageTimer.unref === 'function') this._usageTimer.unref();
+        this.saveSoon();
     },
 
     // A usage write still waiting happens now (before the library is saved or replaced).
@@ -18372,10 +18438,11 @@ DocsDoodads.Packs = {
         return Uint8Array.from(atob(String(text || '')), c => c.charCodeAt(0));
     },
 
-    // Only files inside the project's own folders: no absolute paths, no "..".
+    // Only files inside the project's own art folders: no absolute paths, no "..", and nothing in data/
+    // (that would replace this project's own maps' doodads; prefabs and rooms travel as JSON in the pack).
     safePath(p) {
         const s = String(p || '').replace(/\\/g, '/');
-        return /^(img|audio|models|movies|effects|data\/DocsDoodads)\//i.test(s) && !s.split('/').includes('..') && !/^[a-z]:/i.test(s);
+        return /^(img|audio|models|movies|effects)\//i.test(s) && !s.split('/').includes('..') && !/^[a-z]:/i.test(s);
     },
 
     // Reads a pack's text; throws a message a person can act on when it isn't one.
@@ -22242,6 +22309,7 @@ DocsDoodads.Slicing.Editor = {
         if (!asset || !asset.path) return;
         this.asset = asset;
         this.regions = JSON.parse(JSON.stringify(asset.slice.regions || []));
+        this._savedRegions = JSON.stringify(this.regions);
         this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
         this.zoom = 1.0;
         this.panX = 0;
@@ -22326,8 +22394,8 @@ DocsDoodads.Slicing.Editor = {
         return true;
     },
 
-    saveState() {
-        this.undoStack.push(JSON.stringify(this.regions));
+    saveState(snapshot = JSON.stringify(this.regions)) {
+        this.undoStack.push(snapshot);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack = [];
         this.updateUndoButtons();
@@ -22474,13 +22542,9 @@ DocsDoodads.Slicing.Editor = {
         const container = document.getElementById('dd-slicer-canvas-container');
 
         // Close & Save
-        document.getElementById('dd-slicer-close-btn').onclick = () => this.close();
+        document.getElementById('dd-slicer-close-btn').onclick = () => this.requestClose();
         document.getElementById('dd-slicer-save-btn').onclick = () => {
-            this.asset.slice.regions = this.regions;
-            this.asset.slice.status = "manual";
-            DocsDoodads.AssetIndex.save();
-            DocsDoodads.Workspace.refreshDrawerCards();
-            DocsDoodads.Workspace.showToast("Slice Regions Saved!");
+            this.savePieces();
             this.close();
         };
 
@@ -22628,7 +22692,8 @@ DocsDoodads.Slicing.Editor = {
                     const r = this.regions[this.selectedRegionIdx];
                     const handle = this.hitTestHandles(mouseX, mouseY, r);
                     if (handle) {
-                        this.saveState();
+                        // A drag is an undo step only if it moved something (see onWindowMouseUp).
+                        this._dragBefore = JSON.stringify(this.regions);
                         this.isDraggingHandle = true;
                         this.activeHandle = handle;
                         this.dragStartMouse = { x: mouseX, y: mouseY };
@@ -22640,7 +22705,7 @@ DocsDoodads.Slicing.Editor = {
                 // Check if clicking inside any region
                 const clickedIdx = this.hitTestRegions(mouseX, mouseY);
                 if (clickedIdx >= 0) {
-                    this.saveState();
+                    this._dragBefore = JSON.stringify(this.regions);
                     this.selectedRegionIdx = clickedIdx;
                     this.isDraggingHandle = true;
                     this.activeHandle = 'body';
@@ -22742,6 +22807,8 @@ DocsDoodads.Slicing.Editor = {
         }
         if (this.isDraggingHandle) {
             this.isDraggingHandle = false;
+            if (this._dragBefore && this._dragBefore !== JSON.stringify(this.regions)) this.saveState(this._dragBefore);
+            this._dragBefore = null;
             this.activeHandle = null;
             this.activeGuides = [];
             this.render();
@@ -22782,10 +22849,50 @@ DocsDoodads.Slicing.Editor = {
         return out;
     },
 
+    // Save Pieces: the pieces go into the library and the item's picture in the bag is made again.
+    savePieces() {
+        if (!this.asset) return false;
+        this.asset.slice.regions = this.regions;
+        this.asset.slice.status = "manual";
+        this._savedRegions = JSON.stringify(this.regions);
+        DocsDoodads.AssetIndex.save();
+        if (this.asset.id) DocsDoodads.Thumbnail.invalidate(this.asset.id);
+        DocsDoodads.Workspace.refreshDrawerCards();
+        DocsDoodads.Workspace.showToast("Slice Regions Saved!");
+        return true;
+    },
+
+    // Pieces changed since they were opened or last saved.
+    hasChanges() {
+        return Boolean(this.modal) && JSON.stringify(this.regions) !== this._savedRegions;
+    },
+
+    // Close, or Esc: with pieces not saved, asks first (Save, Don't Save, or keep editing).
+    async requestClose() {
+        if (!this.modal || this._asking) return false;
+        if (!this.hasChanges()) { this.close(); return true; }
+        this._asking = true;
+        let answer;
+        try {
+            answer = await DocsDoodads.Ui.choose('The pieces you changed are not saved yet.', [
+                { label: 'Keep Editing', value: 'stay' },
+                { label: "Don't Save", value: 'discard', kind: 'danger' },
+                { label: 'Save Pieces', value: 'save', kind: 'primary', main: true }
+            ], { title: 'Save pieces?', icon: 'scissors', cancelValue: 'stay' });
+        } finally {
+            this._asking = false;
+        }
+        if (answer === 'stay' || !this.modal) return false;
+        if (answer === 'save') this.savePieces();
+        this.close();
+        return true;
+    },
+
     handleKeyDown(e) {
         if (!this.modal) return;
+        if (DocsDoodads.Ui.dialogOpen()) return; // a question card is answered first
         if (e.key === 'Escape') {
-            this.close();
+            this.requestClose();
             return;
         }
         if (DocsDoodads.isEditableTarget(e.target)) return;
@@ -22794,14 +22901,18 @@ DocsDoodads.Slicing.Editor = {
             this._spaceHeld = true;
             return;
         }
+        // Undo, Redo and Duplicate are the editor's own keys, rebound or not (Keys in More).
+        const shortcut = DocsDoodads.Shortcuts.match(e);
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const del = document.getElementById('dd-slicer-del-btn');
             if (del) del.click();
-        } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+        } else if (shortcut === 'undo') {
+            e.preventDefault();
             this.undo();
-        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+        } else if (shortcut === 'redo') {
+            e.preventDefault();
             this.redo();
-        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
+        } else if (shortcut === 'duplicate') {
             e.preventDefault();
             const dup = document.getElementById('dd-slicer-dup-btn');
             if (dup) dup.click();
@@ -23179,6 +23290,34 @@ DocsDoodads.Events = {
             if (!events[i]) return i;
         }
         return events.length > 0 ? events.length : 1;
+    },
+
+    // The free tile (inside the map, no event on it) nearest to x, y (moved inside the map first): x, y
+    // itself, else the closest in the rings around it. Null when every tile has an event. A size that
+    // isn't known doesn't limit it.
+    nearestFreeTile(mapData, x, y, width, height) {
+        const size = v => (Number(v) > 0 ? Number(v) : Infinity);
+        const w = size(width), h = size(height);
+        const taken = new Set(((mapData && mapData.events) || []).filter(Boolean).map(ev => ev.x + ',' + ev.y));
+        const cx = Math.max(0, Math.min(w - 1, Math.round(Number(x) || 0)));
+        const cy = Math.max(0, Math.min(h - 1, Math.round(Number(y) || 0)));
+        // Each ring holds at least one tile of the map, so a free one is no further out than the events.
+        const last = Math.min(Math.max(w, h) - 1, taken.size);
+        for (let r = 0; r <= last; r++) {
+            const ring = [];
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    const tx = cx + dx, ty = cy + dy;
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || tx < 0 || ty < 0 || tx >= w || ty >= h || taken.has(tx + ',' + ty)) continue;
+                    ring.push({ x: tx, y: ty, d: dx * dx + dy * dy });
+                }
+            }
+            if (ring.length) {
+                ring.sort((a, b) => a.d - b.d);
+                return { x: ring[0].x, y: ring[0].y };
+            }
+        }
+        return null;
     },
 
     // The MZ editor lists each Set Movement Route step as a 505 line after the 205 command and
@@ -25140,12 +25279,24 @@ DocsDoodads.Import = {
         }
         if (!this.imageExtensions.has(ext)) return null;
 
-        if (normalizedSource.includes('/characters/') || lower.startsWith('$') || lower.includes('character') || lower.includes('actor')) return 'img/characters';
-        if (normalizedSource.includes('/faces/') || lower.includes('face')) return 'img/faces';
-        if (normalizedSource.includes('/parallaxes/') || lower.includes('parall')) return 'img/parallaxes';
-        if (normalizedSource.includes('/pictures/') || /(^|[_\-.])pic(ture)?([_\-.]|$)/.test(lower)) return 'img/pictures';
-        if (normalizedSource.includes('/tilesets/') || lower.includes('tile')) return 'img/tilesets';
+        // Whole words of the name, not pieces of them: "surface" is not a face, "tractor" not an actor.
+        const words = new Set(this.nameWords(fileName));
+        const any = list => list.some(w => words.has(w));
+        if (normalizedSource.includes('/characters/') || /^[!$]/.test(lower) || any(['character', 'characters', 'chara', 'actor', 'actors'])) return 'img/characters';
+        if (normalizedSource.includes('/faces/') || any(['face', 'faces', 'portrait', 'portraits'])) return 'img/faces';
+        if (normalizedSource.includes('/parallaxes/') || any(['parallax', 'parallaxes'])) return 'img/parallaxes';
+        if (normalizedSource.includes('/pictures/') || any(['pic', 'pics', 'picture', 'pictures'])) return 'img/pictures';
+        // MZ's tileset sheets are named like Outside_A2 or Inside_B.
+        if (normalizedSource.includes('/tilesets/') || any(['tile', 'tiles', 'tileset', 'tilesets']) || /_(a[1-5]|[b-e])$/i.test(path.basename(fileName, path.extname(fileName)))) return 'img/tilesets';
         return 'img/doodads';
+    },
+
+    // A file name's words in lower case: split at spaces, _ - . and other marks, where a capital starts a
+    // word and between letters and numbers ("ForestFace2" is forest, face, 2; "Actor1" is actor, 1).
+    nameWords(fileName) {
+        const base = String(fileName || '').replace(/\.[^.]+$/, '');
+        return base.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([a-zA-Z])([0-9])/g, '$1 $2').replace(/([0-9])([a-zA-Z])/g, '$1 $2')
+            .toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
     },
 
     normalizeDestination(destination) {
@@ -26683,6 +26834,8 @@ DocsDoodads.Workspace = {
     // thrown away, then close) or Keep Editing. Resolves whether the editor closed.
     async requestClose() {
         if (!this.mounted) return true;
+        // Pieces being cut in the slicer are asked about first.
+        if (DocsDoodads.Slicing.Editor.modal && !(await DocsDoodads.Slicing.Editor.requestClose())) return false;
         if (!(await this.confirmLeave('close the editor', true))) return false;
         if (this.mounted) this.close();
         return true;
@@ -26778,9 +26931,8 @@ DocsDoodads.Workspace = {
         const sort = DocsDoodads.Ui.prefs().bagSort;
         this.bagSort = this.bagSorts.some(s => s.value === sort) ? sort : 'search';
         DocsDoodads.Persistence.captureSession();
-        DocsDoodads.AssetIndex.init();
-        // init() reloads every asset; a selection kept from last time must be the new object.
-        if (this.selectedAsset) this.selectedAsset = DocsDoodads.AssetIndex.data.assets[this.selectedAsset.id] || null;
+        // The library is read again only if its file changed; then what points at the old entries is moved over.
+        if (DocsDoodads.AssetIndex.init()) this.reresolveAssets();
         this.buildDom();
         this.attachCanvasListeners();
         this._onWindowResize = () => this.layoutPanels();
@@ -28596,15 +28748,20 @@ DocsDoodads.Workspace = {
         modeSel.value = a.placement.defaultMode || "doodad";
         templateGroup.style.display = modeSel.value === "event" ? "block" : "none";
 
+        // Kept in the library like collision and depth (a moment later, so scrolling through the list writes once).
         modeSel.onchange = (e) => {
             a.placement.defaultMode = e.target.value;
             templateGroup.style.display = a.placement.defaultMode === "event" ? "block" : "none";
+            DocsDoodads.AssetIndex.saveSoon(400);
         };
 
         const charSel = document.getElementById('dd-char-index');
         if (charSel) {
             charSel.value = String(a.placement.characterIndex || 0);
-            charSel.onchange = (e) => { a.placement.characterIndex = parseInt(e.target.value, 10) || 0; };
+            charSel.onchange = (e) => {
+                a.placement.characterIndex = parseInt(e.target.value, 10) || 0;
+                DocsDoodads.AssetIndex.saveSoon(400);
+            };
         }
 
         const tagInput = document.getElementById('dd-asset-tags');
@@ -29231,15 +29388,25 @@ DocsDoodads.Workspace = {
 
     renderLayersPanel(mapSettings) {
         const layers = DocsDoodads.Layers.list(mapSettings);
-        const counts = {};
-        for (const d of DocsDoodads.doodads(this.currentMapId())) if (d) counts[DocsDoodads.Layers.of(d)] = (counts[DocsDoodads.Layers.of(d)] || 0) + 1;
+        const counts = {}, hidden = {};
+        for (const d of DocsDoodads.doodads(this.currentMapId())) {
+            if (!d) continue;
+            const id = DocsDoodads.Layers.of(d);
+            counts[id] = (counts[id] || 0) + 1;
+            if (d.editorHidden) hidden[id] = (hidden[id] || 0) + 1;
+        }
+        const hiddenTotal = Object.values(hidden).reduce((a, b) => a + b, 0);
         const active = layers.some(l => l.id === this.activeLayer) ? this.activeLayer : 'main';
         const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 1px 3px; border-radius: 3px; font-size: 10px;';
+        // The count says how many are hidden in the editor, in brackets: those can't be clicked until shown.
+        const count = l => hidden[l.id]
+            ? `<span style="color: var(--dd-faint);" title="${counts[l.id]} doodad(s) on this layer, ${hidden[l.id]} hidden in the editor">${counts[l.id]} <b style="color: var(--dd-warn);">(${hidden[l.id]})</b></span>`
+            : `<span style="color: var(--dd-faint);" title="Doodads on this layer">${counts[l.id] || 0}</span>`;
         const rows = layers.map((l, i) => `
-            <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; align-items: center; font-size: 10px; color: var(--dd-text);">
+            <div style="display: grid; grid-template-columns: 16px 1fr 40px 18px 18px 18px 20px; gap: 3px; align-items: center; font-size: 10px; color: var(--dd-text);">
                 <input type="radio" name="dd-layer-active" id="dd-layer-active-${i}" ${l.id === active ? 'checked' : ''} title="New doodads go on this layer" />
                 ${l.id === 'main' ? `<span>${escapeHtml(l.name)}</span>` : `<input type="text" id="dd-layer-name-${i}" value="${escapeHtml(l.name)}" style="${inputStyle}" />`}
-                <span style="color: var(--dd-faint);" title="Doodads on this layer">${counts[l.id] || 0}</span>
+                ${count(l)}
                 <input type="checkbox" id="dd-layer-show-${i}" ${l.hidden ? '' : 'checked'} title="Show in the editor" />
                 <input type="checkbox" id="dd-layer-lock-${i}" ${l.locked ? 'checked' : ''} title="Locked (can't be selected)" />
                 <input type="checkbox" id="dd-layer-game-${i}" ${l.gameHidden ? '' : 'checked'} title="Show in the game" />
@@ -29249,8 +29416,9 @@ DocsDoodads.Workspace = {
             <details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;" ${this._openLayers ? 'open' : ''} id="dd-layers-sec">
                 <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Layers</summary>
                 <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
-                    <div style="display: grid; grid-template-columns: 16px 1fr 30px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
+                    <div style="display: grid; grid-template-columns: 16px 1fr 40px 18px 18px 18px 20px; gap: 3px; font-size: 9px; color: var(--dd-faint);"><span></span><span>Name</span><span>#</span><span>Ed</span><span>Lk</span><span>Gm</span><span></span></div>
                     ${rows}
+                    ${hiddenTotal ? `<button class="dd-btn" id="dd-layer-show-hidden" title="Hidden doodads can't be clicked or selected">Show Hidden Doodads (${hiddenTotal})</button>` : ''}
                     <button class="dd-btn" id="dd-layer-add">Add Layer</button>
                     <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">The selected layer receives new doodads. Ed = shown while editing, Lk = locked, Gm = shown in the game. Move doodads with the Layer field in their details, or right-click one: Move to Layer.</div>
                 </div>
@@ -29280,6 +29448,8 @@ DocsDoodads.Workspace = {
         });
         const add = byId('dd-layer-add');
         if (add) add.onclick = () => { this.activeLayer = this.addLayer(); this._openLayers = true; this.refreshInspector(); };
+        const showHidden = byId('dd-layer-show-hidden');
+        if (showHidden) showHidden.onclick = () => this.showHiddenDoodads();
     },
 
     // ---- Symmetry ----
@@ -29872,6 +30042,7 @@ DocsDoodads.Workspace = {
         add('Tool: Select', () => this.setPlacementTool(null), null, K('toolSelect'));
         add('Select All', () => this.selectAllDoodads(), null, K('selectAll'));
         add('Invert Selection', () => this.invertSelection());
+        add('Show Hidden Doodads', () => this.showHiddenDoodads());
         add('Select Same Art as Picked', () => this.selectSameArt());
         add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
@@ -32002,8 +32173,16 @@ DocsDoodads.Workspace = {
         const collision = asset.collision || {};
         d.collision = { preset: collision.preset || "none", shape: collision.shape ? JSON.parse(JSON.stringify(collision.shape)) : null };
         DocsDoodads.MapLinks.ensureUid(d);
-        if (this.activeLayer && this.activeLayer !== 'main') d.layer = this.activeLayer;
+        const layer = this.layerOnThisMap(this.activeLayer);
+        if (layer !== 'main') d.layer = layer;
         return d;
+    },
+
+    // The layer id if this map has it, else 'main'.
+    layerOnThisMap(id) {
+        if (!id || id === 'main') return 'main';
+        const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
+        return layers.some(l => l.id === id) ? id : 'main';
     },
 
     // ---- Prefab drawer entries and panels ----
@@ -32341,6 +32520,8 @@ DocsDoodads.Workspace = {
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
+        // Layers are per map: new doodads go on Main unless this map has the layer that was picked.
+        this.activeLayer = this.layerOnThisMap(this.activeLayer);
         // The save-history panel compares against the map it was opened on.
         this._historyDiff = null;
         if (this._historyPanel && this._historyPanel.parentNode) this._historyPanel.parentNode.removeChild(this._historyPanel);
@@ -32544,6 +32725,17 @@ DocsDoodads.Workspace = {
         this.similarSource = asset.fileName;
         this.setCategory('Similar');
         this.showToast(`Showing images most like ${asset.fileName}.`);
+    },
+
+    // After the library was read again: the picked item, the last one placed, the look-alikes and the shown
+    // list are the new entries with the same ids (prefabs aren't library entries and stay as they are).
+    reresolveAssets() {
+        const assets = (DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets) || {};
+        const again = a => (!a ? null : a.type === 'prefab' ? a : (a.id && assets[a.id]) || null);
+        this.selectedAsset = again(this.selectedAsset);
+        this.lastAsset = again(this.lastAsset);
+        if (Array.isArray(this.similarResults)) this.similarResults = this.similarResults.map(again).filter(Boolean);
+        if (Array.isArray(this.filteredAssets)) this.filteredAssets = this.filteredAssets.map(again).filter(Boolean);
     },
 
     setCategory(category) {
@@ -32969,6 +33161,25 @@ DocsDoodads.Workspace = {
         this.editDoodads(items, d => { d.locked = !!locked; }, 'lock_doodads');
         this.refreshInspector();
         this.showToast(locked ? `Locked ${items.length} doodads.` : `Unlocked ${items.length} doodads.`);
+    },
+
+    // Doodads hidden in the editor can't be clicked, boxed or selected; these find them again.
+    hiddenDoodads() {
+        return (DocsDoodads.doodads(this.currentMapId()) || []).filter(d => d && d.editorHidden);
+    },
+
+    // Shows every doodad hidden in the editor on this map (one step to undo) and picks them.
+    showHiddenDoodads() {
+        const items = this.hiddenDoodads();
+        if (items.length === 0) {
+            this.showToast('Nothing on this map is hidden in the editor.', 'info');
+            return 0;
+        }
+        this.editDoodads(items, d => { d.editorHidden = false; }, 'hide_doodads');
+        this.selectDoodads(items.filter(d => this.layerAllowsEditing(d)));
+        this.refreshInspector();
+        this.toastUndo(`Showing ${items.length} hidden doodad(s) again.`, 'success');
+        return items.length;
     },
 
     hideSelected(hidden) {
@@ -34063,10 +34274,11 @@ DocsDoodads.Workspace = {
             if (clickedDoodad) {
                 // Right-clicking one of several picked doodads keeps them all picked.
                 if (!this.selectionItems().includes(clickedDoodad)) this.selectDoodad(clickedDoodad);
-                items.push({ label: 'Bring Forward (+1 Z)', icon: '⬆️', onClick: () => this.bringForward([clickedDoodad]) });
-                items.push({ label: 'Send Backward (-1 Z)', icon: '⬇️', onClick: () => this.sendBackward([clickedDoodad]) });
-                items.push({ label: 'Bring to Front', icon: '⏫', onClick: () => this.bringToFront([clickedDoodad]) });
-                items.push({ label: 'Send to Back', icon: '⏬', onClick: () => this.sendToBack([clickedDoodad]) });
+                // Like Duplicate, Lock, Hide and Move to Layer, the order acts on everything picked.
+                items.push({ label: 'Bring Forward (+1 Z)', icon: '⬆️', onClick: () => this.bringForward() });
+                items.push({ label: 'Send Backward (-1 Z)', icon: '⬇️', onClick: () => this.sendBackward() });
+                items.push({ label: 'Bring to Front', icon: '⏫', onClick: () => this.bringToFront() });
+                items.push({ label: 'Send to Back', icon: '⏬', onClick: () => this.sendToBack() });
                 items.push({ separator: true });
                 items.push({ label: DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'), icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
                 items.push({ label: clickedDoodad.locked ? 'Unlock' : 'Lock', icon: clickedDoodad.locked ? '🔓' : '🔒', onClick: () => this.lockSelected(!clickedDoodad.locked) });
@@ -34114,6 +34326,8 @@ DocsDoodads.Workspace = {
             }
             items.push({ label: DocsDoodads.Shortcuts.tip('selectAll', 'Select All'), icon: '⬚', onClick: () => this.selectAllDoodads() });
             if (this.selectionItems().length > 0) items.push({ label: 'Invert Selection', icon: '◪', onClick: () => this.invertSelection() });
+            const hiddenCount = this.hiddenDoodads().length;
+            if (hiddenCount > 0) items.push({ label: `Show Hidden Doodads (${hiddenCount})`, icon: '👁️', onClick: () => this.showHiddenDoodads() });
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
             }
@@ -34927,10 +35141,18 @@ DocsDoodads.Workspace = {
         DocsDoodads.Persistence.stagedFor(mapId);
         const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);
 
+        // One tile right, or the nearest free tile on the map (not off its edge, not on another event).
+        const spot = DocsDoodads.Events.nearestFreeTile($gameMap._stagedMapData, (ev.x || 0) + 1, ev.y || 0,
+            $gameMap.width ? $gameMap.width() : $gameMap._stagedMapData.width, $gameMap.height ? $gameMap.height() : $gameMap._stagedMapData.height);
+        if (!spot) {
+            this.showToast('Every tile on this map has an event: there is nowhere to put the copy.', 'error');
+            return;
+        }
         const dup = JSON.parse(JSON.stringify(ev));
         dup.id = newId;
         dup.name = (dup.name || ('EV' + newId)) + '_copy';
-        dup.x = (dup.x || 0) + 1;
+        dup.x = spot.x;
+        dup.y = spot.y;
 
         const cmd = {
             type: 'duplicate_event',
@@ -35155,6 +35377,7 @@ DocsDoodads.Workspace = {
                 <option value="auto">Auto-route by asset type</option>
                 ${destinationOptions}
             </select>
+            <div id="dd-import-preview" style="max-height: 132px; overflow-y: auto; margin: -4px 0 12px; font-size: 11px; line-height: 1.5; color: var(--dd-muted);"></div>
             <label style="display: block; font-size: 11px; margin-bottom: 5px; color: var(--dd-text);">When a filename already exists (apply to all)</label>
             <select id="dd-import-collision" style="width: 100%; margin-bottom: 12px; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 7px;">
                 <option value="rename">Keep both (add numeric suffix)</option>
@@ -35187,6 +35410,16 @@ DocsDoodads.Workspace = {
         collision.onchange = () => {
             warning.style.display = collision.value === 'overwrite' ? 'block' : 'none';
         };
+        // Where each file goes, so a wrong guess can be fixed before anything is copied.
+        const preview = document.getElementById('dd-import-preview');
+        const showPreview = () => {
+            if (!preview) return;
+            const rows = this.importPreviewRows(collected.files, destination.value);
+            const shown = rows.slice(0, 40).map(r => `<div style="display: flex; gap: 6px;"><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(r.source)}">${escapeHtml(r.name)}</span><b style="color: var(--dd-text);">${escapeHtml(r.folder)}</b></div>`);
+            preview.innerHTML = shown.join('') + (rows.length > 40 ? `<div>…and ${rows.length - 40} more</div>` : '');
+        };
+        destination.onchange = showPreview;
+        showPreview();
         cancelButton.onclick = () => close();
         // The import runs on in a progress pill (with Cancel), so the editor stays usable meanwhile.
         confirmButton.onclick = async () => {
@@ -35208,6 +35441,16 @@ DocsDoodads.Workspace = {
             this.updateIndexStatus();
         };
         overlay.onclick = event => { if (event.target === overlay) close(); };
+    },
+
+    // Each supported file and the folder it would go to, for the import card: chosen folder, or the guess.
+    importPreviewRows(files, chosen) {
+        const I = DocsDoodads.Import, path = DocsDoodads.FS.path;
+        return (files || []).filter(f => I.isSupported(f)).map(source => ({
+            source,
+            name: path.basename(source),
+            folder: chosen && chosen !== 'auto' ? chosen : (I.detectDestination(source) || '?')
+        }));
     },
 
     // A message after a step that throws work away, with Undo while that step is still the last one.
@@ -35292,11 +35535,19 @@ DocsDoodads.Workspace = {
         document.body.appendChild(diag);
 
         document.getElementById('dd-rebuild-idx-btn').onclick = async () => {
-            DocsDoodads.AssetIndex.data.assets = {};
-            await DocsDoodads.AssetIndex.scanAsync({ loadCache: false });
+            if (diag.parentNode) diag.parentNode.removeChild(diag);
+            if (!(await DocsDoodads.Ui.confirm('Every file in the Item Bag is read again. Tags, favourites, collections, cut-up pieces, collision, placement and use counts are kept.',
+                { title: 'Rebuild the index?', ok: 'Rebuild' }))) return;
+            const token = { cancelled: false };
+            const pill = DocsDoodads.Ui.progress('Rebuilding the index', { onCancel: () => { token.cancelled = true; } });
+            let result;
+            try {
+                result = await DocsDoodads.AssetIndex.rebuild({ cancellationToken: token, onProgress: p => pill.update(p.completed, p.total) });
+            } finally {
+                pill.finish();
+            }
             this.refreshDrawerCards();
-            this.showToast("Asset Library Rebuilt!");
-            diag.parentNode.removeChild(diag);
+            this.showToast(result && result.cancelled ? 'Rebuild stopped: files read so far are updated.' : `Index rebuilt: ${result ? result.indexed : 0} file(s) read again.`, 'success');
         };
 
         document.getElementById('dd-clear-cache-btn').onclick = () => {
@@ -35375,7 +35626,9 @@ DocsDoodads.Workspace = {
             if (!backupSelect.value) return;
             const targetPath = targetSelect.value;
             const backupPath = backupSelect.value;
-            if (!(await DocsDoodads.Ui.confirm(`${targetPath} will be replaced by the backup you picked. The file as it is now is backed up first, so this can be undone the same way.`,
+            const isLibrary = targetPath === DocsDoodads.AssetIndex.libraryPath;
+            const unsaved = !isLibrary && DocsDoodads.Persistence.hasUnsavedWork() ? ' Changes not saved yet are dropped, and Undo starts again.' : '';
+            if (!(await DocsDoodads.Ui.confirm(`${targetPath} will be replaced by the backup you picked. The file as it is now is backed up first, so this can be undone the same way.${unsaved}`,
                 { title: 'Restore this backup?', ok: 'Restore', danger: true }))) return;
             if (!modal.parentNode) return;
             const result = DocsDoodads.FS.restoreBackup(targetPath, backupPath);
@@ -35383,23 +35636,31 @@ DocsDoodads.Workspace = {
                 this.showToast(`Restore failed: ${result.error}`);
                 return;
             }
-
-            if (targetPath === DocsDoodads.AssetIndex.libraryPath) {
-                DocsDoodads.AssetIndex.init();
-                this.refreshDrawerCards();
-            } else if (targetPath === DocsDoodads.DataFiles.mainPath() || DocsDoodads.DataFiles.mapIdOfPath(targetPath) > 0) {
-                window.$dataDocsDoodads = DocsDoodads.DataFiles.readAll() || {};
-                DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
-                this.refreshSpriteset();
-            } else if (targetPath === mapFile && window.$gameMap) {
-                $gameMap._stagedMapData = DocsDoodads.FS.readJson(targetPath);
-                $gameMap._stagedMapDataId = $gameMap.mapId();
-                DocsDoodads.Persistence.captureSession();
-            }
+            this.afterRestore(targetPath);
             close();
-            this.showToast('Backup restored. Reload the current map before continuing edits.');
+            this.showToast(isLibrary ? 'Backup restored.' : 'Backup restored. Reload the current map before continuing edits.');
         };
         refreshBackups();
+    },
+
+    // After a backup is put back: the editor reads it again. For doodads or a map, what is in memory goes
+    // (Undo's steps point into the old data, and the unsaved flags and staged maps describe it).
+    afterRestore(targetPath) {
+        const D = DocsDoodads;
+        if (targetPath === D.AssetIndex.libraryPath) {
+            D.AssetIndex.init();
+            this.reresolveAssets();
+            this.refreshDrawerCards();
+            this.refreshInspector();
+            return 'library';
+        }
+        D.Persistence.discardUnsaved();
+        this.selectedDoodad = null;
+        this.selectedDoodads = [];
+        this.selectedEvent = null;
+        this.refreshSpriteset();
+        this.refreshInspector();
+        return 'data';
     },
 
     showRecoveryNotices() {
@@ -36379,7 +36640,9 @@ Object.assign(DocsDoodads.Workspace, {
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
-        input.accept = 'image/*,audio/*,.json,.aseprite,.ase,.glb,.gltf';
+        // Only what the import takes (Import.isSupported): offering more only to refuse it later confuses.
+        const I = DocsDoodads.Import;
+        input.accept = Array.from(I.imageExtensions).concat(Array.from(I.audioExtensions)).join(',');
         input.onchange = () => {
             const paths = Array.from(input.files || []).map(f => f.path).filter(Boolean);
             if (paths.length) this.showAssetImportModal(paths);
@@ -40085,8 +40348,9 @@ Object.assign(DocsDoodads.Workspace, {
         try { return FS.existsSync(p) ? FS.fs.readFileSync(p) : null; } catch (e) { return null; }
     },
 
-    // Makes the pack and writes it to packs/<name>.ddpack. Returns { path, pack } or null.
-    exportPack(name, sel = this.packSelection) {
+    // Makes the pack and writes it to packs/<name>.ddpack (asking first if one of that name is there; written
+    // whole or not at all). Returns { path, pack }, or null.
+    async exportPack(name, sel = this.packSelection) {
         const D = DocsDoodads, P = D.Packs, FS = D.FS;
         const gathered = P.gather(sel, this.packSources(), n => this.packAudioFile(n));
         const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
@@ -40094,9 +40358,11 @@ Object.assign(DocsDoodads.Workspace, {
         if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
         const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
         const out = FS.path.join('packs', P.fileName(pack.name));
+        if (FS.existsSync(out) && !(await D.Ui.confirm(`${out.replace(/\\/g, '/')} is already there. Replace it with this pack?`,
+            { title: 'Replace the pack?', ok: 'Replace', danger: true }))) return null;
         try {
             FS.mkdirp('packs');
-            FS.writeFileSync(out, JSON.stringify(pack), 'utf8');
+            FS.atomicWriteFile(out, JSON.stringify(pack), 'utf8');
         } catch (e) {
             this.showToast('Could not save the pack: ' + (e.message || e), 'error');
             return null;
@@ -40144,7 +40410,7 @@ Object.assign(DocsDoodads.Workspace, {
             try {
                 if (f.state === 'different') FS.createTimestampedBackup(f.path);
                 FS.mkdirp(FS.path.dirname(f.path));
-                FS.fs.writeFileSync(f.path, P.fromBase64(pack.files[f.path]));
+                FS.atomicWriteFile(f.path, P.fromBase64(pack.files[f.path]));
                 written.push(f.path);
             } catch (e) {
                 this.showToast(`Could not write ${f.path}: ${e.message || e}`, 'error');
@@ -42467,9 +42733,20 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             DocsDoodads.Workspace.toggle();
             return;
         }
-        if (!DocsDoodads.Workspace.mounted || DocsDoodads.isEditableTarget(e.target)) return;
+        if (!DocsDoodads.Workspace.mounted) return;
+        // In a field, only chords that don't type reach the shortcut table (11_shortcuts.js passesField).
+        const inField = DocsDoodads.isEditableTarget(e.target);
+        if (inField && !DocsDoodads.Shortcuts.passesField(e)) return;
         if (DocsDoodads.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
         if (DocsDoodads.Workspace.capturingShortcut()) return; // the next keys are a new binding
+        if (inField) {
+            const id = DocsDoodads.Shortcuts.match(e);
+            if (!id) return;
+            // What was typed counts first (a field's change fires when it loses the focus); F6 moves on from it.
+            if (id !== 'nextPanel' && id !== 'prevPanel' && typeof e.target.blur === 'function') e.target.blur();
+            DocsDoodads.Workspace.runShortcut(id, e);
+            return;
+        }
         // The path tool's own keys come first; then the shortcut table (11_shortcuts.js); then the keys
         // that can't be rebound.
         const pathKey = DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace');
@@ -42506,6 +42783,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             const welcome = document.getElementById('dd-welcome-ok');
             if (welcome) welcome.click();
             DocsDoodads.Workspace.removeGhost();
+            DocsDoodads.Workspace.selectedEvent = null; // a picked event is let go too
             DocsDoodads.Workspace.selectDoodad(null);
         }
     });

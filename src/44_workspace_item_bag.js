@@ -270,7 +270,9 @@ Object.assign(DocsDoodads.Workspace, {
         const input = document.createElement('input');
         input.type = 'file';
         input.multiple = true;
-        input.accept = 'image/*,audio/*,.json,.aseprite,.ase,.glb,.gltf';
+        // Only what the import takes (Import.isSupported): offering more only to refuse it later confuses.
+        const I = DocsDoodads.Import;
+        input.accept = Array.from(I.imageExtensions).concat(Array.from(I.audioExtensions)).join(',');
         input.onchange = () => {
             const paths = Array.from(input.files || []).map(f => f.path).filter(Boolean);
             if (paths.length) this.showAssetImportModal(paths);

@@ -2,6 +2,15 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Rebuild Index asks first and keeps what you set on each item (tags, favourites, collections, cut-up pieces, collision, placement and use counts); before, it wiped them. Opening the editor reads the Item Bag's library again only when the file changed, and what was picked follows it.
+- Restoring a backup of the doodads or a map drops the unsaved changes and starts Undo again (its steps pointed into the old data); the card says so first.
+- Packs: making one with the name of a pack already there asks before replacing it, packs and the files they bring are written whole or not at all, and a pack can no longer write into `data/` (it could replace this project's own maps' doodads).
+- Cut Up Sheet: Save Pieces makes the item's picture in the Item Bag again; closing it (Close, Esc or closing the editor) with pieces not saved asks; Undo, Redo and Duplicate follow your keys; clicking a piece without moving it is no longer an undo step.
+- Placement Mode and Character on Sheet in an item's Details are saved (they were lost when the playtest closed).
+- Keys with Ctrl or Alt and the F-keys work while typing in a field (Ctrl+S right after typing in Details saves it), except the field's own Ctrl+Z, Y, A, C, V and X. Esc lets go of a picked event too.
+- Duplicate Event puts the copy on the nearest free tile inside the map instead of off its right edge or on another event. After going to another map, new doodads go on Main unless that map has the layer that was picked. Bring Forward, Send Backward, Bring to Front and Send to Back in the right-click menu act on everything picked.
+- Doodads hidden in the editor can be found again: **Show Hidden Doodads** in the empty map's right-click menu, the palette and under Layers (which counts them per layer).
+- Import routes files by the folder they come from or whole words in their names (`surface.png` is no longer a face, `fertile.png` a tileset or `tractor.png` a character), MZ's tileset names go to tilesets, and the dialog lists where each file will go. The Add Files picker offers only the images and sounds the import takes.
 - The keyboard in MZ's own window: Tab moves through the editor's controls (MZ swallowed it), and the focus ring shows on buttons, in every theme and in the Character Creator (the rings used `:focus-visible`, which MZ's Chromium 85 doesn't have). A mouse press hides the ring until the keys move focus again.
 - The right-click menu is a menu for the keyboard and screen readers: it takes the focus, the arrow keys (Home, End) move, Enter runs, Esc or Tab closes and gives the focus back, and the arrows no longer also nudge the selection. Undo and Redo say when there is nothing to take back.
 - The Item Bag's kinds are tabs (the arrow keys show the next one), and the edges of the Item Bag and Details resize with the arrow keys (Shift for 50 pixels, Home and End).
