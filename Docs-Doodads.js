@@ -3358,7 +3358,7 @@ DocsDoodads.World = {
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
         postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
-        characterAnim: { diagonal: false, sets: [] },
+        characterAnim: { diagonal: false, sets: [], feet: {} },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
         // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
         zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },
@@ -4993,8 +4993,10 @@ DocsDoodads.CharacterAnim = {
     },
 
     // [w2]: frame 0 stands and the others walk, one cycle every 2 tiles (LPC walkers), whatever the speed.
+    // [b64]: each frame has 64 pixels of art below the feet (a spear thrust down); the character still stands
+    // on its feet.
     parseNameUncached(name) {
-        let frames = 3, dirs = 4, tagged = false, walkTiles = 0;
+        let frames = 3, dirs = 4, tagged = false, walkTiles = 0, below = 0;
         const f = name.match(/\[f(\d+)\]|%\((\d+)\)/i);
         if (f) {
             const n = parseInt(f[1] || f[2], 10);
@@ -5011,9 +5013,28 @@ DocsDoodads.CharacterAnim = {
             walkTiles = Math.min(16, parseFloat(w[1]));
             tagged = true;
         }
-        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]/gi, '');
+        const b = name.match(/\[b(\d+)\]/i);
+        if (b) {
+            below = parseInt(b[1], 10);
+            tagged = true;
+        }
+        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]|\[b\d+\]/gi, '');
         // Only with more than MZ's 3 frames: a 3-frame sheet stands in its middle frame.
-        return { base, frames, dirs, tagged, walkTiles: frames > 3 ? walkTiles : 0 };
+        return { base, frames, dirs, tagged, walkTiles: frames > 3 ? walkTiles : 0, below };
+    },
+
+    // Pixels of a sheet's frames below the feet: its [bN] tag, or the project's table (characterAnim.feet,
+    // written by the Character Creator so its sheet names stay the same).
+    belowFor(sheet, table) {
+        const tag = this.parseName(sheet).below;
+        if (tag) return tag;
+        const n = table ? Number(table[String(sheet || '')]) : 0;
+        return n > 0 ? n : 0;
+    },
+
+    // The anchor that stands a frame of height h with `below` pixels under the feet on its feet.
+    footAnchor(h, below) {
+        return below > 0 && h > below ? 1 - below / h : 1;
     },
 
     // Row in the sheet for a direction (1-9 numpad layout), and whether to mirror (single-row sheets face right).
@@ -6350,6 +6371,15 @@ DocsDoodads.VisualEquip = {
     svRect(layerW, layerH, frame, baseW, baseH) {
         const sx = baseW > 0 ? layerW / baseW : 1, sy = baseH > 0 ? layerH / baseH : 1;
         return { x: Math.round(frame.x * sx), y: Math.round(frame.y * sy), w: Math.round(frame.width * sx), h: Math.round(frame.height * sy) };
+    },
+
+    // How much a battler layer is scaled: to the battler's size when its cells have the same shape (art drawn
+    // at another resolution), or not at all when they have another shape (bigger cells around the same body,
+    // like an LPC weapon's 192 x 128 swing), standing on the same feet.
+    svScale(layerW, layerH, baseW, baseH) {
+        if (!(layerW > 0 && layerH > 0 && baseW > 0 && baseH > 0)) return { x: 1, y: 1 };
+        if (Math.abs(layerW / layerH - baseW / baseH) > 0.01) return { x: 1, y: 1 };
+        return { x: baseW / layerW, y: baseH / layerH };
     },
 
     savefileLayers(lists) {
@@ -9760,12 +9790,12 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
             if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
             const jump = (typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0) + DocsDoodads.Traversal.liftOf(ch);
-            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, alpha: sprite.opacity / 255, rotation: 0 };
+            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, anchorY: sprite.anchor.y, alpha: sprite.opacity / 255, rotation: 0 };
             // Gear layers reflect too, behind and in front of the body.
             const gear = (sprite._docsVisualSprites || []).filter(l => l.visible);
             const layer = l => {
                 const texture = sprite.docsVisualTexture(l);
-                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint }));
+                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint, anchorY: l.anchor.y }));
             };
             gear.filter(l => l._docsZ < 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
             sources.push(Object.assign({}, at, { texture: sprite._docsFrameTexture, sx: sprite.scale.x }));
@@ -9790,7 +9820,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.visible = Boolean(src);
             if (!src) return;
             s.texture = src.texture;
-            s.anchor.set(src.anchorX, 1);
+            s.anchor.set(src.anchorX, src.anchorY !== undefined ? src.anchorY : 1);
             s.x = src.x;
             s.y = src.y;
             s.scale.set(src.sx, -src.sy);
@@ -9856,6 +9886,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (this._tilemap && parent.children.indexOf(ghost) < parent.children.indexOf(this._tilemap)) parent.addChild(ghost);
         if (ghost._docsFilter) ghost._docsFilter.uniforms.uColor = DocsDoodads.Lighting.channels(settings.silhouetteColor);
         ghost.texture = sprite._docsFrameTexture;
+        ghost.anchor.set(0.5, sprite.anchor.y);
         ghost.x = sprite.x;
         ghost.y = sprite.y;
         ghost.scale.set(sprite.scale.x, sprite.scale.y);
@@ -10187,6 +10218,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
             scaleY = DocsDoodads.CharacterShadow.clipLength(footX, footY, sun.angle, full, blocked) / this._docsFrame.h;
         }
         shadow.texture = this._docsFrameTexture;
+        shadow.anchor.set(0.5, this.anchor.y);
         shadow.x = footX;
         shadow.y = footY;
         shadow.rotation = t.rotation;
@@ -10242,6 +10274,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
                 part._docsFrames.set(frameKey, texture);
             }
             part.texture = texture;
+            part.anchor.set(0.5, sp.anchor.y);
             // The shadow already has the body's scale; a mirrored layer (8-direction sheets) flips.
             part.scale.set(Math.sign(sp.scale.x || 1) * Math.sign(this.scale.x || 1), 1);
             part.visible = true;
@@ -11019,6 +11052,10 @@ DocsDoodads.CharacterAnim.sets = function() {
     return DocsDoodads.World.settings().characterAnim.sets || [];
 };
 
+DocsDoodads.CharacterAnim.feet = function() {
+    return DocsDoodads.World.settings().characterAnim.feet || {};
+};
+
 // Loads idle and run sheets for characters on the map before they are needed, so switching never blinks.
 DocsDoodads.CharacterAnim.preload = function() {
     if (typeof ImageManager === 'undefined' || typeof $gameMap === 'undefined' || !$gameMap) return;
@@ -11151,7 +11188,8 @@ if (typeof Sprite_Character !== 'undefined') {
         else if (state === 'run' && layout.frames !== parsedName.frames) frame = C.cycleFrame(ch._docsAnimTimer || 0, set.runFps || 12, layout.frames);
         else frame = layout.frames === 3 ? C.walkFrame(ch._pattern, 3) : ch.pattern() % layout.frames;
         const single = layout.tagged || sheet.startsWith('$') || (sheet.length > 1 && sheet[0] === '!' && sheet[1] === '$');
-        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: DocsDoodads.Perspective.displayFacing(ch.docsFacing ? ch.docsFacing() : ch.direction()) };
+        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: DocsDoodads.Perspective.displayFacing(ch.docsFacing ? ch.docsFacing() : ch.direction()),
+            below: C.belowFor(sheet, C.feet()) };
     };
 
     $.Sprite_Character_updateBitmap = Sprite_Character.prototype.updateBitmap;
@@ -11164,6 +11202,8 @@ if (typeof Sprite_Character !== 'undefined') {
                 this._docsAnimSheet = null;
                 this._characterName = '';
                 this.scale.x = Math.abs(this.scale.x);
+                this.anchor.y = 1;
+                if (this._lowerBody) this._lowerBody.y = 0;
             }
             return $.Sprite_Character_updateBitmap.call(this);
         }
@@ -11193,11 +11233,15 @@ if (typeof Sprite_Character !== 'undefined') {
         const sx = block.x + Math.min(anim.frame, anim.frames - 1) * pw;
         const sy = block.y + Math.min(facing.row, anim.dirs - 1) * ph;
         this.scale.x = Math.abs(this.scale.x) * (facing.mirror ? -1 : 1);
+        // Art below the feet ([bN]): the frame hangs that far under the character's position.
+        const below = Math.max(0, Math.min(anim.below || 0, ph - 1));
+        this.anchor.y = C.footAnchor(ph, below);
         this.updateHalfBodySprites();
         if (this._bushDepth > 0) {
-            const d = Math.min(this._bushDepth, ph);
-            this._upperBody.setFrame(sx, sy, pw, ph - d);
-            this._lowerBody.setFrame(sx, sy + ph - d, pw, d);
+            const d = Math.min(this._bushDepth, ph - below);
+            this._upperBody.setFrame(sx, sy, pw, ph - below - d);
+            this._lowerBody.setFrame(sx, sy + ph - below - d, pw, d + below);
+            this._lowerBody.y = below;
             this.setFrame(sx, sy, 0, ph);
         } else {
             this.setFrame(sx, sy, pw, ph);
@@ -12350,14 +12394,18 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
             const row = C.rowFor(facing, layout.dirs);
             const rect = DocsDoodads.safeFrame(VE.frameRect(sheet.name, bitmap.width, bitmap.height,
                 layer.index !== null ? layer.index : ch.characterIndex(), col, row.row), bitmap.width, bitmap.height);
-            const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h) : 0;
+            // A layer sheet with art below the feet ([bN]) stands on the same feet as the body.
+            const below = Math.max(0, Math.min(C.belowFor(sheet.name, C.feet ? C.feet() : null), rect.h - 1));
+            sprite.anchor.y = C.footAnchor(rect.h, below);
+            const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h - below) : 0;
             if (depth > 0) {
                 const [upper, lower] = this.docsVisualHalves(sprite);
                 upper.visible = lower.visible = true;
                 sprite.setFrame(rect.x, rect.y, 0, rect.h);
-                upper.setFrame(rect.x, rect.y, rect.w, rect.h - depth);
+                upper.setFrame(rect.x, rect.y, rect.w, rect.h - below - depth);
                 upper.y = -depth;
-                lower.setFrame(rect.x, rect.y + rect.h - depth, rect.w, depth);
+                lower.setFrame(rect.x, rect.y + rect.h - below - depth, rect.w, depth + below);
+                lower.y = below;
             } else {
                 if (sprite._docsUpper) sprite._docsUpper.visible = sprite._docsLower.visible = false;
                 sprite.setFrame(rect.x, rect.y, rect.w, rect.h);
@@ -12435,7 +12483,8 @@ if (typeof Sprite_Actor !== 'undefined' && typeof Sprite !== 'undefined') {
             sprite.setFrame(rect.x, rect.y, rect.w, rect.h);
             sprite.x = main.x;
             sprite.y = main.y;
-            sprite.scale.set(main.scale.x * base.width / bitmap.width, main.scale.y * base.height / bitmap.height);
+            const k = VE.svScale(bitmap.width, bitmap.height, base.width, base.height);
+            sprite.scale.set(main.scale.x * k.x, main.scale.y * k.y);
             sprite.opacity = main.opacity;
             sprite.blendMode = main.blendMode;
         }
@@ -12457,8 +12506,8 @@ if (typeof Window_Base !== 'undefined') {
         const drawSheet = (bitmap, name, index) => {
             const layout = C.parseName(name);
             const rect = VE.frameRect(name, bitmap.width, bitmap.height, index, C.standingFrame(layout.frames), C.rowFor(2, layout.dirs).row);
-            const w = rect.w * zoom, h = rect.h * zoom;
-            this.contents.blt(bitmap, rect.x, rect.y, rect.w, rect.h, x - w / 2, y - h, w, h);
+            const w = rect.w * zoom, h = rect.h * zoom, below = Math.min(C.belowFor(name, C.feet ? C.feet() : null), rect.h - 1) * zoom;
+            this.contents.blt(bitmap, rect.x, rect.y, rect.w, rect.h, x - w / 2, y - h + Math.max(0, below), w, h);
         };
         const drawLayers = list => {
             for (const layer of list) {
@@ -18160,12 +18209,33 @@ DocsDoodads.LpcCompose = {
         shoot: { file: 'shoot', frames: 13 }, hurt: { file: 'hurt', frames: 6, rows: 1 }, climb: { file: 'climb', frames: 6, rows: 1 },
         jump: { file: 'jump', frames: 5 }, sit: { file: 'sit', frames: 3 }, emote: { file: 'emote', frames: 3 },
         combat: { file: 'combat_idle', frames: 2 }, '1h_slash': { file: 'slash', frames: 6 },
-        '1h_backslash': { file: 'backslash', frames: 13 }, '1h_halfslash': { file: 'halfslash', frames: 6 }
+        '1h_backslash': { file: 'backslash', frames: 13 }, '1h_halfslash': { file: 'halfslash', frames: 6 },
+        // The return swing: slash with every frame backwards (the library's slash_reverse_oversize art is drawn
+        // for it). A part with a slash has one.
+        slash_reverse: { file: 'slash', frames: 6, reverse: true, like: 'slash' }
+    },
+    // Bigger art that most swords, spears and polearms have instead of an animation (the library's custom
+    // animations): the animation file each stands for, its frame size, and whether the body plays that
+    // animation backwards (a return swing). Its sheets are in the same frame order as the animation, four
+    // direction rows, sometimes padded with empty columns. The 64-pixel layers sit in the middle of the
+    // bigger frames: the library's art puts the hilt in the hand there.
+    oversize: {
+        slash_128: { file: 'slash', frame: 128 }, backslash_128: { file: 'backslash', frame: 128 },
+        halfslash_128: { file: 'halfslash', frame: 128 }, walk_128: { file: 'walk', frame: 128 },
+        slash_oversize: { file: 'slash', frame: 192 }, thrust_oversize: { file: 'thrust', frame: 192 },
+        slash_reverse_oversize: { file: 'slash', frame: 192, reverse: true }
     },
 
     fileOf(animation) {
         const a = this.animations[animation];
         return a ? a.file : String(animation);
+    },
+
+    // The bigger animations that can stand for one, in the order tried ('slash' -> slash_128, slash_oversize,
+    // slash_reverse_oversize).
+    standIns(animation) {
+        const file = this.fileOf(animation);
+        return Object.keys(this.oversize).filter(k => this.oversize[k].file === file);
     },
 
     // ---- Which images, in which order ----
@@ -18181,7 +18251,12 @@ DocsDoodads.LpcCompose = {
         return table[key] !== undefined ? String(table[key]) : null;
     },
 
-    resolve(index, recipe, animation, exists) {
+    // options.oversize: false leaves out the bigger art. options.separateBody: the body is drawn on a sheet of
+    // its own (Visual Equipment parts go over it), so it plays the animation its own way. The result's frame
+    // is the biggest frame a layer needs (64 without bigger art), and reverse is set when the body plays the
+    // animation backwards: slash_reverse, or a slash whose only big art is a return swing (the club). Big art
+    // drawn for the other way round is played backwards (layer.flip), so it still follows the hand.
+    resolve(index, recipe, animation, exists, options = {}) {
         const byId = new Map((index && index.parts || []).map(p => [p.id, p]));
         const body = recipe && recipe.body || 'male';
         const warnings = [];
@@ -18192,51 +18267,83 @@ DocsDoodads.LpcCompose = {
             picked.push({ part, pick, order });
         }
         const tags = new Set(picked.flatMap(p => p.part.tags || []));
-        const layers = [];
-        const used = [];
-        for (const { part, pick, order } of picked) {
-            if ((part.requiredTags || []).length && !part.requiredTags.some(t => tags.has(t))) {
-                warnings.push(`${part.name} goes with ${part.requiredTags.join(' or ')}, which nothing picked has.`);
-                continue;
-            }
-            if (part.animations && part.animations.length && !part.animations.includes(animation)) {
-                warnings.push(`${part.name} has no ${animation}.`);
-                continue;
-            }
-            const folders = part.layers.filter(l => l.paths[body] && (!l.custom || l.custom === animation));
-            if (!folders.length) {
-                if (part.layers.some(l => !l.custom)) warnings.push(`${part.name} has nothing for the ${body} body.`);
-                continue;
-            }
-            // Some layers of a part (a blade behind the body) exist for fewer animations: say so only when
-            // none of them has a picture.
-            let found = 0, missing = false;
-            for (const layer of folders) {
-                let folder = layer.paths[body];
+        // The pictures of some layers of a part: [{ layer, file, folder }], and whether any is missing.
+        const filesOf = (part, pick, list, name) => {
+            const files = [];
+            let missing = false;
+            for (const layer of list) {
                 let unresolved = '';
-                folder = folder.replace(/\$\{(\w+)\}/g, (m, name) => {
-                    const v = this.templateValue(part, name, picked);
-                    if (v === null) unresolved = name;
+                const folder = layer.paths[body].replace(/\$\{(\w+)\}/g, (m, key) => {
+                    const v = this.templateValue(part, key, picked);
+                    if (v === null) unresolved = key;
                     return v === null ? m : v;
                 });
                 if (unresolved) { warnings.push(`${part.name} needs a ${unresolved} it knows.`); continue; }
                 const base = folder.replace(/\/*$/, '/');
-                const name = layer.custom ? '' : this.fileOf(animation);
                 // Without a variant (an old recipe), a part sold in fixed colours shows its first.
                 const variant = pick.variant || (part.variants && part.variants[0]) || '';
                 const candidates = layer.custom
                     ? [variant ? base + variant + '.png' : null]
                     : [base + name + '.png', variant ? base + name + '/' + variant + '.png' : null];
                 const file = candidates.find(f => f && exists(f));
-                if (!file) { missing = true; continue; }
-                found++;
-                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick, folder: base });
-                used.push({ part, folder: base });
+                if (file) files.push({ layer, file, folder: base });
+                else missing = true;
             }
-            if (missing && !found) warnings.push(`${part.name} has no ${animation} picture for the ${body} body.`);
+            return { files, missing };
+        };
+        const meta = this.animations[animation] || {};
+        const backwards = Boolean(meta.reverse);
+        // Big art drawn for the way the body plays comes first.
+        const ways = k => (Boolean(this.oversize[k].reverse) === backwards ? 0 : 1);
+        const chosen = [];
+        for (const { part, pick, order } of picked) {
+            if ((part.requiredTags || []).length && !part.requiredTags.some(t => tags.has(t))) {
+                warnings.push(`${part.name} goes with ${part.requiredTags.join(' or ')}, which nothing picked has.`);
+                continue;
+            }
+            const standIns = options.oversize === false ? [] : this.standIns(animation).filter(k => part.layers.some(l => l.custom === k && l.paths[body])).sort((a, b) => ways(a) - ways(b));
+            const listed = !(part.animations && part.animations.length) || part.animations.includes(animation) || Boolean(meta.like && part.animations.includes(meta.like));
+            if (!listed && !standIns.length) {
+                warnings.push(`${part.name} has no ${animation}.`);
+                continue;
+            }
+            const folders = listed ? part.layers.filter(l => l.paths[body] && (!l.custom || l.custom === animation)) : [];
+            // Some layers of a part (a blade behind the body) exist for fewer animations: say so only when
+            // none of them has a picture.
+            let got = filesOf(part, pick, folders, this.fileOf(animation));
+            let missing = got.missing, size = null;
+            // Without a picture at the usual size, the bigger art that stands for the animation.
+            for (const k of got.files.length ? [] : standIns) {
+                const o = filesOf(part, pick, part.layers.filter(l => l.custom === k && l.paths[body]), '');
+                missing = missing || o.missing;
+                if (o.files.length) { got = o; size = Object.assign({ name: k }, this.oversize[k]); break; }
+            }
+            if (!got.files.length) {
+                if (!folders.length && !standIns.length) {
+                    if (part.layers.some(l => !l.custom)) warnings.push(`${part.name} has nothing for the ${body} body.`);
+                } else if (missing) warnings.push(`${part.name} has no ${animation} picture for the ${body} body.`);
+                continue;
+            }
+            chosen.push({ part, pick, order, files: got.files, size });
+        }
+        // Which way the body plays: the animation's own way, or backwards when all the big art is a return swing
+        // (the generator's own choice for the club), unless the body is on a sheet of its own.
+        const big = chosen.filter(c => c.size);
+        const reverse = backwards || (!options.separateBody && big.length > 0 && big.every(c => c.size.reverse));
+        const layers = [];
+        const used = [];
+        for (const { part, pick, order, files, size } of chosen) {
+            for (const { layer, file, folder } of files) {
+                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick, folder, frame: size ? size.frame : this.frame,
+                    oversize: size ? size.name : '', flip: Boolean(size) && Boolean(size.reverse) !== reverse });
+                used.push({ part, folder });
+            }
         }
         layers.sort((a, b) => a.z - b.z || a.priority - b.priority || a.order - b.order);
-        return { body, animation, layers, used, warnings };
+        return {
+            body, animation, layers, used, warnings, frame: Math.max(this.frame, ...big.map(c => c.size.frame)),
+            reverse, oversize: [...new Set(big.map(c => c.size.name))]
+        };
     },
 
     // ---- Colours ----
@@ -18306,16 +18413,34 @@ DocsDoodads.LpcCompose = {
 
     // src drawn over dst (same size), with alpha.
     over(dst, src) {
+        return this.overRect(dst, src, 0, 0, 0, 0, src.width, src.height);
+    },
+
+    // A w x h piece of src at (sx, sy) drawn over dst at (dx, dy), with alpha. The piece must fit in both.
+    overRect(dst, src, sx, sy, dx, dy, w, h) {
         const a = dst.data, b = src.data;
-        for (let i = 0; i < a.length; i += 4) {
-            const sa = b[i + 3];
-            if (!sa) continue;
-            if (sa === 255 || !a[i + 3]) { a[i] = b[i]; a[i + 1] = b[i + 1]; a[i + 2] = b[i + 2]; a[i + 3] = sa; continue; }
-            const s = sa / 255, d = a[i + 3] / 255, o = s + d * (1 - s);
-            for (let c = 0; c < 3; c++) a[i + c] = Math.round((b[i + c] * s + a[i + c] * d * (1 - s)) / o);
-            a[i + 3] = Math.round(o * 255);
+        for (let y = 0; y < h; y++) {
+            let i = ((dy + y) * dst.width + dx) * 4, j = ((sy + y) * src.width + sx) * 4;
+            for (let x = 0; x < w; x++, i += 4, j += 4) {
+                const sa = b[j + 3];
+                if (!sa) continue;
+                if (sa === 255 || !a[i + 3]) { a[i] = b[j]; a[i + 1] = b[j + 1]; a[i + 2] = b[j + 2]; a[i + 3] = sa; continue; }
+                const s = sa / 255, d = a[i + 3] / 255, o = s + d * (1 - s);
+                for (let c = 0; c < 3; c++) a[i + c] = Math.round((b[j + c] * s + a[i + c] * d * (1 - s)) / o);
+                a[i + 3] = Math.round(o * 255);
+            }
         }
         return dst;
+    },
+
+    // Every frame of an animation's layer drawn over a sheet of bigger frames, centred in each. cell: the
+    // layer's frame size; reverse: frames in the opposite order.
+    overFrames(sheet, image, cell, frames, rows, reverse) {
+        const F = sheet.frame, pad = (F - cell) / 2;
+        for (let r = 0; r < rows; r++) for (let f = 0; f < frames; f++) {
+            const from = reverse ? frames - 1 - f : f;
+            if ((from + 1) * cell <= image.width) this.overRect(sheet, image, from * cell, r * cell, f * F + pad, r * F + pad, cell, cell);
+        }
     },
 
     // A cache of recoloured layers: (file, colours) -> image, the oldest dropped past max.
@@ -18347,12 +18472,18 @@ DocsDoodads.LpcCompose = {
         return bodyLayer && bodyLayer.pick.colours ? bodyLayer.pick.colours[0] : '';
     },
 
-    // loadImage(file) -> image or null. Layers whose size differs from the first (oversize weapons) are left
-    // out with a warning, for now.
+    // loadImage(file) -> image or null. The sheet's frame is resolved.frame: with bigger weapon art, every
+    // frame is that size and the 64-pixel layers sit in the middle of each. Otherwise the sheet is the size
+    // of the first layer, and layers of another size are left out with a warning.
     compose(resolved, index, loadImage, cache) {
         const skin = this.skinOf(resolved);
         const warnings = resolved.warnings.slice();
-        let sheet = null;
+        const F = resolved.frame || this.frame;
+        const meta = this.animations[resolved.animation] || {};
+        const rows = meta.rows === 1 ? 1 : 4;
+        const big = (F !== this.frame || resolved.reverse) && meta.frames;
+        let sheet = null, drawn = 0;
+        if (big) { sheet = this.blank(meta.frames * F, rows * F); sheet.frame = F; }
         for (const layer of resolved.layers) {
             const key = layer.file + '|' + this.colourKey(layer.part, layer.pick.colours, skin);
             const image = this.cached(cache, key, () => {
@@ -18360,14 +18491,31 @@ DocsDoodads.LpcCompose = {
                 return raw ? this.recolour(this.copy(raw), this.recolourMaps(index.palettes, layer.part, layer.pick.colours, skin)) : null;
             });
             if (!image) { warnings.push(`Could not read ${layer.file}.`); continue; }
-            if (!sheet) sheet = this.blank(image.width, image.height);
+            if (big) {
+                const cell = layer.frame || this.frame;
+                if (image.height !== rows * cell) {
+                    warnings.push(`${layer.part.name} is drawn at another size (${image.width}x${image.height}); left out.`);
+                    continue;
+                }
+                this.overFrames(sheet, image, cell, meta.frames, rows, cell === this.frame ? resolved.reverse : Boolean(layer.flip));
+                drawn++;
+                continue;
+            }
+            // Some sheets are padded with empty columns (the wand's slash is 13 wide): only the animation's
+            // frames are drawn.
+            const F64 = this.frame, fits = meta.frames && image.height === rows * F64 && image.width >= meta.frames * F64;
+            if (!sheet) sheet = fits ? this.blank(meta.frames * F64, rows * F64) : this.blank(image.width, image.height);
+            if (fits && sheet.width === meta.frames * F64 && sheet.height === image.height) {
+                this.overRect(sheet, image, 0, 0, 0, 0, sheet.width, sheet.height);
+                continue;
+            }
             if (image.width !== sheet.width || image.height !== sheet.height) {
-                warnings.push(`${layer.part.name} is drawn at another size (${image.width}x${image.height}); left out for now.`);
+                warnings.push(`${layer.part.name} is drawn at another size (${image.width}x${image.height}); left out.`);
                 continue;
             }
             this.over(sheet, image);
         }
-        return { sheet, warnings };
+        return { sheet: big && !drawn ? null : sheet, warnings };
     },
 
     // ---- Reading the library's PNGs ----
@@ -18440,11 +18588,12 @@ DocsDoodads.LpcCompose = {
         return { width, height, data };
     },
 
-    // One frame (64x64) of a sheet: frame number along the row, direction by name.
-    frameRect(animation, direction, frame) {
+    // One frame of a sheet: frame number along the row, direction by name. size: the sheet's frame (64, or
+    // bigger with oversize weapon art).
+    frameRect(animation, direction, frame, size = this.frame) {
         const a = this.animations[animation] || { frames: 1 };
         const row = (a.rows === 1) ? 0 : Math.max(0, this.directions.indexOf(direction));
-        return { x: (frame % a.frames) * this.frame, y: row * this.frame, w: this.frame, h: this.frame };
+        return { x: (frame % a.frames) * size, y: row * size, w: size, h: size };
     },
 
     // ---- Random characters (the dice) ----
@@ -18488,8 +18637,12 @@ DocsDoodads.LpcCompose = {
 // SECTION 12F: LPC EXPORTS (MZ SHEETS AND FACES)
 //==========================================================
 // Sheets for RPG Maker MZ from a composed LPC character (23_lpc_compositor.js). MZ's rows face down, left,
-// right, up; the library's face up, left, down, right, so rows are reordered. Frames stay 64 x 64: MZ draws
-// $ sheets at any frame size, standing on the tile's bottom edge.
+// right, up; the library's face up, left, down, right, so rows are reordered. Frames stay 64 x 64, or grow
+// for oversize weapon art (see cellOf): MZ draws $ sheets at any frame size, standing on the tile's bottom
+// edge. Walkers and battlers keep what is above the feet (192 x 128 for a 192-pixel swing); action sheets
+// keep the whole frame (192 x 192) and say how far it reaches below the feet (characterAnim.feet).
+//
+//   action   $Name_slash[f6].png    every frame of one animation, for Play Character Action
 //
 //   classic  $Name.png              3 x 4, MZ's own walk (step, stand, step), works without the plugin
 //   smooth   $Name[f9][w2].png      every walk frame; [w2]: frame 0 stands, the walk covers 2 tiles a cycle
@@ -18532,32 +18685,61 @@ DocsDoodads.LpcExport = {
         }
     },
 
+    // The frame of a composed sheet: 64, or 128 or 192 with oversize weapon art.
+    frameOf(sheet) {
+        return (sheet && sheet.frame) || this.frame;
+    },
+
+    // The cell an MZ sheet gets from a composed frame F: its full width, and everything above the feet. MZ
+    // stands a frame on its bottom edge, so the body must end there as it does in a 64-pixel frame; what a
+    // bigger frame has below the body's 64-pixel cell (the tip of a downward thrust) is left out. full: the
+    // whole frame, with `below` pixels under the feet, for sheets only this plugin draws (it stands them on
+    // their feet).
+    cellOf(F, full) {
+        const below = (F - this.frame) / 2;
+        return full ? { w: F, h: F, below } : { w: F, h: F - below, below: 0 };
+    },
+
     // A sheet in MZ's row order from one of the library's animations, with the given columns (frames).
-    mzSheet(sheet, columns) {
-        const F = this.frame, dirs = DocsDoodads.LpcCompose.directions;
-        const out = this.blank(columns.length * F, 4 * F);
+    mzSheet(sheet, columns, full) {
+        const F = this.frameOf(sheet), c = this.cellOf(F, full), dirs = DocsDoodads.LpcCompose.directions;
+        const out = this.blank(columns.length * c.w, 4 * c.h);
         this.mzRows.forEach((dir, row) => columns.forEach((frame, col) => {
-            if ((frame + 1) * F <= sheet.width) this.blit(out, sheet, frame * F, dirs.indexOf(dir) * F, col * F, row * F, F, F);
+            if ((frame + 1) * F <= sheet.width) this.blit(out, sheet, frame * F, dirs.indexOf(dir) * F, col * c.w, row * c.h, c.w, c.h);
         }));
         return out;
     },
 
     frames(sheet) {
-        return Math.floor(sheet.width / this.frame);
+        return Math.floor(sheet.width / this.frameOf(sheet));
+    },
+
+    // What an export wrote with bigger frames, for the creator: 'Bigger frames for the weapon art:
+    // $Robin_slash[f6] 192 x 192 (64 below the feet), the battler 192 x 128.' ('' when nothing).
+    // list: [{ file, w, h, below }].
+    oversizeNote(list) {
+        if (!list || !list.length) return '';
+        const name = file => (/(^|\/)sv_actors\//.test(file) ? 'the battler' : String(file).replace(/^.*\//, '').replace(/\.png$/i, ''));
+        return 'Bigger frames for the weapon art: ' + list.map(o => name(o.file) + ' ' + o.w + ' x ' + o.h + (o.below ? ' (' + o.below + ' below the feet)' : '')).join(', ') + '.';
     },
 
     classic(walk) {
         return this.mzSheet(walk, this.classicColumns);
     },
 
-    allFrames(sheet) {
-        return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i));
+    allFrames(sheet, full) {
+        return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i), full);
     },
 
     // ---- Character Actions ----
 
     // The animations offered as action sheets, with the speed they look right at (frames a second).
-    actions: [['slash', 12], ['thrust', 12], ['spellcast', 10], ['shoot', 14], ['hurt', 8], ['jump', 10], ['sit', 4], ['emote', 6], ['climb', 8], ['combat', 3], ['1h_backslash', 14], ['1h_halfslash', 12]],
+    actions: [['slash', 12], ['thrust', 12], ['spellcast', 10], ['shoot', 14], ['hurt', 8], ['jump', 10], ['sit', 4], ['emote', 6], ['climb', 8], ['combat', 3], ['1h_backslash', 14], ['1h_halfslash', 12], ['slash_reverse', 12]],
+
+    // 'backslash', 'slash reverse': an action's name on its button.
+    actionLabel(anim) {
+        return String(anim).replace(/^1h_/, '').replace(/_/g, ' ');
+    },
 
     actionName(name, anim) {
         const n = this.cleanName(name) || 'Character';
@@ -18565,12 +18747,27 @@ DocsDoodads.LpcExport = {
     },
 
     // An action sheet: every frame, four MZ rows. Animations drawn in one row (hurt, climb) use it for all four.
+    // With oversize weapon art the frames are the whole bigger frame (cellOf(F, true)); MZ splits a sheet
+    // evenly, so its [fN] tag is all it needs, and the plugin stands it on its feet (actionBelow).
     actionSheet(sheet, anim) {
         const meta = DocsDoodads.LpcCompose.animations[anim] || {};
-        if (meta.rows !== 1) return this.allFrames(sheet);
-        const F = this.frame, n = this.frames(sheet);
-        const out = this.blank(n * F, 4 * F);
-        for (let row = 0; row < 4; row++) this.blit(out, sheet, 0, 0, 0, row * F, n * F, F);
+        if (meta.rows !== 1) return this.allFrames(sheet, true);
+        const c = this.cellOf(this.frameOf(sheet), true), n = this.frames(sheet);
+        const out = this.blank(n * c.w, 4 * c.h);
+        for (let row = 0; row < 4; row++) this.blit(out, sheet, 0, 0, 0, row * c.h, n * c.w, c.h);
+        return out;
+    },
+
+    // Pixels of an action sheet's frames below the feet (0 without oversize art), for characterAnim.feet.
+    actionBelow(sheet) {
+        return this.cellOf(this.frameOf(sheet), true).below;
+    },
+
+    // The project's table of sheets with art below the feet, with one sheet's entry set (or removed for 0).
+    feetWith(table, sheetName, below) {
+        const out = Object.assign({}, table || {});
+        if (below > 0) out[sheetName] = below;
+        else delete out[sheetName];
         return out;
     },
 
@@ -18612,24 +18809,37 @@ DocsDoodads.LpcExport = {
         return [0, 1, 2].map(k => Math.min(n - 1, Math.floor((k + 0.5) * n / 3)));
     },
 
-    // sheets: { anim: composed sheet or null }. Returns the 576 x 384 battler and which motions fell back.
+    // sheets: { anim: composed sheet or null }. Returns the battler, which motions fell back, its cell size,
+    // and the motions drawn with oversize weapon art. The battler is 576 x 384 (64-pixel cells) unless a
+    // motion has oversize art: then every cell grows to the biggest (192 x 128 for a 192 swing; cellOf), each
+    // motion standing at the bottom middle of its cell, so the weapon shows whole and the body keeps its size
+    // and place. MZ splits a battler evenly into 9 x 6 cells and stands it on the bottom edge, so that works
+    // without the plugin; MZ centres battle animations on half the cell's height, a little higher than on a
+    // 64-pixel battler.
     svSheet(sheets) {
-        const F = this.frame, dirs = DocsDoodads.LpcCompose.directions;
-        const out = this.blank(9 * F, 6 * F);
-        const fellBack = [];
-        this.svMotions.forEach((m, i) => {
+        const dirs = DocsDoodads.LpcCompose.directions;
+        const fellBack = [], big = [];
+        const plan = this.svMotions.map(m => {
             let anim = m.anim, frames = m.frames, guard = 0;
             while (!sheets[anim] && this.svFallback[anim] && guard++ < 4) { anim = this.svFallback[anim]; frames = null; }
             const sheet = sheets[anim];
-            if (!sheet) return;
+            if (!sheet) return null;
             if (anim !== m.anim) fellBack.push(m.motion);
-            const n = this.frames(sheet);
-            const meta = DocsDoodads.LpcCompose.animations[anim] || {};
-            const row = meta.rows === 1 ? 0 : dirs.indexOf(m.dir || 'left');
-            const cols = (frames || this.spread(n)).map(f => Math.min(n - 1, f));
-            cols.forEach((f, k) => this.blit(out, sheet, f * F, row * F, (Math.floor(i / 6) * 3 + k) * F, (i % 6) * F, F, F));
+            if (this.frameOf(sheet) > this.frame) big.push(m.motion);
+            return { m, anim, frames, sheet };
         });
-        return { sheet: out, fellBack };
+        const cells = plan.filter(Boolean).map(p => this.cellOf(this.frameOf(p.sheet)));
+        const W = Math.max(this.frame, ...cells.map(c => c.w)), H = Math.max(this.frame, ...cells.map(c => c.h));
+        const out = this.blank(9 * W, 6 * H);
+        plan.forEach((p, i) => {
+            if (!p) return;
+            const F = this.frameOf(p.sheet), c = this.cellOf(F), n = this.frames(p.sheet);
+            const meta = DocsDoodads.LpcCompose.animations[p.anim] || {};
+            const row = meta.rows === 1 ? 0 : dirs.indexOf(p.m.dir || 'left');
+            const cols = (p.frames || this.spread(n)).map(f => Math.min(n - 1, f));
+            cols.forEach((f, k) => this.blit(out, p.sheet, f * F, row * F, (Math.floor(i / 6) * 3 + k) * W + (W - c.w) / 2, (i % 6) * H + H - c.h, c.w, c.h));
+        });
+        return { sheet: out, fellBack, cell: { w: W, h: H }, oversize: big };
     },
 
     // ---- Visual Equipment parts ----
@@ -34417,12 +34627,12 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-swatch { width: 32px; height: 32px; border-radius: 11px; border: 3px solid #fffaf0; box-shadow: 0 0 0 2px #ead8b0; padding: 0; }
 #dd-creator .dd-cr-stagecol { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 #dd-creator .dd-cr-stage { flex: 1; min-height: 0; background: #d9f4ef; border-radius: 30px; border: 3px solid #b9e8df; box-shadow: 0 8px 0 #a6dcd2; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
-#dd-creator .dd-cr-name { position: absolute; top: 16px; left: 70px; right: 70px; text-align: center; border: none; background: transparent; font-family: inherit; font-weight: 900; font-size: 20px; color: #0f6f64; }
-#dd-creator .dd-cr-dice { position: absolute; top: 12px; width: 46px; height: 46px; border: none; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #a6dcd2; font-size: 22px; font-weight: 900; color: #3a2e4d; }
+#dd-creator .dd-cr-name { position: absolute; z-index: 1; top: 16px; left: 70px; right: 70px; text-align: center; border: none; background: transparent; font-family: inherit; font-weight: 900; font-size: 20px; color: #0f6f64; }
+#dd-creator .dd-cr-dice { position: absolute; z-index: 1; top: 12px; width: 46px; height: 46px; border: none; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #a6dcd2; font-size: 22px; font-weight: 900; color: #3a2e4d; }
 #dd-creator .dd-cr-figure { position: relative; width: 256px; height: 280px; display: flex; align-items: flex-end; justify-content: center; }
 #dd-creator .dd-cr-shadow { position: absolute; bottom: 22px; width: 120px; height: 26px; border-radius: 50%; background: rgba(15, 111, 100, 0.25); }
 #dd-creator canvas.dd-cr-canvas { position: relative; width: 256px; height: 256px; image-rendering: pixelated; }
-#dd-creator .dd-cr-turn { display: flex; align-items: center; gap: 12px; margin-top: 4px; font-weight: 900; color: #0f6f64; }
+#dd-creator .dd-cr-turn { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; margin-top: 4px; font-weight: 900; color: #0f6f64; }
 #dd-creator .dd-cr-turn button { width: 42px; height: 42px; border: none; border-radius: 50%; background: #0b8174; color: #fffaf0; font-size: 18px; font-weight: 900; box-shadow: 0 4px 0 #075f55; }
 #dd-creator .dd-cr-anims { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 #dd-creator .dd-cr-anim { border: none; border-radius: 999px; padding: 5px 12px; background: #fffaf0; color: #3a2e4d; font-weight: 800; font-size: 12px; box-shadow: 0 3px 0 #e3d2a8; }
@@ -34467,7 +34677,7 @@ Object.assign(DocsDoodads.Workspace, {
     _creator: null,
 
     creatorAnimations: [['walk', 'Walk'], ['idle', 'Idle'], ['run', 'Run'], ['slash', 'Slash'], ['thrust', 'Thrust'], ['spellcast', 'Spellcast'],
-        ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat']],
+        ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat'], ['slash_reverse', 'Backswing']],
     creatorFps: { walk: 10, run: 12, idle: 3, combat: 3, sit: 2, emote: 3 },
 
     openCreator(state) {
@@ -34600,24 +34810,40 @@ Object.assign(DocsDoodads.Workspace, {
         if (!c || !ctx || typeof ctx.createImageData !== 'function') return false;
         const C = DocsDoodads.LpcCompose;
         const composed = this.creatorComposed();
+        const F = (composed.sheet && composed.sheet.frame) || C.frame;
+        this.fitCreatorCanvas(canvas, F);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!composed.sheet) return false;
         const meta = C.animations[c.anim] || { frames: 1 };
         // Walking skips the standing frame 0.
         const frames = c.anim === 'walk' ? 8 : meta.frames;
         const frame = (c.anim === 'walk' ? 1 : 0) + (c.frame % frames);
-        const rect = C.frameRect(c.anim, c.dir, frame);
+        const rect = C.frameRect(c.anim, c.dir, frame, F);
         if (rect.x + rect.w > composed.sheet.width || rect.y + rect.h > composed.sheet.height) return false;
         const img = ctx.createImageData(rect.w, rect.h);
         for (let y = 0; y < rect.h; y++) {
             const from = ((rect.y + y) * composed.sheet.width + rect.x) * 4;
             img.data.set(composed.sheet.data.subarray(from, from + rect.w * 4), y * rect.w * 4);
         }
-        if (!this._creatorScratch) { this._creatorScratch = document.createElement('canvas'); this._creatorScratch.width = 64; this._creatorScratch.height = 64; }
+        if (!this._creatorScratch || this._creatorScratch.width !== F) { this._creatorScratch = document.createElement('canvas'); this._creatorScratch.width = F; this._creatorScratch.height = F; }
         this._creatorScratch.getContext('2d').putImageData(img, 0, 0);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(this._creatorScratch, 0, 0, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
         return true;
+    },
+
+    // The stage's canvas for frames of F pixels. With oversize weapon art the canvas grows around the same
+    // 64-pixel body (same size, same place) and the swing spills over the stage; it lets clicks through.
+    fitCreatorCanvas(canvas, F) {
+        const C = DocsDoodads.LpcCompose;
+        if (canvas.width === 4 * F && canvas.height === 4 * F) return;
+        const base = this._creator && this._creator.narrow ? 192 : 256;
+        const size = base * F / C.frame, spill = (size - base) / 2;
+        canvas.width = canvas.height = 4 * F;
+        if (!canvas.style) return;
+        canvas.style.width = canvas.style.height = F === C.frame ? '' : size + 'px';
+        canvas.style.margin = F === C.frame ? '' : `0 ${-spill}px ${-spill}px`;
+        canvas.style.pointerEvents = F === C.frame ? '' : 'none';
     },
 
     startCreatorLoop() {
@@ -34768,7 +34994,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
                 ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(anim.replace(/^1h_/, ''))}</button>`).join('')}</div></div>
+                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(DocsDoodads.LpcExport.actionLabel(anim))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
                 ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
@@ -34777,7 +35003,7 @@ Object.assign(DocsDoodads.Workspace, {
                     <button type="button" class="dd-cr-export" id="dd-cr-ex-go" style="font-size: 15px; padding: 8px 20px;"${!c.name.trim() || !files.length ? ' disabled' : ''}>Export ${files.length} file${files.length === 1 ? '' : 's'}</button>
                     ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
                 </div>
-                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}</div>` : ''}
+                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}${done.oversize && done.oversize.length ? `<div id="dd-cr-ex-big" style="font-weight: 700; color: #5b4c70;">${escapeHtml(DocsDoodads.LpcExport.oversizeNote(done.oversize))}</div>` : ''}</div>` : ''}
                 ${done && done.parts && done.parts.length ? `<div style="margin-top: 8px; max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">${done.parts.map((p, i) => `
                     <div style="background: #f6efe0; border-radius: 12px; padding: 6px 8px;">
                         <b>${escapeHtml(p.label)}: ${escapeHtml(p.name)}</b>
@@ -35049,6 +35275,9 @@ Object.assign(DocsDoodads.Workspace, {
 // that plays the idle and run sheets with the smooth walker, and keeps the character under its name so it
 // can be changed and exported again. Also, when ticked: action sheets for Play Character Action
 // ($Name_slash[f6]...) and a side-view battler (img/sv_actors/Name.png). Layouts are in 23_lpc_export.js.
+// Sheets drawn with oversize weapon art have bigger frames; the result lists them (oversize), and action
+// sheets whose frames reach below the feet are noted in characterAnim.feet so the plugin stands them on their
+// feet without changing their names.
 Object.assign(DocsDoodads.Workspace, {
     // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot, battler, actions: [anim] }
     lpcExportDefaults() {
@@ -35099,23 +35328,42 @@ Object.assign(DocsDoodads.Workspace, {
         const written = [];
         const warnings = walk.warnings.slice();
         const record = (file, used) => { written.push(file); this.recordLpcImage(file, used); };
+        // The sheets with bigger frames: [{ file, w, h, below }] (the size of one frame, and how far it reaches
+        // below the feet).
+        const oversize = [];
+        const big = (file, sheet, full) => {
+            const F = E.frameOf(sheet);
+            if (F > E.frame) oversize.push(Object.assign({ file }, E.cellOf(F, full)));
+        };
+        // Action sheets reaching below the feet (and ones that no longer do).
+        let feet = D.World.get('characterAnim.feet') || {};
+        const action = (file, sheet) => {
+            feet = E.feetWith(feet, file.replace(/^.*\//, '').replace(/\.png$/i, ''), E.actionBelow(sheet));
+            big(file, sheet, true);
+        };
+        const battler = (file, sv) => {
+            if (sv.oversize.length) oversize.push({ file, w: sv.cell.w, h: sv.cell.h, below: 0, motions: sv.oversize });
+        };
         let parts = [];
         try {
             if (options.classic) {
                 const file = 'img/characters/' + N.classic + '.png';
                 this.writeLpcPng(file, E.classic(walk.sheet));
                 record(file, walk.used);
+                big(file, walk.sheet);
             }
             if (options.smooth) {
                 const file = 'img/characters/' + N.smooth + '.png';
                 this.writeLpcPng(file, E.allFrames(walk.sheet));
                 record(file, walk.used);
+                big(file, walk.sheet);
                 for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
                     const out = this.composeLpc(recipe, anim);
                     if (!out || !out.sheet) { warnings.push(`No ${anim} sheet: the parts have no ${anim}.`); continue; }
                     const f = 'img/characters/' + sheetName + '.png';
                     this.writeLpcPng(f, E.allFrames(out.sheet));
                     record(f, out.used);
+                    big(f, out.sheet);
                     warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
                 }
                 this.addLpcAnimationSet(N);
@@ -35126,6 +35374,7 @@ Object.assign(DocsDoodads.Workspace, {
                 const f = 'img/characters/' + E.actionName(name, anim) + '.png';
                 this.writeLpcPng(f, E.actionSheet(out.sheet, anim));
                 record(f, out.used);
+                action(f, out.sheet);
                 warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
             }
             if (options.battler) {
@@ -35139,34 +35388,39 @@ Object.assign(DocsDoodads.Workspace, {
                 const f = 'img/sv_actors/' + N.face + '.png';
                 this.writeLpcPng(f, sv.sheet);
                 record(f, used);
+                battler(f, sv);
                 if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
                 // The face leaves out what is held or carried.
                 const faceState = { body: state.body, slots: Object.assign({}, state.slots) };
                 for (const key of ['weapon', 'shield', 'back', 'ammo']) delete faceState.slots[key];
-                const faceWalk = this.composeLpc(S.toRecipe(faceState, { addons: options.addons !== false }), 'walk');
+                const faceWalk = this.composeLpc(S.toRecipe(faceState, { addons: options.addons !== false }), 'walk', null, { oversize: false });
                 const file = 'img/faces/' + N.face + '.png';
                 this.writeLpcPng(file, E.faceSheet(this.readLpcPng(file), E.face(faceWalk.sheet), options.faceSlot || 0));
                 record(file, faceWalk.used);
             }
-            if (options.parts) parts = this.exportLpcParts(state, options, record, warnings);
+            if (options.parts) parts = this.exportLpcParts(state, options, record, warnings, { big, action, battler });
         } catch (e) {
             this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
             return null;
         }
+        if (JSON.stringify(feet) !== JSON.stringify(D.World.get('characterAnim.feet') || {})) this.setWorldSetting('characterAnim.feet', feet);
         // Credits ship with the game; the character is kept to change and export again.
         if (written.length) this.writeLpcCreditsText();
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
-        return { files: written, warnings: [...new Set(warnings)], names: N, parts };
+        return { files: written, warnings: [...new Set(warnings)], names: N, parts, oversize };
     },
 
     // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the
     // pieces follow its walk, idle, run, actions and battler), with the notetag that puts it on an item.
-    // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot.
-    exportLpcParts(state, options, record, warnings) {
+    // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot. Oversize
+    // weapon art gives a piece bigger frames standing on the same feet (Visual Equipment draws each layer at
+    // its own frame size); a return swing is played to follow the body's own slash. note: { big, action,
+    // battler } to list sheets with bigger frames.
+    exportLpcParts(state, options, record, warnings, note = {}) {
         const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
         const index = this.lpcIndex();
         const out = [];
@@ -35177,24 +35431,30 @@ Object.assign(DocsDoodads.Workspace, {
             const colours = [pick.colour || ''].concat(pick.colour2 ? [pick.colour2] : []);
             const recipe = { body: state.body, picks: [{ id: pick.id, colours, variant: pick.colour || undefined }] };
             const pieces = [], files = [];
-            const write = (file, image, used) => { this.writeLpcPng(file, image); record(file, used); files.push(file); };
+            const write = (file, image, used, sheet, kind) => {
+                this.writeLpcPng(file, image);
+                record(file, used);
+                files.push(file);
+                if (kind === 'action' && note.action) note.action(file, sheet);
+                else if (kind && note.big) note.big(file, sheet);
+            };
             for (const behind of [false, true]) {
                 const keep = l => (behind ? l.z < E.bodyZ : l.z >= E.bodyZ);
                 const walk = this.composeLpc(recipe, 'walk', keep);
                 if (!walk || !walk.sheet || !walk.used.length) continue;
                 const base = E.partBase(slot.label, part.name, pick.colour, state.body, behind);
                 const N = E.names(base);
-                if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk.sheet), walk.used);
+                if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk.sheet), walk.used, walk.sheet, 'sheet');
                 if (options.smooth) {
-                    write('img/characters/' + N.smooth + '.png', E.allFrames(walk.sheet), walk.used);
+                    write('img/characters/' + N.smooth + '.png', E.allFrames(walk.sheet), walk.used, walk.sheet, 'sheet');
                     for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
                         const o = this.composeLpc(recipe, anim, keep);
-                        if (o && o.sheet && o.used.length) write('img/characters/' + sheetName + '.png', E.allFrames(o.sheet), o.used);
+                        if (o && o.sheet && o.used.length) write('img/characters/' + sheetName + '.png', E.allFrames(o.sheet), o.used, o.sheet, 'sheet');
                     }
                 }
                 for (const anim of options.actions || []) {
                     const o = this.composeLpc(recipe, anim, keep);
-                    if (o && o.sheet && o.used.length) write('img/characters/' + E.actionName(base, anim) + '.png', E.actionSheet(o.sheet, anim), o.used);
+                    if (o && o.sheet && o.used.length) write('img/characters/' + E.actionName(base, anim) + '.png', E.actionSheet(o.sheet, anim), o.used, o.sheet, 'action');
                 }
                 if (options.battler) {
                     const sheets = {}, used = [];
@@ -35203,7 +35463,9 @@ Object.assign(DocsDoodads.Workspace, {
                         sheets[anim] = o && o.used.length ? o.sheet : null;
                         if (o) used.push(...o.used);
                     }
-                    write('img/sv_actors/' + N.face + '.png', E.svSheet(sheets).sheet, used);
+                    const sv = E.svSheet(sheets), f = 'img/sv_actors/' + N.face + '.png';
+                    write(f, sv.sheet, used);
+                    if (note.battler) note.battler(f, sv);
                 }
                 // Visual Equipment z: below 0 is behind the body; the library's order is kept.
                 const zs = part.layers.map(l => l.z).filter(z => (behind ? z < E.bodyZ : z >= E.bodyZ));
@@ -35462,19 +35724,23 @@ Object.assign(DocsDoodads.Workspace, {
         return this._lpcCache;
     },
 
-    // recipe -> { sheet, warnings, used } for one animation, or null without an index. keep(layer): only
-    // some layers (the pieces of a Visual Equipment part in front of or behind the body).
-    composeLpc(recipe, animation = 'walk', keep) {
+    // recipe -> { sheet, warnings, used, oversize } for one animation, or null without an index. keep(layer):
+    // only some layers (the pieces of a Visual Equipment part in front of or behind the body, which is drawn
+    // on a sheet of its own and so plays the animation its own way). Oversize weapon art makes the sheet's
+    // frames bigger (sheet.frame), unless options.oversize is false.
+    composeLpc(recipe, animation = 'walk', keep, options = {}) {
         const C = DocsDoodads.LpcCompose, FS = DocsDoodads.FS;
         const index = this.lpcIndex();
         if (!index || !FS.fs) return null;
-        const resolved = C.resolve(index, recipe, animation, file => FS.existsSync(this.lpcSheetPath(file, index)));
+        const resolved = C.resolve(index, recipe, animation, file => FS.existsSync(this.lpcSheetPath(file, index)),
+            { oversize: options.oversize !== false, separateBody: Boolean(keep) });
         if (keep) {
             resolved.layers = resolved.layers.filter(keep);
             resolved.used = resolved.layers.map(l => ({ part: l.part, folder: l.folder }));
+            resolved.frame = Math.max(C.frame, ...resolved.layers.map(l => l.frame || C.frame));
         }
         const out = C.compose(resolved, index, file => this.lpcLoadImage(file), this.lpcCache());
-        return { sheet: out.sheet, warnings: out.warnings, used: resolved.used };
+        return { sheet: out.sheet, warnings: out.warnings, used: resolved.used, oversize: resolved.oversize };
     },
 
     // The card's try-out: a random character walking, turned with the arrows.

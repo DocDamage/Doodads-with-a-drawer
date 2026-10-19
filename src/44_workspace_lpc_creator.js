@@ -41,12 +41,12 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-swatch { width: 32px; height: 32px; border-radius: 11px; border: 3px solid #fffaf0; box-shadow: 0 0 0 2px #ead8b0; padding: 0; }
 #dd-creator .dd-cr-stagecol { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 #dd-creator .dd-cr-stage { flex: 1; min-height: 0; background: #d9f4ef; border-radius: 30px; border: 3px solid #b9e8df; box-shadow: 0 8px 0 #a6dcd2; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
-#dd-creator .dd-cr-name { position: absolute; top: 16px; left: 70px; right: 70px; text-align: center; border: none; background: transparent; font-family: inherit; font-weight: 900; font-size: 20px; color: #0f6f64; }
-#dd-creator .dd-cr-dice { position: absolute; top: 12px; width: 46px; height: 46px; border: none; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #a6dcd2; font-size: 22px; font-weight: 900; color: #3a2e4d; }
+#dd-creator .dd-cr-name { position: absolute; z-index: 1; top: 16px; left: 70px; right: 70px; text-align: center; border: none; background: transparent; font-family: inherit; font-weight: 900; font-size: 20px; color: #0f6f64; }
+#dd-creator .dd-cr-dice { position: absolute; z-index: 1; top: 12px; width: 46px; height: 46px; border: none; border-radius: 14px; background: #fffaf0; box-shadow: 0 4px 0 #a6dcd2; font-size: 22px; font-weight: 900; color: #3a2e4d; }
 #dd-creator .dd-cr-figure { position: relative; width: 256px; height: 280px; display: flex; align-items: flex-end; justify-content: center; }
 #dd-creator .dd-cr-shadow { position: absolute; bottom: 22px; width: 120px; height: 26px; border-radius: 50%; background: rgba(15, 111, 100, 0.25); }
 #dd-creator canvas.dd-cr-canvas { position: relative; width: 256px; height: 256px; image-rendering: pixelated; }
-#dd-creator .dd-cr-turn { display: flex; align-items: center; gap: 12px; margin-top: 4px; font-weight: 900; color: #0f6f64; }
+#dd-creator .dd-cr-turn { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; margin-top: 4px; font-weight: 900; color: #0f6f64; }
 #dd-creator .dd-cr-turn button { width: 42px; height: 42px; border: none; border-radius: 50%; background: #0b8174; color: #fffaf0; font-size: 18px; font-weight: 900; box-shadow: 0 4px 0 #075f55; }
 #dd-creator .dd-cr-anims { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 #dd-creator .dd-cr-anim { border: none; border-radius: 999px; padding: 5px 12px; background: #fffaf0; color: #3a2e4d; font-weight: 800; font-size: 12px; box-shadow: 0 3px 0 #e3d2a8; }
@@ -91,7 +91,7 @@ Object.assign(DocsDoodads.Workspace, {
     _creator: null,
 
     creatorAnimations: [['walk', 'Walk'], ['idle', 'Idle'], ['run', 'Run'], ['slash', 'Slash'], ['thrust', 'Thrust'], ['spellcast', 'Spellcast'],
-        ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat']],
+        ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat'], ['slash_reverse', 'Backswing']],
     creatorFps: { walk: 10, run: 12, idle: 3, combat: 3, sit: 2, emote: 3 },
 
     openCreator(state) {
@@ -224,24 +224,40 @@ Object.assign(DocsDoodads.Workspace, {
         if (!c || !ctx || typeof ctx.createImageData !== 'function') return false;
         const C = DocsDoodads.LpcCompose;
         const composed = this.creatorComposed();
+        const F = (composed.sheet && composed.sheet.frame) || C.frame;
+        this.fitCreatorCanvas(canvas, F);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!composed.sheet) return false;
         const meta = C.animations[c.anim] || { frames: 1 };
         // Walking skips the standing frame 0.
         const frames = c.anim === 'walk' ? 8 : meta.frames;
         const frame = (c.anim === 'walk' ? 1 : 0) + (c.frame % frames);
-        const rect = C.frameRect(c.anim, c.dir, frame);
+        const rect = C.frameRect(c.anim, c.dir, frame, F);
         if (rect.x + rect.w > composed.sheet.width || rect.y + rect.h > composed.sheet.height) return false;
         const img = ctx.createImageData(rect.w, rect.h);
         for (let y = 0; y < rect.h; y++) {
             const from = ((rect.y + y) * composed.sheet.width + rect.x) * 4;
             img.data.set(composed.sheet.data.subarray(from, from + rect.w * 4), y * rect.w * 4);
         }
-        if (!this._creatorScratch) { this._creatorScratch = document.createElement('canvas'); this._creatorScratch.width = 64; this._creatorScratch.height = 64; }
+        if (!this._creatorScratch || this._creatorScratch.width !== F) { this._creatorScratch = document.createElement('canvas'); this._creatorScratch.width = F; this._creatorScratch.height = F; }
         this._creatorScratch.getContext('2d').putImageData(img, 0, 0);
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(this._creatorScratch, 0, 0, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
         return true;
+    },
+
+    // The stage's canvas for frames of F pixels. With oversize weapon art the canvas grows around the same
+    // 64-pixel body (same size, same place) and the swing spills over the stage; it lets clicks through.
+    fitCreatorCanvas(canvas, F) {
+        const C = DocsDoodads.LpcCompose;
+        if (canvas.width === 4 * F && canvas.height === 4 * F) return;
+        const base = this._creator && this._creator.narrow ? 192 : 256;
+        const size = base * F / C.frame, spill = (size - base) / 2;
+        canvas.width = canvas.height = 4 * F;
+        if (!canvas.style) return;
+        canvas.style.width = canvas.style.height = F === C.frame ? '' : size + 'px';
+        canvas.style.margin = F === C.frame ? '' : `0 ${-spill}px ${-spill}px`;
+        canvas.style.pointerEvents = F === C.frame ? '' : 'none';
     },
 
     startCreatorLoop() {
@@ -392,7 +408,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
                 ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(anim.replace(/^1h_/, ''))}</button>`).join('')}</div></div>
+                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(DocsDoodads.LpcExport.actionLabel(anim))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
                 ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
@@ -401,7 +417,7 @@ Object.assign(DocsDoodads.Workspace, {
                     <button type="button" class="dd-cr-export" id="dd-cr-ex-go" style="font-size: 15px; padding: 8px 20px;"${!c.name.trim() || !files.length ? ' disabled' : ''}>Export ${files.length} file${files.length === 1 ? '' : 's'}</button>
                     ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
                 </div>
-                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}</div>` : ''}
+                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}${done.oversize && done.oversize.length ? `<div id="dd-cr-ex-big" style="font-weight: 700; color: #5b4c70;">${escapeHtml(DocsDoodads.LpcExport.oversizeNote(done.oversize))}</div>` : ''}</div>` : ''}
                 ${done && done.parts && done.parts.length ? `<div style="margin-top: 8px; max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">${done.parts.map((p, i) => `
                     <div style="background: #f6efe0; border-radius: 12px; padding: 6px 8px;">
                         <b>${escapeHtml(p.label)}: ${escapeHtml(p.name)}</b>

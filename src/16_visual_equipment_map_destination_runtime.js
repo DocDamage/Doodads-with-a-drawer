@@ -202,14 +202,18 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
             const row = C.rowFor(facing, layout.dirs);
             const rect = DocsDoodads.safeFrame(VE.frameRect(sheet.name, bitmap.width, bitmap.height,
                 layer.index !== null ? layer.index : ch.characterIndex(), col, row.row), bitmap.width, bitmap.height);
-            const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h) : 0;
+            // A layer sheet with art below the feet ([bN]) stands on the same feet as the body.
+            const below = Math.max(0, Math.min(C.belowFor(sheet.name, C.feet ? C.feet() : null), rect.h - 1));
+            sprite.anchor.y = C.footAnchor(rect.h, below);
+            const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h - below) : 0;
             if (depth > 0) {
                 const [upper, lower] = this.docsVisualHalves(sprite);
                 upper.visible = lower.visible = true;
                 sprite.setFrame(rect.x, rect.y, 0, rect.h);
-                upper.setFrame(rect.x, rect.y, rect.w, rect.h - depth);
+                upper.setFrame(rect.x, rect.y, rect.w, rect.h - below - depth);
                 upper.y = -depth;
-                lower.setFrame(rect.x, rect.y + rect.h - depth, rect.w, depth);
+                lower.setFrame(rect.x, rect.y + rect.h - below - depth, rect.w, depth + below);
+                lower.y = below;
             } else {
                 if (sprite._docsUpper) sprite._docsUpper.visible = sprite._docsLower.visible = false;
                 sprite.setFrame(rect.x, rect.y, rect.w, rect.h);
@@ -287,7 +291,8 @@ if (typeof Sprite_Actor !== 'undefined' && typeof Sprite !== 'undefined') {
             sprite.setFrame(rect.x, rect.y, rect.w, rect.h);
             sprite.x = main.x;
             sprite.y = main.y;
-            sprite.scale.set(main.scale.x * base.width / bitmap.width, main.scale.y * base.height / bitmap.height);
+            const k = VE.svScale(bitmap.width, bitmap.height, base.width, base.height);
+            sprite.scale.set(main.scale.x * k.x, main.scale.y * k.y);
             sprite.opacity = main.opacity;
             sprite.blendMode = main.blendMode;
         }
@@ -309,8 +314,8 @@ if (typeof Window_Base !== 'undefined') {
         const drawSheet = (bitmap, name, index) => {
             const layout = C.parseName(name);
             const rect = VE.frameRect(name, bitmap.width, bitmap.height, index, C.standingFrame(layout.frames), C.rowFor(2, layout.dirs).row);
-            const w = rect.w * zoom, h = rect.h * zoom;
-            this.contents.blt(bitmap, rect.x, rect.y, rect.w, rect.h, x - w / 2, y - h, w, h);
+            const w = rect.w * zoom, h = rect.h * zoom, below = Math.min(C.belowFor(name, C.feet ? C.feet() : null), rect.h - 1) * zoom;
+            this.contents.blt(bitmap, rect.x, rect.y, rect.w, rect.h, x - w / 2, y - h + Math.max(0, below), w, h);
         };
         const drawLayers = list => {
             for (const layer of list) {

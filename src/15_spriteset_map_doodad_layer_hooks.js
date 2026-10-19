@@ -149,12 +149,12 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
             if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
             const jump = (typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0) + DocsDoodads.Traversal.liftOf(ch);
-            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, alpha: sprite.opacity / 255, rotation: 0 };
+            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, anchorY: sprite.anchor.y, alpha: sprite.opacity / 255, rotation: 0 };
             // Gear layers reflect too, behind and in front of the body.
             const gear = (sprite._docsVisualSprites || []).filter(l => l.visible);
             const layer = l => {
                 const texture = sprite.docsVisualTexture(l);
-                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint }));
+                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint, anchorY: l.anchor.y }));
             };
             gear.filter(l => l._docsZ < 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
             sources.push(Object.assign({}, at, { texture: sprite._docsFrameTexture, sx: sprite.scale.x }));
@@ -179,7 +179,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.visible = Boolean(src);
             if (!src) return;
             s.texture = src.texture;
-            s.anchor.set(src.anchorX, 1);
+            s.anchor.set(src.anchorX, src.anchorY !== undefined ? src.anchorY : 1);
             s.x = src.x;
             s.y = src.y;
             s.scale.set(src.sx, -src.sy);
@@ -245,6 +245,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (this._tilemap && parent.children.indexOf(ghost) < parent.children.indexOf(this._tilemap)) parent.addChild(ghost);
         if (ghost._docsFilter) ghost._docsFilter.uniforms.uColor = DocsDoodads.Lighting.channels(settings.silhouetteColor);
         ghost.texture = sprite._docsFrameTexture;
+        ghost.anchor.set(0.5, sprite.anchor.y);
         ghost.x = sprite.x;
         ghost.y = sprite.y;
         ghost.scale.set(sprite.scale.x, sprite.scale.y);
@@ -576,6 +577,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
             scaleY = DocsDoodads.CharacterShadow.clipLength(footX, footY, sun.angle, full, blocked) / this._docsFrame.h;
         }
         shadow.texture = this._docsFrameTexture;
+        shadow.anchor.set(0.5, this.anchor.y);
         shadow.x = footX;
         shadow.y = footY;
         shadow.rotation = t.rotation;
@@ -631,6 +633,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
                 part._docsFrames.set(frameKey, texture);
             }
             part.texture = texture;
+            part.anchor.set(0.5, sp.anchor.y);
             // The shadow already has the body's scale; a mirrored layer (8-direction sheets) flips.
             part.scale.set(Math.sign(sp.scale.x || 1) * Math.sign(this.scale.x || 1), 1);
             part.visible = true;
@@ -1408,6 +1411,10 @@ DocsDoodads.CharacterAnim.sets = function() {
     return DocsDoodads.World.settings().characterAnim.sets || [];
 };
 
+DocsDoodads.CharacterAnim.feet = function() {
+    return DocsDoodads.World.settings().characterAnim.feet || {};
+};
+
 // Loads idle and run sheets for characters on the map before they are needed, so switching never blinks.
 DocsDoodads.CharacterAnim.preload = function() {
     if (typeof ImageManager === 'undefined' || typeof $gameMap === 'undefined' || !$gameMap) return;
@@ -1540,7 +1547,8 @@ if (typeof Sprite_Character !== 'undefined') {
         else if (state === 'run' && layout.frames !== parsedName.frames) frame = C.cycleFrame(ch._docsAnimTimer || 0, set.runFps || 12, layout.frames);
         else frame = layout.frames === 3 ? C.walkFrame(ch._pattern, 3) : ch.pattern() % layout.frames;
         const single = layout.tagged || sheet.startsWith('$') || (sheet.length > 1 && sheet[0] === '!' && sheet[1] === '$');
-        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: DocsDoodads.Perspective.displayFacing(ch.docsFacing ? ch.docsFacing() : ch.direction()) };
+        return { sheet, frames: layout.frames, dirs: layout.dirs, frame, single, index: ch.characterIndex(), facing: DocsDoodads.Perspective.displayFacing(ch.docsFacing ? ch.docsFacing() : ch.direction()),
+            below: C.belowFor(sheet, C.feet()) };
     };
 
     $.Sprite_Character_updateBitmap = Sprite_Character.prototype.updateBitmap;
@@ -1553,6 +1561,8 @@ if (typeof Sprite_Character !== 'undefined') {
                 this._docsAnimSheet = null;
                 this._characterName = '';
                 this.scale.x = Math.abs(this.scale.x);
+                this.anchor.y = 1;
+                if (this._lowerBody) this._lowerBody.y = 0;
             }
             return $.Sprite_Character_updateBitmap.call(this);
         }
@@ -1582,11 +1592,15 @@ if (typeof Sprite_Character !== 'undefined') {
         const sx = block.x + Math.min(anim.frame, anim.frames - 1) * pw;
         const sy = block.y + Math.min(facing.row, anim.dirs - 1) * ph;
         this.scale.x = Math.abs(this.scale.x) * (facing.mirror ? -1 : 1);
+        // Art below the feet ([bN]): the frame hangs that far under the character's position.
+        const below = Math.max(0, Math.min(anim.below || 0, ph - 1));
+        this.anchor.y = C.footAnchor(ph, below);
         this.updateHalfBodySprites();
         if (this._bushDepth > 0) {
-            const d = Math.min(this._bushDepth, ph);
-            this._upperBody.setFrame(sx, sy, pw, ph - d);
-            this._lowerBody.setFrame(sx, sy + ph - d, pw, d);
+            const d = Math.min(this._bushDepth, ph - below);
+            this._upperBody.setFrame(sx, sy, pw, ph - below - d);
+            this._lowerBody.setFrame(sx, sy + ph - below - d, pw, d + below);
+            this._lowerBody.y = below;
             this.setFrame(sx, sy, 0, ph);
         } else {
             this.setFrame(sx, sy, pw, ph);

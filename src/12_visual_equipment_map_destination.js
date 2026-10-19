@@ -171,6 +171,15 @@ DocsDoodads.VisualEquip = {
         return { x: Math.round(frame.x * sx), y: Math.round(frame.y * sy), w: Math.round(frame.width * sx), h: Math.round(frame.height * sy) };
     },
 
+    // How much a battler layer is scaled: to the battler's size when its cells have the same shape (art drawn
+    // at another resolution), or not at all when they have another shape (bigger cells around the same body,
+    // like an LPC weapon's 192 x 128 swing), standing on the same feet.
+    svScale(layerW, layerH, baseW, baseH) {
+        if (!(layerW > 0 && layerH > 0 && baseW > 0 && baseH > 0)) return { x: 1, y: 1 };
+        if (Math.abs(layerW / layerH - baseW / baseH) > 0.01) return { x: 1, y: 1 };
+        return { x: baseW / layerW, y: baseH / layerH };
+    },
+
     savefileLayers(lists) {
         return (lists || []).map(list => (list || []).map(l => ({ image: l.image, z: l.z, index: l.index, hue: l.hue, tint: l.tint })));
     },

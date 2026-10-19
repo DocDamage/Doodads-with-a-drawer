@@ -145,6 +145,130 @@ assert.deepStrictEqual(C.frameRect('walk', 'up', 9), { x: 0, y: 0, w: 64, h: 64 
 assert.deepStrictEqual(C.frameRect('hurt', 'right', 5), { x: 320, y: 0, w: 64, h: 64 });
 console.log('✓ frames');
 
+// 4b. Oversize weapon art: the bigger animation that stands for one (slash_oversize for slash, walk_128 for
+// walk...), drawn at its size on a sheet of bigger frames with the 64-pixel layers in the middle of each;
+// a return swing plays the body backwards; normal art first; left out on request (Visual Equipment parts).
+const big = [
+    ['weapons/longsword', def({ name: 'Longsword', type_name: 'weapon', variants: ['long'], animations: ['walk', 'slash_oversize', 'thrust_oversize'],
+        layer_1: { zPos: 140, male: 'weapon/long/' },
+        layer_2: { zPos: -1, custom_animation: 'slash_oversize', male: 'weapon/long/attack_slash/behind/' },
+        layer_3: { zPos: 150, custom_animation: 'slash_oversize', male: 'weapon/long/attack_slash/' },
+        layer_4: { zPos: 150, custom_animation: 'thrust_oversize', male: 'weapon/long/attack_thrust/' } })],
+    ['weapons/club', def({ name: 'Club', type_name: 'weapon', variants: ['club'], animations: ['slash_reverse_oversize'],
+        layer_1: { zPos: 150, custom_animation: 'slash_reverse_oversize', male: 'weapon/club/' } })],
+    ['weapons/spear', def({ name: 'Spear', type_name: 'weapon', variants: ['spear'], animations: ['walk_128'],
+        layer_1: { zPos: 140, custom_animation: 'walk_128', male: 'weapon/spear/walk/' } })],
+    ['weapons/arming', def({ name: 'Arming Sword', type_name: 'weapon', variants: ['steel'], animations: ['walk', 'backslash_128'],
+        layer_1: { zPos: 140, custom_animation: 'backslash_128', male: 'weapon/arming/backslash/' } })],
+    ['weapons/bow', def({ name: 'Bow', type_name: 'weapon', variants: ['light'], animations: ['walk', 'walk_128'],
+        layer_1: { zPos: 140, male: 'weapon/bow/' }, layer_2: { zPos: 141, custom_animation: 'walk_128', male: 'weapon/bow/walk/' } })]
+];
+const bigIndex = { parts: index.parts.concat(big.map(([id, d]) => L.readPart(id, d))), palettes };
+// A sheet of cols x rows cells of size cell; paint(frame, row, x, y) -> [r, g, b, a] or null.
+const grid = (cols, rows, cell, paint) => {
+    const img = C.blank(cols * cell, rows * cell);
+    for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+        const c = paint(Math.floor(x / cell), Math.floor(y / cell), x % cell, y % cell);
+        if (c) img.data.set(c, (y * img.width + x) * 4);
+    }
+    return img;
+};
+// The body: each 64-pixel cell solid from y 10 down, coloured by frame and row.
+const bodyCells = frames => grid(frames, 4, 64, (f, r, x, y) => (y >= 10 ? [f * 20 + 10, r * 50 + 10, 1, 255] : null));
+// A weapon: a dot at (5, 5) of each cell, one at the body's spot (64 + 10, 64 + 20), and one behind it.
+const weaponCells = (cols, cell, tint) => grid(cols, 4, cell, (f, r, x, y) => ((x === 5 && y === 5) || (x === cell / 2 - 22 && y === cell / 2 - 12) ? [tint, f * 20, r * 50, 255] : null));
+const bigFiles = {
+    'body/male/slash.png': bodyCells(6), 'body/male/walk.png': bodyCells(9), 'body/male/backslash.png': bodyCells(13), 'body/male/thrust.png': bodyCells(8),
+    'weapon/long/walk.png': weaponCells(9, 64, 210),
+    'weapon/long/attack_slash/long.png': weaponCells(6, 192, 200),
+    'weapon/long/attack_slash/behind/long.png': grid(6, 4, 192, (f, r, x, y) => (x === 64 + 30 && y === 64 + 40 ? [1, 2, 3, 255] : null)),
+    'weapon/long/attack_thrust/long.png': C.blank(8 * 192, 4 * 100), // not 192-pixel frames: left out
+    'weapon/club/club.png': weaponCells(6, 192, 190),
+    'weapon/spear/walk/spear.png': weaponCells(13, 128, 180), // padded to 13 columns, as the library does
+    'weapon/arming/backslash/steel.png': weaponCells(13, 128, 170),
+    'weapon/bow/walk.png': weaponCells(9, 64, 160), 'weapon/bow/walk/light.png': weaponCells(13, 128, 150)
+};
+const bigExists = f => f in bigFiles;
+const bigLoad = f => bigFiles[f] || null;
+const at = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 4));
+const male = (...ids) => ({ body: 'male', picks: [{ id: 'body/body', colours: ['light'] }].concat(ids.map(id => ({ id }))) });
+
+assert.deepStrictEqual(C.standIns('slash'), ['slash_128', 'slash_oversize', 'slash_reverse_oversize']);
+assert.deepStrictEqual(C.standIns('1h_backslash'), ['backslash_128'], 'by the animation file');
+assert.deepStrictEqual(C.standIns('walk'), ['walk_128']);
+assert.deepStrictEqual(C.standIns('idle'), []);
+r = C.resolve(bigIndex, male('weapons/longsword'), 'slash', bigExists);
+assert.deepStrictEqual(ids(r), ['weapon/long/attack_slash/behind/long.png', 'body/male/slash.png', 'weapon/long/attack_slash/long.png']);
+assert.deepStrictEqual([r.frame, r.reverse, r.oversize, r.warnings], [192, false, ['slash_oversize'], []]);
+assert.deepStrictEqual(r.layers.map(l => l.frame), [192, 64, 192]);
+assert.deepStrictEqual(r.used.map(u => u.folder).sort(), ['body/male/', 'weapon/long/attack_slash/', 'weapon/long/attack_slash/behind/'], 'credited');
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual([out.sheet.width, out.sheet.height, out.sheet.frame, out.warnings], [1152, 768, 192, []]);
+assert.deepStrictEqual(at(out.sheet, 2 * 192 + 64 + 40, 192 + 64 + 30), [2 * 20 + 10, 60, 1, 255], 'the body in the middle of the bigger frame (frame 2, left)');
+assert.deepStrictEqual(at(out.sheet, 2 * 192 + 5, 192 + 5), [200, 40, 50, 255], 'the weapon at its size');
+assert.deepStrictEqual(at(out.sheet, 2 * 192 + 64 + 10, 192 + 64 + 20), [200, 40, 50, 255], 'in front of the body');
+assert.deepStrictEqual(at(out.sheet, 2 * 192 + 64 + 30, 192 + 64 + 40), [2 * 20 + 10, 60, 1, 255], 'the part behind the body is behind it');
+assert.deepStrictEqual(at(out.sheet, 2 * 192 + 64 + 30, 192 + 64 + 5), [0, 0, 0, 0], 'nothing above the body\'s own art');
+r = C.resolve(bigIndex, male('weapons/longsword'), 'slash', bigExists, { oversize: false });
+assert.deepStrictEqual([ids(r), r.frame, r.warnings], [['body/male/slash.png'], 64, ['Longsword has no slash.']], 'left out on request');
+r = C.resolve(bigIndex, male('weapons/longsword'), 'walk', bigExists);
+assert.deepStrictEqual([ids(r), r.frame], [['body/male/walk.png', 'weapon/long/walk.png'], 64], 'the usual walk, at its size');
+r = C.resolve(bigIndex, male('weapons/longsword'), 'thrust', bigExists);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.ok(out.warnings.some(w => /Longsword is drawn at another size \(1536x400\); left out/.test(w)), 'art whose frames are not the size it should be');
+assert.deepStrictEqual([out.sheet.width, out.sheet.frame], [8 * 192, 192]);
+// A return swing: the body's slash backwards.
+r = C.resolve(bigIndex, male('weapons/club'), 'slash', bigExists);
+assert.deepStrictEqual([r.frame, r.reverse, r.oversize], [192, true, ['slash_reverse_oversize']]);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30), [5 * 20 + 10, 110, 1, 255], 'frame 0 shows the body\'s last frame');
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 5, 2 * 192 + 5), [190, 0, 100, 255], 'the weapon keeps its own order');
+r = C.resolve(bigIndex, male('weapons/club', 'weapons/longsword'), 'slash', bigExists);
+assert.deepStrictEqual([r.reverse, r.oversize.sort(), r.warnings], [false, ['slash_oversize', 'slash_reverse_oversize'], []]);
+assert.deepStrictEqual(r.layers.filter(l => l.oversize).map(l => [l.oversize, l.flip]).sort(), [['slash_oversize', false], ['slash_oversize', false], ['slash_reverse_oversize', true]],
+    'forward and back at once: the body plays forwards and the return swing is played backwards to follow the hand');
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30), [10, 110, 1, 255], 'the body forwards');
+// A body on a sheet of its own (Visual Equipment parts) keeps its way; the club's art is flipped to follow it.
+r = C.resolve(bigIndex, male('weapons/club'), 'slash', bigExists, { separateBody: true });
+assert.deepStrictEqual([r.reverse, r.layers.find(l => l.oversize).flip], [false, true]);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 5, 2 * 192 + 5), [190, 100, 100, 255], "frame 0 shows the club's last frame");
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30), [10, 110, 1, 255]);
+// slash_reverse: the return swing as an animation of its own. The body backwards; forward art backwards too,
+// return-swing art as drawn; a part with a slash (listed as 'slash') has one.
+assert.strictEqual(C.fileOf('slash_reverse'), 'slash');
+r = C.resolve(bigIndex, male('weapons/longsword'), 'slash_reverse', bigExists);
+assert.deepStrictEqual([r.reverse, r.frame, r.layers.filter(l => l.oversize).every(l => l.flip), r.warnings], [true, 192, true, []]);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual([at(out.sheet, 0 * 192 + 5, 2 * 192 + 5), at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30)], [[200, 100, 100, 255], [110, 110, 1, 255]], 'blade and body both from frame 5');
+r = C.resolve(bigIndex, male('weapons/club'), 'slash_reverse', bigExists);
+assert.deepStrictEqual([r.reverse, r.layers.find(l => l.oversize).flip], [true, false], 'the club as drawn');
+r = C.resolve(index, { body: 'male', picks: [{ id: 'body/body', colours: ['light'] }, { id: 'weapons/sword' }] }, 'slash_reverse', exists);
+assert.deepStrictEqual([ids(r), r.reverse, r.frame, r.warnings], [['body/male/slash.png', 'weapon/sword/slash.png'], true, 64, []], "a part listing 'slash' has its return swing");
+out = C.compose(C.resolve(bigIndex, male(), 'slash_reverse', bigExists), bigIndex, bigLoad, null);
+assert.deepStrictEqual([out.sheet.width, out.sheet.frame, at(out.sheet, 64 + 40, 2 * 64 + 30)], [6 * 64, 64, [90, 110, 1, 255]], 'played backwards on 64-pixel frames (frame 1 is frame 4)');
+// walk_128: a spear carried on 128-pixel frames, the padded columns ignored.
+r = C.resolve(bigIndex, male('weapons/spear'), 'walk', bigExists);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual([r.frame, out.sheet.width, out.sheet.height], [128, 9 * 128, 512]);
+assert.deepStrictEqual(at(out.sheet, 8 * 128 + 32 + 40, 3 * 128 + 32 + 30), [8 * 20 + 10, 160, 1, 255], 'the body in the middle of 128');
+assert.deepStrictEqual(at(out.sheet, 8 * 128 + 5, 3 * 128 + 5), [180, 160, 150, 255]);
+assert.ok(C.resolve(bigIndex, male('weapons/spear'), 'idle', bigExists).warnings.includes('Spear has no idle.'));
+r = C.resolve(bigIndex, male('weapons/arming'), '1h_backslash', bigExists);
+assert.deepStrictEqual([r.frame, C.compose(r, bigIndex, bigLoad, null).sheet.width], [128, 13 * 128], 'backslash_128 for the 13-frame backslash');
+r = C.resolve(bigIndex, male('weapons/bow'), 'walk', bigExists);
+assert.deepStrictEqual([ids(r), r.frame], [['body/male/walk.png', 'weapon/bow/walk.png'], 64], 'normal art first when a part has both');
+r = C.resolve(bigIndex, male('weapons/spear'), 'walk', f => f !== 'weapon/spear/walk/spear.png' && bigExists(f));
+assert.deepStrictEqual([ids(r), r.frame], [['body/male/walk.png'], 64]);
+assert.ok(r.warnings.includes('Spear has no walk picture for the male body.'));
+bigFiles['weapon/sword/behind/slash.png'] = weaponCells(13, 64, 140); // a 64-pixel sheet padded to 13 columns (the wand's slash)
+r = C.resolve(bigIndex, male('weapons/sword'), 'slash', bigExists);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual([ids(r), out.sheet.width, out.warnings, at(out.sheet, 5 * 64 + 5, 5)], [['weapon/sword/behind/slash.png', 'body/male/slash.png'], 6 * 64, [], [140, 100, 0, 255]], 'padded columns left off, even when the padded layer comes first');
+assert.deepStrictEqual(C.frameRect('slash', 'left', 2, 192), { x: 384, y: 192, w: 192, h: 192 });
+console.log('✓ oversize weapon art: stand-ins, bigger frames, centred body, return swing, left out on request');
+
 // 5. Random characters: a body and head, only parts that suit the body, and safe ones when asked.
 let seed = 7;
 const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
