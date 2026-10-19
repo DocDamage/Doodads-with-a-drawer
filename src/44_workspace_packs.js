@@ -119,7 +119,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
         if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
         // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
-        if (written.length && D.AssetIndex.scanAsync) await D.AssetIndex.scanAsync({ loadCache: false });
+        if (written.length && D.AssetIndex.indexPaths) await D.AssetIndex.indexPaths(written, { save: false });
         let entries = 0;
         for (const p of written) {
             const entry = D.AssetIndex.data.assets[p.toLowerCase()];

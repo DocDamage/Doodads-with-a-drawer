@@ -122,16 +122,30 @@ DocsDoodads.Import = {
         return `Import failed${result.rolledBack ? ' and was rolled back' : ''}: ${reason}`;
     },
 
+    // Same size, then the bytes a piece at a time, stopping at the first difference (two large files of
+    // the same size that differ early are not read whole).
     filesEqual(firstPath, secondPath) {
         const fs = DocsDoodads.FS.fs;
         if (!fs) return false;
+        let a = null, b = null;
         try {
             const firstStat = fs.statSync(firstPath);
             const secondStat = fs.statSync(secondPath);
             if (firstStat.size !== secondStat.size) return false;
-            return fs.readFileSync(firstPath).equals(fs.readFileSync(secondPath));
+            a = fs.openSync(firstPath, 'r');
+            b = fs.openSync(secondPath, 'r');
+            const size = 65536, one = Buffer.alloc(size), two = Buffer.alloc(size);
+            for (let at = 0; at < firstStat.size; at += size) {
+                const n = fs.readSync(a, one, 0, size, at);
+                const m = fs.readSync(b, two, 0, size, at);
+                if (n !== m || !one.subarray(0, n).equals(two.subarray(0, m))) return false;
+                if (n === 0) break;
+            }
+            return true;
         } catch (error) {
             return false;
+        } finally {
+            for (const fd of [a, b]) if (fd !== null) { try { fs.closeSync(fd); } catch (e) {} }
         }
     },
 
@@ -148,7 +162,8 @@ DocsDoodads.Import = {
             return plan;
         }
 
-        const collected = this.collectFiles(sourcePaths);
+        // The Add Files card has already walked the dropped folders; its list is used as it is.
+        const collected = options.collected || this.collectFiles(sourcePaths);
         plan.errors.push(...collected.errors);
         const reserved = new Map();
         const reservedKey = destination => process.platform === 'win32' ? destination.toLowerCase() : destination;

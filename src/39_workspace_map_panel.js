@@ -455,10 +455,32 @@
             </div>` : ''}`;
     },
 
+    // The doodad pictures offered by the biome and dress fields: the list is empty until one of them is
+    // focused, and its options are built once per change of the library (the panel redraws often).
     doodadFilesDatalist() {
-        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data ? Object.values(DocsDoodads.AssetIndex.data.assets || {}) : [];
+        return '<datalist id="dd-doodad-files"></datalist>';
+    },
+
+    doodadFilesOptions() {
+        const AI = DocsDoodads.AssetIndex;
+        const data = AI && AI.data ? AI.data : null;
+        const key = data ? (data.generatedAt || 0) + '|' + (AI.list || []).length : '';
+        const c = this._doodadFilesOptions;
+        if (c && c.data === data && c.key === key) return c.html;
+        const assets = data ? Object.values(data.assets || {}) : [];
         const paths = assets.filter(a => a && /\.png$/i.test(a.path || '') && !/^img\/(characters|faces|system|titles|battlebacks|sv_|enemies)/i.test(a.path)).map(a => a.path).slice(0, 3000);
-        return `<datalist id="dd-doodad-files">${paths.map(p => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>`;
+        const html = paths.map(p => `<option value="${escapeHtml(p)}"></option>`).join('');
+        this._doodadFilesOptions = { data, key, html };
+        return html;
+    },
+
+    bindDoodadFilesDatalist(root) {
+        if (!root || !root.querySelectorAll) return;
+        const fill = () => {
+            const list = document.getElementById('dd-doodad-files');
+            if (list && !list.firstChild) list.innerHTML = this.doodadFilesOptions();
+        };
+        for (const input of root.querySelectorAll('input[list="dd-doodad-files"]')) input.addEventListener('focus', fill);
     },
 
     bindBiomeEditor() {

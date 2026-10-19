@@ -271,7 +271,7 @@ assert.strictEqual(DocsDoodads.AssetIndex.isIgnoredDirectory('_packed'), true);
 // is not shown with its old picture.
 const Thumb = DocsDoodads.Thumbnail;
 assert.notStrictEqual(Thumb.keyFor({ id: 'img/doodads/a.png', mtimeMs: 1 }, 96), Thumb.keyFor({ id: 'img/doodads/a.png', mtimeMs: 2 }, 96));
-Thumb.cache = {}; Thumb.cacheOrder = [];
+Thumb.cache = {}; Thumb.cacheOrder = new Map();
 Thumb.setCache(Thumb.keyFor({ id: 'img/doodads/a.png', mtimeMs: 1 }, 96), 'data:image/png;old');
 Thumb.setCache(Thumb.keyFor({ id: 'img/doodads/ab.png', mtimeMs: 1 }, 96), 'data:image/png;other');
 Thumb.invalidate('img/doodads/a.png');

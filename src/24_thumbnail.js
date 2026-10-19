@@ -3,8 +3,11 @@
 //==========================================================
 DocsDoodads.Thumbnail = {
     cache: {},
-    cacheOrder: [],
+    // Least recently used first (a Map keeps insertion order; a touch moves a key to the end).
+    cacheOrder: new Map(),
+    // At least this many; a bigger Item Bag keeps one per item, up to cacheCeiling (capacity()).
     maxCacheSize: 500,
+    cacheCeiling: 3000,
     sizeBuckets: [64, 96, 128, 192],
     queue: [],
     busy: false,
@@ -15,6 +18,14 @@ DocsDoodads.Thumbnail = {
     // Keys whose image would not load: not retried until the file changes or the cache is cleared.
     failed: new Set(),
     diskDir: 'data/docs_doodads_cache/thumbnails',
+
+    // How many pictures the memory cache keeps: enough for the whole Item Bag (up to the ceiling), so
+    // scrolling back over a big bag doesn't read every card from disk again.
+    capacity() {
+        const list = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.list;
+        const count = Array.isArray(list) ? list.length : 0;
+        return Math.max(this.maxCacheSize, Math.min(this.cacheCeiling, count));
+    },
 
     getBucketSize(size) {
         let best = this.sizeBuckets[0];
@@ -49,9 +60,8 @@ DocsDoodads.Thumbnail = {
         // 1. In-memory LRU Cache check
         if (this.cache[key]) {
             // Touch key for LRU
-            const idx = this.cacheOrder.indexOf(key);
-            if (idx >= 0) this.cacheOrder.splice(idx, 1);
-            this.cacheOrder.push(key);
+            this.cacheOrder.delete(key);
+            this.cacheOrder.set(key, true);
             callback(this.cache[key]);
             return;
         }
@@ -65,21 +75,7 @@ DocsDoodads.Thumbnail = {
             return;
         }
 
-        // 2. Disk Cache check
-        if (cacheEnabled && DocsDoodads.FS.existsSync) {
-            const diskFile = this.getDiskPath(key);
-            if (DocsDoodads.FS.existsSync(diskFile)) {
-                try {
-                    const cachedData = DocsDoodads.FS.readFileSync(diskFile, 'utf8');
-                    if (cachedData && cachedData.startsWith('data:image')) {
-                        this.setCache(key, cachedData);
-                        callback(cachedData);
-                        return;
-                    }
-                } catch(e) {}
-            }
-        }
-
+        // 2. The disk cache is read in the queue (in the background), then the picture is made if needed.
         this.pending[key] = [callback];
         this.queue.push({ asset, bucket, key });
         this.processQueue();
@@ -87,24 +83,27 @@ DocsDoodads.Thumbnail = {
 
     setCache(key, dataUrl) {
         if (this.cache[key] !== undefined) {
-            const idx = this.cacheOrder.indexOf(key);
-            if (idx >= 0) this.cacheOrder.splice(idx, 1);
-        } else if (this.cacheOrder.length >= this.maxCacheSize) {
-            const oldest = this.cacheOrder.shift();
-            delete this.cache[oldest];
+            this.cacheOrder.delete(key);
+        } else {
+            const max = this.capacity();
+            while (this.cacheOrder.size >= max) {
+                const oldest = this.cacheOrder.keys().next().value;
+                this.cacheOrder.delete(oldest);
+                delete this.cache[oldest];
+            }
         }
         this.cache[key] = dataUrl;
-        this.cacheOrder.push(key);
+        this.cacheOrder.set(key, true);
     },
 
     // Drops every cached size of one asset (memory and disk) so it is regenerated.
     invalidate(assetId) {
         const prefix = assetId + '_';
-        this.cacheOrder = this.cacheOrder.filter(key => {
-            if (!key.startsWith(prefix)) return true;
+        for (const key of [...this.cacheOrder.keys()]) {
+            if (!key.startsWith(prefix)) continue;
+            this.cacheOrder.delete(key);
             delete this.cache[key];
-            return false;
-        });
+        }
         for (const key of [...this.failed]) if (key.startsWith(prefix)) this.failed.delete(key);
         const dir = this.diskDir;
         const safePrefix = this.safeKey(prefix);
@@ -137,7 +136,7 @@ DocsDoodads.Thumbnail = {
 
     clearCache() {
         this.cache = {};
-        this.cacheOrder = [];
+        this.cacheOrder = new Map();
         this.queue = [];
         this.pending = {};
         this.failed.clear();
@@ -165,7 +164,7 @@ DocsDoodads.Thumbnail = {
             const job = this.queue.shift();
             this.active++;
             let finished = false;
-            this.generate(job.asset, job.bucket, (dataUrl) => {
+            const done = (dataUrl, fromDisk) => {
                 if (finished) return;
                 finished = true;
                 this.active--;
@@ -174,16 +173,12 @@ DocsDoodads.Thumbnail = {
                 if (dataUrl) this.setCache(job.key, dataUrl);
                 else this.failed.add(job.key);
                 for (const callback of waiting) callback(dataUrl);
-
-                // Write to disk cache
-                if (cacheEnabled && DocsDoodads.FS.fs && dataUrl) {
-                    const diskFile = this.getDiskPath(job.key);
-                    try {
-                        if (!DocsDoodads.FS.existsSync(this.diskDir)) DocsDoodads.FS.mkdirp(this.diskDir);
-                        DocsDoodads.FS.writeFileSync(diskFile, dataUrl, 'utf8');
-                    } catch(e) {}
-                }
+                if (!fromDisk) this.writeDisk(job.key, dataUrl);
                 this.processQueue();
+            };
+            this.readDisk(job.key).then(cached => {
+                if (cached) done(cached, true);
+                else this.generate(job.asset, job.bucket, dataUrl => done(dataUrl, false));
             });
         }
 
@@ -195,6 +190,39 @@ DocsDoodads.Thumbnail = {
                 setTimeout(() => this.processQueue(), 16);
             }
         }
+    },
+
+    // The disk copy of a picture (a data URL), read without blocking; '' when there is none.
+    readDisk(key) {
+        const fs = DocsDoodads.FS.fs;
+        if (!cacheEnabled || !fs) return Promise.resolve('');
+        const diskFile = this.getDiskPath(key);
+        const ok = text => (text && text.startsWith('data:image') ? text : '');
+        if (!DocsDoodads.FS.existsSync(diskFile)) return Promise.resolve('');
+        if (!fs.promises) {
+            try { return Promise.resolve(DocsDoodads.FS.existsSync(diskFile) ? ok(fs.readFileSync(diskFile, 'utf8')) : ''); } catch (e) { return Promise.resolve(''); }
+        }
+        return fs.promises.readFile(diskFile, 'utf8').then(ok, () => '');
+    },
+
+    writeDisk(key, dataUrl) {
+        const fs = DocsDoodads.FS.fs;
+        if (!cacheEnabled || !fs || !dataUrl) return;
+        const diskFile = this.getDiskPath(key);
+        try {
+            if (!DocsDoodads.FS.existsSync(this.diskDir)) DocsDoodads.FS.mkdirp(this.diskDir);
+            if (fs.promises) {
+                const write = fs.promises.writeFile(diskFile, dataUrl, 'utf8').catch(() => {});
+                this._writes.add(write);
+                write.then(() => this._writes.delete(write));
+            } else fs.writeFileSync(diskFile, dataUrl, 'utf8');
+        } catch (e) {}
+    },
+
+    // Resolves once the disk copies being written are on disk.
+    _writes: new Set(),
+    flushed() {
+        return Promise.all([...this._writes]);
     },
 
     generate(asset, size, onComplete) {

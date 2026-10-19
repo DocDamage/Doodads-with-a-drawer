@@ -1068,6 +1068,7 @@
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}
             ${this.doodadFilesDatalist()}`;
+        this.bindDoodadFilesDatalist(content);
 
         const search = document.getElementById('dd-map-search');
         if (search && content.querySelectorAll) {

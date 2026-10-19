@@ -8,9 +8,15 @@ DocsDoodads.Persistence = {
     _dirtyMap: false,
     _dirtyDoodads: false,
     get dirtyMap() { return this._dirtyMap; },
-    set dirtyMap(value) { this._dirtyMap = Boolean(value); if (value) this.touch(); this.changed(); },
+    set dirtyMap(value) { this._dirtyMap = Boolean(value); if (value) { this.changeCount++; this.touch(); } this.changed(); },
     get dirtyDoodads() { return this._dirtyDoodads; },
-    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); if (value) this.touch(); this.changed(); },
+    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); if (value) { this.changeCount++; this.touch(); } this.changed(); },
+    // Counts edits (every step marks the work unsaved again), so the crash snapshot is only written when
+    // something changed since the last one.
+    changeCount: 0,
+    _recoveryWritten: -1,
+    _recoveryEpoch: 0,
+    _recoveryWriting: false,
     // The maps changed since the last save (for the map tabs' dots).
     touchedMaps: new Set(),
 
@@ -134,6 +140,7 @@ DocsDoodads.Persistence = {
 
     saveAll(force = false) {
         if (!window.$gameMap) return false;
+        if (DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         if (!force && this.checkConflict()) {
             DocsDoodads.Workspace.showConflictModal();
             return false;
@@ -142,11 +149,12 @@ DocsDoodads.Persistence = {
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
         const doodadEntries = DocsDoodads.DataFiles.entriesFor(window.$dataDocsDoodads || {});
         const entries = mapEntries.concat(doodadEntries, [
-            { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 2 }
+            { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
         ]);
 
         try {
-            for (const entry of entries) DocsDoodads.FS.createTimestampedBackup(entry.path);
+            // Only files whose text changes get a backup (and the backups folder is read once).
+            DocsDoodads.FS.backupChanged(entries);
         } catch (error) {
             DocsDoodads.Core.log('Backup creation failed; save cancelled.', error);
             DocsDoodads.Workspace.showToast(`Save cancelled: backup failed (${error.message || error}).`);
@@ -231,7 +239,36 @@ DocsDoodads.Persistence = {
         this.answeredRecovery = recovery ? recovery.timestamp : null;
     },
 
+    // The crash snapshot of everything unsaved, written (without blocking the editor) when there is
+    // unsaved work that changed since the last snapshot. Returns the write's promise, or null when skipped.
+    writeRecovery() {
+        if (this._recoveryWriting || this.changeCount === this._recoveryWritten) return null;
+        const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
+        if (!gameMap || !(this.dirtyMap || this.dirtyDoodads)) return null;
+        const data = window.$dataDocsDoodads || {};
+        const snapshot = {
+            timestamp: Date.now(),
+            mapId: gameMap.mapId(),
+            doodads: DocsDoodads.doodads(),
+            // Every map's doodads (Move / Copy to Map, mirrored edges and prefab syncs reach other
+            // maps) and the event edits parked for maps other than this one.
+            allDoodads: Object.fromEntries(Object.entries(data).filter(([key, list]) => /^\d+$/.test(key) && Array.isArray(list))),
+            stagedMaps: this.stagedMaps,
+            mapSettings: data.mapSettings,
+            world: data.world,
+            stagedMap: gameMap._stagedMapData
+        };
+        const count = this.changeCount, epoch = this._recoveryEpoch;
+        this._recoveryWriting = true;
+        // A save (clearRecovery) while this is being written wins: the snapshot is not put in place.
+        return DocsDoodads.FS.atomicWriteJsonAsync('data/DocsDoodadsRecovery.json', snapshot, 0, () => this._recoveryEpoch === epoch)
+            .then(ok => { if (ok) this._recoveryWritten = count; return ok; })
+            .finally(() => { this._recoveryWriting = false; });
+    },
+
     clearRecovery() {
+        this._recoveryEpoch++;
+        this._recoveryWritten = -1;
         const recoveryPath = 'data/DocsDoodadsRecovery.json';
         for (const filePath of [recoveryPath, DocsDoodads.Legacy.pathFor(recoveryPath)]) {
             if (DocsDoodads.FS.fs && DocsDoodads.FS.fs.existsSync(filePath)) {

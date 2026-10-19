@@ -1233,7 +1233,7 @@
             closeM();
             if (DocsDoodads.AssetIndex.data.assets[payload.assetId]) {
                 DocsDoodads.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'event';
-                DocsDoodads.AssetIndex.save();
+                DocsDoodads.AssetIndex.saveSoon();
             }
             this.commitPlacement(payload, snapCoords, 'event');
         };
@@ -1241,7 +1241,7 @@
             closeM();
             if (DocsDoodads.AssetIndex.data.assets[payload.assetId]) {
                 DocsDoodads.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'doodad';
-                DocsDoodads.AssetIndex.save();
+                DocsDoodads.AssetIndex.saveSoon();
             }
             this.commitPlacement(payload, snapCoords, 'doodad');
         };
@@ -1524,7 +1524,8 @@
         });
         if (!result.ok) return result;
 
-        await DocsDoodads.AssetIndex.scanAsync({ loadCache: false });
+        // Only the files just written are indexed, not every folder walked again.
+        await DocsDoodads.AssetIndex.indexPaths(result.imported);
         this.refreshDrawerCards();
 
         if (options.autoSlice) {
@@ -1626,7 +1627,7 @@
         // The import runs on in a progress pill (with Cancel), so the editor stays usable meanwhile.
         confirmButton.onclick = async () => {
             const token = { cancelled: false };
-            const options = { destination: destination.value, collisionPolicy: collision.value, autoSlice: Boolean(autoSlice.checked) };
+            const options = { destination: destination.value, collisionPolicy: collision.value, autoSlice: Boolean(autoSlice.checked), collected };
             close();
             const pill = DocsDoodads.Ui.progress('Bringing in files', { onCancel: () => { token.cancelled = true; } });
             pill.update(0, sourcePaths.length);

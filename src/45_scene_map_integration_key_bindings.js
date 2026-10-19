@@ -166,6 +166,8 @@ DocsDoodads.leaveGuard = {
 
     // proceed() closes or reloads. Returns true when it ran (or will once answered).
     request(action, proceed) {
+        // Library changes still waiting to be written go now, whatever is answered.
+        if (DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Persistence.hasUnsavedWork()) {
             proceed();
             return true;
@@ -206,22 +208,7 @@ if (typeof SceneManager !== 'undefined' && typeof SceneManager.reloadGame === 'f
 // Auto-recovery heartbeat
 if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     const recoveryTimer = setInterval(() => {
-        if (editorMode && DocsDoodads.Compat.isTest() && window.$gameMap && (DocsDoodads.Persistence.dirtyMap || DocsDoodads.Persistence.dirtyDoodads)) {
-            const data = window.$dataDocsDoodads || {};
-            const recoveryData = {
-                timestamp: Date.now(),
-                mapId: $gameMap.mapId(),
-                doodads: DocsDoodads.doodads(),
-                // Every map's doodads (Move / Copy to Map, mirrored edges and prefab syncs reach other
-                // maps) and the event edits parked for maps other than this one.
-                allDoodads: Object.fromEntries(Object.entries(data).filter(([key, list]) => /^\d+$/.test(key) && Array.isArray(list))),
-                stagedMaps: DocsDoodads.Persistence.stagedMaps,
-                mapSettings: data.mapSettings,
-                world: data.world,
-                stagedMap: $gameMap._stagedMapData
-            };
-            DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', recoveryData);
-        }
+        if (editorMode && DocsDoodads.Compat.isTest()) DocsDoodads.Persistence.writeRecovery();
     }, autosaveRecoveryInterval * 1000);
     if (recoveryTimer && typeof recoveryTimer.unref === 'function') {
         recoveryTimer.unref();

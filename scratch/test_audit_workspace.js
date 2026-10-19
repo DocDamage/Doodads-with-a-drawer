@@ -123,7 +123,9 @@ const doodad = props => Object.assign(D.standardStruct(), { frameW: 48, frameH: 
     // no duplicate cache order entries, and stale disk files pruned against the library.
     const T = D.Thumbnail;
     T.clearCache = T.clearCache.bind(T);
-    T.cache = {}; T.cacheOrder = []; T.queue = []; T.pending = {}; T.failed.clear(); T.active = 0;
+    T.cache = {}; T.cacheOrder = new Map(); T.queue = []; T.pending = {}; T.failed.clear(); T.active = 0;
+    // The disk copy is looked for in the background first, so a job starts a moment after it is asked for.
+    const tick = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
     const jobs = [];
     const realGenerate = T.generate;
     T.generate = (asset, size, done) => jobs.push(done);
@@ -134,28 +136,35 @@ const doodad = props => Object.assign(D.standardStruct(), { frameW: 48, frameH: 
     const got = [];
     T.get(asset, 96, url => got.push('first:' + url));
     T.get(asset, 96, url => got.push('second:' + url));
+    await tick();
     assert.strictEqual(jobs.length, 1, 'the second ask waits for the first job');
     jobs[0]('data:image/png;base64,AAA');
     assert.deepStrictEqual(got, ['first:data:image/png;base64,AAA', 'second:data:image/png;base64,AAA']);
     T.setCache(T.keyFor(asset, 96), 'data:image/png;base64,AAA');
-    assert.strictEqual(T.cacheOrder.filter(k => k === T.keyFor(asset, 96)).length, 1, 'no duplicate LRU entries');
+    assert.strictEqual([...T.cacheOrder.keys()].filter(k => k === T.keyFor(asset, 96)).length, 1, 'no duplicate LRU entries');
     const broken = { id: 'img/doodads/broken.png', mtimeMs: 1, path: 'img/doodads/broken.png' };
     T.get(broken, 96, () => {});
+    await tick();
     jobs[1]('');
     T.get(broken, 96, url => got.push('again:' + url));
+    await tick();
     assert.strictEqual(jobs.length, 2, 'a failed image is not tried again on every redraw');
     assert.strictEqual(got[got.length - 1], 'again:');
     T.invalidate(broken.id);
     T.get(broken, 96, () => {});
+    await tick();
     assert.strictEqual(jobs.length, 3, 'until the file changes');
     // Only 4 images load at once; the rest wait and start as those finish.
     T.queue = []; T.pending = {}; T.active = 0; jobs.length = 0;
     for (let i = 0; i < 7; i++) T.get({ id: 'img/doodads/n' + i + '.png', mtimeMs: 1, path: '' }, 96, () => {});
+    await tick();
     assert.strictEqual(jobs.length, 4);
     jobs[0]('data:image/png;base64,B');
+    await tick();
     assert.strictEqual(jobs.length, 5, 'a finished job lets the next start');
     // Disk: the file for an older version of a picture, and for a picture gone from the library, go.
     const keep = T.safeKey(`${asset.id}_5`) + '_96.txt', old = T.safeKey(`${asset.id}_4`) + '_96.txt', gone = T.safeKey('img/doodads/gone.png_1') + '_64.txt';
+    await T.flushed();
     for (const f of fs.readdirSync(disk)) fs.unlinkSync(path.join(disk, f));
     for (const f of [keep, old, gone]) fs.writeFileSync(path.join(disk, f), 'data:image/png;base64,');
     assert.strictEqual(T.pruneDisk([asset]), 2);

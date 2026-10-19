@@ -631,14 +631,14 @@
         colSel.onchange = (e) => {
             const shape = e.target.value === 'custom' ? (a.collision.shape || { x: 0.2, y: 0.6, w: 0.6, h: 0.4 }) : null;
             a.collision = { preset: e.target.value, shape };
-            DocsDoodads.AssetIndex.save();
+            DocsDoodads.AssetIndex.saveSoon();
         };
         document.getElementById('dd-asset-trace-col').onclick = () => this.traceAssetCollision(a);
         const depthSel = document.getElementById('dd-asset-depth');
         depthSel.value = DocsDoodads.Depth.modes.includes(a.placement.depth) ? a.placement.depth : DocsDoodads.Depth.suggestFor(a);
         depthSel.onchange = (e) => {
             a.placement.depth = e.target.value;
-            DocsDoodads.AssetIndex.save();
+            DocsDoodads.AssetIndex.saveSoon();
         };
 
         document.getElementById('dd-fav-toggle').onclick = () => {
