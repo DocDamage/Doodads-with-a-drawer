@@ -117,6 +117,7 @@ DocsDoodads.Workspace = {
         if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool === 'region' && this.renderRegionLegend) this.renderRegionLegend();
+        if (this.placementTool === 'tiles' && this.renderTilePalette) this.renderTilePalette();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
             this._pathHover = null;
@@ -339,6 +340,7 @@ DocsDoodads.Workspace = {
             ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
             ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
             ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
+            ${tool('dd-tiles-btn', 'tiles', 'Tiles', this.shortcutTip('dd-tiles-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
             ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
             <div class="dd-sep"></div>
@@ -411,6 +413,10 @@ DocsDoodads.Workspace = {
                     <div id="dd-region-legend"></div>
                     <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step and is saved with the map. Alt+click picks up a tile's region.</div>
                 </div>
+            </div>
+            <div id="dd-tiles-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('tiles', 1)} Tiles</div>
+                <div id="dd-tiles-palette" style="display: flex; flex-direction: column; gap: 6px;"></div>
             </div>
             <div id="dd-sym-popover" class="dd-glass dd-pop" style="display: none;">
                 <div class="dd-pop-title">${U.icon('mirror', 1)} Mirror</div>

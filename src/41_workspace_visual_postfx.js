@@ -663,6 +663,18 @@
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] },
+            { title: 'Lighting on Flat Maps', fields: [
+                check('lighting2d.occlusion', 'Walls stop light (tiles nobody can walk on cast shadows)'),
+                { key: 'lighting2d.wallRegions', label: 'Also walls: regions (e.g. 9, 10)', type: 'text' },
+                range('lighting2d.rays', 'Shadow detail (rays per light)', 40, 360, 20),
+                check('lighting2d.flashlight.enabled', 'The player carries a flashlight (it points where they face)'),
+                number('lighting2d.flashlight.switchId', 'Only while switch # is ON (0 = always)'),
+                range('lighting2d.flashlight.radius', 'Flashlight reach', 60, 800, 10),
+                range('lighting2d.flashlight.spread', 'Flashlight width (degrees)', 10, 120, 5),
+                { key: 'lighting2d.flashlight.color', label: 'Flashlight colour', type: 'color' },
+                range('lighting2d.flashlight.intensity', 'Flashlight brightness', 0.1, 1, 0.05),
+                check('lighting2d.flashlight.occlude', 'Walls stop the flashlight')
+            ] },
             { title: 'Camera on Flat Maps', fields: [
                 range('camera2d.smooth', "Camera eases after the player (0 = MZ's own)", 0, 0.95, 0.05),
                 range('camera2d.lookAhead', 'Looks ahead of the walking player (tiles)', 0, 4, 0.5)

@@ -1343,6 +1343,21 @@
  * @type number
  * @default 0
  *
+ * @command flashlight
+ * @text Flashlight
+ * @desc The player's flashlight (World > Lighting) on or off for this playthrough, or back to its setting.
+ *
+ * @arg state
+ * @text Flashlight
+ * @type select
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @option As World > Lighting
+ * @value world
+ * @default on
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
@@ -2245,6 +2260,14 @@ DocsDoodads.Lighting = {
                 doodad: d,
                 x: at.x + (Number(l.offsetX) || 0),
                 y: at.y + (Number(l.offsetY) || 0),
+                // Where it is on the map (walls stop light there), its shape and which way it points.
+                mapX: (Number(d.x) || 0) + (Number(l.offsetX) || 0),
+                mapY: (Number(d.y) || 0) + (Number(l.offsetY) || 0),
+                screenFixed: d.posMode === 0,
+                shape: l.shape === 'cone' ? 'cone' : 'round',
+                angle: ((Number(l.angle) || 0) % 360 + 360) % 360,
+                spread: Math.max(5, Math.min(180, Number(l.spread) || 60)),
+                occlude: l.occlude,
                 radius: Math.max(8, Number(l.radius) || 144),
                 color: this.parseColor(l.color, 0xffd27f),
                 intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level,
@@ -2320,6 +2343,130 @@ DocsDoodads.FrameAnim = {
             }
             default: return (offset + steps) % total;
         }
+    }
+};
+//==========================================================
+// SECTION 5A2: SHAPED LIGHTS, PRESETS, WALL SHADOWS, FLASHLIGHT
+//==========================================================
+// A doodad's light can be a cone (shape 'cone', angle: the way it points in degrees, 0 = right, 90 =
+// down; spread: how wide), start from a preset (torch, candle, neon...), and on flat maps stop at walls:
+// with occlusion on, the light only reaches tiles a ray from it can get to (World > Lighting picks what
+// counts as a wall: tiles nobody can walk on, and any regions listed). The player can carry a
+// flashlight that points where they face (World > Lighting, the Flashlight command).
+Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '' });
+
+DocsDoodads.LightPresets = {
+    list: [
+        { id: 'torch', label: 'Torch', light: { color: '#ff9a3c', radius: 170, intensity: 0.9, flicker: 0.35, glow: 0.35, shape: 'round' } },
+        { id: 'candle', label: 'Candle', light: { color: '#ffd27f', radius: 84, intensity: 0.8, flicker: 0.25, glow: 0.4, shape: 'round' } },
+        { id: 'campfire', label: 'Campfire', light: { color: '#ff7a2a', radius: 230, intensity: 0.95, flicker: 0.45, glow: 0.45, shape: 'round' } },
+        { id: 'lantern', label: 'Lantern', light: { color: '#ffe2a8', radius: 150, intensity: 0.85, flicker: 0.08, glow: 0.3, shape: 'round' } },
+        { id: 'neonPink', label: 'Neon (pink)', light: { color: '#ff4fd8', radius: 130, intensity: 0.75, flicker: 0, glow: 0.7, shape: 'round' } },
+        { id: 'neonBlue', label: 'Neon (blue)', light: { color: '#38d6ff', radius: 130, intensity: 0.75, flicker: 0, glow: 0.7, shape: 'round' } },
+        { id: 'crystal', label: 'Crystal', light: { color: '#9ef0ff', radius: 110, intensity: 0.7, flicker: 0.05, glow: 0.55, shape: 'round' } },
+        { id: 'spotlight', label: 'Spotlight (cone)', light: { color: '#fff6e0', radius: 300, intensity: 0.95, flicker: 0, glow: 0.1, shape: 'cone', spread: 40 } },
+        { id: 'moonbeam', label: 'Moonbeam (cone)', light: { color: '#b8c8ff', radius: 260, intensity: 0.6, flicker: 0, glow: 0.05, shape: 'cone', spread: 30, angle: 100 } },
+        { id: 'window', label: 'Window glow', light: { color: '#ffd9a0', radius: 120, intensity: 0.7, flicker: 0, glow: 0.2, shape: 'cone', spread: 80, angle: 90, when: 'dark' } }
+    ],
+
+    get(id) {
+        return this.list.find(p => p.id === id) || null;
+    },
+
+    // A light with a preset's colour, size, flicker and shape (its position and on/off stay).
+    apply(light, id) {
+        const p = this.get(id);
+        const base = Object.assign({}, light || {});
+        if (!p) { base.preset = ''; return base; }
+        return Object.assign(base, JSON.parse(JSON.stringify(p.light)), { preset: id });
+    }
+};
+
+DocsDoodads.Occlusion = {
+    defaults: { occlusion: false, wallRegions: '', rays: 160 },
+
+    settings() {
+        return Object.assign({}, this.defaults, DocsDoodads.World.settings().lighting2d || {});
+    },
+
+    // Whether a light stops at walls: its own choice, or the world's.
+    appliesTo(light, world) {
+        if (light.occlude === true || light.occlude === 'on') return true;
+        if (light.occlude === false || light.occlude === 'off') return false;
+        return Boolean(world && world.occlusion);
+    },
+
+    regions(text) {
+        return new Set(String(text || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0));
+    },
+
+    // The outline a light reaches, in map pixels: [cx, cy, x1, y1, x2, y2, ...] (a fan from the light).
+    // isWall(tx, ty) says whether a tile stops light. A cone (angle and spread in degrees) only casts rays
+    // across its width. The tile the light stands in never blocks it (a lamp on a wall).
+    visibility(cx, cy, radius, isWall, tw, th, opts = {}) {
+        const rays = Math.max(8, Math.min(720, Math.round(Number(opts.rays) || 160)));
+        const cone = opts.spread !== undefined && opts.spread < 360;
+        const spread = cone ? Math.max(1, Math.min(359, Number(opts.spread))) * Math.PI / 180 : Math.PI * 2;
+        const start = cone ? (Number(opts.angle) || 0) * Math.PI / 180 - spread / 2 : 0;
+        const n = cone ? Math.max(4, Math.round(rays * spread / (Math.PI * 2))) : rays;
+        const sx = Math.floor(cx / tw), sy = Math.floor(cy / th);
+        const pts = [cx, cy];
+        for (let i = 0; i <= n; i++) {
+            if (!cone && i === n) break;
+            const a = start + spread * (i / n);
+            const dx = Math.cos(a), dy = Math.sin(a);
+            const d = this.cast(cx, cy, dx, dy, radius, isWall, tw, th, sx, sy);
+            pts.push(cx + dx * d, cy + dy * d);
+        }
+        if (!cone) pts.push(pts[2], pts[3]);
+        return pts;
+    },
+
+    // How far a ray gets before a wall tile (or the radius): stepping tile edge to tile edge.
+    cast(x, y, dx, dy, radius, isWall, tw, th, sx, sy) {
+        let tx = Math.floor(x / tw), ty = Math.floor(y / th);
+        const stepX = dx > 0 ? 1 : -1, stepY = dy > 0 ? 1 : -1;
+        const nextX = (dx > 0 ? (tx + 1) * tw : tx * tw) - x, nextY = (dy > 0 ? (ty + 1) * th : ty * th) - y;
+        let tMaxX = dx !== 0 ? nextX / dx : Infinity, tMaxY = dy !== 0 ? nextY / dy : Infinity;
+        const tDX = dx !== 0 ? Math.abs(tw / dx) : Infinity, tDY = dy !== 0 ? Math.abs(th / dy) : Infinity;
+        let t = 0;
+        for (let guard = 0; guard < 400; guard++) {
+            if (tMaxX < tMaxY) { t = tMaxX; tMaxX += tDX; tx += stepX; } else { t = tMaxY; tMaxY += tDY; ty += stepY; }
+            if (t >= radius) return radius;
+            if ((tx !== sx || ty !== sy) && isWall(tx, ty)) return t;
+        }
+        return radius;
+    }
+};
+
+DocsDoodads.Flashlight = {
+    defaults: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true },
+
+    settings() {
+        return Object.assign({}, this.defaults, (DocsDoodads.World.settings().lighting2d || {}).flashlight || {});
+    },
+
+    // On when World > Lighting turns it on (and its switch is on, if it has one), unless the Flashlight
+    // command turned it off; the command can also turn it on for this playthrough.
+    isOn(switchValue) {
+        const s = this.settings();
+        const sys = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsFlashlight : undefined;
+        if (sys === false) return false;
+        if (sys === true) return true;
+        if (!s.enabled) return false;
+        return !(Number(s.switchId) > 0) || Boolean(switchValue && switchValue(Number(s.switchId)));
+    },
+
+    // Degrees for MZ's directions (2 down, 4 left, 6 right, 8 up).
+    angleFor(direction) {
+        return { 2: 90, 4: 180, 6: 0, 8: 270 }[direction] !== undefined ? { 2: 90, 4: 180, 6: 0, 8: 270 }[direction] : 90;
+    },
+
+    // Turns smoothly toward where the player faces (degrees a frame).
+    turn(current, target, step = 18) {
+        let d = ((target - current + 540) % 360) - 180;
+        if (Math.abs(d) <= step) return target;
+        return (current + Math.sign(d) * step + 360) % 360;
     }
 };
 //==========================================================
@@ -3238,6 +3385,9 @@ DocsDoodads.World = {
         minimap: { flat: false, fog: false, radius: 6, size: 140 },
         // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
         camera2d: { smooth: 0, lookAhead: 0 },
+        // Flat-map lighting (06_render_lights_directional.js): walls that stop light, and the player's flashlight.
+        lighting2d: { occlusion: false, wallRegions: '', rays: 160,
+            flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
             wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
@@ -5724,6 +5874,7 @@ DocsDoodads.Shortcuts = {
         { id: 'toolPath', label: 'Path tool', group: 'Tools', keys: '' },
         { id: 'toolHills', label: 'Hills tool', group: 'Tools', keys: '' },
         { id: 'toolRegions', label: 'Regions tool', group: 'Tools', keys: '' },
+        { id: 'toolTiles', label: 'Tiles tool (MZ tiles)', group: 'Tools', keys: '' },
         { id: 'toolGrab', label: 'Grab tool', group: 'Tools', keys: '' },
         { id: 'rooms', label: 'Rooms (room stamps)', group: 'Tools', keys: '' },
         { id: 'brushSmaller', label: 'Smaller brush (Scatter, Paint, Hills, Regions)', group: 'Tools', keys: '[' },
@@ -9645,6 +9796,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (this._docs3d) {
             for (const l of lights) l.y -= Number(Object.assign({}, Lighting.lightDefaults, l.doodad && l.doodad.light).offsetY) || 0;
         }
+        if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
@@ -9655,6 +9807,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
             s.alpha = l.glow * l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+            if (this.docsShapeLight) this.docsShapeLight(s, l);
         });
 
         const renderer = DocsDoodads.Compat.getRenderer();
@@ -9683,7 +9836,11 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
             s.alpha = l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+            if (this.docsShapeLight) this.docsShapeLight(s, l);
+            if (this.docsMaskLight) this.docsMaskLight(s, l, i);
         });
+        // Masks left over from lights that went out.
+        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i].visible = false; }
         renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
@@ -11688,6 +11845,151 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'setWind', args => {
         const strength = String(args.strength || '').trim().toLowerCase() === 'world' ? 'world' : Number(args.strength);
         DocsDoodads.Wind.set(strength, Number(args.duration) || 0, String(args.direction || 'same'));
+    });
+}
+//==========================================================
+// SECTION 15C: CONE LIGHTS, THE FLASHLIGHT AND WALL SHADOWS (RUNTIME)
+//==========================================================
+// updateDocsLighting asks these for the flashlight (docsAddFlashlight), each light's picture
+// (docsShapeLight: a soft disc, or a cone pointing its way) and, on flat maps, a mask of where walls let
+// it reach (docsMaskLight, from DocsDoodads.Occlusion; outlines are kept while nothing moves).
+DocsDoodads.Lighting.coneTexture = function(spread) {
+    const key = Math.max(5, Math.min(180, Math.round((Number(spread) || 60) / 5) * 5));
+    const cache = this._cones = this._cones || {};
+    if (cache[key]) return cache[key];
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (ctx && ctx.createRadialGradient) {
+        const half = key * Math.PI / 360;
+        const g = ctx.createRadialGradient(0, size / 2, 0, 0, size / 2, size);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.5)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(0, size / 2);
+        ctx.arc(0, size / 2, size, -half, half);
+        ctx.closePath();
+        ctx.fill();
+    }
+    cache[key] = DocsDoodads.sharedTexture ? DocsDoodads.sharedTexture(canvas) : null;
+    return cache[key];
+};
+
+// Tiles that stop light on the current map (cached while the map's tiles and the wall regions stay).
+DocsDoodads.Occlusion.wallsFor = function() {
+    if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    const s = this.settings();
+    const c = this._walls;
+    if (c && c.data === $dataMap.data && c.regions === s.wallRegions && c.mapId === $gameMap.mapId()) return c;
+    const w = $gameMap.width(), h = $gameMap.height();
+    const regions = this.regions(s.wallRegions);
+    const grid = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const blocked = ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+            grid[y * w + x] = blocked || regions.has($gameMap.regionId(x, y)) ? 1 : 0;
+        }
+    }
+    this._walls = { data: $dataMap.data, regions: s.wallRegions, mapId: $gameMap.mapId(), w, h, grid, outlines: new Map() };
+    return this._walls;
+};
+
+DocsDoodads.Occlusion.outlineFor = function(light, rays) {
+    const walls = this.wallsFor();
+    if (!walls) return null;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const key = [Math.round(light.mapX), Math.round(light.mapY), Math.round(light.radius), light.shape, Math.round(light.angle), Math.round(light.spread), rays].join('|');
+    let pts = walls.outlines.get(key);
+    if (!pts) {
+        const isWall = (x, y) => x < 0 || y < 0 || x >= walls.w || y >= walls.h ? false : walls.grid[y * walls.w + x] === 1;
+        pts = this.visibility(light.mapX, light.mapY, light.radius, isWall, tw, th,
+            light.shape === 'cone' ? { rays, angle: light.angle, spread: light.spread } : { rays });
+        // Moving lights (the flashlight) make new outlines every few steps; old ones are let go.
+        if (walls.outlines.size > 400) walls.outlines.clear();
+        walls.outlines.set(key, pts);
+    }
+    return pts;
+};
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    Spriteset_Map.prototype.docsAddFlashlight = function(lights) {
+        const F = DocsDoodads.Flashlight;
+        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+        if (this._docs3d || typeof $gamePlayer === 'undefined' || !$gamePlayer || !F.isOn(switchValue)) return lights;
+        if ($gamePlayer.isTransparent && $gamePlayer.isTransparent()) return lights;
+        const s = F.settings();
+        const target = F.angleFor($gamePlayer.direction());
+        this._docsFlashAngle = this._docsFlashAngle === undefined ? target : F.turn(this._docsFlashAngle, target);
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        lights.push({
+            doodad: null, flashlight: true,
+            x: $gamePlayer.screenX(), y: $gamePlayer.screenY() - th / 2,
+            mapX: ($gamePlayer._realX + 0.5) * tw, mapY: ($gamePlayer._realY + 0.5) * th,
+            radius: Math.max(16, Number(s.radius) || 280), color: DocsDoodads.Lighting.parseColor(s.color, 0xfff2cc),
+            intensity: Math.max(0, Math.min(1, Number(s.intensity) || 0.9)), flicker: 0, glow: 0.05, seed: 0,
+            shape: 'cone', angle: this._docsFlashAngle, spread: Math.max(5, Math.min(180, Number(s.spread) || 50)),
+            occlude: s.occlude ? 'on' : 'off'
+        });
+        return lights;
+    };
+
+    // The disc, or a cone from its tip pointing the light's way.
+    Spriteset_Map.prototype.docsShapeLight = function(sprite, light) {
+        if (light.shape === 'cone') {
+            const tex = DocsDoodads.Lighting.coneTexture(light.spread);
+            if (tex && sprite.texture !== tex) sprite.texture = tex;
+            sprite.anchor.set(0, 0.5);
+            sprite.scale.set(light.radius / 256);
+            sprite.rotation = light.angle * Math.PI / 180;
+        } else {
+            const tex = this.docsLightTexture();
+            if (sprite.texture !== tex) sprite.texture = tex;
+            sprite.anchor.set(0.5, 0.5);
+            sprite.rotation = 0;
+        }
+    };
+
+    // On flat maps, a light that walls stop only shows inside the outline it can reach.
+    Spriteset_Map.prototype.docsMaskLight = function(sprite, light, index) {
+        const O = DocsDoodads.Occlusion;
+        const pool = this._docsLightMasks = this._docsLightMasks || [];
+        const world = O.settings();
+        const use = !this._docs3d && !light.screenFixed && O.appliesTo(light, world);
+        let g = pool[index];
+        if (!use) {
+            if (sprite.mask) sprite.mask = null;
+            if (g) { g.clear(); g.visible = false; }
+            return false;
+        }
+        const pts = O.outlineFor(light, Math.max(40, Math.min(360, Number(world.rays) || 160)));
+        if (!pts) return false;
+        if (!g) {
+            g = pool[index] = new PIXI.Graphics();
+            this._docsLightScene.addChild(g);
+        }
+        const ox = $gameMap.displayX() * $gameMap.tileWidth(), oy = $gameMap.displayY() * $gameMap.tileHeight();
+        const screen = new Array(pts.length);
+        for (let i = 0; i < pts.length; i += 2) { screen[i] = pts[i] - ox; screen[i + 1] = pts[i + 1] - oy; }
+        g.clear();
+        g.beginFill(0xffffff, 1);
+        g.drawPolygon(screen);
+        g.endFill();
+        g.visible = true;
+        if (sprite.mask !== g) sprite.mask = g;
+        return true;
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'flashlight', args => {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return;
+        const state = String(args.state || 'on');
+        $gameSystem._docsFlashlight = state === 'on' ? true : state === 'off' ? false : undefined;
     });
 }
 //==========================================================
@@ -20348,6 +20650,223 @@ DocsDoodads.Rooms = {
     }
 };
 //==========================================================
+// SECTION 19D: TILE PAINTING (MZ TILES AND AUTOTILES)
+//==========================================================
+// Painting MZ's own tiles in a playtest, autotiles included. Tile ids follow MZ: B-E sheets 0-1023, A5
+// 1536+, autotiles from 2048 as kind * 48 + shape. An autotile's shape comes from its neighbours: each
+// quarter of the tile takes a piece from the autotile's block, chosen by whether the tiles beside and
+// diagonal to that corner are the same kind; the shape is the entry of MZ's own table (Tilemap's floor,
+// wall or waterfall table, passed in) with those four pieces. The map edge counts as the same kind.
+DocsDoodads.Tiles = {
+    B: 0, C: 256, D: 512, E: 768, A5: 1536, A1: 2048, A2: 2816, A3: 4352, A4: 5888, MAX: 8192,
+    sheets: ['A1', 'A2', 'A3', 'A4', 'A5', 'B', 'C', 'D', 'E'],
+
+    isAutotile(id) { return id >= this.A1 && id < this.MAX; },
+    kind(id) { return Math.floor((id - this.A1) / 48); },
+    shape(id) { return (id - this.A1) % 48; },
+    make(kind, shape) { return this.A1 + kind * 48 + shape; },
+    isA1(id) { return id >= this.A1 && id < this.A2; },
+    isA2(id) { return id >= this.A2 && id < this.A3; },
+    isA3(id) { return id >= this.A3 && id < this.A4; },
+    isA4(id) { return id >= this.A4 && id < this.MAX; },
+    isWaterfall(id) { return this.isA1(id) && id >= this.A1 + 192 && this.kind(id) % 2 === 1; },
+    isRoof(id) { return this.isA3(id) && this.kind(id) % 16 < 8; },
+    isWallTop(id) { return this.isA4(id) && this.kind(id) % 16 < 8; },
+    isWallSide(id) { return (this.isA3(id) || this.isA4(id)) && this.kind(id) % 16 >= 8; },
+    // 'floor', 'wall', 'waterfall' or null (not an autotile).
+    type(id) {
+        if (!this.isAutotile(id)) return null;
+        if (this.isWaterfall(id)) return 'waterfall';
+        if (this.isRoof(id) || this.isWallSide(id)) return 'wall';
+        return 'floor';
+    },
+
+    // The four pieces [TL, TR, BL, BR] as [x, y] half-tiles in the autotile's block, from its neighbours.
+    // n: { l, r, u, d, ul, ur, dl, dr } (true = the same kind there).
+    pieces(type, n) {
+        if (type === 'waterfall') return [[n.l ? 2 : 0, 0], [n.r ? 1 : 3, 0], [n.l ? 2 : 0, 1], [n.r ? 1 : 3, 1]];
+        if (type === 'wall') return [[n.l ? 2 : 0, n.u ? 2 : 0], [n.r ? 1 : 3, n.u ? 2 : 0], [n.l ? 2 : 0, n.d ? 1 : 3], [n.r ? 1 : 3, n.d ? 1 : 3]];
+        const corner = (h, v, diag, cx, cy, inner) => (h && v && !diag ? inner : [h ? cx[0] : cx[1], v ? cy[0] : cy[1]]);
+        return [
+            corner(n.l, n.u, n.ul, [2, 0], [4, 2], [2, 0]),
+            corner(n.r, n.u, n.ur, [1, 3], [4, 2], [3, 0]),
+            corner(n.l, n.d, n.dl, [2, 0], [3, 5], [2, 1]),
+            corner(n.r, n.d, n.dr, [1, 3], [3, 5], [3, 1])
+        ];
+    },
+
+    // The shape in a table ([[x, y] x 4] per shape) with these pieces; the closest one if none matches.
+    shapeFor(pieces, table) {
+        if (!Array.isArray(table) || !table.length) return 0;
+        let best = 0, bestScore = -1;
+        for (let s = 0; s < table.length; s++) {
+            const row = table[s];
+            let score = 0;
+            for (let i = 0; i < 4; i++) if (row[i] && row[i][0] === pieces[i][0] && row[i][1] === pieces[i][1]) score++;
+            if (score === 4) return s;
+            if (score > bestScore) { bestScore = score; best = s; }
+        }
+        return best;
+    },
+
+    index(w, h, x, y, z) { return (z * h + y) * w + x; },
+
+    // The autotile at (x, y, z) with its shape worked out again from the tiles around it.
+    // map: { width, height, data, loopX, loopY }; tables: { floor, wall, waterfall }.
+    reshape(map, x, y, z, tables) {
+        const W = map.width, H = map.height;
+        const id = Number(map.data[this.index(W, H, x, y, z)]) || 0;
+        const type = this.type(id);
+        if (!type) return id;
+        const k = this.kind(id);
+        const same = (dx, dy) => {
+            let tx = x + dx, ty = y + dy;
+            if (map.loopX) tx = (tx % W + W) % W;
+            if (map.loopY) ty = (ty % H + H) % H;
+            if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
+            const other = Number(map.data[this.index(W, H, tx, ty, z)]) || 0;
+            return this.isAutotile(other) && this.kind(other) === k;
+        };
+        const n = { l: same(-1, 0), r: same(1, 0), u: same(0, -1), d: same(0, 1), ul: same(-1, -1), ur: same(1, -1), dl: same(-1, 1), dr: same(1, 1) };
+        const table = tables && tables[type];
+        return this.make(k, this.shapeFor(this.pieces(type, n), table));
+    },
+
+    // Which layer a picked tile goes on when the layer is 'auto': ground autotiles and A5 on 0 (A1's
+    // rocks and A2's overlays on 1), B-E on the upper layers (2, or 3 over a tile already on 2).
+    autoLayer(id, upperBusy) {
+        if (this.isAutotile(id)) {
+            const k = this.kind(id);
+            if (this.isA1(id) && (k === 2 || k === 3)) return 1;
+            return 0;
+        }
+        if (id >= this.A5) return 0;
+        return upperBusy ? 3 : 2;
+    },
+
+    // What painting does: [{ index, before, after }] for a brush of tiles (ids: rows of tile ids, a
+    // rectangle picked from the palette) with its top-left at (x, y). layer: 0-3 or 'auto'; erase clears.
+    paint(map, x, y, brush, tables) {
+        const W = map.width, H = map.height;
+        const changes = new Map();
+        const get = i => (changes.has(i) ? changes.get(i).after : Number(map.data[i]) || 0);
+        const set = (i, v) => {
+            const before = changes.has(i) ? changes.get(i).before : Number(map.data[i]) || 0;
+            changes.set(i, { index: i, before, after: v });
+        };
+        const view = { width: W, height: H, loopX: map.loopX, loopY: map.loopY, data: { length: W * H * 6 } };
+        view.data = new Proxy({}, { get: (t, k) => (k === 'length' ? W * H * 6 : get(Number(k))) });
+        const touched = [];
+        const rows = brush.erase ? [[0]] : brush.ids;
+        for (let r = 0; r < rows.length; r++) {
+            for (let c = 0; c < rows[r].length; c++) {
+                const tx = x + c, ty = y + r;
+                if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+                const id = brush.erase ? 0 : Number(rows[r][c]) || 0;
+                if (brush.erase) {
+                    // The eraser takes the top tile off (the layer picked, or the highest one used).
+                    const layers = brush.layer === 'auto' || brush.layer === undefined ? [3, 2, 1, 0] : [Number(brush.layer)];
+                    const z = layers.find(l => get(this.index(W, H, tx, ty, l)) !== 0);
+                    if (z === undefined) continue;
+                    set(this.index(W, H, tx, ty, z), 0);
+                    touched.push([tx, ty, z]);
+                    continue;
+                }
+                let z = brush.layer === 'auto' || brush.layer === undefined ? null : Number(brush.layer);
+                if (z === null) {
+                    const upper2 = get(this.index(W, H, tx, ty, 2));
+                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id);
+                    // A third upper tile: the one on 3 moves down to 2 and the new one goes on top.
+                    if (z === 3) {
+                        const on3 = get(this.index(W, H, tx, ty, 3));
+                        if (on3 && on3 !== id) set(this.index(W, H, tx, ty, 2), on3);
+                    }
+                }
+                set(this.index(W, H, tx, ty, z), id);
+                touched.push([tx, ty, z]);
+            }
+        }
+        // Autotiles painted and the ones around them take their shapes from their new neighbours.
+        const again = new Set();
+        for (const [tx, ty, z] of touched) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    let nx = tx + dx, ny = ty + dy;
+                    if (map.loopX) nx = (nx % W + W) % W;
+                    if (map.loopY) ny = (ny % H + H) % H;
+                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                    again.add(nx + ',' + ny + ',' + z);
+                }
+            }
+        }
+        for (const key of again) {
+            const [nx, ny, z] = key.split(',').map(Number);
+            const i = this.index(W, H, nx, ny, z);
+            const id = get(i);
+            if (!this.isAutotile(id)) continue;
+            const next = this.reshape(view, nx, ny, z, tables);
+            if (next !== id) set(i, next);
+        }
+        return Array.from(changes.values()).filter(c => c.before !== c.after);
+    },
+
+    // The top tile at a spot, for picking it up: { id, layer } (null when the spot is empty).
+    topAt(map, x, y) {
+        for (const z of [3, 2, 1, 0]) {
+            const id = Number(map.data[this.index(map.width, map.height, x, y, z)]) || 0;
+            if (id) return { id: this.isAutotile(id) ? this.make(this.kind(id), 0) : id, layer: z };
+        }
+        return null;
+    },
+
+    // ---- The palette: tiles on the tileset pictures ----
+    // Where an autotile kind's sample sits on its sheet (tiles), as MZ draws it (first animation frame).
+    kindPosition(kind) {
+        const tx = kind % 8, ty = Math.floor(kind / 8);
+        if (kind < 16) {
+            if (kind === 0) return { sheet: 0, x: 0, y: 0 };
+            if (kind === 1) return { sheet: 0, x: 0, y: 3 };
+            if (kind === 2) return { sheet: 0, x: 6, y: 0 };
+            if (kind === 3) return { sheet: 0, x: 6, y: 3 };
+            let bx = Math.floor(tx / 4) * 8;
+            const by = ty * 6 + (Math.floor(tx / 2) % 2) * 3;
+            bx += kind % 2 === 0 ? 0 : 6;
+            return { sheet: 0, x: bx, y: by };
+        }
+        if (kind < 48) return { sheet: 1, x: tx * 2, y: (ty - 2) * 3 };
+        if (kind < 80) return { sheet: 2, x: tx * 2, y: (ty - 6) * 2 };
+        return { sheet: 3, x: tx * 2, y: Math.floor((ty - 10) * 2.5 + (ty % 2 === 1 ? 0.5 : 0)) };
+    },
+
+    // The tile id under a tile position on a sheet (0 A1 ... 8 E), or 0.
+    idAt(sheet, x, y) {
+        if (x < 0 || y < 0) return 0;
+        if (sheet >= 5) return (sheet - 5) * 256 + (x >= 8 ? 128 : 0) + y * 8 + (x % 8);
+        if (sheet === 4) return x < 8 && y < 16 ? this.A5 + y * 8 + x : 0;
+        // Autotiles: the block the position falls in.
+        const kinds = sheet === 0 ? 16 : sheet === 1 ? 32 : 48;
+        const first = sheet === 0 ? 0 : sheet === 1 ? 16 : sheet === 2 ? 48 : 80;
+        for (let k = first; k < first + kinds; k++) {
+            const p = this.kindPosition(k);
+            if (p.sheet !== sheet) continue;
+            const wide = sheet === 0 && k >= 4 && k % 2 === 1 ? 2 : 2;
+            const tall = sheet === 2 || (sheet === 3 && Math.floor(k / 8) % 2 === 1) ? 2 : 3;
+            if (x >= p.x && x < p.x + wide && y >= p.y && y < p.y + tall) return this.make(k, 0);
+        }
+        return 0;
+    },
+
+    // The sheet a tile id is on (0 A1 ... 8 E).
+    sheetOf(id) {
+        if (id >= this.A4) return 3;
+        if (id >= this.A3) return 2;
+        if (id >= this.A2) return 1;
+        if (id >= this.A1) return 0;
+        if (id >= this.A5) return 4;
+        return 5 + Math.floor(id / 256);
+    }
+};
+//==========================================================
 // SECTION 20: DocsDoodads.UNDO (COMMAND-BASED HISTORY STACK)
 //==========================================================
 DocsDoodads.Undo = {
@@ -22498,6 +23017,7 @@ DocsDoodads.Workspace = {
         if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool === 'region' && this.renderRegionLegend) this.renderRegionLegend();
+        if (this.placementTool === 'tiles' && this.renderTilePalette) this.renderTilePalette();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
             this._pathHover = null;
@@ -22720,6 +23240,7 @@ DocsDoodads.Workspace = {
             ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
             ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
             ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
+            ${tool('dd-tiles-btn', 'tiles', 'Tiles', this.shortcutTip('dd-tiles-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
             ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
             <div class="dd-sep"></div>
@@ -22792,6 +23313,10 @@ DocsDoodads.Workspace = {
                     <div id="dd-region-legend"></div>
                     <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step and is saved with the map. Alt+click picks up a tile's region.</div>
                 </div>
+            </div>
+            <div id="dd-tiles-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('tiles', 1)} Tiles</div>
+                <div id="dd-tiles-palette" style="display: flex; flex-direction: column; gap: 6px;"></div>
             </div>
             <div id="dd-sym-popover" class="dd-glass dd-pop" style="display: none;">
                 <div class="dd-pop-title">${U.icon('mirror', 1)} Mirror</div>
@@ -24455,6 +24980,11 @@ DocsDoodads.Workspace = {
             delete d.model;
             return;
         }
+        // A light preset sets several of the light's settings at once.
+        if (key === 'light.preset') {
+            d.light = DocsDoodads.LightPresets.apply(Object.assign({}, this.propertyDefaults().light, d.light || {}), value);
+            return;
+        }
         if (key === 'name') {
             const name = String(value || '').trim();
             if (name) d.name = name; else delete d.name;
@@ -24632,7 +25162,12 @@ DocsDoodads.Workspace = {
             ] },
             { title: 'Light', fields: [
                 { key: 'light.enabled', label: 'Emit light', type: 'checkbox' },
+                { key: 'light.preset', label: 'Preset (sets the colour, size and flicker)', type: 'select', options: [{ value: '', label: '(your own)' }].concat(D.LightPresets.list.map(p => ({ value: p.id, label: p.label }))) },
                 { key: 'light.when', label: 'When', type: 'select', options: D.Lighting.whenOptions },
+                { key: 'light.shape', label: 'Shape', type: 'select', options: [{ value: 'round', label: 'Round (all around)' }, { value: 'cone', label: 'Cone (points one way)' }] },
+                range('light.angle', 'Points (degrees: 0 right, 90 down, 180 left, 270 up)', 0, 359, 5),
+                range('light.spread', 'Cone width (degrees)', 5, 180, 5),
+                { key: 'light.occlude', label: 'Walls stop it (flat maps)', type: 'select', options: [{ value: 'world', label: 'As World > Lighting' }, { value: 'on', label: 'Yes' }, { value: 'off', label: 'No' }] },
                 { key: 'light.color', label: 'Color', type: 'color' },
                 range('light.radius', 'Radius', 16, 600, 4),
                 range('light.intensity', 'Intensity', 0, 1, 0.05),
@@ -25564,6 +26099,7 @@ DocsDoodads.Workspace = {
         add('Tool: Path', () => this.setPlacementTool('path'), null, K('toolPath'));
         add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'), null, K('toolHills'));
         add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'), null, K('toolRegions'));
+        add('Tool: Tiles (paint MZ tiles)', () => this.setPlacementTool('tiles'), null, K('toolTiles'));
         add('Tool: Select', () => this.setPlacementTool(null), null, K('toolSelect'));
         add('Select All', () => this.selectAllDoodads(), null, K('selectAll'));
         add('Invert Selection', () => this.invertSelection());
@@ -25722,6 +26258,7 @@ DocsDoodads.Workspace = {
         on('dd-terrain-radius', 'oninput', e => { this.terrainBrush.radius = parseInt(e.target.value, 10) || 0; const v = byId('dd-terrain-radius-val'); if (v) v.textContent = e.target.value; });
         on('dd-terrain-value', 'onchange', e => { this.terrainBrush.value = parseFloat(e.target.value) || 0; });
         this.bindRegionTool();
+        if (this.bindTilesTool) this.bindTilesTool();
         const symPop = byId('dd-sym-popover');
         on('dd-sym-btn', 'onclick', () => {
             if (!symPop) return;
@@ -27168,6 +27705,18 @@ DocsDoodads.Workspace = {
                 check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
+            ] },
+            { title: 'Lighting on Flat Maps', fields: [
+                check('lighting2d.occlusion', 'Walls stop light (tiles nobody can walk on cast shadows)'),
+                { key: 'lighting2d.wallRegions', label: 'Also walls: regions (e.g. 9, 10)', type: 'text' },
+                range('lighting2d.rays', 'Shadow detail (rays per light)', 40, 360, 20),
+                check('lighting2d.flashlight.enabled', 'The player carries a flashlight (it points where they face)'),
+                number('lighting2d.flashlight.switchId', 'Only while switch # is ON (0 = always)'),
+                range('lighting2d.flashlight.radius', 'Flashlight reach', 60, 800, 10),
+                range('lighting2d.flashlight.spread', 'Flashlight width (degrees)', 10, 120, 5),
+                { key: 'lighting2d.flashlight.color', label: 'Flashlight colour', type: 'color' },
+                range('lighting2d.flashlight.intensity', 'Flashlight brightness', 0.1, 1, 0.05),
+                check('lighting2d.flashlight.occlude', 'Walls stop the flashlight')
             ] },
             { title: 'Camera on Flat Maps', fields: [
                 range('camera2d.smooth', "Camera eases after the player (0 = MZ's own)", 0, 0.95, 0.05),
@@ -35310,6 +35859,7 @@ Object.assign(DocsDoodads.Workspace, {
             toolPath: tool('path'),
             toolHills: tool('terrain'),
             toolRegions: tool('region'),
+            toolTiles: tool('tiles'),
             toolGrab: tool('eyedropper'),
             rooms: () => this.showRoomsCard(),
             brushSmaller: () => this.resizeBrush(-1) || false,
@@ -35337,6 +35887,7 @@ Object.assign(DocsDoodads.Workspace, {
         'dd-path-btn': ['toolPath', 'Path: lay the picked item along a line you click out'],
         'dd-terrain-btn': ['toolHills', 'Hills: raise and lower the ground (3D view)'],
         'dd-region-btn': ['toolRegions', 'Regions: paint region numbers on tiles (and see terrain tags)'],
+        'dd-tiles-btn': ['toolTiles', "Tiles: paint the map's own tiles, autotiles too"],
         'dd-eyedropper-btn': ['toolGrab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)']
     },
 
@@ -35623,6 +36174,246 @@ Object.assign(DocsDoodads.Workspace, {
         if (stop) stop.onclick = () => this.previewState(d, -1);
     }
 });
+//==========================================================
+// SECTION 25v: THE TILES TOOL (PAINTING MZ TILES)
+//==========================================================
+// Tiles (top bar): pick a tile from the map's tileset (A1-E tabs; drag across B-E or A5 for a block of
+// tiles) and paint it on the map; autotiles take their shapes from their neighbours as in MZ's editor.
+// Alt+click picks up the tile under the cursor; the Eraser takes the top tile off. Each stroke is one undo
+// step, and the tiles are saved into the map file with the other map edits (DocsDoodads.Tiles).
+DocsDoodads.Ui.css += `
+#dd-tiles-popover { width: 420px; max-width: calc(100vw - 24px); }
+#dd-tiles-popover .dd-tiles-tabs { display: flex; flex-wrap: wrap; gap: 3px; }
+#dd-tiles-popover .dd-tiles-tabs .dd-btn { padding: 2px 8px; font-size: 11px; }
+#dd-tiles-popover .dd-tiles-wrap { max-height: 300px; overflow: auto; border: 1px solid var(--dd-line); border-radius: 8px; background: var(--dd-field); }
+#dd-tiles-popover canvas { display: block; image-rendering: pixelated; cursor: crosshair; }
+`;
+
+DocsDoodads.Ui.hints.tiles = 'Tiles: pick a tile in the card (drag for a block), then click or drag on the map. Alt+click picks up a tile; Eraser takes the top one off.';
+
+Object.assign(DocsDoodads.Workspace, {
+    tileBrush: { sheet: 1, ids: [[0]], layer: 'auto', erase: false, scale: 0.5 },
+
+    autotileTables() {
+        if (typeof Tilemap === 'undefined') return null;
+        return { floor: Tilemap.FLOOR_AUTOTILE_TABLE, wall: Tilemap.WALL_AUTOTILE_TABLE, waterfall: Tilemap.WATERFALL_AUTOTILE_TABLE };
+    },
+
+    tilesetNames() {
+        const ts = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileset ? $gameMap.tileset() : null;
+        return (ts && ts.tilesetNames) || [];
+    },
+
+    tileMapView() {
+        const m = this.liveMapData();
+        if (!m) return null;
+        const gm = typeof $gameMap !== 'undefined' ? $gameMap : null;
+        return { width: m.width, height: m.height, data: m.data, loopX: Boolean(gm && gm.isLoopHorizontal && gm.isLoopHorizontal()), loopY: Boolean(gm && gm.isLoopVertical && gm.isLoopVertical()) };
+    },
+
+    // ---- Painting ----
+    beginTileStroke(tileX, tileY) {
+        if (!this.tileMapView()) return false;
+        if (!this.tileBrush.erase && !(this.tileBrush.ids[0] && this.tileBrush.ids[0][0])) {
+            this.showToast('Pick a tile in the Tiles card first.', 'info');
+            return false;
+        }
+        this._tileStroke = { mapId: this.currentMapId(), changes: new Map(), last: null };
+        this.tilePaintAt(tileX, tileY);
+        return true;
+    },
+
+    tilePaintAt(tileX, tileY) {
+        const stroke = this._tileStroke;
+        const view = this.tileMapView();
+        if (!stroke || !view) return 0;
+        const key = tileX + ',' + tileY;
+        if (stroke.last === key) return 0;
+        stroke.last = key;
+        const changes = DocsDoodads.Tiles.paint(view, tileX, tileY, this.tileBrush, this.autotileTables());
+        for (const c of changes) {
+            if (!stroke.changes.has(c.index)) stroke.changes.set(c.index, { before: c.before, after: c.after });
+            else stroke.changes.get(c.index).after = c.after;
+            this.setMapTile(stroke.mapId, c.index, c.after);
+        }
+        if (changes.length) this.afterTileEdit();
+        return changes.length;
+    },
+
+    endTileStroke() {
+        const stroke = this._tileStroke;
+        this._tileStroke = null;
+        if (!stroke) return false;
+        const changes = Array.from(stroke.changes.entries()).filter(([, c]) => c.before !== c.after);
+        if (!changes.length) return false;
+        const set = which => { for (const [index, c] of changes) this.setMapTile(stroke.mapId, index, c[which]); this.afterTileEdit(); };
+        DocsDoodads.Undo.execute({ type: 'paint_tiles', apply: () => set('after'), revert: () => set('before') });
+        return true;
+    },
+
+    // Alt+click: the brush takes the top tile there (and its layer).
+    pickTileAt(tileX, tileY) {
+        const view = this.tileMapView();
+        const top = view ? DocsDoodads.Tiles.topAt(view, tileX, tileY) : null;
+        if (!top) { this.showToast('No tile there.', 'info'); return null; }
+        this.tileBrush.ids = [[top.id]];
+        this.tileBrush.erase = false;
+        this.tileBrush.sheet = DocsDoodads.Tiles.sheetOf(top.id);
+        this.renderTilePalette();
+        return top;
+    },
+
+    // ---- The card ----
+    renderTilePalette() {
+        if (typeof document === 'undefined') return;
+        const box = document.getElementById('dd-tiles-palette');
+        if (!box) return;
+        const T = DocsDoodads.Tiles, b = this.tileBrush;
+        const names = this.tilesetNames();
+        const tabs = T.sheets.map((label, i) => names[i]
+            ? `<button class="dd-btn${b.sheet === i ? ' dd-btn-primary' : ''}" type="button" id="dd-tiles-sheet-${i}" title="${escapeHtml(names[i])}">${label}</button>` : '').join('');
+        box.innerHTML = `
+            <div class="dd-tiles-tabs">${tabs || '<span style="font-size: 11px;">This map\'s tileset has no pictures.</span>'}</div>
+            <div class="dd-tiles-wrap"><canvas id="dd-tiles-canvas" width="8" height="8"></canvas></div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
+                <label>Layer<select id="dd-tiles-layer">${[['auto', 'Automatic'], ['0', '1 (ground)'], ['1', '2 (ground overlay)'], ['2', '3 (upper)'], ['3', '4 (upper)']]
+                    .map(([v, l]) => `<option value="${v}"${String(b.layer) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+                <label style="display: flex; align-items: center; gap: 6px; margin-top: 14px;"><input type="checkbox" id="dd-tiles-erase" ${b.erase ? 'checked' : ''} /> Eraser</label>
+            </div>
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Autotiles join up with their neighbours as you paint. Saved into the map file with Save; the MZ editor shows them after it reloads the project.</div>`;
+        T.sheets.forEach((label, i) => {
+            const btn = document.getElementById(`dd-tiles-sheet-${i}`);
+            if (btn) btn.onclick = () => { this.tileBrush.sheet = i; this.renderTilePalette(); };
+        });
+        const layer = document.getElementById('dd-tiles-layer');
+        if (layer) layer.onchange = e => { this.tileBrush.layer = e.target.value === 'auto' ? 'auto' : Number(e.target.value); };
+        const erase = document.getElementById('dd-tiles-erase');
+        if (erase) erase.onchange = e => { this.tileBrush.erase = Boolean(e.target.checked); };
+        this.drawTileSheet();
+    },
+
+    drawTileSheet() {
+        const canvas = typeof document !== 'undefined' ? document.getElementById('dd-tiles-canvas') : null;
+        const name = this.tilesetNames()[this.tileBrush.sheet];
+        if (!canvas || !name || typeof ImageManager === 'undefined') return;
+        const bitmap = ImageManager.loadTileset(name);
+        const draw = () => {
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const k = this.tileBrush.scale;
+            canvas.width = Math.max(1, Math.round(bitmap.width * k));
+            canvas.height = Math.max(1, Math.round(bitmap.height * k));
+            const ctx = canvas.getContext && canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.imageSmoothingEnabled = false;
+            const image = bitmap._image || bitmap.canvas || (bitmap._canvas);
+            if (image && ctx.drawImage) ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+            // The picked tiles.
+            const sel = this.tileSelectionRect();
+            if (sel && ctx.strokeRect) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(sel.x * tw * k + 1, sel.y * th * k + 1, sel.w * tw * k - 2, sel.h * th * k - 2);
+            }
+        };
+        if (bitmap.isReady && !bitmap.isReady() && bitmap.addLoadListener) bitmap.addLoadListener(draw); else draw();
+        const at = e => {
+            const r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+            const s = this.uiScaleNow ? this.uiScaleNow() : 1;
+            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
+            return { x: Math.floor(((e.clientX - r.left) / s) / tw), y: Math.floor(((e.clientY - r.top) / s) / th) };
+        };
+        canvas.onmousedown = e => {
+            const start = at(e);
+            this._tilePick = { start, end: start };
+            this.pickTilesFromSheet(start, start);
+            const move = ev => { if (this._tilePick) { this._tilePick.end = at(ev); this.pickTilesFromSheet(this._tilePick.start, this._tilePick.end); } };
+            const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); this._tilePick = null; };
+            window.addEventListener('mousemove', move);
+            window.addEventListener('mouseup', up);
+        };
+    },
+
+    // Tiles picked on the sheet: a block on B-E and A5; one autotile kind on A1-A4.
+    pickTilesFromSheet(a, b) {
+        const T = DocsDoodads.Tiles, sheet = this.tileBrush.sheet;
+        if (sheet <= 3) {
+            const id = T.idAt(sheet, a.x, a.y);
+            if (id) this.tileBrush.ids = [[id]];
+        } else {
+            const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y), x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+            const rows = [];
+            for (let y = y0; y <= Math.min(y1, y0 + 15); y++) {
+                const row = [];
+                for (let x = x0; x <= Math.min(x1, x0 + 15); x++) row.push(T.idAt(sheet, x, y));
+                rows.push(row);
+            }
+            if (rows.length && rows[0].length) this.tileBrush.ids = rows;
+        }
+        this.tileBrush.erase = false;
+        const erase = typeof document !== 'undefined' ? document.getElementById('dd-tiles-erase') : null;
+        if (erase) erase.checked = false;
+        this.drawTileSheetSelection();
+    },
+
+    drawTileSheetSelection() {
+        // Redraws the sheet with the new selection box (cheap: the picture is cached by MZ).
+        if (typeof document !== 'undefined' && document.getElementById('dd-tiles-canvas')) this.drawTileSheet();
+    },
+
+    // Where the brush's tiles are on the shown sheet, in tiles, or null.
+    tileSelectionRect() {
+        const T = DocsDoodads.Tiles, b = this.tileBrush;
+        const first = b.ids[0] && b.ids[0][0];
+        if (!first || T.sheetOf(first) !== b.sheet) return null;
+        if (T.isAutotile(first)) {
+            const p = T.kindPosition(T.kind(first));
+            return { x: p.x, y: p.y, w: 2, h: b.sheet === 2 || (b.sheet === 3 && Math.floor(T.kind(first) / 8) % 2 === 1) ? 2 : 3 };
+        }
+        const pos = id => (b.sheet === 4 ? { x: (id - T.A5) % 8, y: Math.floor((id - T.A5) / 8) }
+            : { x: ((id % 256) >= 128 ? 8 : 0) + (id % 8), y: Math.floor((id % 128) / 8) });
+        const p = pos(first);
+        return { x: p.x, y: p.y, w: b.ids[0].length, h: b.ids.length };
+    },
+
+    bindTilesTool() {
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-tiles-btn') : null;
+        if (btn) btn.onclick = () => {
+            this.setPlacementTool(this.placementTool === 'tiles' ? null : 'tiles');
+            if (this.placementTool === 'tiles') this.renderTilePalette();
+        };
+    }
+});
+
+DocsDoodads.Workspace.toolButtons.tiles = 'dd-tiles-btn';
+DocsDoodads.Workspace.toolPopovers.tiles = 'dd-tiles-popover';
+
+DocsDoodads.Workspace.toolHooks.tiles = {
+    down(e) {
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        if (e.altKey) { this.pickTileAt(at.tileX, at.tileY); return false; }
+        return this.beginTileStroke(at.tileX, at.tileY);
+    },
+    move(e, stroking) {
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        this._tileHover = { x: at.tileX, y: at.tileY };
+        if (stroking && this._tileStroke) this.tilePaintAt(at.tileX, at.tileY);
+    },
+    up() {
+        this.endTileStroke();
+    },
+    // A click is handled by the stroke (down and up); nothing more.
+    click() {},
+    overlay(g) {
+        if (this.placementTool !== 'tiles' || !this._tileHover || typeof $gameMap === 'undefined' || !$gameMap || !g) return;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const b = this.tileBrush;
+        const w = b.erase ? 1 : (b.ids[0] || [0]).length, h = b.erase ? 1 : b.ids.length;
+        const color = DocsDoodads.Ui.mapColor(b.erase ? 'brushErase' : 'brushPaint');
+        g.lineStyle(2, color, 0.95);
+        g.drawRect($gameMap.adjustX(this._tileHover.x) * tw, $gameMap.adjustY(this._tileHover.y) * th, w * tw, h * th);
+        g.lineStyle(0);
+    }
+};
 //==========================================================
 // SECTION 25: SCENE_MAP INTEGRATION & KEY BINDINGS
 //==========================================================

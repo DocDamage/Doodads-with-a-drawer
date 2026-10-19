@@ -37,6 +37,7 @@ DocsDoodads.Shortcuts = {
         { id: 'toolPath', label: 'Path tool', group: 'Tools', keys: '' },
         { id: 'toolHills', label: 'Hills tool', group: 'Tools', keys: '' },
         { id: 'toolRegions', label: 'Regions tool', group: 'Tools', keys: '' },
+        { id: 'toolTiles', label: 'Tiles tool (MZ tiles)', group: 'Tools', keys: '' },
         { id: 'toolGrab', label: 'Grab tool', group: 'Tools', keys: '' },
         { id: 'rooms', label: 'Rooms (room stamps)', group: 'Tools', keys: '' },
         { id: 'brushSmaller', label: 'Smaller brush (Scatter, Paint, Hills, Regions)', group: 'Tools', keys: '[' },

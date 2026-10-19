@@ -72,6 +72,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Set 3D View | mode | 3D on, off, or the map's setting. |
 | Set Sky Video | video, mode, speed | A different sky video for this visit (`none` for none, blank for the map's own). |
 | Set Zoom | level, duration, wait | Zooms in on the player (1 = normal); nearby sounds come forward. |
+| Flashlight | state | The player's flashlight on, off, or back to World > Lighting; saved. |
 | Set Wind | strength, direction, duration | Flat maps: wind for swaying doodads, particles, fog and leaves (0-1, or `world`). |
 | 2D Camera Path | points, frames, ease, then, wait | Flat maps: glide the camera through tiles (`10,5; 20,8`), then back or stay. |
 | 2D Camera Follow | target, eventId | Flat maps: the camera follows the player, this event or another event. |

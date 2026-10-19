@@ -739,6 +739,11 @@
             delete d.model;
             return;
         }
+        // A light preset sets several of the light's settings at once.
+        if (key === 'light.preset') {
+            d.light = DocsDoodads.LightPresets.apply(Object.assign({}, this.propertyDefaults().light, d.light || {}), value);
+            return;
+        }
         if (key === 'name') {
             const name = String(value || '').trim();
             if (name) d.name = name; else delete d.name;
@@ -916,7 +921,12 @@
             ] },
             { title: 'Light', fields: [
                 { key: 'light.enabled', label: 'Emit light', type: 'checkbox' },
+                { key: 'light.preset', label: 'Preset (sets the colour, size and flicker)', type: 'select', options: [{ value: '', label: '(your own)' }].concat(D.LightPresets.list.map(p => ({ value: p.id, label: p.label }))) },
                 { key: 'light.when', label: 'When', type: 'select', options: D.Lighting.whenOptions },
+                { key: 'light.shape', label: 'Shape', type: 'select', options: [{ value: 'round', label: 'Round (all around)' }, { value: 'cone', label: 'Cone (points one way)' }] },
+                range('light.angle', 'Points (degrees: 0 right, 90 down, 180 left, 270 up)', 0, 359, 5),
+                range('light.spread', 'Cone width (degrees)', 5, 180, 5),
+                { key: 'light.occlude', label: 'Walls stop it (flat maps)', type: 'select', options: [{ value: 'world', label: 'As World > Lighting' }, { value: 'on', label: 'Yes' }, { value: 'off', label: 'No' }] },
                 { key: 'light.color', label: 'Color', type: 'color' },
                 range('light.radius', 'Radius', 16, 600, 4),
                 range('light.intensity', 'Intensity', 0, 1, 0.05),
