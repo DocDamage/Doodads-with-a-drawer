@@ -81,9 +81,24 @@ function build() {
 
 if (require.main === module) {
     const template = build();
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, JSON.stringify(template, null, 2) + '\n');
-    console.log(`Wrote ${path.relative(root, out)} with ${Object.keys(template.strings).length} strings.`);
+    const text = JSON.stringify(template, null, 2) + '\n';
+    const count = Object.keys(template.strings).length;
+    // --check (run by npm run verify): the template must be what this script would write now.
+    if (process.argv.includes('--check')) {
+        const now = fs.existsSync(out) ? fs.readFileSync(out, 'utf8').replace(/\r\n/g, '\n') : '';
+        if (now !== text) {
+            let had = 0;
+            try { had = Object.keys(JSON.parse(now).strings || {}).length; } catch (e) { had = 0; }
+            console.error(`languages/template.json is out of date (${had} strings; the editor now has ${count}): run npm run strings.`);
+            process.exitCode = 1;
+        } else {
+            console.log(`Translation template is current (${count} strings).`);
+        }
+    } else {
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        fs.writeFileSync(out, text);
+        console.log(`Wrote ${path.relative(root, out)} with ${count} strings.`);
+    }
 }
 
 module.exports = { build, collect, placeholders, looksLikeWords };

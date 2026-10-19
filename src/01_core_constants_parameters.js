@@ -63,7 +63,8 @@ const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
 const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
-const pluginVersion = 2.0;
+// The release, as in package.json and the header's @plugindesc (verify checks that the three agree).
+const pluginVersion = '2.0.0-alpha.1';
 const doodadScaleMode = parseBooleanParameter(parameters.doodadScaleMode, true);
 const saveMode = parseBooleanParameter(parameters.saveMode, false);
 const splitByMap = parseBooleanParameter(parameters.splitByMap, false);

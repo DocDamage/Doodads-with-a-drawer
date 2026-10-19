@@ -2,6 +2,20 @@
 data/docs_doodads_cache/
 data/DocsDoodadsRecovery.json
 
+# What the plugin writes into a project when this folder is used as one (playtests, packs, captures,
+# the character creators); none of it belongs to the plugin's source.
+*.zip
+*.ddpack
+packs/
+screenshots/
+/img/
+/audio/
+CREDITS_LPC.txt
+data/DocsDoodadsCredits.json
+data/DocsDoodadsCharacters.json
+data/DocsDoodadsMemaoCharacters.json
+data/DocsDoodadsMzCharacters.json
+
 # Transaction scratch files (normally removed automatically)
 *.tmp
 *.ddimport-*

@@ -110,17 +110,19 @@ DocsDoodads.SampleArt = {
 };
 
 // What changed in this version, shown once after an update (and from How to Use).
+// Shown once to people updating, after the welcome. Its id is the release (verify checks it matches the
+// version), and its items are the head of CHANGELOG.md in a line each.
 DocsDoodads.WhatsNew = {
-    id: '2026-10-editor',
-    title: 'New in the editor',
+    id: '2.0.0-alpha.1',
+    title: 'New in this version',
     items: [
-        'Questions come up in the editor\'s own cards, and closing with unsaved work asks first.',
-        'Select All, Same Art, Replace Art, Paste in Place, and handles to resize and turn.',
-        'Scatter erases with the right button; Hills shows heights; [ and ] size the brushes.',
-        'Show Collision, Show Sounds, Listen, Show Speed, and a status bar along the bottom.',
-        'Sort the Item Bag, folder view, saved searches, and a card when you rest on an item.',
-        'Look: bigger sizes, dark and high-contrast themes, colour-blind-safe map colours.',
-        'A clock to preview any time and season, map tabs, and a smarter Ctrl+K.'
+        'Character Creator: three libraries in one window, a grid of pictures, locks, undo and recipes.',
+        'Big maps run faster: off-screen doodads wait, so 3,000 doodads hold 60 frames a second.',
+        'The editor saves less and sooner: a compact library, the crash snapshot only when changed.',
+        'Tab and the arrow keys move through the editor, and the right-click menu works with keys.',
+        'Rebuild Index keeps your tags; packs ask before replacing; Show Hidden Doodads brings them back.',
+        'Sound effects keep their own pitch and volume; turn on variation if you want it.',
+        'Problems lists conditions that don\'t run, beside missing pictures and sounds.'
     ]
 };
 

@@ -29,7 +29,7 @@ See [Docs_Doodads_Guide.md](Docs_Doodads_Guide.md) for usage, [CHEAT_SHEET.md](C
 ## The editor at a glance
 
 - **Top bar**: big tools with their names (Select, Stamp, Scatter, Paint, Path, Hills, Mirror, Grab); a tool's options open in a card under its button. Then Undo, Redo, Steps (the undo history), More, Save and Done.
-- **More**: Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check, Info, Show Grid, Sounds, Find a Tool (Ctrl+K), How to Use and layouts.
+- **More**: Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check, Info, Show Grid, Show Collision, Sounds, Find a Tool (Ctrl+K), Messages, Look (size, theme, map colours), Rooms, Packs, Characters (the character creators), Keys, Capture, Problems, Show Sounds, Listen, Show Speed and How to Use, then the layouts.
 - **Item Bag** (left): search, collections and category tabs. **Details** (right): the settings of whatever is picked. Both fold away to small tabs.
 
 ## Building from source
@@ -55,7 +55,7 @@ npm run verify
 npm run coverage
 ```
 
-The regression tests themselves use only Node.js. Drawing code (spritesets, character sprites, the 3D view, the editor overlay) runs on a small stand-in for PIXI and the MZ classes in `scratch/engine/fake_engine.js`. The coverage command uses `c8` and enforces 72% of lines and statements and 70% of functions and branches (about 82% of lines are covered); the editor's HTML panels remain covered by the manual checklist.
+The regression tests themselves use only Node.js. Drawing code (spritesets, character sprites, the 3D view, the editor overlay) runs on a small stand-in for PIXI and the MZ classes in `scratch/engine/fake_engine.js`. The coverage command uses `c8` and enforces 85% of lines and statements, 80% of functions and 75% of branches (about 89% of lines are covered); the editor's HTML panels remain covered by the manual checklist. Each suite runs in a folder of its own in the system's temp folder, and `npm run verify` fails if a suite changed the repository. It also lints the built plugin, the scripts and the suites with ESLint (`npm run lint`), checks that the translation template and the guide's shortcut table are current, and that package.json, the plugin header, `pluginVersion` and the changelog name the same version.
 
 Use [MANUAL_TEST_CHECKLIST.md](MANUAL_TEST_CHECKLIST.md) for the final RPG Maker MZ playtest.
 
