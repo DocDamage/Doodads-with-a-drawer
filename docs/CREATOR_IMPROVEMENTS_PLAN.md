@@ -4,7 +4,8 @@
 dice and the body type, linked hair; the rest of §2.2), 4 (the switcher, the card's groups, face slots, High contrast;
 §2.3) and 5 (Memao on the tile and its props, MZ slots from the mask, recipes; §2.4). So are Part B phases B1 (§8, the
 game bugs), B2 (§9.1 and §9.2, the editor's data safety and behaviour), B3 (§9.3, keyboard and screen readers), B4
-(§10.1, per-frame performance, measured on a 3,000-doodad map) and B5 (§10.2, editor performance). All are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
+(§10.1, per-frame performance, measured on a 3,000-doodad map), B5 (§10.2, editor performance) and B6 (§11, project
+and release). All are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
 `[` / `]` and the next colour channel `C` (§2.1 gave `]` to both), and a mask colour snaps only to a slot its part uses
 (the real masks put some within reach of other parts' keys). In phase 2 the pad opens the grid with the right stick, not
 A, which stays the colour; in the grid A picks as planned. In phase 3 Memao's linked rows are marked `link: 'hair'` (not
@@ -15,7 +16,10 @@ for a pack with more. In B4 `States.index` is made cheap rather than called once
 shadow and effects follow the camera's culling a frame late (the billboards decide after the doodads update); and a
 light, a picture layer list or a switch list changed in place by a script (not through the API or the editor, which
 replace them) is seen once it is replaced. In B5 the usage index reads map and database files synchronously, but
-only those that changed on disk (a stat each), rather than reading them in the background.
+only those that changed on disk (a stat each), rather than reading them in the background. In B6 the changelog stays
+one Unreleased section until the release (the release checklist in CONTRIBUTING.md cuts it), the coverage suites
+are the slicer's and the export's (the other weak parts are the editor's HTML, covered by the manual checklist), and
+the 3D runtime and canvas input are split into five and four parts.
 
 **Goal:** two reviews on one day, written up as one plan. **Part A** makes the three character creators (LPC,
 Memao and MZ: `docs/LPC_CHARACTER_CREATOR_PLAN.md`, `docs/MEMAO_CHARACTER_CREATOR_PLAN.md`,

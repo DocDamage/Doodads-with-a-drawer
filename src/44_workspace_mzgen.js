@@ -176,7 +176,7 @@ Object.assign(DocsDoodads.Workspace, {
     // ---- On the Characters card ----
 
     mzgenCardHtml() {
-        const D = DocsDoodads, U = D.Ui, M = D.MzGen, FS = D.FS;
+        const D = DocsDoodads, U = D.Ui, M = D.MzGen;
         const folder = this.mzgenLibraryFolder();
         const index = this.mzgenIndex();
         const s = index ? M.summary(index) : null;

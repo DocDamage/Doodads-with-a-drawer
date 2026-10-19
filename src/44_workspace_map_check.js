@@ -20,7 +20,7 @@ DocsDoodads.Ui.mapColorMeanings.push(['reach', 'Check Reach: can walk here']);
 
 Object.assign(DocsDoodads.Workspace, {
     problemGroups: [
-        ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['offMap', 'Off the map'],
+        ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['badCondition', 'Conditions that don\'t run'], ['offMap', 'Off the map'],
         ['darkLamp', 'Lamps that never show'], ['blockedEvent', 'Events that can\'t be reached or touched'], ['unreachable', 'Out of reach'],
         // Project-wide, from the LPC character library (44_workspace_lpc_library.js).
         ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out']
@@ -48,6 +48,10 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     // The problems with the doodads of one map. mapData: the map's file (for its size), when not this map.
+    conditionCompiles(source) {
+        try { new Function(`return (${source});`); return true; } catch (error) { return false; }
+    },
+
     doodadProblems(mapId, list, mapData, cache) {
         const out = [];
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
@@ -81,6 +85,12 @@ Object.assign(DocsDoodads.Workspace, {
             if (d.sound && d.sound.file && !this.soundExists(d.sound.file, cache)) {
                 out.push(Object.assign({ kind: 'missingSound', text: `${name} (map ${mapId}) plays ${d.sound.file}, which is not in audio/.` }, where,
                     { fix: { label: 'Remove Sound', run: () => this.editDoodads([d], x => { delete x.sound; }, 'edit_doodads') } }));
+            }
+            // A condition is JavaScript (SECURITY.md); one that doesn't compile is taken as true, so it always shows.
+            const condition = String(d.condition || '').trim();
+            if (condition && !this.conditionCompiles(condition)) {
+                out.push(Object.assign({ kind: 'badCondition', text: `${name} (map ${mapId}): its condition "${condition.slice(0, 60)}" isn't JavaScript that runs, so it always shows.` }, where,
+                    { fix: { label: 'Remove Condition', run: () => this.editDoodads([d], x => { x.condition = ''; }, 'edit_doodads') } }));
             }
             if (size && d.posMode !== 0) {
                 const maxX = size.w * tw, maxY = size.h * th;

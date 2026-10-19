@@ -3,7 +3,7 @@
 //==========================================================
 /*:
  * @target MZ
- * @plugindesc Doc's Doodads - Asset Workspace & Doodad Engine [V2.0]
+ * @plugindesc Doc's Doodads - Asset Workspace & Doodad Engine [V2.0.0-alpha.1]
  * @author Doc
  *
  * @help
@@ -17,7 +17,9 @@
  * THE EDITOR (F10 in a playtest): a top bar of big tools (Select, Stamp, Scatter, Paint,
  * Path, Hills, Mirror, Grab, Undo, Redo, Steps, More, Save, Done), the Item Bag on the left,
  * Details on the right (both fold away), and a hint bubble saying what to do next. More holds
- * Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check and Info.
+ * about twenty more: Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check, Info, the
+ * grid, collision and sound views, Find a Tool, Messages, Look, Rooms, Packs, Characters (the
+ * character creators), Keys, Capture, Problems, Listen, Show Speed, How to Use and the layouts.
  *
  * KEY CAPABILITIES:
  * 1. Item Bag (asset browser):
@@ -1490,7 +1492,8 @@ const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
 const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
-const pluginVersion = 2.0;
+// The release, as in package.json and the header's @plugindesc (verify checks that the three agree).
+const pluginVersion = '2.0.0-alpha.1';
 const doodadScaleMode = parseBooleanParameter(parameters.doodadScaleMode, true);
 const saveMode = parseBooleanParameter(parameters.saveMode, false);
 const splitByMap = parseBooleanParameter(parameters.splitByMap, false);
@@ -10012,10 +10015,27 @@ if (typeof Spriteset_Map !== 'undefined') {
         }
     };
 
+    // Spriteset_Map.update is wrapped once, here: where the player was drawn is noted, MZ's own update
+    // runs, then each of Doc's Doodads' steps in this order (methods of the spriteset, each defined in its
+    // own part). A new step goes in this list, not in another wrapper.
+    DocsDoodads.spritesetSteps = [
+        'updateDocsDoodadsFrame',   // doodads, lighting, reflections, see-through, the editor's overlay (here)
+        'updateDocsVfx',            // played effects (here)
+        'updateDocsWeather2d',      // wind, picture layers, leaves, lightning (15_spriteset_map_layers_weather)
+        'updateDocsPerspective',    // the 3D view (17_perspective_runtime_1_view)
+        'updateDocsSkyVideoOnMap',  // a flat map's sky video (17_perspective_runtime_1_view)
+        'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
+        'updateDocsFlyShadow'       // the flying player's shadow (17_traversal)
+    ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
         this.captureDocsPlayer();
         $.Spriteset_Map_update.call(this);
+        const steps = DocsDoodads.spritesetSteps;
+        for (let i = 0; i < steps.length; i++) if (typeof this[steps[i]] === 'function') this[steps[i]]();
+    };
+
+    Spriteset_Map.prototype.updateDocsDoodadsFrame = function() {
         if (this._docsDoodadSprites) {
             for (let i = 0; i < this._docsDoodadSprites.length; i++) {
                 this._docsDoodadSprites[i].update();
@@ -10262,8 +10282,6 @@ if (typeof Spriteset_Map !== 'undefined') {
             override: fade ? fade.current : null, switchValue });
         if (workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
-        const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
-        const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.
         const visibleData = [];
         for (const sprite of this._docsDoodadSprites || []) {
@@ -10478,11 +10496,22 @@ DocsDoodads.setSeason = function(season) {
     }
 };
 
-// The clock moves with the map.
+// Game_Map.update is wrapped once, here: MZ's own update, then each step in this order (methods of the map,
+// given whether the scene is active). A new step goes in this list, not in another wrapper.
+DocsDoodads.mapSteps = [
+    'updateDocsClock',     // the clock moves with the map (here)
+    'updateDocsSounds',    // sound doodads, ambience, region sounds, echo (here)
+    'updateDocsCamera3d'   // 3D camera moves and turning (17_perspective_runtime_1_view)
+];
 if (typeof Game_Map !== 'undefined') {
     $.Game_Map_update = Game_Map.prototype.update;
     Game_Map.prototype.update = function(sceneActive) {
         $.Game_Map_update.call(this, sceneActive);
+        const steps = DocsDoodads.mapSteps;
+        for (let i = 0; i < steps.length; i++) if (typeof this[steps[i]] === 'function') this[steps[i]](sceneActive);
+    };
+
+    Game_Map.prototype.updateDocsClock = function(sceneActive) {
         DocsDoodads.Atmosphere.update(sceneActive);
     };
 }
@@ -11366,12 +11395,6 @@ if (typeof Spriteset_Map !== 'undefined') {
         DocsDoodads.CharacterAnim.preload();
     };
 
-    $.Spriteset_Map_update_vfx = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_vfx.call(this);
-        this.updateDocsVfx();
-    };
-
     Spriteset_Map.prototype.updateDocsVfx = function() {
         if (!this._tilemap || typeof Sprite_DocsVfx === 'undefined') return;
         const playing = DocsDoodads.Vfx._playing;
@@ -11768,8 +11791,24 @@ DocsDoodads.PlayerZoom = {
         return DocsDoodads.SpatialSound.musicScale(this.focus(), DocsDoodads.World.settings().focus);
     },
 
+    // + and - (and the number pad's) are given to zooming only while zooming by keys is on, so a game that
+    // doesn't use it keeps those keys for itself (or another plugin). A key already taken is left alone.
+    zoomKeys: [[187, 'docsZoomIn'], [107, 'docsZoomIn'], [189, 'docsZoomOut'], [109, 'docsZoomOut']],
+    mapKeys(on) {
+        if (typeof Input === 'undefined' || !Input.keyMapper) return;
+        for (const [code, name] of this.zoomKeys) {
+            if (on && !Input.keyMapper[code]) Input.keyMapper[code] = name;
+            else if (!on && Input.keyMapper[code] === name) delete Input.keyMapper[code];
+        }
+    },
+
     input() {
         const z = this.settings();
+        const keysOn = Boolean(z.enabled && z.keys);
+        if (keysOn !== Boolean(this._keysMapped)) {
+            this.mapKeys(keysOn);
+            this._keysMapped = keysOn;
+        }
         if (!z.enabled || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return;
         if (typeof $gameMessage !== 'undefined' && $gameMessage && $gameMessage.isBusy()) return;
         const step = Math.max(0.05, Number(z.step) || 0.25);
@@ -11838,13 +11877,6 @@ if (typeof AudioManager !== 'undefined' && AudioManager.updateBgmParameters) {
         const k = onMap ? DocsDoodads.PlayerZoom.musicScale() : 1;
         $.AudioManager_updateBgmParameters_focus.call(this, bgm && k < 1 ? Object.assign({}, bgm, { volume: (Number(bgm.volume) || 0) * k }) : bgm);
     };
-}
-
-if (typeof Input !== 'undefined' && Input.keyMapper) {
-    // + and - (and the number pad's) zoom when the Zoom setting allows it.
-    for (const [code, name] of [[187, 'docsZoomIn'], [107, 'docsZoomIn'], [189, 'docsZoomOut'], [109, 'docsZoomOut']]) {
-        if (!Input.keyMapper[code]) Input.keyMapper[code] = name;
-    }
 }
 
 if (typeof Scene_Map !== 'undefined') {
@@ -12230,9 +12262,7 @@ if (typeof WebAudio !== 'undefined' && WebAudio.prototype._createPannerNode) {
 }
 
 if (typeof Game_Map !== 'undefined') {
-    $.Game_Map_update_sound = Game_Map.prototype.update;
-    Game_Map.prototype.update = function(sceneActive) {
-        $.Game_Map_update_sound.call(this, sceneActive);
+    Game_Map.prototype.updateDocsSounds = function() {
         DocsDoodads.SoundEmitters.update();
         DocsDoodads.Ambience.update();
         DocsDoodads.RegionSounds.update();
@@ -12298,9 +12328,8 @@ DocsDoodads.MapLayers.fogBitmap = function() {
 };
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
-    $.Spriteset_Map_update_layers2d = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_layers2d.call(this);
+    // A step of Spriteset_Map.update (DocsDoodads.spritesetSteps).
+    Spriteset_Map.prototype.updateDocsWeather2d = function() {
         DocsDoodads.Wind.tick();
         const flat = !DocsDoodads.Perspective.active();
         this.updateDocsLayers2d(flat);
@@ -13857,6 +13886,11 @@ if (typeof Sprite_Animation !== 'undefined') {
     };
 }
 
+//==========================================================
+// SECTION 7I: PERSPECTIVE (3D) RUNTIME: THE VIEW
+//==========================================================
+// The 3D view on the map's spriteset (the ground texture, sky, billboards, weather, the minimap's frame),
+// MZ's scrolling around the camera, facing by the camera, and the camera plugin commands.
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     const P = DocsDoodads.Perspective;
 
@@ -14629,12 +14663,6 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (u.uGround !== undefined) u.uGround = [this._docs3dTexture.width, this._docs3dTexture.height];
     };
 
-    $.Spriteset_Map_update_3d = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_3d.call(this);
-        this.updateDocsPerspective();
-    };
-
     // In 3D the parallax is the sky: it turns with the camera and stays put as the party walks.
     $.Spriteset_Map_updateParallax_3d = Spriteset_Map.prototype.updateParallax;
     Spriteset_Map.prototype.updateParallax = function() {
@@ -14646,9 +14674,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
     };
 
-    $.Spriteset_Map_update_skyVideo = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_skyVideo.call(this);
+    // A step of Spriteset_Map.update (DocsDoodads.spritesetSteps).
+    Spriteset_Map.prototype.updateDocsSkyVideoOnMap = function() {
         if (typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId()) this.updateDocsFlatSkyVideo();
     };
 
@@ -14750,9 +14777,8 @@ if (typeof Game_Map !== 'undefined') {
     };
 
     // Camera moves from plugin commands, and Q / W turning on maps that allow it.
-    $.Game_Map_update_3d = Game_Map.prototype.update;
-    Game_Map.prototype.update = function(sceneActive) {
-        $.Game_Map_update_3d.call(this, sceneActive);
+    // A step of Game_Map.update (DocsDoodads.mapSteps).
+    Game_Map.prototype.updateDocsCamera3d = function(sceneActive) {
         if (this._docsCameraTween) {
             const now = P.stepTween(this._docsCameraTween);
             this._docsCamera = Object.assign({}, this._docsCamera, now);
@@ -14857,6 +14883,9 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 
+//==========================================================
+// SECTION 7I: PERSPECTIVE (3D) RUNTIME: TERRAIN
+//==========================================================
 // ---- Terrain height (3D view) ----
 // In play the map's terrain settings only change by being replaced, so the normalized copy is kept
 // while they stay the same object; the editor (whose brush paints in place) always works them out.
@@ -15536,6 +15565,9 @@ if (typeof Game_CharacterBase !== 'undefined') {
     };
 }
 
+//==========================================================
+// SECTION 7I: PERSPECTIVE (3D) RUNTIME: THE MINIMAP AND THE EXPLORED MAP
+//==========================================================
 // The current map as minimap pixels (cached per map).
 DocsDoodads.Minimap.forCurrentMap = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
@@ -15612,12 +15644,6 @@ DocsDoodads.Minimap.explore = function(map, cfg) {
 };
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
-    $.Spriteset_Map_update_minimap = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_minimap.call(this);
-        this.updateDocsMinimap();
-    };
-
     // A small map in the top-right corner with the player's arrow, on maps that ask for it (3D maps by
     // their 3D settings, flat maps by World > Minimap or their own choice). With fog of war, only what
     // the player has been near shows, and walking reveals more.
@@ -15686,6 +15712,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     };
 }
 
+//==========================================================
+// SECTION 7I: PERSPECTIVE (3D) RUNTIME: MODEL FILES
+//==========================================================
+// Reading glTF models (17_perspective_runtime_models.js draws them).
 // Loaded models by path (project-relative): { ready, error, primitives, textures }.
 DocsDoodads.Models = {
     _cache: {},
@@ -17245,13 +17275,7 @@ if (typeof Scene_Map !== 'undefined') {
 }
 
 if (typeof Spriteset_Map !== 'undefined' && typeof Sprite !== 'undefined') {
-    // A shadow on the ground under the flying player.
-    $.Spriteset_Map_update_traversal = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_traversal.call(this);
-        this.updateDocsFlyShadow();
-    };
-
+    // A shadow on the ground under the flying player (a step of Spriteset_Map.update).
     Spriteset_Map.prototype.updateDocsFlyShadow = function() {
         const alt = DocsDoodads.Traversal.altitude();
         let shadow = this._docsFlyShadow;
@@ -17307,8 +17331,9 @@ DocsDoodads.Compat = {
     isNwjs() {
         return typeof Utils !== 'undefined' && typeof Utils.isNwjs === 'function' ? Utils.isNwjs() : (typeof require !== 'undefined');
     },
+    // A playtest (MZ's "test" option). Without MZ's Utils it is not one, as FS.writable() also says.
     isTest() {
-        return typeof Utils !== 'undefined' && typeof Utils.isOptionValid === 'function' ? Utils.isOptionValid("test") : true;
+        return typeof Utils !== 'undefined' && typeof Utils.isOptionValid === 'function' ? Boolean(Utils.isOptionValid("test")) : false;
     },
     getCanvas() {
         if (typeof Graphics !== 'undefined') {
@@ -34012,24 +34037,9 @@ DocsDoodads.Workspace = {
                 return;
             }
 
-            const cmd = {
-                apply: () => {
-                    window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
-                    placed.forEach(d => window.$dataDocsDoodads[$gameMap.mapId()].push(d));
-                    DocsDoodads.Persistence.dirtyDoodads = true;
-                    this.refreshSpriteset();
-                },
-                revert: () => {
-                    const list = window.$dataDocsDoodads[$gameMap.mapId()] || [];
-                    placed.forEach(d => {
-                        const idx = list.indexOf(d);
-                        if (idx > -1) list.splice(idx, 1);
-                    });
-                    this.refreshSpriteset();
-                }
-            };
-            cmd.type = cmd.type || 'place_doodad';
-            DocsDoodads.Undo.execute(cmd);
+            const mapId = $gameMap.mapId();
+            const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+            DocsDoodads.Undo.execute(this.doodadListStep('place_doodad', list, placed, true));
             this.showToast("Placed Doodad on Map!");
         }
         DocsDoodads.AssetIndex.recordUsage(asset.id);
@@ -34245,23 +34255,7 @@ DocsDoodads.Workspace = {
         const sameMap = this._clipboardSourceMapId === undefined || this._clipboardSourceMapId === mapId;
         const duplicates = this.cloneDoodadsForCopy(this._clipboardDoodads, sameMap && !inPlace ? 16 : 0);
 
-        const cmd = {
-            type: 'paste_doodads',
-            apply: () => {
-                duplicates.forEach(d => list.push(d));
-                DocsDoodads.Persistence.dirtyDoodads = true;
-                this.refreshSpriteset();
-            },
-            revert: () => {
-                duplicates.forEach(d => {
-                    const i = list.indexOf(d);
-                    if (i > -1) list.splice(i, 1);
-                });
-                this.refreshSpriteset();
-            }
-        };
-        cmd.type = cmd.type || 'paste_doodads';
-        DocsDoodads.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(this.doodadListStep('paste_doodads', list, duplicates, true));
         this.selectDoodads(duplicates);
         this.showToast(`Pasted ${duplicates.length} doodad(s)${inPlace ? ' in place' : ''}${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
     },
@@ -34980,6 +34974,24 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // The undo step that adds doodads to a map's list (place, duplicate, paste) or takes them out (delete),
+    // on the list it is made for whatever map is shown when it is redone. Taken out and brought back, each
+    // returns to where it was in the list (in list order), so doodads with the same z keep their order.
+    doodadListStep(type, list, items, adding) {
+        const at = items.map(d => ({ d, index: list.indexOf(d) })).filter(r => adding || r.index > -1).sort((a, b) => a.index - b.index);
+        const add = () => {
+            if (adding) items.forEach(d => { if (!list.includes(d)) list.push(d); });
+            else at.forEach(r => { if (!list.includes(r.d)) list.splice(Math.min(r.index, list.length), 0, r.d); });
+            DocsDoodads.Persistence.dirtyDoodads = true;
+            this.refreshSpriteset();
+        };
+        const remove = () => {
+            items.forEach(d => { const i = list.indexOf(d); if (i > -1) list.splice(i, 1); });
+            this.refreshSpriteset();
+        };
+        return { type, apply: adding ? add : remove, revert: adding ? remove : add };
+    },
+
     deleteSelectedDoodad() {
         const items = (this.selectedDoodads && this.selectedDoodads.length > 0 ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : [])).filter(d => !d.locked);
         if (items.length === 0) {
@@ -34991,25 +35003,7 @@ DocsDoodads.Workspace = {
         const mapId = (window.$gameMap && typeof window.$gameMap.mapId === 'function') ? window.$gameMap.mapId() : 0;
         const list = (window.$dataDocsDoodads && window.$dataDocsDoodads[mapId]) ? window.$dataDocsDoodads[mapId] : [];
         const toDelete = [...items];
-        const deletedRecords = toDelete.map(d => ({ doodad: d, index: list.indexOf(d) })).filter(r => r.index > -1);
-
-        const cmd = {
-            apply: () => {
-                toDelete.forEach(d => {
-                    const idx = list.indexOf(d);
-                    if (idx > -1) list.splice(idx, 1);
-                });
-                this.refreshSpriteset();
-            },
-            revert: () => {
-                deletedRecords.forEach(r => {
-                    if (!list.includes(r.doodad)) list.splice(r.index, 0, r.doodad);
-                });
-                this.refreshSpriteset();
-            }
-        };
-        cmd.type = cmd.type || 'delete_doodads';
-        DocsDoodads.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(this.doodadListStep('delete_doodads', list, toDelete, false));
         this.selectedDoodad = null;
         this.selectedDoodads = [];
         this.refreshInspector();
@@ -35024,22 +35018,7 @@ DocsDoodads.Workspace = {
         const duplicates = [];
 
         duplicates.push(...this.cloneDoodadsForCopy(items));
-
-        const cmd = {
-            apply: () => {
-                duplicates.forEach(d => list.push(d));
-                this.refreshSpriteset();
-            },
-            revert: () => {
-                duplicates.forEach(d => {
-                    const i = list.indexOf(d);
-                    if (i > -1) list.splice(i, 1);
-                });
-                this.refreshSpriteset();
-            }
-        };
-        cmd.type = cmd.type || 'duplicate_doodads';
-        DocsDoodads.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(this.doodadListStep('duplicate_doodads', list, duplicates, true));
         this.selectDoodads(duplicates);
         this.showToast(`Duplicated ${duplicates.length} Doodad(s)`);
     },
@@ -35061,8 +35040,12 @@ DocsDoodads.Workspace = {
             document.body.appendChild(this.ghostEl);
         }
 
+        // img.src reads back as an absolute URL, so the path last set is kept to compare with.
         const img = document.getElementById('dd-ghost-img');
-        if (img && img.src !== asset.path) img.src = asset.path;
+        if (img && this._ghostPath !== asset.path) {
+            this._ghostPath = asset.path;
+            img.src = asset.path;
+        }
 
         let posX = clientX;
         let posY = clientY;
@@ -35093,6 +35076,7 @@ DocsDoodads.Workspace = {
             this.ghostEl.parentNode.removeChild(this.ghostEl);
         }
         this.ghostEl = null;
+        this._ghostPath = null;
     },
 
     // Bottom-centre of the tile under a map point (the default placement spot).
@@ -35155,6 +35139,7 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // ---- The mouse on the map: listeners, camera drags, scatter, the eyedropper, hit tests and picking ----
     attachCanvasListeners() {
         const canvas = DocsDoodads.Compat.getCanvas();
         if (!canvas) return;
@@ -35807,8 +35792,6 @@ DocsDoodads.Workspace = {
     selectionScreenRects() {
         const items = this.selectedDoodads && this.selectedDoodads.length > 0
             ? this.selectedDoodads : (this.selectedDoodad ? [this.selectedDoodad] : []);
-        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
-        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         return items.filter(d => !d.editorHidden).map(d => {
             const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1);
             const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
@@ -35923,6 +35906,7 @@ DocsDoodads.Workspace = {
         }
     },
 
+    // ---- Events, the right-click menu, sounds on events and bringing in files ----
     showAskEventModal(payload, coords, isAlt) {
         const modal = document.createElement('div');
         modal.className = 'dd-glass';
@@ -36016,14 +36000,15 @@ DocsDoodads.Workspace = {
 
         const cmd = {
             type: 'delete_event',
+            // Undo.syncEvents hides and shows the game's event, so an event the game erased itself stays erased.
             apply: () => {
                 delete $gameMap._stagedMapData.events[evId];
-                if (ge && ge._erased !== undefined) ge._erased = true;
+                DocsDoodads.Undo.syncEvents();
                 DocsDoodads.Persistence.dirtyMap = true;
             },
             revert: () => {
                 $gameMap._stagedMapData.events[evId] = oldEv;
-                if (ge && ge._erased !== undefined) ge._erased = false;
+                DocsDoodads.Undo.syncEvents();
                 DocsDoodads.Persistence.dirtyMap = true;
             }
         };
@@ -36440,6 +36425,7 @@ DocsDoodads.Workspace = {
         return answer;
     },
 
+    // ---- Info, backups, recovery notices, messages and the undo buttons; DocsDoodads.Workspace ends here ----
     openDiagnosticsModal() {
         const diag = document.createElement('div');
         diag.className = 'dd-glass';
@@ -40206,7 +40192,7 @@ DocsDoodads.Ui.mapColorMeanings.push(['reach', 'Check Reach: can walk here']);
 
 Object.assign(DocsDoodads.Workspace, {
     problemGroups: [
-        ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['offMap', 'Off the map'],
+        ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['badCondition', 'Conditions that don\'t run'], ['offMap', 'Off the map'],
         ['darkLamp', 'Lamps that never show'], ['blockedEvent', 'Events that can\'t be reached or touched'], ['unreachable', 'Out of reach'],
         // Project-wide, from the LPC character library (44_workspace_lpc_library.js).
         ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out']
@@ -40234,6 +40220,10 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     // The problems with the doodads of one map. mapData: the map's file (for its size), when not this map.
+    conditionCompiles(source) {
+        try { new Function(`return (${source});`); return true; } catch (error) { return false; }
+    },
+
     doodadProblems(mapId, list, mapData, cache) {
         const out = [];
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
@@ -40267,6 +40257,12 @@ Object.assign(DocsDoodads.Workspace, {
             if (d.sound && d.sound.file && !this.soundExists(d.sound.file, cache)) {
                 out.push(Object.assign({ kind: 'missingSound', text: `${name} (map ${mapId}) plays ${d.sound.file}, which is not in audio/.` }, where,
                     { fix: { label: 'Remove Sound', run: () => this.editDoodads([d], x => { delete x.sound; }, 'edit_doodads') } }));
+            }
+            // A condition is JavaScript (SECURITY.md); one that doesn't compile is taken as true, so it always shows.
+            const condition = String(d.condition || '').trim();
+            if (condition && !this.conditionCompiles(condition)) {
+                out.push(Object.assign({ kind: 'badCondition', text: `${name} (map ${mapId}): its condition "${condition.slice(0, 60)}" isn't JavaScript that runs, so it always shows.` }, where,
+                    { fix: { label: 'Remove Condition', run: () => this.editDoodads([d], x => { x.condition = ''; }, 'edit_doodads') } }));
             }
             if (size && d.posMode !== 0) {
                 const maxX = size.w * tw, maxY = size.h * th;
@@ -41528,7 +41524,7 @@ Object.assign(DocsDoodads.Workspace, {
     // ---- On the Characters card ----
 
     mzgenCardHtml() {
-        const D = DocsDoodads, U = D.Ui, M = D.MzGen, FS = D.FS;
+        const D = DocsDoodads, U = D.Ui, M = D.MzGen;
         const folder = this.mzgenLibraryFolder();
         const index = this.mzgenIndex();
         const s = index ? M.summary(index) : null;
@@ -41962,17 +41958,19 @@ DocsDoodads.SampleArt = {
 };
 
 // What changed in this version, shown once after an update (and from How to Use).
+// Shown once to people updating, after the welcome. Its id is the release (verify checks it matches the
+// version), and its items are the head of CHANGELOG.md in a line each.
 DocsDoodads.WhatsNew = {
-    id: '2026-10-editor',
-    title: 'New in the editor',
+    id: '2.0.0-alpha.1',
+    title: 'New in this version',
     items: [
-        'Questions come up in the editor\'s own cards, and closing with unsaved work asks first.',
-        'Select All, Same Art, Replace Art, Paste in Place, and handles to resize and turn.',
-        'Scatter erases with the right button; Hills shows heights; [ and ] size the brushes.',
-        'Show Collision, Show Sounds, Listen, Show Speed, and a status bar along the bottom.',
-        'Sort the Item Bag, folder view, saved searches, and a card when you rest on an item.',
-        'Look: bigger sizes, dark and high-contrast themes, colour-blind-safe map colours.',
-        'A clock to preview any time and season, map tabs, and a smarter Ctrl+K.'
+        'Character Creator: three libraries in one window, a grid of pictures, locks, undo and recipes.',
+        'Big maps run faster: off-screen doodads wait, so 3,000 doodads hold 60 frames a second.',
+        'The editor saves less and sooner: a compact library, the crash snapshot only when changed.',
+        'Tab and the arrow keys move through the editor, and the right-click menu works with keys.',
+        'Rebuild Index keeps your tags; packs ask before replacing; Show Hidden Doodads brings them back.',
+        'Sound effects keep their own pitch and volume; turn on variation if you want it.',
+        'Problems lists conditions that don\'t run, beside missing pictures and sounds.'
     ]
 };
 

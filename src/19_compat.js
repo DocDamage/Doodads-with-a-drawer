@@ -5,8 +5,9 @@ DocsDoodads.Compat = {
     isNwjs() {
         return typeof Utils !== 'undefined' && typeof Utils.isNwjs === 'function' ? Utils.isNwjs() : (typeof require !== 'undefined');
     },
+    // A playtest (MZ's "test" option). Without MZ's Utils it is not one, as FS.writable() also says.
     isTest() {
-        return typeof Utils !== 'undefined' && typeof Utils.isOptionValid === 'function' ? Utils.isOptionValid("test") : true;
+        return typeof Utils !== 'undefined' && typeof Utils.isOptionValid === 'function' ? Boolean(Utils.isOptionValid("test")) : false;
     },
     getCanvas() {
         if (typeof Graphics !== 'undefined') {

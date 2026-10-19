@@ -30,9 +30,8 @@ DocsDoodads.MapLayers.fogBitmap = function() {
 };
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
-    $.Spriteset_Map_update_layers2d = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_layers2d.call(this);
+    // A step of Spriteset_Map.update (DocsDoodads.spritesetSteps).
+    Spriteset_Map.prototype.updateDocsWeather2d = function() {
         DocsDoodads.Wind.tick();
         const flat = !DocsDoodads.Perspective.active();
         this.updateDocsLayers2d(flat);

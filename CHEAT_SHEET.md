@@ -44,6 +44,8 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `[d1]` | One row, mirrored for the other side. | 10 |
 | `[d8]` | Eight directions (diagonals). | 10 |
 | `[w2]` | With `[fN]`: frame 0 stands, the rest walk, one cycle every 2 tiles. | 10 |
+| `[b32]` | Each frame has 32 pixels of art below the feet (a weapon swung down); the character still stands on its feet. | 10 |
+| `[h64]` | In a side-view battler's name: the figure is 64 pixels tall in a bigger cell, so battle animations play on the figure. | 20 |
 | `Name_idle`, `Name_run` | Idle and run cycles for the sheet `Name`, found automatically. | 10 |
 | `$Name` | One character on the sheet (MZ's own rule). | |
 

@@ -73,10 +73,27 @@ if (typeof Spriteset_Map !== 'undefined') {
         }
     };
 
+    // Spriteset_Map.update is wrapped once, here: where the player was drawn is noted, MZ's own update
+    // runs, then each of Doc's Doodads' steps in this order (methods of the spriteset, each defined in its
+    // own part). A new step goes in this list, not in another wrapper.
+    DocsDoodads.spritesetSteps = [
+        'updateDocsDoodadsFrame',   // doodads, lighting, reflections, see-through, the editor's overlay (here)
+        'updateDocsVfx',            // played effects (here)
+        'updateDocsWeather2d',      // wind, picture layers, leaves, lightning (15_spriteset_map_layers_weather)
+        'updateDocsPerspective',    // the 3D view (17_perspective_runtime_1_view)
+        'updateDocsSkyVideoOnMap',  // a flat map's sky video (17_perspective_runtime_1_view)
+        'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
+        'updateDocsFlyShadow'       // the flying player's shadow (17_traversal)
+    ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
         this.captureDocsPlayer();
         $.Spriteset_Map_update.call(this);
+        const steps = DocsDoodads.spritesetSteps;
+        for (let i = 0; i < steps.length; i++) if (typeof this[steps[i]] === 'function') this[steps[i]]();
+    };
+
+    Spriteset_Map.prototype.updateDocsDoodadsFrame = function() {
         if (this._docsDoodadSprites) {
             for (let i = 0; i < this._docsDoodadSprites.length; i++) {
                 this._docsDoodadSprites[i].update();
@@ -323,8 +340,6 @@ if (typeof Spriteset_Map !== 'undefined') {
             override: fade ? fade.current : null, switchValue });
         if (workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
-        const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
-        const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.
         const visibleData = [];
         for (const sprite of this._docsDoodadSprites || []) {
@@ -539,11 +554,22 @@ DocsDoodads.setSeason = function(season) {
     }
 };
 
-// The clock moves with the map.
+// Game_Map.update is wrapped once, here: MZ's own update, then each step in this order (methods of the map,
+// given whether the scene is active). A new step goes in this list, not in another wrapper.
+DocsDoodads.mapSteps = [
+    'updateDocsClock',     // the clock moves with the map (here)
+    'updateDocsSounds',    // sound doodads, ambience, region sounds, echo (here)
+    'updateDocsCamera3d'   // 3D camera moves and turning (17_perspective_runtime_1_view)
+];
 if (typeof Game_Map !== 'undefined') {
     $.Game_Map_update = Game_Map.prototype.update;
     Game_Map.prototype.update = function(sceneActive) {
         $.Game_Map_update.call(this, sceneActive);
+        const steps = DocsDoodads.mapSteps;
+        for (let i = 0; i < steps.length; i++) if (typeof this[steps[i]] === 'function') this[steps[i]](sceneActive);
+    };
+
+    Game_Map.prototype.updateDocsClock = function(sceneActive) {
         DocsDoodads.Atmosphere.update(sceneActive);
     };
 }
@@ -1427,12 +1453,6 @@ if (typeof Spriteset_Map !== 'undefined') {
         DocsDoodads.CharacterAnim.preload();
     };
 
-    $.Spriteset_Map_update_vfx = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_vfx.call(this);
-        this.updateDocsVfx();
-    };
-
     Spriteset_Map.prototype.updateDocsVfx = function() {
         if (!this._tilemap || typeof Sprite_DocsVfx === 'undefined') return;
         const playing = DocsDoodads.Vfx._playing;
@@ -1829,8 +1849,24 @@ DocsDoodads.PlayerZoom = {
         return DocsDoodads.SpatialSound.musicScale(this.focus(), DocsDoodads.World.settings().focus);
     },
 
+    // + and - (and the number pad's) are given to zooming only while zooming by keys is on, so a game that
+    // doesn't use it keeps those keys for itself (or another plugin). A key already taken is left alone.
+    zoomKeys: [[187, 'docsZoomIn'], [107, 'docsZoomIn'], [189, 'docsZoomOut'], [109, 'docsZoomOut']],
+    mapKeys(on) {
+        if (typeof Input === 'undefined' || !Input.keyMapper) return;
+        for (const [code, name] of this.zoomKeys) {
+            if (on && !Input.keyMapper[code]) Input.keyMapper[code] = name;
+            else if (!on && Input.keyMapper[code] === name) delete Input.keyMapper[code];
+        }
+    },
+
     input() {
         const z = this.settings();
+        const keysOn = Boolean(z.enabled && z.keys);
+        if (keysOn !== Boolean(this._keysMapped)) {
+            this.mapKeys(keysOn);
+            this._keysMapped = keysOn;
+        }
         if (!z.enabled || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return;
         if (typeof $gameMessage !== 'undefined' && $gameMessage && $gameMessage.isBusy()) return;
         const step = Math.max(0.05, Number(z.step) || 0.25);
@@ -1899,13 +1935,6 @@ if (typeof AudioManager !== 'undefined' && AudioManager.updateBgmParameters) {
         const k = onMap ? DocsDoodads.PlayerZoom.musicScale() : 1;
         $.AudioManager_updateBgmParameters_focus.call(this, bgm && k < 1 ? Object.assign({}, bgm, { volume: (Number(bgm.volume) || 0) * k }) : bgm);
     };
-}
-
-if (typeof Input !== 'undefined' && Input.keyMapper) {
-    // + and - (and the number pad's) zoom when the Zoom setting allows it.
-    for (const [code, name] of [[187, 'docsZoomIn'], [107, 'docsZoomIn'], [189, 'docsZoomOut'], [109, 'docsZoomOut']]) {
-        if (!Input.keyMapper[code]) Input.keyMapper[code] = name;
-    }
 }
 
 if (typeof Scene_Map !== 'undefined') {
@@ -2291,9 +2320,7 @@ if (typeof WebAudio !== 'undefined' && WebAudio.prototype._createPannerNode) {
 }
 
 if (typeof Game_Map !== 'undefined') {
-    $.Game_Map_update_sound = Game_Map.prototype.update;
-    Game_Map.prototype.update = function(sceneActive) {
-        $.Game_Map_update_sound.call(this, sceneActive);
+    Game_Map.prototype.updateDocsSounds = function() {
         DocsDoodads.SoundEmitters.update();
         DocsDoodads.Ambience.update();
         DocsDoodads.RegionSounds.update();

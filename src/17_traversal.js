@@ -590,13 +590,7 @@ if (typeof Scene_Map !== 'undefined') {
 }
 
 if (typeof Spriteset_Map !== 'undefined' && typeof Sprite !== 'undefined') {
-    // A shadow on the ground under the flying player.
-    $.Spriteset_Map_update_traversal = Spriteset_Map.prototype.update;
-    Spriteset_Map.prototype.update = function() {
-        $.Spriteset_Map_update_traversal.call(this);
-        this.updateDocsFlyShadow();
-    };
-
+    // A shadow on the ground under the flying player (a step of Spriteset_Map.update).
     Spriteset_Map.prototype.updateDocsFlyShadow = function() {
         const alt = DocsDoodads.Traversal.altitude();
         let shadow = this._docsFlyShadow;

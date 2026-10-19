@@ -52,7 +52,8 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Editor Enabled** (`editorMode`) | Boolean | `true` | Enables in-game asset workspace during playtest. |
 | **Doodads Data File Name** (`dataFileName`) | Text | `DocsDoodads` | JSON filename in `data/` (without `.json`). |
 | **Doodad Files** (`splitByMap`) | Boolean | `false` | One file per map: the settings stay in the data file, and each map's doodads go in `data/DocsDoodads/DocsDoodads-Map003.json` (smaller diffs in Git). |
-| **Texture Scaling Mode** (`doodadScaleMode`) | Boolean | `true` | `true` for Smooth / Linear, `false` for Pixelated / Nearest. |
+| **Doodad Scaling Mode** (`doodadScaleMode`) | Boolean | `true` | `true` for Smooth / Linear, `false` for Pixelated / Nearest. |
+| **Doodad JSON Formatting** (`saveMode`) | Boolean | `false` | `true` writes the doodads file compact (minified), `false` formatted (indented, easier to read and compare). |
 | **Default Workspace Layout** (`defaultLayout`) | Select | `Mapping` | Startup layout preset (`Mapping`, `Events`, `Characters`, `Tiles`, `Compact`). |
 | **Default Thumbnail Size** (`defaultThumbnailSize`) | Number | `96` | Initial card size in pixels (32 to 256). |
 | **Asset Cache Enabled** (`cacheEnabled`) | Boolean | `true` | Caches metadata & disk thumbnails for instant opening. |

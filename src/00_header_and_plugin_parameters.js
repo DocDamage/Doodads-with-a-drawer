@@ -3,7 +3,7 @@
 //==========================================================
 /*:
  * @target MZ
- * @plugindesc Doc's Doodads - Asset Workspace & Doodad Engine [V2.0]
+ * @plugindesc Doc's Doodads - Asset Workspace & Doodad Engine [V2.0.0-alpha.1]
  * @author Doc
  *
  * @help
@@ -17,7 +17,9 @@
  * THE EDITOR (F10 in a playtest): a top bar of big tools (Select, Stamp, Scatter, Paint,
  * Path, Hills, Mirror, Grab, Undo, Redo, Steps, More, Save, Done), the Item Bag on the left,
  * Details on the right (both fold away), and a hint bubble saying what to do next. More holds
- * Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check and Info.
+ * about twenty more: Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check, Info, the
+ * grid, collision and sound views, Find a Tool, Messages, Look, Rooms, Packs, Characters (the
+ * character creators), Keys, Capture, Problems, Listen, Show Speed, How to Use and the layouts.
  *
  * KEY CAPABILITIES:
  * 1. Item Bag (asset browser):

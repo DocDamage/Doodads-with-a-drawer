@@ -22,6 +22,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run verify
+      # Linux runs the suites once, under coverage; Windows runs them in verify.
+      - if: runner.os != 'Linux'
+        run: npm run verify
+      - if: runner.os == 'Linux'
+        run: npm run verify -- --skip-tests
       - if: runner.os == 'Linux'
         run: npm run coverage

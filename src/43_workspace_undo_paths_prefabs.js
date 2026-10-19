@@ -123,23 +123,7 @@
         const sameMap = this._clipboardSourceMapId === undefined || this._clipboardSourceMapId === mapId;
         const duplicates = this.cloneDoodadsForCopy(this._clipboardDoodads, sameMap && !inPlace ? 16 : 0);
 
-        const cmd = {
-            type: 'paste_doodads',
-            apply: () => {
-                duplicates.forEach(d => list.push(d));
-                DocsDoodads.Persistence.dirtyDoodads = true;
-                this.refreshSpriteset();
-            },
-            revert: () => {
-                duplicates.forEach(d => {
-                    const i = list.indexOf(d);
-                    if (i > -1) list.splice(i, 1);
-                });
-                this.refreshSpriteset();
-            }
-        };
-        cmd.type = cmd.type || 'paste_doodads';
-        DocsDoodads.Undo.execute(cmd);
+        DocsDoodads.Undo.execute(this.doodadListStep('paste_doodads', list, duplicates, true));
         this.selectDoodads(duplicates);
         this.showToast(`Pasted ${duplicates.length} doodad(s)${inPlace ? ' in place' : ''}${sameMap ? '' : ` from map ${this._clipboardSourceMapId}`}`);
     },

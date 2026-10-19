@@ -171,6 +171,14 @@ Test these on an exterior map and on a looping world map.
 - [ ] Bring in a folder of files: the card closes and a pill counts them; Cancel stops it. Pack a map with many pictures and Cancel: nothing is written. Auto-Slice a big sheet: a pill with Cancel.
 - [ ] Question cards (save a layout, add to a collection, rename a prefab, Cut into a grid): the name is selected to type over, Enter answers, Esc and a click outside cancel, and editor shortcuts don't fire behind the card.
 - [ ] Delete a layer with doodads on it, a collection and a prefab: each asks with a red button; an empty layer goes without asking.
+- [ ] Playful theme (Look): buttons bounce and cards are rounder; every card, pill and dialog is readable; Less motion stops the bounce; switch back to Light.
+- [ ] Rooms card: rename a room and delete one (it asks); place a room over doodads already there, then Undo: the map is as before.
+- [ ] Packs card: make a pack with the name of one already there: it asks before replacing; a pack whose files point into `data/` is refused with a reason.
+- [ ] Docking at 125% Look: Details docked at the bottom, the Item Bag at the right; the map area shrinks to fit and the hint bubble stays on the map; undock both.
+- [ ] Language: a filled-in language file with a string left empty shows that one in English; the choice survives reopening the editor; back to English everywhere.
+- [ ] Capture with Show Grid and Show Collision on: neither is in the picture; Capture at 2× gives a picture twice the size.
+- [ ] Show Speed on a map with 3,000 doodads (flat and 3D): about 60 frames a second and a few hundred draw calls; walk to the map's far side: doodads appear as they come on screen, lamps light the edge before they do.
+- [ ] Problems: a doodad whose condition isn't JavaScript (`$gameSwitches.value(`) is listed under Conditions that don't run; Remove Condition fixes it.
 
 ## Traversal, zoom and sound focus
 

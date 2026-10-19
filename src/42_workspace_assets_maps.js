@@ -1028,24 +1028,9 @@
                 return;
             }
 
-            const cmd = {
-                apply: () => {
-                    window.$dataDocsDoodads[$gameMap.mapId()] = window.$dataDocsDoodads[$gameMap.mapId()] || [];
-                    placed.forEach(d => window.$dataDocsDoodads[$gameMap.mapId()].push(d));
-                    DocsDoodads.Persistence.dirtyDoodads = true;
-                    this.refreshSpriteset();
-                },
-                revert: () => {
-                    const list = window.$dataDocsDoodads[$gameMap.mapId()] || [];
-                    placed.forEach(d => {
-                        const idx = list.indexOf(d);
-                        if (idx > -1) list.splice(idx, 1);
-                    });
-                    this.refreshSpriteset();
-                }
-            };
-            cmd.type = cmd.type || 'place_doodad';
-            DocsDoodads.Undo.execute(cmd);
+            const mapId = $gameMap.mapId();
+            const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+            DocsDoodads.Undo.execute(this.doodadListStep('place_doodad', list, placed, true));
             this.showToast("Placed Doodad on Map!");
         }
         DocsDoodads.AssetIndex.recordUsage(asset.id);
