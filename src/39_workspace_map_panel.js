@@ -763,6 +763,7 @@
         add('Tool: Path', () => this.setPlacementTool('path'), null, K('toolPath'));
         add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'), null, K('toolHills'));
         add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'), null, K('toolRegions'));
+        add('Tool: Tiles (paint MZ tiles)', () => this.setPlacementTool('tiles'), null, K('toolTiles'));
         add('Tool: Select', () => this.setPlacementTool(null), null, K('toolSelect'));
         add('Select All', () => this.selectAllDoodads(), null, K('selectAll'));
         add('Invert Selection', () => this.invertSelection());
@@ -921,6 +922,7 @@
         on('dd-terrain-radius', 'oninput', e => { this.terrainBrush.radius = parseInt(e.target.value, 10) || 0; const v = byId('dd-terrain-radius-val'); if (v) v.textContent = e.target.value; });
         on('dd-terrain-value', 'onchange', e => { this.terrainBrush.value = parseFloat(e.target.value) || 0; });
         this.bindRegionTool();
+        if (this.bindTilesTool) this.bindTilesTool();
         const symPop = byId('dd-sym-popover');
         on('dd-sym-btn', 'onclick', () => {
             if (!symPop) return;

@@ -2,6 +2,8 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Tiles (top bar): paint MZ's own tiles in a playtest from the map's tileset (A1 to E, blocks of B to E tiles), with autotiles joining up as in MZ's editor (shapes checked against MZ's tables), automatic or chosen layers, an eraser, Alt+click to pick up, one undo step a stroke, saved into the map file.
+- Shaped lights: cones that point a way, light presets (torch, candle, campfire, lantern, neon, crystal, spotlight, moonbeam, window glow), walls that stop light on flat maps (impassable tiles and listed regions cast shadows), and a flashlight the player carries that turns to face, with a Flashlight plugin command.
 - Docking: drag the Item Bag or Details by its title to the left, right or bottom (or choose in More > Look); edges facing the map resize them, two panels can share a side or the bottom, and where they are is remembered per layout (Save Layout keeps it too). The status bar, hint and readouts follow the map's area.
 - Accessibility: names for every control and panel for screen readers, messages read out, the Item Bag as a list the arrow keys move through (Enter picks), F6 and Shift+F6 between panels, a visible focus ring, and Less motion (More > Look, or the system's reduced-motion setting).
 - A language layer for the editor: translations in data/DocsDoodadsLanguages/<code>.json, keyed by the English words (with {name} for values), picked in More > Look; untranslated words stay English. `npm run strings` writes a template of every English string. Only English ships.

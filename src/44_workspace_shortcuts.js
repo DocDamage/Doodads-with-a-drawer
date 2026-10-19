@@ -50,6 +50,7 @@ Object.assign(DocsDoodads.Workspace, {
             toolPath: tool('path'),
             toolHills: tool('terrain'),
             toolRegions: tool('region'),
+            toolTiles: tool('tiles'),
             toolGrab: tool('eyedropper'),
             rooms: () => this.showRoomsCard(),
             brushSmaller: () => this.resizeBrush(-1) || false,
@@ -77,6 +78,7 @@ Object.assign(DocsDoodads.Workspace, {
         'dd-path-btn': ['toolPath', 'Path: lay the picked item along a line you click out'],
         'dd-terrain-btn': ['toolHills', 'Hills: raise and lower the ground (3D view)'],
         'dd-region-btn': ['toolRegions', 'Regions: paint region numbers on tiles (and see terrain tags)'],
+        'dd-tiles-btn': ['toolTiles', "Tiles: paint the map's own tiles, autotiles too"],
         'dd-eyedropper-btn': ['toolGrab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)']
     },
 

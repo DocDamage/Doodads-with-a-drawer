@@ -85,6 +85,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Looks by time: add a time look (Golden Hour, 17:00 to 19:30, fade 60) and scrub the clock bar from 15:00 to 21:00: it eases in, holds, eases out. Turn Looks by time of day off for an interior map: it stays plain.
 - [ ] Looks by region: paint region 5, give it Underwater (fade 1 s), walk on and off it in play: it fades in and out; a map's own region 5 look wins over the game-wide one; transfer onto region 5 and it is already in. The eye button previews it while editing.
 - [ ] Close the editor with Screen Looks and File Check open; both close too.
+- [ ] Tiles: paint grass (A2) in a patch, a road through it, water (A1) with a shore, a roof (A3) and a wall (A4); each joins up as in MZ's editor; B tiles stack two high; Eraser; Alt+click; undo a stroke; save, reopen the project in MZ: the tiles are there.
+- [ ] Lights: a Torch preset lamp and a Spotlight cone pointing left on a dark map; Walls stop light on: the light stops at walls; the flashlight on (World > Lighting) turns with the player and stops at walls; the Flashlight command off and on.
 - [ ] Docking: drag the Item Bag to the bottom and Details to the left; resize both; switch layouts and back; close and reopen the editor: each layout keeps its own.
 - [ ] Keyboard only: F6 through the panels, arrows and Enter in the Item Bag, Tab through Details; a screen reader (Narrator) names the buttons. Less motion stops the animations.
 - [ ] Language: copy languages/template.json to data/DocsDoodadsLanguages/test.json, fill in a few strings, pick it in Look: those words change everywhere they show.

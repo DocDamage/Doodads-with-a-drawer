@@ -262,6 +262,11 @@ Moving characters blur along their direction, more when dashing; transfers and j
 ### Appear and Disappear
 Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**, **Dissolve** or **Crumble** in and out over a set number of frames, instead of blinking.
 
+### Shaped lights, presets, the flashlight and wall shadows
+- In a doodad's **Light** section: **Preset** sets the colour, size, flicker and shape at once (Torch, Candle, Campfire, Lantern, Neon pink and blue, Crystal, Spotlight, Moonbeam, Window glow); change anything after. **Shape: Cone** points the light one way (**Points**: 0 right, 90 down, 180 left, 270 up) with a **Cone width**.
+- **World → Lighting on Flat Maps → Walls stop light**: light stops at tiles nobody can walk on (and any regions listed as walls), so walls cast dark edges. Each light can follow that, or always or never stop at walls (**Walls stop it**). **Shadow detail** is how many rays each light casts; outlines are worked out again only when a light or the map changes.
+- **The flashlight**: the player can carry one (World → Lighting on Flat Maps), only while a switch is on if you like. It points where the player faces and turns smoothly; walls stop it too. The **Flashlight** plugin command turns it on or off for the playthrough, or back to the setting. Lights show only where the map is dark (ambient darkness, night).
+
 ### Layers, wind, lightning and the camera on flat maps
 - **Background and Overlay Layers** (the map's settings, flat maps): any number of pictures from `img/parallaxes`, each **behind the tiles** (above MZ's own parallax) or **over the map** (over characters, under weather and pictures). Each has how much it **follows the camera** (0 = fixed to the screen, 1 = moves with the map, in between = far away), its own **scroll** across and down, **zoom**, **opacity**, **blend** (normal, add, multiply, screen) and whether it **repeats** across and down. **Fog Banks** adds soft fog drawn by the game (`#fog` as the picture) that **drifts with the wind**. Layers draw in the order listed (↑ moves one further back). The 3D view has its own sky and fog, so layers show on flat maps only.
 - **World → Weather on Flat Maps**: **Wind** (0 calm to 1 gale), its direction and **gusts**; rain and storms make it windier. The wind leans doodads that **Sway**, pushes particles (smoke, leaves, sparks) and fog layers, and can blow **leaves** across the screen (with their colour). **Lightning in storms** flashes the screen about every few seconds in a full storm (rarer in weaker ones), and the **thunder** comes after: soon for near strikes, up to the delay set for far ones. **Set Wind** changes the wind during play, easing over some frames.
@@ -465,6 +470,9 @@ The map panel has many sections. Type in **Search settings** at its top (for exa
 The **Steps** button next to Undo and Redo lists the undo steps by name (Place doodad, Move doodads, Terrain height, Dress map...), oldest first, with the current point highlighted. Click a step to go back to just after it, or forward again to a greyed-out step; *(Start)* undoes everything. Making a new change after going back drops the greyed-out steps, as Undo does. The list holds the last 300 steps.
 
 Each map keeps its own steps. Going to another map parks this map's steps; coming back brings them back, with a toast saying how many (Undo and Steps work there again). If the map file was changed in MZ meanwhile, its steps are let go instead. The last ten maps you left keep their steps; **Discard** clears them all.
+
+### Tiles (painting MZ tiles)
+**Tiles** (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs **A1** to **E**. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. **Layer: Automatic** puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. **Eraser** takes the top tile off. **Alt+click** picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied.
 
 ### Regions
 The **Regions** tool paints MZ region numbers onto the map's tiles, the ones dressing rules, biomes, region sounds, footsteps, ambience, climbing, ice, no-fly zones and terrain height read. Pick the number (0 rubs regions out) and the size (1 to 13 tiles across, **[** and **]**), then drag on the map; each stroke is one undo step and is saved into the map file with your other map edits. **Alt+click** a tile to pick up its region. While the tool is out, each painted tile shows its region's colour and number. The card's legend lists the regions on this map, how many tiles each covers and what the project uses it for; click one to paint with it. **Show terrain tags** marks tiles that have a terrain tag (T1, T2...). Terrain tags belong to the tileset in MZ's database, so they are shown here but changed in MZ.
@@ -871,6 +879,7 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | *(no key)* | Path tool | Tools |
 | *(no key)* | Hills tool | Tools |
 | *(no key)* | Regions tool | Tools |
+| *(no key)* | Tiles tool (MZ tiles) | Tools |
 | *(no key)* | Grab tool | Tools |
 | *(no key)* | Rooms (room stamps) | Tools |
 | **[** | Smaller brush (Scatter, Paint, Hills, Regions) | Tools |
