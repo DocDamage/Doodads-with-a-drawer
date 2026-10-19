@@ -103,48 +103,13 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
         }
         if (!DocsDoodads.Workspace.mounted || DocsDoodads.isEditableTarget(e.target)) return;
         if (DocsDoodads.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
-        if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-            e.preventDefault();
-            DocsDoodads.Undo.undo();
-        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-            e.preventDefault();
-            DocsDoodads.Undo.redo();
-        } else if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-            e.preventDefault();
-            DocsDoodads.Persistence.saveAll();
-        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.duplicateSelectedDoodad();
-        } else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.showCommandPalette();
-        } else if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.copySelected();
-        } else if (e.ctrlKey && (e.key === 'v' || e.key === 'V')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.pasteCopied(e.shiftKey);
-        } else if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.selectAllDoodads();
-        } else if (e.key === 'Delete') {
-            if (DocsDoodads.Workspace.selectedEvent) {
-                DocsDoodads.Workspace.deleteSelectedEvent();
-            } else {
-                DocsDoodads.Workspace.deleteSelectedDoodad();
-            }
-        } else if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.altKey) {
-            if (DocsDoodads.Workspace.resizeBrush(e.key === ']' ? 1 : -1)) e.preventDefault();
-        } else if (e.key === 'g' || e.key === 'G') {
-            e.preventDefault();
-            DocsDoodads.Workspace.toggleGrid();
-        } else if (e.key === 'h' || e.key === 'H') {
-            e.preventDefault();
-            DocsDoodads.Workspace.toggleInspector();
-        } else if (e.key === 'f' || e.key === 'F') {
-            e.preventDefault();
-            DocsDoodads.Workspace.focusSearch();
-        } else if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        if (DocsDoodads.Workspace.capturingShortcut()) return; // the next keys are a new binding
+        // The path tool's own keys come first; then the shortcut table (11_shortcuts.js); then the keys
+        // that can't be rebound.
+        const pathKey = DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace');
+        const shortcut = pathKey ? null : DocsDoodads.Shortcuts.match(e);
+        if (shortcut && DocsDoodads.Workspace.runShortcut(shortcut, e)) return;
+        if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
             const W = DocsDoodads.Workspace;
             const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
             const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
@@ -162,7 +127,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                 });
                 if (moved) W.refreshInspector();
             }
-        } else if (DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace')) {
+        } else if (pathKey) {
             e.preventDefault();
             if (e.key === 'Enter') DocsDoodads.Workspace.finishPath();
             else DocsDoodads.Workspace.pathPoints.pop();

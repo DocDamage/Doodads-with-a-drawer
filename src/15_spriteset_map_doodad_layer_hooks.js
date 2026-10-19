@@ -791,7 +791,9 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const hidden = (editing && (ws.postFxCompare || ws.postFxPreview === false)) || !DocsDoodads.Atmosphere.featureOn('postfx');
         const mapSettings = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
         const runtime = P.runtimeLook();
-        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime });
+        // Region fades move once a frame, on the map (a battle keeps the map's).
+        const live = P.liveInputs(typeof Spriteset_Map !== 'undefined' && this instanceof Spriteset_Map);
+        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
         let anim = P.Animations.sample(P._anims, DocsDoodads.frameCount());
         if (this._docsExportLook !== undefined) {
             look = this._docsExportLook;
@@ -865,12 +867,30 @@ DocsDoodads.PostFX.play = function(spec) {
     return this.Animations.start(this._anims, spec, DocsDoodads.frameCount());
 };
 
+// The clock and the player's region, for the looks by time and by region. step: move the region fades on
+// one frame (the map's spriteset does, once a frame). While editing, a region look can be previewed.
+DocsDoodads.PostFX.liveInputs = function(step) {
+    const B = this.Blends;
+    let minutes;
+    try { minutes = DocsDoodads.Atmosphere.minutes(); } catch (e) { minutes = undefined; }
+    const ws = DocsDoodads.Workspace;
+    if (ws && ws.mounted && ws.previewRegionLook) return { minutes, regionWeights: B.previewWeights(ws.previewRegionLook) };
+    const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+    if (step && map && map.mapId) {
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        const region = player && typeof map.regionId === 'function' ? map.regionId(player.x, player.y) : 0;
+        B.stepRegions(map.mapId(), region, DocsDoodads.World.settings(), DocsDoodads.Lighting.mapSettings(map.mapId()), 1);
+    }
+    return { minutes, regionWeights: B.regionWeights() };
+};
+
 // "Set Look" fades from what is on screen now to a preset, to no effects, or back to the map's own look.
 DocsDoodads.PostFX.setLook = function(id, frames) {
     if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
     const world = DocsDoodads.World.settings();
     const mapSettings = typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
-    const mapLook = this.resolveLook({ world, mapSettings }) || this.defaultLook();
+    const live = this.liveInputs(false);
+    const mapLook = this.resolveLook({ world, mapSettings, minutes: live.minutes, regionWeights: live.regionWeights }) || this.defaultLook();
     const current = $gameSystem._docsLook ? $gameSystem._docsLook.current : mapLook;
     const target = id === 'map' ? mapLook : id === 'none' ? this.defaultLook() : this.presetLook(id);
     if (!target) return null;
@@ -908,7 +928,8 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
     const saved = { x: $gameMap._displayX, y: $gameMap._displayY, px: $gameMap._parallaxX, py: $gameMap._parallaxY };
     const P = DocsDoodads.PostFX;
     const look = options.includeEffects
-        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook() }))
+        // The time of day's look, as on screen; a region's look belongs to where the player stands, not the whole map.
+        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook(), minutes: P.liveInputs(false).minutes }))
         : null;
     spriteset._docsExportLook = look;
     const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });

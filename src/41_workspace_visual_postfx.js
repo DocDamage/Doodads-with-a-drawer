@@ -352,6 +352,7 @@
                 <div style="font-size: 10px; color: var(--dd-muted);">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
             </div>
             <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px;">${effects}</div>
+            ${this.lookBlendsHtml ? this.lookBlendsHtml(target) : ''}
             <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
                 <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Screen effect (test)
                     <select id="dd-pfx-anim" style="${selectStyle}">${P.Animations.types.map(t => option(t.value, t.label, '')).join('')}</select></div>
@@ -395,6 +396,7 @@
         const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
         on('dd-pfx-close', 'onclick', () => {
             this.setPostFxCompare(false);
+            this.previewRegionLook = 0;
             if (this._postFxPanel && this._postFxPanel.parentNode) this._postFxPanel.parentNode.removeChild(this._postFxPanel);
         });
         on('dd-pfx-target', 'onchange', e => { this.postFxTarget = e.target.value; this.refreshPostFxBuilder(); });
@@ -420,6 +422,7 @@
                 includeEffects: Boolean(byId('dd-pfx-export-fx').checked)
             });
         });
+        if (this.bindLookBlends) this.bindLookBlends(target);
         if (target === 'map' && this.mapPostFxMode() !== 'custom') return;
         P.effects.forEach((effect, i) => {
             const details = byId(`dd-pfx-sec-${i}`);

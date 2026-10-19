@@ -427,16 +427,25 @@
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         const events = includeEvents ? this.eventsWithin(items) : [];
-        const prefab = DocsDoodads.Prefabs.capture(name, items, events, { tileWidth: tw, tileHeight: th });
+        // A whole placed copy of another prefab in the selection goes in as that prefab (a prefab inside
+        // the prefab), so changing it later changes this one too.
+        const all = DocsDoodads.doodads() || [];
+        const whole = instance => all.filter(d => d.prefabRef && d.prefabRef.instance === instance).every(d => items.includes(d));
+        const links = new Map();
+        const prefab = DocsDoodads.Prefabs.capture(name, items, events, {
+            tileWidth: tw, tileHeight: th, whole, ownValues: d => this.ownValues(d), onLink: (d, pk) => links.set(d, pk)
+        });
         DocsDoodads.Prefabs.add(prefab);
         DocsDoodads.Prefabs.save();
         // The selection itself becomes the prefab's first linked copy.
         const instance = DocsDoodads.Prefabs.newId('pi_');
         this.editDoodads(items, d => {
-            d.prefabRef = { id: prefab.id, instance, ox: prefab.origin.x, oy: prefab.origin.y };
+            d.prefabRef = { id: prefab.id, instance, ox: prefab.origin.x, oy: prefab.origin.y, pk: links.get(d) };
             d.groupId = 'grp_' + instance;
         }, 'link_prefab');
-        this.showToast(`Saved prefab "${prefab.name}" (${prefab.doodads.length} doodads, ${prefab.events.length} events).`);
+        const inner = (prefab.children || []).length;
+        const held = inner ? `, ${inner} prefab${inner === 1 ? '' : 's'} inside` : '';
+        this.showToast(`Saved prefab "${prefab.name}" (${prefab.doodads.length} doodads${held}, ${prefab.events.length} events).`);
         if (this.currentCategory === 'Prefabs') this.refreshDrawerCards();
         return prefab;
     },
@@ -482,32 +491,102 @@
     updatePrefabFromInstance(d) {
         const prefab = d && d.prefabRef ? DocsDoodads.Prefabs.get(d.prefabRef.id) : null;
         if (!prefab) return null;
-        DocsDoodads.Prefabs.updateFromInstance(prefab, this.prefabInstanceDoodads(d));
+        const items = this.prefabInstanceDoodads(d);
+        DocsDoodads.Prefabs.updateFromInstance(prefab, items, { ownValues: x => this.ownValues(x) });
         DocsDoodads.Prefabs.save();
+        // What this copy kept as its own is the master's now.
+        if (items.some(x => x.prefabRef && x.prefabRef.own)) this.editDoodads(items, x => { delete x.prefabRef.own; }, 'update_prefab');
         this.showToast(`Updated prefab "${prefab.name}" from this copy.`);
         return prefab;
     },
 
-    // Rebuilds every placed copy (on every map) from the master, keeping each copy's position and group.
+    // ---- A copy's own settings (6.1.14) ----
+    // Settings changed in Details on a prefab copy stay that copy's own: Sync Copies keeps them.
+    // Positions are the prefab's (move the whole copy, or Update Prefab).
+    noteOwnSetting(d, key) {
+        if (!d || !d.prefabRef || key === 'x' || key === 'y') return;
+        const own = Array.isArray(d.prefabRef.own) ? d.prefabRef.own : [];
+        if (!own.includes(key)) d.prefabRef.own = own.concat([key]);
+    },
+
+    ownValues(d) {
+        const out = {};
+        for (const key of (d && d.prefabRef && Array.isArray(d.prefabRef.own) ? d.prefabRef.own : [])) out[key] = this.getDoodadProperty(d, key);
+        return JSON.parse(JSON.stringify(out));
+    },
+
+    // The master's version of a placed doodad, as the prefab would place it now.
+    masterDoodadFor(d) {
+        const prefab = d && d.prefabRef ? DocsDoodads.Prefabs.get(d.prefabRef.id) : null;
+        if (!prefab) return null;
+        const pk = d.prefabRef.pk || 'k' + this.prefabInstanceDoodads(d).indexOf(d);
+        const hit = DocsDoodads.Prefabs.expand(prefab, { applyProperty: (x, k, v) => this.applyDoodadProperty(x, k, v) }).doodads.find(item => item.pk === pk);
+        return hit ? hit.d : null;
+    },
+
+    // Back to the prefab's value for one of a copy's own settings.
+    useMasterSetting(items, key) {
+        const targets = (items || []).filter(d => d && d.prefabRef && Array.isArray(d.prefabRef.own) && d.prefabRef.own.includes(key));
+        if (!targets.length) return false;
+        this.editDoodads(targets, d => {
+            const master = this.masterDoodadFor(d);
+            if (master) this.applyDoodadProperty(d, key, this.getDoodadProperty(master, key));
+            d.prefabRef.own = d.prefabRef.own.filter(k => k !== key);
+            if (!d.prefabRef.own.length) delete d.prefabRef.own;
+        }, 'use_prefab_setting');
+        return true;
+    },
+
+    // The words for a Details key: "Light: Colour".
+    settingLabel(key) {
+        if (key === 'name') return 'Name';
+        for (const section of this.effectSections()) {
+            const f = section.fields.find(x => x.key === key);
+            if (f) return `${section.title}: ${f.label}`;
+        }
+        return key;
+    },
+
+    // Rebuilds every placed copy (on every map) from the master, keeping each copy's position, group and
+    // own settings. Copies of prefabs that hold this one are rebuilt too.
     syncPrefabInstances(prefabId) {
         const prefab = DocsDoodads.Prefabs.get(prefabId);
         if (!prefab) return 0;
+        const ids = new Set([prefabId].concat(DocsDoodads.Prefabs.containers(prefabId)));
         const data = window.$dataDocsDoodads;
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const mapIds = Object.keys(data).filter(k => Array.isArray(data[k]) && data[k].some(d => d && d.prefabRef && d.prefabRef.id === prefabId));
+        const mapIds = Object.keys(data).filter(k => Array.isArray(data[k]) && data[k].some(d => d && d.prefabRef && ids.has(d.prefabRef.id)));
         const before = this.snapshotMapLists(mapIds);
+        const apply = (d, key, value) => this.applyDoodadProperty(d, key, value);
         let count = 0;
         for (const mapId of mapIds) {
-            const next = [];
-            const done = new Set();
+            const byInstance = new Map();
             for (const d of data[mapId]) {
-                if (!d || !d.prefabRef || d.prefabRef.id !== prefabId) { next.push(d); continue; }
-                if (done.has(d.prefabRef.instance)) continue;
-                done.add(d.prefabRef.instance);
-                const rebuilt = DocsDoodads.Prefabs.instantiate(prefab, { x: d.prefabRef.ox, y: d.prefabRef.oy },
-                    { tileWidth: tw, tileHeight: th, instance: d.prefabRef.instance, groupId: d.groupId });
-                rebuilt.doodads.forEach(x => next.push(x));
+                if (!d || !d.prefabRef || !ids.has(d.prefabRef.id)) continue;
+                if (!byInstance.has(d.prefabRef.instance)) byInstance.set(d.prefabRef.instance, []);
+                byInstance.get(d.prefabRef.instance).push(d);
+            }
+            const next = [];
+            for (const d of data[mapId]) {
+                if (!d || !d.prefabRef || !ids.has(d.prefabRef.id)) { next.push(d); continue; }
+                const old = byInstance.get(d.prefabRef.instance);
+                if (!old) continue; // already rebuilt
+                byInstance.delete(d.prefabRef.instance);
+                const keep = {}, flags = {};
+                old.forEach((x, i) => {
+                    const pk = x.prefabRef.pk || 'k' + i;
+                    const own = this.ownValues(x);
+                    if (Object.keys(own).length) keep[pk] = own;
+                    flags[pk] = { uid: x.uid, locked: x.locked, editorHidden: x.editorHidden };
+                });
+                const rebuilt = DocsDoodads.Prefabs.instantiate(DocsDoodads.Prefabs.get(d.prefabRef.id), { x: d.prefabRef.ox, y: d.prefabRef.oy },
+                    { tileWidth: tw, tileHeight: th, instance: d.prefabRef.instance, groupId: d.groupId, keep, applyProperty: apply });
+                for (const x of rebuilt.doodads) {
+                    const f = flags[x.prefabRef.pk];
+                    if (f) for (const k of Object.keys(f)) if (f[k] !== undefined) x[k] = f[k];
+                    next.push(x);
+                }
                 count++;
             }
             data[mapId].length = 0;

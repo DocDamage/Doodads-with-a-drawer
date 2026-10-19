@@ -28,6 +28,9 @@ The plugin still ships as one file, `Docs-Doodads.js`, which users copy into `js
 - `44_workspace_navigation.js`: palette ranking and typed values, map tabs, and the Item Bag's folder view.
 - `44_workspace_selection_edit.js`: number scrubbing in Details and the resize and turn handles.
 - `44_workspace_onboarding.js`: tool tours, the sample pictures (`DocsDoodads.SampleArt`) and items, and What's New (`DocsDoodads.WhatsNew`: change its `id` and items for a release, and it shows once to people updating).
+- `11_shortcuts.js`: every editor key binding (`DocsDoodads.Shortcuts`). Add a key here, never as a check in the key handler; the handler (part 45), More > Keys (`44_workspace_shortcuts.js`, which also says what each row does in `runShortcut`), tooltips (`Shortcuts.tip(id, text)`) and the palette read it. Run `npm run shortcuts` after changing it: it writes the guide's table, and verify fails until you do.
+- `31_placement_tools.js`: prefabs. Master doodads have keys (`pk`) that copies keep in `prefabRef.pk`; a copy's own settings are `prefabRef.own` (recorded by `applyDoodadProperty`); a prefab's `children` are other prefabs placed from their own master (`Prefabs.expand`).
+- `08_post_processing_blends.js` and `44_workspace_postfx_blends.js`: looks by time of day and by region (`DocsDoodads.PostFX.Blends`, mixed in by `resolveLook` when given `minutes` and `regionWeights`), and their rows in the Screen Looks card.
 - `44_workspace_readouts.js`: the collision overlay, the drag readout and the status bar (added to `DocsDoodads.Workspace` with `Object.assign`, the way a new part extends an object an earlier part closed).
 - `45_scene_map_integration_key_bindings.js`: scene hooks, key bindings and the end of the plugin function.
 
@@ -37,6 +40,7 @@ Editor panels use the theme's CSS variables (`--dd-*`) and classes (`dd-btn`, `d
 
 ## Scripts
 
+- `scripts/shortcuts.js`: `npm run shortcuts` builds and writes the guide's keyboard table from `src/11_shortcuts.js`; `--check` only reports whether it is current.
 - `scripts/build.js`: `npm run build`, and `npm run check` (the built file matches `src/` and parses). `npm run verify` (`scratch/verify-project.js`) runs the full preflight.
 - `scripts/icons.js` and `scripts/fonts.js`: the generated UI parts above.
 - `scripts/deploy.js` (`npm run deploy -- <project> <output> [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]`): a Windows build like MZ's File > Deployment with encryption on, for testing a deployed game. It needs MZ's `nwjs-win` runtime (found in the usual Steam and KADOKAWA install folders, or passed with `--runtime`) and never writes inside the project.

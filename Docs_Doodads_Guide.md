@@ -74,7 +74,7 @@ Press **F10** in a playtest. The first time, a short welcome card shows the thre
 - With unsaved changes, **Done**, the toggle key, closing the Playtest window and **F5** ask first: **Save**, **Don't Save** (the doodads and events go back to how they were last saved) or **Keep Editing**.
 - Questions (names, "are you sure?") come up in a card: **Enter** answers with the main button and **Esc** cancels. Anything that can't easily be taken back has a red button.
 - A tool's options open in a card under its button while it is on. **Esc** goes back to Select.
-- **More** holds the rest: **Cut Up Sheet** (the slicer), **Screen Looks** (post-processing and map image export), **Effects Maker** (VFX), **Old Saves** (save history), **File Check** (duplicates and unused files), **Info** (numbers, cache and backups), **Show Grid**, **Sounds** on/off, **Find a Tool** (Ctrl+K), **How to Use** (the welcome card again) and the panel layouts.
+- **More** holds the rest: **Cut Up Sheet** (the slicer), **Screen Looks** (post-processing and map image export), **Effects Maker** (VFX), **Old Saves** (save history), **File Check** (duplicates and unused files), **Info** (numbers, cache and backups), **Show Grid**, **Sounds** on/off, **Find a Tool** (Ctrl+K), **Keys** (every keyboard shortcut, and changing them: section 23), **How to Use** (the welcome card again) and the panel layouts.
 - **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
 - The **hint bubble** at the bottom always says what to do next for the tool or the thing you have picked.
 - Rest the mouse on a button for its **tooltip**, with the shortcut in a key cap.
@@ -153,6 +153,8 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Scatter & Settings**: Click the **Scatter** tool to paint scattered props. Its card lets you tune **Size**, **How many**, **Space between**, and under **Variety** the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls). A circle on the map shows the brush; **right-drag** erases the picked item inside it (one undo step a stroke; locked doodads and ones on hidden or locked layers stay). **[** and **]** make the brush smaller or bigger (Paint, Hills and Regions too).
 - **Path Tool**: Click **Path**, then click points on the map (tile-snapped; hold **Alt** for free points). Double-click or press **Enter** to place the selected asset evenly along the line; **Backspace** removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate **End** and **Corner** pieces from the Item Bag for fences, walls, and rows of lamps.
 - **Prefabs**: Select doodads and click **Save Prefab** in Details. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the **Prefabs** tab by dragging, with **Stamp**, or **Place at Player**. Copies are grouped. Edit one copy and click **Update Prefab**, then **Sync Copies** to rebuild every copy on every map from the master. **Detach** unlinks a copy.
+  - **A copy's own settings**: change a setting in Details on one copy (a lamp's colour, a sign's switch, a Name) and it becomes that copy's own, marked **●**: Sync Copies keeps it while the rest follows the master. Details lists a copy's own settings above its buttons; **Use Prefab's** gives one back to the master's value. Positions inside a copy always come from the prefab (move the whole copy, or Update Prefab). Update Prefab takes the copy's own settings into the master.
+  - **Prefabs inside prefabs**: save a selection that holds a whole copy of another prefab and that prefab goes inside the new one (the new prefab's Details says what it holds, and the inner one's says what it is inside). Changing and syncing the inner prefab changes every copy of the prefabs that hold it too, and a copy's own settings for the inner doodads go in with it. Deleting an inner prefab leaves its doodads in the prefabs that held it.
 - **Grab**: Hold **Alt and click** any placed doodad or MZ event on the map (or use the **Grab** tool) to find and pick that asset or event template in the Item Bag.
 
 ### Selection, Multi-Selection & Right-Click Context Menu
@@ -287,8 +289,16 @@ Open **More → Screen Looks**. Changes show live on the map behind it, and ever
 - **Affect pictures**: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected.
 - **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14).
 
+### Looks by time and by region
+Under the effects, the card mixes looks in on top of the game-wide or map look:
+- **Looks by time of day** (game-wide): a look from one time to another (across midnight too), easing in and out over a fade in game minutes, with a strength. Add one for a warm dusk (Golden Hour from 17:00 to 19:30) or a blue night. The clock bar at the top of the map previews any time.
+- **Looks by region**: while the player stands on a region, its look fades in (over the seconds set) and fades out again on leaving. Game-wide ones apply on every map; with **Editing: This map** a map gets its own, which win over the game-wide ones for the same region number (a cold crypt on region 5). Paint regions with the **Regions** tool; the eye button previews a region's look while editing. A transfer into a region starts with its look already in.
+- Each entry's look is a preset, or **Copy the look above** to make it its own from the look being edited.
+- **Looks by time of day on this map** (with Editing: This map) is on by default; turn it off for interiors. A map set to *No effects* shows none of these.
+- **Set Post-Processing Look** during play still wins over all of them; going back to the map's look brings them back.
+
 ### During play
-- **Set Post-Processing Look** fades to a preset, to no effects, or back to the map's own look, over a number of frames. Use it for flashbacks, poison, night vision or boss rooms.
+- **Set Post-Processing Look** fades to a preset, to no effects, or back to the map's own look (with its looks by time and region), over a number of frames. Use it for flashbacks, poison, night vision or boss rooms.
 - **Play Screen Effect** plays **Impact Zoom**, **Shockwave**, **Chromatic Punch** or **Bloom Flash**, centred on the player, an event, or the screen. Try them in the builder with **Play**.
 - **Set Atmosphere Effect → Post-Processing** turns all looks off for the current playthrough.
 
@@ -809,35 +819,57 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ## 23. Complete Keyboard Shortcuts Cheat Sheet
 
-| Shortcut | Action | Scope |
+Every key below except the *fixed* ones can be changed in **More > Keys** (or **Keyboard Shortcuts** in Ctrl+K): click a key, press the new keys, and Esc keeps the old ones. A key already in use asks before it moves. Your keys are kept on this computer; the tooltips, menus and the command palette show them. The table lists the keys the editor comes with, and the rows with no key are tools and views you can give one.
+
+<!-- shortcuts:start (written by npm run shortcuts from src/11_shortcuts.js) -->
+| Keys | What it does | Group |
 | :--- | :--- | :--- |
-| **F10** (or `editKey`) | Open / Close the editor | Global (Playtest) |
-| **Ctrl + Z** | Undo last action (300-level command stack) | Workspace |
-| **Ctrl + Y** | Redo last undone action | Workspace |
-| **Ctrl + S** | Explicit Save (Atomic save with backups & conflict check) | Workspace |
-| **Ctrl + D** | Duplicate selected doodad(s) (+16px offset) | Workspace |
-| **Ctrl + C** | Copy selected doodad(s) to clipboard | Workspace |
-| **Ctrl + V** | Paste copied doodad(s) | Workspace |
-| **Ctrl + Shift + V** | Paste in Place (at the copied position) | Workspace |
-| **Ctrl + A** | Select all doodads Select can reach | Workspace |
-| **Ctrl + K** | Command palette: tools, panels, maps, assets, looks | Workspace |
-| **Delete** | Delete selected doodad(s) | Workspace |
-| **Arrow Keys** | Nudge selected doodad(s) by 1 pixel | Workspace |
-| **Shift + Arrow Keys**| Nudge selected doodad(s) by 16 pixels | Workspace |
-| **Shift + Click / Drag**| Marquee multi-select or toggle doodad selection | Map Canvas |
-| **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map Canvas |
-| **Alt (Hold on Drag)**| Free pixel placement (bypasses 48px tile snap) | Map Canvas |
-| **[** / **]** | Smaller / bigger brush (Scatter, Paint, Hills, Regions) | Workspace |
+| **F10** (the Editor Key parameter) | Open or close the editor | Playtest |
+| **Ctrl** + **Z** | Undo | Editing |
+| **Ctrl** + **Y** | Redo | Editing |
+| **Ctrl** + **S** | Save everything | Editing |
+| **Ctrl** + **D** | Duplicate the picked doodads | Editing |
+| **Ctrl** + **C** | Copy the picked doodads | Editing |
+| **Ctrl** + **V** | Paste beside the cursor | Editing |
+| **Ctrl** + **Shift** + **V** | Paste in Place (where they were copied) | Editing |
+| **Ctrl** + **A** | Select All | Editing |
+| **Delete** | Delete the picked doodads or event | Editing |
+| **Arrow keys** | Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile *(fixed)* | Editing |
+| **Ctrl** + **K** | Find a Tool (command palette) | Panels |
+| **H** | Fold or open Details | Panels |
+| **F** | Search the Item Bag | Panels |
+| **Shift** + **/** | Keyboard Shortcuts (this list) | Panels |
+| **G** | Show or hide the grid | View |
+| *(no key)* | Show or hide collision | View |
+| *(no key)* | Show or hide sounds | View |
+| *(no key)* | Show or hide speed | View |
+| *(no key)* | Select tool | Tools |
+| *(no key)* | Stamp tool | Tools |
+| *(no key)* | Scatter tool | Tools |
+| *(no key)* | Paint tool (biomes) | Tools |
+| *(no key)* | Path tool | Tools |
+| *(no key)* | Hills tool | Tools |
+| *(no key)* | Regions tool | Tools |
+| *(no key)* | Grab tool | Tools |
+| **[** | Smaller brush (Scatter, Paint, Hills, Regions) | Tools |
+| **]** | Bigger brush | Tools |
+| **Enter** | Place props along the path being drawn *(fixed)* | Tools |
+| **Backspace** | Remove the last path point *(fixed)* | Tools |
+| **Escape** | Stop the tool, unpick, close pop-ups *(fixed)* | Tools |
+<!-- shortcuts:end -->
+
+With the mouse:
+
+| Mouse | What it does | Where |
+| :--- | :--- | :--- |
+| **Shift + Click / Drag** | Marquee multi-select or toggle doodad selection | Map |
+| **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map |
+| **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map |
 | **Right-drag** | Erase the picked item inside the brush | Scatter |
-| **G** | Toggle 48px Tile Grid visual overlay | Workspace |
-| **H** | Fold or open the Details panel | Workspace |
-| **F** | Find: type in the Item Bag's search box | Workspace |
-| **Escape** | Cancel active tool (Stamp/Scatter/Path/Grab) / Deselect / Close Mirror, More, the welcome card and dialogs | Workspace |
-| **Enter** / **Double-click** | Place props along the path being drawn | Path tool |
-| **Backspace** | Remove the last path point | Path tool |
-| **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map Canvas |
-| **Mouse Wheel** | Scroll the Item Bag / zoom Cut Up Sheet | Item Bag / Cut Up Sheet |
-| **Ctrl + Wheel** | Zoom Slicer Modal canvas (100% to 1600%) | Slicer Modal |
+| **Double-click** | Place props along the path being drawn | Path tool |
+| **Middle-drag** / **Shift + middle-drag** / **Wheel** | Orbit / pan / zoom the 3D view | Map (3D) |
+| **Mouse Wheel** | Scroll the Item Bag | Item Bag |
+| **Ctrl + Wheel** | Zoom the Cut Up Sheet canvas (100% to 1600%) | Cut Up Sheet |
 
 ---
 

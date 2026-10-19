@@ -143,7 +143,7 @@ DocsDoodads.PostFX = {
                 const va = side(ea, eb), vb = side(eb, ea);
                 if (p.type === 'color') e[p.key] = DocsDoodads.Lighting.mixColor(va, vb, t);
                 else if (p.type === 'checkbox') e[p.key] = t < 0.5 ? va : vb;
-                else e[p.key] = va + (vb - va) * t;
+                else e[p.key] = t >= 1 ? vb : va + (vb - va) * t;
             }
             out[effect.id] = e;
         }
@@ -164,8 +164,9 @@ DocsDoodads.PostFX = {
         return fade;
     },
 
-    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look.
-    resolveLook({ world, mapSettings, runtime } = {}) {
+    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look; then the looks
+    // by time (when minutes is given) and by region (regionWeights) are mixed in (Blends, below).
+    resolveLook({ world, mapSettings, runtime, minutes, regionWeights } = {}) {
         if (runtime) {
             const look = this.normalizeLook(runtime);
             return this.isActive(look) ? look : null;
@@ -174,7 +175,8 @@ DocsDoodads.PostFX = {
         if (!pf || pf.enabled === false) return null;
         const mine = mapSettings && mapSettings.postfx;
         if (mine && mine.mode === 'off') return null;
-        const look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        let look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        if (this.Blends) look = this.Blends.apply(look, { world, mapSettings, minutes, regionWeights });
         return this.isActive(look) ? look : null;
     },
 

@@ -2865,7 +2865,7 @@ DocsDoodads.World = {
         seeThrough: { enabled: true, mode: 'fade', opacity: 0.4, speed: 0.1, silhouetteColor: '#7dd3fc' },
         reflections: { enabled: false, opacity: 0.4, ripple: 0.5, regionId: 0, shoreInset: 12 },
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
-        postfx: { enabled: true, quality: 'high', includePictures: false, look: {} },
+        postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [] },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
@@ -3708,7 +3708,7 @@ DocsDoodads.PostFX = {
                 const va = side(ea, eb), vb = side(eb, ea);
                 if (p.type === 'color') e[p.key] = DocsDoodads.Lighting.mixColor(va, vb, t);
                 else if (p.type === 'checkbox') e[p.key] = t < 0.5 ? va : vb;
-                else e[p.key] = va + (vb - va) * t;
+                else e[p.key] = t >= 1 ? vb : va + (vb - va) * t;
             }
             out[effect.id] = e;
         }
@@ -3729,8 +3729,9 @@ DocsDoodads.PostFX = {
         return fade;
     },
 
-    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look.
-    resolveLook({ world, mapSettings, runtime } = {}) {
+    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look; then the looks
+    // by time (when minutes is given) and by region (regionWeights) are mixed in (Blends, below).
+    resolveLook({ world, mapSettings, runtime, minutes, regionWeights } = {}) {
         if (runtime) {
             const look = this.normalizeLook(runtime);
             return this.isActive(look) ? look : null;
@@ -3739,7 +3740,8 @@ DocsDoodads.PostFX = {
         if (!pf || pf.enabled === false) return null;
         const mine = mapSettings && mapSettings.postfx;
         if (mine && mine.mode === 'off') return null;
-        const look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        let look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        if (this.Blends) look = this.Blends.apply(look, { world, mapSettings, minutes, regionWeights });
         return this.isActive(look) ? look : null;
     },
 
@@ -4049,6 +4051,133 @@ DocsDoodads.MapExport = {
     }
 };
 
+//==========================================================
+// SECTION 5D2: LOOKS BY TIME AND BY REGION
+//==========================================================
+// On top of the game-wide or map look: looks that blend in by the clock (world.postfx.times: a warm dusk
+// from 17:00 to 19:30) and while the player stands on a region (world.postfx.regions, and a map's own in
+// mapSettings.lookBlends.regions, which win for the same region number: a cold crypt). A map can turn the
+// time looks off (mapSettings.lookBlends.noTimes, for interiors). Each entry's look is a preset
+// ({ preset: 'golden' }) or its own ({ look: {...} }), with a strength.
+//   time:   { from, to, fade (minutes, 0-1439 for from/to), preset | look, amount }
+//   region: { region (1-255), fade (seconds), preset | look, amount }
+DocsDoodads.PostFX.Blends = {
+    timeDefaults: { from: 17 * 60, to: 19 * 60 + 30, fade: 60, preset: 'golden', amount: 1 },
+    regionDefaults: { region: 1, fade: 1, preset: 'underwater', amount: 1 },
+
+    wrap(m) {
+        return ((Math.round(Number(m) || 0) % 1440) + 1440) % 1440;
+    },
+
+    normalizeTime(entry) {
+        const e = Object.assign({}, this.timeDefaults, entry || {});
+        const out = { from: this.wrap(e.from), to: this.wrap(e.to), fade: Math.max(0, Math.min(720, Math.round(Number(e.fade) || 0))),
+            amount: Math.max(0, Math.min(1, Number(e.amount))) };
+        if (!isFinite(out.amount)) out.amount = 1;
+        return Object.assign(out, this.lookRefOf(e));
+    },
+
+    normalizeRegion(entry) {
+        const e = Object.assign({}, this.regionDefaults, entry || {});
+        const out = { region: Math.max(1, Math.min(255, Math.round(Number(e.region) || 1))), fade: Math.max(0, Math.min(30, Number(e.fade) || 0)),
+            amount: Math.max(0, Math.min(1, Number(e.amount))) };
+        if (!isFinite(out.amount)) out.amount = 1;
+        return Object.assign(out, this.lookRefOf(e));
+    },
+
+    // { look } when the entry has a look of its own, else { preset }.
+    lookRefOf(e) {
+        if (e && e.look && typeof e.look === 'object') return { look: DocsDoodads.PostFX.normalizeLook(e.look) };
+        const P = DocsDoodads.PostFX;
+        return { preset: P.presets.some(p => p.id === (e && e.preset)) ? e.preset : 'golden' };
+    },
+
+    lookOf(entry) {
+        const P = DocsDoodads.PostFX;
+        return entry.look ? P.normalizeLook(entry.look) : P.presetLook(entry.preset) || P.defaultLook();
+    },
+
+    // How much a time entry shows at a minute of the day: 1 from "from" to "to" (across midnight too),
+    // easing in during the fade before "from" and out during the fade after "to".
+    timeWeight(entry, minutes) {
+        const e = this.normalizeTime(entry);
+        const m = this.wrap(minutes);
+        const span = (e.to - e.from + 1440) % 1440;
+        const into = (m - e.from + 1440) % 1440;
+        if (into <= span) return 1;
+        if (e.fade <= 0) return 0;
+        const after = into - span;              // minutes since "to"
+        const before = 1440 - into;             // minutes until "from"
+        const w = Math.max(after <= e.fade ? 1 - after / e.fade : 0, before <= e.fade ? 1 - before / e.fade : 0);
+        return w * w * (3 - 2 * w);             // smoothstep: no sudden start or stop
+    },
+
+    times(world, mapSettings) {
+        const own = mapSettings && mapSettings.lookBlends;
+        if (own && own.noTimes) return [];
+        const list = world && world.postfx && Array.isArray(world.postfx.times) ? world.postfx.times : [];
+        return list.map(e => this.normalizeTime(e));
+    },
+
+    // Game-wide region looks, with the map's own in place of any for the same region.
+    regions(world, mapSettings) {
+        const byRegion = new Map();
+        const add = list => (Array.isArray(list) ? list : []).forEach(e => { const n = this.normalizeRegion(e); byRegion.set(n.region, n); });
+        add(world && world.postfx && world.postfx.regions);
+        add(mapSettings && mapSettings.lookBlends && mapSettings.lookBlends.regions);
+        return Array.from(byRegion.values());
+    },
+
+    // The base look with the time looks (when minutes is given) and region looks (weights by region) mixed in.
+    apply(base, { world, mapSettings, minutes, regionWeights } = {}) {
+        const P = DocsDoodads.PostFX;
+        let look = P.normalizeLook(base);
+        if (minutes !== undefined && minutes !== null) {
+            for (const e of this.times(world, mapSettings)) {
+                const w = this.timeWeight(e, minutes) * e.amount;
+                if (w > 0) look = P.lerpLook(look, this.lookOf(e), w);
+            }
+        }
+        if (regionWeights) {
+            for (const e of this.regions(world, mapSettings)) {
+                const w = (Number(regionWeights[e.region]) || 0) * e.amount;
+                if (w > 0) look = P.lerpLook(look, this.lookOf(e), w);
+            }
+        }
+        return look;
+    },
+
+    // ---- The player's region, faded in and out ----
+    _fade: { mapId: 0, weights: {} },
+
+    // Moves each region's weight one frame toward 1 (the region the player is on) or 0. A new map starts
+    // at its target straight away, so a transfer into a crypt is already cold. frames: how many frames passed.
+    stepRegions(mapId, regionId, world, mapSettings, frames = 1) {
+        const f = this._fade;
+        const list = this.regions(world, mapSettings);
+        const snap = f.mapId !== mapId;
+        f.mapId = mapId;
+        const next = {};
+        for (const e of list) {
+            const target = e.region === Number(regionId) ? 1 : 0;
+            const now = snap ? target : (Number(f.weights[e.region]) || 0);
+            const step = e.fade > 0 ? frames / (e.fade * 60) : 1;
+            const w = now < target ? Math.min(target, now + step) : Math.max(target, now - step);
+            if (w > 0) next[e.region] = w;
+        }
+        f.weights = next;
+        return next;
+    },
+
+    regionWeights() {
+        return this._fade.weights;
+    },
+
+    // While editing, a region's look can be previewed at full strength.
+    previewWeights(region) {
+        return region ? { [Number(region)]: 1 } : null;
+    }
+};
 //==========================================================
 // SECTION 5E: PARTICLES, VFX, REACTIVE DOODADS & CHARACTER ANIMATION
 //==========================================================
@@ -5202,6 +5331,203 @@ DocsDoodads.MapCheck = {
         return (time.keyframes || []).some(k => Number(k && k.darkness) >= 0.05);
     }
 };
+//==========================================================
+// SECTION 5G2: ONE SHORTCUT TABLE
+//==========================================================
+// Every editor key binding is a row here. The key handler, the Keyboard Shortcuts card (More), button
+// tooltips, the command palette and the guide's cheat sheet (npm run shortcuts) all read this table, so a
+// key changed here, or rebound by the user, changes everywhere at once. Rebinding is kept per computer.
+// fixed rows are listed but can't be rebound: they depend on what is under the cursor or on the tool.
+DocsDoodads.Shortcuts = {
+    prefKey: 'shortcuts',
+
+    list: [
+        { id: 'undo', label: 'Undo', group: 'Editing', keys: 'Ctrl+Z' },
+        { id: 'redo', label: 'Redo', group: 'Editing', keys: 'Ctrl+Y' },
+        { id: 'save', label: 'Save everything', group: 'Editing', keys: 'Ctrl+S' },
+        { id: 'duplicate', label: 'Duplicate the picked doodads', group: 'Editing', keys: 'Ctrl+D' },
+        { id: 'copy', label: 'Copy the picked doodads', group: 'Editing', keys: 'Ctrl+C' },
+        { id: 'paste', label: 'Paste beside the cursor', group: 'Editing', keys: 'Ctrl+V' },
+        { id: 'pasteInPlace', label: 'Paste in Place (where they were copied)', group: 'Editing', keys: 'Ctrl+Shift+V' },
+        { id: 'selectAll', label: 'Select All', group: 'Editing', keys: 'Ctrl+A' },
+        { id: 'delete', label: 'Delete the picked doodads or event', group: 'Editing', keys: 'Delete' },
+        { id: 'nudge', label: 'Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile', group: 'Editing', keys: 'Arrow keys', fixed: true },
+        { id: 'palette', label: 'Find a Tool (command palette)', group: 'Panels', keys: 'Ctrl+K' },
+        { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
+        { id: 'find', label: 'Search the Item Bag', group: 'Panels', keys: 'F' },
+        { id: 'shortcuts', label: 'Keyboard Shortcuts (this list)', group: 'Panels', keys: 'Shift+/' },
+        { id: 'grid', label: 'Show or hide the grid', group: 'View', keys: 'G' },
+        { id: 'collision', label: 'Show or hide collision', group: 'View', keys: '' },
+        { id: 'sounds', label: 'Show or hide sounds', group: 'View', keys: '' },
+        { id: 'speed', label: 'Show or hide speed', group: 'View', keys: '' },
+        { id: 'toolSelect', label: 'Select tool', group: 'Tools', keys: '' },
+        { id: 'toolStamp', label: 'Stamp tool', group: 'Tools', keys: '' },
+        { id: 'toolScatter', label: 'Scatter tool', group: 'Tools', keys: '' },
+        { id: 'toolPaint', label: 'Paint tool (biomes)', group: 'Tools', keys: '' },
+        { id: 'toolPath', label: 'Path tool', group: 'Tools', keys: '' },
+        { id: 'toolHills', label: 'Hills tool', group: 'Tools', keys: '' },
+        { id: 'toolRegions', label: 'Regions tool', group: 'Tools', keys: '' },
+        { id: 'toolGrab', label: 'Grab tool', group: 'Tools', keys: '' },
+        { id: 'brushSmaller', label: 'Smaller brush (Scatter, Paint, Hills, Regions)', group: 'Tools', keys: '[' },
+        { id: 'brushBigger', label: 'Bigger brush', group: 'Tools', keys: ']' },
+        { id: 'pathFinish', label: 'Place props along the path being drawn', group: 'Tools', keys: 'Enter', fixed: true },
+        { id: 'pathBack', label: 'Remove the last path point', group: 'Tools', keys: 'Backspace', fixed: true },
+        { id: 'cancel', label: 'Stop the tool, unpick, close pop-ups', group: 'Tools', keys: 'Escape', fixed: true }
+    ],
+
+    find(id) {
+        return this.list.find(s => s.id === id) || null;
+    },
+
+    groups() {
+        return this.list.map(s => s.group).filter((g, i, all) => all.indexOf(g) === i);
+    },
+
+    // The user's changes: { id: 'Ctrl+J' } or { id: '' } for no key.
+    overrides() {
+        const U = DocsDoodads.Ui;
+        const raw = U && typeof U.prefs === 'function' ? U.prefs()[this.prefKey] : null;
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    },
+
+    keysOf(id) {
+        const s = this.find(id);
+        if (!s) return '';
+        if (s.fixed) return s.keys;
+        const own = this.overrides();
+        return Object.prototype.hasOwnProperty.call(own, id) && typeof own[id] === 'string' ? own[id] : s.keys;
+    },
+
+    isChanged(id) {
+        const s = this.find(id);
+        return Boolean(s && !s.fixed && this.keysOf(id) !== s.keys);
+    },
+
+    // KeyChord.parse reads unreadable text as F10; no key at all is no chord here.
+    parse(text) {
+        const t = String(text || '').trim();
+        return t ? DocsDoodads.KeyChord.parse(t) : null;
+    },
+
+    chordOf(id) {
+        const s = this.find(id);
+        return s && !s.fixed ? this.parse(this.keysOf(id)) : null;
+    },
+
+    // "Ctrl+Z", "G", or '' when the row has no key.
+    label(id) {
+        const s = this.find(id);
+        if (!s) return '';
+        if (s.fixed) return s.keys;
+        const chord = this.chordOf(id);
+        return chord ? DocsDoodads.KeyChord.label(chord) : '';
+    },
+
+    // A tooltip with its key at the end, the way the tooltip shows a key cap: "Undo (Ctrl+Z)".
+    tip(id, text) {
+        const keys = this.label(id);
+        return keys ? `${text} (${keys})` : text;
+    },
+
+    same(a, b) {
+        return Boolean(a && b) && a.code === b.code && a.ctrl === b.ctrl && a.shift === b.shift && a.alt === b.alt;
+    },
+
+    // The key a KeyboardEvent names, as a KeyboardEvent code, read from e.key so that letters follow the
+    // keyboard's layout (Ctrl+Z is the key marked Z on an AZERTY keyboard too). '' when e.key says nothing
+    // useful (a shifted symbol, a letter from another alphabet); e.code is tried then.
+    codeFromKey(key) {
+        const k = String(key || '');
+        if (k.length === 1) {
+            if (/^[a-z]$/i.test(k)) return 'Key' + k.toUpperCase();
+            if (/^[0-9]$/.test(k)) return 'Digit' + k;
+            return DocsDoodads.KeyChord.symbols[k] || '';
+        }
+        if (k === 'Esc') return 'Escape';
+        if (k === 'Del') return 'Delete';
+        return /^(F\d{1,2}|Delete|Backspace|Enter|Escape|Tab|Insert|Home|End|PageUp|PageDown|Pause|Arrow(Left|Right|Up|Down))$/.test(k) ? k : '';
+    },
+
+    modifiers(e) {
+        return { ctrl: Boolean(e.ctrlKey || e.metaKey), shift: Boolean(e.shiftKey), alt: Boolean(e.altKey) };
+    },
+
+    // The id of the rebindable row this key press is bound to, or null. The key's name is tried before
+    // its position, so a layout's own letters win over the key that sits where a QWERTY letter would.
+    match(e) {
+        if (!e) return null;
+        const mods = this.modifiers(e);
+        const rows = this.list.filter(s => !s.fixed).map(s => ({ id: s.id, chord: this.chordOf(s.id) })).filter(r => r.chord);
+        for (const code of [this.codeFromKey(e.key), e.code]) {
+            if (!code) continue;
+            const hit = rows.find(r => this.same(r.chord, Object.assign({ code }, mods)));
+            if (hit) return hit.id;
+        }
+        return null;
+    },
+
+    // A key press while changing a binding: the chord it makes, or null for a lone Ctrl, Shift or Alt.
+    chordFromEvent(e) {
+        if (!e || /^(Control|Shift|Alt|Meta|OS|AltGraph|CapsLock)$/.test(String(e.key || ''))) return null;
+        const code = this.codeFromKey(e.key) || e.code || '';
+        if (!code || /^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(code)) return null;
+        return Object.assign({ code }, this.modifiers(e));
+    },
+
+    // Why a chord can't be used for a row (it is taken by the editor key or by a fixed row), or ''.
+    reserved(chord) {
+        if (!chord) return '';
+        if (DocsDoodads.editChord && this.same(chord, DocsDoodads.editChord)) return 'opens and closes the editor (the Editor Key parameter)';
+        if (chord.code === 'Escape' && !chord.ctrl && !chord.alt) return 'stops tools and closes pop-ups';
+        if (/^Arrow/.test(chord.code) && !chord.ctrl && !chord.alt) return 'nudges the picked doodads';
+        return '';
+    },
+
+    // The other row that already uses this chord, or null.
+    conflict(id, chord) {
+        if (!chord) return null;
+        const other = this.list.find(s => !s.fixed && s.id !== id && this.same(this.chordOf(s.id), chord));
+        return other ? other.id : null;
+    },
+
+    // Bind a row to keys ('' for none). The caller has checked reserved() and conflict(); a row that ends up
+    // back on its own default is stored as no change.
+    set(id, keys) {
+        const s = this.find(id);
+        if (!s || s.fixed) return false;
+        const chord = this.parse(keys);
+        const text = chord ? DocsDoodads.KeyChord.label(chord) : '';
+        const own = Object.assign({}, this.overrides());
+        const def = this.parse(s.keys);
+        if ((chord && def && this.same(chord, def)) || (!chord && !def)) delete own[id];
+        else own[id] = text;
+        DocsDoodads.Ui.setPref(this.prefKey, own);
+        return true;
+    },
+
+    reset(id) {
+        const own = Object.assign({}, this.overrides());
+        delete own[id];
+        DocsDoodads.Ui.setPref(this.prefKey, own);
+    },
+
+    resetAll() {
+        DocsDoodads.Ui.setPref(this.prefKey, {});
+    },
+
+    // The guide's table, from the defaults (npm run shortcuts writes it into Docs_Doodads_Guide.md).
+    markdown() {
+        const cap = text => text.split('+').map(k => '**' + k + '**').join(' + ');
+        const rows = ['| Keys | What it does | Group |', '| :--- | :--- | :--- |',
+            '| **F10** (the Editor Key parameter) | Open or close the editor | Playtest |'];
+        for (const s of this.list) {
+            const keys = s.fixed ? cap(s.keys) : s.keys ? cap(DocsDoodads.KeyChord.label(this.parse(s.keys))) : '*(no key)*';
+            rows.push(`| ${keys} | ${s.label}${s.fixed ? ' *(fixed)*' : ''} | ${s.group} |`);
+        }
+        return rows.join('\n');
+    }
+};
+
 //==========================================================
 // SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
 //==========================================================
@@ -9295,7 +9621,9 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const hidden = (editing && (ws.postFxCompare || ws.postFxPreview === false)) || !DocsDoodads.Atmosphere.featureOn('postfx');
         const mapSettings = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
         const runtime = P.runtimeLook();
-        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime });
+        // Region fades move once a frame, on the map (a battle keeps the map's).
+        const live = P.liveInputs(typeof Spriteset_Map !== 'undefined' && this instanceof Spriteset_Map);
+        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
         let anim = P.Animations.sample(P._anims, DocsDoodads.frameCount());
         if (this._docsExportLook !== undefined) {
             look = this._docsExportLook;
@@ -9369,12 +9697,30 @@ DocsDoodads.PostFX.play = function(spec) {
     return this.Animations.start(this._anims, spec, DocsDoodads.frameCount());
 };
 
+// The clock and the player's region, for the looks by time and by region. step: move the region fades on
+// one frame (the map's spriteset does, once a frame). While editing, a region look can be previewed.
+DocsDoodads.PostFX.liveInputs = function(step) {
+    const B = this.Blends;
+    let minutes;
+    try { minutes = DocsDoodads.Atmosphere.minutes(); } catch (e) { minutes = undefined; }
+    const ws = DocsDoodads.Workspace;
+    if (ws && ws.mounted && ws.previewRegionLook) return { minutes, regionWeights: B.previewWeights(ws.previewRegionLook) };
+    const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+    if (step && map && map.mapId) {
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        const region = player && typeof map.regionId === 'function' ? map.regionId(player.x, player.y) : 0;
+        B.stepRegions(map.mapId(), region, DocsDoodads.World.settings(), DocsDoodads.Lighting.mapSettings(map.mapId()), 1);
+    }
+    return { minutes, regionWeights: B.regionWeights() };
+};
+
 // "Set Look" fades from what is on screen now to a preset, to no effects, or back to the map's own look.
 DocsDoodads.PostFX.setLook = function(id, frames) {
     if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
     const world = DocsDoodads.World.settings();
     const mapSettings = typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
-    const mapLook = this.resolveLook({ world, mapSettings }) || this.defaultLook();
+    const live = this.liveInputs(false);
+    const mapLook = this.resolveLook({ world, mapSettings, minutes: live.minutes, regionWeights: live.regionWeights }) || this.defaultLook();
     const current = $gameSystem._docsLook ? $gameSystem._docsLook.current : mapLook;
     const target = id === 'map' ? mapLook : id === 'none' ? this.defaultLook() : this.presetLook(id);
     if (!target) return null;
@@ -9412,7 +9758,8 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
     const saved = { x: $gameMap._displayX, y: $gameMap._displayY, px: $gameMap._parallaxX, py: $gameMap._parallaxY };
     const P = DocsDoodads.PostFX;
     const look = options.includeEffects
-        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook() }))
+        // The time of day's look, as on screen; a region's look belongs to where the player stands, not the whole map.
+        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook(), minutes: P.liveInputs(false).minutes }))
         : null;
     spriteset._docsExportLook = look;
     const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
@@ -18563,41 +18910,170 @@ DocsDoodads.Prefabs = {
         return { x: 0, y: 0 };
     },
 
+    // Each doodad in a master has a key (pk) that its placed copies keep in prefabRef.pk, so settings a
+    // copy keeps as its own (prefabRef.own, a list of Details keys) find their doodad again when copies are
+    // rebuilt. A master can hold other prefabs: children [{ key, id, x, y, own }], placed from their own
+    // master each time, so changing the inner prefab changes every prefab that holds it. A child's own
+    // settings are { innerPk: { key: value } }. Keys of a child's doodads are child.key + '/' + inner key.
+    pkOf(src, index) {
+        return src && src.pk ? String(src.pk) : 'k' + index;
+    },
+
+    // Sets a Details key on a doodad when no editor is there to do it (dot keys set inside the group).
+    setProperty(d, key, value) {
+        const dot = key.indexOf('.');
+        if (dot > 0) {
+            const group = key.slice(0, dot);
+            d[group] = Object.assign({}, d[group] || {}, { [key.slice(dot + 1)]: value });
+        } else {
+            d[key] = value;
+        }
+    },
+
+    // Every doodad the prefab places, positions relative to its origin, and its events with the pixel
+    // offset of the origin their tile offsets count from. A prefab inside itself is skipped.
+    expand(prefab, options = {}, seen = new Set()) {
+        const out = { doodads: [], events: [] };
+        if (!prefab || seen.has(prefab.id) || seen.size > 16) return out;
+        const inner = new Set(seen).add(prefab.id);
+        const apply = options.applyProperty || ((d, key, value) => this.setProperty(d, key, value));
+        (prefab.doodads || []).forEach((src, i) => {
+            const d = JSON.parse(JSON.stringify(src));
+            delete d.pk;
+            out.doodads.push({ d, pk: this.pkOf(src, i) });
+        });
+        (prefab.events || []).forEach(e => out.events.push({ e, ox: 0, oy: 0 }));
+        (prefab.children || []).forEach((child, ci) => {
+            const master = this.get(child.id);
+            if (!master) return;
+            const key = child.key || 'c' + ci;
+            const placed = this.expand(master, options, inner);
+            for (const item of placed.doodads) {
+                item.d.x += Number(child.x) || 0;
+                item.d.y += Number(child.y) || 0;
+                const own = child.own && child.own[item.pk];
+                if (own) for (const k of Object.keys(own)) apply(item.d, k, own[k]);
+                out.doodads.push({ d: item.d, pk: key + '/' + item.pk });
+            }
+            for (const ev of placed.events) out.events.push({ e: ev.e, ox: ev.ox + (Number(child.x) || 0), oy: ev.oy + (Number(child.y) || 0) });
+        });
+        return out;
+    },
+
+    // The prefabs that hold this one, however deep.
+    containers(prefabId) {
+        const found = new Set();
+        let frontier = [prefabId];
+        while (frontier.length) {
+            const next = [];
+            for (const p of this.ensureLoaded()) {
+                if (found.has(p.id) || p.id === prefabId) continue;
+                if ((p.children || []).some(c => frontier.includes(c.id))) { found.add(p.id); next.push(p.id); }
+            }
+            frontier = next;
+        }
+        return Array.from(found);
+    },
+
+    // Before a prefab is deleted: the prefabs holding it keep what it placed as their own doodads and
+    // events (same keys, so placed copies keep their own settings).
+    bakeChild(prefabId, options = {}) {
+        const tw = options.tileWidth || 48, th = options.tileHeight || 48;
+        let count = 0;
+        for (const p of this.ensureLoaded()) {
+            if (p.id === prefabId || !(p.children || []).some(c => c.id === prefabId)) continue;
+            p.children = p.children.filter((child, ci) => {
+                if (child.id !== prefabId) return true;
+                const key = child.key || 'c' + ci;
+                const placed = this.expand({ id: p.id + '/bake', children: [Object.assign({}, child, { key })] }, options);
+                for (const item of placed.doodads) p.doodads = (p.doodads || []).concat([Object.assign(item.d, { pk: item.pk })]);
+                for (const ev of placed.events) {
+                    p.events = (p.events || []).concat([Object.assign(JSON.parse(JSON.stringify(ev.e)), {
+                        dx: ev.e.dx + Math.round(ev.ox / tw), dy: ev.e.dy + Math.round(ev.oy / th)
+                    })]);
+                }
+                count++;
+                return false;
+            });
+            if (!p.children.length) delete p.children;
+            p.updatedAt = Date.now();
+        }
+        return count;
+    },
+
+    thumbnailFor(prefab) {
+        const first = this.expand(prefab).doodads.find(item => item.d.bit && item.d.bit[0] === 3);
+        return first ? first.d.bit[1] : '';
+    },
+
+    // options: { tileWidth, tileHeight, whole(instance) (every doodad of that placed copy is in the list:
+    // it becomes a child prefab), ownValues(d) ({ key: value } for the doodad's own settings) }.
     capture(name, doodads, events, options = {}) {
         const tw = options.tileWidth || 48, th = options.tileHeight || 48;
         doodads = (doodads || []).filter(Boolean);
         events = (events || []).filter(Boolean);
         const origin = this.originFor(doodads, events, tw, th);
         const originTile = { x: Math.floor(origin.x / tw), y: Math.floor((origin.y - 1) / th) };
-        const first = doodads.find(d => d.bit && d.bit[0] === 3);
-        return {
+        // options.onLink(d, pk) hears the key each picked doodad has in the new prefab.
+        const children = [], own = [], childOf = new Map(), seenIn = new Map();
+        for (const d of doodads) {
+            const ref = d.prefabRef;
+            if (ref && this.get(ref.id) && options.whole && options.whole(ref.instance)) {
+                let child = childOf.get(ref.instance);
+                if (!child) {
+                    child = { key: 'c' + children.length, id: ref.id, x: Math.round((Number(ref.ox) || 0) - origin.x), y: Math.round((Number(ref.oy) || 0) - origin.y) };
+                    childOf.set(ref.instance, child);
+                    children.push(child);
+                }
+                const n = seenIn.get(ref.instance) || 0;
+                seenIn.set(ref.instance, n + 1);
+                const inner = this.pkOf(ref, n);
+                const values = Array.isArray(ref.own) && ref.own.length && options.ownValues ? options.ownValues(d) : null;
+                if (values && Object.keys(values).length) (child.own = child.own || {})[inner] = values;
+                if (options.onLink) options.onLink(d, child.key + '/' + inner);
+            } else {
+                if (options.onLink) options.onLink(d, 'k' + own.length);
+                own.push(d);
+            }
+        }
+        const prefab = {
             id: this.newId('pf_'),
             name: String(name || 'Prefab').trim() || 'Prefab',
             createdAt: Date.now(),
             origin,
-            thumbnail: first ? first.bit[1] : '',
-            doodads: doodads.map(d => Object.assign(this.cleanDoodad(d), { x: d.x - origin.x, y: d.y - origin.y })),
+            thumbnail: '',
+            doodads: own.map((d, i) => Object.assign(this.cleanDoodad(d), { x: d.x - origin.x, y: d.y - origin.y, pk: 'k' + i })),
             events: events.map(e => Object.assign(JSON.parse(JSON.stringify(e)), { dx: e.x - originTile.x, dy: e.y - originTile.y }))
         };
+        if (children.length) prefab.children = children;
+        prefab.thumbnail = this.thumbnailFor(prefab);
+        return prefab;
     },
 
+    // options: { tileWidth, tileHeight, instance, groupId, allocateEventId, keep ({ pk: { key: value } }: a
+    // copy's own settings put back), applyProperty }.
     instantiate(prefab, at, options = {}) {
         const tw = options.tileWidth || 48, th = options.tileHeight || 48;
         const instance = options.instance || this.newId('pi_');
         const groupId = options.groupId || ('grp_' + instance);
-        const atTile = { x: Math.floor(at.x / tw), y: Math.floor((at.y - 1) / th) };
-        const doodads = (prefab.doodads || []).map(src => {
-            const d = JSON.parse(JSON.stringify(src));
-            d.x = Math.round(at.x + src.x);
-            d.y = Math.round(at.y + src.y);
+        const apply = options.applyProperty || ((d, key, value) => this.setProperty(d, key, value));
+        const placed = this.expand(prefab, options);
+        const doodads = placed.doodads.map(({ d, pk }) => {
+            d.x = Math.round(at.x + d.x);
+            d.y = Math.round(at.y + d.y);
             d.groupId = groupId;
-            d.prefabRef = { id: prefab.id, instance, ox: at.x, oy: at.y };
+            d.prefabRef = { id: prefab.id, instance, ox: at.x, oy: at.y, pk };
+            const keep = options.keep && options.keep[pk];
+            if (keep && Object.keys(keep).length) {
+                for (const key of Object.keys(keep)) apply(d, key, keep[key]);
+                d.prefabRef.own = Object.keys(keep);
+            }
             return d;
         });
-        const events = (prefab.events || []).map(src => {
+        const events = placed.events.map(({ e: src, ox, oy }) => {
             const e = JSON.parse(JSON.stringify(src));
-            e.x = atTile.x + src.dx;
-            e.y = atTile.y + src.dy;
+            e.x = Math.floor((at.x + ox) / tw) + src.dx;
+            e.y = Math.floor((at.y + oy - 1) / th) + src.dy;
             delete e.dx;
             delete e.dy;
             e.id = options.allocateEventId ? options.allocateEventId(e) : null;
@@ -18606,13 +19082,35 @@ DocsDoodads.Prefabs = {
         return { instance, groupId, doodads, events };
     },
 
-    // Recaptures the master's doodads from one placed copy (its events are left as they were).
-    updateFromInstance(prefab, instanceDoodads) {
+    // Recaptures the master from one placed copy (its events are left as they were). The copy's own
+    // doodads replace the master's; a child prefab moves with its doodads and keeps the copy's own settings
+    // for them. options: { ownValues(d) }.
+    updateFromInstance(prefab, instanceDoodads, options = {}) {
         if (!prefab || !instanceDoodads || instanceDoodads.length === 0) return null;
         const ref = instanceDoodads[0].prefabRef;
-        prefab.doodads = instanceDoodads.map(d => Object.assign(this.cleanDoodad(d), { x: d.x - ref.ox, y: d.y - ref.oy }));
-        const first = instanceDoodads.find(d => d.bit && d.bit[0] === 3);
-        if (first) prefab.thumbnail = first.bit[1];
+        const inChild = d => Boolean(d.prefabRef && String(d.prefabRef.pk || '').indexOf('/') > 0);
+        const expected = this.expand(prefab).doodads;
+        prefab.doodads = instanceDoodads.filter(d => !inChild(d)).map((d, i) =>
+            Object.assign(this.cleanDoodad(d), { x: d.x - ref.ox, y: d.y - ref.oy, pk: (d.prefabRef && d.prefabRef.pk) || 'k' + i }));
+        (prefab.children || []).forEach((child, ci) => {
+            const key = child.key || 'c' + ci;
+            const mine = instanceDoodads.filter(d => inChild(d) && String(d.prefabRef.pk).indexOf(key + '/') === 0);
+            if (!mine.length) return;
+            const was = expected.find(item => item.pk === mine[0].prefabRef.pk);
+            if (was) {
+                child.x = (Number(child.x) || 0) + Math.round(mine[0].x - ref.ox - was.d.x);
+                child.y = (Number(child.y) || 0) + Math.round(mine[0].y - ref.oy - was.d.y);
+            }
+            // What the child already changed stays; the copy's own settings are added on top.
+            const own = JSON.parse(JSON.stringify(child.own || {}));
+            for (const d of mine) {
+                const values = Array.isArray(d.prefabRef.own) && d.prefabRef.own.length && options.ownValues ? options.ownValues(d) : null;
+                const inner = String(d.prefabRef.pk).slice(key.length + 1);
+                if (values && Object.keys(values).length) own[inner] = Object.assign(own[inner] || {}, values);
+            }
+            if (Object.keys(own).length) child.own = own; else delete child.own;
+        });
+        prefab.thumbnail = this.thumbnailFor(prefab) || prefab.thumbnail;
         prefab.updatedAt = Date.now();
         return prefab;
     }
@@ -20652,7 +21150,7 @@ DocsDoodads.Workspace = {
         const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
         if (btn.classList) btn.classList.toggle('dd-unsaved', unsaved);
         // The tooltip reads it from data-dd-tip once it has taken over the title.
-        const tip = unsaved ? 'Save everything: some changes are not saved yet (Ctrl+S)' : 'Save everything: everything is saved (Ctrl+S)';
+        const tip = DocsDoodads.Shortcuts.tip('save', unsaved ? 'Save everything: some changes are not saved yet' : 'Save everything: everything is saved');
         if (btn.getAttribute && btn.getAttribute('data-dd-tip')) btn.setAttribute('data-dd-tip', tip); else btn.title = tip;
         const label = btn.querySelector ? btn.querySelector('b') : null;
         clearTimeout(this._savedTimer);
@@ -20904,23 +21402,23 @@ DocsDoodads.Workspace = {
         toolbar.style.cssText = 'position: absolute; top: 8px; left: 8px; right: 8px;';
         toolbar.innerHTML = `
             <div class="dd-brand" title="Doc's Doodads v${pluginVersion}">${U.icon('leaf', 2)}<span>Doodads</span></div>
-            ${tool('dd-select-btn', 'select', 'Select', 'Select: click things on the map to change them, drag to move (Esc)')}
-            ${tool('dd-stamp-btn', 'stamp', 'Stamp', 'Stamp: click the map to place the picked item again and again')}
-            ${tool('dd-brush-btn', 'brush', 'Scatter', 'Scatter: drag over the map to sprinkle the picked item around')}
-            ${tool('dd-biome-btn', 'biome', 'Paint', 'Paint: drag to paint a mix of plants (biomes)')}
-            ${tool('dd-path-btn', 'path', 'Path', 'Path: lay the picked item along a line you click out')}
-            ${tool('dd-terrain-btn', 'terrain', 'Hills', 'Hills: raise and lower the ground (3D view)')}
-            ${tool('dd-region-btn', 'grid', 'Regions', 'Regions: paint region numbers on tiles (and see terrain tags)')}
+            ${tool('dd-select-btn', 'select', 'Select', this.shortcutTip('dd-select-btn'))}
+            ${tool('dd-stamp-btn', 'stamp', 'Stamp', this.shortcutTip('dd-stamp-btn'))}
+            ${tool('dd-brush-btn', 'brush', 'Scatter', this.shortcutTip('dd-brush-btn'))}
+            ${tool('dd-biome-btn', 'biome', 'Paint', this.shortcutTip('dd-biome-btn'))}
+            ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
+            ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
+            ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
-            ${tool('dd-eyedropper-btn', 'picker', 'Grab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)')}
+            ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
             <div class="dd-sep"></div>
-            ${tool('dd-undo-btn', 'undo', 'Undo', 'Undo (Ctrl+Z)')}
-            ${tool('dd-redo-btn', 'redo', 'Redo', 'Redo (Ctrl+Y)')}
+            ${tool('dd-undo-btn', 'undo', 'Undo', this.shortcutTip('dd-undo-btn'))}
+            ${tool('dd-redo-btn', 'redo', 'Redo', this.shortcutTip('dd-redo-btn'))}
             ${tool('dd-undo-list-btn', 'history', 'Steps', 'Every step you took: jump back to any of them')}
             <div class="dd-spacer"></div>
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
             ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
-            ${tool('dd-save-btn', 'save', 'Save', 'Save everything (Ctrl+S)', 'dd-btn-good')}
+            ${tool('dd-save-btn', 'save', 'Save', DocsDoodads.Shortcuts.tip('save', 'Save everything'), 'dd-btn-good')}
             ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
         wrap.appendChild(toolbar);
@@ -21025,12 +21523,13 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-history-btn" title="Compare with earlier saves and bring single things back">${U.icon('folder', 1)} Old Saves</button>
                     <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
                     <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
-                    <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-grid-btn" title="${escapeHtml(this.shortcutTip('dd-grid-btn'))}">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
                     <button class="dd-btn" id="dd-collision-btn" title="Show every doodad's collision and the tiles you can't walk on">${U.icon('lock', 1)} <span id="dd-collision-label">${this.showCollision ? 'Hide Collision' : 'Show Collision'}</span></button>
                     <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
-                    <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-palette-btn" title="${escapeHtml(this.shortcutTip('dd-palette-btn'))}">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
@@ -21486,6 +21985,7 @@ DocsDoodads.Workspace = {
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
+        on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
@@ -22288,7 +22788,7 @@ DocsDoodads.Workspace = {
                 ${this.renderSelectionTools([d])}
                 ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
+                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">${escapeHtml(DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'))}</button>
                     <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: var(--dd-danger-soft);">Delete</button>
                 </div>
             `;
@@ -22576,6 +23076,7 @@ DocsDoodads.Workspace = {
     },
 
     applyDoodadProperty(d, key, value) {
+        if (d && d.prefabRef && this.noteOwnSetting) this.noteOwnSetting(d, key);
         if (key === 'flipX' || key === 'flipY') {
             const axis = key === 'flipX' ? 'scaleX' : 'scaleY';
             d[axis] = Math.abs(d[axis] !== undefined ? d[axis] : 1) * (value ? -1 : 1);
@@ -22907,7 +23408,9 @@ DocsDoodads.Workspace = {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;
                 const shared = items.length > 1 ? this.sharedValue(items, f.key) : { value: this.getDoodadProperty(first, f.key), mixed: false };
-                return this.fieldHtml(id, f, shared.value, shared.mixed);
+                // A prefab copy's own setting (kept when copies sync) is marked.
+                const own = items.some(d => d.prefabRef && Array.isArray(d.prefabRef.own) && d.prefabRef.own.includes(f.key));
+                return this.fieldHtml(id, own ? Object.assign({}, f, { label: f.label + ' ●' }) : f, shared.value, shared.mixed);
             }).join('');
             return `
                 <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
@@ -23672,11 +24175,13 @@ DocsDoodads.Workspace = {
         const D = DocsDoodads;
         const out = [];
         const add = (label, run, group, keys) => out.push({ label, run, group: group || 'Command', keys });
-        add('Save', () => D.Persistence.saveAll(), null, 'Ctrl+S');
-        add('Undo', () => D.Undo.undo(), null, 'Ctrl+Z');
-        add('Redo', () => D.Undo.redo(), null, 'Ctrl+Y');
-        add('Toggle Grid', () => this.toggleGrid(), null, 'G');
-        add('Show / Hide Collision', () => this.toggleCollisionOverlay());
+        const K = id => D.Shortcuts.label(id) || undefined;
+        add('Save', () => D.Persistence.saveAll(), null, K('save'));
+        add('Undo', () => D.Undo.undo(), null, K('undo'));
+        add('Redo', () => D.Undo.redo(), null, K('redo'));
+        add('Keyboard Shortcuts (see and change keys)', () => this.showShortcutsCard(), null, K('shortcuts'));
+        add('Toggle Grid', () => this.toggleGrid(), null, K('grid'));
+        add('Show / Hide Collision', () => this.toggleCollisionOverlay(), null, K('collision'));
         for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');
         add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
         for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
@@ -23704,25 +24209,25 @@ DocsDoodads.Workspace = {
         add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());
         add('Clock: run the day fast', () => this.playClock(), 'Clock');
         add('Clock: back to the game\'s time', () => { this.stopClock(); this.previewMinutes = null; this.previewSeason = null; this.updateClockBar(true); }, 'Clock');
-        add('Show / Hide Sounds', () => this.toggleSoundOverlay());
+        add('Show / Hide Sounds', () => this.toggleSoundOverlay(), null, K('sounds'));
         add('Listen Here (click a tile)', () => this.setPlacementTool('listen'));
-        add('Show / Hide Speed (performance)', () => this.togglePerfOverlay());
+        add('Show / Hide Speed (performance)', () => this.togglePerfOverlay(), null, K('speed'));
         for (const s of D.Ui.scales) add(`Editor size ${Math.round(s * 100)}%`, () => this.setLook('uiScale', s), 'Look');
         for (const t of D.Ui.themes) add('Theme: ' + t.label, () => this.setLook('theme', t.value), 'Look');
         add('Map colours: colour-blind safe', () => this.setLook('mapColors', 'safe'), 'Look');
         add('Map colours: standard', () => this.setLook('mapColors', 'standard'), 'Look');
-        add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'));
-        add('Tool: Stamp', () => this.setPlacementTool('stamp'));
-        add('Tool: Scatter', () => this.setPlacementTool('brush'));
-        add('Tool: Paint (biomes)', () => this.setPlacementTool('biome'));
-        add('Tool: Path', () => this.setPlacementTool('path'));
-        add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'));
-        add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'));
-        add('Tool: Select', () => this.setPlacementTool(null));
-        add('Select All (Ctrl+A)', () => this.selectAllDoodads());
+        add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'), null, K('toolGrab'));
+        add('Tool: Stamp', () => this.setPlacementTool('stamp'), null, K('toolStamp'));
+        add('Tool: Scatter', () => this.setPlacementTool('brush'), null, K('toolScatter'));
+        add('Tool: Paint (biomes)', () => this.setPlacementTool('biome'), null, K('toolPaint'));
+        add('Tool: Path', () => this.setPlacementTool('path'), null, K('toolPath'));
+        add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'), null, K('toolHills'));
+        add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'), null, K('toolRegions'));
+        add('Tool: Select', () => this.setPlacementTool(null), null, K('toolSelect'));
+        add('Select All', () => this.selectAllDoodads(), null, K('selectAll'));
         add('Invert Selection', () => this.invertSelection());
         add('Select Same Art as Picked', () => this.selectSameArt());
-        add('Paste in Place (Ctrl+Shift+V)', () => this.pasteCopied(true));
+        add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
@@ -25012,6 +25517,7 @@ DocsDoodads.Workspace = {
                 <div style="font-size: 10px; color: var(--dd-muted);">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
             </div>
             <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px;">${effects}</div>
+            ${this.lookBlendsHtml ? this.lookBlendsHtml(target) : ''}
             <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
                 <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Screen effect (test)
                     <select id="dd-pfx-anim" style="${selectStyle}">${P.Animations.types.map(t => option(t.value, t.label, '')).join('')}</select></div>
@@ -25055,6 +25561,7 @@ DocsDoodads.Workspace = {
         const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
         on('dd-pfx-close', 'onclick', () => {
             this.setPostFxCompare(false);
+            this.previewRegionLook = 0;
             if (this._postFxPanel && this._postFxPanel.parentNode) this._postFxPanel.parentNode.removeChild(this._postFxPanel);
         });
         on('dd-pfx-target', 'onchange', e => { this.postFxTarget = e.target.value; this.refreshPostFxBuilder(); });
@@ -25080,6 +25587,7 @@ DocsDoodads.Workspace = {
                 includeEffects: Boolean(byId('dd-pfx-export-fx').checked)
             });
         });
+        if (this.bindLookBlends) this.bindLookBlends(target);
         if (target === 'map' && this.mapPostFxMode() !== 'custom') return;
         P.effects.forEach((effect, i) => {
             const details = byId(`dd-pfx-sec-${i}`);
@@ -25844,9 +26352,14 @@ DocsDoodads.Workspace = {
     async deletePrefab(prefabId) {
         const prefab = DocsDoodads.Prefabs.get(prefabId);
         if (!prefab) return;
-        if (!(await DocsDoodads.Ui.confirm(`The prefab "${prefab.name}" will be deleted from the Item Bag. Copies already placed stay on their maps as plain doodads.`,
+        const holders = DocsDoodads.Prefabs.containers(prefabId).filter(id => (DocsDoodads.Prefabs.get(id).children || []).some(c => c.id === prefabId));
+        const inside = holders.length ? ` The ${holders.length} prefab${holders.length === 1 ? '' : 's'} holding it keep its doodads as their own.` : '';
+        if (!(await DocsDoodads.Ui.confirm(`The prefab "${prefab.name}" will be deleted from the Item Bag. Copies already placed stay on their maps as plain doodads.${inside}`,
             { title: 'Delete prefab?', ok: 'Delete Prefab', danger: true }))) return;
         if (DocsDoodads.Prefabs.get(prefabId) !== prefab) return;
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        DocsDoodads.Prefabs.bakeChild(prefabId, { tileWidth: tw, tileHeight: th, applyProperty: (d, k, v) => this.applyDoodadProperty(d, k, v) });
         DocsDoodads.Prefabs.remove(prefabId);
         DocsDoodads.Prefabs.save();
         this.selectedAsset = null;
@@ -25874,19 +26387,27 @@ DocsDoodads.Workspace = {
             content.innerHTML = 'This prefab no longer exists.';
             return;
         }
-        const copies = Object.keys(window.$dataDocsDoodads || {}).reduce((n, key) => {
+        const P = DocsDoodads.Prefabs;
+        const copiesOf = ids => Object.keys(window.$dataDocsDoodads || {}).reduce((n, key) => {
             const list = window.$dataDocsDoodads[key];
             if (!Array.isArray(list)) return n;
-            return n + new Set(list.filter(d => d && d.prefabRef && d.prefabRef.id === prefab.id).map(d => d.prefabRef.instance)).size;
+            return n + new Set(list.filter(d => d && d.prefabRef && ids.includes(d.prefabRef.id)).map(d => d.prefabRef.instance)).size;
         }, 0);
+        const holders = P.containers(prefab.id);
+        const copies = copiesOf([prefab.id]);
+        const syncs = copiesOf([prefab.id].concat(holders));
+        const names = ids => ids.map(id => P.get(id)).filter(Boolean).map(p => escapeHtml(p.name)).join(', ');
+        const held = (prefab.children || []).map(c => c.id).filter((id, i, all) => all.indexOf(id) === i);
         content.innerHTML = `
             <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
             <div style="font-size: 11px; margin-bottom: 4px;">Prefab &middot; ${prefab.doodads.length} doodad(s), ${prefab.events.length} event(s)</div>
-            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: var(--dd-accent);">${copies}</span></div>
-            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
+            ${held.length ? `<div style="font-size: 11px; margin-bottom: 4px;">Holds: ${names(held)}</div>` : ''}
+            ${holders.length ? `<div style="font-size: 11px; margin-bottom: 4px;">Inside: ${names(holders)}</div>` : ''}
+            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: var(--dd-accent);">${copies}</span>${syncs > copies ? ` (and ${syncs - copies} inside other prefabs)` : ''}</div>
+            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies". Settings you change on one copy stay its own. Save a selection holding a whole copy and the prefab goes inside the new one.</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
                 <button class="dd-btn dd-btn-primary" id="dd-prefab-place">Place at Player</button>
-                <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${copies})</button>
+                <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${syncs})</button>
                 <button class="dd-btn" id="dd-prefab-rename">Rename</button>
                 <button class="dd-btn" id="dd-prefab-delete" style="background: var(--dd-danger-soft);">Delete Prefab</button>
             </div>`;
@@ -25906,6 +26427,7 @@ DocsDoodads.Workspace = {
                 ${mirror ? `<div style="font-size: 10px; color: var(--dd-warn); margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
                 ${prefab ? `
                 <div style="font-size: 10px; color: var(--dd-purple); margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
+                ${this.ownSettingsHtml(items)}
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px;">
                     <button class="dd-btn" id="dd-sel-prefab-update" title="Make the master prefab match this copy" style="padding: 4px;">Update Prefab</button>
                     <button class="dd-btn" id="dd-sel-prefab-sync" title="Rebuild every copy from the master" style="padding: 4px;">Sync Copies</button>
@@ -25936,6 +26458,25 @@ DocsDoodads.Workspace = {
         on('dd-sel-prefab-update', () => this.updatePrefabFromInstance(items[0]));
         on('dd-sel-prefab-sync', () => { if (items[0].prefabRef) this.syncPrefabInstances(items[0].prefabRef.id); this.refreshInspector(); });
         on('dd-sel-prefab-detach', () => { this.detachPrefabInstance(items[0]); this.refreshInspector(); });
+        this.ownSettingKeys(items).forEach((key, i) => on('dd-sel-own-' + i, () => { this.useMasterSetting(items, key); this.refreshInspector(); }));
+    },
+
+    // A prefab copy's own settings (changed in Details, kept when copies sync), each with a way back.
+    ownSettingKeys(items) {
+        const keys = [];
+        for (const d of items || []) for (const k of (d && d.prefabRef && Array.isArray(d.prefabRef.own) ? d.prefabRef.own : [])) if (!keys.includes(k)) keys.push(k);
+        return keys;
+    },
+
+    ownSettingsHtml(items) {
+        const keys = this.ownSettingKeys(items);
+        if (!keys.length) {
+            return `<div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4; margin-bottom: 6px;">Change a setting below and it becomes this copy's own (marked ●): Sync Copies keeps it.</div>`;
+        }
+        return `<div style="font-size: 10px; color: var(--dd-muted); margin-bottom: 3px;">This copy's own settings (kept when copies sync):</div>
+            <div style="display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px;">${keys.map((k, i) => `
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11px;"><span style="flex: 1; min-width: 0;">● ${escapeHtml(this.settingLabel(k))}</span>
+                <button class="dd-btn" id="dd-sel-own-${i}" type="button" style="padding: 2px 6px; font-size: 10px;" title="Go back to the prefab's value">Use Prefab's</button></div>`).join('')}</div>`;
     },
 
     // ---- Maps: switching, neighbours, picker ----
@@ -27164,16 +27705,25 @@ DocsDoodads.Workspace = {
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
         const events = includeEvents ? this.eventsWithin(items) : [];
-        const prefab = DocsDoodads.Prefabs.capture(name, items, events, { tileWidth: tw, tileHeight: th });
+        // A whole placed copy of another prefab in the selection goes in as that prefab (a prefab inside
+        // the prefab), so changing it later changes this one too.
+        const all = DocsDoodads.doodads() || [];
+        const whole = instance => all.filter(d => d.prefabRef && d.prefabRef.instance === instance).every(d => items.includes(d));
+        const links = new Map();
+        const prefab = DocsDoodads.Prefabs.capture(name, items, events, {
+            tileWidth: tw, tileHeight: th, whole, ownValues: d => this.ownValues(d), onLink: (d, pk) => links.set(d, pk)
+        });
         DocsDoodads.Prefabs.add(prefab);
         DocsDoodads.Prefabs.save();
         // The selection itself becomes the prefab's first linked copy.
         const instance = DocsDoodads.Prefabs.newId('pi_');
         this.editDoodads(items, d => {
-            d.prefabRef = { id: prefab.id, instance, ox: prefab.origin.x, oy: prefab.origin.y };
+            d.prefabRef = { id: prefab.id, instance, ox: prefab.origin.x, oy: prefab.origin.y, pk: links.get(d) };
             d.groupId = 'grp_' + instance;
         }, 'link_prefab');
-        this.showToast(`Saved prefab "${prefab.name}" (${prefab.doodads.length} doodads, ${prefab.events.length} events).`);
+        const inner = (prefab.children || []).length;
+        const held = inner ? `, ${inner} prefab${inner === 1 ? '' : 's'} inside` : '';
+        this.showToast(`Saved prefab "${prefab.name}" (${prefab.doodads.length} doodads${held}, ${prefab.events.length} events).`);
         if (this.currentCategory === 'Prefabs') this.refreshDrawerCards();
         return prefab;
     },
@@ -27219,32 +27769,102 @@ DocsDoodads.Workspace = {
     updatePrefabFromInstance(d) {
         const prefab = d && d.prefabRef ? DocsDoodads.Prefabs.get(d.prefabRef.id) : null;
         if (!prefab) return null;
-        DocsDoodads.Prefabs.updateFromInstance(prefab, this.prefabInstanceDoodads(d));
+        const items = this.prefabInstanceDoodads(d);
+        DocsDoodads.Prefabs.updateFromInstance(prefab, items, { ownValues: x => this.ownValues(x) });
         DocsDoodads.Prefabs.save();
+        // What this copy kept as its own is the master's now.
+        if (items.some(x => x.prefabRef && x.prefabRef.own)) this.editDoodads(items, x => { delete x.prefabRef.own; }, 'update_prefab');
         this.showToast(`Updated prefab "${prefab.name}" from this copy.`);
         return prefab;
     },
 
-    // Rebuilds every placed copy (on every map) from the master, keeping each copy's position and group.
+    // ---- A copy's own settings (6.1.14) ----
+    // Settings changed in Details on a prefab copy stay that copy's own: Sync Copies keeps them.
+    // Positions are the prefab's (move the whole copy, or Update Prefab).
+    noteOwnSetting(d, key) {
+        if (!d || !d.prefabRef || key === 'x' || key === 'y') return;
+        const own = Array.isArray(d.prefabRef.own) ? d.prefabRef.own : [];
+        if (!own.includes(key)) d.prefabRef.own = own.concat([key]);
+    },
+
+    ownValues(d) {
+        const out = {};
+        for (const key of (d && d.prefabRef && Array.isArray(d.prefabRef.own) ? d.prefabRef.own : [])) out[key] = this.getDoodadProperty(d, key);
+        return JSON.parse(JSON.stringify(out));
+    },
+
+    // The master's version of a placed doodad, as the prefab would place it now.
+    masterDoodadFor(d) {
+        const prefab = d && d.prefabRef ? DocsDoodads.Prefabs.get(d.prefabRef.id) : null;
+        if (!prefab) return null;
+        const pk = d.prefabRef.pk || 'k' + this.prefabInstanceDoodads(d).indexOf(d);
+        const hit = DocsDoodads.Prefabs.expand(prefab, { applyProperty: (x, k, v) => this.applyDoodadProperty(x, k, v) }).doodads.find(item => item.pk === pk);
+        return hit ? hit.d : null;
+    },
+
+    // Back to the prefab's value for one of a copy's own settings.
+    useMasterSetting(items, key) {
+        const targets = (items || []).filter(d => d && d.prefabRef && Array.isArray(d.prefabRef.own) && d.prefabRef.own.includes(key));
+        if (!targets.length) return false;
+        this.editDoodads(targets, d => {
+            const master = this.masterDoodadFor(d);
+            if (master) this.applyDoodadProperty(d, key, this.getDoodadProperty(master, key));
+            d.prefabRef.own = d.prefabRef.own.filter(k => k !== key);
+            if (!d.prefabRef.own.length) delete d.prefabRef.own;
+        }, 'use_prefab_setting');
+        return true;
+    },
+
+    // The words for a Details key: "Light: Colour".
+    settingLabel(key) {
+        if (key === 'name') return 'Name';
+        for (const section of this.effectSections()) {
+            const f = section.fields.find(x => x.key === key);
+            if (f) return `${section.title}: ${f.label}`;
+        }
+        return key;
+    },
+
+    // Rebuilds every placed copy (on every map) from the master, keeping each copy's position, group and
+    // own settings. Copies of prefabs that hold this one are rebuilt too.
     syncPrefabInstances(prefabId) {
         const prefab = DocsDoodads.Prefabs.get(prefabId);
         if (!prefab) return 0;
+        const ids = new Set([prefabId].concat(DocsDoodads.Prefabs.containers(prefabId)));
         const data = window.$dataDocsDoodads;
         const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const mapIds = Object.keys(data).filter(k => Array.isArray(data[k]) && data[k].some(d => d && d.prefabRef && d.prefabRef.id === prefabId));
+        const mapIds = Object.keys(data).filter(k => Array.isArray(data[k]) && data[k].some(d => d && d.prefabRef && ids.has(d.prefabRef.id)));
         const before = this.snapshotMapLists(mapIds);
+        const apply = (d, key, value) => this.applyDoodadProperty(d, key, value);
         let count = 0;
         for (const mapId of mapIds) {
-            const next = [];
-            const done = new Set();
+            const byInstance = new Map();
             for (const d of data[mapId]) {
-                if (!d || !d.prefabRef || d.prefabRef.id !== prefabId) { next.push(d); continue; }
-                if (done.has(d.prefabRef.instance)) continue;
-                done.add(d.prefabRef.instance);
-                const rebuilt = DocsDoodads.Prefabs.instantiate(prefab, { x: d.prefabRef.ox, y: d.prefabRef.oy },
-                    { tileWidth: tw, tileHeight: th, instance: d.prefabRef.instance, groupId: d.groupId });
-                rebuilt.doodads.forEach(x => next.push(x));
+                if (!d || !d.prefabRef || !ids.has(d.prefabRef.id)) continue;
+                if (!byInstance.has(d.prefabRef.instance)) byInstance.set(d.prefabRef.instance, []);
+                byInstance.get(d.prefabRef.instance).push(d);
+            }
+            const next = [];
+            for (const d of data[mapId]) {
+                if (!d || !d.prefabRef || !ids.has(d.prefabRef.id)) { next.push(d); continue; }
+                const old = byInstance.get(d.prefabRef.instance);
+                if (!old) continue; // already rebuilt
+                byInstance.delete(d.prefabRef.instance);
+                const keep = {}, flags = {};
+                old.forEach((x, i) => {
+                    const pk = x.prefabRef.pk || 'k' + i;
+                    const own = this.ownValues(x);
+                    if (Object.keys(own).length) keep[pk] = own;
+                    flags[pk] = { uid: x.uid, locked: x.locked, editorHidden: x.editorHidden };
+                });
+                const rebuilt = DocsDoodads.Prefabs.instantiate(DocsDoodads.Prefabs.get(d.prefabRef.id), { x: d.prefabRef.ox, y: d.prefabRef.oy },
+                    { tileWidth: tw, tileHeight: th, instance: d.prefabRef.instance, groupId: d.groupId, keep, applyProperty: apply });
+                for (const x of rebuilt.doodads) {
+                    const f = flags[x.prefabRef.pk];
+                    if (f) for (const k of Object.keys(f)) if (f[k] !== undefined) x[k] = f[k];
+                    next.push(x);
+                }
                 count++;
             }
             data[mapId].length = 0;
@@ -27744,7 +28364,7 @@ DocsDoodads.Workspace = {
                 items.push({ label: 'Bring to Front', icon: '⏫', onClick: () => this.bringToFront([clickedDoodad]) });
                 items.push({ label: 'Send to Back', icon: '⏬', onClick: () => this.sendToBack([clickedDoodad]) });
                 items.push({ separator: true });
-                items.push({ label: 'Duplicate (Ctrl+D)', icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
+                items.push({ label: DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'), icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
                 items.push({ label: clickedDoodad.locked ? 'Unlock' : 'Lock', icon: clickedDoodad.locked ? '🔓' : '🔒', onClick: () => this.lockSelected(!clickedDoodad.locked) });
                 items.push({ label: 'Hide in Editor', icon: '👁️', onClick: () => this.hideSelected(true) });
                 const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
@@ -27785,10 +28405,10 @@ DocsDoodads.Workspace = {
             // Right-clicking empty map
             items.push({ label: this.gridSnapShow ? 'Hide Grid Overlay (G)' : 'Show Grid Overlay (G)', icon: '📐', onClick: () => this.toggleGrid() });
             if (this._clipboardDoodads && this._clipboardDoodads.length > 0) {
-                items.push({ label: `Paste ${this._clipboardDoodads.length} Doodad(s) (Ctrl+V)`, icon: '📑', onClick: () => this.pasteCopied() });
-                items.push({ label: 'Paste in Place (Ctrl+Shift+V)', icon: '📌', onClick: () => this.pasteCopied(true) });
+                items.push({ label: DocsDoodads.Shortcuts.tip('paste', `Paste ${this._clipboardDoodads.length} Doodad(s)`), icon: '📑', onClick: () => this.pasteCopied() });
+                items.push({ label: DocsDoodads.Shortcuts.tip('pasteInPlace', 'Paste in Place'), icon: '📌', onClick: () => this.pasteCopied(true) });
             }
-            items.push({ label: 'Select All (Ctrl+A)', icon: '⬚', onClick: () => this.selectAllDoodads() });
+            items.push({ label: DocsDoodads.Shortcuts.tip('selectAll', 'Select All'), icon: '⬚', onClick: () => this.selectAllDoodads() });
             if (this.selectionItems().length > 0) items.push({ label: 'Invert Selection', icon: '◪', onClick: () => this.invertSelection() });
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
@@ -31070,6 +31690,168 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
+//==========================================================
+// In the Screen Looks card, under the effects: looks that blend in by the clock (game-wide) and while the
+// player is on a region (game-wide, or this map's own), each a preset or a copy of the look above, with a
+// strength. A map can leave the time looks out (interiors). The rules are DocsDoodads.PostFX.Blends.
+Object.assign(DocsDoodads.Workspace, {
+    previewRegionLook: 0,
+
+    timeText(minutes) {
+        const m = DocsDoodads.PostFX.Blends.wrap(minutes);
+        return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    },
+
+    // "18:30" or "6:05" to minutes; null when it isn't a time.
+    parseTimeText(text) {
+        const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(text || ''));
+        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+        return Number(m[1]) * 60 + Number(m[2]);
+    },
+
+    timeLooks() {
+        const list = DocsDoodads.World.raw('postfx.times');
+        return Array.isArray(list) ? list.map(e => DocsDoodads.PostFX.Blends.normalizeTime(e)) : [];
+    },
+
+    setTimeLooks(list) {
+        this.setWorldSetting('postfx.times', list.length ? list.map(e => DocsDoodads.PostFX.Blends.normalizeTime(e)) : undefined);
+    },
+
+    mapLookBlends() {
+        const own = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).lookBlends;
+        return own && typeof own === 'object' ? own : {};
+    },
+
+    setMapLookBlends(next) {
+        const clean = {};
+        if (next.noTimes) clean.noTimes = true;
+        if (Array.isArray(next.regions) && next.regions.length) clean.regions = next.regions.map(e => DocsDoodads.PostFX.Blends.normalizeRegion(e));
+        this.setMapSetting('lookBlends', Object.keys(clean).length ? clean : undefined);
+    },
+
+    // The region looks being edited: game-wide, or this map's own.
+    regionLooks(target) {
+        const B = DocsDoodads.PostFX.Blends;
+        const list = target === 'map' ? this.mapLookBlends().regions : DocsDoodads.World.raw('postfx.regions');
+        return Array.isArray(list) ? list.map(e => B.normalizeRegion(e)) : [];
+    },
+
+    setRegionLooks(target, list) {
+        const B = DocsDoodads.PostFX.Blends;
+        if (target === 'map') this.setMapLookBlends(Object.assign({}, this.mapLookBlends(), { regions: list }));
+        else this.setWorldSetting('postfx.regions', list.length ? list.map(e => B.normalizeRegion(e)) : undefined);
+    },
+
+    // An entry's look becomes a copy of the look shown above it (the game-wide look, or this map's).
+    lookAboveFor(target) {
+        const P = DocsDoodads.PostFX;
+        const mine = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).postfx;
+        if (target === 'map' && mine && mine.mode === 'custom' && mine.look) return P.normalizeLook(mine.look);
+        return P.normalizeLook(DocsDoodads.World.get('postfx.look'));
+    },
+
+    withLookChoice(entry, value, target) {
+        const out = Object.assign({}, entry);
+        delete out.look;
+        delete out.preset;
+        if (value === '__own') out.look = entry.look || this.lookAboveFor(target);
+        else if (value === '__above') out.look = this.lookAboveFor(target);
+        else out.preset = value;
+        return out;
+    },
+
+    lookChoiceHtml(id, entry) {
+        const P = DocsDoodads.PostFX;
+        const current = entry.look ? '__own' : entry.preset;
+        const option = (value, label) => `<option value="${escapeHtml(value)}"${value === current ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        return `<select id="${id}" title="The look to blend in">${P.presets.map(p => option(p.id, p.label)).join('')}` +
+            `${entry.look ? option('__own', 'Its own look') : ''}${option('__above', 'Copy the look above')}</select>`;
+    },
+
+    lookBlendsHtml(target) {
+        const rowStyle = 'display: grid; gap: 4px; align-items: center; font-size: 10px; color: var(--dd-muted);';
+        const amount = (id, value) => `<input type="range" id="${id}" min="0" max="1" step="0.05" value="${value}" title="Strength: ${Math.round(value * 100)}%" />`;
+        const times = this.timeLooks();
+        const regions = this.regionLooks(target);
+        const own = this.mapLookBlends();
+        const timePart = target === 'map'
+            ? `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dd-text);" title="Off for interiors: the time of day's looks leave this map alone">
+                <input type="checkbox" id="dd-lb-times-on" ${own.noTimes ? '' : 'checked'} /> Looks by time of day on this map</label>`
+            : `<div style="font-size: 11px; font-weight: bold; color: var(--dd-muted);">Looks by time of day</div>
+               ${times.map((e, i) => `
+                <div style="${rowStyle} grid-template-columns: 58px 58px 44px 1fr;">
+                    <input type="time" id="dd-lb-t-${i}-from" value="${this.timeText(e.from)}" title="From" />
+                    <input type="time" id="dd-lb-t-${i}-to" value="${this.timeText(e.to)}" title="To" />
+                    <input type="number" id="dd-lb-t-${i}-fade" value="${e.fade}" min="0" max="720" title="Fade in and out (minutes of game time)" />
+                    ${this.lookChoiceHtml(`dd-lb-t-${i}-look`, e)}
+                </div>
+                <div style="${rowStyle} grid-template-columns: 1fr auto;">${amount(`dd-lb-t-${i}-amount`, e.amount)}
+                    <button class="dd-btn" id="dd-lb-t-${i}-del" type="button" title="Remove this time" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('trash', 1)}</button></div>`).join('')}
+               ${times.length ? '' : '<div style="font-size: 10px; color: var(--dd-faint);">None yet: add one for a warm dusk or a blue night. The clock bar previews it.</div>'}
+               <button class="dd-btn" id="dd-lb-add-time" type="button">${DocsDoodads.Ui.icon('plus', 1)} Add a Time</button>`;
+        return `
+            <div id="dd-lb" style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                ${timePart}
+                <div style="font-size: 11px; font-weight: bold; color: var(--dd-muted); margin-top: 4px;">Looks by region ${target === 'map' ? '(this map: these win over the game-wide ones)' : '(every map)'}</div>
+                ${regions.map((e, i) => `
+                <div style="${rowStyle} grid-template-columns: 44px 44px 1fr;">
+                    <input type="number" id="dd-lb-r-${i}-region" value="${e.region}" min="1" max="255" title="Region number" />
+                    <input type="number" id="dd-lb-r-${i}-fade" value="${e.fade}" min="0" max="30" step="0.5" title="Fade in and out (seconds)" />
+                    ${this.lookChoiceHtml(`dd-lb-r-${i}-look`, e)}
+                </div>
+                <div style="${rowStyle} grid-template-columns: 1fr auto auto;">${amount(`dd-lb-r-${i}-amount`, e.amount)}
+                    <button class="dd-btn${this.previewRegionLook === e.region ? ' dd-btn-primary' : ''}" id="dd-lb-r-${i}-preview" type="button" title="See this region's look now (while editing)" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('eye', 1)}</button>
+                    <button class="dd-btn" id="dd-lb-r-${i}-del" type="button" title="Remove this region" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('trash', 1)}</button></div>`).join('')}
+                ${regions.length ? '' : '<div style="font-size: 10px; color: var(--dd-faint);">None yet: paint a region (Regions tool) and give it a look, like a cold crypt.</div>'}
+                <button class="dd-btn" id="dd-lb-add-region" type="button">${DocsDoodads.Ui.icon('plus', 1)} Add a Region</button>
+            </div>`;
+    },
+
+    bindLookBlends(target) {
+        const byId = id => (typeof document !== 'undefined' ? document.getElementById(id) : null);
+        const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
+        const B = DocsDoodads.PostFX.Blends;
+        const again = () => this.refreshPostFxBuilder();
+        on('dd-lb-times-on', 'onchange', e => { this.setMapLookBlends(Object.assign({}, this.mapLookBlends(), { noTimes: !e.target.checked })); again(); });
+        on('dd-lb-add-time', 'onclick', () => { this.setTimeLooks(this.timeLooks().concat([Object.assign({}, B.timeDefaults)])); again(); });
+        this.timeLooks().forEach((e, i) => {
+            const change = edit => { const list = this.timeLooks(); list[i] = edit(list[i]); this.setTimeLooks(list); again(); };
+            const time = key => ev => { const m = this.parseTimeText(ev.target.value); if (m !== null) change(x => Object.assign(x, { [key]: m })); };
+            on(`dd-lb-t-${i}-from`, 'onchange', time('from'));
+            on(`dd-lb-t-${i}-to`, 'onchange', time('to'));
+            on(`dd-lb-t-${i}-fade`, 'onchange', ev => change(x => Object.assign(x, { fade: Number(ev.target.value) || 0 })));
+            on(`dd-lb-t-${i}-look`, 'onchange', ev => change(x => this.withLookChoice(x, ev.target.value, 'world')));
+            on(`dd-lb-t-${i}-amount`, 'onchange', ev => change(x => Object.assign(x, { amount: Number(ev.target.value) })));
+            on(`dd-lb-t-${i}-del`, 'onclick', () => { const list = this.timeLooks(); list.splice(i, 1); this.setTimeLooks(list); again(); });
+        });
+        on('dd-lb-add-region', 'onclick', () => {
+            const list = this.regionLooks(target);
+            const used = new Set(list.map(e => e.region));
+            let region = 1;
+            while (used.has(region) && region < 255) region++;
+            this.setRegionLooks(target, list.concat([Object.assign({}, B.regionDefaults, { region })]));
+            again();
+        });
+        this.regionLooks(target).forEach((e, i) => {
+            const change = edit => { const list = this.regionLooks(target); list[i] = edit(list[i]); this.setRegionLooks(target, list); again(); };
+            on(`dd-lb-r-${i}-region`, 'onchange', ev => change(x => Object.assign(x, { region: Number(ev.target.value) || 1 })));
+            on(`dd-lb-r-${i}-fade`, 'onchange', ev => change(x => Object.assign(x, { fade: Number(ev.target.value) || 0 })));
+            on(`dd-lb-r-${i}-look`, 'onchange', ev => change(x => this.withLookChoice(x, ev.target.value, target)));
+            on(`dd-lb-r-${i}-amount`, 'onchange', ev => change(x => Object.assign(x, { amount: Number(ev.target.value) })));
+            on(`dd-lb-r-${i}-preview`, 'onclick', () => { this.previewRegionLook = this.previewRegionLook === e.region ? 0 : e.region; again(); });
+            on(`dd-lb-r-${i}-del`, 'onclick', () => {
+                const list = this.regionLooks(target);
+                if (this.previewRegionLook === e.region) this.previewRegionLook = 0;
+                list.splice(i, 1);
+                this.setRegionLooks(target, list);
+                again();
+            });
+        });
+    }
+});
+//==========================================================
 // SECTION 25b: WORKSPACE READOUTS (COLLISION OVERLAY, DRAG READOUT, STATUS BAR)
 //==========================================================
 // What the editor tells you about the map while you work: every doodad's collision at once, where a
@@ -31907,6 +32689,217 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25m: KEYBOARD SHORTCUTS CARD
+//==========================================================
+// More > Keyboard Shortcuts: every binding in DocsDoodads.Shortcuts, grouped, with each key as a button.
+// Click it and press the new keys (Esc keeps the old ones); a key already in use asks before it moves.
+// What the keys do is runShortcut, which the key handler (part 45) calls.
+DocsDoodads.Ui.css += `
+#dd-keys-card { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 110px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#dd-keys-card .dd-keys-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
+#dd-keys-card .dd-keys-group { font-size: 11px; font-weight: 900; color: var(--dd-muted); margin: 8px 0 2px; }
+#dd-keys-card .dd-keys-row { display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; }
+#dd-keys-card .dd-keys-row > span { flex: 1; min-width: 0; }
+#dd-keys-card .dd-keys-key { min-width: 92px; padding: 3px 8px; font-size: 11px; font-family: var(--dd-font); }
+#dd-keys-card .dd-keys-key.dd-keys-none { color: var(--dd-faint); font-weight: 700; }
+#dd-keys-card .dd-keys-key.dd-keys-wait { border-color: var(--dd-primary); color: var(--dd-primary); }
+#dd-keys-card .dd-keys-fixed { min-width: 92px; text-align: center; font-size: 11px; color: var(--dd-muted); }
+#dd-keys-card .dd-keys-mini { width: 24px; height: 24px; padding: 0; font-size: 12px; }
+#dd-keys-card .dd-keys-changed { color: var(--dd-primary); font-weight: 900; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // What each row does. Returns false when the key had nothing to do (so it is left alone).
+    runShortcut(id, e) {
+        const D = DocsDoodads;
+        const tool = name => () => { this.setPlacementTool(name); return true; };
+        const actions = {
+            undo: () => D.Undo.undo(),
+            redo: () => D.Undo.redo(),
+            save: () => D.Persistence.saveAll(),
+            duplicate: () => this.duplicateSelectedDoodad(),
+            copy: () => this.copySelected(),
+            paste: () => this.pasteCopied(false),
+            pasteInPlace: () => this.pasteCopied(true),
+            selectAll: () => this.selectAllDoodads(),
+            delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
+            palette: () => this.showCommandPalette(),
+            details: () => this.toggleInspector(),
+            find: () => this.focusSearch(),
+            shortcuts: () => this.showShortcutsCard(),
+            grid: () => this.toggleGrid(),
+            collision: () => this.toggleCollisionOverlay(),
+            sounds: () => this.toggleSoundOverlay(),
+            speed: () => this.togglePerfOverlay(),
+            toolSelect: tool(null),
+            toolStamp: tool('stamp'),
+            toolScatter: tool('brush'),
+            toolPaint: tool('biome'),
+            toolPath: tool('path'),
+            toolHills: tool('terrain'),
+            toolRegions: tool('region'),
+            toolGrab: tool('eyedropper'),
+            brushSmaller: () => this.resizeBrush(-1) || false,
+            brushBigger: () => this.resizeBrush(1) || false
+        };
+        const run = actions[id];
+        if (!run) return false;
+        const result = run();
+        if (result === false) return false;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        return true;
+    },
+
+    // Buttons built once at mount carry their key in the tooltip; after a change they are told again.
+    shortcutTips: {
+        'dd-undo-btn': ['undo', 'Undo'],
+        'dd-redo-btn': ['redo', 'Redo'],
+        'dd-palette-btn': ['palette', 'Type the name of any tool or setting'],
+        'dd-grid-btn': ['grid', 'Show the snapping grid'],
+        'dd-keys-btn': ['shortcuts', 'See and change the keyboard shortcuts'],
+        'dd-select-btn': ['toolSelect', 'Select: click things on the map to change them, drag to move'],
+        'dd-stamp-btn': ['toolStamp', 'Stamp: click the map to place the picked item again and again'],
+        'dd-brush-btn': ['toolScatter', 'Scatter: drag over the map to sprinkle the picked item around'],
+        'dd-biome-btn': ['toolPaint', 'Paint: drag to paint a mix of plants (biomes)'],
+        'dd-path-btn': ['toolPath', 'Path: lay the picked item along a line you click out'],
+        'dd-terrain-btn': ['toolHills', 'Hills: raise and lower the ground (3D view)'],
+        'dd-region-btn': ['toolRegions', 'Regions: paint region numbers on tiles (and see terrain tags)'],
+        'dd-eyedropper-btn': ['toolGrab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)']
+    },
+
+    shortcutTip(elementId) {
+        const row = this.shortcutTips[elementId];
+        if (!row) return '';
+        // Select has always shown Esc, which also gets back to it.
+        if (row[0] === 'toolSelect' && !DocsDoodads.Shortcuts.label('toolSelect')) return row[1] + ' (Esc)';
+        return DocsDoodads.Shortcuts.tip(row[0], row[1]);
+    },
+
+    refreshShortcutTips() {
+        if (typeof document === 'undefined') return;
+        for (const id of Object.keys(this.shortcutTips)) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const tip = this.shortcutTip(id);
+            // The tooltip reads data-dd-tip once it has taken over the title.
+            if (el.getAttribute && el.getAttribute('data-dd-tip')) el.setAttribute('data-dd-tip', tip); else el.title = tip;
+        }
+        if (this.updateSaveState) this.updateSaveState(false);
+    },
+
+    // ---- The card ----
+    showShortcutsCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, S = DocsDoodads.Shortcuts;
+        this.stopShortcutCapture();
+        let card = document.getElementById('dd-keys-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-keys-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const keyCap = id => {
+            const label = S.label(id);
+            return label ? escapeHtml(label) : 'No key';
+        };
+        const row = s => s.fixed
+            ? `<div class="dd-keys-row"><span>${escapeHtml(s.label)}</span><kbd class="dd-keys-fixed">${escapeHtml(s.keys)}</kbd><span style="flex: none; width: 54px;"></span></div>`
+            : `<div class="dd-keys-row"><span class="${S.isChanged(s.id) ? 'dd-keys-changed' : ''}">${escapeHtml(s.label)}</span>
+                <button class="dd-btn dd-keys-key${S.label(s.id) ? '' : ' dd-keys-none'}" type="button" data-keys="${s.id}" title="Click, then press the new keys (Esc keeps these)">${keyCap(s.id)}</button>
+                <button class="dd-btn dd-keys-mini" type="button" data-clear="${s.id}" title="No key"${S.label(s.id) ? '' : ' disabled'}>×</button>
+                <button class="dd-btn dd-keys-mini" type="button" data-reset="${s.id}" title="Back to ${escapeHtml(s.keys || 'no key')}"${S.isChanged(s.id) ? '' : ' disabled'}>↺</button></div>`;
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('gear', 1)} Keyboard Shortcuts</span>
+                <button class="dd-btn" id="dd-keys-reset-all" type="button" title="Put every key back the way it came"${Object.keys(S.overrides()).length ? '' : ' disabled'}>Reset All</button>
+                <button class="dd-btn dd-fold" id="dd-keys-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div class="dd-keys-list">
+                <div class="dd-keys-row"><span>Open or close the editor</span><kbd class="dd-keys-fixed">${escapeHtml(DocsDoodads.KeyChord.label(DocsDoodads.editChord))}</kbd><span style="flex: none; width: 54px;"></span></div>
+                ${S.groups().map(g => `<div class="dd-keys-group">${escapeHtml(g)}</div>${S.list.filter(s => s.group === g).map(row).join('')}`).join('')}
+            </div>
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Kept on this computer. The editor key is the Editor Key plugin parameter. Keys in grey depend on the tool or what is picked.</div>`;
+        const all = sel => Array.from(card.querySelectorAll(sel));
+        all('[data-keys]').forEach(b => { b.onclick = () => this.startShortcutCapture(b.dataset.keys, b); });
+        all('[data-clear]').forEach(b => { b.onclick = () => { S.set(b.dataset.clear, ''); this.afterShortcutChange(); }; });
+        all('[data-reset]').forEach(b => { b.onclick = () => this.bindShortcut(b.dataset.reset, S.find(b.dataset.reset).keys); });
+        const close = document.getElementById('dd-keys-close');
+        if (close) close.onclick = () => this.closeShortcutsCard();
+        const resetAll = document.getElementById('dd-keys-reset-all');
+        if (resetAll) resetAll.onclick = () => {
+            U.confirm('Put every keyboard shortcut back the way it came?', { title: 'Reset all keys', ok: 'Reset All' }).then(yes => {
+                if (!yes) return;
+                S.resetAll();
+                this.afterShortcutChange();
+            });
+        };
+        return card;
+    },
+
+    closeShortcutsCard() {
+        this.stopShortcutCapture();
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-keys-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+    },
+
+    afterShortcutChange() {
+        this.refreshShortcutTips();
+        if (typeof document !== 'undefined' && document.getElementById('dd-keys-card')) this.showShortcutsCard();
+    },
+
+    // Waiting for the new keys: the next key press goes here and nowhere else (not the editor, not the game).
+    startShortcutCapture(id, button) {
+        this.stopShortcutCapture();
+        if (button) {
+            button.textContent = 'Press keys...';
+            if (button.classList) button.classList.add('dd-keys-wait');
+        }
+        const onKey = e => {
+            const chord = DocsDoodads.Shortcuts.chordFromEvent(e);
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopPropagation) e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            if (!chord) return; // Ctrl, Shift or Alt on its own: wait for the rest
+            this.stopShortcutCapture();
+            if (chord.code === 'Escape' && !chord.ctrl && !chord.shift && !chord.alt) { this.showShortcutsCard(); return; }
+            this.bindShortcut(id, DocsDoodads.KeyChord.label(chord));
+        };
+        this._shortcutCapture = { id, onKey };
+        if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('keydown', onKey, true);
+    },
+
+    stopShortcutCapture() {
+        const c = this._shortcutCapture;
+        this._shortcutCapture = null;
+        if (c && typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('keydown', c.onKey, true);
+    },
+
+    capturingShortcut() {
+        return Boolean(this._shortcutCapture);
+    },
+
+    // Bind keys to a row: a reserved key is refused, a key in use asks first. Resolves true when bound.
+    bindShortcut(id, keys) {
+        const S = DocsDoodads.Shortcuts, U = DocsDoodads.Ui;
+        const chord = S.parse(keys);
+        const label = chord ? DocsDoodads.KeyChord.label(chord) : '';
+        const why = S.reserved(chord);
+        if (why) {
+            this.showToast(`${label} ${why}, so it can't be used here.`, 'error');
+            this.afterShortcutChange();
+            return Promise.resolve(false);
+        }
+        const other = S.conflict(id, chord);
+        const done = () => { S.set(id, keys); this.afterShortcutChange(); return true; };
+        if (!other) return Promise.resolve(done());
+        return U.confirm(`${label} is used by "${S.find(other).label}". Use it for "${S.find(id).label}" instead? "${S.find(other).label}" will have no key.`,
+            { title: 'Key in use', ok: 'Use It Here' }).then(yes => {
+            if (!yes) { this.afterShortcutChange(); return false; }
+            S.set(other, '');
+            return done();
+        });
+    }
+});
+//==========================================================
 // SECTION 25k: WORKSPACE DOODAD STATES AND TOUCH
 //==========================================================
 // Details > States: a doodad's named states (each with its own art, light and collision), a preview
@@ -32162,48 +33155,13 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
         }
         if (!DocsDoodads.Workspace.mounted || DocsDoodads.isEditableTarget(e.target)) return;
         if (DocsDoodads.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
-        if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-            e.preventDefault();
-            DocsDoodads.Undo.undo();
-        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-            e.preventDefault();
-            DocsDoodads.Undo.redo();
-        } else if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-            e.preventDefault();
-            DocsDoodads.Persistence.saveAll();
-        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.duplicateSelectedDoodad();
-        } else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.showCommandPalette();
-        } else if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.copySelected();
-        } else if (e.ctrlKey && (e.key === 'v' || e.key === 'V')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.pasteCopied(e.shiftKey);
-        } else if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.selectAllDoodads();
-        } else if (e.key === 'Delete') {
-            if (DocsDoodads.Workspace.selectedEvent) {
-                DocsDoodads.Workspace.deleteSelectedEvent();
-            } else {
-                DocsDoodads.Workspace.deleteSelectedDoodad();
-            }
-        } else if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.altKey) {
-            if (DocsDoodads.Workspace.resizeBrush(e.key === ']' ? 1 : -1)) e.preventDefault();
-        } else if (e.key === 'g' || e.key === 'G') {
-            e.preventDefault();
-            DocsDoodads.Workspace.toggleGrid();
-        } else if (e.key === 'h' || e.key === 'H') {
-            e.preventDefault();
-            DocsDoodads.Workspace.toggleInspector();
-        } else if (e.key === 'f' || e.key === 'F') {
-            e.preventDefault();
-            DocsDoodads.Workspace.focusSearch();
-        } else if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        if (DocsDoodads.Workspace.capturingShortcut()) return; // the next keys are a new binding
+        // The path tool's own keys come first; then the shortcut table (11_shortcuts.js); then the keys
+        // that can't be rebound.
+        const pathKey = DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace');
+        const shortcut = pathKey ? null : DocsDoodads.Shortcuts.match(e);
+        if (shortcut && DocsDoodads.Workspace.runShortcut(shortcut, e)) return;
+        if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
             const W = DocsDoodads.Workspace;
             const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
             const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
@@ -32221,7 +33179,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                 });
                 if (moved) W.refreshInspector();
             }
-        } else if (DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace')) {
+        } else if (pathKey) {
             e.preventDefault();
             if (e.key === 'Enter') DocsDoodads.Workspace.finishPath();
             else DocsDoodads.Workspace.pathPoints.pop();

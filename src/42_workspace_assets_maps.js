@@ -115,9 +115,14 @@
     async deletePrefab(prefabId) {
         const prefab = DocsDoodads.Prefabs.get(prefabId);
         if (!prefab) return;
-        if (!(await DocsDoodads.Ui.confirm(`The prefab "${prefab.name}" will be deleted from the Item Bag. Copies already placed stay on their maps as plain doodads.`,
+        const holders = DocsDoodads.Prefabs.containers(prefabId).filter(id => (DocsDoodads.Prefabs.get(id).children || []).some(c => c.id === prefabId));
+        const inside = holders.length ? ` The ${holders.length} prefab${holders.length === 1 ? '' : 's'} holding it keep its doodads as their own.` : '';
+        if (!(await DocsDoodads.Ui.confirm(`The prefab "${prefab.name}" will be deleted from the Item Bag. Copies already placed stay on their maps as plain doodads.${inside}`,
             { title: 'Delete prefab?', ok: 'Delete Prefab', danger: true }))) return;
         if (DocsDoodads.Prefabs.get(prefabId) !== prefab) return;
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        DocsDoodads.Prefabs.bakeChild(prefabId, { tileWidth: tw, tileHeight: th, applyProperty: (d, k, v) => this.applyDoodadProperty(d, k, v) });
         DocsDoodads.Prefabs.remove(prefabId);
         DocsDoodads.Prefabs.save();
         this.selectedAsset = null;
@@ -145,19 +150,27 @@
             content.innerHTML = 'This prefab no longer exists.';
             return;
         }
-        const copies = Object.keys(window.$dataDocsDoodads || {}).reduce((n, key) => {
+        const P = DocsDoodads.Prefabs;
+        const copiesOf = ids => Object.keys(window.$dataDocsDoodads || {}).reduce((n, key) => {
             const list = window.$dataDocsDoodads[key];
             if (!Array.isArray(list)) return n;
-            return n + new Set(list.filter(d => d && d.prefabRef && d.prefabRef.id === prefab.id).map(d => d.prefabRef.instance)).size;
+            return n + new Set(list.filter(d => d && d.prefabRef && ids.includes(d.prefabRef.id)).map(d => d.prefabRef.instance)).size;
         }, 0);
+        const holders = P.containers(prefab.id);
+        const copies = copiesOf([prefab.id]);
+        const syncs = copiesOf([prefab.id].concat(holders));
+        const names = ids => ids.map(id => P.get(id)).filter(Boolean).map(p => escapeHtml(p.name)).join(', ');
+        const held = (prefab.children || []).map(c => c.id).filter((id, i, all) => all.indexOf(id) === i);
         content.innerHTML = `
             <div style="font-weight: bold; color: var(--dd-text); margin-bottom: 4px;">${escapeHtml(prefab.name)}</div>
             <div style="font-size: 11px; margin-bottom: 4px;">Prefab &middot; ${prefab.doodads.length} doodad(s), ${prefab.events.length} event(s)</div>
-            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: var(--dd-accent);">${copies}</span></div>
-            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies".</div>
+            ${held.length ? `<div style="font-size: 11px; margin-bottom: 4px;">Holds: ${names(held)}</div>` : ''}
+            ${holders.length ? `<div style="font-size: 11px; margin-bottom: 4px;">Inside: ${names(holders)}</div>` : ''}
+            <div style="font-size: 11px; margin-bottom: 8px;">Placed copies: <span style="color: var(--dd-accent);">${copies}</span>${syncs > copies ? ` (and ${syncs - copies} inside other prefabs)` : ''}</div>
+            <div style="font-size: 11px; color: var(--dd-muted); line-height: 1.5; margin-bottom: 8px;">Drag onto the map, or use Stamp and click. Copies are grouped; select one and use "Update Prefab" to change the master, then "Sync All Copies". Settings you change on one copy stay its own. Save a selection holding a whole copy and the prefab goes inside the new one.</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
                 <button class="dd-btn dd-btn-primary" id="dd-prefab-place">Place at Player</button>
-                <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${copies})</button>
+                <button class="dd-btn" id="dd-prefab-sync">Sync All Copies (${syncs})</button>
                 <button class="dd-btn" id="dd-prefab-rename">Rename</button>
                 <button class="dd-btn" id="dd-prefab-delete" style="background: var(--dd-danger-soft);">Delete Prefab</button>
             </div>`;
@@ -177,6 +190,7 @@
                 ${mirror ? `<div style="font-size: 10px; color: var(--dd-warn); margin-bottom: 6px;">Mirrored from map ${escapeHtml(String(mirror.mirrorOf.mapId))}; it is replaced when that map mirrors its edges again.</div>` : ''}
                 ${prefab ? `
                 <div style="font-size: 10px; color: var(--dd-purple); margin-bottom: 4px;">Prefab copy: ${escapeHtml(prefab.name)}</div>
+                ${this.ownSettingsHtml(items)}
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 6px;">
                     <button class="dd-btn" id="dd-sel-prefab-update" title="Make the master prefab match this copy" style="padding: 4px;">Update Prefab</button>
                     <button class="dd-btn" id="dd-sel-prefab-sync" title="Rebuild every copy from the master" style="padding: 4px;">Sync Copies</button>
@@ -207,6 +221,25 @@
         on('dd-sel-prefab-update', () => this.updatePrefabFromInstance(items[0]));
         on('dd-sel-prefab-sync', () => { if (items[0].prefabRef) this.syncPrefabInstances(items[0].prefabRef.id); this.refreshInspector(); });
         on('dd-sel-prefab-detach', () => { this.detachPrefabInstance(items[0]); this.refreshInspector(); });
+        this.ownSettingKeys(items).forEach((key, i) => on('dd-sel-own-' + i, () => { this.useMasterSetting(items, key); this.refreshInspector(); }));
+    },
+
+    // A prefab copy's own settings (changed in Details, kept when copies sync), each with a way back.
+    ownSettingKeys(items) {
+        const keys = [];
+        for (const d of items || []) for (const k of (d && d.prefabRef && Array.isArray(d.prefabRef.own) ? d.prefabRef.own : [])) if (!keys.includes(k)) keys.push(k);
+        return keys;
+    },
+
+    ownSettingsHtml(items) {
+        const keys = this.ownSettingKeys(items);
+        if (!keys.length) {
+            return `<div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4; margin-bottom: 6px;">Change a setting below and it becomes this copy's own (marked ●): Sync Copies keeps it.</div>`;
+        }
+        return `<div style="font-size: 10px; color: var(--dd-muted); margin-bottom: 3px;">This copy's own settings (kept when copies sync):</div>
+            <div style="display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px;">${keys.map((k, i) => `
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 11px;"><span style="flex: 1; min-width: 0;">● ${escapeHtml(this.settingLabel(k))}</span>
+                <button class="dd-btn" id="dd-sel-own-${i}" type="button" style="padding: 2px 6px; font-size: 10px;" title="Go back to the prefab's value">Use Prefab's</button></div>`).join('')}</div>`;
     },
 
     // ---- Maps: switching, neighbours, picker ----

@@ -205,9 +205,13 @@ const ids = list => list.map(d => map1.indexOf(d));
     ws._onCanvasContextMenu({ preventDefault() {}, clientX: 5, clientY: 5 });
     for (const label of ['Paste in Place (Ctrl+Shift+V)', 'Select All (Ctrl+A)', 'Invert Selection']) assert.ok(menu.includes(label), label);
     ws.mapEntries = () => [];
-    const palette = ws.paletteCommands().map(c => c.label);
-    for (const label of ['Select All (Ctrl+A)', 'Invert Selection', 'Select Same Art as Picked', 'Paste in Place (Ctrl+Shift+V)',
+    const commands = ws.paletteCommands();
+    const palette = commands.map(c => c.label);
+    for (const label of ['Select All', 'Invert Selection', 'Select Same Art as Picked', 'Paste in Place',
         'Replace Art of Picked Doodads', 'Select Layer: Treetops']) assert.ok(palette.includes(label), label);
+    // Their keys come from the shortcut table and show as key caps.
+    assert.strictEqual(commands.find(c => c.label === 'Select All').keys, 'Ctrl+A');
+    assert.strictEqual(commands.find(c => c.label === 'Paste in Place').keys, 'Ctrl+Shift+V');
     console.log('✓ menus and palette: selection kept on right-click, new items listed');
 
     console.log('=== Selection, paste in place and replace art passed ===');

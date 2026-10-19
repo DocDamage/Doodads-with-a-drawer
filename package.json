@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build.js",
+    "shortcuts": "npm run build && node scripts/shortcuts.js",
     "check": "node scripts/build.js --check && node --check Docs-Doodads.js",
     "test": "node scratch/run-tests.js",
     "verify": "node scratch/verify-project.js",

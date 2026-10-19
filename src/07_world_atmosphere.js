@@ -24,7 +24,7 @@ DocsDoodads.World = {
         seeThrough: { enabled: true, mode: 'fade', opacity: 0.4, speed: 0.1, silhouetteColor: '#7dd3fc' },
         reflections: { enabled: false, opacity: 0.4, ripple: 0.5, regionId: 0, shoreInset: 12 },
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
-        postfx: { enabled: true, quality: 'high', includePictures: false, look: {} },
+        postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [] },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
