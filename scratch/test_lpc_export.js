@@ -82,6 +82,9 @@ write(lib, 'palette_definitions/body/body_ulpc.json', { light: ['#271920'] });
 write(lib, 'spritesheets/body/m/walk.png', sheet(9));
 write(lib, 'spritesheets/body/m/idle.png', sheet(2));
 write(lib, 'spritesheets/body/m/run.png', sheet(8));
+write(lib, 'spritesheets/body/m/slash.png', sheet(6));
+const oneRow = (frames, colour) => { const w = frames * 64, d = new Uint8Array(w * 64 * 4); for (let y = 10; y < 64; y++) for (let x = 0; x < w; x++) d.set(colour(Math.floor(x / 64)), (y * w + x) * 4); return encodePng(w, 64, d, b => zlib.deflateSync(b)); };
+write(lib, 'spritesheets/body/m/hurt.png', oneRow(6, f => [f * 20, 200, 7, 255]));
 write(lib, 'spritesheets/head/m/walk.png', sheet(9, () => [0, 0, 0, 0]));
 write(lib, 'spritesheets/weapon/sword/walk.png', sheet(9, () => [250, 250, 250, 255]));
 fs.mkdirSync(path.join(project, 'data'), { recursive: true });
@@ -168,7 +171,7 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     const state = { body: 'male', slots: { body: { id: 'body/body', colour: 'light' }, head: { id: 'head/human_male', colour: '' } } };
     assert.strictEqual(ws.exportLpcCharacter(state, Object.assign({ name: '' }, ws.lpcExportDefaults())), null);
     assert.ok(/name first/.test(toasts.pop()[1]));
-    const result = ws.exportLpcCharacter(state, Object.assign({ name: 'Robin' }, ws.lpcExportDefaults()));
+    const result = ws.exportLpcCharacter(state, { name: 'Robin', classic: true, smooth: true, face: true, faceSlot: 0 });
     assert.deepStrictEqual(result.files, ['img/characters/$Robin.png', 'img/characters/$Robin[f9][w2].png', 'img/characters/$Robin_idle[f2].png', 'img/characters/$Robin_run[f8].png', 'img/faces/Robin.png']);
     for (const f of result.files) assert.ok(fs.existsSync(path.join(project, f)), f);
     const written = D.LpcCompose.decodePng(fs.readFileSync(path.join(project, 'img/characters/$Robin.png')), d => zlib.inflateSync(d));
@@ -199,6 +202,31 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.ok(again.warnings.some(w => /Sword has no idle picture|Sword has no run picture/.test(w)), 'parts without idle or run are said');
     console.log('✓ export: files, credits, CREDITS_LPC.txt, animation set, saved character, face without gear');
 
+    // 4b. Actions and the side-view battler.
+    const ace = ws.exportLpcCharacter({ body: 'male', slots: { body: { id: 'body/body', colour: 'light' } } }, { name: 'Ace', actions: ['slash', 'hurt', 'thrust'], battler: true });
+    assert.deepStrictEqual(ace.files, ['img/characters/$Ace_slash[f6].png', 'img/characters/$Ace_hurt[f6].png', 'img/sv_actors/Ace.png']);
+    assert.ok(ace.warnings.some(w => /No thrust action/.test(w)), 'an action the parts lack is said');
+    const slash = D.LpcCompose.decodePng(fs.readFileSync(path.join(project, 'img/characters/$Ace_slash[f6].png')), d => zlib.inflateSync(d));
+    assert.deepStrictEqual([slash.width, slash.height], [384, 256]);
+    assert.deepStrictEqual(px(slash, 64 + 10, 20), [20, 120, 7, 255], 'MZ row order');
+    const hurt = D.LpcCompose.decodePng(fs.readFileSync(path.join(project, 'img/characters/$Ace_hurt[f6].png')), d => zlib.inflateSync(d));
+    assert.deepStrictEqual([hurt.width, hurt.height], [384, 256]);
+    assert.deepStrictEqual(px(hurt, 2 * 64 + 10, 192 + 20), [40, 200, 7, 255], 'a one-row animation fills all four rows');
+    const sv = D.LpcCompose.decodePng(fs.readFileSync(path.join(project, 'img/sv_actors/Ace.png')), d => zlib.inflateSync(d));
+    assert.deepStrictEqual([sv.width, sv.height], [576, 384]);
+    assert.deepStrictEqual(px(sv, 10, 20), [20, 60, 7, 255], 'walk: facing left, frame 1');
+    assert.deepStrictEqual(px(sv, 3 * 64 + 10, 64 + 20), [20, 60, 7, 255], 'swing: the slash, frames spread (1, 3, 5)');
+    assert.deepStrictEqual(px(sv, 5 * 64 + 10, 64 + 20), [100, 60, 7, 255]);
+    assert.deepStrictEqual(px(sv, 64 + 10, 4 * 64 + 20), [20, 200, 7, 255], 'damage: the hurt row');
+    assert.deepStrictEqual(px(sv, 8 * 64 + 10, 5 * 64 + 20), [100, 200, 7, 255], 'dead: the last hurt frame');
+    assert.deepStrictEqual(px(sv, 6 * 64 + 10, 20), [20, 180, 7, 255], 'escape: running right');
+    assert.ok(ace.warnings.some(w => /battler's .*thrust.* use another animation/.test(w)), 'motions drawn from another animation are said');
+    assert.ok(ws.lpcCredits().images['img/sv_actors/Ace.png'], 'the battler is credited');
+    assert.deepStrictEqual(E.spread(13), [2, 6, 10]);
+    assert.deepStrictEqual(E.svMotions.map(m => m.motion), ['walk', 'wait', 'chant', 'guard', 'damage', 'evade', 'thrust', 'swing', 'missile', 'skill', 'spell', 'item', 'escape', 'victory', 'dying', 'abnormal', 'sleep', 'dead'], "MZ's motion order");
+    assert.strictEqual(E.actionName('Ace', '1h_backslash'), '$Ace_backslash[f13]');
+    console.log('✓ actions and the side-view battler');
+
     // 5. Only in a playtest; only what was ticked.
     Utils.isOptionValid = () => false;
     assert.strictEqual(ws.exportLpcCharacter(state, { name: 'X', classic: true }), null);
@@ -213,10 +241,15 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     ws._creator.name = 'Robin';
     document.getElementById('dd-cr-export').onclick();
     assert.ok(/Export Robin to RPG Maker/.test(root.innerHTML));
-    assert.ok(/Export 5 files/.test(root.innerHTML));
+    assert.ok(/Export 11 files/.test(root.innerHTML), 'by default: walkers, face, battler and five actions');
+    assert.ok(/id="dd-cr-ex-act-slash" aria-pressed="true"/.test(root.innerHTML) && /id="dd-cr-ex-act-sit" aria-pressed="false"/.test(root.innerHTML));
+    document.getElementById('dd-cr-ex-act-sit').onclick();
+    assert.deepStrictEqual(ws._creator.exportOptions.actions, ['slash', 'thrust', 'spellcast', 'shoot', 'hurt', 'sit'], 'ticked in the list order');
+    document.getElementById('dd-cr-ex-act-sit').onclick();
+    assert.ok(/Export 11 files/.test(root.innerHTML));
     assert.ok(/1 artwork is not safe to encrypt/.test(root.innerHTML));
     document.getElementById('dd-cr-ex-classic').onchange({ target: { checked: false } });
-    assert.ok(/Export 4 files/.test(root.innerHTML));
+    assert.ok(/Export 10 files/.test(root.innerHTML));
     let asked = '';
     D.Ui.confirm = async text => { asked = text; return false; };
     assert.strictEqual(await document.getElementById('dd-cr-ex-go').onclick(), null);
@@ -224,8 +257,8 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.strictEqual(ws._creator.exported, null, 'nothing written when told no');
     D.Ui.confirm = async () => true;
     await ws.creatorExport();
-    assert.deepStrictEqual(ws._creator.exported.files.length, 4);
-    assert.ok(/Wrote 4 files/.test(root.innerHTML));
+    assert.deepStrictEqual(ws._creator.exported.files.length, 7, 'actions without pictures are skipped (the fixture has slash and hurt only)');
+    assert.ok(/Wrote 7 files/.test(root.innerHTML));
     global.$gamePlayer = { image: '', setImage(name, index) { this.image = name + ':' + index; } };
     document.getElementById('dd-cr-ex-try').onclick();
     assert.strictEqual($gamePlayer.image, '$Robin[f9][w2]:0', 'tried on the player');

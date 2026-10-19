@@ -4,11 +4,12 @@
 // The creator's Export to RPG Maker: writes the character's sheets into img/characters (and its face into
 // img/faces), records the credits of every file and writes CREDITS_LPC.txt again, adds the animation set
 // that plays the idle and run sheets with the smooth walker, and keeps the character under its name so it
-// can be changed and exported again. Layouts are in 23_lpc_export.js.
+// can be changed and exported again. Also, when ticked: action sheets for Play Character Action
+// ($Name_slash[f6]...) and a side-view battler (img/sv_actors/Name.png). Layouts are in 23_lpc_export.js.
 Object.assign(DocsDoodads.Workspace, {
-    // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot }
+    // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot, battler, actions: [anim] }
     lpcExportDefaults() {
-        return { classic: true, smooth: true, face: true, faceSlot: 0 };
+        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, actions: ['slash', 'thrust', 'spellcast', 'shoot', 'hurt'] };
     },
 
     // The files an export would write, relative to the project.
@@ -18,6 +19,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (options.classic) files.push('img/characters/' + N.classic + '.png');
         if (options.smooth) files.push('img/characters/' + N.smooth + '.png', 'img/characters/' + N.idle + '.png', 'img/characters/' + N.run + '.png');
         if (options.face) files.push('img/faces/' + N.face + '.png');
+        if (options.battler) files.push('img/sv_actors/' + N.face + '.png');
+        for (const anim of options.actions || []) files.push('img/characters/' + DocsDoodads.LpcExport.actionName(name, anim) + '.png');
         return files;
     },
 
@@ -69,6 +72,27 @@ Object.assign(DocsDoodads.Workspace, {
                     warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
                 }
                 this.addLpcAnimationSet(N);
+            }
+            for (const anim of options.actions || []) {
+                const out = this.composeLpc(recipe, anim);
+                if (!out || !out.sheet) { warnings.push(`No ${anim} action: the parts have no ${anim}.`); continue; }
+                const f = 'img/characters/' + E.actionName(name, anim) + '.png';
+                this.writeLpcPng(f, E.actionSheet(out.sheet, anim));
+                record(f, out.used);
+                warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
+            }
+            if (options.battler) {
+                const sheets = {}, used = [];
+                for (const anim of E.svAnimations()) {
+                    const out = this.composeLpc(recipe, anim);
+                    sheets[anim] = out && out.sheet;
+                    if (out) used.push(...out.used);
+                }
+                const sv = E.svSheet(sheets);
+                const f = 'img/sv_actors/' + N.face + '.png';
+                this.writeLpcPng(f, sv.sheet);
+                record(f, used);
+                if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
                 // The face leaves out what is held or carried.

@@ -18507,6 +18507,84 @@ DocsDoodads.LpcExport = {
         return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i));
     },
 
+    // ---- Character Actions ----
+
+    // The animations offered as action sheets, with the speed they look right at (frames a second).
+    actions: [['slash', 12], ['thrust', 12], ['spellcast', 10], ['shoot', 14], ['hurt', 8], ['jump', 10], ['sit', 4], ['emote', 6], ['climb', 8], ['combat', 3], ['1h_backslash', 14], ['1h_halfslash', 12]],
+
+    actionName(name, anim) {
+        const n = this.cleanName(name) || 'Character';
+        return '$' + n + '_' + anim.replace(/^1h_/, '') + '[f' + (DocsDoodads.LpcCompose.animations[anim] || { frames: 1 }).frames + ']';
+    },
+
+    // An action sheet: every frame, four MZ rows. Animations drawn in one row (hurt, climb) use it for all four.
+    actionSheet(sheet, anim) {
+        const meta = DocsDoodads.LpcCompose.animations[anim] || {};
+        if (meta.rows !== 1) return this.allFrames(sheet);
+        const F = this.frame, n = this.frames(sheet);
+        const out = this.blank(n * F, 4 * F);
+        for (let row = 0; row < 4; row++) this.blit(out, sheet, 0, 0, 0, row * F, n * F, F);
+        return out;
+    },
+
+    // ---- The side-view battler ----
+
+    // MZ's 18 battle motions in order (each 3 frames; motion i is at column group floor(i / 6), row i % 6),
+    // and the library animation drawn for each, facing left unless given. frames: which three, or spread
+    // evenly over the animation when not given.
+    svMotions: [
+        { motion: 'walk', anim: 'walk', frames: [1, 0, 5] },
+        { motion: 'wait', anim: 'idle', frames: [0, 1, 0] },
+        { motion: 'chant', anim: 'spellcast', frames: [1, 2, 1] },
+        { motion: 'guard', anim: 'combat', frames: [0, 1, 0] },
+        { motion: 'damage', anim: 'hurt', frames: [0, 1, 2] },
+        { motion: 'evade', anim: 'jump', frames: [0, 1, 0] },
+        { motion: 'thrust', anim: 'thrust' },
+        { motion: 'swing', anim: 'slash' },
+        { motion: 'missile', anim: 'shoot' },
+        { motion: 'skill', anim: '1h_halfslash' },
+        { motion: 'spell', anim: 'spellcast' },
+        { motion: 'item', anim: 'emote' },
+        { motion: 'escape', anim: 'run', dir: 'right' },
+        { motion: 'victory', anim: 'jump', frames: [1, 2, 3] },
+        { motion: 'dying', anim: 'hurt', frames: [2, 3, 2] },
+        { motion: 'abnormal', anim: 'hurt', frames: [1, 2, 1] },
+        { motion: 'sleep', anim: 'hurt', frames: [5, 5, 5] },
+        { motion: 'dead', anim: 'hurt', frames: [5, 5, 5] }
+    ],
+    // When a character's parts have no picture for an animation, the motion uses another.
+    svFallback: { idle: 'walk', combat: 'idle', spellcast: 'idle', hurt: 'walk', jump: 'walk', thrust: 'walk', slash: 'walk', shoot: 'walk', '1h_halfslash': 'slash', emote: 'idle', run: 'walk' },
+
+    // The library animations a battler needs.
+    svAnimations() {
+        return [...new Set(this.svMotions.map(m => m.anim))];
+    },
+
+    // Three frames spread over an animation of n frames.
+    spread(n) {
+        return [0, 1, 2].map(k => Math.min(n - 1, Math.floor((k + 0.5) * n / 3)));
+    },
+
+    // sheets: { anim: composed sheet or null }. Returns the 576 x 384 battler and which motions fell back.
+    svSheet(sheets) {
+        const F = this.frame, dirs = DocsDoodads.LpcCompose.directions;
+        const out = this.blank(9 * F, 6 * F);
+        const fellBack = [];
+        this.svMotions.forEach((m, i) => {
+            let anim = m.anim, frames = m.frames, guard = 0;
+            while (!sheets[anim] && this.svFallback[anim] && guard++ < 4) { anim = this.svFallback[anim]; frames = null; }
+            const sheet = sheets[anim];
+            if (!sheet) return;
+            if (anim !== m.anim) fellBack.push(m.motion);
+            const n = this.frames(sheet);
+            const meta = DocsDoodads.LpcCompose.animations[anim] || {};
+            const row = meta.rows === 1 ? 0 : dirs.indexOf(m.dir || 'left');
+            const cols = (frames || this.spread(n)).map(f => Math.min(n - 1, f));
+            cols.forEach((f, k) => this.blit(out, sheet, f * F, row * F, (Math.floor(i / 6) * 3 + k) * F, (i % 6) * F, F, F));
+        });
+        return { sheet: out, fellBack };
+    },
+
     // ---- The face ----
 
     // Where the head is in the down-facing standing frame: from the top of the hair (or head) 32 pixels
@@ -34617,6 +34695,8 @@ Object.assign(DocsDoodads.Workspace, {
                 ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
                 ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
                 ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
+                ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
+                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(anim.replace(/^1h_/, ''))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
                 <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
@@ -34670,7 +34750,13 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-export', () => { c.pop = c.pop && c.pop.kind === 'export' ? null : { kind: 'export' }; c.exported = null; this.renderCreator(); });
         if (c.pop && c.pop.kind === 'export') {
             const o = c.exportOptions;
-            for (const key of ['classic', 'smooth', 'face']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            DocsDoodads.LpcExport.actions.forEach(([anim]) => on('dd-cr-ex-act-' + anim, () => {
+                const list = new Set(o.actions || []);
+                if (list.has(anim)) list.delete(anim); else list.add(anim);
+                o.actions = DocsDoodads.LpcExport.actions.map(a => a[0]).filter(a => list.has(a));
+                this.renderCreator();
+            }));
+            for (const key of ['classic', 'smooth', 'face', 'battler']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
@@ -34866,11 +34952,12 @@ Object.assign(DocsDoodads.Workspace, {
 // The creator's Export to RPG Maker: writes the character's sheets into img/characters (and its face into
 // img/faces), records the credits of every file and writes CREDITS_LPC.txt again, adds the animation set
 // that plays the idle and run sheets with the smooth walker, and keeps the character under its name so it
-// can be changed and exported again. Layouts are in 23_lpc_export.js.
+// can be changed and exported again. Also, when ticked: action sheets for Play Character Action
+// ($Name_slash[f6]...) and a side-view battler (img/sv_actors/Name.png). Layouts are in 23_lpc_export.js.
 Object.assign(DocsDoodads.Workspace, {
-    // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot }
+    // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot, battler, actions: [anim] }
     lpcExportDefaults() {
-        return { classic: true, smooth: true, face: true, faceSlot: 0 };
+        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, actions: ['slash', 'thrust', 'spellcast', 'shoot', 'hurt'] };
     },
 
     // The files an export would write, relative to the project.
@@ -34880,6 +34967,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (options.classic) files.push('img/characters/' + N.classic + '.png');
         if (options.smooth) files.push('img/characters/' + N.smooth + '.png', 'img/characters/' + N.idle + '.png', 'img/characters/' + N.run + '.png');
         if (options.face) files.push('img/faces/' + N.face + '.png');
+        if (options.battler) files.push('img/sv_actors/' + N.face + '.png');
+        for (const anim of options.actions || []) files.push('img/characters/' + DocsDoodads.LpcExport.actionName(name, anim) + '.png');
         return files;
     },
 
@@ -34931,6 +35020,27 @@ Object.assign(DocsDoodads.Workspace, {
                     warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
                 }
                 this.addLpcAnimationSet(N);
+            }
+            for (const anim of options.actions || []) {
+                const out = this.composeLpc(recipe, anim);
+                if (!out || !out.sheet) { warnings.push(`No ${anim} action: the parts have no ${anim}.`); continue; }
+                const f = 'img/characters/' + E.actionName(name, anim) + '.png';
+                this.writeLpcPng(f, E.actionSheet(out.sheet, anim));
+                record(f, out.used);
+                warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
+            }
+            if (options.battler) {
+                const sheets = {}, used = [];
+                for (const anim of E.svAnimations()) {
+                    const out = this.composeLpc(recipe, anim);
+                    sheets[anim] = out && out.sheet;
+                    if (out) used.push(...out.used);
+                }
+                const sv = E.svSheet(sheets);
+                const f = 'img/sv_actors/' + N.face + '.png';
+                this.writeLpcPng(f, sv.sheet);
+                record(f, used);
+                if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
                 // The face leaves out what is held or carried.
