@@ -4992,8 +4992,9 @@ DocsDoodads.CharacterAnim = {
         return parsed;
     },
 
+    // [w2]: frame 0 stands and the others walk, one cycle every 2 tiles (LPC walkers), whatever the speed.
     parseNameUncached(name) {
-        let frames = 3, dirs = 4, tagged = false;
+        let frames = 3, dirs = 4, tagged = false, walkTiles = 0;
         const f = name.match(/\[f(\d+)\]|%\((\d+)\)/i);
         if (f) {
             const n = parseInt(f[1] || f[2], 10);
@@ -5005,8 +5006,14 @@ DocsDoodads.CharacterAnim = {
             dirs = parseInt(d[1], 10);
             tagged = true;
         }
-        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]/gi, '');
-        return { base, frames, dirs, tagged };
+        const w = name.match(/\[w(\d+(?:\.\d+)?)\]/i);
+        if (w && parseFloat(w[1]) > 0) {
+            walkTiles = Math.min(16, parseFloat(w[1]));
+            tagged = true;
+        }
+        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]/gi, '');
+        // Only with more than MZ's 3 frames: a 3-frame sheet stands in its middle frame.
+        return { base, frames, dirs, tagged, walkTiles: frames > 3 ? walkTiles : 0 };
     },
 
     // Row in the sheet for a direction (1-9 numpad layout), and whether to mirror (single-row sheets face right).
@@ -5024,6 +5031,18 @@ DocsDoodads.CharacterAnim = {
     walkFrame(pattern, frames) {
         if (frames === 3) return [0, 1, 2, 1][((pattern % 4) + 4) % 4];
         return ((pattern % frames) + frames) % frames;
+    },
+
+    // The pattern after this one on a [wN] sheet: 1 to frames-1 round and round (0 is standing).
+    walkStep(pattern, frames) {
+        return frames > 1 ? (Math.max(0, pattern) % (frames - 1)) + 1 : 0;
+    },
+
+    // Game frames between walking patterns so one cycle covers walkTiles tiles: MZ counts 1.5 a frame
+    // while moving, and a character moves distancePerFrame tiles a frame.
+    paceWait(frames, walkTiles, distancePerFrame) {
+        if (!walkTiles || frames < 2 || !(distancePerFrame > 0)) return 0;
+        return Math.max(1, 1.5 * walkTiles / (frames - 1) / distancePerFrame);
     },
 
     standingFrame(frames) {
@@ -11035,6 +11054,19 @@ if (typeof Game_CharacterBase !== 'undefined') {
         const frames = walkFrames(this);
         return frames === 3 ? $.Game_CharacterBase_pattern.call(this) : ((this._pattern % frames) + frames) % frames;
     };
+    // [wN] sheets: the walk skips the standing frame and keeps pace with the distance walked.
+    const walkTiles = ch => C.parseName(ch.characterName ? ch.characterName() : '').walkTiles;
+    $.Game_CharacterBase_updatePattern = Game_CharacterBase.prototype.updatePattern;
+    Game_CharacterBase.prototype.updatePattern = function() {
+        if (!walkTiles(this) || (!this.hasStepAnime() && this._stopCount > 0)) return $.Game_CharacterBase_updatePattern.call(this);
+        this._pattern = C.walkStep(this._pattern, walkFrames(this));
+    };
+    $.Game_CharacterBase_animationWait = Game_CharacterBase.prototype.animationWait;
+    Game_CharacterBase.prototype.animationWait = function() {
+        const tiles = walkTiles(this);
+        const wait = tiles && this.isMoving() ? C.paceWait(walkFrames(this), tiles, this.distancePerFrame()) : 0;
+        return wait || $.Game_CharacterBase_animationWait.call(this);
+    };
     $.Game_CharacterBase_resetPattern = Game_CharacterBase.prototype.resetPattern;
     Game_CharacterBase.prototype.resetPattern = function() {
         if (walkFrames(this) === 3) $.Game_CharacterBase_resetPattern.call(this);
@@ -11094,7 +11126,9 @@ if (typeof Sprite_Character !== 'undefined') {
         const action = ch._docsAction;
         const parsedName = C.parseName(name);
         if (!action && !set && !parsedName.tagged) return null;
-        const moving = ch.isMoving();
+        // Between two steps a character is still for one frame; counting that as moving keeps a run sheet
+        // from flashing back to the walk on every tile.
+        const moving = ch.isMoving() || (ch._docsStill || 0) <= 1;
         const dashing = moving && ch.realMoveSpeed && ch.realMoveSpeed() >= 5;
         const state = C.stateFor({ moving, dashing, stillFrames: ch._docsStill || 0, action }, set);
         const sheet = state === 'action' ? action.sheet : C.sheetFor(state, name, set);
@@ -18401,6 +18435,137 @@ DocsDoodads.LpcCompose = {
         add(pickOf(p => p.type === 'head' && (p.tags || []).includes('human') && /^Human (Male|Female)$/.test(p.name) && p.name.toLowerCase().endsWith(body === 'female' ? 'female' : ' male')) || pickOf(p => p.type === 'head'));
         for (const [type, chance] of [['hair', 0.9], ['clothes', 0.95], ['legs', 0.95], ['shoes', 0.8]]) if (rand() < chance) add(pickOf(p => p.type === type));
         return { body, picks };
+    }
+};
+//==========================================================
+// SECTION 12F: LPC EXPORTS (MZ SHEETS AND FACES)
+//==========================================================
+// Sheets for RPG Maker MZ from a composed LPC character (23_lpc_compositor.js). MZ's rows face down, left,
+// right, up; the library's face up, left, down, right, so rows are reordered. Frames stay 64 x 64: MZ draws
+// $ sheets at any frame size, standing on the tile's bottom edge.
+//
+//   classic  $Name.png              3 x 4, MZ's own walk (step, stand, step), works without the plugin
+//   smooth   $Name[f9][w2].png      every walk frame; [w2]: frame 0 stands, the walk covers 2 tiles a cycle
+//   idle     $Name_idle[f2].png     breathing while standing (an animation set plays it after a moment)
+//   run      $Name_run[f8].png      while dashing
+//   face     img/faces/Name.png     the head, scaled up whole pixels, in one of the sheet's 8 slots
+//
+// Pure: images are { width, height, data } (RGBA). Writing them is the workspace's (44_workspace_lpc_export.js).
+DocsDoodads.LpcExport = {
+    frame: 64,
+    mzRows: ['down', 'left', 'right', 'up'],
+    // The classic walker's columns: the two widest strides around the standing frame (measured in phase 0).
+    classicColumns: [1, 0, 5],
+    faceSize: 144,
+
+    // A file name part that MZ and Windows accept: no brackets (they are tags), slashes or reserved signs.
+    cleanName(name) {
+        return String(name || '').replace(/[\[\]\\/:*?"<>|$!%]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    },
+
+    names(name) {
+        const n = this.cleanName(name) || 'Character';
+        return { classic: '$' + n, smooth: '$' + n + '[f9][w2]', idle: '$' + n + '_idle[f2]', run: '$' + n + '_run[f8]', face: n };
+    },
+
+    // The animation set that plays the idle and run sheets with the smooth walker.
+    animationSet(names) {
+        return { character: names.smooth, idle: names.idle, run: names.run, idleDelay: 90, idleFps: 3, runFps: 20 };
+    },
+
+    blank(width, height) {
+        return { width, height, data: new Uint8ClampedArray(width * height * 4) };
+    },
+
+    blit(dst, src, sx, sy, dx, dy, w, h) {
+        for (let y = 0; y < h; y++) {
+            if (sy + y < 0 || sy + y >= src.height || dy + y < 0 || dy + y >= dst.height) continue;
+            const from = ((sy + y) * src.width + sx) * 4, to = ((dy + y) * dst.width + dx) * 4;
+            dst.data.set(src.data.subarray(from, from + w * 4), to);
+        }
+    },
+
+    // A sheet in MZ's row order from one of the library's animations, with the given columns (frames).
+    mzSheet(sheet, columns) {
+        const F = this.frame, dirs = DocsDoodads.LpcCompose.directions;
+        const out = this.blank(columns.length * F, 4 * F);
+        this.mzRows.forEach((dir, row) => columns.forEach((frame, col) => {
+            if ((frame + 1) * F <= sheet.width) this.blit(out, sheet, frame * F, dirs.indexOf(dir) * F, col * F, row * F, F, F);
+        }));
+        return out;
+    },
+
+    frames(sheet) {
+        return Math.floor(sheet.width / this.frame);
+    },
+
+    classic(walk) {
+        return this.mzSheet(walk, this.classicColumns);
+    },
+
+    allFrames(sheet) {
+        return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i));
+    },
+
+    // ---- The face ----
+
+    // Where the head is in the down-facing standing frame: from the top of the hair (or head) 32 pixels
+    // down, centred on what is drawn in those rows.
+    headBox(walk) {
+        const F = this.frame, row = DocsDoodads.LpcCompose.directions.indexOf('down') * F;
+        const at = (x, y) => walk.data[((row + y) * walk.width + x) * 4 + 3];
+        let top = -1;
+        for (let y = 0; y < F && top < 0; y++) for (let x = 0; x < F; x++) if (at(x, y)) { top = y; break; }
+        if (top < 0) return null;
+        let sum = 0, n = 0;
+        for (let y = top; y < Math.min(F, top + 24); y++) for (let x = 0; x < F; x++) if (at(x, y)) { sum += x; n++; }
+        const size = 32;
+        const cx = n ? Math.round(sum / n) : F / 2;
+        return { x: Math.max(0, Math.min(F - size, cx - size / 2)), y: Math.max(0, Math.min(F - size, top - 2)), size };
+    },
+
+    // A 144 x 144 face: the head scaled 4 times (whole pixels) on a soft rounded card, or on nothing.
+    face(walk, options = {}) {
+        const S = this.faceSize, box = this.headBox(walk);
+        const out = this.blank(S, S);
+        if (!box) return out;
+        const scale = 4, size = box.size * scale, ox = Math.floor((S - size) / 2), oy = S - size - 4;
+        if (options.background !== false) {
+            const [r, g, b] = options.background || [217, 244, 239];
+            const radius = 24;
+            for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+                const dx = Math.max(radius - x, 0, x - (S - 1 - radius)), dy = Math.max(radius - y, 0, y - (S - 1 - radius));
+                if (dx * dx + dy * dy > radius * radius) continue;
+                const o = (y * S + x) * 4;
+                out.data[o] = r; out.data[o + 1] = g; out.data[o + 2] = b; out.data[o + 3] = 255;
+            }
+        }
+        const row = DocsDoodads.LpcCompose.directions.indexOf('down') * this.frame;
+        for (let y = 0; y < box.size; y++) for (let x = 0; x < box.size; x++) {
+            const i = ((row + box.y + y) * walk.width + box.x + x) * 4;
+            const a = walk.data[i + 3];
+            if (!a) continue;
+            for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) {
+                const px = ox + x * scale + sx, py = oy + y * scale + sy;
+                if (px < 0 || py < 0 || px >= S || py >= S) continue;
+                const o = (py * S + px) * 4, k = a / 255, d = out.data[o + 3] / 255, oa = k + d * (1 - k);
+                for (let c = 0; c < 3; c++) out.data[o + c] = Math.round((walk.data[i + c] * k + out.data[o + c] * d * (1 - k)) / oa);
+                out.data[o + 3] = Math.round(oa * 255);
+            }
+        }
+        return out;
+    },
+
+    // MZ's face sheet: 4 x 2 faces of 144. An existing sheet keeps its other faces.
+    faceSheet(existing, face, slot = 0) {
+        const S = this.faceSize;
+        const out = this.blank(S * 4, S * 2);
+        if (existing && existing.width === out.width && existing.height === out.height) out.data.set(existing.data);
+        const s = Math.max(0, Math.min(7, Math.floor(slot)));
+        const x = (s % 4) * S, y = Math.floor(s / 4) * S;
+        for (let r = 0; r < S; r++) out.data.fill(0, ((y + r) * out.width + x) * 4, ((y + r) * out.width + x + S) * 4);
+        this.blit(out, face, 0, 0, x, y, S, S);
+        return out;
     }
 };
 //==========================================================
@@ -34411,7 +34576,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <button type="button" class="dd-cr-btn" id="dd-cr-credits">Credits · ${artists} artist${artists === 1 ? '' : 's'}${unsafe ? ' · ' + unsafe + ' not safe to encrypt' : ''}</button>
                 <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Shift colour · Q/E tabs · X/Y dice</div>
                 ${narrow ? '<div class="dd-cr-grow"></div>' : ''}
-                <button type="button" class="dd-cr-export" id="dd-cr-export" disabled title="Making MZ sheets from a character comes in the next version">Export to RPG Maker</button>
+                <button type="button" class="dd-cr-export" id="dd-cr-export" title="Make MZ character sheets and a face from this character">Export to RPG Maker</button>
             </div>
             ${c.pop ? this.creatorPopHtml() : ''}
         </div>`;
@@ -34438,6 +34603,28 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-cr-list">${saved.length ? saved.map((s, i) => `<div class="dd-cr-item"><span>${escapeHtml(s.name)}</span>
                     <button type="button" id="dd-cr-load-${i}">Load</button><button type="button" id="dd-cr-del-${i}" aria-label="Delete ${escapeHtml(s.name)}">Delete</button></div>`).join('')
                     : '<div style="color: #7a6b8f;">None saved yet. Save keeps the character in data/DocsDoodadsCharacters.json.</div>'}</div>
+            </div>`;
+        }
+        if (pop.kind === 'export') {
+            const o = c.exportOptions || (c.exportOptions = this.lpcExportDefaults());
+            const N = DocsDoodads.LpcExport.names(c.name);
+            const files = this.lpcExportFiles(c.name, o);
+            const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
+            const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="flex: none; width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
+            const done = c.exported;
+            return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
+                <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(DocsDoodads.LpcExport.cleanName(c.name) || 'your character')} to RPG Maker</div>
+                ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
+                ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
+                ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
+                ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
+                ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
+                <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button type="button" class="dd-cr-export" id="dd-cr-ex-go" style="font-size: 15px; padding: 8px 20px;"${!c.name.trim() || !files.length ? ' disabled' : ''}>Export ${files.length} file${files.length === 1 ? '' : 's'}</button>
+                    ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
+                </div>
+                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}</div>` : ''}
             </div>`;
         }
         if (pop.kind === 'credits') {
@@ -34480,6 +34667,14 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-save', () => this.creatorSave());
         on('dd-cr-load', () => { c.pop = c.pop && c.pop.kind === 'load' ? null : { kind: 'load' }; this.renderCreator(); });
         on('dd-cr-credits', () => { c.pop = c.pop && c.pop.kind === 'credits' ? null : { kind: 'credits' }; this.renderCreator(); });
+        on('dd-cr-export', () => { c.pop = c.pop && c.pop.kind === 'export' ? null : { kind: 'export' }; c.exported = null; this.renderCreator(); });
+        if (c.pop && c.pop.kind === 'export') {
+            const o = c.exportOptions;
+            for (const key of ['classic', 'smooth', 'face']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
+            on('dd-cr-ex-go', () => this.creatorExport());
+            on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
+        }
         if (c.pop && c.pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
             const row = c.pop.row;
@@ -34525,6 +34720,18 @@ Object.assign(DocsDoodads.Workspace, {
         const y = target ? Math.max(10, Math.min(target.bottom - origin.top + 6, (box ? box.clientHeight : 740) - 320)) : 120;
         c.pop = c.pop && c.pop.kind === 'palette' && c.pop.row === rowKey ? null : { kind: 'palette', row: rowKey, x: Math.round(x), y: Math.round(y) };
         this.renderCreator();
+    },
+
+    // Export, asking first when it would replace pictures already in the project.
+    async creatorExport() {
+        const c = this._creator, FS = DocsDoodads.FS;
+        const o = c.exportOptions || this.lpcExportDefaults();
+        const existing = this.lpcExportFiles(c.name, o).filter(f => FS.existsSync(f));
+        if (existing.length && !await DocsDoodads.Ui.confirm(`Replace ${existing.length} picture${existing.length === 1 ? '' : 's'} already in the project?\n${existing.join('\n')}`, { title: 'Export again', ok: 'Replace' })) return null;
+        const result = this.exportLpcCharacter(c.state, Object.assign({ name: c.name, addons: c.addons }, o));
+        if (result) { c.exported = result; DocsDoodads.Ui.sound('save'); }
+        if (this.creatorOpen()) this.renderCreator();
+        return result;
     },
 
     // ---- Saved characters ----
@@ -34654,6 +34861,115 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25t: LPC EXPORTS (WRITING THE SHEETS)
+//==========================================================
+// The creator's Export to RPG Maker: writes the character's sheets into img/characters (and its face into
+// img/faces), records the credits of every file and writes CREDITS_LPC.txt again, adds the animation set
+// that plays the idle and run sheets with the smooth walker, and keeps the character under its name so it
+// can be changed and exported again. Layouts are in 23_lpc_export.js.
+Object.assign(DocsDoodads.Workspace, {
+    // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot }
+    lpcExportDefaults() {
+        return { classic: true, smooth: true, face: true, faceSlot: 0 };
+    },
+
+    // The files an export would write, relative to the project.
+    lpcExportFiles(name, options) {
+        const N = DocsDoodads.LpcExport.names(name);
+        const files = [];
+        if (options.classic) files.push('img/characters/' + N.classic + '.png');
+        if (options.smooth) files.push('img/characters/' + N.smooth + '.png', 'img/characters/' + N.idle + '.png', 'img/characters/' + N.run + '.png');
+        if (options.face) files.push('img/faces/' + N.face + '.png');
+        return files;
+    },
+
+    writeLpcPng(file, image) {
+        const D = DocsDoodads, FS = D.FS;
+        const zlib = require('zlib');
+        FS.mkdirp(FS.path.dirname(file));
+        FS.fs.writeFileSync(file, D.AsepriteSheets.encodePng(image.width, image.height, new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.length), data => zlib.deflateSync(data)));
+        // A playtest that already drew the old picture would keep showing it.
+        if (typeof ImageManager !== 'undefined' && ImageManager._cache) {
+            for (const key of Object.keys(ImageManager._cache)) if (key.endsWith(file) || key.endsWith(encodeURI(file))) delete ImageManager._cache[key];
+        }
+    },
+
+    readLpcPng(file) {
+        const FS = DocsDoodads.FS;
+        try { return FS.existsSync(file) ? DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(file), d => require('zlib').inflateSync(d)) : null; } catch (e) { return null; }
+    },
+
+    // Writes everything; returns { files, warnings } or null (with a message) when it can't.
+    exportLpcCharacter(state, options) {
+        const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots, FS = D.FS;
+        if (!FS.fs || !FS.writable()) { this.showToast('Characters are exported in a playtest.', 'info'); return null; }
+        const name = E.cleanName(options.name);
+        if (!name) { this.showToast('Give the character a name first.', 'info'); return null; }
+        const N = E.names(name);
+        const recipe = S.toRecipe(state, { addons: options.addons !== false });
+        const walk = this.composeLpc(recipe, 'walk');
+        if (!walk || !walk.sheet) { this.showToast('Nothing to export: the character has no walk.', 'error'); return null; }
+        const written = [];
+        const warnings = walk.warnings.slice();
+        const record = (file, used) => { written.push(file); this.recordLpcImage(file, used); };
+        try {
+            if (options.classic) {
+                const file = 'img/characters/' + N.classic + '.png';
+                this.writeLpcPng(file, E.classic(walk.sheet));
+                record(file, walk.used);
+            }
+            if (options.smooth) {
+                const file = 'img/characters/' + N.smooth + '.png';
+                this.writeLpcPng(file, E.allFrames(walk.sheet));
+                record(file, walk.used);
+                for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
+                    const out = this.composeLpc(recipe, anim);
+                    if (!out || !out.sheet) { warnings.push(`No ${anim} sheet: the parts have no ${anim}.`); continue; }
+                    const f = 'img/characters/' + sheetName + '.png';
+                    this.writeLpcPng(f, E.allFrames(out.sheet));
+                    record(f, out.used);
+                    warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
+                }
+                this.addLpcAnimationSet(N);
+            }
+            if (options.face) {
+                // The face leaves out what is held or carried.
+                const faceState = { body: state.body, slots: Object.assign({}, state.slots) };
+                for (const key of ['weapon', 'shield', 'back', 'ammo']) delete faceState.slots[key];
+                const faceWalk = this.composeLpc(S.toRecipe(faceState, { addons: options.addons !== false }), 'walk');
+                const file = 'img/faces/' + N.face + '.png';
+                this.writeLpcPng(file, E.faceSheet(this.readLpcPng(file), E.face(faceWalk.sheet), options.faceSlot || 0));
+                record(file, faceWalk.used);
+            }
+        } catch (e) {
+            this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
+            return null;
+        }
+        // Credits ship with the game; the character is kept to change and export again.
+        if (written.length) this.writeLpcCreditsText();
+        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
+        const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
+        this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
+        return { files: written, warnings, names: N };
+    },
+
+    // The animation set for the smooth walker (replacing one for the same sheet).
+    addLpcAnimationSet(N) {
+        const set = DocsDoodads.LpcExport.animationSet(N);
+        const sets = (DocsDoodads.World.get('characterAnim.sets') || []).filter(s => s && s.character !== set.character);
+        sets.push(set);
+        this.setWorldSetting('characterAnim.sets', sets);
+        return set;
+    },
+
+    // Try the character on the player (this playtest only; MZ's database is not changed).
+    tryLpcOnPlayer(N, smooth = true) {
+        if (typeof $gamePlayer === 'undefined' || !$gamePlayer) return false;
+        $gamePlayer.setImage(smooth ? N.smooth : N.classic, 0);
+        return true;
+    }
+});
+//==========================================================
 // SECTION 25r: LPC CHARACTER LIBRARY (CARD, SCAN, CREDITS)
 //==========================================================
 // More > Characters: where the LPC library is on this computer, a scan of its parts into the editor's
@@ -34694,7 +35010,8 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     setLpcSafeOnly(on) {
-        DocsDoodads.World.set('lpc.safeOnly', on ? undefined : false);
+        // Through the workspace, so the change is saved with the project (and can be undone).
+        this.setWorldSetting('lpc.safeOnly', on ? undefined : false);
     },
 
     // The saved index (cached after the first read), or null.

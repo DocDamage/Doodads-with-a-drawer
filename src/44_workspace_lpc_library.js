@@ -39,7 +39,8 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     setLpcSafeOnly(on) {
-        DocsDoodads.World.set('lpc.safeOnly', on ? undefined : false);
+        // Through the workspace, so the change is saved with the project (and can be undone).
+        this.setWorldSetting('lpc.safeOnly', on ? undefined : false);
     },
 
     // The saved index (cached after the first read), or null.

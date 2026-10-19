@@ -3,6 +3,10 @@
 ## Unreleased — 2.0.0-alpha.1
 
 - A Playful theme (More > Look): cream cards, teal and coral, yellow for what is picked, rounder corners and pill buttons. Filled buttons keep white text at 4.5:1 or better.
+- Export to RPG Maker from the Character Creator: a classic `$Name` walker, a smooth `$Name[f9][w2]` walker with `_idle` and `_run` sheets and their animation set, and a face in `img/faces` (other faces kept), with credits recorded and CREDITS_LPC.txt rewritten; Try on the player.
+- `[wN]` in a sheet name (with `[fN]`): frame 0 stands and the others walk, one cycle every N tiles at any speed.
+- Run sheets no longer flash back to the walk for a frame between tiles.
+- The Characters card's "Only art that is safe to encrypt" is saved with the project (it could be lost before).
 - Character Creator (More > Characters > Open the Creator): a bright, rounded window to make a character from the LPC library, with tabs of pickers and colour swatches, a stage that turns and plays every animation, dice, saved characters, credits, and keyboard and gamepad control; one side at a time in a small window.
 - LPC compositor: stacks the library's parts in their order for each body type, with their colours (skin matched across the body, head and ears), fixed-colour variants, faces that follow the head, and parts that need others; recoloured layers are cached. Characters > Try it shows a random character walking.
 - Characters (More): the LPC character library on this computer. Scan its parts, colours and credits into the editor's cache; the project setting "Only art that is safe to encrypt (CC0, OGA-BY)"; credits recorded per picture and written to CREDITS_LPC.txt; and Problems for pictures that can't be encrypted and credits that need writing out. A library inside the project is warned about, since Deployment would copy it into the game.

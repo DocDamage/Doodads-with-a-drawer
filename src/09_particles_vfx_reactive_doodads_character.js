@@ -307,8 +307,9 @@ DocsDoodads.CharacterAnim = {
         return parsed;
     },
 
+    // [w2]: frame 0 stands and the others walk, one cycle every 2 tiles (LPC walkers), whatever the speed.
     parseNameUncached(name) {
-        let frames = 3, dirs = 4, tagged = false;
+        let frames = 3, dirs = 4, tagged = false, walkTiles = 0;
         const f = name.match(/\[f(\d+)\]|%\((\d+)\)/i);
         if (f) {
             const n = parseInt(f[1] || f[2], 10);
@@ -320,8 +321,14 @@ DocsDoodads.CharacterAnim = {
             dirs = parseInt(d[1], 10);
             tagged = true;
         }
-        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]/gi, '');
-        return { base, frames, dirs, tagged };
+        const w = name.match(/\[w(\d+(?:\.\d+)?)\]/i);
+        if (w && parseFloat(w[1]) > 0) {
+            walkTiles = Math.min(16, parseFloat(w[1]));
+            tagged = true;
+        }
+        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]/gi, '');
+        // Only with more than MZ's 3 frames: a 3-frame sheet stands in its middle frame.
+        return { base, frames, dirs, tagged, walkTiles: frames > 3 ? walkTiles : 0 };
     },
 
     // Row in the sheet for a direction (1-9 numpad layout), and whether to mirror (single-row sheets face right).
@@ -339,6 +346,18 @@ DocsDoodads.CharacterAnim = {
     walkFrame(pattern, frames) {
         if (frames === 3) return [0, 1, 2, 1][((pattern % 4) + 4) % 4];
         return ((pattern % frames) + frames) % frames;
+    },
+
+    // The pattern after this one on a [wN] sheet: 1 to frames-1 round and round (0 is standing).
+    walkStep(pattern, frames) {
+        return frames > 1 ? (Math.max(0, pattern) % (frames - 1)) + 1 : 0;
+    },
+
+    // Game frames between walking patterns so one cycle covers walkTiles tiles: MZ counts 1.5 a frame
+    // while moving, and a character moves distancePerFrame tiles a frame.
+    paceWait(frames, walkTiles, distancePerFrame) {
+        if (!walkTiles || frames < 2 || !(distancePerFrame > 0)) return 0;
+        return Math.max(1, 1.5 * walkTiles / (frames - 1) / distancePerFrame);
     },
 
     standingFrame(frames) {

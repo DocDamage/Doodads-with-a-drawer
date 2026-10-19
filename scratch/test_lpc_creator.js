@@ -89,7 +89,7 @@ const cr = () => ws._creator;
     assert.ok(root && ws.creatorOpen());
     assert.strictEqual(cr().state.slots.head.id, 'head/human_male');
     for (const text of ['Character Creator', 'Body type', 'Skin', 'id="dd-cr-tab-body-0"', 'id="dd-cr-tab-outfit-3"', 'Shuffle the body', 'id="dd-cr-anim-spellcast"', 'Show body', 'Export to RPG Maker']) assert.ok(html().includes(text), text);
-    assert.ok(/id="dd-cr-export" disabled/.test(html()), 'export comes in the next version');
+    assert.ok(/id="dd-cr-export" title=/.test(html()), 'export is offered');
     assert.ok(/LPC library · 3 parts/.test(html()), 'safe parts only: the CC-BY-SA shirt is not counted');
     assert.ok(drawn.includes(9), 'a frame drawn on the stage');
     assert.strictEqual(sounds.pop(), 'ok');

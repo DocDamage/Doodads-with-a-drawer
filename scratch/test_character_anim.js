@@ -28,13 +28,15 @@ require('../Docs-Doodads.js');
 const C = DocsDoodads.CharacterAnim;
 
 // 1. Sheet names carry their layout: [f8] frames per row, [d1]/[d8] direction rows. %(8) is accepted too.
-assert.deepStrictEqual(C.parseName('Actor1'), { base: 'Actor1', frames: 3, dirs: 4, tagged: false });
-assert.deepStrictEqual(C.parseName('Hero[f8]'), { base: 'Hero', frames: 8, dirs: 4, tagged: true });
-assert.deepStrictEqual(C.parseName('$Slime[f6][d1]'), { base: '$Slime', frames: 6, dirs: 1, tagged: true });
-assert.deepStrictEqual(C.parseName('Knight[d8][f4]'), { base: 'Knight', frames: 4, dirs: 8, tagged: true });
-assert.deepStrictEqual(C.parseName('Bat%(5)'), { base: 'Bat', frames: 5, dirs: 4, tagged: true });
+assert.deepStrictEqual(C.parseName('Actor1'), { base: 'Actor1', frames: 3, dirs: 4, tagged: false, walkTiles: 0 });
+assert.deepStrictEqual(C.parseName('Hero[f8]'), { base: 'Hero', frames: 8, dirs: 4, tagged: true, walkTiles: 0 });
+assert.deepStrictEqual(C.parseName('$Slime[f6][d1]'), { base: '$Slime', frames: 6, dirs: 1, tagged: true, walkTiles: 0 });
+assert.deepStrictEqual(C.parseName('Knight[d8][f4]'), { base: 'Knight', frames: 4, dirs: 8, tagged: true, walkTiles: 0 });
+assert.deepStrictEqual(C.parseName('Bat%(5)'), { base: 'Bat', frames: 5, dirs: 4, tagged: true, walkTiles: 0 });
 assert.strictEqual(C.parseName('Weird[f0]').frames, 3, "nonsense counts fall back");
 assert.strictEqual(C.parseName('Big[f99]').frames, 64, "and are capped");
+assert.deepStrictEqual(C.parseName('$Hero[f9][w2]'), { base: '$Hero', frames: 9, dirs: 4, tagged: true, walkTiles: 2 }, 'walk pace: frame 0 stands, a cycle every 2 tiles');
+assert.strictEqual(C.parseName('$Hero[w2]').walkTiles, 0, "pace needs more than MZ's 3 frames");
 
 // 2. Which row a direction uses. MZ order: down, left, right, up; 8-direction sheets add the diagonals.
 assert.deepStrictEqual(C.rowFor(2, 4), { row: 0, mirror: false });
