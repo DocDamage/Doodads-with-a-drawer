@@ -703,7 +703,10 @@
         });
         const name = values ? values.name.trim() : '';
         if (!name) return null;
-        const key = DocsDoodads.EventTemplates.saveCustomTemplate(name, eventObj, values.category.trim() || 'Custom');
+        const T = DocsDoodads.EventTemplates;
+        const clash = T.get(T.keyFor(name));
+        if (clash && !(await DocsDoodads.Ui.confirm(`There is already a template called "${clash.name}". Replace it with this event?`, { title: 'Replace the template?', ok: 'Replace', danger: true }))) return null;
+        const key = T.saveCustomTemplate(name, eventObj, values.category.trim() || 'Custom');
         this.showToast(`Saved template "${name}"!`);
         return key;
     },

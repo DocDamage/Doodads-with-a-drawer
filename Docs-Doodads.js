@@ -19832,7 +19832,7 @@ DocsDoodads.Packer = {
 // SECTION 12B: DOODAD PACKS
 //==========================================================
 // A pack is one file (.ddpack, JSON) holding prefabs (with the prefabs inside them), room stamps,
-// biomes, dressing rules and collections, the art, sounds and models they use, and those files' Item Bag
+// biomes, dressing rules, collections and event templates, the art, sounds and models they use, and those files' Item Bag
 // entries (cut-up slices, tags, collision), to bring into another project. Pure: reading and writing
 // files is passed in, so the workspace (44_workspace_packs.js) does the disk work in a playtest.
 DocsDoodads.Packs = {
@@ -19855,10 +19855,10 @@ DocsDoodads.Packs = {
     },
 
     // What a selection holds, with what it needs: prefabs inside chosen prefabs come along.
-    // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names] }
-    // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id) }
+    // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names], templates: [keys] }
+    // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id), template(key) }
     gather(sel, src, audioFile) {
-        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {} };
+        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} };
         const files = new Set();
         const addDoodads = list => (list || []).forEach(d => this.filesOfDoodad(d, audioFile).forEach(f => files.add(f)));
         const seenPrefab = new Set();
@@ -19897,6 +19897,10 @@ DocsDoodads.Packs = {
             const paths = ids.map(id => src.assetPath(id)).filter(Boolean);
             contents.collections[name] = paths;
             paths.forEach(p => files.add(p));
+        }
+        for (const key of sel.templates || []) {
+            const t = src.template ? src.template(key) : null;
+            if (t) contents.templates[key] = JSON.parse(JSON.stringify(t));
         }
         return { contents, files: Array.from(files).map(f => f.replace(/\\/g, '/')).sort() };
     },
@@ -19946,7 +19950,7 @@ DocsDoodads.Packs = {
         try { pack = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a doodad pack (it is not readable JSON).'); }
         if (!pack || pack.format !== this.format) throw new Error('This file is not a doodad pack.');
         if (Number(pack.version) > this.version) throw new Error('This pack was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
-        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {} }, pack.contents || {});
+        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, pack.contents || {});
         pack.files = pack.files || {};
         pack.library = pack.library || {};
         return pack;
@@ -19968,12 +19972,13 @@ DocsDoodads.Packs = {
             unsafe: files.filter(f => f.state === 'unsafe').map(f => f.path),
             prefabs: pack.contents.prefabs.length, rooms: pack.contents.rooms.length, biomes: pack.contents.biomes.length,
             dress: pack.contents.dress.length, collections: Object.keys(pack.contents.collections).length,
+            templates: Object.keys(pack.contents.templates || {}).length,
             idClashes: clash(pack.contents.prefabs, ids.prefabs) + clash(pack.contents.rooms, ids.rooms) + clash(pack.contents.biomes, ids.biomes)
         };
     },
 
     // The pack's things ready to add: ids that clash get new ones (and prefabs inside prefabs follow).
-    // newId(prefix) makes an id. Returns { prefabs, rooms, biomes, dress, collections }.
+    // newId(prefix) makes an id. Returns { prefabs, rooms, biomes, dress, collections, templates }.
     prepare(pack, ids, newId) {
         const fresh = (list, have, prefix) => {
             const map = {};
@@ -19991,7 +19996,8 @@ DocsDoodads.Packs = {
             rooms: fresh(pack.contents.rooms, ids.rooms, 'room_').out,
             biomes: fresh(pack.contents.biomes, ids.biomes, 'biome_').out,
             dress: JSON.parse(JSON.stringify(pack.contents.dress || [])),
-            collections: JSON.parse(JSON.stringify(pack.contents.collections || {}))
+            collections: JSON.parse(JSON.stringify(pack.contents.collections || {})),
+            templates: JSON.parse(JSON.stringify(pack.contents.templates || {}))
         };
     },
 
@@ -20083,6 +20089,109 @@ DocsDoodads.RequiredAssets = {
         const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters });
         const ok = FS.atomicWriteJson(this.path, { note: 'Files Doc\'s Doodads draws that MZ\'s "Exclude unused files" can\'t see. npm run deploy -- --restore <project> <deployed folder> puts them back.', files }, 2);
         return ok ? files : null;
+    }
+};
+//==========================================================
+// SECTION 12C: READING ZIP FILES
+//==========================================================
+// A zip of art (or a .ddpack inside one) brought in through Packs (44_workspace_packs.js). Pure: the bytes
+// and an inflate function (Node's zlib.inflateRawSync) are passed in. Stored and deflated entries are read;
+// each file's CRC is checked, and a zip that would unpack to more than maxBytes is refused before inflating.
+DocsDoodads.Zip = {
+    maxBytes: 512 * 1024 * 1024,
+    maxEntries: 20000,
+
+    crcTable: null,
+
+    crc32(bytes) {
+        if (!this.crcTable) {
+            this.crcTable = new Uint32Array(256);
+            for (let n = 0; n < 256; n++) {
+                let c = n;
+                for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+                this.crcTable[n] = c >>> 0;
+            }
+        }
+        let crc = 0xffffffff;
+        for (let i = 0; i < bytes.length; i++) crc = this.crcTable[(crc ^ bytes[i]) & 255] ^ (crc >>> 8);
+        return (crc ^ 0xffffffff) >>> 0;
+    },
+
+    // An entry's name as a project path: forward slashes, no leading "./" or "/", or null when it could
+    // reach outside the folder it is unpacked into (".." parts, a drive letter, an absolute path).
+    cleanName(name) {
+        const s = String(name || '').replace(/\\/g, '/');
+        if (/^[a-z]:/i.test(s) || s.startsWith('/') || s.split('/').some(part => part === '..')) return null;
+        return s.replace(/^(\.\/)+/, '');
+    },
+
+    // The files in a zip: [{ name, data }] (folders left out), or throws a message a person can act on.
+    // unsafe: the names that were refused by cleanName.
+    read(bytes, inflateRaw) {
+        const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+        const u16 = o => view.getUint16(o, true), u32 = o => view.getUint32(o, true);
+        // The end of the central directory: its signature within the last 64 KB (after a comment).
+        let end = -1;
+        for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65535); i--) {
+            if (u32(i) === 0x06054b50) { end = i; break; }
+        }
+        if (end < 0) throw new Error('This file is not a zip (or it is damaged).');
+        const count = u16(end + 10), dirOffset = u32(end + 16);
+        if (count === 0xffff || dirOffset === 0xffffffff) throw new Error('This zip is too large to read here (zip64).');
+        if (count > this.maxEntries) throw new Error(`This zip has ${count} entries; at most ${this.maxEntries} can be brought in.`);
+        const entries = [];
+        let total = 0;
+        let p = dirOffset;
+        for (let n = 0; n < count; n++) {
+            if (p + 46 > buf.length || u32(p) !== 0x02014b50) throw new Error('This zip is damaged (its list of files is cut short).');
+            const flags = u16(p + 8), method = u16(p + 10), crc = u32(p + 16), size = u32(p + 20), unpacked = u32(p + 24);
+            const nameLen = u16(p + 28), extraLen = u16(p + 30), commentLen = u16(p + 32), local = u32(p + 42);
+            const name = new TextDecoder('utf-8').decode(buf.subarray(p + 46, p + 46 + nameLen));
+            p += 46 + nameLen + extraLen + commentLen;
+            if (name.endsWith('/')) continue;
+            total += unpacked;
+            if (total > this.maxBytes) throw new Error(`This zip unpacks to more than ${Math.round(this.maxBytes / 1048576)} MB.`);
+            entries.push({ name, flags, method, crc, size, unpacked, local });
+        }
+        const files = [], unsafe = [];
+        for (const e of entries) {
+            const clean = this.cleanName(e.name);
+            if (!clean) { unsafe.push(e.name); continue; }
+            if (e.flags & 1) throw new Error(`${e.name} is locked with a password; unzip it first.`);
+            const lp = e.local;
+            if (lp + 30 > buf.length || u32(lp) !== 0x04034b50) throw new Error(`This zip is damaged (${e.name}).`);
+            const start = lp + 30 + u16(lp + 26) + u16(lp + 28);
+            const raw = buf.subarray(start, start + e.size);
+            let data;
+            if (e.method === 0) data = raw;
+            else if (e.method === 8) data = new Uint8Array(inflateRaw(raw, { maxOutputLength: Math.max(1, e.unpacked) }));
+            else throw new Error(`${e.name} is packed in a way this can't read (method ${e.method}); re-zip it.`);
+            if (data.length !== e.unpacked || this.crc32(data) !== e.crc) throw new Error(`This zip is damaged (${e.name} does not check out).`);
+            files.push({ name: clean, data });
+        }
+        return { files, unsafe };
+    },
+
+    // The art in a zip as a pack to bring in: files already under img/, audio/, models/, movies/ or effects/
+    // keep their place; other pictures go in img/doodads/<zip name>/. Anything else is listed as left out.
+    // A .ddpack inside the zip is returned as { packText } instead.
+    asPack(zipName, read, Packs) {
+        const pack = read.files.find(f => /\.ddpack$/i.test(f.name));
+        if (pack) return { packText: new TextDecoder('utf-8').decode(pack.data), name: pack.name };
+        const base = String(zipName || 'Art').replace(/\\/g, '/').split('/').pop().replace(/\.zip$/i, '').replace(/[^\w\- ]+/g, '').trim() || 'Art';
+        const out = { format: Packs.format, version: Packs.version, name: base, createdAt: Date.now(),
+            contents: { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, library: {}, files: {}, missing: [] };
+        const left = read.unsafe.slice();
+        for (const f of read.files) {
+            // Folders of the zip's own (MyArt/img/...) are looked through for the project's folders.
+            const inside = f.name.match(/(?:^|\/)((?:img|audio|models|movies|effects)\/.+)$/i);
+            const target = inside ? inside[1] : /\.(png|jpe?g|webp|gif)$/i.test(f.name) ? `img/doodads/${base}/${f.name}` : null;
+            if (!target || /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db)/i.test(f.name) || !Packs.safePath(target)) { left.push(f.name); continue; }
+            out.files[target] = Packs.toBase64(f.data);
+        }
+        out.leftOut = left;
+        return { pack: out };
     }
 };
 //==========================================================
@@ -25466,7 +25575,11 @@ DocsDoodads.EventTemplates = {
         }
     },
 
+    // The keys of the templates that come with the plugin (they can't be renamed or deleted).
+    builtInKeys: null,
+
     init() {
+        if (!this.builtInKeys) this.builtInKeys = new Set(Object.keys(this.templates));
         const custom = DocsDoodads.FS.readJson(this.customPath);
         if (custom) {
             Object.assign(this.templates, custom);
@@ -25478,8 +25591,84 @@ DocsDoodads.EventTemplates = {
         return this.templates[templateKey] || null;
     },
 
+    isCustom(key) {
+        return Boolean(this.templates[key]) && !(this.builtInKeys && this.builtInKeys.has(key));
+    },
+
+    // The key a template of this name is kept under.
+    keyFor(name) {
+        return 'custom_' + String(name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    },
+
+    // The custom templates, by category then name: [{ key, name, category }].
+    custom() {
+        return Object.keys(this.templates).filter(k => this.isCustom(k))
+            .map(key => ({ key, name: this.templates[key].name || key, category: this.templates[key].category || 'Custom' }))
+            .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    },
+
+    categories() {
+        const set = new Set(['Interaction', 'Mechanics', 'Atmosphere', 'Custom']);
+        for (const t of Object.values(this.templates)) if (t && t.category) set.add(t.category);
+        return Array.from(set);
+    },
+
+    // The custom templates file is written whole from what is in memory.
+    writeCustom() {
+        const out = {};
+        for (const key of Object.keys(this.templates)) if (this.isCustom(key)) out[key] = this.templates[key];
+        DocsDoodads.FS.atomicWriteJson(this.customPath, out);
+    },
+
+    // Renames a custom template: { key } (its new key), or { error }.
+    rename(key, name) {
+        name = String(name || '').trim();
+        if (!this.isCustom(key)) return { error: 'Only your own templates can be renamed.' };
+        if (!name) return { error: 'Give it a name.' };
+        const next = this.keyFor(name);
+        if (next !== key && this.templates[next]) return { error: `There is already a template called "${this.templates[next].name || name}".` };
+        const t = this.templates[key];
+        delete this.templates[key];
+        t.name = name;
+        this.templates[next] = t;
+        this.writeCustom();
+        return { key: next };
+    },
+
+    setCategory(key, category) {
+        if (!this.isCustom(key)) return false;
+        this.templates[key].category = String(category || '').trim() || 'Custom';
+        this.writeCustom();
+        return true;
+    },
+
+    remove(key) {
+        if (!this.isCustom(key)) return false;
+        delete this.templates[key];
+        this.writeCustom();
+        return true;
+    },
+
+    // A template from a pack: kept under its own key, or a new one when a different template has it.
+    // Returns the key it is under (an identical one already here is not added again).
+    addFromPack(key, template) {
+        if (!template || typeof template !== 'object') return null;
+        const copy = JSON.parse(JSON.stringify(template));
+        const base = copy.name || String(key).replace(/^custom_/, '');
+        let k = /^custom_/.test(String(key)) ? String(key) : this.keyFor(base);
+        const same = t => Boolean(t) && JSON.stringify(t) === JSON.stringify(copy);
+        for (let n = 2; this.templates[k] && !same(this.templates[k]); n++) {
+            k = this.keyFor(base + ' ' + n);
+            copy.name = base + ' ' + n;
+        }
+        if (this.templates[k]) return k;
+        this.templates[k] = copy;
+        this.writeCustom();
+        return k;
+    },
+
     saveCustomTemplate(name, eventObj, category = "Custom") {
-        const key = 'custom_' + name.toLowerCase().replace(/\s+/g, '_');
+        const key = this.keyFor(name);
         const page0 = eventObj.pages && eventObj.pages[0] ? eventObj.pages[0] : {};
         const tmpl = {
             name: name,
@@ -25495,10 +25684,7 @@ DocsDoodads.EventTemplates = {
             pages: JSON.parse(JSON.stringify(eventObj.pages || []))
         };
         this.templates[key] = tmpl;
-
-        let customData = DocsDoodads.FS.readJson(this.customPath) || {};
-        customData[key] = tmpl;
-        DocsDoodads.FS.atomicWriteJson(this.customPath, customData);
+        this.writeCustom();
         return key;
     }
 };
@@ -27101,6 +27287,147 @@ DocsDoodads.Persistence = {
     }
 };
 
+//==========================================================
+// SECTION 21b: NAMED CHECKPOINTS, SAVING ONE MAP, AUTOSAVE
+//==========================================================
+// A checkpoint is a named copy of one map's doodads and map settings ("Before scattering"), kept in the
+// editor's cache folder so it lasts through Save and closing the game; Steps lists them and restores one
+// as an undo step. "Save this map only" writes this map's doodads, settings and events and leaves the
+// other maps' unsaved changes for later. Autosave (More) saves the project every few minutes of unsaved work.
+DocsDoodads.Checkpoints = {
+    path: 'data/docs_doodads_cache/checkpoints.json',
+    maxPerMap: 20,
+    data: null,
+
+    load() {
+        if (!this.data) {
+            const read = DocsDoodads.FS.readJson(this.path);
+            this.data = read && typeof read === 'object' && !Array.isArray(read) ? read : {};
+        }
+        return this.data;
+    },
+
+    write() {
+        DocsDoodads.FS.mkdirp(DocsDoodads.FS.path ? DocsDoodads.FS.path.dirname(this.path) : 'data/docs_doodads_cache');
+        DocsDoodads.FS.atomicWriteJson(this.path, this.load(), 0);
+    },
+
+    // A map's checkpoints, newest first: [{ id, name, at, count }].
+    list(mapId) {
+        return (this.load()[mapId] || []).slice().sort((a, b) => b.at - a.at)
+            .map(c => ({ id: c.id, name: c.name, at: c.at, count: (c.doodads || []).length }));
+    },
+
+    get(mapId, id) {
+        return (this.load()[mapId] || []).find(c => c.id === id) || null;
+    },
+
+    // Keeps a copy of the doodads (not those the API placed for this play) and the map's settings.
+    // The oldest go past maxPerMap.
+    create(mapId, name, doodads, settings, now = Date.now()) {
+        const all = this.load();
+        const list = all[mapId] = all[mapId] || [];
+        const entry = {
+            id: 'cp_' + now.toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36),
+            name: String(name || '').trim() || 'Checkpoint', at: now,
+            doodads: JSON.parse(JSON.stringify((doodads || []).filter(d => d && !d.temp))),
+            settings: settings ? JSON.parse(JSON.stringify(settings)) : null
+        };
+        list.push(entry);
+        list.sort((a, b) => a.at - b.at);
+        while (list.length > this.maxPerMap) list.shift();
+        this.write();
+        return entry;
+    },
+
+    remove(mapId, id) {
+        const all = this.load();
+        const before = (all[mapId] || []).length;
+        all[mapId] = (all[mapId] || []).filter(c => c.id !== id);
+        if (!all[mapId].length) delete all[mapId];
+        if (before === (all[mapId] || []).length) return false;
+        this.write();
+        return true;
+    }
+};
+
+Object.assign(DocsDoodads.Persistence, {
+    // Writes one map's doodads, map settings and (when it is the map on screen) its event edits; the other
+    // maps' unsaved changes stay unsaved. Returns true when written.
+    saveMapOnly(mapId) {
+        const gameMap = window.$gameMap;
+        if (!gameMap) return false;
+        mapId = Number(mapId || gameMap.mapId());
+        const W = DocsDoodads.Workspace, DF = DocsDoodads.DataFiles, FS = DocsDoodads.FS;
+        const mapFile = this.mapFilePath(mapId);
+        const snap = this.sessionSnapshots[mapFile], now = FS.stat(mapFile);
+        if (snap && now && (snap.mtimeMs !== now.mtimeMs || snap.size !== now.size)) {
+            W.showConflictModal();
+            return false;
+        }
+        const live = window.$dataDocsDoodads || {};
+        const merged = Object.assign({}, DF.readAll() || {});
+        delete merged._mapFiles;
+        if (Array.isArray(live[mapId]) && live[mapId].length) merged[mapId] = live[mapId]; else delete merged[mapId];
+        const settings = Object.assign({}, merged.mapSettings || {});
+        if (live.mapSettings && live.mapSettings[mapId]) settings[mapId] = live.mapSettings[mapId]; else delete settings[mapId];
+        if (Object.keys(settings).length) merged.mapSettings = settings; else delete merged.mapSettings;
+
+        const owner = gameMap._stagedMapData && (gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : gameMap.mapId());
+        const mapEntries = gameMap._stagedMapData && Number(owner) === mapId ? [{ path: mapFile, data: gameMap._stagedMapData, indent: 2 }] : [];
+        const doodadEntries = DF.entriesFor(merged);
+        const entries = mapEntries.concat(doodadEntries);
+        try {
+            FS.backupChanged(entries);
+        } catch (error) {
+            W.showToast(`Save cancelled: backup failed (${error.message || error}).`);
+            return false;
+        }
+        const result = FS.atomicWriteManyJson(entries);
+        if (!result.ok) {
+            W.showToast(`Save failed${result.rolledBack ? '; previous files restored' : ''}: ${result.error}`);
+            return false;
+        }
+        if (mapEntries.length) this.sessionSnapshots[mapFile] = FS.stat(mapFile);
+        DF.removeStale(doodadEntries);
+        // Unsaved work is left only if the doodad data still differs from what is now on disk.
+        const still = JSON.stringify(DF.stable(live)) !== JSON.stringify(DF.stable(merged));
+        this.dirtyMap = Object.keys(this.stagedMaps).length > 0 || (this._dirtyMap && !mapEntries.length);
+        this.dirtyDoodads = still;
+        this.touchedMaps.delete(mapId);
+        if (!this.hasUnsavedWork()) { this.lastSavedAt = Date.now(); this.clearRecovery(); }
+        W.showToast(this.hasUnsavedWork() ? 'Saved this map. Other maps still have unsaved changes.' : 'Saved this map. Everything is saved.');
+        if (W.mounted) W.updateSaveState(!this.hasUnsavedWork());
+        return true;
+    },
+
+    // Minutes between autosaves (0: off), a per-computer choice.
+    autosaveMinutes() {
+        const m = Number(DocsDoodads.Ui.prefs().autosaveMinutes);
+        return m > 0 ? m : 0;
+    },
+
+    // Called every few seconds: saves when there has been unsaved work for the chosen minutes and nothing
+    // is being dragged or asked. A map changed in MZ meanwhile is not overwritten: it says so once.
+    autosaveTick(now = Date.now()) {
+        const minutes = this.autosaveMinutes();
+        if (!minutes || !this.hasUnsavedWork()) { this._unsavedSince = null; this._autosaveWarned = false; return false; }
+        if (!this._unsavedSince) this._unsavedSince = now;
+        if (now - Math.max(this._unsavedSince, this.lastSavedAt || 0) < minutes * 60000) return false;
+        const W = DocsDoodads.Workspace;
+        const busy = W.isBrushActive || W._dragActive || W.isMarqueeActive || W._handleDrag ||
+            (typeof document !== 'undefined' && document.getElementById && document.getElementById('dd-dialog'));
+        if (busy) return false;
+        if (this.checkConflict()) {
+            if (!this._autosaveWarned) W.showToast('Autosave waits: a map was changed in RPG Maker MZ. Save to choose what to keep.', 'warning');
+            this._autosaveWarned = true;
+            return false;
+        }
+        const ok = this.saveAll(true);
+        if (ok) { this._unsavedSince = null; W.showToast(`Autosaved (every ${minutes} minutes).`); }
+        return ok;
+    }
+});
 //==========================================================
 // SECTION 22: DocsDoodads.LAYOUT (MULTIPLE SAVED LAYOUTS)
 //==========================================================
@@ -28986,6 +29313,9 @@ DocsDoodads.Workspace = {
         this.closeProblems();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
+        this.closeTemplatesCard();
+        this.closeMapSettingsCard();
+        if (this.bagPicked) this.bagPicked.clear();
         if (typeof this.closeLpcCard === 'function') this.closeLpcCard();
         if (typeof this.closeCreator === 'function') this.closeCreator();
         clearTimeout(this._hoverShow);
@@ -29285,6 +29615,10 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-find-btn" title="Find doodads on this map or every map, by picture, name, tag, layer, light, sound...">${U.icon('search', 1)} Find Doodads</button>
                     <button class="dd-btn" id="dd-outliner-btn" title="This map's doodads by layer: hide, lock, pick, solo a layer">${U.icon('grid', 1)} Outliner</button>
+                    <button class="dd-btn" id="dd-templates-btn" title="Rename, sort and delete your own event templates">${U.icon('person', 1)} Templates</button>
+                    <button class="dd-btn" id="dd-mapset-btn" title="Copy another map's settings to this one, or keep them as a preset">${U.icon('map', 1)} Map Settings</button>
+                    <button class="dd-btn" id="dd-savemap-btn" title="Save this map's doodads, settings and events; other maps' changes wait">${U.icon('save', 1)} Save This Map</button>
+                    <button class="dd-btn" id="dd-autosave-btn" title="Save the project every few minutes of unsaved work (on this computer)">${U.icon('history', 1)} <span id="dd-autosave-label">${this.autosaveLabel()}</span></button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
@@ -29770,6 +30104,10 @@ DocsDoodads.Workspace = {
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
+        on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
+        on('dd-mapset-btn', () => { this.showMoreMenu(false); this.showMapSettingsCard(); });
+        on('dd-savemap-btn', () => { this.showMoreMenu(false); this.saveThisMap(); });
+        on('dd-autosave-btn', () => { this.cycleAutosave(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
         on('dd-listen-btn', () => { this.setPlacementTool('listen'); });
         on('dd-perf-btn', () => { this.togglePerfOverlay(); this.showMoreMenu(false); });
@@ -29996,7 +30334,8 @@ DocsDoodads.Workspace = {
 
     createCardElement(asset, cardHeight) {
         const card = document.createElement('div');
-        card.className = 'dd-card' + (this.selectedAsset === asset ? ' selected' : '');
+        card.className = 'dd-card' + (this.selectedAsset === asset ? ' selected' : '') + (this.bagPicked && this.bagPicked.has(asset.id) ? ' dd-bag-picked' : '');
+        card._ddAssetId = asset.id;
         card.style.cssText = `height: ${cardHeight}px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px;`;
 
         const imgEl = document.createElement('img');
@@ -30023,8 +30362,15 @@ DocsDoodads.Workspace = {
             card.appendChild(favBadge);
         }
 
-        card.onclick = () => {
+        card.onclick = (e) => {
             this.hideHoverCard(true);
+            // Ctrl or Shift: pick several for the batch bar (44_workspace_saving.js); a plain click picks none.
+            if (e && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+                this.bagPick(asset, e.shiftKey ? 'range' : 'toggle');
+                return;
+            }
+            if (this.bagPicked && this.bagPicked.size) this.clearBagPicks();
+            this._bagAnchor = asset.id;
             this.selectAsset(asset);
             const container = document.getElementById('dd-cards-container');
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));
@@ -30864,7 +31210,10 @@ DocsDoodads.Workspace = {
         });
         const name = values ? values.name.trim() : '';
         if (!name) return null;
-        const key = DocsDoodads.EventTemplates.saveCustomTemplate(name, eventObj, values.category.trim() || 'Custom');
+        const T = DocsDoodads.EventTemplates;
+        const clash = T.get(T.keyFor(name));
+        if (clash && !(await DocsDoodads.Ui.confirm(`There is already a template called "${clash.name}". Replace it with this event?`, { title: 'Replace the template?', ok: 'Replace', danger: true }))) return null;
+        const key = T.saveCustomTemplate(name, eventObj, values.category.trim() || 'Custom');
         this.showToast(`Saved template "${name}"!`);
         return key;
     },
@@ -32088,6 +32437,12 @@ DocsDoodads.Workspace = {
         add('Problems (check the map)', () => this.showProblems());
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
         add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
+        add('Event templates (rename, category, delete)', () => this.showTemplatesCard());
+        add('Copy map settings from another map...', () => this.askCopyMapSettings());
+        add('Map settings presets', () => this.showMapSettingsCard());
+        add('Save this map only', () => this.saveThisMap());
+        add('Autosave (off, 5, 10 or 20 minutes)', () => this.cycleAutosave());
+        add('Checkpoint: keep this map as it is now...', () => this.addCheckpoint());
         add('Pick doodads in a region...', async () => {
             const r = await DocsDoodads.Ui.prompt('Which region? (1-255)', '1', { title: 'Pick in a region', ok: 'Pick' });
             if (r) this.selectInRegion(Number(r));
@@ -34717,7 +35072,8 @@ DocsDoodads.Workspace = {
 
     // Renames or moves a file and rewrites every reference to it in one transaction. Name
     // references (events, database) only allow renames inside the same folder.
-    renameAsset(asset, newPath) {
+    // options.quiet: no message when it worked (a batch move says how many).
+    renameAsset(asset, newPath, options = {}) {
         const FS = DocsDoodads.FS;
         const persistence = DocsDoodads.Persistence;
         const fail = error => ({ ok: false, error });
@@ -34816,7 +35172,7 @@ DocsDoodads.Workspace = {
         this.refreshDrawerCards();
         this.refreshInspector();
         const changedFiles = entries.map(e => e.path);
-        this.showToast(`Renamed to ${entry.fileName}; updated ${plan.count} reference(s) in ${changedFiles.length - 1} file(s).`, 3500);
+        if (!options.quiet) this.showToast(`Renamed to ${entry.fileName}; updated ${plan.count} reference(s) in ${changedFiles.length - 1} file(s).`, 3500);
         return { ok: true, changedFiles, references: plan.count };
     },
 
@@ -35345,10 +35701,12 @@ DocsDoodads.Workspace = {
             <div class="dd-pop-title">${DocsDoodads.Ui.icon('history', 1)}<span style="flex: 1;">Steps on this map</span>
                 <button class="dd-btn dd-fold" id="dd-undo-history-close" title="Close">${DocsDoodads.Ui.icon('close', 1)}</button>
             </div>
+            ${this.checkpointsHtml()}
             <div style="color: var(--dd-faint); margin-bottom: 4px;">Click a step to go back (or forward) to just after it.${others ? ` ${others} other map${others === 1 ? ' keeps its' : 's keep their'} own steps.` : ''}</div>
             ${row(0, '(Start)', applied === 0 ? 'current' : 'done')}
             ${steps.map(st => row(st.index + 1, (st.index + 1) + '. ' + st.label, st.index + 1 === applied ? 'current' : st.done ? 'done' : 'undone')).join('')}`;
         document.getElementById('dd-undo-history-close').onclick = () => { panel.remove(); this._undoHistoryOpen = false; };
+        this.bindCheckpoints(panel);
         for (const el of panel.querySelectorAll('.dd-undo-step')) {
             el.onclick = () => {
                 DocsDoodads.Undo.goTo(Number(el.getAttribute('data-count')));
@@ -43856,8 +44214,9 @@ Object.assign(DocsDoodads.Workspace, {
 //==========================================================
 // SECTION 25q: DOODAD PACKS (CARD, EXPORT AND IMPORT)
 //==========================================================
-// More > Packs: pick prefabs, rooms, biomes, dressing rules and collections and save them, with the files
-// they use, as one .ddpack file in the project's packs folder; or bring a pack in from another project.
+// More > Packs: pick prefabs, rooms, biomes, dressing rules, collections and event templates and save them, with
+// the files they use, as one .ddpack file in the project's packs folder; or bring a pack in from another project,
+// or a zip of art (or a zip with a pack in it; 22_zip.js), with the same checks on where its files may go.
 // Files already here and different are kept unless "Use the pack's" is picked (a backup is made first).
 DocsDoodads.Ui.css += `
 #dd-packs-card { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 110px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
@@ -43868,7 +44227,7 @@ DocsDoodads.Ui.css += `
 `;
 
 Object.assign(DocsDoodads.Workspace, {
-    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [] },
+    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [], templates: [] },
     _incomingPack: null,
 
     packSources() {
@@ -43879,7 +44238,8 @@ Object.assign(DocsDoodads.Workspace, {
             biomes: D.World.get('biomes.list') || [],
             dress: D.World.get('dress.rules') || [],
             collections: (D.AssetIndex.data && D.AssetIndex.data.collections) || {},
-            assetPath: id => { const a = D.AssetIndex.data.assets[id]; return a ? a.path : null; }
+            assetPath: id => { const a = D.AssetIndex.data.assets[id]; return a ? a.path : null; },
+            template: key => (D.EventTemplates.isCustom(key) ? D.EventTemplates.get(key) : null)
         };
     },
 
@@ -43904,7 +44264,7 @@ Object.assign(DocsDoodads.Workspace, {
         const D = DocsDoodads, P = D.Packs, FS = D.FS;
         const gathered = P.gather(sel, this.packSources(), n => this.packAudioFile(n));
         const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
-            gathered.contents.dress.length + Object.keys(gathered.contents.collections).length;
+            gathered.contents.dress.length + Object.keys(gathered.contents.collections).length + Object.keys(gathered.contents.templates || {}).length;
         if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
         const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
         const out = FS.path.join('packs', P.fileName(pack.name));
@@ -43941,9 +44301,18 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     readPack(filePath) {
-        const text = DocsDoodads.FS.fs.readFileSync(filePath, 'utf8');
-        const pack = DocsDoodads.Packs.parse(text);
-        this._incomingPack = { pack, plan: DocsDoodads.Packs.plan(pack, (p, b) => this.packFileState(p, b), this.projectIds()), file: filePath, conflict: 'keep' };
+        const D = DocsDoodads;
+        let pack, leftOut = [];
+        if (/\.zip$/i.test(filePath)) {
+            const read = D.Zip.read(D.FS.fs.readFileSync(filePath), require('zlib').inflateRawSync);
+            const found = D.Zip.asPack(filePath, read, D.Packs);
+            pack = found.packText !== undefined ? D.Packs.parse(found.packText) : D.Packs.parse(JSON.stringify(found.pack));
+            leftOut = found.pack ? found.pack.leftOut : read.unsafe;
+            if (!found.packText && !Object.keys(pack.files).length) throw new Error('There are no pictures in this zip to bring in.');
+        } else {
+            pack = D.Packs.parse(D.FS.fs.readFileSync(filePath, 'utf8'));
+        }
+        this._incomingPack = { pack, plan: D.Packs.plan(pack, (p, b) => this.packFileState(p, b), this.projectIds()), file: filePath, conflict: 'keep', leftOut };
         return this._incomingPack;
     },
 
@@ -43973,6 +44342,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (ready.rooms.length) D.Rooms.save();
         if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
         if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
+        const templates = Object.keys(ready.templates).map(key => D.EventTemplates.addFromPack(key, ready.templates[key])).filter(Boolean);
         // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
         if (written.length && D.AssetIndex.indexPaths) await D.AssetIndex.indexPaths(written, { save: false });
         let entries = 0;
@@ -43991,16 +44361,16 @@ Object.assign(DocsDoodads.Workspace, {
         if (this.refreshDrawerCards) this.refreshDrawerCards();
         this._incomingPack = null;
         const kept = plan.conflicts.length && incoming.conflict !== 'replace' ? `; kept your own ${plan.conflicts.length} file(s) that differ` : '';
-        this.showToast(`Brought in "${pack.name}": ${ready.prefabs.length} prefab(s), ${ready.rooms.length} room(s), ${ready.biomes.length} biome(s), ${ready.dress.length} rule(s), ${written.length} file(s)${kept}.`, 'success');
+        this.showToast(`Brought in "${pack.name}": ${ready.prefabs.length} prefab(s), ${ready.rooms.length} room(s), ${ready.biomes.length} biome(s), ${ready.dress.length} rule(s), ${templates.length} template(s), ${written.length} file(s)${kept}.`, 'success');
         this.refreshPacksCard();
-        return { written, ready };
+        return { written, ready, templates };
     },
 
     pickPackToImport() {
         if (typeof document === 'undefined') return false;
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = DocsDoodads.Packs.extension + ',.json';
+        input.accept = DocsDoodads.Packs.extension + ',.json,.zip';
         input.onchange = () => {
             const file = input.files && input.files[0];
             if (!file || !file.path) return;
@@ -44028,7 +44398,8 @@ Object.assign(DocsDoodads.Workspace, {
             ['rooms', 'Rooms', D.Rooms.ensureLoaded().map(r => [r.id, r.name])],
             ['biomes', 'Biomes', (src.biomes || []).filter(Boolean).map(b => [b.id, b.name])],
             ['dress', 'Dressing rules', (src.dress || []).map((r, i) => [i, (r && r.name) || 'Rule ' + (i + 1)])],
-            ['collections', 'Collections', Object.keys(src.collections).map(n => [n, n])]
+            ['collections', 'Collections', Object.keys(src.collections).map(n => [n, n])],
+            ['templates', 'Event templates', D.EventTemplates.custom().map(t => [t.key, t.name])]
         ];
         const listHtml = (key, items) => items.length
             ? items.map(([value, label], i) => `<label><input type="checkbox" id="dd-pk-${key}-${i}" ${sel[key].includes(value) ? 'checked' : ''} /> ${escapeHtml(String(label))}</label>`).join('')
@@ -44037,8 +44408,8 @@ Object.assign(DocsDoodads.Workspace, {
         const incoming = inc ? `
             <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
                 <b style="font-size: 12px;">${escapeHtml(inc.pack.name)}</b>
-                <div class="dd-pack-note">${inc.plan.prefabs} prefab(s), ${inc.plan.rooms} room(s), ${inc.plan.biomes} biome(s), ${inc.plan.dress} rule(s), ${inc.plan.collections} collection(s);
-                    files: ${inc.plan.newFiles} new, ${inc.plan.sameFiles} already here${inc.plan.conflicts.length ? `, <b>${inc.plan.conflicts.length} different from yours</b>` : ''}.${inc.plan.idClashes ? ' Items with the same id as yours are added as new ones.' : ''}${inc.plan.unsafe.length ? ` ${inc.plan.unsafe.length} file(s) outside the project's folders are left out.` : ''}</div>
+                <div class="dd-pack-note">${inc.plan.prefabs} prefab(s), ${inc.plan.rooms} room(s), ${inc.plan.biomes} biome(s), ${inc.plan.dress} rule(s), ${inc.plan.collections} collection(s), ${inc.plan.templates} template(s);
+                    files: ${inc.plan.newFiles} new, ${inc.plan.sameFiles} already here${inc.plan.conflicts.length ? `, <b>${inc.plan.conflicts.length} different from yours</b>` : ''}.${inc.plan.idClashes ? ' Items with the same id as yours are added as new ones.' : ''}${inc.plan.unsafe.length ? ` ${inc.plan.unsafe.length} file(s) outside the project's folders are left out.` : ''}${(inc.leftOut || []).length ? ` ${inc.leftOut.length} file(s) in the zip are not pictures or project files and are left out.` : ''}</div>
                 ${inc.plan.conflicts.length ? `<div class="dd-pack-note" style="max-height: 60px; overflow-y: auto;">${inc.plan.conflicts.map(escapeHtml).join('<br>')}</div>
                 <div style="font-size: 11px;">Files that differ <select id="dd-pk-conflict"><option value="keep"${inc.conflict === 'keep' ? ' selected' : ''}>Keep mine</option><option value="replace"${inc.conflict === 'replace' ? ' selected' : ''}>Use the pack's (mine are backed up)</option></select></div>` : ''}
                 <div style="display: flex; gap: 6px;"><button class="dd-btn dd-btn-primary" id="dd-pk-import" type="button">Bring It In</button>
@@ -44053,7 +44424,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <input type="text" id="dd-pk-name" value="${escapeHtml(this._packName || 'My Pack')}" style="flex: 1; min-width: 0;" title="The pack's name" />
                 <button class="dd-btn dd-btn-primary" id="dd-pk-export" type="button" title="Saves it in the project's packs folder">Make Pack</button></div>
             <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px;">
-                <button class="dd-btn" id="dd-pk-open" type="button" title="Choose a .ddpack file from another project">${U.icon('folder', 1)} Bring In a Pack...</button></div>
+                <button class="dd-btn" id="dd-pk-open" type="button" title="Choose a .ddpack file from another project, or a .zip of art (or with a pack in it)">${U.icon('folder', 1)} Bring In a Pack or Zip...</button></div>
             ${incoming}`;
         const byId = id => document.getElementById(id);
         groups.forEach(([key, , items]) => items.forEach(([value], i) => {
@@ -45120,6 +45491,586 @@ DocsDoodads.Workspace.toolHooks.room = {
         g.lineStyle(0);
     }
 };
+//==========================================================
+// SECTION 25n: TEMPLATES, MAP SETTINGS, PICKING MANY IN THE BAG, CHECKPOINTS, SAVING
+//==========================================================
+// Event templates (More > Templates): rename, change the category of and delete your own. Map settings
+// (More > Map Settings): copy some or all of another map's settings to this one, and keep settings as presets
+// for new maps. The Item Bag picks several items with Ctrl and Shift for tags, favourites, a collection, a move
+// to another folder or deleting the unused ones. Steps keeps named checkpoints (33_persistence_saving.js), and
+// Save can write this map only; More > Autosave saves every few minutes.
+DocsDoodads.Ui.css += `
+#dd-templates-card, #dd-mapset-card { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 110px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; font-size: 11px; }
+#dd-templates-card .dd-tpl-row, #dd-mapset-card .dd-ms-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 10px; background: var(--dd-panel-2); }
+#dd-templates-card .dd-tpl-name, #dd-mapset-card .dd-ms-name { flex: 1; min-width: 0; font-weight: 700; color: var(--dd-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dd-templates-card .dd-btn, #dd-mapset-card .dd-btn { padding: 3px 8px; font-size: 11px; }
+#dd-templates-card .dd-tpl-group, #dd-mapset-card .dd-ms-group { font-weight: 900; color: var(--dd-muted); margin-top: 4px; }
+#dd-mapset-card label { display: flex; align-items: center; gap: 6px; }
+.dd-card.dd-bag-picked { outline: 3px solid var(--dd-accent); outline-offset: -3px; }
+#dd-bag-batch { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 6px; border-radius: 10px; background: var(--dd-primary-soft); font-size: 11px; font-weight: 800; }
+#dd-bag-batch .dd-btn { padding: 2px 7px; font-size: 11px; }
+#dd-undo-history .dd-cp-row { display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 10px; background: var(--dd-panel-2); margin-bottom: 3px; }
+#dd-undo-history .dd-cp-row .dd-btn { padding: 2px 6px; font-size: 10px; }
+`;
+
+// Which map settings travel together when copied. Settings tied to one map's tiles are not copied unless asked.
+DocsDoodads.MapSettingsCopy = {
+    parts: [
+        { id: 'light', label: 'Light, shadows and reflections', keys: ['ambient', 'dayNight', 'characterShadows', 'reflections'] },
+        { id: 'look', label: 'Screen look', keys: ['postfx', 'lookBlends'] },
+        { id: 'layers', label: 'Layers', keys: ['layers', 'mainLayer'] },
+        { id: 'camera', label: 'Camera, 3D and minimap', keys: ['cameraBounds', 'perspective', 'minimap'] },
+        { id: 'sound', label: 'Echo and region sounds', keys: ['echo', 'regionSounds'] },
+        { id: 'tiles', label: 'This map\'s ground (heights, surfaces, neighbours, where it leads)', keys: ['terrain', 'surfaceMap', 'neighbors', 'destination'], off: true },
+        { id: 'other', label: 'Everything else', keys: [] }
+    ],
+
+    partOf(key) {
+        const part = this.parts.find(p => p.keys.includes(key));
+        return part ? part.id : 'other';
+    },
+
+    // The parts a map's settings have, for the copy dialog.
+    partsIn(settings) {
+        const ids = new Set(Object.keys(settings || {}).map(k => this.partOf(k)));
+        return this.parts.filter(p => ids.has(p.id));
+    },
+
+    // The target's settings with the chosen parts taken from the source (a part the source lacks is cleared).
+    apply(target, source, partIds) {
+        const out = JSON.parse(JSON.stringify(target || {}));
+        const chosen = new Set(partIds || []);
+        for (const key of Object.keys(out)) if (chosen.has(this.partOf(key))) delete out[key];
+        for (const key of Object.keys(source || {})) if (chosen.has(this.partOf(key))) out[key] = JSON.parse(JSON.stringify(source[key]));
+        return out;
+    }
+};
+
+// Map settings kept under a name, for new maps (project-wide, in data/).
+DocsDoodads.MapPresets = {
+    path: 'data/DocsDoodadsMapPresets.json',
+    data: null,
+
+    list() {
+        if (!this.data) {
+            const read = DocsDoodads.FS.readJson(this.path);
+            this.data = read && Array.isArray(read.presets) ? read : { version: 1, presets: [] };
+        }
+        return this.data.presets;
+    },
+
+    get(name) {
+        return this.list().find(p => p.name === name) || null;
+    },
+
+    // Keeps the settings without the parts tied to one map's tiles. Replaces a preset of the same name.
+    save(name, settings) {
+        name = String(name || '').trim();
+        if (!name) return null;
+        const C = DocsDoodads.MapSettingsCopy;
+        const keep = C.apply({}, settings, C.parts.filter(p => !p.off).map(p => p.id));
+        const presets = this.list().filter(p => p.name !== name);
+        const preset = { name, settings: keep };
+        presets.push(preset);
+        presets.sort((a, b) => a.name.localeCompare(b.name));
+        this.data.presets = presets;
+        DocsDoodads.FS.atomicWriteJson(this.path, this.data);
+        return preset;
+    },
+
+    remove(name) {
+        const before = this.list().length;
+        this.data.presets = this.list().filter(p => p.name !== name);
+        if (this.data.presets.length === before) return false;
+        DocsDoodads.FS.atomicWriteJson(this.path, this.data);
+        return true;
+    }
+};
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Event templates ----
+    showTemplatesCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, T = DocsDoodads.EventTemplates;
+        let card = document.getElementById('dd-templates-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-templates-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const mine = T.custom();
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Event Templates</span>
+                <button class="dd-btn dd-fold" id="dd-tpl-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div style="color: var(--dd-faint); line-height: 1.4;">Your own templates (right-click an event: Save as Template). The ${T.builtInKeys ? T.builtInKeys.size : 0} that come with the plugin can't be changed. Packs can carry yours to another project.</div>
+            <div id="dd-tpl-list" style="display: flex; flex-direction: column; gap: 4px;"></div>`;
+        const list = document.getElementById('dd-tpl-list');
+        if (list) {
+            if (!mine.length) {
+                const empty = document.createElement('div');
+                empty.className = 'dd-empty';
+                empty.textContent = 'No templates of your own yet.';
+                list.appendChild(empty);
+            }
+            let category = null;
+            for (const t of mine) {
+                if (t.category !== category) {
+                    category = t.category;
+                    const head = document.createElement('div');
+                    head.className = 'dd-tpl-group';
+                    head.textContent = category;
+                    list.appendChild(head);
+                }
+                const row = document.createElement('div');
+                row.className = 'dd-tpl-row';
+                const name = document.createElement('span');
+                name.className = 'dd-tpl-name';
+                name.textContent = t.name;
+                row.appendChild(name);
+                for (const [label, run] of [['Rename', () => this.renameTemplate(t.key)], ['Category', () => this.recategorizeTemplate(t.key)], ['Delete', () => this.deleteTemplate(t.key)]]) {
+                    const b = document.createElement('button');
+                    b.className = 'dd-btn';
+                    b.type = 'button';
+                    b.textContent = label;
+                    b.onclick = run;
+                    row.appendChild(b);
+                }
+                list.appendChild(row);
+            }
+        }
+        const close = document.getElementById('dd-tpl-close');
+        if (close) close.onclick = () => this.closeTemplatesCard();
+        return card;
+    },
+
+    refreshTemplatesCard() {
+        if (typeof document !== 'undefined' && document.getElementById('dd-templates-card')) this.showTemplatesCard();
+        if (this.selectedAsset && this.refreshInspector) this.refreshInspector();
+    },
+
+    closeTemplatesCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-templates-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+    },
+
+    async renameTemplate(key, name) {
+        const T = DocsDoodads.EventTemplates;
+        if (name === undefined) name = await DocsDoodads.Ui.prompt('A new name for this template.', (T.get(key) || {}).name || '', { title: 'Rename template', ok: 'Rename', icon: 'person' });
+        if (name === null || name === undefined) return null;
+        const result = T.rename(key, name);
+        if (result.error) { this.showToast(result.error, 'error'); return null; }
+        this.refreshTemplatesCard();
+        return result.key;
+    },
+
+    async recategorizeTemplate(key, category) {
+        const T = DocsDoodads.EventTemplates;
+        if (category === undefined) category = await DocsDoodads.Ui.prompt('Which category? Pick one or type a new one.', (T.get(key) || {}).category || 'Custom',
+            { title: 'Template category', ok: 'Move', icon: 'folder', choices: T.categories() });
+        if (category === null || category === undefined) return false;
+        const ok = T.setCategory(key, category);
+        this.refreshTemplatesCard();
+        return ok;
+    },
+
+    async deleteTemplate(key, sure) {
+        const T = DocsDoodads.EventTemplates;
+        const t = T.get(key);
+        if (!t || !T.isCustom(key)) return false;
+        if (!sure && !(await DocsDoodads.Ui.confirm(`Delete the template "${t.name}"? Events made from it stay as they are.`, { title: 'Delete template?', ok: 'Delete', danger: true }))) return false;
+        T.remove(key);
+        this.refreshTemplatesCard();
+        this.showToast(`Deleted the template "${t.name}".`);
+        return true;
+    },
+
+    // ---- Map settings: copy and presets ----
+    // One undo step: this map's settings take the chosen parts from another map's (or a preset's).
+    copyMapSettings(source, partIds, label = 'Copy map settings') {
+        const mapId = this.currentMapId();
+        const before = DocsDoodads.Lighting.mapSettings(mapId);
+        const previous = before ? JSON.parse(JSON.stringify(before)) : null;
+        const next = DocsDoodads.MapSettingsCopy.apply(previous, source, partIds);
+        DocsDoodads.Undo.execute({ type: 'map_setting', label,
+            apply: () => { this.writeMapSettings(mapId, next); this.afterMapSettings(); },
+            revert: () => { this.writeMapSettings(mapId, previous); this.afterMapSettings(); } });
+        return next;
+    },
+
+    afterMapSettings() {
+        if (DocsDoodads.World && DocsDoodads.World.invalidate) DocsDoodads.World.invalidate();
+        this.refreshSpriteset(true);
+        if (this.refreshInspector) this.refreshInspector();
+    },
+
+    mapName(id) {
+        const info = (window.$dataMapInfos || [])[id];
+        return info && info.name ? `${id}: ${info.name}` : `Map ${id}`;
+    },
+
+    // Maps with settings of their own, other than this one.
+    mapsWithSettings() {
+        const all = (window.$dataDocsDoodads && window.$dataDocsDoodads.mapSettings) || {};
+        const here = String(this.currentMapId());
+        return Object.keys(all).filter(id => id !== here && all[id] && Object.keys(all[id]).length).map(Number).sort((a, b) => a - b);
+    },
+
+    async askCopyMapSettings(fromId) {
+        const U = DocsDoodads.Ui, C = DocsDoodads.MapSettingsCopy;
+        const maps = this.mapsWithSettings();
+        if (!maps.length) { this.showToast('No other map has settings of its own yet.', 'info'); return null; }
+        if (fromId === undefined) {
+            const pick = await U.form({ title: 'Copy map settings', text: 'Copy settings from which map?', ok: 'Next', icon: 'map',
+                fields: [{ key: 'map', type: 'select', label: 'From', value: String(maps[0]), options: maps.map(id => ({ value: String(id), label: this.mapName(id) })) }] });
+            if (!pick) return null;
+            fromId = Number(pick.map);
+        }
+        const source = DocsDoodads.Lighting.mapSettings(fromId) || {};
+        const parts = C.partsIn(source);
+        const values = await U.form({ title: 'Copy map settings', text: `What to take from ${this.mapName(fromId)}? This map's own settings of those kinds are replaced (one undo step).`,
+            ok: 'Copy', icon: 'map', fields: parts.map(p => ({ key: p.id, type: 'checkbox', label: p.label, value: !p.off })) });
+        if (!values) return null;
+        const chosen = parts.map(p => p.id).filter(id => values[id]);
+        if (!chosen.length) return null;
+        this.copyMapSettings(source, chosen, `Copy settings from map ${fromId}`);
+        this.showToast(`Copied ${chosen.length} kind(s) of setting from ${this.mapName(fromId)}.`);
+        this.refreshMapSettingsCard();
+        return chosen;
+    },
+
+    applyMapPreset(name) {
+        const preset = DocsDoodads.MapPresets.get(name);
+        if (!preset) return null;
+        const C = DocsDoodads.MapSettingsCopy;
+        const parts = C.partsIn(preset.settings).map(p => p.id);
+        const next = this.copyMapSettings(preset.settings, parts, `Map preset: ${name}`);
+        this.showToast(`This map now uses the preset "${name}".`);
+        return next;
+    },
+
+    saveMapPreset(name) {
+        const preset = DocsDoodads.MapPresets.save(name, DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {});
+        if (preset) this.showToast(`Saved this map's settings as the preset "${preset.name}".`);
+        this.refreshMapSettingsCard();
+        return preset;
+    },
+
+    showMapSettingsCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, P = DocsDoodads.MapPresets;
+        let card = document.getElementById('dd-mapset-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-mapset-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const mine = DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {};
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('map', 1)} Map Settings</span>
+                <button class="dd-btn dd-fold" id="dd-ms-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div style="color: var(--dd-faint); line-height: 1.4;">This map has ${Object.keys(mine).length} setting(s) of its own: ${escapeHtml(DocsDoodads.MapSettingsCopy.partsIn(mine).map(p => p.label).join(', ') || 'none')}.</div>
+            <button class="dd-btn dd-btn-primary" id="dd-ms-copy" type="button"${this.mapsWithSettings().length ? '' : ' disabled'}>Copy from Another Map...</button>
+            <div class="dd-ms-group">Presets</div>
+            <div id="dd-ms-list" style="display: flex; flex-direction: column; gap: 4px;"></div>
+            <div style="display: flex; gap: 6px;"><input type="text" id="dd-ms-name" placeholder="Night forest" style="flex: 1; min-width: 0;" aria-label="Preset name" />
+                <button class="dd-btn" id="dd-ms-save" type="button" title="Keep this map's settings (not its ground) under this name">Save as Preset</button></div>`;
+        const list = document.getElementById('dd-ms-list');
+        if (list) {
+            const presets = P.list();
+            if (!presets.length) {
+                const empty = document.createElement('div');
+                empty.className = 'dd-empty';
+                empty.textContent = 'No presets yet.';
+                list.appendChild(empty);
+            }
+            for (const p of presets) {
+                const row = document.createElement('div');
+                row.className = 'dd-ms-row';
+                const name = document.createElement('span');
+                name.className = 'dd-ms-name';
+                name.textContent = p.name;
+                row.appendChild(name);
+                for (const [label, run] of [['Use Here', () => this.applyMapPreset(p.name)], ['Delete', () => { P.remove(p.name); this.refreshMapSettingsCard(); }]]) {
+                    const b = document.createElement('button');
+                    b.className = 'dd-btn';
+                    b.type = 'button';
+                    b.textContent = label;
+                    b.onclick = run;
+                    row.appendChild(b);
+                }
+                list.appendChild(row);
+            }
+        }
+        const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
+        on('dd-ms-close', () => this.closeMapSettingsCard());
+        on('dd-ms-copy', () => this.askCopyMapSettings());
+        on('dd-ms-save', () => { const input = document.getElementById('dd-ms-name'); if (input && input.value.trim()) this.saveMapPreset(input.value); });
+        return card;
+    },
+
+    refreshMapSettingsCard() {
+        if (typeof document !== 'undefined' && document.getElementById('dd-mapset-card')) this.showMapSettingsCard();
+    },
+
+    closeMapSettingsCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-mapset-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+    },
+
+    // ---- Picking several items in the Item Bag ----
+    // mode: 'toggle' (Ctrl) or 'range' (Shift: from the last one picked to this one, in the bag's order).
+    bagPick(asset, mode = 'toggle') {
+        const picked = this.bagPicked = this.bagPicked || new Set();
+        const list = this.filteredAssets || [];
+        if (mode === 'range' && this._bagAnchor) {
+            const a = list.findIndex(x => x.id === this._bagAnchor), b = list.findIndex(x => x.id === asset.id);
+            if (a >= 0 && b >= 0) {
+                for (let i = Math.min(a, b); i <= Math.max(a, b); i++) if (list[i].type !== 'prefab') picked.add(list[i].id);
+            }
+        } else if (picked.has(asset.id)) {
+            picked.delete(asset.id);
+        } else if (asset.type !== 'prefab') {
+            // The item shown in Details counts as the first one picked.
+            if (!picked.size && this.selectedAsset && this.selectedAsset.id !== asset.id && this.selectedAsset.type !== 'prefab') picked.add(this.selectedAsset.id);
+            picked.add(asset.id);
+        }
+        this._bagAnchor = asset.id;
+        this.renderBagBatch();
+        return picked.size;
+    },
+
+    clearBagPicks() {
+        if (this.bagPicked) this.bagPicked.clear();
+        this._bagAnchor = null;
+        this.renderBagBatch();
+    },
+
+    bagPickedAssets() {
+        const assets = (DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets) || {};
+        return Array.from(this.bagPicked || []).map(id => assets[id]).filter(Boolean);
+    },
+
+    renderBagBatch() {
+        if (typeof document === 'undefined') return;
+        const container = document.getElementById('dd-cards-container');
+        if (container && container.querySelectorAll) {
+            container.querySelectorAll('.dd-card').forEach(c => c.classList.toggle('dd-bag-picked', Boolean(c._ddAssetId && this.bagPicked && this.bagPicked.has(c._ddAssetId))));
+        }
+        let bar = document.getElementById('dd-bag-batch');
+        const count = this.bagPicked ? this.bagPicked.size : 0;
+        if (!count) { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); return; }
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.id = 'dd-bag-batch';
+            if (container && container.parentNode && container.parentNode.insertBefore) container.parentNode.insertBefore(bar, container);
+            else document.body.appendChild(bar);
+        }
+        bar.innerHTML = `<span style="flex-basis: 100%;">${count} picked (Ctrl or Shift + click)</span>
+            <button class="dd-btn" type="button" id="dd-bb-tag">Tag</button><button class="dd-btn" type="button" id="dd-bb-fav">★</button>
+            <button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
+            <button class="dd-btn" type="button" id="dd-bb-del">Delete</button><button class="dd-btn" type="button" id="dd-bb-clear" title="Pick none">✕</button>`;
+        const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
+        on('dd-bb-tag', () => this.bagBatch('tag'));
+        on('dd-bb-fav', () => this.bagBatch('favorite'));
+        on('dd-bb-col', () => this.bagBatch('collection'));
+        on('dd-bb-move', () => this.bagBatch('move'));
+        on('dd-bb-del', () => this.bagBatch('delete'));
+        on('dd-bb-clear', () => this.clearBagPicks());
+    },
+
+    // One action on every picked item. value: the tags, collection or folder (asked when not given).
+    async bagBatch(action, value) {
+        const D = DocsDoodads, AI = D.AssetIndex, U = D.Ui;
+        const items = this.bagPickedAssets();
+        if (!items.length) return null;
+        const ask = async (text, fallback, opts) => (value !== undefined ? value : U.prompt(text, fallback, opts));
+        let done = 0;
+        if (action === 'tag') {
+            const input = await ask(`Tags to add to ${items.length} item(s), with commas.`, '', { title: 'Tag them', ok: 'Add Tags', icon: 'search', placeholder: 'forest, prop' });
+            const add = String(input || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+            if (!add.length) return null;
+            for (const a of items) {
+                const tags = Array.from(new Set((a.tags || []).concat(add)));
+                AI.setTags(a.id, tags.join(', '));
+                done++;
+            }
+            this.showToast(`Tagged ${done} item(s): ${add.join(', ')}.`);
+        } else if (action === 'favorite') {
+            const all = items.every(a => a.favorite);
+            for (const a of items) if (Boolean(a.favorite) === all) { AI.toggleFavorite(a.id); done++; }
+            this.showToast(all ? `${items.length} item(s) are no longer favourites.` : `${items.length} item(s) are favourites.`);
+        } else if (action === 'collection') {
+            const existing = AI.getCollections();
+            const answer = await ask(`Which collection should the ${items.length} item(s) go in? Type a new name or pick one.`, existing[0] || 'Custom Collection',
+                { title: 'Add to collection', ok: 'Add', icon: 'folder', choices: existing });
+            const name = String(answer || '').replace(/["']/g, '').trim();
+            if (!name) return null;
+            for (const a of items) { AI.addAssetToCollection(a.id, name); done++; }
+            if (this.refreshCollectionPicker) this.refreshCollectionPicker();
+            this.showToast(`Added ${done} item(s) to "${name}".`);
+        } else if (action === 'move') {
+            done = await this.moveBagItems(items, value);
+        } else if (action === 'delete') {
+            done = await this.deleteBagItems(items, value);
+        }
+        if (this.refreshDrawerCards) this.refreshDrawerCards();
+        this.renderBagBatch();
+        return done;
+    },
+
+    // Moves each picked file to a folder (and updates what uses it; 42_workspace_assets_maps.js renameAsset).
+    async moveBagItems(items, folder) {
+        const U = DocsDoodads.Ui;
+        if (folder === undefined) {
+            const first = String(items[0].path).replace(/\\/g, '/');
+            folder = await U.prompt(`Move ${items.length} file(s) to which folder? Everything that uses them is updated, and changed files are backed up first.`,
+                first.slice(0, first.lastIndexOf('/')), { title: 'Move files', ok: 'Move', icon: 'folder' });
+            if (!folder) return 0;
+        }
+        folder = String(folder).trim().replace(/\\/g, '/').replace(/\/+$/, '');
+        const failed = [];
+        let moved = 0;
+        for (const a of items) {
+            const target = folder + '/' + String(a.path).replace(/\\/g, '/').split('/').pop();
+            if (target.toLowerCase() === String(a.path).replace(/\\/g, '/').toLowerCase()) continue;
+            const result = this.renameAsset(a, target, { quiet: true });
+            if (result.ok) { moved++; if (this.bagPicked) { this.bagPicked.delete(a.id); this.bagPicked.add(target.toLowerCase()); } }
+            else failed.push(`${a.fileName}: ${result.error}`);
+        }
+        this.showToast(`Moved ${moved} file(s) to ${folder}.${failed.length ? ` ${failed.length} not moved (${failed[0]}${failed.length > 1 ? '...' : ''}).` : ''}`, failed.length ? 'warning' : 'success');
+        return moved;
+    },
+
+    // Deletes the picked files nothing uses: they go to data/docs_doodads_cache/deleted/<time>/ (put them back
+    // from there by hand), and their Item Bag entries go. Files in use are kept and counted.
+    async deleteBagItems(items, sure) {
+        const D = DocsDoodads, FS = D.FS, AI = D.AssetIndex;
+        const index = this.refreshUsageIndex();
+        const unused = items.filter(a => !D.Usage.isEngineReserved(a) && !D.Usage.isUsed(a, index));
+        const kept = items.length - unused.length;
+        if (!unused.length) { this.showToast(`All ${items.length} picked file(s) are used somewhere, so none were deleted.`, 'warning'); return 0; }
+        if (!sure && !(await D.Ui.confirm(`Delete ${unused.length} file(s) nothing uses?${kept ? ` ${kept} that are used stay.` : ''} They are moved to data/docs_doodads_cache/deleted/, so they can be put back by hand.`,
+            { title: 'Delete files?', ok: 'Delete', danger: true }))) return 0;
+        const bin = `data/docs_doodads_cache/deleted/${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        let deleted = 0;
+        for (const a of unused) {
+            const from = String(a.path).replace(/\\/g, '/');
+            const moves = [{ from, to: bin + '/' + from }].concat(this.companionFiles(from, bin + '/' + from));
+            try {
+                for (const m of moves) { FS.mkdirp(FS.path.dirname(m.to)); FS.fs.renameSync(m.from, m.to); }
+            } catch (e) {
+                this.showToast(`Could not delete ${a.fileName}: ${e.message || e}`, 'error');
+                continue;
+            }
+            delete AI.data.assets[a.id];
+            for (const members of Object.values(AI.data.collections || {})) {
+                if (Array.isArray(members)) for (let i = members.length - 1; i >= 0; i--) if (members[i] === a.id) members.splice(i, 1);
+            }
+            if (D.Thumbnail && D.Thumbnail.invalidate) D.Thumbnail.invalidate(a.id);
+            if (this.bagPicked) this.bagPicked.delete(a.id);
+            if (this.selectedAsset === a) this.selectedAsset = null;
+            deleted++;
+        }
+        AI.rebuildList();
+        AI.save();
+        D.Usage.lastIndex = null;
+        if (this.refreshInspector) this.refreshInspector();
+        this.showToast(`Deleted ${deleted} file(s) (in ${bin}/)${kept ? `; ${kept} in use kept` : ''}.`);
+        return deleted;
+    },
+
+    // ---- Checkpoints ----
+    async addCheckpoint(name) {
+        if (name === undefined) name = await DocsDoodads.Ui.prompt('Name this checkpoint. It keeps this map\'s doodads and settings as they are now, through Save and closing.',
+            'Before ' + (DocsDoodads.Undo.history().slice(-1).map(s => s.label.toLowerCase())[0] || 'changes'), { title: 'Checkpoint', ok: 'Keep', icon: 'history' });
+        if (name === null || name === undefined) return null;
+        const mapId = this.currentMapId();
+        const entry = DocsDoodads.Checkpoints.create(mapId, name, DocsDoodads.doodads(mapId), DocsDoodads.Lighting.mapSettings(mapId));
+        this.showToast(`Checkpoint "${entry.name}" kept.`);
+        if (this.renderUndoHistory && this._undoHistoryOpen) this.renderUndoHistory();
+        return entry;
+    },
+
+    // This map goes back to the checkpoint's doodads and settings, as one undo step.
+    restoreCheckpoint(id) {
+        const mapId = this.currentMapId();
+        const cp = DocsDoodads.Checkpoints.get(mapId, id);
+        if (!cp) return false;
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        const beforeList = data[mapId] || [];
+        const beforeSettings = DocsDoodads.Lighting.mapSettings(mapId);
+        const prevSettings = beforeSettings ? JSON.parse(JSON.stringify(beforeSettings)) : null;
+        const list = JSON.parse(JSON.stringify(cp.doodads || []));
+        // Doodads the API placed for this play stay.
+        const temps = beforeList.filter(d => d && d.temp);
+        const set = (doodads, settings) => {
+            data[mapId] = doodads;
+            this.writeMapSettings(mapId, settings);
+            this.selectDoodads([]);
+            this.afterDoodadEdit();
+            this.afterMapSettings();
+        };
+        DocsDoodads.Undo.execute({ type: 'restore_checkpoint', label: `Checkpoint: ${cp.name}`,
+            apply: () => set(list.concat(temps), cp.settings), revert: () => set(beforeList, prevSettings) });
+        this.showToast(`Back to "${cp.name}" (Undo to go back again).`);
+        return true;
+    },
+
+    deleteCheckpoint(id) {
+        const ok = DocsDoodads.Checkpoints.remove(this.currentMapId(), id);
+        if (this.renderUndoHistory && this._undoHistoryOpen) this.renderUndoHistory();
+        return ok;
+    },
+
+    // The checkpoints part of Steps.
+    checkpointsHtml() {
+        const list = DocsDoodads.Checkpoints.list(this.currentMapId());
+        const when = at => { const d = new Date(at); return `${d.toLocaleDateString()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+        return `<div style="display: flex; align-items: center; gap: 6px; margin: 4px 0;"><b style="flex: 1;">Checkpoints</b>
+                <button class="dd-btn" id="dd-cp-add" type="button" style="padding: 2px 8px; font-size: 11px;" title="Keep this map as it is now, under a name">+ Checkpoint</button></div>
+            ${list.map(c => `<div class="dd-cp-row"><span style="flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700;" title="${escapeHtml(when(c.at))}, ${c.count} doodad(s)">${escapeHtml(c.name)}</span>
+                <button class="dd-btn" type="button" data-cp-restore="${escapeHtml(c.id)}">Restore</button><button class="dd-btn" type="button" data-cp-delete="${escapeHtml(c.id)}" title="Delete">✕</button></div>`).join('')}
+            <div style="border-top: 1px solid var(--dd-line-soft); margin: 6px 0 4px;"></div>`;
+    },
+
+    bindCheckpoints(panel) {
+        const add = document.getElementById('dd-cp-add');
+        if (add) add.onclick = () => this.addCheckpoint();
+        for (const el of panel.querySelectorAll('[data-cp-restore]')) el.onclick = () => { this.restoreCheckpoint(el.getAttribute('data-cp-restore')); this.renderUndoHistory(); };
+        for (const el of panel.querySelectorAll('[data-cp-delete]')) el.onclick = () => this.deleteCheckpoint(el.getAttribute('data-cp-delete'));
+    },
+
+    // ---- Saving ----
+    saveThisMap() {
+        return DocsDoodads.Persistence.saveMapOnly(this.currentMapId());
+    },
+
+    // Off, then every 5, 10 or 20 minutes.
+    cycleAutosave() {
+        const steps = [0, 5, 10, 20];
+        const now = DocsDoodads.Persistence.autosaveMinutes();
+        const next = steps[(steps.indexOf(now) + 1) % steps.length] || 0;
+        this.setAutosave(next);
+        return next;
+    },
+
+    setAutosave(minutes) {
+        minutes = Math.max(0, Math.round(Number(minutes) || 0));
+        DocsDoodads.Ui.setPref('autosaveMinutes', minutes);
+        DocsDoodads.Persistence._unsavedSince = null;
+        const label = typeof document !== 'undefined' ? document.getElementById('dd-autosave-label') : null;
+        if (label) label.textContent = this.autosaveLabel();
+        this.showToast(minutes ? `Autosave: every ${minutes} minutes of unsaved work.` : 'Autosave is off.');
+        return minutes;
+    },
+
+    autosaveLabel() {
+        const m = DocsDoodads.Persistence.autosaveMinutes();
+        return m ? `Autosave: ${m} min` : 'Autosave: Off';
+    }
+});
 //==========================================================
 // SECTION 25t: ACCESSIBILITY (SCREEN READERS, KEYBOARD, FOCUS, LESS MOTION)
 //==========================================================
@@ -46408,6 +47359,14 @@ if (typeof SceneManager !== 'undefined' && typeof SceneManager.reloadGame === 'f
     SceneManager.reloadGame = function() {
         DocsDoodads.leaveGuard.request('reload the game', () => $.SceneManager_reloadGame.call(SceneManager));
     };
+}
+
+// Autosave (More > Autosave; 33_persistence_saving.js): checked every 15 seconds while the editor is open.
+if (typeof window !== 'undefined' && typeof setInterval === 'function') {
+    const autosaveTimer = setInterval(() => {
+        if (editorMode && DocsDoodads.Compat.isTest() && DocsDoodads.Workspace.mounted) DocsDoodads.Persistence.autosaveTick();
+    }, 15000);
+    if (autosaveTimer && typeof autosaveTimer.unref === 'function') autosaveTimer.unref();
 }
 
 // Auto-recovery heartbeat

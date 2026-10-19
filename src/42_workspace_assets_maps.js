@@ -519,7 +519,8 @@
 
     // Renames or moves a file and rewrites every reference to it in one transaction. Name
     // references (events, database) only allow renames inside the same folder.
-    renameAsset(asset, newPath) {
+    // options.quiet: no message when it worked (a batch move says how many).
+    renameAsset(asset, newPath, options = {}) {
         const FS = DocsDoodads.FS;
         const persistence = DocsDoodads.Persistence;
         const fail = error => ({ ok: false, error });
@@ -618,7 +619,7 @@
         this.refreshDrawerCards();
         this.refreshInspector();
         const changedFiles = entries.map(e => e.path);
-        this.showToast(`Renamed to ${entry.fileName}; updated ${plan.count} reference(s) in ${changedFiles.length - 1} file(s).`, 3500);
+        if (!options.quiet) this.showToast(`Renamed to ${entry.fileName}; updated ${plan.count} reference(s) in ${changedFiles.length - 1} file(s).`, 3500);
         return { ok: true, changedFiles, references: plan.count };
     },
 

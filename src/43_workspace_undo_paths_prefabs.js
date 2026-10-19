@@ -24,10 +24,12 @@
             <div class="dd-pop-title">${DocsDoodads.Ui.icon('history', 1)}<span style="flex: 1;">Steps on this map</span>
                 <button class="dd-btn dd-fold" id="dd-undo-history-close" title="Close">${DocsDoodads.Ui.icon('close', 1)}</button>
             </div>
+            ${this.checkpointsHtml()}
             <div style="color: var(--dd-faint); margin-bottom: 4px;">Click a step to go back (or forward) to just after it.${others ? ` ${others} other map${others === 1 ? ' keeps its' : 's keep their'} own steps.` : ''}</div>
             ${row(0, '(Start)', applied === 0 ? 'current' : 'done')}
             ${steps.map(st => row(st.index + 1, (st.index + 1) + '. ' + st.label, st.index + 1 === applied ? 'current' : st.done ? 'done' : 'undone')).join('')}`;
         document.getElementById('dd-undo-history-close').onclick = () => { panel.remove(); this._undoHistoryOpen = false; };
+        this.bindCheckpoints(panel);
         for (const el of panel.querySelectorAll('.dd-undo-step')) {
             el.onclick = () => {
                 DocsDoodads.Undo.goTo(Number(el.getAttribute('data-count')));
