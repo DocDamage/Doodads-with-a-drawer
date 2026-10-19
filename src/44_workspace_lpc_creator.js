@@ -5,11 +5,12 @@
 // (the mockup in docs/LPC_CHARACTER_CREATOR_PLAN.md). Body and face on the left, outfit on the right, each
 // in tabs of ◀ value ▶ pickers with a colour swatch; the character on a stage in the middle, turned and
 // played in any animation; dice for a new body or outfit; saved characters by name. Keyboard: ↑ ↓ pick a
-// row, ← → change it (Shift: its colour), C the colour channel, Q / E change tab, [ ] the other card, X / Y
-// the dice, Esc closes; Tab moves the focus as in any dialog, and a live region says what changed. A
-// gamepad does the same: d-pad, A colour (held: the channel), LB / RB tabs, Back the other card, X / Y dice,
-// Start saves, B closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's. The same window builds
-// Memao characters (openCreator(state, 'memao')): what differs is in the kit (44_workspace_creator_kits.js).
+// row, ← → change it (Shift: its colour), Enter all its choices in a grid (44_workspace_creator_grid.js), C
+// the colour channel, Q / E change tab, [ ] the other card, X / Y the dice, Esc closes; Tab moves the focus
+// as in any dialog, and a live region says what changed. A gamepad does the same: d-pad, A colour (held: the
+// channel), the right stick the grid, LB / RB tabs, Back the other card, X / Y dice, Start saves, B closes.
+// The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's. The same window builds Memao
+// and MZ characters (openCreator(state, 'memao')): what differs is in the kit (44_workspace_creator_kits.js).
 DocsDoodads.Ui.css += `
 #dd-creator { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; background: rgba(40, 30, 60, 0.45); }
 #dd-creator .dd-cr { width: 1160px; max-width: calc(100vw - 24px); height: 740px; max-height: calc(100vh - 24px); box-sizing: border-box; padding: 18px 22px;
@@ -129,6 +130,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     resetCreatorImageCaches(kitId) {
         if (this._creatorImageCaches) delete this._creatorImageCaches[kitId];
+        if (this.forgetCreatorThumbs) this.forgetCreatorThumbs(kitId);
     },
 
     // A library file decoded once: load() reads it; null (unreadable) isn't kept.
@@ -475,7 +477,8 @@ Object.assign(DocsDoodads.Workspace, {
             return `<div class="dd-cr-row${here ? ' dd-cr-cursor' : ''}${v.off ? ' dd-cr-off' : ''}" id="${id}-row" data-row="${escapeHtml(row.key)}">
                 <span class="dd-cr-label">${escapeHtml(row.label)}</span>
                 <button type="button" class="dd-cr-arrow" id="${id}-prev" aria-label="Previous ${escapeHtml(row.label)}"${v.off ? ' disabled' : ''}>◀</button>
-                <div class="dd-cr-value" title="${escapeHtml(v.value + (v.count ? ' (' + v.count + ' to choose from)' : ''))}"><span>${escapeHtml(v.value)}</span></div>
+                ${row.key === '_body' || v.off ? `<div class="dd-cr-value" title="${escapeHtml(v.value + (v.count ? ' (' + v.count + ' to choose from)' : ''))}"><span>${escapeHtml(v.value)}</span></div>`
+                    : `<button type="button" class="dd-cr-value" id="${id}-value" aria-haspopup="listbox" aria-label="${escapeHtml(row.label + ': ' + v.value + '. See all ' + v.count)}" title="${escapeHtml(v.value + ' (click to see all ' + v.count + ')')}"><span>${escapeHtml(v.value)}</span></button>`}
                 <button type="button" class="dd-cr-arrow" id="${id}-next" aria-label="Next ${escapeHtml(row.label)}"${v.off ? ' disabled' : ''}>▶</button>
                 ${v.channel >= 0 ? `<button type="button" class="dd-cr-swatch" id="${id}-colour" style="background: ${escapeHtml(v.colour)};" aria-label="${escapeHtml(v.channelLabel + ' colour: ' + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))}" title="${escapeHtml((v.usable.length > 1 ? v.channelLabel + ': ' : '') + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))} (click for all colours${v.usable.length > 1 ? '; C for the next' : ''})">${v.usable.length > 1 ? `<span class="dd-cr-chn">${v.usable.indexOf(v.channel) + 1}</span>` : ''}</button>` : '<span></span>'}
             </div>`;
@@ -541,14 +544,14 @@ Object.assign(DocsDoodads.Workspace, {
                 <button type="button" class="dd-cr-btn" id="dd-cr-load">Load</button>
                 <button type="button" class="dd-cr-btn" id="dd-cr-save">Save</button>
                 <button type="button" class="dd-cr-btn" id="dd-cr-credits">Credits · ${artists} artist${artists === 1 ? '' : 's'}${unsafe ? ' · ' + unsafe + ' not safe to encrypt' : ''}</button>
-                <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Shift colour · C channel · Q/E tabs · [ ] side · X/Y dice</div>
+                <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Enter see all · Shift colour · C channel · Q/E tabs · [ ] side · X/Y dice</div>
                 ${narrow ? '<div class="dd-cr-grow"></div>' : ''}
                 <button type="button" class="dd-cr-export" id="dd-cr-export" title="Make MZ character sheets and a face from this character">Export to RPG Maker</button>
             </div>
             ${c.pop ? this.creatorPopHtml() : ''}
         </div>`;
-        this.bindCreator();
-        this.drawCreatorFrame();
+        // The focus goes back first, so a popover that opens with the focus in it (the grid's search box)
+        // keeps it.
         if (keepFocus) {
             const el = document.getElementById(keepFocus.id);
             if (el && el.focus) {
@@ -556,6 +559,8 @@ Object.assign(DocsDoodads.Workspace, {
                 if (typeof keepFocus.start === 'number' && typeof el.setSelectionRange === 'function') { try { el.setSelectionRange(keepFocus.start, keepFocus.end); } catch (e) {} }
             }
         }
+        this.bindCreator();
+        this.drawCreatorFrame();
         // The cursor row stays in view (a long tab in a small window scrolls).
         const rows = this.creatorRows(c.cursor.card), cursorRow = rows[Math.min(c.cursor.row, rows.length - 1)];
         const rowEl = cursorRow ? document.getElementById('dd-cr-' + cursorRow.key + '-row') : null;
@@ -571,6 +576,7 @@ Object.assign(DocsDoodads.Workspace, {
     creatorPopHtml() {
         const K = this.creatorKit(), S = K.slots, E = K.exporter, c = this._creator, index = this.creatorIndex();
         const pop = c.pop;
+        if (pop.kind === 'grid') return this.creatorGridHtml();
         if (pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: pop.row }, S.slot(pop.row)));
             const ch = pop.channel !== undefined ? pop.channel : view.channel;
@@ -652,6 +658,7 @@ Object.assign(DocsDoodads.Workspace, {
                 const id = 'dd-cr-' + row.key;
                 on(id + '-prev', () => { c.cursor = { card: cardKey, row: i }; this.creatorStep(row.key, -1); });
                 on(id + '-next', () => { c.cursor = { card: cardKey, row: i }; this.creatorStep(row.key, 1); });
+                on(id + '-value', () => { c.cursor = { card: cardKey, row: i }; this.creatorOpenGrid(row.key); });
                 const sw = on(id + '-colour', e => { c.cursor = { card: cardKey, row: i }; this.creatorOpenPalette(row.key, e); });
                 if (sw) sw.oncontextmenu = e => { if (e && e.preventDefault) e.preventDefault(); this.creatorColour(row.key, -1); };
             });
@@ -703,6 +710,7 @@ Object.assign(DocsDoodads.Workspace, {
             S.colours(this.creatorIndex(), view.part, ch).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = view.channels.length > 1 ? c.pop : null; this.creatorColour(row, 0, n, ch); }));
             view.channels.forEach((x, i) => on('dd-cr-palch-' + i, () => { c.pop.channel = i; c.channels = Object.assign({}, c.channels, { [row]: i }); this.renderCreator(); }));
         }
+        if (c.pop && c.pop.kind === 'grid') this.bindCreatorGrid();
         if (c.pop && c.pop.kind === 'load') {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
             saved.forEach((s, i) => {
@@ -856,6 +864,13 @@ Object.assign(DocsDoodads.Workspace, {
         if (!c) return false;
         const rows = this.creatorRows(c.cursor.card);
         const row = rows[Math.min(c.cursor.row, rows.length - 1)];
+        // The grid picker takes the moves, A (pick) and B (close) while it is open.
+        if (c.pop && c.pop.kind === 'grid') {
+            const moves = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+            if (moves[cmd]) { this.creatorGridMove(...moves[cmd]); return true; }
+            if (cmd === 'colourRight' || cmd === 'pick') { this.creatorGridPick(); return true; }
+            if (cmd === 'close') { this.creatorGridEscape(); return true; }
+        }
         if (c.pop && cmd !== 'close') c.pop = null;
         switch (cmd) {
             case 'up': case 'down': {
@@ -869,6 +884,7 @@ Object.assign(DocsDoodads.Workspace, {
             case 'left': case 'right': if (row && !this.creatorRowView(row).off) this.creatorStep(row.key, cmd === 'left' ? -1 : 1); return true;
             case 'colourLeft': case 'colourRight': if (row && row.key !== '_body') this.creatorColour(row.key, cmd === 'colourLeft' ? -1 : 1); return true;
             case 'channel': if (row && row.key !== '_body') this.creatorNextChannel(row.key); return true;
+            case 'grid': if (row && row.key !== '_body') this.creatorOpenGrid(row.key); return true;
             case 'tabPrev': case 'tabNext': this.creatorTab(c.cursor.card, c.tabs[c.cursor.card] + (cmd === 'tabPrev' ? -1 : 1)); return true;
             case 'card': {
                 c.cursor = { card: c.cursor.card === 'body' ? 'outfit' : 'body', row: 0 };
@@ -894,6 +910,8 @@ Object.assign(DocsDoodads.Workspace, {
 
     creatorKey(e) {
         if (!this.creatorOpen() || (DocsDoodads.Ui.dialogOpen && DocsDoodads.Ui.dialogOpen())) return;
+        // The grid picker's keys come first while it is open (its search box keeps the rest).
+        if (this._creator && this._creator.pop && this._creator.pop.kind === 'grid' && this.creatorGridKey(e)) return;
         const typing = e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName || '') && e.target.type !== 'checkbox';
         let cmd = null;
         const k = e.key;
@@ -909,6 +927,7 @@ Object.assign(DocsDoodads.Workspace, {
         else if (k === 'e' || k === 'E') cmd = 'tabNext';
         else if (k === '[' || k === ']' || k === '{' || k === '}') cmd = 'card';
         else if ((k === 'c' || k === 'C') && !e.ctrlKey && !e.metaKey) cmd = 'channel';
+        else if (k === 'Enter' && !(e.target && /^(BUTTON|A)$/.test(e.target.tagName || ''))) cmd = 'grid';
         else if (k === 'x' || k === 'X') cmd = 'diceBody';
         else if (k === 'y' || k === 'Y') cmd = 'diceOutfit';
         else if (k === ',' || k === '<') cmd = 'turnLeft';
@@ -955,7 +974,7 @@ Object.assign(DocsDoodads.Workspace, {
         const held = {
             up: down(12) || axis(1) < -0.6, down: down(13) || axis(1) > 0.6, left: down(14) || axis(0) < -0.6, right: down(15) || axis(0) > 0.6,
             close: down(1), diceBody: down(2), diceOutfit: down(3), tabPrev: down(4), tabNext: down(5),
-            turnLeft: down(6), turnRight: down(7), card: down(8), save: down(9)
+            turnLeft: down(6), turnRight: down(7), card: down(8), save: down(9), grid: down(11)
         };
         const was = this._creatorPad || {};
         const now = Date.now();

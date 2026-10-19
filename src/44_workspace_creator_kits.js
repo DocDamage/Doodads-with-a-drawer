@@ -29,6 +29,13 @@ DocsDoodads.CreatorKits = {
         index: ws => ws.lpcIndex(),
         noLibrary(ws) { ws.showToast('Scan the LPC library first (More > Characters).', 'info'); ws.showLpcCard(); },
         draw: (ws, recipe, anim) => ws.composeLpc(recipe, anim),
+        // A picker tile: the part alone, standing (walk frame 0, facing down), in its first colours.
+        thumbnail(ws, part, body) {
+            const S = DocsDoodads.LpcSlots, C = DocsDoodads.LpcCompose, index = ws.lpcIndex();
+            const colours = [S.defaultColour(index, part, 0)].concat(S.colours(index, part, 1).length ? [S.defaultColour(index, part, 1)] : []);
+            const out = ws.composeLpc({ body, picks: [{ id: part.id, colours, variant: colours[0] || undefined }] }, 'walk', null, { oversize: false });
+            return out && out.sheet ? ws.creatorFrame(out.sheet, C.frameRect('walk', 'down', 0, out.sheet.frame || C.frame)) : null;
+        },
         // Walking skips the standing frame 0.
         stageFrames(anim) {
             return anim === 'walk' ? { first: 1, count: 8 } : { first: 0, count: (DocsDoodads.LpcCompose.animations[anim] || { frames: 1 }).frames };
@@ -75,6 +82,12 @@ DocsDoodads.CreatorKits = {
         index: ws => ws.memaoIndex(),
         noLibrary(ws) { ws.showToast('Scan the Memao asset folder first (More > Characters).', 'info'); ws.showLpcCard(); },
         draw: (ws, recipe, anim) => ws.composeMemao(recipe, anim),
+        // A picker tile: the part alone, standing (idle frame 0, facing down), in its first colour.
+        thumbnail(ws, part, body) {
+            const S = DocsDoodads.MemaoSlots, C = DocsDoodads.MemaoCompose;
+            const out = ws.composeMemao({ body, picks: [{ id: part.id, colour: S.defaultColour(ws.memaoIndex(), part, 0) }] }, 'idle');
+            return out && out.sheet ? ws.creatorFrame(out.sheet, C.frameRect('idle', 'down', 0)) : null;
+        },
         stageFrames(anim) {
             return { first: 0, count: (DocsDoodads.MemaoCompose.animations[anim] || { frames: 1 }).frames };
         },
@@ -117,6 +130,14 @@ DocsDoodads.CreatorKits = {
         index: ws => ws.mzgenIndex(),
         noLibrary(ws) { ws.showToast("Scan RPG Maker MZ's generator folder first (More > Characters).", 'info'); ws.showLpcCard(); },
         draw: (ws, recipe, anim) => ws.composeMzGen(recipe, anim),
+        // A picker tile: the generator's own icon (Variation), else the part alone: standing on the walking
+        // sheet, or its face layers for the parts only faces have (eyes, mouth...).
+        thumbnail(ws, part, body) {
+            if (part.icon) { const icon = ws.mzgenLoadImage(part.icon); if (icon) return icon; }
+            const C = DocsDoodads.MzGenCompose, anim = (part.files.TV || []).length ? 'walk' : 'face';
+            const out = ws.composeMzGen({ body, picks: [{ id: part.id }], colours: {} }, anim);
+            return out && out.sheet ? ws.creatorFrame(out.sheet, C.frameRect(anim, 'down', anim === 'walk' ? 1 : 0, out.sheet.frame)) : null;
+        },
         // MZ's walk and battler motions go 0, 1, 2, 1.
         stageFrames(anim) {
             if (anim === 'face') return { first: 0, count: 1 };
