@@ -134,10 +134,17 @@ DocsDoodads.MzGen = {
         // and the colours that are no key: listed, so a stray pixel left as drawn can be found.
         const offKeys = new Map(), snappedKeys = new Map();
         const note = (map, rgb, part) => { const list = map.get(rgb) || []; if (!list.includes(part.name + ' (' + part.base + ')')) list.push(part.name + ' (' + part.base + ')'); map.set(rgb, list); };
+        // The generator's own picker icons (Variation/Male/icon_Clothing_p01.png, 64 x 64), for the creator's grid.
+        const icons = {};
+        for (const base of this.bases) {
+            try { icons[base] = new Set(fsLike.readdirSync(pathLib.join(root, 'Variation', base))); } catch (e) { icons[base] = new Set(); }
+        }
         for (const part of parts) {
             for (const s of this.familySlots[part.family] || []) if (!part.slots.includes(s)) part.slots.push(s);
             part.slots.sort();
             part.name = this.label(part.family) + ' ' + part.num;
+            const icon = `icon_${part.family}_p${this.pad(part.num)}.png`;
+            if (icons[part.base] && icons[part.base].has(icon)) part.icon = 'Variation/' + part.base + '/' + icon;
             for (const view of ['TV', 'TVD', 'SV']) {
                 for (const entry of part.files[view]) {
                     if (!entry.mask) continue;
