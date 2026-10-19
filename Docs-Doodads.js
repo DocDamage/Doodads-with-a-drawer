@@ -19550,6 +19550,858 @@ DocsDoodads.LpcSlots = {
     }
 };
 //==========================================================
+// SECTION 12H: MEMAO COMPOSITOR (ANIMATIONS, DEPTH PER FACING, COLOURS)
+//==========================================================
+// Stacks the layers of one Memao character into a sheet for one animation. The pack's sheets are 8 columns of
+// 48-pixel frames running left to right; each animation is its four facings (down, up, left, right) of N
+// frames each, at a fixed place in its set (measured on the pack: docs/MEMAO_CHARACTER_CREATOR_PLAN.md). A
+// layer's depth depends on the facing. The output uses the LPC compositor's layout (rows up, left, down,
+// right; frames along a row; sheet.frame = 48), so the creator's stage and the exports read both alike.
+//
+// The art is greyscale: the three greys of a part are swapped for a 3-tone ramp of its colour (outlines and
+// coloured details stay). The ramps are Doc's Doodads' own.
+//
+//   resolve(index, recipe, animation, exists) -> the layers to draw (files, depths, colours) and warnings
+//   compose(resolved, loadImage, cache) -> { sheet, warnings }
+DocsDoodads.MemaoCompose = {
+    frame: 48,
+    columns: 8,
+    // The facings in the pack's order within an animation, and the rows of a composed sheet (as LPC's).
+    order: ['down', 'up', 'left', 'right'],
+    directions: ['up', 'left', 'down', 'right'],
+    animations: {
+        idle: { set: 'Main', start: 0, frames: 4 }, walk: { set: 'Main', start: 16, frames: 6 }, run: { set: 'Main', start: 40, frames: 6 },
+        pickup: { set: 'Main', start: 64, frames: 4 }, strike: { set: 'Main', start: 80, frames: 4 }, chop: { set: 'Main', start: 96, frames: 4 },
+        seed: { set: 'Main', start: 112, frames: 3 }, water: { set: 'Main', start: 124, frames: 4 }, reap: { set: 'Main', start: 140, frames: 4 },
+        slash: { set: 'Battle', start: 0, frames: 4 }, hurt: { set: 'Battle', start: 16, frames: 2 }, downed: { set: 'Battle', start: 24, frames: 2 },
+        death: { set: 'Battle', start: 32, frames: 3 },
+        eat: { set: 'Daily Life', start: 0, frames: 3 }, drink: { set: 'Daily Life', start: 12, frames: 3 }, laugh: { set: 'Daily Life', start: 24, frames: 3 },
+        wave: { set: 'Daily Life', start: 36, frames: 4 }, think: { set: 'Daily Life', start: 52, frames: 4 }, shrug: { set: 'Daily Life', start: 68, frames: 4 },
+        sit: { set: 'Daily Life', start: 84, frames: 4 }, read: { set: 'Daily Life', start: 100, frames: 4 },
+        // Paint is drawn facing left and right only.
+        paint: { set: 'Daily Life', start: 116, frames: 4, sides: true }
+    },
+    // The greys each kind of part is drawn in (darkest first), swapped for a ramp's dark, middle and light.
+    greys: { skin: [0x545454, 0xaaaaaa, 0xffffff], eyes: [0x404040, 0x808080], other: [0x404040, 0x808080, 0xffffff] },
+    // Doc's Doodads' ramps: [dark, middle, light].
+    palettes: {
+        skin: {
+            porcelain: ['#c48f7f', '#f2cbb8', '#fff0e6'], light: ['#b5786a', '#e8b49a', '#fbe0cf'], peach: ['#a96652', '#dba07f', '#f6cdb0'],
+            tan: ['#93583f', '#c88a63', '#ecb88f'], olive: ['#7d5a3a', '#b58757', '#dcb383'], bronze: ['#6e4229', '#a2663f', '#cf9466'],
+            brown: ['#53301f', '#84502f', '#b27a50'], deep: ['#33190f', '#5c3320', '#8a5634'],
+            green: ['#3f6b3a', '#6fa25e', '#a6d38c'], blue: ['#3c4f86', '#6b85c4', '#a9c0ef'], ash: ['#55525e', '#8b8796', '#c4c1cc']
+        },
+        hair: {
+            black: ['#141219', '#2c2833', '#4d4757'], dark_brown: ['#2a1710', '#4b2c1d', '#704630'], brown: ['#4a2a17', '#7a4a2a', '#a8703f'],
+            auburn: ['#5a1e12', '#8f3a22', '#c25f37'], ginger: ['#7a2e0e', '#c25a1c', '#ee8a3a'], blonde: ['#8a6326', '#c99b45', '#f0d07e'],
+            platinum: ['#8f8a7c', '#cfc9b6', '#f7f3e6'], grey: ['#55555e', '#8e8e98', '#cfcfd6'], white: ['#a7a7b8', '#dedee8', '#ffffff'],
+            pink: ['#9b3f6a', '#d66f9c', '#f6a9c9'], purple: ['#4a2f73', '#7c55b0', '#b18ee0'], blue: ['#22407a', '#3f6fc0', '#7fa8ec'],
+            teal: ['#1d5c5a', '#2f918a', '#62c7bb'], green: ['#2c5a2a', '#4b8f44', '#83c574'], red: ['#6b1018', '#a8222e', '#e0505a']
+        },
+        eyes: {
+            brown: ['#3b2416', '#6e4428', '#6e4428'], hazel: ['#4a3a16', '#8a6f2c', '#8a6f2c'], green: ['#1f4a2a', '#3f8a4f', '#3f8a4f'],
+            blue: ['#1d3a6e', '#3f6fbf', '#3f6fbf'], grey: ['#3a3d44', '#6f7480', '#6f7480'], violet: ['#3e2468', '#7450b0', '#7450b0'],
+            red: ['#5e1414', '#a8302c', '#a8302c'], gold: ['#6e5010', '#c49a2a', '#c49a2a'], black: ['#141216', '#2e2b33', '#2e2b33']
+        },
+        cloth: {
+            white: ['#9a9aa8', '#d8d8e2', '#ffffff'], cream: ['#a8957a', '#e1d1b5', '#fff7e8'], grey: ['#5b5b66', '#9a9aa6', '#d2d2da'],
+            charcoal: ['#2a2a31', '#4a4a55', '#73737f'], black: ['#121216', '#26262d', '#45454f'], red: ['#6e1418', '#b02a2e', '#e65a55'],
+            orange: ['#8a3a10', '#d06a20', '#f5a050'], mustard: ['#8a6a14', '#c9a228', '#ecd060'], olive: ['#4a5320', '#76823a', '#a8b464'],
+            green: ['#1f5a32', '#348c4e', '#6cc27a'], teal: ['#155a5a', '#25918a', '#5fc7bb'], sky: ['#3a6f9c', '#6aa6d6', '#a8d6f4'],
+            blue: ['#1c3870', '#2f5cb0', '#6a94e0'], navy: ['#141c3c', '#25336a', '#43579c'], denim: ['#23365a', '#3d5a8a', '#6a8ab8'],
+            purple: ['#3e2468', '#6c45a8', '#a07ad8'], lavender: ['#6c5a9c', '#a28cd4', '#d6c8f4'], pink: ['#9c3a6a', '#e070a0', '#f8b0cc'],
+            rose: ['#8a2c44', '#c8546e', '#ee90a4'], brown: ['#3e2414', '#6a4026', '#9a6640'], tan: ['#7a5a36', '#b08a5a', '#dcbc8a']
+        }
+    },
+    // Each channel's colour for a new pick.
+    defaults: { skin: 'light', hair: 'brown', eyes: 'brown', cloth: 'white' },
+
+    fileOf(set, folder, num) {
+        return set + '/' + folder + '/' + folder.toLowerCase() + '_' + DocsDoodads.Memao.pad(num) + '.png';
+    },
+
+    // A channel's colour names, and the swatch a name shows (the middle of its ramp).
+    colourNames(channel) {
+        return channel && this.palettes[channel] ? Object.keys(this.palettes[channel]) : [];
+    },
+
+    swatch(channel, name) {
+        const ramp = channel && this.palettes[channel] && this.palettes[channel][name];
+        return ramp ? ramp[1] : '';
+    },
+
+    // ---- Which layers ----
+
+    // recipe: { body (the arms), picks: [{ id, colour }] } where each pick's colour is already the one to draw
+    // it in (MemaoSlots.toRecipe works out skin and sleeves). The Arms and the props are added here.
+    resolve(index, recipe, animation, exists) {
+        const M = DocsDoodads.Memao;
+        const meta = this.animations[animation];
+        const warnings = [];
+        const layers = [];
+        if (!meta) return { animation, layers, warnings: [`There is no ${animation} animation.`], used: [] };
+        if (!index || !index.sets || !index.sets[meta.set] || !index.sets[meta.set].frames) {
+            return { animation, layers, warnings: [`The pack has no ${meta.set} set, which ${animation} is in.`], used: [] };
+        }
+        const byId = new Map((index.parts || []).map(p => [p.id, p]));
+        const arm = recipe && recipe.body || 'average';
+        const add = (folder, num, colour, part, order) => {
+            const info = index.folders[folder];
+            if (!info || num === null || num === undefined) return;
+            const file = this.fileOf(meta.set, folder, num);
+            if (!exists(file)) return;
+            layers.push({ file, folder, num, z: info.z, channel: info.channel, colour: info.channel ? colour || this.defaults[info.channel] : '', part, order });
+        };
+        let order = 0;
+        for (const pick of recipe && recipe.picks || []) {
+            const part = byId.get(pick.id);
+            if (!part) { warnings.push(`There is no part "${pick.id}" in the pack any more.`); continue; }
+            const num = M.fileFor(part, arm);
+            if (num === null) { warnings.push(`${part.name} has nothing for ${arm} arms.`); continue; }
+            add(part.folder, num, pick.colour, part, order++);
+            // Its frames at another depth (Hair D for Hair B...), from the same file number.
+            for (const [follower, leader] of Object.entries(M.pairs)) if (leader === part.folder) add(follower, num, pick.colour, part, order++);
+        }
+        // Props show in their own animations only (their other frames are empty).
+        for (const folder of M.props) {
+            const part = (index.parts || []).filter(p => p.folder === folder).sort((a, b) => a.order - b.order)[0];
+            if (part) add(folder, M.fileFor(part, arm), '', part, order++);
+        }
+        return { animation, layers, warnings, used: layers.map(l => ({ part: l.part, folder: l.folder })) };
+    },
+
+    // ---- Colours ----
+
+    // source grey -> [r, g, b] for a channel's colour.
+    recolourMap(channel, colour) {
+        const ramp = channel && this.palettes[channel] && this.palettes[channel][colour];
+        if (!ramp) return null;
+        const hex = DocsDoodads.LpcCompose.hex.bind(DocsDoodads.LpcCompose);
+        const greys = this.greys[channel] || this.greys.other;
+        const map = new Map();
+        greys.forEach((g, i) => map.set(g, hex(ramp[i])));
+        return map;
+    },
+
+    // Only opaque pixels in exactly the template's greys change; outlines, coloured details and glass stay.
+    recolour(image, map) {
+        if (!map) return image;
+        const d = image.data;
+        for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] !== 255) continue;
+            const to = map.get((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+            if (to) { d[i] = to[0]; d[i + 1] = to[1]; d[i + 2] = to[2]; }
+        }
+        return image;
+    },
+
+    // ---- Stacking ----
+
+    // loadImage(file) -> { width, height, data } or null. One row per facing, each with its own depth order.
+    compose(resolved, loadImage, cache) {
+        const C = DocsDoodads.LpcCompose;
+        const meta = this.animations[resolved.animation];
+        const warnings = resolved.warnings.slice();
+        if (!meta || !resolved.layers.length) return { sheet: null, warnings };
+        const F = this.frame;
+        const sheet = C.blank(meta.frames * F, 4 * F);
+        sheet.frame = F;
+        const images = new Map();
+        for (const layer of resolved.layers) {
+            const image = C.cached(cache, layer.file + '|' + layer.colour, () => {
+                const raw = loadImage(layer.file);
+                return raw ? this.recolour(C.copy(raw), this.recolourMap(layer.channel, layer.colour)) : null;
+            });
+            if (!image) { warnings.push(`Could not read ${layer.file}.`); continue; }
+            images.set(layer, image);
+        }
+        this.directions.forEach((dir, row) => {
+            const facing = this.order.indexOf(dir);
+            const list = resolved.layers.filter(l => images.has(l)).sort((a, b) => a.z[dir] - b.z[dir] || a.order - b.order);
+            for (const layer of list) {
+                const image = images.get(layer), cols = Math.max(1, Math.floor(image.width / F));
+                for (let f = 0; f < meta.frames; f++) {
+                    const at = meta.start + facing * meta.frames + f;
+                    const sx = (at % cols) * F, sy = Math.floor(at / cols) * F;
+                    if (sy + F <= image.height) C.overRect(sheet, image, sx, sy, f * F, row * F, F, F);
+                }
+            }
+        });
+        return { sheet, warnings };
+    },
+
+    // One frame of a composed sheet: frame number along the row, facing by name.
+    frameRect(animation, direction, frame, size = this.frame) {
+        const a = this.animations[animation] || { frames: 1 };
+        const row = Math.max(0, this.directions.indexOf(direction));
+        return { x: (frame % a.frames) * size, y: row * size, w: size, h: size };
+    }
+};
+//==========================================================
+// SECTION 12J: MEMAO EXPORTS (MZ SHEETS, BATTLER, FACE)
+//==========================================================
+// Sheets for RPG Maker MZ from a composed Memao character (23_memao_compositor.js). Its frames are 48 x 48,
+// MZ's own size. Rows go into MZ's order (down, left, right, up).
+//
+//   classic  $Name.png              3 x 4, MZ's own walk (step, stand, step), works without the plugin
+//   smooth   $Name[f7][w2].png      frame 0 stands (idle frame 0), then the 6 walk frames, a cycle every 2 tiles
+//   idle     $Name_idle[f4].png     breathing while standing (an animation set plays it after a moment)
+//   run      $Name_run[f6].png      while dashing
+//   action   $Name_wave[f4].png     every animation, for Play Character Action
+//   battler  img/sv_actors/Name.png 9 x 6 cells of 48, MZ's 18 motions facing left
+//   face     img/faces/Name.png     the head, scaled up whole pixels, in one of the sheet's 8 slots
+//
+// Pure: images are { width, height, data } (RGBA). Writing them is the workspace's (44_workspace_memao.js).
+DocsDoodads.MemaoExport = {
+    frame: 48,
+    mzRows: ['down', 'left', 'right', 'up'],
+    // The classic walker's columns, from the walk: a stride, then the standing frame, then the other stride.
+    classicWalk: [1, 4],
+
+    cleanName(name) {
+        return DocsDoodads.LpcExport.cleanName(name);
+    },
+
+    names(name) {
+        const n = this.cleanName(name) || 'Character';
+        return { classic: '$' + n, smooth: '$' + n + '[f7][w2]', idle: '$' + n + '_idle[f4]', run: '$' + n + '_run[f6]', face: n };
+    },
+
+    animationSet(names) {
+        return { character: names.smooth, idle: names.idle, run: names.run, idleDelay: 90, idleFps: 4, runFps: 14 };
+    },
+
+    // The animations offered as action sheets, with the speed they look right at (frames a second).
+    actions: [['slash', 10], ['hurt', 6], ['downed', 4], ['death', 6], ['pickup', 8], ['strike', 10], ['chop', 10], ['reap', 10], ['seed', 8], ['water', 6],
+        ['eat', 6], ['drink', 6], ['laugh', 8], ['wave', 8], ['think', 4], ['shrug', 6], ['sit', 4], ['read', 4], ['paint', 6]],
+
+    actionLabel(anim) {
+        return { pickup: 'pick up' }[anim] || String(anim);
+    },
+
+    actionName(name, anim) {
+        const n = this.cleanName(name) || 'Character';
+        return '$' + n + '_' + anim + '[f' + (DocsDoodads.MemaoCompose.animations[anim] || { frames: 1 }).frames + ']';
+    },
+
+    blank(width, height) {
+        return { width, height, data: new Uint8ClampedArray(width * height * 4) };
+    },
+
+    blit(dst, src, sx, sy, dx, dy, w, h) {
+        DocsDoodads.LpcExport.blit(dst, src, sx, sy, dx, dy, w, h);
+    },
+
+    frames(sheet) {
+        return Math.floor(sheet.width / this.frame);
+    },
+
+    // A sheet in MZ's row order with the given columns: [{ sheet, frame }] or frame numbers of one sheet.
+    // sides: an animation drawn facing left and right only (paint), whose down row shows left and up shows right.
+    mzSheet(sheet, columns, sides) {
+        const F = this.frame, dirs = DocsDoodads.MemaoCompose.directions;
+        const out = this.blank(columns.length * F, 4 * F);
+        this.mzRows.forEach((dir, row) => columns.forEach((col, i) => {
+            const c = typeof col === 'number' ? { sheet, frame: col } : col;
+            if (!c.sheet || (c.frame + 1) * F > c.sheet.width) return;
+            const from = dirs.indexOf(sides && dir === 'down' ? 'left' : sides && dir === 'up' ? 'right' : dir);
+            this.blit(out, c.sheet, c.frame * F, from * F, i * F, row * F, F, F);
+        }));
+        return out;
+    },
+
+    allFrames(sheet, sides) {
+        return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i), sides);
+    },
+
+    classic(walk, idle) {
+        return this.mzSheet(walk, [{ sheet: walk, frame: this.classicWalk[0] }, idle ? { sheet: idle, frame: 0 } : { sheet: walk, frame: 0 }, { sheet: walk, frame: this.classicWalk[1] }]);
+    },
+
+    // Frame 0 stands (the first idle frame), then every walk frame.
+    smooth(walk, idle) {
+        return this.mzSheet(walk, [idle ? { sheet: idle, frame: 0 } : { sheet: walk, frame: 0 }].concat(Array.from({ length: this.frames(walk) }, (_, i) => ({ sheet: walk, frame: i }))));
+    },
+
+    actionSheet(sheet, anim) {
+        return this.allFrames(sheet, Boolean((DocsDoodads.MemaoCompose.animations[anim] || {}).sides));
+    },
+
+    // ---- The side-view battler ----
+
+    // MZ's 18 motions in order, the animation for each (facing left unless given), and which frames (spread
+    // over the animation when not given).
+    svMotions: [
+        { motion: 'walk', anim: 'walk', frames: [1, 0, 4] },
+        { motion: 'wait', anim: 'idle', frames: [0, 1, 2] },
+        { motion: 'chant', anim: 'think' },
+        { motion: 'guard', anim: 'idle', frames: [0, 0, 0] },
+        { motion: 'damage', anim: 'hurt', frames: [0, 1, 1] },
+        { motion: 'evade', anim: 'walk', frames: [5, 4, 5] },
+        { motion: 'thrust', anim: 'strike' },
+        { motion: 'swing', anim: 'slash' },
+        { motion: 'missile', anim: 'seed' },
+        { motion: 'skill', anim: 'slash' },
+        { motion: 'spell', anim: 'wave' },
+        { motion: 'item', anim: 'drink' },
+        { motion: 'escape', anim: 'run', dir: 'right' },
+        { motion: 'victory', anim: 'laugh' },
+        { motion: 'dying', anim: 'downed', frames: [0, 1, 1] },
+        { motion: 'abnormal', anim: 'downed', frames: [1, 0, 1] },
+        { motion: 'sleep', anim: 'death', frames: [2, 2, 2] },
+        { motion: 'dead', anim: 'death', frames: [2, 2, 2] }
+    ],
+    svFallback: { think: 'idle', strike: 'slash', slash: 'walk', seed: 'walk', wave: 'idle', drink: 'idle', laugh: 'idle', hurt: 'walk', downed: 'idle', death: 'idle', run: 'walk', idle: 'walk' },
+
+    svAnimations() {
+        return [...new Set(this.svMotions.map(m => m.anim))];
+    },
+
+    spread(n) {
+        return [0, 1, 2].map(k => Math.min(n - 1, Math.floor((k + 0.5) * n / 3)));
+    },
+
+    // sheets: { anim: composed sheet or null }. Returns the 432 x 288 battler and which motions fell back.
+    svSheet(sheets) {
+        const F = this.frame, dirs = DocsDoodads.MemaoCompose.directions;
+        const out = this.blank(9 * F, 6 * F);
+        const fellBack = [];
+        this.svMotions.forEach((m, i) => {
+            let anim = m.anim, frames = m.frames, guard = 0;
+            while (!sheets[anim] && this.svFallback[anim] && guard++ < 4) { anim = this.svFallback[anim]; frames = null; }
+            const sheet = sheets[anim];
+            if (!sheet) return;
+            if (anim !== m.anim) fellBack.push(m.motion);
+            const n = this.frames(sheet);
+            const row = dirs.indexOf(m.dir || 'left');
+            (frames || this.spread(n)).map(f => Math.min(n - 1, f)).forEach((f, k) => this.blit(out, sheet, f * F, row * F, (Math.floor(i / 6) * 3 + k) * F, (i % 6) * F, F, F));
+        });
+        return { sheet: out, fellBack };
+    },
+
+    // ---- The face ----
+
+    faceSize: 144,
+
+    // The head in the first frame facing down: from the top of what is drawn, 20 pixels down, centred on it.
+    headBox(sheet) {
+        const F = this.frame, row = DocsDoodads.MemaoCompose.directions.indexOf('down') * F;
+        const at = (x, y) => sheet.data[((row + y) * sheet.width + x) * 4 + 3];
+        let top = -1;
+        for (let y = 0; y < F && top < 0; y++) for (let x = 0; x < F; x++) if (at(x, y)) { top = y; break; }
+        if (top < 0) return null;
+        let sum = 0, n = 0;
+        for (let y = top; y < Math.min(F, top + 14); y++) for (let x = 0; x < F; x++) if (at(x, y)) { sum += x; n++; }
+        const size = 22;
+        const cx = n ? Math.round(sum / n) : F / 2;
+        return { x: Math.max(0, Math.min(F - size, cx - size / 2)), y: Math.max(0, Math.min(F - size, top - 2)), size };
+    },
+
+    // A 144 x 144 face: the head scaled 6 times on a soft rounded card (LpcExport.face's look).
+    face(sheet, options = {}) {
+        const S = this.faceSize, box = sheet ? this.headBox(sheet) : null;
+        const out = this.blank(S, S);
+        if (!box) return out;
+        const scale = 6, size = box.size * scale, ox = Math.floor((S - size) / 2), oy = S - size - 4;
+        if (options.background !== false) {
+            const [r, g, b] = options.background || [217, 244, 239];
+            const radius = 24;
+            for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+                const dx = Math.max(radius - x, 0, x - (S - 1 - radius)), dy = Math.max(radius - y, 0, y - (S - 1 - radius));
+                if (dx * dx + dy * dy > radius * radius) continue;
+                const o = (y * S + x) * 4;
+                out.data[o] = r; out.data[o + 1] = g; out.data[o + 2] = b; out.data[o + 3] = 255;
+            }
+        }
+        const row = DocsDoodads.MemaoCompose.directions.indexOf('down') * this.frame;
+        for (let y = 0; y < box.size; y++) for (let x = 0; x < box.size; x++) {
+            const i = ((row + box.y + y) * sheet.width + box.x + x) * 4;
+            const a = sheet.data[i + 3];
+            if (!a) continue;
+            for (let sy = 0; sy < scale; sy++) for (let sx = 0; sx < scale; sx++) {
+                const px = ox + x * scale + sx, py = oy + y * scale + sy;
+                if (px < 0 || py < 0 || px >= S || py >= S) continue;
+                const o = (py * S + px) * 4, k = a / 255, d = out.data[o + 3] / 255, oa = k + d * (1 - k);
+                for (let c = 0; c < 3; c++) out.data[o + c] = Math.round((sheet.data[i + c] * k + out.data[o + c] * d * (1 - k)) / oa);
+                out.data[o + 3] = Math.round(oa * 255);
+            }
+        }
+        return out;
+    },
+
+    faceSheet(existing, face, slot = 0) {
+        return DocsDoodads.LpcExport.faceSheet(existing, face, slot);
+    }
+};
+//==========================================================
+// SECTION 12G: MEMAO CHARACTER LIBRARY (INDEX)
+//==========================================================
+// The asset pack of the Memao Sprite Sheet Creator (Sleeping Robot Games), read from the folder it was unpacked
+// to on this computer: three sets of layered sheets (Main, Battle, Daily Life), a folder per part in each
+// (HairA/haira_007.png), README.md (the parts' names) and z_index_player_library.json (the draw order for each
+// facing). Its licence forbids sharing the pack, so none of it ships with the plugin or goes into the project:
+// the index lives in the editor's cache, and only sheets made from it go into the game (which it allows). None
+// of the tool's code is used. See docs/MEMAO_CHARACTER_CREATOR_PLAN.md.
+//
+// Pure: reading the pack is passed in as a small fs ({ readdirSync, readFileSync, existsSync, statSync }) with a
+// path module, so the workspace (44_workspace_memao.js) and the tests share it.
+DocsDoodads.Memao = {
+    indexFormat: 'docs-doodads-memao-index',
+    indexVersion: 1,
+    indexFile: 'data/docs_doodads_cache/memao_index.json',
+    sets: ['Main', 'Battle', 'Daily Life'],
+    zFile: 'z_index_player_library.json',
+    // Folders that hold another part's frames at another depth, drawn with it from the same file number.
+    pairs: { HairD: 'HairB', BackB: 'BackA', ShoulderB: 'ShoulderA', ChopB: 'ChopA', StrikeB: 'StrikeA' },
+    // Sleeves: one file per style and arm; the file follows the body's arms.
+    armed: ['TopB', 'JacketB'],
+    arms: ['dainty', 'average', 'broad'],
+    // Props a set draws in their own animation, whatever the character wears.
+    props: ['Eat', 'Drink', 'Read', 'Paint'],
+    skinFolders: ['Body', 'Head', 'Arms', 'Ears'],
+    hairFolders: ['HairA', 'HairB', 'HairC', 'HairD', 'Eyebrows'],
+    plainFolders: ['Sword', 'ChopA', 'ChopB', 'StrikeA', 'StrikeB', 'Reap', 'Seed', 'Water', 'Eat', 'Drink', 'Read', 'Paint'],
+
+    // The colour channel a folder's art is recoloured with ('' when it is drawn as it is).
+    channelOf(folder) {
+        if (this.skinFolders.includes(folder)) return 'skin';
+        if (this.hairFolders.includes(folder)) return 'hair';
+        if (folder === 'Eyes') return 'eyes';
+        if (this.plainFolders.includes(folder)) return '';
+        return 'cloth';
+    },
+
+    pad(n) {
+        return String(n).padStart(3, '0');
+    },
+
+    // ---- README.md: the parts' names ----
+
+    // { HairA: { label: 'Hair A', about, items: { 7: { order: 15, name: 'Emo Left' } } } } from lines like
+    // "**Hair A** - Bang/Scalp hair" and "- 007 (015: Emo Left)".
+    readNames(text) {
+        const out = {};
+        let folder = null;
+        for (const raw of String(text || '').split(/\r?\n/)) {
+            const line = raw.trim();
+            const head = /^\*\*([^*]+)\*\*\s*(?:-\s*(.*))?$/.exec(line);
+            if (head) {
+                folder = head[1].replace(/\s+/g, '');
+                out[folder] = { label: head[1].trim(), about: (head[2] || '').trim(), items: {} };
+                continue;
+            }
+            const item = /^-\s*(\d{3})\s*\(\s*(\d{3})\s*:\s*([^)]*)\)/.exec(line);
+            if (item && folder) out[folder].items[Number(item[1])] = { order: Number(item[2]), name: item[3].replace(/\s+/g, ' ').trim() };
+        }
+        return out;
+    },
+
+    // 'Straps Dainty Arm' -> { style: 'Straps', arm: 'dainty' } (null when the name has no arm).
+    splitArm(name) {
+        const m = /^(.*?)\s+(Dainty|Average|Broad)\s+Arm$/i.exec(String(name || '').trim());
+        return m ? { style: m[1].trim(), arm: m[2].toLowerCase() } : null;
+    },
+
+    // ---- The pack on disk ----
+
+    isLibrary(fsLike, pathLib, root) {
+        try {
+            return Boolean(root) && fsLike.existsSync(pathLib.join(root, 'Main')) && fsLike.existsSync(pathLib.join(root, this.zFile));
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // A PNG's size from its header ({ width, height }, or null).
+    pngSize(buffer) {
+        if (!buffer || buffer.length < 24 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) return null;
+        const u32 = o => ((buffer[o] << 24) >>> 0) + (buffer[o + 1] << 16) + (buffer[o + 2] << 8) + buffer[o + 3];
+        return { width: u32(16), height: u32(20) };
+    },
+
+    // The draw order per facing: front/back/left/right in the file -> down/up/left/right.
+    zFor(z, folder) {
+        const e = (z && (z[folder] || z.Tool)) || {};
+        const n = v => (typeof v === 'number' && isFinite(v) ? v : 31);
+        return { down: n(e.front), up: n(e.back), left: n(e.left), right: n(e.right) };
+    },
+
+    // Reads the pack into an index. now: an ISO time for 'built' (passed in for tests).
+    scan(fsLike, pathLib, root, now) {
+        if (!this.isLibrary(fsLike, pathLib, root)) return null;
+        const warnings = [];
+        let z = {};
+        try { z = JSON.parse(String(fsLike.readFileSync(pathLib.join(root, this.zFile), 'utf8'))); } catch (e) { warnings.push(`${this.zFile} could not be read; every part is drawn at one depth.`); }
+        let names = {};
+        try { names = this.readNames(String(fsLike.readFileSync(pathLib.join(root, 'README.md'), 'utf8'))); } catch (e) { warnings.push('README.md could not be read; parts are named by number.'); }
+        // folder -> { none, files: { number: [sets] } }
+        const found = {};
+        const sets = {};
+        for (const set of this.sets) {
+            const dir = pathLib.join(root, set);
+            let entries = [];
+            try { entries = fsLike.readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name).sort(); } catch (e) { warnings.push(`There is no ${set} set: its animations are left out.`); continue; }
+            let size = null;
+            for (const folder of entries) {
+                let files = [];
+                try { files = fsLike.readdirSync(pathLib.join(dir, folder)); } catch (e) { continue; }
+                const re = new RegExp('^' + folder.toLowerCase() + '_(\\d{3})\\.png$', 'i');
+                for (const file of files) {
+                    const m = re.exec(file);
+                    if (!m) continue;
+                    const num = Number(m[1]);
+                    const f = found[folder] = found[folder] || { none: false, files: {} };
+                    if (num === 0) { f.none = true; continue; }
+                    (f.files[num] = f.files[num] || []).push(set);
+                    if (!size && folder === 'Body') {
+                        try { size = this.pngSize(fsLike.readFileSync(pathLib.join(dir, folder, file))); } catch (e) { size = null; }
+                    }
+                }
+            }
+            sets[set] = size ? { width: size.width, height: size.height, columns: Math.floor(size.width / 48), frames: Math.floor(size.width / 48) * Math.floor(size.height / 48) } : { width: 0, height: 0, columns: 8, frames: 0 };
+        }
+        const folders = {};
+        const parts = [];
+        for (const folder of Object.keys(found).sort()) {
+            const n = names[folder] || { label: folder.replace(/([a-z])([A-Z])/g, '$1 $2'), about: '', items: {} };
+            const leader = this.pairs[folder] || '';
+            folders[folder] = { label: n.label, about: n.about, none: found[folder].none, channel: this.channelOf(folder), z: this.zFor(z, folder), leader, prop: this.props.includes(folder) };
+            if (leader) continue;
+            const nums = Object.keys(found[folder].files).map(Number).sort((a, b) => a - b);
+            const nameOf = num => (n.items[num] ? n.items[num].name : `${n.label} ${num}`);
+            const orderOf = num => (n.items[num] ? n.items[num].order : 1000 + num);
+            if (this.armed.includes(folder)) {
+                // One part per sleeve style, with the file for each arm.
+                const styles = new Map();
+                for (const num of nums) {
+                    const split = this.splitArm(nameOf(num));
+                    const key = split ? split.style : nameOf(num);
+                    const entry = styles.get(key) || { id: folder + '/' + key.replace(/[^\w]+/g, '_'), folder, name: key, order: orderOf(num), files: {}, sets: [] };
+                    entry.files[split ? split.arm : 'any'] = num;
+                    entry.order = Math.min(entry.order, orderOf(num));
+                    entry.sets = [...new Set(entry.sets.concat(found[folder].files[num]))];
+                    styles.set(key, entry);
+                }
+                parts.push(...styles.values());
+            } else {
+                for (const num of nums) parts.push({ id: folder + '/' + this.pad(num), folder, name: nameOf(num), order: orderOf(num), files: { any: num }, sets: found[folder].files[num].slice() });
+            }
+        }
+        return {
+            format: this.indexFormat, version: this.indexVersion, library: root, built: now || new Date().toISOString(),
+            folders, parts, sets, warnings
+        };
+    },
+
+    // A saved index this version can use, or null.
+    validIndex(index) {
+        return index && index.format === this.indexFormat && index.version === this.indexVersion && Array.isArray(index.parts) ? index : null;
+    },
+
+    summary(index) {
+        if (!this.validIndex(index)) return null;
+        return { parts: index.parts.length, folders: Object.keys(index.folders || {}).length, sets: this.sets.filter(s => index.sets && index.sets[s] && index.sets[s].frames),
+            built: index.built || '', warnings: index.warnings || [] };
+    },
+
+    // The file a part draws for a body (its arm's sleeve, or its only file), or null.
+    fileFor(part, arm) {
+        if (!part || !part.files) return null;
+        if (part.files[arm] !== undefined) return part.files[arm];
+        if (part.files.any !== undefined) return part.files.any;
+        return null;
+    },
+
+    // Whether a folder is inside the project, where MZ's Deployment would copy all of it into the game.
+    insideProject(pathLib, folder, project) {
+        return DocsDoodads.Lpc.insideProject(pathLib, folder, project);
+    }
+};
+//==========================================================
+// SECTION 12I: MEMAO CREATOR SLOTS (PICKERS, COLOURS, DICE, SAVED CHARACTERS)
+//==========================================================
+// What the creator shows for a Memao character, with the same functions as LpcSlots (23_lpc_slots.js) so the
+// one creator window serves both. The state is { body, slots: { key: { id, colour } } }: body is the arms
+// (average, dainty or broad), id a part of the index ('HairA/007', or 'TopB/Straps' for a sleeve style),
+// colour a ramp name of the part's channel. Head, Arms and Ears take the skin; sleeves take their garment's
+// colour. Pure.
+DocsDoodads.MemaoSlots = {
+    bodies: [['average', 'Average'], ['dainty', 'Dainty'], ['broad', 'Broad']],
+
+    // card -> tabs -> slots. folder: the pack's folder; required: no "None"; follows: the slot whose colour it
+    // takes ('body' for the skin).
+    cards: [
+        { key: 'body', label: 'Body', tabs: [
+            { key: 'body', label: 'Body', slots: [
+                { key: 'body', label: 'Skin', folder: 'Body', required: true },
+                { key: 'head', label: 'Head', folder: 'Head', required: true, follows: 'body' },
+                { key: 'ears', label: 'Ears', folder: 'Ears', follows: 'body' },
+                { key: 'horns', label: 'Horns', folder: 'Horns' }
+            ] },
+            { key: 'face', label: 'Face', slots: [
+                { key: 'eyes', label: 'Eyes', folder: 'Eyes', required: true },
+                { key: 'eyebrows', label: 'Eyebrows', folder: 'Eyebrows' },
+                { key: 'face', label: 'Face', folder: 'Face' }
+            ] },
+            { key: 'hair', label: 'Hair', slots: [
+                { key: 'hair', label: 'Hair', folder: 'HairA' },
+                { key: 'hairlong', label: 'Long hair', folder: 'HairB' },
+                { key: 'hairside', label: 'Side hair', folder: 'HairC' }
+            ] },
+            { key: 'extras', label: 'Extras', slots: [
+                { key: 'glasses', label: 'Glasses', folder: 'AccessoryA' },
+                { key: 'headwear', label: 'Headwear', folder: 'AccessoryB' },
+                { key: 'headwear2', label: 'Headwear 2', folder: 'AccessoryD' },
+                { key: 'back', label: 'Back', folder: 'BackA' }
+            ] }
+        ] },
+        { key: 'outfit', label: 'Outfit', tabs: [
+            { key: 'top', label: 'Top', slots: [
+                { key: 'shirt', label: 'Shirt', folder: 'TopA' },
+                { key: 'sleeves', label: 'Sleeves', folder: 'TopB', follows: 'shirt' },
+                { key: 'jacket', label: 'Jacket', folder: 'JacketA' },
+                { key: 'jacketsleeves', label: 'Jacket sleeves', folder: 'JacketB', follows: 'jacket' }
+            ] },
+            { key: 'legs', label: 'Legs', slots: [
+                { key: 'bottom', label: 'Bottom', folder: 'BottomA', required: true },
+                { key: 'waist', label: 'Waist', folder: 'BottomB' },
+                { key: 'socks', label: 'Socks', folder: 'Socks' },
+                { key: 'shoes', label: 'Shoes', folder: 'Shoes' }
+            ] },
+            { key: 'gear', label: 'Gear', slots: [
+                { key: 'neck', label: 'Neck', folder: 'AccessoryC' },
+                { key: 'shoulders', label: 'Shoulders', folder: 'ShoulderA' },
+                { key: 'middle', label: 'Middle', folder: 'Mid' },
+                { key: 'gloves', label: 'Gloves', folder: 'Gloves' }
+            ] },
+            { key: 'tools', label: 'Tools', slots: [
+                { key: 'sword', label: 'Sword', folder: 'Sword' },
+                { key: 'axe', label: 'Axe', folder: 'ChopA' },
+                { key: 'fieldtool', label: 'Field tool', folder: 'StrikeA' },
+                { key: 'scythe', label: 'Scythe', folder: 'Reap' },
+                { key: 'seedbag', label: 'Seed bag', folder: 'Seed' },
+                { key: 'can', label: 'Watering can', folder: 'Water' }
+            ] }
+        ] }
+    ],
+
+    allSlots() {
+        return this.cards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => Object.assign({ card: c.key, tab: t.key }, s))));
+    },
+
+    slot(key) {
+        return this.allSlots().find(s => s.key === key) || null;
+    },
+
+    // Parts that fit: the slot's folder, with a file for these arms. By the tool's own order.
+    options(index, slot, body) {
+        if (!index || !slot) return [];
+        const M = DocsDoodads.Memao;
+        return index.parts.filter(p => p.folder === slot.folder && M.fileFor(p, body) !== null)
+            .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+    },
+
+    // Every part is under one licence: nothing is hidden by the LPC's safe-to-encrypt switch.
+    hiddenBySafeOnly() {
+        return 0;
+    },
+
+    slotOfPart(part) {
+        return part ? this.allSlots().find(s => s.folder === part.folder) || null : null;
+    },
+
+    // A part's colour choices (none when it takes another slot's colour, or isn't recoloured).
+    colours(index, part, channel = 0) {
+        if (!part || channel !== 0) return [];
+        const slot = this.slotOfPart(part);
+        if (slot && slot.follows) return [];
+        const info = index && index.folders && index.folders[part.folder];
+        return DocsDoodads.MemaoCompose.colourNames(info ? info.channel : '');
+    },
+
+    swatch(index, part, name) {
+        const info = part && index && index.folders && index.folders[part.folder];
+        return info ? DocsDoodads.MemaoCompose.swatch(info.channel, name) : '';
+    },
+
+    defaultColour(index, part, channel, keep) {
+        const list = this.colours(index, part, channel);
+        if (!list.length) return '';
+        if (keep && list.includes(keep)) return keep;
+        const info = index.folders[part.folder];
+        const prefer = DocsDoodads.MemaoCompose.defaults[info.channel];
+        return list.includes(prefer) ? prefer : list[0];
+    },
+
+    setPart(state, index, key, part) {
+        if (!part) { delete state.slots[key]; return state; }
+        const was = state.slots[key] || {};
+        state.slots[key] = { id: part.id, colour: this.defaultColour(index, part, 0, was.colour) };
+        return state;
+    },
+
+    // A first character: skin, head, eyes, hair and brows, a shirt with sleeves, a bottom and shoes.
+    newState(index, body = 'average') {
+        const state = { body, slots: {} };
+        const first = (key, name) => {
+            const list = this.options(index, this.slot(key), body);
+            return (name && list.find(p => p.name.toLowerCase() === name)) || list[0];
+        };
+        const set = (key, name, colour) => {
+            const part = first(key, name);
+            if (!part) return;
+            this.setPart(state, index, key, part);
+            if (colour && this.colours(index, part, 0).includes(colour)) state.slots[key].colour = colour;
+        };
+        set('body', null, 'light');
+        set('head');
+        set('eyes', null, 'brown');
+        set('hair', 'right part', 'brown');
+        set('eyebrows', 'straight mid', 'brown');
+        set('shirt', 'crew', 'white');
+        set('sleeves', 'short');
+        set('bottom', 'pants', 'denim');
+        set('shoes', 'closed', 'brown');
+        return state;
+    },
+
+    step(state, index, key, dir) {
+        const slot = this.slot(key);
+        const list = this.options(index, slot, state.body);
+        const choices = slot.required ? list : [null].concat(list);
+        if (!choices.length) return state;
+        const current = state.slots[key] ? state.slots[key].id : null;
+        let at = choices.findIndex(p => (p ? p.id : null) === current);
+        if (at < 0) at = 0;
+        return this.setPart(state, index, key, choices[(at + dir + choices.length * 4) % choices.length]);
+    },
+
+    stepColour(state, index, key, dir, channel = 0) {
+        const pick = state.slots[key];
+        const part = pick && index.parts.find(p => p.id === pick.id);
+        const list = this.colours(index, part, channel);
+        if (!list.length) return state;
+        const at = Math.max(0, list.indexOf(pick.colour));
+        pick.colour = list[(at + dir + list.length * 4) % list.length];
+        return state;
+    },
+
+    // Changing the arms keeps every part (a sleeve style picks its file for the new arms when it has one).
+    setBody(state, index, body) {
+        const next = { body, slots: {} };
+        for (const [key, pick] of Object.entries(state.slots)) {
+            const part = index.parts.find(p => p.id === pick.id);
+            if (part && DocsDoodads.Memao.fileFor(part, body) !== null) next.slots[key] = Object.assign({}, pick);
+        }
+        return next;
+    },
+
+    // The colour a slot draws in: its own, the skin, or its garment's.
+    drawColour(state, slot, pick) {
+        if (slot.follows) {
+            const lead = state.slots[slot.follows];
+            if (lead && lead.colour) return lead.colour;
+        }
+        return pick.colour || '';
+    },
+
+    // The recipe for the compositor: the body's arms first, then each pick with the colour it draws in.
+    toRecipe(state, options = {}) {
+        const picks = [];
+        const arms = this.armsPart(state);
+        if (arms && options.showBody !== false) picks.push({ id: arms, colour: state.slots.body ? state.slots.body.colour : '' });
+        for (const slot of this.allSlots()) {
+            const pick = state.slots[slot.key];
+            if (!pick) continue;
+            if (options.showBody === false && slot.card === 'body') continue;
+            picks.push({ id: pick.id, colour: this.drawColour(state, slot, pick) });
+        }
+        return { body: state.body, picks };
+    },
+
+    // The Arms part for the body type: the pack names them Dainty, Average and Broad.
+    armsPart(state, index) {
+        const order = DocsDoodads.Memao.arms;
+        const at = Math.max(0, order.indexOf(state.body));
+        const list = index ? index.parts.filter(p => p.folder === 'Arms') : null;
+        const named = list && list.find(p => p.name.toLowerCase() === state.body);
+        if (named) return named.id;
+        return 'Arms/' + DocsDoodads.Memao.pad(at + 1);
+    },
+
+    // The dice: a new body and face, or a new outfit.
+    shuffle(state, index, card, rand = Math.random) {
+        const next = { body: state.body, slots: Object.assign({}, state.slots) };
+        if (card === 'body') {
+            next.body = this.bodies[Math.floor(rand() * this.bodies.length)][0];
+            for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
+        }
+        const chance = { hair: 0.95, hairlong: 0.45, hairside: 0.3, eyebrows: 0.8, face: 0.15, ears: 0.15, horns: 0.05, glasses: 0.12, headwear: 0.2, headwear2: 0,
+            back: 0.04, shirt: 0.95, jacket: 0.2, waist: 0.3, socks: 0.3, shoes: 0.9, neck: 0.2, shoulders: 0.06, middle: 0.1, gloves: 0.05 };
+        const hair = this.colours(index, index.parts.find(p => p.folder === 'HairA'), 0);
+        const hairColour = hair.length ? hair[Math.floor(rand() * hair.length)] : '';
+        for (const slot of this.allSlots().filter(s => s.card === card)) {
+            const list = this.options(index, slot, next.body);
+            // Sleeves only with their garment (and then most of the time).
+            if (slot.follows && slot.follows !== 'body') {
+                delete next.slots[slot.key];
+                if (next.slots[slot.follows] && list.length && rand() < 0.85) this.setPart(next, index, slot.key, list[Math.floor(rand() * list.length)]);
+                continue;
+            }
+            if (slot.required) {
+                const keep = next.slots[slot.key] && list.find(p => p.id === next.slots[slot.key].id);
+                const part = slot.key === 'body' || slot.key === 'head' ? keep || list[0] : list[Math.floor(rand() * list.length)];
+                if (part) this.setPart(next, index, slot.key, part);
+            } else {
+                delete next.slots[slot.key];
+                if (list.length && rand() < (chance[slot.key] || 0)) this.setPart(next, index, slot.key, list[Math.floor(rand() * list.length)]);
+            }
+            const pick = next.slots[slot.key];
+            if (pick) {
+                const part = index.parts.find(p => p.id === pick.id);
+                const colours = this.colours(index, part, 0);
+                const channel = part && index.folders[part.folder] ? index.folders[part.folder].channel : '';
+                if (channel === 'hair' && hairColour && colours.includes(hairColour)) pick.colour = hairColour;
+                else if (colours.length) pick.colour = colours[Math.floor(rand() * colours.length)];
+            }
+        }
+        if (card === 'body' && next.slots.body) {
+            const skins = ['porcelain', 'light', 'peach', 'tan', 'olive', 'bronze', 'brown', 'deep'];
+            next.slots.body.colour = skins[Math.floor(rand() * skins.length)];
+        }
+        return next;
+    },
+
+    missing(state, index) {
+        const out = [];
+        for (const [key, pick] of Object.entries(state.slots)) {
+            const slot = this.slot(key);
+            if (!slot || !this.options(index, slot, state.body).some(p => p.id === pick.id)) out.push(key);
+        }
+        return out;
+    },
+
+    // ---- Saved characters (data/DocsDoodadsMemaoCharacters.json) ----
+    charactersFile: 'data/DocsDoodadsMemaoCharacters.json',
+    format: 'docs-doodads-memao-characters',
+
+    validSaved(data) {
+        return DocsDoodads.LpcSlots.validSaved.call(this, data);
+    },
+
+    save(data, name, state, now) {
+        return DocsDoodads.LpcSlots.save.call(this, data, name, state, now);
+    },
+
+    load(data, name) {
+        return DocsDoodads.LpcSlots.load.call(this, data, name);
+    },
+
+    remove(data, name) {
+        return DocsDoodads.LpcSlots.remove.call(this, data, name);
+    }
+};
+//==========================================================
 // SECTION 12: DocsDoodads.SEARCH (TOKENIZED QUERY PARSER)
 //==========================================================
 DocsDoodads.Search = {
@@ -25380,7 +26232,7 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
                     <button class="dd-btn" id="dd-rooms-btn" title="Save part of the map (tiles, doodads, events) as a room stamp and place it again">${U.icon('map', 1)} Rooms</button>
                     <button class="dd-btn" id="dd-packs-btn" title="Put prefabs, rooms, biomes and their art in one file for another project, or bring one in">${U.icon('box', 1)} Packs</button>
-                    <button class="dd-btn" id="dd-lpc-btn" title="The LPC character library on this computer: scan its parts, choose art that is safe to encrypt, credit its artists">${U.icon('person', 1)} Characters</button>
+                    <button class="dd-btn" id="dd-lpc-btn" title="Character creators: the LPC library and the Memao assets on this computer">${U.icon('person', 1)} Characters</button>
                     <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
@@ -28094,6 +28946,7 @@ DocsDoodads.Workspace = {
         add('Rooms (room stamps)', () => this.showRoomsCard());
         add('Doodad Packs (make or bring in)', () => this.showPacksCard());
         add('Characters: LPC library and credits', () => this.showLpcCard());
+        add('Characters: Memao creator', () => (this.memaoIndex() ? this.openMemaoCreator() : this.showLpcCard()));
         add('Character Creator (LPC)', () => this.openCreator());
         add('Write CREDITS_LPC.txt (LPC artists)', () => this.writeLpcCreditsText());
         add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });
@@ -33829,6 +34682,92 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25q: CHARACTER CREATOR KITS (LPC, MEMAO)
+//==========================================================
+// The libraries the Character Creator window (44_workspace_lpc_creator.js) can build from. The window asks the
+// open kit for its slots and index, how to draw an animation, what its stage and top bar show, its credits and
+// its export, so every library gets the same window, look and controls. LPC is the default.
+//
+//   slots      the pickers (LpcSlots, MemaoSlots: the same functions)
+//   compose    the compositor's layout facts: frame, directions, animations, frameRect
+//   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport)
+DocsDoodads.CreatorKits = {
+    lpc: {
+        id: 'lpc',
+        title: 'Character Creator',
+        slots: DocsDoodads.LpcSlots,
+        compose: DocsDoodads.LpcCompose,
+        exporter: DocsDoodads.LpcExport,
+        safeSwitch: true,
+        addons: true,
+        parts: true,
+        stageScale: 4,
+        narrowScale: 3,
+        animations: ws => ws.creatorAnimations,
+        fps: ws => ws.creatorFps,
+        index: ws => ws.lpcIndex(),
+        noLibrary(ws) { ws.showToast('Scan the LPC library first (More > Characters).', 'info'); ws.showLpcCard(); },
+        draw: (ws, recipe, anim) => ws.composeLpc(recipe, anim),
+        // Walking skips the standing frame 0.
+        stageFrames(anim) {
+            return anim === 'walk' ? { first: 1, count: 8 } : { first: 0, count: (DocsDoodads.LpcCompose.animations[anim] || { frames: 1 }).frames };
+        },
+        libraryLine(ws, index, safeOnly) {
+            const s = DocsDoodads.Lpc.summary(index, safeOnly);
+            return `LPC library · ${s.usable} parts${s.commit ? ' · version ' + escapeHtml(s.commit.slice(0, 7)) : ''}`;
+        },
+        credits(ws, state, addons) {
+            const walk = ws.composeLpc(DocsDoodads.LpcSlots.toRecipe(state, { addons }), 'walk');
+            return walk ? DocsDoodads.Lpc.creditsForLayers(walk.used) : [];
+        },
+        creditsNote: () => `These go into ${escapeHtml(DocsDoodads.Lpc.creditsText)} when the character is exported.`,
+        exportNote: () => `Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.`,
+        missingNote: 'the library changed, or they aren\'t safe to encrypt',
+        exportDefaults: ws => ws.lpcExportDefaults(),
+        exportFiles: (ws, name, o) => ws.lpcExportFiles(name, o),
+        exportRun: (ws, state, o) => ws.exportLpcCharacter(state, o),
+        tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
+    },
+
+    memao: {
+        id: 'memao',
+        title: 'Memao Creator',
+        slots: DocsDoodads.MemaoSlots,
+        compose: DocsDoodads.MemaoCompose,
+        exporter: DocsDoodads.MemaoExport,
+        safeSwitch: false,
+        addons: false,
+        parts: false,
+        // The figures are small (about 16 x 32 in a 48 frame): drawn 5 times, 4 in a small window.
+        stageScale: 5,
+        narrowScale: 4,
+        // How far the feet are above the frame's bottom, for the stage's shadow.
+        feetGap: 8,
+        animations: () => [['walk', 'Walk'], ['idle', 'Idle'], ['run', 'Run'], ['slash', 'Slash'], ['hurt', 'Hurt'], ['downed', 'Downed'], ['death', 'Death'],
+            ['pickup', 'Pick up'], ['strike', 'Strike'], ['chop', 'Chop'], ['reap', 'Reap'], ['seed', 'Seed'], ['water', 'Water'],
+            ['eat', 'Eat'], ['drink', 'Drink'], ['laugh', 'Laugh'], ['wave', 'Wave'], ['think', 'Think'], ['shrug', 'Shrug'], ['sit', 'Sit'], ['read', 'Read'], ['paint', 'Paint']],
+        fps: () => ({ walk: 10, run: 12, idle: 4, think: 3, sit: 3, read: 3, downed: 3, death: 4 }),
+        index: ws => ws.memaoIndex(),
+        noLibrary(ws) { ws.showToast('Scan the Memao asset folder first (More > Characters).', 'info'); ws.showLpcCard(); },
+        draw: (ws, recipe, anim) => ws.composeMemao(recipe, anim),
+        stageFrames(anim) {
+            return { first: 0, count: (DocsDoodads.MemaoCompose.animations[anim] || { frames: 1 }).frames };
+        },
+        libraryLine(ws, index) {
+            const s = DocsDoodads.Memao.summary(index);
+            return `Memao assets · ${s ? s.parts : 0} parts · ${s ? s.sets.join(', ') : ''}`;
+        },
+        credits: () => [{ file: 'Memao', part: 'Memao Sprite Sheet Creator assets', authors: ['Sleeping Robot Games'], licences: ['the Memao Sprite Sheet Creator licence'], urls: [], safeToEncrypt: true }],
+        creditsNote: () => 'Credit to "Memao" is appreciated in your game\'s credits. The licence lets the sheets you export go into your games, but not be shared on their own.',
+        exportNote: () => 'Sheets made from the Memao assets may go into your games, but not be shared on their own. The character is saved under its name to change and export again.',
+        missingNote: 'the asset folder changed',
+        exportDefaults: ws => ws.memaoExportDefaults(),
+        exportFiles: (ws, name, o) => ws.memaoExportFiles(name, o),
+        exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
+        tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
+    }
+};
+//==========================================================
 // SECTION 25s: DOCKING THE ITEM BAG AND DETAILS
 //==========================================================
 // The Item Bag and Details can sit on the left, the right or along the bottom. Drag a panel by its title
@@ -34628,7 +35567,8 @@ Object.assign(DocsDoodads.Workspace, {
 // played in any animation; dice for a new body or outfit; saved characters by name. Keyboard: ↑ ↓ pick a
 // row, ← → change it (Shift: its colour), Q / E change tab, Tab the other card, X / Y the dice, Esc closes.
 // A gamepad does the same: d-pad, A colour, LB / RB tabs, Back the other card, X / Y dice, Start saves, B
-// closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's.
+// closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's. The same window builds
+// Memao characters (openCreator(state, 'memao')): what differs is in the kit (44_workspace_creator_kits.js).
 DocsDoodads.Ui.css += `
 #dd-creator { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; background: rgba(40, 30, 60, 0.45); }
 #dd-creator .dd-cr { width: 1160px; max-width: calc(100vw - 24px); height: 740px; max-height: calc(100vh - 24px); box-sizing: border-box; padding: 18px 22px;
@@ -34717,15 +35657,36 @@ Object.assign(DocsDoodads.Workspace, {
         ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat'], ['slash_reverse', 'Backswing']],
     creatorFps: { walk: 10, run: 12, idle: 3, combat: 3, sit: 2, emote: 3 },
 
-    openCreator(state) {
+    // The library the open creator builds from (DocsDoodads.CreatorKits): LPC unless it was opened for another.
+    creatorKit() {
+        const K = DocsDoodads.CreatorKits;
+        return K[(this._creator && this._creator.kit) || 'lpc'] || K.lpc;
+    },
+
+    creatorSlots() {
+        return this.creatorKit().slots;
+    },
+
+    creatorIndex() {
+        return this.creatorKit().index(this);
+    },
+
+    // The safe-to-encrypt switch (LPC only).
+    creatorSafeOnly() {
+        return this.creatorKit().safeSwitch ? this.lpcSafeOnly() : false;
+    },
+
+    openCreator(state, kit = 'lpc') {
         if (typeof document === 'undefined') return null;
-        const S = DocsDoodads.LpcSlots;
-        const index = this.lpcIndex();
-        if (!index) { this.showToast('Scan the LPC library first (More > Characters).', 'info'); this.showLpcCard(); return null; }
-        const safeOnly = this.lpcSafeOnly();
-        const was = this._creator;
+        const K = DocsDoodads.CreatorKits[kit] || DocsDoodads.CreatorKits.lpc;
+        const S = K.slots;
+        const index = K.index(this);
+        if (!index) { K.noLibrary(this); return null; }
+        const safeOnly = K.safeSwitch ? this.lpcSafeOnly() : false;
+        const was = this._creator && (this._creator.kit || 'lpc') === K.id ? this._creator : null;
         this._creator = {
-            state: state || (was && was.state) || S.newState(index, 'male', safeOnly),
+            kit: K.id,
+            state: state || (was && was.state) || S.newState(index, S.bodies[0][0], safeOnly),
             name: was ? was.name : '', anim: 'walk', dir: 'down', frame: 0,
             tabs: { body: 0, outfit: 0 }, cursor: { card: 'body', row: 0 }, showBody: true, addons: true, shadow: true, pop: null
         };
@@ -34751,7 +35712,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     // The rows of a card's current tab (the body tab starts with the body type).
     creatorRows(cardKey) {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const S = this.creatorSlots(), c = this._creator;
         const card = S.cards.find(x => x.key === cardKey);
         const tab = card.tabs[c.tabs[cardKey]];
         const rows = tab.slots.map(s => Object.assign({ card: cardKey }, s));
@@ -34761,12 +35722,12 @@ Object.assign(DocsDoodads.Workspace, {
 
     // What a row shows: value, the swatch's channel and colour, whether it can change.
     creatorRowView(row) {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex();
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         if (row.key === '_body') {
             const label = (S.bodies.find(b => b[0] === c.state.body) || [c.state.body, c.state.body])[1];
             return { value: label, channel: -1, off: false };
         }
-        const options = S.options(index, row, c.state.body, this.lpcSafeOnly());
+        const options = S.options(index, row, c.state.body, this.creatorSafeOnly());
         const pick = c.state.slots[row.key];
         const part = pick && index.parts.find(p => p.id === pick.id);
         const value = part ? part.name : (options.length ? 'None' : 'Nothing for this body');
@@ -34788,7 +35749,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorStep(rowKey, dir) {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex(), safe = this.lpcSafeOnly();
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex(), safe = this.creatorSafeOnly();
         if (rowKey === '_body') {
             const list = S.bodies.map(b => b[0]);
             const next = list[(list.indexOf(c.state.body) + dir + list.length) % list.length];
@@ -34800,7 +35761,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorColour(rowKey, dir, name) {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex();
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         const view = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
         if (view.channel < 0) return;
         const pick = c.state.slots[rowKey];
@@ -34818,21 +35779,21 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorShuffle(card) {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
-        c.state = S.shuffle(c.state, this.lpcIndex(), card, Math.random, this.lpcSafeOnly());
+        const S = this.creatorSlots(), c = this._creator;
+        c.state = S.shuffle(c.state, this.creatorIndex(), card, Math.random, this.creatorSafeOnly());
         this.creatorChanged('ok');
     },
 
     creatorRecipe() {
         const c = this._creator;
-        return DocsDoodads.LpcSlots.toRecipe(c.state, { showBody: c.showBody, addons: c.addons });
+        return this.creatorSlots().toRecipe(c.state, { showBody: c.showBody, addons: c.addons });
     },
 
     // The sheet of the current animation (composed once per change; the compositor caches the layers).
     creatorComposed() {
         const c = this._creator;
         if (!c.composed || c.composed.anim !== c.anim) {
-            const out = this.composeLpc(this.creatorRecipe(), c.anim) || { sheet: null, warnings: [], used: [] };
+            const out = this.creatorKit().draw(this, this.creatorRecipe(), c.anim) || { sheet: null, warnings: [], used: [] };
             c.composed = { anim: c.anim, sheet: out.sheet, warnings: out.warnings, used: out.used };
         }
         return c.composed;
@@ -34842,8 +35803,7 @@ Object.assign(DocsDoodads.Workspace, {
     creatorCredits() {
         const c = this._creator;
         if (!c) return [];
-        const walk = this.composeLpc(DocsDoodads.LpcSlots.toRecipe(c.state, { addons: c.addons }), 'walk');
-        return walk ? DocsDoodads.Lpc.creditsForLayers(walk.used) : [];
+        return this.creatorKit().credits(this, c.state, c.addons);
     },
 
     // ---- Drawing ----
@@ -34853,16 +35813,14 @@ Object.assign(DocsDoodads.Workspace, {
         const canvas = typeof document !== 'undefined' ? document.getElementById('dd-cr-canvas') : null;
         const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
         if (!c || !ctx || typeof ctx.createImageData !== 'function') return false;
-        const C = DocsDoodads.LpcCompose;
+        const K = this.creatorKit(), C = K.compose;
         const composed = this.creatorComposed();
         const F = (composed.sheet && composed.sheet.frame) || C.frame;
         this.fitCreatorCanvas(canvas, F);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!composed.sheet) return false;
-        const meta = C.animations[c.anim] || { frames: 1 };
-        // Walking skips the standing frame 0.
-        const frames = c.anim === 'walk' ? 8 : meta.frames;
-        const frame = (c.anim === 'walk' ? 1 : 0) + (c.frame % frames);
+        const shown = K.stageFrames(c.anim);
+        const frame = shown.first + (c.frame % Math.max(1, shown.count));
         const rect = C.frameRect(c.anim, c.dir, frame, F);
         if (rect.x + rect.w > composed.sheet.width || rect.y + rect.h > composed.sheet.height) return false;
         const img = ctx.createImageData(rect.w, rect.h);
@@ -34877,18 +35835,20 @@ Object.assign(DocsDoodads.Workspace, {
         return true;
     },
 
-    // The stage's canvas for frames of F pixels. With oversize weapon art the canvas grows around the same
-    // 64-pixel body (same size, same place) and the swing spills over the stage; it lets clicks through.
+    // The stage's canvas for frames of F pixels, drawn the kit's whole number of times (LPC 4, or 3 in a small
+    // window; its CSS size). With oversize weapon art the canvas grows around the same body (same size, same
+    // place) and the swing spills over the stage; it lets clicks through.
     fitCreatorCanvas(canvas, F) {
-        const C = DocsDoodads.LpcCompose;
-        if (canvas.width === 4 * F && canvas.height === 4 * F) return;
-        const base = this._creator && this._creator.narrow ? 192 : 256;
-        const size = base * F / C.frame, spill = (size - base) / 2;
-        canvas.width = canvas.height = 4 * F;
+        const K = this.creatorKit(), body = K.compose.frame, k = K.stageScale || 4;
+        if (canvas.width === k * F && canvas.height === k * F) return;
+        const s = this._creator && this._creator.narrow ? (K.narrowScale || 3) : k;
+        const css = this._creator && this._creator.narrow ? 192 : 256;
+        const size = s * F, spill = (size - s * body) / 2;
+        canvas.width = canvas.height = k * F;
         if (!canvas.style) return;
-        canvas.style.width = canvas.style.height = F === C.frame ? '' : size + 'px';
-        canvas.style.margin = F === C.frame ? '' : `0 ${-spill}px ${-spill}px`;
-        canvas.style.pointerEvents = F === C.frame ? '' : 'none';
+        canvas.style.width = canvas.style.height = size === css ? '' : size + 'px';
+        canvas.style.margin = F === body ? '' : `0 ${-spill}px ${-spill}px`;
+        canvas.style.pointerEvents = F === body ? '' : 'none';
     },
 
     startCreatorLoop() {
@@ -34903,7 +35863,7 @@ Object.assign(DocsDoodads.Workspace, {
             acc += now - last;
             last = now;
             const still = DocsDoodads.Ui.lessMotion && DocsDoodads.Ui.lessMotion();
-            const step = 1000 / (this.creatorFps[c.anim] || 8);
+            const step = 1000 / (this.creatorKit().fps(this)[c.anim] || 8);
             if (!still && acc >= step) { c.frame += Math.floor(acc / step); acc %= step; this.drawCreatorFrame(); }
             if (still) acc = 0;
         }, 33);
@@ -34915,9 +35875,9 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     renderCreator() {
-        const D = DocsDoodads, U = D.Ui, S = D.LpcSlots, L = D.Lpc, c = this._creator;
+        const D = DocsDoodads, U = D.Ui, K = this.creatorKit(), S = K.slots, c = this._creator;
         if (!c || typeof document === 'undefined') return null;
-        const index = this.lpcIndex();
+        const index = this.creatorIndex();
         let root = document.getElementById('dd-creator');
         if (!root) {
             root = document.createElement('div');
@@ -34926,7 +35886,7 @@ Object.assign(DocsDoodads.Workspace, {
             root.setAttribute && root.setAttribute('aria-label', 'Character Creator');
             document.body.appendChild(root);
         }
-        const summary = L.summary(index, this.lpcSafeOnly());
+        const summary = K.safeSwitch ? D.Lpc.summary(index, this.lpcSafeOnly()) : null;
         // A small window (MZ's own 816 x 624) shows one card at a time beside a smaller stage.
         const narrow = typeof window !== 'undefined' && window.innerWidth ? window.innerWidth < 1120 : false;
         c.narrow = narrow;
@@ -34944,7 +35904,7 @@ Object.assign(DocsDoodads.Workspace, {
         };
         // Where the safe-to-encrypt switch hides parts from the tab in view, a line says so, with a way to see them.
         const moreHtml = cardKey => {
-            if (!this.lpcSafeOnly()) return '';
+            if (!this.creatorSafeOnly()) return '';
             const hidden = S.hiddenBySafeOnly(index, this.creatorRows(cardKey).filter(r => r.key !== '_body'), c.state.body);
             if (!hidden) return '';
             return `<div class="dd-cr-more" id="dd-cr-more-${cardKey}"><span>${hidden} more part${hidden === 1 ? '' : 's'} here ${hidden === 1 ? "isn't" : "aren't"} safe to encrypt.</span><button type="button" id="dd-cr-showall-${cardKey}" title="Turn off &quot;Only art safe to encrypt&quot; (at the top) to choose from every part">Show all parts</button></div>`;
@@ -34965,10 +35925,10 @@ Object.assign(DocsDoodads.Workspace, {
         const unsafe = credits.filter(f => !f.safeToEncrypt).length;
         root.innerHTML = `<div class="dd-cr${narrow ? ' dd-cr-narrow' : ''}">
             <div class="dd-cr-top">
-                <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} Character Creator</div>
-                <div class="dd-cr-lib">LPC library · ${summary.usable} parts${summary.commit ? ' · version ' + escapeHtml(summary.commit.slice(0, 7)) : ''}</div>
+                <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
+                <div class="dd-cr-lib">${K.libraryLine(this, index, this.creatorSafeOnly())}</div>
                 <div class="dd-cr-grow"></div>
-                <label class="dd-cr-chip" title="${this.lpcSafeOnly() ? `On: only parts offered under CC0 or OGA-BY (${summary.safe} of ${summary.parts}), which may be in a game deployed with &quot;Encrypt image files&quot;. Untick to choose from every part.` : `Off: every part (${summary.parts}). A character with CC-BY or CC-BY-SA art can't be in a game deployed with &quot;Encrypt image files&quot;; the export and Problems say which.`}"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt${this.lpcSafeOnly() ? ` · ${summary.safe} of ${summary.parts}` : ''}</label>
+                ${K.safeSwitch ? `<label class="dd-cr-chip" title="${this.lpcSafeOnly() ? `On: only parts offered under CC0 or OGA-BY (${summary.safe} of ${summary.parts}), which may be in a game deployed with &quot;Encrypt image files&quot;. Untick to choose from every part.` : `Off: every part (${summary.parts}). A character with CC-BY or CC-BY-SA art can't be in a game deployed with &quot;Encrypt image files&quot;; the export and Problems say which.`}"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt${this.lpcSafeOnly() ? ` · ${summary.safe} of ${summary.parts}` : ''}</label>` : ''}
                 <button type="button" class="dd-cr-close" id="dd-cr-close" aria-label="Close the creator" title="Close (Esc)">✕</button>
             </div>
             <div class="dd-cr-main">
@@ -34980,7 +35940,7 @@ Object.assign(DocsDoodads.Workspace, {
                         <input class="dd-cr-name" id="dd-cr-name" type="text" value="${escapeHtml(c.name)}" placeholder="Name your character" aria-label="Character name" />
                         <button type="button" class="dd-cr-dice" id="dd-cr-dice-outfit" style="right: 12px;" aria-label="Shuffle the outfit" title="Shuffle the outfit (Y)">⚅</button>
                         <div class="dd-cr-figure">
-                            ${c.shadow ? '<div class="dd-cr-shadow"></div>' : ''}
+                            ${c.shadow ? `<div class="dd-cr-shadow"${K.feetGap ? ` style="bottom: ${Math.max(0, K.feetGap * (narrow ? K.narrowScale : K.stageScale) - 8)}px;"` : ''}></div>` : ''}
                             <canvas class="dd-cr-canvas" id="dd-cr-canvas" width="256" height="256" role="img" aria-label="${escapeHtml((c.name || 'The character') + ', ' + c.anim + ', facing ' + c.dir)}"></canvas>
                         </div>
                         <div class="dd-cr-turn">
@@ -34989,10 +35949,10 @@ Object.assign(DocsDoodads.Workspace, {
                             <button type="button" id="dd-cr-turn-right" aria-label="Turn right" title="Turn right">↻</button>
                         </div>
                     </div>
-                    <div class="dd-cr-anims">${this.creatorAnimations.map(([key, label]) => `<button type="button" class="dd-cr-anim" id="dd-cr-anim-${key}" aria-pressed="${c.anim === key}">${escapeHtml(label)}</button>`).join('')}</div>
+                    <div class="dd-cr-anims">${K.animations(this).map(([key, label]) => `<button type="button" class="dd-cr-anim" id="dd-cr-anim-${key}" aria-pressed="${c.anim === key}">${escapeHtml(label)}</button>`).join('')}</div>
                     <div class="dd-cr-toggles">
                         <label><input type="checkbox" id="dd-cr-showbody" ${c.showBody ? 'checked' : ''} /> Show body</label>
-                        <label><input type="checkbox" id="dd-cr-addons" ${c.addons ? 'checked' : ''} /> Body add-ons</label>
+                        ${K.addons ? `<label><input type="checkbox" id="dd-cr-addons" ${c.addons ? 'checked' : ''} /> Body add-ons</label>` : ''}
                         <label><input type="checkbox" id="dd-cr-shadow" ${c.shadow ? 'checked' : ''} /> Cast shadow</label>
                     </div>
                     <div class="dd-cr-warn" id="dd-cr-warn">${missingAnim ? escapeHtml(`${missingAnim} part${missingAnim === 1 ? ' has' : 's have'} no ${c.anim}: ` + composed.warnings.filter(w => / has no /.test(w)).map(w => w.split(' has no ')[0]).join(', ')) : ''}</div>
@@ -35015,7 +35975,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorPopHtml() {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex();
+        const K = this.creatorKit(), S = K.slots, E = K.exporter, c = this._creator, index = this.creatorIndex();
         const pop = c.pop;
         if (pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: pop.row }, S.slot(pop.row)));
@@ -35035,28 +35995,28 @@ Object.assign(DocsDoodads.Workspace, {
             </div>`;
         }
         if (pop.kind === 'export') {
-            const o = c.exportOptions || (c.exportOptions = this.lpcExportDefaults());
-            const N = DocsDoodads.LpcExport.names(c.name);
-            const files = this.lpcExportFiles(c.name, o);
+            const o = c.exportOptions || (c.exportOptions = K.exportDefaults(this));
+            const N = E.names(c.name);
+            const files = K.exportFiles(this, c.name, o);
             const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
             const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="flex: none; width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
             const done = c.exported;
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
-                <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(DocsDoodads.LpcExport.cleanName(c.name) || 'your character')} to RPG Maker</div>
+                <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(E.cleanName(c.name) || 'your character')} to RPG Maker</div>
                 ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
                 ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
                 ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(DocsDoodads.LpcExport.actionLabel(anim))}</button>`).join('')}</div></div>
+                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
-                ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
+                ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
-                <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
+                <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">${K.exportNote()}</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <button type="button" class="dd-cr-export" id="dd-cr-ex-go" style="font-size: 15px; padding: 8px 20px;"${!c.name.trim() || !files.length ? ' disabled' : ''}>Export ${files.length} file${files.length === 1 ? '' : 's'}</button>
                     ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
                 </div>
-                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}${done.oversize && done.oversize.length ? `<div id="dd-cr-ex-big" style="font-weight: 700; color: #5b4c70;">${escapeHtml(DocsDoodads.LpcExport.oversizeNote(done.oversize))}</div>` : ''}</div>` : ''}
+                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}${done.oversize && done.oversize.length && E.oversizeNote ? `<div id="dd-cr-ex-big" style="font-weight: 700; color: #5b4c70;">${escapeHtml(E.oversizeNote(done.oversize))}</div>` : ''}</div>` : ''}
                 ${done && done.parts && done.parts.length ? `<div style="margin-top: 8px; max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">${done.parts.map((p, i) => `
                     <div style="background: #f6efe0; border-radius: 12px; padding: 6px 8px;">
                         <b>${escapeHtml(p.label)}: ${escapeHtml(p.name)}</b>
@@ -35075,14 +36035,14 @@ Object.assign(DocsDoodads.Workspace, {
                 <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">Who made this art</div>
                 ${files.map(f => `<div style="margin-bottom: 6px;"><b>${escapeHtml(f.part || f.file)}</b>${f.safeToEncrypt ? '' : ' <span style="color: #c8472c; font-weight: 900;">(not safe to encrypt)</span>'}<br>
                     by ${escapeHtml(f.authors.join(', ') || 'unknown')}<br><span style="color: #7a6b8f;">${escapeHtml(DocsDoodads.Lpc.preferredLicence(f.licences) || 'no licence found')}</span></div>`).join('')}
-                <div style="color: #7a6b8f;">These go into ${escapeHtml(DocsDoodads.Lpc.creditsText)} when the character is exported.</div>
+                <div style="color: #7a6b8f;">${K.creditsNote()}</div>
             </div>`;
         }
         return '';
     },
 
     bindCreator() {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const K = this.creatorKit(), S = K.slots, E = K.exporter, c = this._creator;
         const on = (id, fn, ev = 'onclick') => { const el = document.getElementById(id); if (el) el[ev] = fn; return el; };
         on('dd-cr-close', () => this.closeCreator());
         for (const cardKey of ['body', 'outfit']) {
@@ -35100,7 +36060,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-dice-outfit', () => this.creatorShuffle('outfit'));
         on('dd-cr-turn-left', () => this.creatorTurn(-1));
         on('dd-cr-turn-right', () => this.creatorTurn(1));
-        this.creatorAnimations.forEach(([key]) => on('dd-cr-anim-' + key, () => { c.anim = key; c.frame = 0; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); }));
+        K.animations(this).forEach(([key]) => on('dd-cr-anim-' + key, () => { c.anim = key; c.frame = 0; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); }));
         on('dd-cr-showbody', e => { c.showBody = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-addons', e => { c.addons = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-shadow', e => { c.shadow = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
@@ -35113,10 +36073,10 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-export', () => { c.pop = c.pop && c.pop.kind === 'export' ? null : { kind: 'export' }; c.exported = null; this.renderCreator(); });
         if (c.pop && c.pop.kind === 'export') {
             const o = c.exportOptions;
-            DocsDoodads.LpcExport.actions.forEach(([anim]) => on('dd-cr-ex-act-' + anim, () => {
+            E.actions.forEach(([anim]) => on('dd-cr-ex-act-' + anim, () => {
                 const list = new Set(o.actions || []);
                 if (list.has(anim)) list.delete(anim); else list.add(anim);
-                o.actions = DocsDoodads.LpcExport.actions.map(a => a[0]).filter(a => list.has(a));
+                o.actions = E.actions.map(a => a[0]).filter(a => list.has(a));
                 this.renderCreator();
             }));
             ((c.exported && c.exported.parts) || []).forEach((p, i) => {
@@ -35134,12 +36094,12 @@ Object.assign(DocsDoodads.Workspace, {
             for (const key of ['classic', 'smooth', 'face', 'battler', 'parts']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
-            on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
+            on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
         }
         if (c.pop && c.pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
             const row = c.pop.row;
-            S.colours(this.lpcIndex(), view.part, view.channel).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = null; this.creatorColour(row, 0, n); }));
+            S.colours(this.creatorIndex(), view.part, view.channel).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = null; this.creatorColour(row, 0, n); }));
         }
         if (c.pop && c.pop.kind === 'load') {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
@@ -35156,7 +36116,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     creatorTab(cardKey, i) {
         const c = this._creator;
-        const tabs = DocsDoodads.LpcSlots.cards.find(x => x.key === cardKey).tabs;
+        const tabs = this.creatorSlots().cards.find(x => x.key === cardKey).tabs;
         c.tabs[cardKey] = (i + tabs.length) % tabs.length;
         c.cursor = { card: cardKey, row: 0 };
         c.pop = null;
@@ -35186,10 +36146,11 @@ Object.assign(DocsDoodads.Workspace, {
     // Export, asking first when it would replace pictures already in the project.
     async creatorExport() {
         const c = this._creator, FS = DocsDoodads.FS;
-        const o = c.exportOptions || this.lpcExportDefaults();
-        const existing = this.lpcExportFiles(c.name, o).filter(f => FS.existsSync(f));
+        const K = this.creatorKit();
+        const o = c.exportOptions || K.exportDefaults(this);
+        const existing = K.exportFiles(this, c.name, o).filter(f => FS.existsSync(f));
         if (existing.length && !await DocsDoodads.Ui.confirm(`Replace ${existing.length} picture${existing.length === 1 ? '' : 's'} already in the project?\n${existing.join('\n')}`, { title: 'Export again', ok: 'Replace' })) return null;
-        const result = this.exportLpcCharacter(c.state, Object.assign({ name: c.name, addons: c.addons }, o));
+        const result = K.exportRun(this, c.state, Object.assign({ name: c.name, addons: c.addons }, o));
         if (result) { c.exported = result; DocsDoodads.Ui.sound('save'); }
         if (this.creatorOpen()) this.renderCreator();
         return result;
@@ -35197,13 +36158,14 @@ Object.assign(DocsDoodads.Workspace, {
 
     // ---- Saved characters ----
 
-    readCreatorSaved() {
-        const FS = DocsDoodads.FS, S = DocsDoodads.LpcSlots;
+    // The saved characters of a kit's slots (the open creator's by default).
+    readCreatorSaved(S = this.creatorSlots()) {
+        const FS = DocsDoodads.FS;
         try { return FS.existsSync(S.charactersFile) ? FS.readJson(S.charactersFile) : null; } catch (e) { return null; }
     },
 
     async creatorSave() {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const S = this.creatorSlots(), c = this._creator;
         let name = c.name.trim();
         if (!name) {
             name = await DocsDoodads.Ui.prompt('A name for this character:', '', { title: 'Save character', ok: 'Save', icon: 'person' });
@@ -35219,20 +36181,20 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorLoad(name) {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const S = this.creatorSlots(), c = this._creator;
         const state = S.load(this.readCreatorSaved(), name);
         if (!state) return false;
         c.state = state;
         c.name = name;
         c.pop = null;
-        const gone = S.missing(state, this.lpcIndex(), this.lpcSafeOnly());
-        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): the library changed, or they aren't safe to encrypt.`, 'info');
+        const gone = S.missing(state, this.creatorIndex(), this.creatorSafeOnly());
+        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${this.creatorKit().missingNote}.`, 'info');
         this.creatorChanged('ok');
         return true;
     },
 
     async creatorDelete(name) {
-        const S = DocsDoodads.LpcSlots;
+        const S = this.creatorSlots();
         if (!await DocsDoodads.Ui.confirm(`Delete the saved character "${name}"?`, { danger: true, ok: 'Delete' })) return false;
         DocsDoodads.FS.atomicWriteJson(S.charactersFile, S.remove(this.readCreatorSaved(), name));
         this.renderCreator();
@@ -35466,7 +36428,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (JSON.stringify(bodies) !== JSON.stringify(D.World.get('characterAnim.svBody') || {})) this.setWorldSetting('characterAnim.svBody', bodies);
         // Credits ship with the game; the character is kept to change and export again.
         if (written.length) this.writeLpcCreditsText();
-        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
+        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(S), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
         return { files: written, warnings: [...new Set(warnings)], names: N, parts, oversize };
@@ -35894,7 +36856,7 @@ Object.assign(DocsDoodads.Workspace, {
         const categories = s ? Object.entries(s.categories).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(' · ') : '';
         const skipped = index && index.skipped && index.skipped.length ? index.skipped : [];
         card.innerHTML = `
-            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters (LPC library)</span>
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters (LPC and Memao)</span>
                 <button class="dd-btn dd-fold" id="dd-lpc-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
             <div class="dd-lpc-group">Library folder (on this computer)</div>
             <div class="dd-lpc-row">
@@ -35936,7 +36898,8 @@ Object.assign(DocsDoodads.Workspace, {
             <div class="dd-lpc-row">
                 <button class="dd-btn" id="dd-lpc-credits-write" type="button" title="Write the artists, licences and links of every LPC picture into ${escapeHtml(L.creditsText)}, beside the game"${textState === 'none' ? ' disabled' : ''}>Write ${escapeHtml(L.creditsText)}</button>
             </div>
-            <div class="dd-lpc-note">Every LPC artwork needs its artists credited in the game. Credits are kept per picture in ${escapeHtml(L.creditsFile)}; Problems says when ${escapeHtml(L.creditsText)} needs writing again.</div>`;
+            <div class="dd-lpc-note">Every LPC artwork needs its artists credited in the game. Credits are kept per picture in ${escapeHtml(L.creditsFile)}; Problems says when ${escapeHtml(L.creditsText)} needs writing again.</div>
+            ${this.memaoCardHtml()}`;
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         const field = document.getElementById('dd-lpc-folder');
         if (field) field.onchange = e => { this.setLpcLibraryFolder(e.target.value); this.refreshLpcCard(); };
@@ -35961,6 +36924,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-lpc-creator', () => this.openCreator());
         on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
         on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
+        this.bindMemaoCard();
         if (document.getElementById('dd-lpc-preview')) {
             if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
             else this.drawLpcPreview();
@@ -36887,6 +37851,237 @@ Object.assign(DocsDoodads.Workspace, {
         this.stopClock();
         this.stopListening();
         this.stopPerf();
+    }
+});
+//==========================================================
+// SECTION 25u: MEMAO CHARACTERS (FOLDER, SCAN, DRAWING, EXPORT)
+//==========================================================
+// More > Characters, Memao part: where the Memao Sprite Sheet Creator's asset pack was unpacked on this
+// computer (kept per computer, and outside the project: its licence forbids sharing the pack, and MZ's
+// Deployment copies the project folder), a scan into the editor's cache, and Open the Memao Creator, the
+// LPC creator's window with Memao's parts (44_workspace_creator_kits.js). Export writes the character's MZ
+// sheets (23_memao_export.js) into img/characters, img/sv_actors and img/faces, which the licence allows as
+// part of a game.
+Object.assign(DocsDoodads.Workspace, {
+    _memaoIndex: undefined,
+
+    memaoLibraryFolder() {
+        const v = DocsDoodads.Ui.prefs().memaoLibrary;
+        return typeof v === 'string' ? v : '';
+    },
+
+    setMemaoLibraryFolder(folder) {
+        const clean = String(folder || '').trim();
+        DocsDoodads.Ui.setPref('memaoLibrary', clean || undefined);
+        return clean;
+    },
+
+    memaoIndex() {
+        if (this._memaoIndex === undefined) {
+            const D = DocsDoodads;
+            let data = null;
+            try { data = D.FS.existsSync(D.Memao.indexFile) ? D.FS.readJson(D.Memao.indexFile) : null; } catch (e) { data = null; }
+            this._memaoIndex = D.Memao.validIndex(data);
+        }
+        return this._memaoIndex;
+    },
+
+    scanMemaoLibrary(folder = this.memaoLibraryFolder()) {
+        const D = DocsDoodads, M = D.Memao, FS = D.FS;
+        if (!FS.fs || !FS.path) return null;
+        if (!folder) { this.showToast('Choose the Memao asset folder first.', 'info'); return null; }
+        if (!M.isLibrary(FS.fs, FS.path, folder)) {
+            this.showToast(`That folder has no Main folder and ${M.zFile}. Choose the unpacked memao-assets folder.`, 'error');
+            return null;
+        }
+        const index = M.scan(FS.fs, FS.path, FS.path.resolve(folder));
+        if (!index) return null;
+        if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the Memao index.', 'error'); return null; }
+        this._memaoIndex = index;
+        this._memaoCache = null;
+        const s = M.summary(index);
+        this.showToast(`Found ${s.parts} Memao parts in ${s.sets.length} set${s.sets.length === 1 ? '' : 's'}` + (s.warnings.length ? ` (${s.warnings.length} note${s.warnings.length === 1 ? '' : 's'})` : '') + '.', 'success');
+        return index;
+    },
+
+    // The pack isn't where the scan found it.
+    memaoIndexMissing(index = this.memaoIndex()) {
+        const D = DocsDoodads, FS = D.FS;
+        return Boolean(index && FS.fs && !D.Memao.isLibrary(FS.fs, FS.path, index.library));
+    },
+
+    // ---- Drawing ----
+
+    memaoSheetPath(file, index = this.memaoIndex()) {
+        const FS = DocsDoodads.FS;
+        return index && FS.path ? FS.path.join(index.library, file) : '';
+    },
+
+    memaoLoadImage(file) {
+        const FS = DocsDoodads.FS;
+        try {
+            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+            if (!zlib || !FS.fs) return null;
+            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.memaoSheetPath(file)), data => zlib.inflateSync(data));
+        } catch (e) {
+            return null;
+        }
+    },
+
+    memaoCache() {
+        if (!this._memaoCache) this._memaoCache = DocsDoodads.LpcCompose.newCache(200);
+        return this._memaoCache;
+    },
+
+    // recipe -> { sheet, warnings, used } for one animation, or null without an index.
+    composeMemao(recipe, animation = 'walk') {
+        const D = DocsDoodads, FS = D.FS;
+        const index = this.memaoIndex();
+        if (!index || !FS.fs) return null;
+        const resolved = D.MemaoCompose.resolve(index, recipe, animation, file => FS.existsSync(this.memaoSheetPath(file, index)));
+        const out = D.MemaoCompose.compose(resolved, file => this.memaoLoadImage(file), this.memaoCache());
+        return { sheet: out.sheet, warnings: out.warnings, used: resolved.used };
+    },
+
+    openMemaoCreator(state) {
+        return this.openCreator(state, 'memao');
+    },
+
+    // ---- Export ----
+
+    memaoExportDefaults() {
+        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, actions: ['slash', 'hurt', 'wave', 'pickup'] };
+    },
+
+    memaoExportFiles(name, options) {
+        const E = DocsDoodads.MemaoExport;
+        const N = E.names(name);
+        const files = [];
+        if (options.classic) files.push('img/characters/' + N.classic + '.png');
+        if (options.smooth) files.push('img/characters/' + N.smooth + '.png', 'img/characters/' + N.idle + '.png', 'img/characters/' + N.run + '.png');
+        if (options.face) files.push('img/faces/' + N.face + '.png');
+        if (options.battler) files.push('img/sv_actors/' + N.face + '.png');
+        for (const anim of options.actions || []) files.push('img/characters/' + E.actionName(name, anim) + '.png');
+        return files;
+    },
+
+    // Writes the ticked sheets; returns { files, warnings, names } or null (with a message) when it can't.
+    exportMemaoCharacter(state, options) {
+        const D = DocsDoodads, E = D.MemaoExport, S = D.MemaoSlots, FS = D.FS;
+        if (!FS.fs || !FS.writable()) { this.showToast('Characters are exported in a playtest.', 'info'); return null; }
+        const name = E.cleanName(options.name);
+        if (!name) { this.showToast('Give the character a name first.', 'info'); return null; }
+        const N = E.names(name);
+        const recipe = S.toRecipe(state);
+        const warnings = [];
+        const sheets = {};
+        const sheetOf = anim => {
+            if (!(anim in sheets)) { const out = this.composeMemao(recipe, anim); sheets[anim] = out && out.sheet; if (out) warnings.push(...out.warnings.filter(w => !warnings.includes(w))); }
+            return sheets[anim];
+        };
+        const walk = sheetOf('walk'), idle = sheetOf('idle');
+        if (!walk) { this.showToast('Nothing to export: the character has no walk.', 'error'); return null; }
+        const written = [];
+        const write = (file, image) => { this.writeLpcPng(file, image); written.push(file); };
+        try {
+            if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk, idle));
+            if (options.smooth) {
+                write('img/characters/' + N.smooth + '.png', E.smooth(walk, idle));
+                if (idle) write('img/characters/' + N.idle + '.png', E.allFrames(idle));
+                const run = sheetOf('run');
+                if (run) write('img/characters/' + N.run + '.png', E.allFrames(run));
+                const set = E.animationSet(N);
+                const sets = (D.World.get('characterAnim.sets') || []).filter(s => s && s.character !== set.character);
+                sets.push(set);
+                this.setWorldSetting('characterAnim.sets', sets);
+            }
+            for (const anim of options.actions || []) {
+                const sheet = sheetOf(anim);
+                if (!sheet) { warnings.push(`No ${anim} action: the pack has no ${anim}.`); continue; }
+                write('img/characters/' + E.actionName(name, anim) + '.png', E.actionSheet(sheet, anim));
+            }
+            if (options.battler) {
+                const all = {};
+                for (const anim of E.svAnimations()) all[anim] = sheetOf(anim);
+                const sv = E.svSheet(all);
+                write('img/sv_actors/' + N.face + '.png', sv.sheet);
+                if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the pack has none of their own).`);
+            }
+            if (options.face) {
+                // The face leaves out what is held.
+                const faceState = { body: state.body, slots: Object.assign({}, state.slots) };
+                for (const slot of S.allSlots().filter(s => s.tab === 'tools')) delete faceState.slots[slot.key];
+                const faceIdle = this.composeMemao(S.toRecipe(faceState), 'idle');
+                const file = 'img/faces/' + N.face + '.png';
+                write(file, E.faceSheet(this.readLpcPng(file), E.face(faceIdle && faceIdle.sheet), options.faceSlot || 0));
+            }
+        } catch (e) {
+            this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
+            return null;
+        }
+        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(S), name, state));
+        this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}.`, 'success');
+        return { files: written, warnings: [...new Set(warnings)], names: N, parts: [] };
+    },
+
+    // ---- On the Characters card ----
+
+    memaoCardHtml() {
+        const D = DocsDoodads, U = D.Ui, M = D.Memao, FS = D.FS;
+        const folder = this.memaoLibraryFolder();
+        const index = this.memaoIndex();
+        const s = index ? M.summary(index) : null;
+        const inside = folder && FS.path ? M.insideProject(FS.path, folder, '.') : false;
+        const missing = index ? this.memaoIndexMissing(index) : false;
+        const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
+        return `
+            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">Memao Sprite Sheet Creator assets</div>
+            <div class="dd-lpc-row">
+                <input type="text" id="dd-memao-folder" value="${escapeHtml(folder)}" placeholder="The unpacked memao-assets folder" aria-label="Memao asset folder" />
+                <button class="dd-btn" id="dd-memao-choose" type="button" title="Pick the folder">${U.icon('folder', 1)} Choose...</button>
+            </div>
+            ${inside ? `<div class="dd-lpc-warn" id="dd-memao-inside"><b>This folder is inside the project.</b> MZ's Deployment would copy the whole asset pack into the game, and its licence forbids sharing the pack. Keep it somewhere else.</div>` : ''}
+            <div class="dd-lpc-row">
+                <button class="dd-btn dd-btn-primary" id="dd-memao-scan" type="button" title="Read the pack's parts and names">${index ? 'Scan Again' : 'Scan the Assets'}</button>
+                ${index && !missing ? `<button class="dd-btn dd-btn-good" id="dd-memao-creator" type="button" title="Make a character from the Memao assets">${U.icon('person', 1)} Open the Memao Creator</button>` : ''}
+            </div>
+            ${s ? `<div class="dd-lpc-box" id="dd-memao-status"><b>${s.parts} parts</b> · ${escapeHtml(s.sets.join(', '))} · scanned ${escapeHtml(day(s.built))}${s.warnings.length ? `<br><span style="color: var(--dd-warn);">${s.warnings.map(w => escapeHtml(w)).join('<br>')}</span>` : ''}</div>` : '<div class="dd-lpc-box" id="dd-memao-status">Not scanned yet.</div>'}
+            ${missing ? `<div class="dd-lpc-warn" id="dd-memao-missing">The assets aren't at ${escapeHtml(index.library)} any more. Choose where they are now.</div>` : ''}
+            <div class="dd-lpc-note">The pack is read where it is and never copied into the project: its licence lets the sheets you make go into your games, but not the pack, or the sheets on their own. Credit to "Memao" is appreciated.</div>`;
+    },
+
+    bindMemaoCard() {
+        const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+        const field = document.getElementById('dd-memao-folder');
+        if (field) field.onchange = e => { this.setMemaoLibraryFolder(e.target.value); this.refreshLpcCard(); };
+        on('dd-memao-choose', () => this.pickMemaoLibraryFolder());
+        on('dd-memao-scan', () => {
+            const typed = field ? field.value : this.memaoLibraryFolder();
+            if (typed !== this.memaoLibraryFolder()) this.setMemaoLibraryFolder(typed);
+            const button = document.getElementById('dd-memao-scan');
+            if (button) { button.disabled = true; button.textContent = 'Scanning...'; }
+            return new Promise(resolve => setTimeout(() => {
+                this.scanMemaoLibrary(this.memaoLibraryFolder());
+                this.refreshLpcCard();
+                resolve();
+            }, 30));
+        });
+        on('dd-memao-creator', () => this.openMemaoCreator());
+    },
+
+    pickMemaoLibraryFolder() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        if (typeof input.setAttribute === 'function') input.setAttribute('nwdirectory', '');
+        input.onchange = () => {
+            const chosen = input.value || (input.files && input.files[0] && input.files[0].path) || '';
+            if (!chosen) return;
+            this.setMemaoLibraryFolder(chosen);
+            this.refreshLpcCard();
+        };
+        if (typeof input.click === 'function') input.click();
+        return true;
     }
 });
 //==========================================================

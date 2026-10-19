@@ -279,7 +279,7 @@ Object.assign(DocsDoodads.Workspace, {
         const categories = s ? Object.entries(s.categories).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(' · ') : '';
         const skipped = index && index.skipped && index.skipped.length ? index.skipped : [];
         card.innerHTML = `
-            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters (LPC library)</span>
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters (LPC and Memao)</span>
                 <button class="dd-btn dd-fold" id="dd-lpc-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
             <div class="dd-lpc-group">Library folder (on this computer)</div>
             <div class="dd-lpc-row">
@@ -321,7 +321,8 @@ Object.assign(DocsDoodads.Workspace, {
             <div class="dd-lpc-row">
                 <button class="dd-btn" id="dd-lpc-credits-write" type="button" title="Write the artists, licences and links of every LPC picture into ${escapeHtml(L.creditsText)}, beside the game"${textState === 'none' ? ' disabled' : ''}>Write ${escapeHtml(L.creditsText)}</button>
             </div>
-            <div class="dd-lpc-note">Every LPC artwork needs its artists credited in the game. Credits are kept per picture in ${escapeHtml(L.creditsFile)}; Problems says when ${escapeHtml(L.creditsText)} needs writing again.</div>`;
+            <div class="dd-lpc-note">Every LPC artwork needs its artists credited in the game. Credits are kept per picture in ${escapeHtml(L.creditsFile)}; Problems says when ${escapeHtml(L.creditsText)} needs writing again.</div>
+            ${this.memaoCardHtml()}`;
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         const field = document.getElementById('dd-lpc-folder');
         if (field) field.onchange = e => { this.setLpcLibraryFolder(e.target.value); this.refreshLpcCard(); };
@@ -346,6 +347,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-lpc-creator', () => this.openCreator());
         on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
         on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
+        this.bindMemaoCard();
         if (document.getElementById('dd-lpc-preview')) {
             if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
             else this.drawLpcPreview();

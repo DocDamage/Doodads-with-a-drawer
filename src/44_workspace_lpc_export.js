@@ -143,7 +143,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (JSON.stringify(bodies) !== JSON.stringify(D.World.get('characterAnim.svBody') || {})) this.setWorldSetting('characterAnim.svBody', bodies);
         // Credits ship with the game; the character is kept to change and export again.
         if (written.length) this.writeLpcCreditsText();
-        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
+        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(S), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
         return { files: written, warnings: [...new Set(warnings)], names: N, parts, oversize };
