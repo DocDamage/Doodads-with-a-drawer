@@ -68,6 +68,8 @@ Object.assign(DocsDoodads.Workspace, {
         };
         // Action sheets reaching below the feet (and ones that no longer do).
         let feet = D.World.get('characterAnim.feet') || {};
+        // Battlers grown for a big weapon: the figure's height, so battle animations aim at it.
+        let bodies = D.World.get('characterAnim.svBody') || {};
         const action = (file, sheet) => {
             feet = E.feetWith(feet, file.replace(/^.*\//, '').replace(/\.png$/i, ''), E.actionBelow(sheet));
             big(file, sheet, true);
@@ -120,6 +122,7 @@ Object.assign(DocsDoodads.Workspace, {
                 this.writeLpcPng(f, sv.sheet);
                 record(f, used);
                 battler(f, sv);
+                bodies = E.feetWith(bodies, N.face, sv.cell.h > E.frame ? E.frame : 0);
                 if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
@@ -137,6 +140,7 @@ Object.assign(DocsDoodads.Workspace, {
             return null;
         }
         if (JSON.stringify(feet) !== JSON.stringify(D.World.get('characterAnim.feet') || {})) this.setWorldSetting('characterAnim.feet', feet);
+        if (JSON.stringify(bodies) !== JSON.stringify(D.World.get('characterAnim.svBody') || {})) this.setWorldSetting('characterAnim.svBody', bodies);
         // Credits ship with the game; the character is kept to change and export again.
         if (written.length) this.writeLpcCreditsText();
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));

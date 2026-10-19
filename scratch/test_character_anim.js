@@ -21,6 +21,10 @@ global.document = {
 };
 global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: (opt) => opt === "test" };
 global.PluginManager = { parameters: () => ({}) };
+// MZ's side-view battler, as far as its size goes: updateFrame sets the frame to one cell of the sheet.
+global.Sprite_Actor = function() { this._battlerName = ''; this._frame = null; this._cell = { w: 64, h: 64 }; };
+Sprite_Actor.prototype.setFrame = function(x, y, width, height) { this._frame = { x, y, width, height }; };
+Sprite_Actor.prototype.updateFrame = function() { this.setFrame(0, 0, this._cell.w, this._cell.h); };
 global.$gameMap = { mapId: () => 1, displayX: () => 0, displayY: () => 0, tileWidth: () => 48, tileHeight: () => 48 };
 global.$dataDocsDoodads = { 1: [] };
 
@@ -44,6 +48,21 @@ assert.strictEqual(C.belowFor('$Knight_slash[f6]', { '$Knight_slash[f6]': 64 }),
 assert.strictEqual(C.belowFor('$Knight[f9][w2]', { '$Knight_slash[f6]': 64 }), 0);
 assert.strictEqual(C.footAnchor(192, 64), 1 - 64 / 192, 'the feet stay where the character stands');
 assert.strictEqual(C.footAnchor(64, 0), 1);
+// A battler grown to fit a big weapon keeps the figure's height, so battle animations aim at the figure.
+assert.strictEqual(C.svBodyFor('Knight[h64]', null), 64);
+assert.strictEqual(C.svBodyFor('Knight', { Knight: 64 }), 64, "or the project's table");
+assert.strictEqual(C.svBodyFor('Actor1_1', { Knight: 64 }), 0);
+const battler = new Sprite_Actor();
+battler._battlerName = 'Knight';
+battler._cell = { w: 192, h: 128 };
+DocsDoodads.World.settings().characterAnim.svBody = { Knight: 64 };
+battler.updateFrame();
+assert.deepStrictEqual(battler._frame, { x: 0, y: 0, width: 192, height: 64 }, 'the figure is 64 tall in a 192 x 128 cell');
+battler._battlerName = 'Actor1_1';
+battler._cell = { w: 64, h: 64 };
+battler.updateFrame();
+assert.deepStrictEqual(battler._frame, { x: 0, y: 0, width: 64, height: 64 }, 'other battlers are left alone');
+DocsDoodads.World.settings().characterAnim.svBody = {};
 
 // 2. Which row a direction uses. MZ order: down, left, right, up; 8-direction sheets add the diagonals.
 assert.deepStrictEqual(C.rowFor(2, 4), { row: 0, mirror: false });

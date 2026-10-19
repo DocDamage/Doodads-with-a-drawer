@@ -3358,7 +3358,7 @@ DocsDoodads.World = {
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
         postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
-        characterAnim: { diagonal: false, sets: [], feet: {} },
+        characterAnim: { diagonal: false, sets: [], feet: {}, svBody: {} },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
         // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
         zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },
@@ -5029,6 +5029,16 @@ DocsDoodads.CharacterAnim = {
         const tag = this.parseName(sheet).below;
         if (tag) return tag;
         const n = table ? Number(table[String(sheet || '')]) : 0;
+        return n > 0 ? n : 0;
+    },
+
+    // How tall the figure is in a side-view battler's cells, when they are bigger than it (0 otherwise): the
+    // battler's [hN] tag, or the project's table (characterAnim.svBody, written by the Character Creator for
+    // a battler grown to fit a big weapon). Battle animations aim at the figure.
+    svBodyFor(battlerName, table) {
+        const tag = String(battlerName || '').match(/\[h(\d+)\]/i);
+        if (tag) return parseInt(tag[1], 10);
+        const n = table ? Number(table[String(battlerName || '')]) : 0;
         return n > 0 ? n : 0;
     },
 
@@ -11055,6 +11065,23 @@ DocsDoodads.CharacterAnim.sets = function() {
 DocsDoodads.CharacterAnim.feet = function() {
     return DocsDoodads.World.settings().characterAnim.feet || {};
 };
+
+DocsDoodads.CharacterAnim.svBodies = function() {
+    return DocsDoodads.World.settings().characterAnim.svBody || {};
+};
+
+// A side-view battler whose cells are bigger than the figure in them (grown to fit a big weapon) takes the
+// figure's height, which is all MZ uses a battler's size for: battle animations (centre, head, and the
+// MV-style ones) then play where they would on a battler of the figure's own size.
+if (typeof Sprite_Actor !== 'undefined') {
+    $.Sprite_Actor_updateFrame_body = Sprite_Actor.prototype.updateFrame;
+    Sprite_Actor.prototype.updateFrame = function() {
+        $.Sprite_Actor_updateFrame_body.call(this);
+        const C = DocsDoodads.CharacterAnim;
+        const body = this._battlerName ? C.svBodyFor(this._battlerName, C.svBodies()) : 0;
+        if (body > 0 && this._frame && this._frame.height > body) this.setFrame(0, 0, this._frame.width, body);
+    };
+}
 
 // Loads idle and run sheets for characters on the map before they are needed, so switching never blinks.
 DocsDoodads.CharacterAnim.preload = function() {
@@ -35337,6 +35364,8 @@ Object.assign(DocsDoodads.Workspace, {
         };
         // Action sheets reaching below the feet (and ones that no longer do).
         let feet = D.World.get('characterAnim.feet') || {};
+        // Battlers grown for a big weapon: the figure's height, so battle animations aim at it.
+        let bodies = D.World.get('characterAnim.svBody') || {};
         const action = (file, sheet) => {
             feet = E.feetWith(feet, file.replace(/^.*\//, '').replace(/\.png$/i, ''), E.actionBelow(sheet));
             big(file, sheet, true);
@@ -35389,6 +35418,7 @@ Object.assign(DocsDoodads.Workspace, {
                 this.writeLpcPng(f, sv.sheet);
                 record(f, used);
                 battler(f, sv);
+                bodies = E.feetWith(bodies, N.face, sv.cell.h > E.frame ? E.frame : 0);
                 if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
@@ -35406,6 +35436,7 @@ Object.assign(DocsDoodads.Workspace, {
             return null;
         }
         if (JSON.stringify(feet) !== JSON.stringify(D.World.get('characterAnim.feet') || {})) this.setWorldSetting('characterAnim.feet', feet);
+        if (JSON.stringify(bodies) !== JSON.stringify(D.World.get('characterAnim.svBody') || {})) this.setWorldSetting('characterAnim.svBody', bodies);
         // Credits ship with the game; the character is kept to change and export again.
         if (written.length) this.writeLpcCreditsText();
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));

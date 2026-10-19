@@ -26,7 +26,7 @@ DocsDoodads.World = {
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
         postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
-        characterAnim: { diagonal: false, sets: [], feet: {} },
+        characterAnim: { diagonal: false, sets: [], feet: {}, svBody: {} },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
         // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
         zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },

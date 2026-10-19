@@ -270,6 +270,7 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.deepStrictEqual([kimg('img/characters/$Knight_hurt[f6].png').width, kimg('img/characters/$Knight.png').width], [384, 192], 'sheets without oversize art keep 64-pixel frames');
     const ksv = kimg('img/sv_actors/Knight.png');
     assert.deepStrictEqual([ksv.width, ksv.height], [9 * 192, 6 * 128], "the battler's cells grow to the swing");
+    assert.deepStrictEqual(D.World.get('characterAnim.svBody'), { Knight: 64 }, 'the figure is 64 tall in them, for battle animations');
     assert.deepStrictEqual(px(ksv, 64 + 10, 64 + 20), [20, 60, 7, 255], 'walk: the 64-pixel frame at the bottom middle of its cell');
     assert.deepStrictEqual(px(ksv, 3 * 192 + 64 + 10, 128 + 64 + 20), [200, 20, 50, 255], 'swing: the blade, frame 1 facing left');
     assert.deepStrictEqual(px(ksv, 3 * 192 + 64 + 30, 128 + 64 + 40), [20, 60, 7, 255], 'and the body at the same size and place as in walk');
@@ -298,6 +299,9 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.deepStrictEqual(px(kimg(swordSlash), 2 * 192 + 5, 5), [200, 40, 100, 255]);
     assert.deepStrictEqual([kimg(sword.files.find(f => f.startsWith('img/sv_actors/'))).width, kimg('img/characters/$Knight2_slash[f6].png').width], [1728, 384], 'the body alone keeps 64-pixel frames');
     assert.deepStrictEqual(kp.oversize.map(o => o.file), [swordSlash, sword.files.find(f => f.startsWith('img/sv_actors/'))]);
+    assert.deepStrictEqual(D.World.get('characterAnim.svBody'), { Knight: 64 }, 'the body-only battler is not grown (its layer is)');
+    ws.exportLpcCharacter({ body: 'male', slots: { body: { id: 'body/body', colour: 'light' } } }, { name: 'Knight', battler: true });
+    assert.deepStrictEqual(D.World.get('characterAnim.svBody'), {}, 'gone when the battler is exported again without the big weapon');
     // The creator's stage shows the swing on a bigger canvas around the same body; the export says which sheets are bigger.
     ws.openCreator(knight);
     const canvas = document.getElementById('dd-cr-canvas');

@@ -4,6 +4,7 @@
 
 - The Character Creator draws big weapons (the LPC library's oversize and 128-pixel art: most swords, spears and polearms) at their size instead of leaving them out. The stage shows the whole swing. Action sheets keep the whole bigger frame (`$Name_slash[f6]` at 192 × 192, the tip of a downward thrust included) and stand on the feet; walkers and the side-view battler get bigger frames that keep what is above the feet (a battler with 192 × 128 cells). The export says which. Visual Equipment parts get the same frames, and battler layers with bigger cells are drawn at their own size.
 - A Backswing action (`$Name_slash_reverse[f6]`): the slash played backwards, with the return-swing art of the weapons that have it. The club and boomerang swing that way on Slash too.
+- Battle animations aim at the figure on a side-view battler whose cells are bigger than it (the Character Creator's battlers grown for a big weapon, or `[hN]` in a battler's name), instead of showing high.
 - `[bN]` in a character sheet's name: its frames have N pixels of art below the feet, and the character still stands where it is, with its shadow, reflection, bush and gear following the feet.
 - The LPC compositor ignores empty padding columns on 64-pixel sheets too (the wand's slash was left out).
 - A Playful theme (More > Look): cream cards, teal and coral, yellow for what is picked, rounder corners and pill buttons. Filled buttons keep white text at 4.5:1 or better.
