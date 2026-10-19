@@ -1101,8 +1101,10 @@
         const model = DocsDoodads.Perspective.active() && d.model && d.model.path ? DocsDoodads.Models.get(d.model.path) : null;
         if (model && model.ready && model.primitives.length) {
             const unit = Math.abs(Number(d.model.scale) || 1) * (window.$gameMap ? $gameMap.tileWidth() : 48);
-            const half = Math.max(Math.abs(model.min[0]), Math.abs(model.max[0]), Math.abs(model.min[2]), Math.abs(model.max[2])) * unit;
-            const tall = Math.max(1, model.max[1]) * unit;
+            // A moving model's box follows its pose (the moment drawn last).
+            const b = this.modelPoseBounds(d, model) || model;
+            const half = Math.max(Math.abs(b.min[0]), Math.abs(b.max[0]), Math.abs(b.min[2]), Math.abs(b.max[2])) * unit;
+            const tall = Math.max(0.1, b.max[1]) * unit;
             rect.x = pivot.x - half; rect.w = half * 2;
             rect.y = pivot.y - tall; rect.h = tall;
         }
@@ -1117,6 +1119,14 @@
             rect.h *= k;
         }
         return { rect, pivot };
+    },
+
+    // The box round a model doodad's pose as drawn last, or null (still, or not drawn yet).
+    modelPoseBounds(d, model) {
+        const ss = typeof SceneManager !== 'undefined' && SceneManager._scene ? SceneManager._scene._spriteset : null;
+        const sprite = ss && ss._docsDoodadSprites ? ss._docsDoodadSprites.find(sp => sp._data === d) : null;
+        if (!sprite || !sprite._docsPose || !ss.docsModelBounds) return null;
+        return ss.docsModelBounds(sprite, model, sprite._docsPose.animation, sprite._docsPose.time);
     },
 
     // The selection as boxes for the 3D view.
@@ -1136,7 +1146,7 @@
             // Models are picked by what's drawn: their triangles, not a box around them.
             const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene ? SceneManager._scene._spriteset : null;
             const modelDepth = d.model && d.model.path && spriteset && spriteset.docsModelHit ? spriteset.docsModelHit(d, screen.x, screen.y) : undefined;
-            if (modelDepth !== undefined && spriteset._docsDoodadSprites && spriteset._docsDoodadSprites.some(sp => sp._data === d && sp._docsModelMeshes && sp._docsModelMeshes.some(m => m && m._docsDrawn))) {
+            if (modelDepth !== undefined && spriteset._docsDoodadSprites && spriteset._docsDoodadSprites.some(sp => sp._data === d && (sp._docsModelGpuDrawn || (sp._docsModelMeshes && sp._docsModelMeshes.some(m => m && m._docsDrawn))))) {
                 if (modelDepth !== null && modelDepth < bestDepth) { best = d; bestDepth = modelDepth; }
                 continue;
             }

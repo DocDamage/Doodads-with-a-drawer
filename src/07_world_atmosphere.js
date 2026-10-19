@@ -53,6 +53,8 @@ DocsDoodads.World = {
         minimap: { flat: false, fog: false, radius: 6, size: 140 },
         // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
         camera2d: { smooth: 0, lookAhead: 0 },
+        // 3D models drawn on the GPU (17_perspective_runtime_models.js): faster, and still new.
+        models3d: { gpu: false },
         // Flat-map lighting (06_render_lights_directional.js): walls that stop light, and the player's flashlight.
         lighting2d: { occlusion: false, wallRegions: '', rays: 160,
             flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },

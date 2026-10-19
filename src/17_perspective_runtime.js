@@ -2166,6 +2166,8 @@ DocsDoodads.Models = {
             const url = uri => FS.path.relative(root, local(uri)).split(FS.path.sep).map(encodeURIComponent).join('/');
             const images = new Map();
             entry.textures = mesh.primitives.map(prim => this.texture(prim, url, images));
+            // Normal maps load the same way (white: no normal map).
+            entry.normalTextures = mesh.primitives.map(prim => (prim.normalImage ? this.texture({ image: prim.normalImage, nearest: false }, url, images) : PIXI.Texture.WHITE));
             entry.ready = true;
         } catch (e) {
             entry.error = e.message;
@@ -2242,12 +2244,13 @@ DocsDoodads.Models = {
     // Frees a model's textures (a model loaded again, or dropped from the cache).
     release(entry) {
         const seen = new Set();
-        for (const texture of entry.textures || []) {
+        for (const texture of (entry.textures || []).concat(entry.normalTextures || [])) {
             if (!texture || texture === PIXI.Texture.WHITE || seen.has(texture)) continue;
             seen.add(texture);
             PIXI.Texture.prototype.destroy.call(texture, true);
         }
         entry.textures = [];
+        entry.normalTextures = [];
     },
 
     forget(path) {
@@ -2265,238 +2268,7 @@ if (typeof Spriteset_Map !== 'undefined' && Spriteset_Map.prototype.addDocsDooda
     };
 }
 
-DocsDoodads.Models.vertex = [
-    'precision highp float;',
-    'attribute vec2 aVertexPosition;',
-    'attribute vec2 aUv;',
-    'attribute float aShade;',
-    'attribute float aSpec;',
-    'attribute vec4 aColor;',
-    'uniform mat3 projectionMatrix;',
-    'uniform mat3 translationMatrix;',
-    'varying vec2 vUv;',
-    'varying float vShade;',
-    'varying float vSpec;',
-    'varying vec4 vColor;',
-    'void main() {',
-    '    vUv = aUv;',
-    '    vShade = aShade;',
-    '    vSpec = aSpec;',
-    '    vColor = aColor;',
-    '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
-    '}'
-].join('\n');
-
-DocsDoodads.Models.fragment = [
-    'precision mediump float;',
-    'varying vec2 vUv;',
-    'varying float vShade;',
-    'varying float vSpec;',
-    'varying vec4 vColor;',
-    'uniform sampler2D uSampler;',
-    'uniform vec4 uColor;',
-    'uniform vec3 uTint;',
-    'uniform float uAlpha;',
-    // Materials: glow (not darkened at night), metal (tints the highlight), and the alpha mode:
-    // 0 opaque (alpha ignored), 1 mask (cut out below uCutoff), 2 blend.
-    'uniform vec3 uEmissive;',
-    'uniform float uMetal;',
-    'uniform float uMode;',
-    'uniform float uCutoff;',
-    'void main() {',
-    '    vec4 c = texture2D(uSampler, vUv) * uColor * vColor;',
-    '    if (uMode > 0.5 && uMode < 1.5 && c.a < uCutoff) discard;',
-    '    float a = (uMode > 1.5 ? c.a : 1.0) * uAlpha;',
-    '    vec3 lit = (c.rgb * vShade + vSpec * mix(vec3(1.0), c.rgb, uMetal)) * uTint + uEmissive;',
-    '    gl_FragColor = vec4(lit * a, a);',
-    '}'
-].join('\n');
-
-if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
-    // A model doodad's draw items for this frame (one per primitive, sorted far to near), or null to draw
-    // the picture instead (no model, or still loading). Each part keeps its placed points and lighting
-    // until the model is turned, scaled, lit or seen differently, and its projected triangles until the
-    // camera or the doodad moves, so a still view of a still model costs almost nothing. An animated
-    // model is posed (and placed) again each frame.
-    Spriteset_Map.prototype.docsModelItems = function(obj, cam, pivot, fog, light, s) {
-        const d = obj._data;
-        const entry = d && d.model && d.model.path ? DocsDoodads.Models.get(d.model.path) : null;
-        if (!entry || !entry.ready || !entry.primitives.length) return null;
-        const P = DocsDoodads.Perspective, G = DocsDoodads.Gltf, T = DocsDoodads.Terrain;
-        const tw = $gameMap.tileWidth();
-        const scale = (Number(d.model.scale) || 1) * tw * s.doodadScale, yaw = Number(d.model.yaw) || 0;
-        const dir = this._docsSkyLight || T.light;
-        const flat = cam.curve === 'flat';
-        let meshes = obj._docsModelMeshes = obj._docsModelMeshes || [];
-        // Another model (the path changed, or it was loaded again): the old parts go.
-        if (obj._docsModelEntry !== entry) {
-            for (const m of meshes) if (m && !m._destroyed) m.destroy();
-            meshes = obj._docsModelMeshes = [];
-            obj._docsModelEntry = entry;
-        }
-        const items = [];
-        const ph = pivot.h || 0;
-        const pivotDepth = P.project(cam, pivot.x, pivot.y, ph);
-        if (!pivotDepth) return [];
-        const groundDepth = P.groundDepth(cam, pivot.x, pivot.y);
-        // The pose: the rest pose, or this frame of the doodad's animation.
-        const animation = G.pickAnimation(entry, d.model.animation);
-        const speed = d.model.speed !== undefined && d.model.speed !== '' ? Number(d.model.speed) : 1;
-        const time = animation ? DocsDoodads.frameCount() / 60 * (Number.isFinite(speed) ? speed : 1) : 0;
-        let pose = null;
-        if (animation) {
-            // Doodads showing the same model, animation and moment share one pose (it is only read).
-            const shared = entry._docsPoses = entry._docsPoses || new Map();
-            let posed = shared.get(animation);
-            if (!posed || posed.time !== time) {
-                posed = { time, entry, animation, data: G.pose(entry, animation, time) };
-                shared.set(animation, posed);
-            }
-            obj._docsPose = posed;
-            pose = posed.data;
-        }
-        const poseKey = animation ? '|' + animation.name + '@' + time : '';
-        const placeKey = scale + '|' + yaw + poseKey;
-        // Highlights depend on where the camera looks from (rounded, so a small move doesn't relight).
-        const view = [-cam.F.x, -cam.F.y, -cam.F.z];
-        const shadeKey = yaw + '|' + dir[0] + ',' + dir[1] + ',' + dir[2] + '|' + view.map(v => v.toFixed(2)).join(',') + poseKey;
-        const C = cam.C, F = cam.F, R = cam.R, U = cam.U;
-        const frameKey = [C.x, C.y, C.z, F.x, F.y, F.z, R.x, R.y, U.z, cam.focal, cam.width, cam.height, cam.curve, cam.radius,
-            cam.target.x, cam.target.y, pivot.x, pivot.y, ph, placeKey].join(',');
-        // A doodad flipped by a negative scale turns its faces inside out.
-        const mirrored = scale < 0;
-        const hw = cam.width / 2, hh = cam.height / 2, focal = cam.focal;
-        entry.primitives.forEach((prim, pi) => {
-            const positions = pose ? pose.positions[pi] : prim.positions, normals = pose ? pose.normals[pi] : prim.normals;
-            const n = positions.length / 3, triCount = prim.indices.length / 3;
-            let m = meshes[pi];
-            if (!m || m._destroyed || m._docsCount !== n || m._docsTris !== triCount) {
-                if (m && !m._destroyed) m.destroy();
-                const colors = prim.colors ? new Float32Array(prim.colors) : new Float32Array(n * 4).fill(1);
-                const geometry = new PIXI.Geometry()
-                    .addAttribute('aVertexPosition', new Float32Array(n * 2), 2)
-                    .addAttribute('aUv', new Float32Array(prim.uvs), 2)
-                    .addAttribute('aShade', new Float32Array(n), 1)
-                    .addAttribute('aSpec', new Float32Array(n), 1)
-                    .addAttribute('aColor', colors, 4)
-                    .addIndex(n < 65536 ? new Uint16Array(prim.indices.length) : new Uint32Array(prim.indices.length));
-                const shader = PIXI.Shader.from(DocsDoodads.Models.vertex, DocsDoodads.Models.fragment, {
-                    uSampler: entry.textures[pi], uColor: prim.color, uTint: [1, 1, 1], uAlpha: 1,
-                    uEmissive: (prim.emissive || [0, 0, 0]).slice(), uMetal: Math.max(0, Math.min(1, prim.metallic !== undefined ? prim.metallic : 0)),
-                    uMode: prim.alphaMode === 'MASK' ? 1 : prim.alphaMode === 'BLEND' ? 2 : 0, uCutoff: prim.alphaCutoff !== undefined ? prim.alphaCutoff : 0.5 });
-                m = meshes[pi] = new PIXI.Mesh(geometry, shader);
-                m._docsCount = n;
-                m._docsTris = triCount;
-                m._docsPlaced = new Float64Array(n * 3);
-                m._docsDepth = new Float64Array(n);
-                m._docsOk = new Uint8Array(n);
-                m._docsSort = T.sortBuffers(triCount);
-                m._docsTri = new Uint32Array(triCount);
-                m._docsPlaceKey = m._docsShadeKey = m._docsFrameKey = null;
-            }
-            const placed = m._docsPlaced;
-            if (m._docsPlaceKey !== placeKey) {
-                for (let v = 0; v < n; v++) {
-                    const w = G.place(positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2], scale, yaw);
-                    placed[v * 3] = w.dx; placed[v * 3 + 1] = w.dy; placed[v * 3 + 2] = w.h;
-                }
-                m._docsPlaceKey = placeKey;
-                m._docsFrameKey = null;
-            }
-            if (m._docsShadeKey !== shadeKey) {
-                const shade = m.geometry.getBuffer('aShade').data, spec = m.geometry.getBuffer('aSpec').data;
-                for (let v = 0; v < n; v++) {
-                    const lit = G.light(normals[v * 3], normals[v * 3 + 1], normals[v * 3 + 2], yaw, dir, view, prim);
-                    shade[v] = lit[0];
-                    spec[v] = lit[1];
-                }
-                m.geometry.getBuffer('aShade').update();
-                m.geometry.getBuffer('aSpec').update();
-                m._docsShadeKey = shadeKey;
-            }
-            if (m._docsFrameKey !== frameKey) {
-                const pos = m.geometry.getBuffer('aVertexPosition').data, ok = m._docsOk, depthOf = m._docsDepth;
-                // P.project, written out so the loop allocates nothing on flat maps.
-                for (let v = 0; v < n; v++) {
-                    let x = pivot.x + placed[v * 3], y = pivot.y + placed[v * 3 + 1], z = ph + placed[v * 3 + 2];
-                    if (!flat) {
-                        const g = P.groundPoint(cam, x, y, z);
-                        if (!g.visible) { ok[v] = 0; continue; }
-                        x = g.x; y = g.y; z = g.z;
-                    }
-                    const vx = x - C.x, vy = y - C.y, vz = z - C.z;
-                    const depth = vx * F.x + vy * F.y + vz * F.z;
-                    if (depth < 1) { ok[v] = 0; continue; }
-                    const k = focal / depth;
-                    pos[v * 2] = hw + (vx * R.x + vy * R.y + vz * R.z) * k;
-                    pos[v * 2 + 1] = hh - (vx * U.x + vy * U.y + vz * U.z) * k;
-                    depthOf[v] = depth;
-                    ok[v] = 1;
-                }
-                const idx = prim.indices, buf = m._docsSort;
-                let count = 0, sum = 0;
-                for (let t = 0; t < triCount; t++) {
-                    const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
-                    if (!ok[a] || !ok[b] || !ok[c]) continue;
-                    // Single-sided faces turned away from the camera are skipped.
-                    if (!prim.doubleSided) {
-                        const area = (pos[b * 2] - pos[a * 2]) * (pos[c * 2 + 1] - pos[a * 2 + 1]) - (pos[c * 2] - pos[a * 2]) * (pos[b * 2 + 1] - pos[a * 2 + 1]);
-                        if (mirrored ? area < 0 : area > 0) continue;
-                    }
-                    const depth = (depthOf[a] + depthOf[b] + depthOf[c]) / 3;
-                    buf.depth[count] = depth;
-                    m._docsTri[count++] = t;
-                    sum += depth;
-                }
-                const sorted = T.sortFarToNear(buf, count);
-                const out = m.geometry.getIndex().data;
-                for (let i = 0; i < count; i++) {
-                    const t = m._docsTri[sorted[i]];
-                    out[i * 3] = idx[t * 3]; out[i * 3 + 1] = idx[t * 3 + 1]; out[i * 3 + 2] = idx[t * 3 + 2];
-                }
-                m.geometry.getBuffer('aVertexPosition').update();
-                m.geometry.getIndex().update();
-                m._docsFrameKey = frameKey;
-                m._docsDrawn = count;
-                m._docsMean = count ? sum / count : pivotDepth.depth;
-            }
-            const u = m.shader.uniforms;
-            u.uSampler = entry.textures[pi];
-            u.uAlpha = 1 - fog;
-            u.uTint = light !== null && light !== undefined ? [((light >> 16) & 255) / 255, ((light >> 8) & 255) / 255, (light & 255) / 255] : [1, 1, 1];
-            // Parts sort among themselves by their own depth, all at the model's place among billboards.
-            const count = m._docsDrawn;
-            if (count) items.push({ terrain: true, mesh: m, start: 0, count, depth: groundDepth + (m._docsMean - pivotDepth.depth) * 1e-3, bias: tw * 0.5, z: obj.z || 0, spriteId: obj.spriteId || 0 });
-        });
-        // Parts the model no longer has.
-        for (let i = entry.primitives.length; i < meshes.length; i++) if (meshes[i] && !meshes[i]._destroyed) meshes[i].destroy();
-        meshes.length = entry.primitives.length;
-        return items;
-    };
-
-    // The editor picks a model doodad by the triangles drawn last frame: the depth under the screen point
-    // (x, y in the camera's pixels), or null when the point misses the model.
-    Spriteset_Map.prototype.docsModelHit = function(d, x, y) {
-        const sprite = (this._docsDoodadSprites || []).find(sp => sp._data === d);
-        if (!sprite || !sprite.visible || !sprite._docsModelMeshes) return null;
-        let best = null;
-        for (const m of sprite._docsModelMeshes) {
-            if (!m || m._destroyed || !m._docsDrawn) continue;
-            const pos = m.geometry.getBuffer('aVertexPosition').data, idx = m.geometry.getIndex().data;
-            for (let i = 0; i < m._docsDrawn; i++) {
-                const a = idx[i * 3], b = idx[i * 3 + 1], c = idx[i * 3 + 2];
-                const ax = pos[a * 2], ay = pos[a * 2 + 1], bx = pos[b * 2], by = pos[b * 2 + 1], cx = pos[c * 2], cy = pos[c * 2 + 1];
-                const d1 = (x - bx) * (ay - by) - (ax - bx) * (y - by);
-                const d2 = (x - cx) * (by - cy) - (bx - cx) * (y - cy);
-                const d3 = (x - ax) * (cy - ay) - (cx - ax) * (y - ay);
-                if ((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0)) continue;
-                const depth = (m._docsDepth[a] + m._docsDepth[b] + m._docsDepth[c]) / 3;
-                if (best === null || depth < best) best = depth;
-            }
-        }
-        return best;
-    };
-}
+// Drawing models (shaders, the CPU and GPU ways, picking) is in 17_perspective_runtime_models.js.
 
 // A doodad's model meshes go with its sprite (scene changes, editor refreshes).
 if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype.destroy) {
@@ -2504,6 +2276,13 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype.dest
     Sprite_DocsDoodad.prototype.destroy = function(options) {
         for (const mesh of this._docsModelMeshes || []) if (mesh && !mesh._destroyed) mesh.destroy();
         this._docsModelMeshes = null;
+        const gpu = this._docsModelGpu;
+        this._docsModelGpu = null;
+        if (gpu) {
+            for (const m of gpu.meshes) if (m && !m._destroyed) m.destroy();
+            if (gpu.quad && !gpu.quad._destroyed) gpu.quad.destroy();
+            if (gpu.rt) gpu.rt.destroy(true);
+        }
         $.Sprite_DocsDoodad_destroy_models.call(this, options);
     };
 }
