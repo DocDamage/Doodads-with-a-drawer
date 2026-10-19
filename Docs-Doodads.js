@@ -18548,8 +18548,8 @@ DocsDoodads.LpcCompose = {
     // ---- Reading the library's PNGs ----
 
     // PNG bytes (a Buffer) -> { width, height, data: RGBA }. inflate is zlib.inflateSync. Handles what the
-    // library uses: palette images at 1, 2, 4 or 8 bits with transparency, grey, RGB and RGBA (8 or 16 bits).
-    // Interlaced images are refused (null).
+    // library uses: palette images at 1, 2, 4 or 8 bits with transparency, grey, RGB and RGBA (8 or 16 bits),
+    // plain or interlaced (Adam7: a few of RPG Maker MZ's generator parts are).
     decodePng(buffer, inflate) {
         const sig = [137, 80, 78, 71, 13, 10, 26, 10];
         if (!buffer || buffer.length < 33 || sig.some((b, i) => buffer[i] !== b)) return null;
@@ -18566,7 +18566,7 @@ DocsDoodads.LpcCompose = {
             else if (type === 'IDAT') idat.push(body);
             else if (type === 'IEND') break;
         }
-        if (!header || header.interlace) return null;
+        if (!header || header.interlace > 1) return null;
         const { width, height, depth, colorType } = header;
         const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
         if (!channels || (colorType === 3 && !palette)) return null;
@@ -18575,41 +18575,55 @@ DocsDoodads.LpcCompose = {
         let at = 0;
         for (const b of idat) { joined.set(b, at); at += b.length; }
         const raw = inflate(joined);
-        const bits = channels * depth, stride = Math.ceil(width * bits / 8), bpp = Math.max(1, bits >> 3);
-        const rows = new Uint8Array(stride * height);
-        for (let y = 0; y < height; y++) {
-            const filter = raw[y * (stride + 1)], line = y * (stride + 1) + 1, out = y * stride, prev = out - stride;
-            for (let i = 0; i < stride; i++) {
-                const a = i >= bpp ? rows[out + i - bpp] : 0, b = y ? rows[prev + i] : 0, c = y && i >= bpp ? rows[prev + i - bpp] : 0;
-                let add = 0;
-                if (filter === 1) add = a; else if (filter === 2) add = b; else if (filter === 3) add = (a + b) >> 1;
-                else if (filter === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
-                rows[out + i] = (raw[line + i] + add) & 255;
-            }
-        }
+        const bits = channels * depth, bpp = Math.max(1, bits >> 3);
         const data = new Uint8ClampedArray(width * height * 4);
-        const sample = (row, index) => {
-            if (depth === 8) return rows[row + index];
-            if (depth === 16) return rows[row + index * 2];
-            const per = 8 / depth, byte = rows[row + Math.floor(index / per)];
-            return (byte >> (8 - depth * (index % per + 1))) & ((1 << depth) - 1);
-        };
         const grey = depth < 8 && colorType === 0 ? 255 / ((1 << depth) - 1) : 1;
-        for (let y = 0; y < height; y++) {
-            const row = y * stride;
-            for (let x = 0; x < width; x++) {
-                const o = (y * width + x) * 4;
-                if (colorType === 3) {
-                    const i = sample(row, x);
-                    data[o] = palette[i * 3]; data[o + 1] = palette[i * 3 + 1]; data[o + 2] = palette[i * 3 + 2];
-                    data[o + 3] = alpha && i < alpha.length ? alpha[i] : 255;
-                } else if (colorType === 0 || colorType === 4) {
-                    data[o] = data[o + 1] = data[o + 2] = Math.round(sample(row, x * channels) * grey);
-                    data[o + 3] = colorType === 4 ? sample(row, x * channels + 1) : 255;
-                } else {
-                    data[o] = sample(row, x * channels); data[o + 1] = sample(row, x * channels + 1); data[o + 2] = sample(row, x * channels + 2);
-                    data[o + 3] = colorType === 6 ? sample(row, x * channels + 3) : 255;
+        // Unfilters h rows of w pixels starting at raw[from], then puts each pixel at (x0 + i * dx, y0 + j * dy).
+        // A plain image is one pass over everything; an interlaced one (Adam7) is seven smaller ones.
+        const pass = (from, w, h, x0, y0, dx, dy) => {
+            const stride = Math.ceil(w * bits / 8);
+            const rows = new Uint8Array(stride * h);
+            for (let y = 0; y < h; y++) {
+                const filter = raw[from + y * (stride + 1)], line = from + y * (stride + 1) + 1, out = y * stride, prev = out - stride;
+                for (let i = 0; i < stride; i++) {
+                    const a = i >= bpp ? rows[out + i - bpp] : 0, b = y ? rows[prev + i] : 0, c = y && i >= bpp ? rows[prev + i - bpp] : 0;
+                    let add = 0;
+                    if (filter === 1) add = a; else if (filter === 2) add = b; else if (filter === 3) add = (a + b) >> 1;
+                    else if (filter === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+                    rows[out + i] = (raw[line + i] + add) & 255;
                 }
+            }
+            const sample = (row, index) => {
+                if (depth === 8) return rows[row + index];
+                if (depth === 16) return rows[row + index * 2];
+                const per = 8 / depth, byte = rows[row + Math.floor(index / per)];
+                return (byte >> (8 - depth * (index % per + 1))) & ((1 << depth) - 1);
+            };
+            for (let y = 0; y < h; y++) {
+                const row = y * stride;
+                for (let x = 0; x < w; x++) {
+                    const o = ((y0 + y * dy) * width + x0 + x * dx) * 4;
+                    if (colorType === 3) {
+                        const i = sample(row, x);
+                        data[o] = palette[i * 3]; data[o + 1] = palette[i * 3 + 1]; data[o + 2] = palette[i * 3 + 2];
+                        data[o + 3] = alpha && i < alpha.length ? alpha[i] : 255;
+                    } else if (colorType === 0 || colorType === 4) {
+                        data[o] = data[o + 1] = data[o + 2] = Math.round(sample(row, x * channels) * grey);
+                        data[o + 3] = colorType === 4 ? sample(row, x * channels + 1) : 255;
+                    } else {
+                        data[o] = sample(row, x * channels); data[o + 1] = sample(row, x * channels + 1); data[o + 2] = sample(row, x * channels + 2);
+                        data[o + 3] = colorType === 6 ? sample(row, x * channels + 3) : 255;
+                    }
+                }
+            }
+            return from + h * (stride + 1);
+        };
+        if (!header.interlace) pass(0, width, height, 0, 0, 1, 1);
+        else {
+            let from = 0;
+            for (const [x0, y0, dx, dy] of [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]) {
+                const w = Math.ceil((width - x0) / dx), h = Math.ceil((height - y0) / dy);
+                if (w > 0 && h > 0) from = pass(from, w, h, x0, y0, dx, dy);
             }
         }
         return { width, height, data };
@@ -20395,6 +20409,618 @@ DocsDoodads.MemaoSlots = {
 
     load(data, name) {
         return DocsDoodads.LpcSlots.load.call(this, data, name);
+    },
+
+    remove(data, name) {
+        return DocsDoodads.LpcSlots.remove.call(this, data, name);
+    }
+};
+//==========================================================
+// SECTION 12L: RPG MAKER MZ GENERATOR COMPOSITOR (VIEWS, ORDER, COLOUR SLOTS)
+//==========================================================
+// Stacks a character's MZ generator parts for one view: walking (TV), damaged (TVD), the side-view battler (SV)
+// or the face. Parts are drawn in the view's order (23_mzgen_index.js). Colours are the character's slots
+// (skin, eyes, hair, clothing 1-4...): a slot left as drawn keeps the part's own colours; a slot given a ramp
+// recolours its pixels, each to the ramp's colour of the same brightness. Which pixels a slot covers comes from
+// the part's mask (walking, damaged, battler: the key colour) or the face file's own slot (_m007).
+//
+// The stage and the exports read a composed sheet in the LPC compositor's layout (rows up, left, down, right;
+// frames along a row; sheet.frame): walk is the TV sheet's three frames, damage the TVD row, face one frame,
+// and each battler motion (sv_wait, sv_swing...) its three frames, in every row.
+//
+//   resolve(index, recipe, animation, exists) -> { view, layers, warnings, used }
+//   compose(resolved, index, loadImage, cache) -> { sheet, view, warnings }
+DocsDoodads.MzGenCompose = {
+    frame: 48,
+    directions: ['up', 'left', 'down', 'right'],
+    // MZ's own row order on walking sheets.
+    mzRows: ['down', 'left', 'right', 'up'],
+    svMotions: ['walk', 'wait', 'chant', 'guard', 'damage', 'evade', 'thrust', 'swing', 'missile', 'skill', 'spell', 'item', 'escape', 'victory', 'dying', 'abnormal', 'sleep', 'dead'],
+
+    // An animation key -> what it draws: { view, frames, frame size }.
+    animationOf(key) {
+        if (key === 'walk') return { view: 'TV', frames: 3, frame: 48 };
+        if (key === 'damage') return { view: 'TVD', frames: 3, frame: 48 };
+        if (key === 'face') return { view: 'Face', frames: 1, frame: 144 };
+        const m = /^sv_(\w+)$/.exec(key || '');
+        if (m && this.svMotions.includes(m[1])) return { view: 'SV', frames: 3, frame: 64, motion: this.svMotions.indexOf(m[1]) };
+        return null;
+    },
+
+    // For the creator (frameRect and the stage): frames per animation.
+    get animations() {
+        const out = { walk: { frames: 3 }, damage: { frames: 3 }, face: { frames: 1 } };
+        for (const m of this.svMotions) out['sv_' + m] = { frames: 3 };
+        return out;
+    },
+
+    // ---- Which layers ----
+
+    // recipe: { body (the base), picks: [{ id }], colours: { slot: ramp name } }.
+    resolve(index, recipe, animation, exists) {
+        const M = DocsDoodads.MzGen;
+        const anim = this.animationOf(animation);
+        const warnings = [];
+        if (!anim) return { animation, layers: [], warnings: [`There is no ${animation} animation.`], used: [] };
+        const byId = new Map((index && index.parts || []).map(p => [p.id, p]));
+        const order = M.order[anim.view];
+        const rank = (family, layer) => { const i = order.indexOf(family + (layer || '')); return i >= 0 ? i : order.indexOf(family); };
+        const layers = [];
+        (recipe && recipe.picks || []).forEach((pick, n) => {
+            const part = byId.get(pick.id);
+            if (!part) { warnings.push(`There is no part "${pick.id}" any more.`); return; }
+            for (const f of part.files[anim.view] || []) {
+                const r = rank(part.family, f.layer);
+                if (r < 0 || !exists(f.file)) continue;
+                layers.push({ file: f.file, mask: f.mask || '', slot: f.m || '', c: f.c || 0, rank: r, n, part, face: anim.view === 'Face' });
+            }
+        });
+        // Back to front: the view's order; a face part's layers from the highest c (c1 on top).
+        layers.sort((a, b) => a.rank - b.rank || b.c - a.c || a.n - b.n);
+        return { animation, view: anim.view, layers, warnings, colours: Object.assign({}, recipe && recipe.colours), used: layers.map(l => ({ part: l.part, folder: l.file })) };
+    },
+
+    // ---- Colours ----
+
+    luma(r, g, b) {
+        return Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    },
+
+    // brightness (0-255) -> the ramp's colour of nearest brightness.
+    lut(ramp) {
+        const lum = ramp.map(c => this.luma(c[0], c[1], c[2]));
+        const out = new Array(256);
+        for (let v = 0; v < 256; v++) {
+            let best = 0, d = 1e9;
+            for (let x = 0; x < ramp.length; x++) { const e = Math.abs(lum[x] - v); if (e < d) { d = e; best = x; } }
+            out[v] = ramp[best];
+        }
+        return out;
+    },
+
+    // Recolours a copy: each pixel whose slot has a ramp takes that ramp's colour of its own brightness.
+    // slotAt(i) -> the slot of the pixel at byte i ('' for fixed); luts: slot -> lut.
+    recolour(image, slotAt, luts) {
+        const d = image.data;
+        for (let i = 0; i < d.length; i += 4) {
+            if (!d[i + 3]) continue;
+            const lut = luts[slotAt(i)];
+            if (!lut) continue;
+            const c = lut[this.luma(d[i], d[i + 1], d[i + 2])];
+            d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2];
+        }
+        return image;
+    },
+
+    // ---- Stacking ----
+
+    // The view's whole picture (TV 144 x 192, SV 576 x 384...), every layer recoloured and stacked.
+    composeView(resolved, index, loadImage, cache) {
+        const C = DocsDoodads.LpcCompose, M = DocsDoodads.MzGen;
+        const warnings = resolved.warnings.slice();
+        const size = M.sizes[resolved.view];
+        if (!size) return { image: null, warnings };
+        const out = C.blank(size[0], size[1]);
+        const colours = resolved.colours || {};
+        const luts = {};
+        for (const [slot, name] of Object.entries(colours)) { const r = name && M.ramp(index, name); if (r) luts[slot] = C.cached(cache, 'lut|' + name, () => this.lut(r)); }
+        let drawn = 0;
+        for (const layer of resolved.layers) {
+            const used = layer.face ? (luts[layer.slot] ? layer.slot + '=' + colours[layer.slot] : '')
+                : Object.keys(luts).sort().map(s => s + '=' + colours[s]).join(',');
+            const image = C.cached(cache, layer.file + '|' + used, () => {
+                const raw = loadImage(layer.file);
+                if (!raw) return null;
+                const copy = C.copy(raw);
+                if (layer.face) return luts[layer.slot] ? this.recolour(copy, () => layer.slot, luts) : copy;
+                const mask = layer.mask ? loadImage(layer.mask) : null;
+                if (!mask || mask.width !== raw.width || mask.height !== raw.height || !Object.keys(luts).length) return copy;
+                return this.recolour(copy, i => (mask.data[i + 3] ? M.slotOfKey((mask.data[i] << 16) | (mask.data[i + 1] << 8) | mask.data[i + 2]) : ''), luts);
+            });
+            if (!image) { warnings.push(`Could not read ${layer.file}.`); continue; }
+            // Face parts may be 160 x 160: centred on the 144 face.
+            const ox = Math.round((image.width - out.width) / 2), oy = Math.round((image.height - out.height) / 2);
+            const w = Math.min(out.width, image.width), h = Math.min(out.height, image.height);
+            C.overRect(out, image, Math.max(0, ox), Math.max(0, oy), Math.max(0, -ox), Math.max(0, -oy), w, h);
+            drawn++;
+        }
+        return { image: drawn ? out : null, warnings };
+    },
+
+    // The animation as a sheet in the LPC layout, for the stage and the exports.
+    compose(resolved, index, loadImage, cache) {
+        const C = DocsDoodads.LpcCompose;
+        const anim = this.animationOf(resolved.animation);
+        const view = this.composeView(resolved, index, loadImage, cache);
+        if (!anim || !view.image) return { sheet: null, view: null, warnings: view.warnings };
+        const F = anim.frame, img = view.image;
+        const sheet = C.blank(anim.frames * F, 4 * F);
+        sheet.frame = F;
+        this.directions.forEach((dir, row) => {
+            for (let f = 0; f < anim.frames; f++) {
+                let sx = 0, sy = 0;
+                if (anim.view === 'TV') { sx = f * F; sy = this.mzRows.indexOf(dir) * F; }
+                else if (anim.view === 'TVD') sx = f * F;
+                else if (anim.view === 'SV') { sx = (Math.floor(anim.motion / 6) * 3 + f) * F; sy = (anim.motion % 6) * F; }
+                if (sx + F <= img.width && sy + F <= img.height) C.overRect(sheet, img, sx, sy, f * F, row * F, F, F);
+            }
+        });
+        return { sheet, view: img, warnings: view.warnings };
+    },
+
+    frameRect(animation, direction, frame, size = this.frame) {
+        const a = this.animationOf(animation) || { frames: 1 };
+        const row = Math.max(0, this.directions.indexOf(direction));
+        return { x: (frame % a.frames) * size, y: row * size, w: size, h: size };
+    }
+};
+//==========================================================
+// SECTION 12N: RPG MAKER MZ GENERATOR EXPORTS
+//==========================================================
+// The generator's views are MZ's own layouts, so an export writes them as composed:
+//
+//   walker   $Name.png                      144 x 192, MZ's 3-frame walk in four directions
+//   damaged  $Name_damage[f3][d1].png       the TVD row (3 frames), for Play Character Action or an event
+//   battler  img/sv_actors/Name.png         576 x 384, MZ's 18 motions
+//   face     img/faces/Name.png             144 x 144, in one of the sheet's 8 slots
+//
+// Pure: images are { width, height, data } (RGBA). Writing them is the workspace's (44_workspace_mzgen.js).
+DocsDoodads.MzGenExport = {
+    cleanName(name) {
+        return DocsDoodads.LpcExport.cleanName(name);
+    },
+
+    names(name) {
+        const n = this.cleanName(name) || 'Character';
+        return { classic: '$' + n, damage: '$' + n + '_damage[f3][d1]', face: n, smooth: '$' + n };
+    },
+
+    // No extra action sheets: the battler holds the motions and the damaged row is its own sheet.
+    actions: [],
+
+    actionLabel(anim) {
+        return String(anim);
+    },
+
+    actionName(name, anim) {
+        return '$' + (this.cleanName(name) || 'Character') + '_' + anim;
+    },
+
+    faceSheet(existing, face, slot = 0) {
+        return DocsDoodads.LpcExport.faceSheet(existing, face, slot);
+    }
+};
+//==========================================================
+// SECTION 12K: RPG MAKER MZ GENERATOR PARTS (INDEX)
+//==========================================================
+// The parts of RPG Maker MZ's own Character Generator, read from the generator folder of the MZ installation
+// on this computer (RPG Maker MZ/generator). They are licensed for games made with RPG Maker MZ and may not be
+// redistributed, so none of them ship with the plugin or go into the project: the index lives in the editor's
+// cache, and only the sheets made from them go into the game. None of MZ's editor code is used; the format was
+// read from the files (docs/MZ_CHARACTER_CREATOR_PLAN.md).
+//
+// The folder has, for each base (Male, Female, Kid): TV (walking, 144 x 192), TVD (damaged, 144 x 48), SV (the
+// side-view battler, 576 x 384) and Face (144 x 144, some 160 x 160) parts, and grad_*.png, the colour ramps.
+//   TV_Clothing2_p03.png + TV_Clothing2_p03_c.png  a part's layer (the digit), and its mask: flat key colours
+//                                                  that say which colour slot each pixel takes (white: fixed)
+//   FG_Clothing2_p03_c4_m007.png                  a face part's layer c4, in colour slot m007 (none: fixed)
+//
+// Pure: reading the folder is passed in as a small fs ({ readdirSync, readFileSync, existsSync }) with a path
+// module; the gradients are decoded with decodePng (inflate: zlib.inflateSync).
+DocsDoodads.MzGen = {
+    indexFormat: 'docs-doodads-mzgen-index',
+    indexVersion: 1,
+    indexFile: 'data/docs_doodads_cache/mzgen_index.json',
+    bases: ['Male', 'Female', 'Kid'],
+    views: ['TV', 'TVD', 'SV', 'Face'],
+    prefixes: { TV: 'TV', TVD: 'TVD', SV: 'SV', Face: 'FG' },
+    gradients: ['common', 'eyes', 'hair', 'skin'],
+    // The colour slots, as the face files name them (m001...) plus the walking-only tail and wing: the label,
+    // and the gradient file whose ramps they take.
+    slots: {
+        m001: ['Skin', 'skin'], m002: ['Eyes', 'eyes'], m003: ['Hair', 'hair'], m004: ['Hair 2', 'hair'], m005: ['Facial mark', 'common'],
+        m006: ['Beast ears', 'hair'], m007: ['Clothing 1', 'common'], m008: ['Clothing 2', 'common'], m009: ['Clothing 3', 'common'],
+        m010: ['Clothing 4', 'common'], m011: ['Cloak 1', 'common'], m012: ['Cloak 2', 'common'], m013: ['Accessory A 1', 'common'],
+        m014: ['Accessory A 2', 'common'], m015: ['Accessory A 3', 'common'], m016: ['Accessory B 1', 'common'], m017: ['Accessory B 2', 'common'],
+        m018: ['Accessory B 3', 'common'], m019: ['Accessory B 4', 'common'], m020: ['Glasses 1', 'common'], m021: ['Glasses 2', 'common'],
+        tail: ['Tail', 'hair'], wing: ['Wing', 'common']
+    },
+    // The walking, damaged and battler masks' key colours and the slot each stands for (measured: each key's
+    // colours under the mask, against the same part's face files).
+    keys: {
+        f9c19d: 'm001', '2c80cb': 'm002', fccb0a: 'm003', b892c5: 'm004', '009296': 'm005', d3cec7: 'm006', ae8682: 'm007', fe9d1e: 'm008',
+        '1c76d0': 'm009', d9a404: 'm010', d8ac00: 'm011', a30708: 'm012', d3cec2: 'm013', da346e: 'm014', a4c911: 'm015', c78407: 'm016',
+        c0d3d2: 'm017', '4155b6': 'm018', ba3b45: 'm019', '999999': 'm020', ccbad2: 'm021', e6d6bd: 'tail', a7d6d6: 'wing'
+    },
+    // The parts' families (layers 1 and 2 of a family are one part), and the slots the walking-only ones take.
+    familySlots: { Tail: ['tail'], Wing: ['wing'] },
+    // Drawing order, back to front, per view (a family's layer 2 is behind the body, its layer 1 in front).
+    order: {
+        TV: ['Tail2', 'Wing2', 'Cloak2', 'RearHair2', 'FrontHair2', 'Body', 'Ears', 'FacialMark', 'Beard', 'Clothing1', 'Clothing2', 'Cloak1', 'RearHair1', 'FrontHair1', 'BeastEars', 'AccA', 'Glasses', 'AccB', 'Wing1', 'Tail1'],
+        TVD: ['Wing', 'Tail', 'Cloak', 'Body', 'Ears', 'FacialMark', 'Beard', 'Clothing', 'RearHair', 'FrontHair', 'BeastEars', 'AccA', 'Glasses', 'AccB'],
+        SV: ['Wing', 'Tail', 'Cloak2', 'Body', 'Ears', 'FacialMark', 'Beard', 'Clothing1', 'Clothing2', 'Cloak1', 'RearHair1', 'FrontHair', 'BeastEars', 'AccA', 'Glasses', 'AccB'],
+        // A face part's layers within its place: the highest c first (c1 on top).
+        Face: ['RearHair2', 'Cloak2', 'Body', 'Face', 'Ears', 'Eyes', 'Nose', 'Mouth', 'Eyebrows', 'FacialMark', 'Beard', 'Clothing1', 'Clothing2', 'Cloak1', 'RearHair1', 'FrontHair', 'BeastEars', 'AccA', 'Glasses', 'AccB']
+    },
+    sizes: { TV: [144, 192], TVD: [144, 48], SV: [576, 384], Face: [144, 144] },
+
+    pad(n) {
+        return String(n).padStart(2, '0');
+    },
+
+    // 'TV_Clothing2_p03.png' -> { family: 'Clothing', layer: 2, num: 3 }; 'FG_Eyes_p01_c2.png' -> { ..., c: 2, m: '' }.
+    // Masks (_c.png) and stray names give null.
+    parseName(view, file) {
+        const pre = this.prefixes[view];
+        if (view === 'Face') {
+            const m = new RegExp('^' + pre + '_([A-Za-z]+?)(\\d?)_p(\\d+)_c(\\d+)(?:_m(\\d+))?\\.png$').exec(file);
+            return m ? { family: this.family(m[1]), layer: m[2] ? Number(m[2]) : 0, num: Number(m[3]), c: Number(m[4]), m: m[5] ? 'm' + m[5].padStart(3, '0') : '' } : null;
+        }
+        const m = new RegExp('^' + pre + '_([A-Za-z]+?)(\\d?)_p(\\d+)\\.png$').exec(file);
+        return m ? { family: this.family(m[1]), layer: m[2] ? Number(m[2]) : 0, num: Number(m[3]) } : null;
+    },
+
+    // SV names the body 'body'.
+    family(name) {
+        return name === 'body' ? 'Body' : name;
+    },
+
+    isLibrary(fsLike, pathLib, root) {
+        try {
+            return Boolean(root) && fsLike.existsSync(pathLib.join(root, 'TV')) && fsLike.existsSync(pathLib.join(root, 'grad_common.png'));
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // A gradient file's ramps: 4-pixel bands, light to dark, read along each band's middle.
+    readRamps(image) {
+        const out = [];
+        if (!image) return out;
+        for (let y = 1; y < image.height; y += 4) {
+            let hex = '';
+            for (let x = 0; x < image.width; x++) {
+                const o = (y * image.width + x) * 4;
+                hex += ((image.data[o] << 16) | (image.data[o + 1] << 8) | image.data[o + 2]).toString(16).padStart(6, '0');
+            }
+            out.push(hex);
+        }
+        return out;
+    },
+
+    // Reads the folder into an index. now: an ISO time for 'built' (for tests).
+    scan(fsLike, pathLib, root, inflate, now) {
+        if (!this.isLibrary(fsLike, pathLib, root)) return null;
+        const warnings = [];
+        const ramps = {};
+        for (const g of this.gradients) {
+            let image = null;
+            try { image = DocsDoodads.LpcCompose.decodePng(fsLike.readFileSync(pathLib.join(root, `grad_${g}.png`)), inflate); } catch (e) { image = null; }
+            if (!image) warnings.push(`grad_${g}.png could not be read: its colours are left as drawn.`);
+            ramps[g] = this.readRamps(image);
+        }
+        // base/family/num -> part
+        const byKey = new Map();
+        for (const base of this.bases) {
+            for (const view of this.views) {
+                const dir = pathLib.join(root, view, base);
+                let files = [];
+                try { files = fsLike.readdirSync(dir).filter(f => /\.png$/i.test(f)).sort(); } catch (e) { if (view === 'TV') warnings.push(`There is no ${base} base.`); continue; }
+                const have = new Set(files);
+                for (const file of files) {
+                    const info = this.parseName(view, file);
+                    if (!info) continue;
+                    const id = base + '/' + info.family + '/' + this.pad(info.num);
+                    const part = byKey.get(id) || { id, base, family: info.family, num: info.num, files: { TV: [], TVD: [], SV: [], Face: [] }, slots: [] };
+                    const mask = file.replace(/\.png$/i, '_c.png');
+                    const entry = view === 'Face' ? { file: view + '/' + base + '/' + file, layer: info.layer, c: info.c, m: info.m }
+                        : { file: view + '/' + base + '/' + file, layer: info.layer, mask: have.has(mask) ? view + '/' + base + '/' + mask : '' };
+                    part.files[view].push(entry);
+                    if (view === 'Face' && info.m && !part.slots.includes(info.m)) part.slots.push(info.m);
+                    byKey.set(id, part);
+                }
+            }
+        }
+        const parts = [...byKey.values()].sort((a, b) => (a.base < b.base ? -1 : a.base > b.base ? 1 : 0) || (a.family < b.family ? -1 : a.family > b.family ? 1 : 0) || a.num - b.num);
+        for (const part of parts) {
+            for (const s of this.familySlots[part.family] || []) if (!part.slots.includes(s)) part.slots.push(s);
+            part.slots.sort();
+            part.name = this.label(part.family) + ' ' + part.num;
+        }
+        return { format: this.indexFormat, version: this.indexVersion, library: root, built: now || new Date().toISOString(), bases: this.bases.filter(b => parts.some(p => p.base === b)), ramps, parts, warnings };
+    },
+
+    // 'FrontHair' -> 'Front hair'.
+    label(family) {
+        return { AccA: 'Accessory A', AccB: 'Accessory B', FacialMark: 'Facial mark', BeastEars: 'Beast ears', FrontHair: 'Front hair', RearHair: 'Rear hair' }[family] || family;
+    },
+
+    validIndex(index) {
+        return index && index.format === this.indexFormat && index.version === this.indexVersion && Array.isArray(index.parts) ? index : null;
+    },
+
+    summary(index) {
+        if (!this.validIndex(index)) return null;
+        return { parts: index.parts.length, bases: index.bases || [], built: index.built || '', warnings: index.warnings || [] };
+    },
+
+    // The slot a mask key colour stands for ('' when it is fixed).
+    slotOfKey(rgb) {
+        return this.keys[(rgb & 0xffffff).toString(16).padStart(6, '0')] || '';
+    },
+
+    // ---- Colours ----
+
+    // A slot's colour choices: '' (as drawn) then each ramp of its gradient file ('hair:5').
+    colourNames(index, slot) {
+        const info = this.slots[slot];
+        const list = info && index && index.ramps ? index.ramps[info[1]] || [] : [];
+        return [''].concat(list.map((_, i) => info[1] + ':' + i));
+    },
+
+    // A ramp as [r, g, b] x 256, or null.
+    ramp(index, name) {
+        const [g, i] = String(name || '').split(':');
+        const hex = index && index.ramps && index.ramps[g] && index.ramps[g][Number(i)];
+        if (!hex) return null;
+        const out = [];
+        for (let x = 0; x < hex.length; x += 6) { const v = parseInt(hex.slice(x, x + 6), 16); out.push([(v >> 16) & 255, (v >> 8) & 255, v & 255]); }
+        return out;
+    },
+
+    // The swatch of a ramp: about a third of the way along (light to dark), where the colour is clearest.
+    swatch(index, name) {
+        const r = this.ramp(index, name);
+        if (!r) return '';
+        const c = r[Math.floor(r.length * 0.35)];
+        return '#' + ((c[0] << 16) | (c[1] << 8) | c[2]).toString(16).padStart(6, '0');
+    },
+
+    insideProject(pathLib, folder, project) {
+        return DocsDoodads.Lpc.insideProject(pathLib, folder, project);
+    }
+};
+//==========================================================
+// SECTION 12M: RPG MAKER MZ GENERATOR SLOTS (PICKERS, COLOUR SLOTS, DICE, SAVED CHARACTERS)
+//==========================================================
+// What the creator shows for an MZ generator character, with LpcSlots' functions (23_lpc_slots.js) so the one
+// creator window serves it too. The state is { body, colours: { slot: ramp }, slots: { key: { id } } }: body is
+// the base (Male, Female, Kid), and colours are the character's colour slots (skin, hair, clothing 1-4...),
+// shared by every part that uses them, as in MZ's own generator. A part's colour channels are the slots it
+// uses (channels, getColour, setColour); '' leaves a slot as drawn. Pure.
+DocsDoodads.MzGenSlots = {
+    bodies: [['Male', 'Male'], ['Female', 'Female'], ['Kid', 'Kid']],
+
+    cards: [
+        { key: 'body', label: 'Body', tabs: [
+            { key: 'body', label: 'Body', slots: [
+                { key: 'body', label: 'Skin', family: 'Body', required: true },
+                { key: 'face', label: 'Face', family: 'Face', required: true },
+                { key: 'ears', label: 'Ears', family: 'Ears' },
+                { key: 'beastears', label: 'Beast ears', family: 'BeastEars' }
+            ] },
+            { key: 'face', label: 'Face', slots: [
+                { key: 'eyes', label: 'Eyes', family: 'Eyes', required: true },
+                { key: 'eyebrows', label: 'Eyebrows', family: 'Eyebrows' },
+                { key: 'nose', label: 'Nose', family: 'Nose' },
+                { key: 'mouth', label: 'Mouth', family: 'Mouth' },
+                { key: 'mark', label: 'Facial mark', family: 'FacialMark' }
+            ] },
+            { key: 'hair', label: 'Hair', slots: [
+                { key: 'fronthair', label: 'Front hair', family: 'FrontHair' },
+                { key: 'rearhair', label: 'Rear hair', family: 'RearHair' },
+                { key: 'beard', label: 'Beard', family: 'Beard' }
+            ] }
+        ] },
+        { key: 'outfit', label: 'Outfit', tabs: [
+            { key: 'clothes', label: 'Clothes', slots: [
+                { key: 'clothing', label: 'Clothing', family: 'Clothing' },
+                { key: 'cloak', label: 'Cloak', family: 'Cloak' }
+            ] },
+            { key: 'head', label: 'Head', slots: [
+                { key: 'acca', label: 'Accessory A', family: 'AccA' },
+                { key: 'accb', label: 'Accessory B', family: 'AccB' },
+                { key: 'glasses', label: 'Glasses', family: 'Glasses' }
+            ] },
+            { key: 'extras', label: 'Extras', slots: [
+                { key: 'wing', label: 'Wing', family: 'Wing' },
+                { key: 'tail', label: 'Tail', family: 'Tail' }
+            ] }
+        ] }
+    ],
+
+    allSlots() {
+        return this.cards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => Object.assign({ card: c.key, tab: t.key }, s))));
+    },
+
+    slot(key) {
+        return this.allSlots().find(s => s.key === key) || null;
+    },
+
+    options(index, slot, body) {
+        if (!index || !slot) return [];
+        return index.parts.filter(p => p.base === body && p.family === slot.family).sort((a, b) => a.num - b.num);
+    },
+
+    hiddenBySafeOnly() {
+        return 0;
+    },
+
+    partOf(state, index, key) {
+        const pick = state && state.slots[key];
+        return pick && index ? index.parts.find(p => p.id === pick.id) || null : null;
+    },
+
+    // ---- Colour slots ----
+
+    // A part's colour channels: [{ slot, label }] for the slots it uses.
+    channels(index, part) {
+        return (part && part.slots || []).filter(s => DocsDoodads.MzGen.slots[s]).map(s => ({ slot: s, label: DocsDoodads.MzGen.slots[s][0] }));
+    },
+
+    colours(index, part, channel = 0) {
+        const ch = this.channels(index, part)[channel];
+        return ch ? DocsDoodads.MzGen.colourNames(index, ch.slot) : [];
+    },
+
+    // A ramp's swatch; '' (as drawn) shows a split swatch.
+    swatch(index, part, name) {
+        return name ? DocsDoodads.MzGen.swatch(index, name) : 'linear-gradient(135deg, #fffaf0 0 45%, #b9a98c 55% 100%)';
+    },
+
+    getColour(state, index, key, channel = 0) {
+        const ch = this.channels(index, this.partOf(state, index, key))[channel];
+        return ch ? (state.colours && state.colours[ch.slot]) || '' : '';
+    },
+
+    setColour(state, index, key, channel, name) {
+        const ch = this.channels(index, this.partOf(state, index, key))[channel];
+        if (!ch) return state;
+        state.colours = state.colours || {};
+        if (name) state.colours[ch.slot] = name; else delete state.colours[ch.slot];
+        return state;
+    },
+
+    stepColour(state, index, key, dir, channel = 0) {
+        const part = this.partOf(state, index, key);
+        const list = this.colours(index, part, channel);
+        if (!list.length) return state;
+        const at = Math.max(0, list.indexOf(this.getColour(state, index, key, channel)));
+        return this.setColour(state, index, key, channel, list[(at + dir + list.length * 4) % list.length]);
+    },
+
+    // ---- Parts ----
+
+    setPart(state, index, key, part) {
+        if (!part) delete state.slots[key];
+        else state.slots[key] = { id: part.id };
+        return state;
+    },
+
+    // A first character: the base's first body, face, eyes, nose, mouth, brows, hair and clothing.
+    newState(index, body = 'Male') {
+        const state = { body, colours: {}, slots: {} };
+        for (const key of ['body', 'face', 'ears', 'eyes', 'eyebrows', 'nose', 'mouth', 'fronthair', 'rearhair', 'clothing']) {
+            const part = this.options(index, this.slot(key), body)[0];
+            if (part) this.setPart(state, index, key, part);
+        }
+        return state;
+    },
+
+    step(state, index, key, dir) {
+        const slot = this.slot(key);
+        const list = this.options(index, slot, state.body);
+        const choices = slot.required ? list : [null].concat(list);
+        if (!choices.length) return state;
+        const current = state.slots[key] ? state.slots[key].id : null;
+        let at = choices.findIndex(p => (p ? p.id : null) === current);
+        if (at < 0) at = 0;
+        return this.setPart(state, index, key, choices[(at + dir + choices.length * 4) % choices.length]);
+    },
+
+    // Another base: each part by the same number when it has one, the first otherwise (for the required).
+    setBody(state, index, body) {
+        const next = { body, colours: Object.assign({}, state.colours), slots: {} };
+        for (const slot of this.allSlots()) {
+            const old = this.partOf(state, index, slot.key);
+            const list = this.options(index, slot, body);
+            const same = old && list.find(p => p.num === old.num);
+            const part = same || (slot.required || old ? list[0] : null);
+            if (part && (old || slot.required)) this.setPart(next, index, slot.key, part);
+        }
+        return next;
+    },
+
+    toRecipe(state, options = {}) {
+        const picks = [];
+        for (const slot of this.allSlots()) {
+            const pick = state.slots[slot.key];
+            if (!pick) continue;
+            if (options.showBody === false && slot.card === 'body') continue;
+            picks.push({ id: pick.id });
+        }
+        return { body: state.body, picks, colours: Object.assign({}, state.colours) };
+    },
+
+    // The dice: a new body and face (with skin, eye and hair colours), or a new outfit (with its colours).
+    shuffle(state, index, card, rand = Math.random) {
+        const next = { body: state.body, colours: Object.assign({}, state.colours), slots: Object.assign({}, state.slots) };
+        if (card === 'body') {
+            const bodies = (index.bases || this.bodies.map(b => b[0]));
+            next.body = bodies[Math.floor(rand() * bodies.length)];
+            for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
+            for (const key of Object.keys(next.slots)) {
+                const old = index.parts.find(p => p.id === next.slots[key].id);
+                const list = this.options(index, this.slot(key), next.body);
+                const same = old && list.find(p => p.num === old.num);
+                if (same) next.slots[key] = { id: same.id }; else delete next.slots[key];
+            }
+        }
+        const chance = { ears: 0.9, beastears: 0.05, eyebrows: 1, nose: 1, mouth: 1, mark: 0.08, fronthair: 0.97, rearhair: 0.9, beard: 0.15, clothing: 1, cloak: 0.25, acca: 0.2, accb: 0.25, glasses: 0.1, wing: 0.04, tail: 0.04 };
+        const slotsUsed = new Set();
+        for (const slot of this.allSlots().filter(s => s.card === card)) {
+            const list = this.options(index, slot, next.body);
+            delete next.slots[slot.key];
+            if (list.length && (slot.required || rand() < (chance[slot.key] || 0))) this.setPart(next, index, slot.key, list[Math.floor(rand() * list.length)]);
+            const part = this.partOf(next, index, slot.key);
+            for (const ch of this.channels(index, part)) slotsUsed.add(ch.slot);
+        }
+        for (const s of slotsUsed) {
+            const names = DocsDoodads.MzGen.colourNames(index, s);
+            // Mostly as drawn: the parts' own colours are well matched.
+            if (rand() < 0.5) delete next.colours[s];
+            else next.colours[s] = names[1 + Math.floor(rand() * (names.length - 1))] || '';
+        }
+        return next;
+    },
+
+    missing(state, index) {
+        const out = [];
+        for (const [key, pick] of Object.entries(state.slots)) {
+            const slot = this.slot(key);
+            if (!slot || !this.options(index, slot, state.body).some(p => p.id === pick.id)) out.push(key);
+        }
+        return out;
+    },
+
+    // ---- Saved characters (data/DocsDoodadsMzCharacters.json) ----
+    charactersFile: 'data/DocsDoodadsMzCharacters.json',
+    format: 'docs-doodads-mz-characters',
+
+    validSaved(data) {
+        return DocsDoodads.LpcSlots.validSaved.call(this, data);
+    },
+
+    save(data, name, state, now) {
+        const saved = DocsDoodads.LpcSlots.save.call(this, data, name, state, now);
+        const entry = saved.characters.find(c => c.name.toLowerCase() === (String(name || '').trim() || 'Character').toLowerCase());
+        if (entry) entry.colours = Object.assign({}, state.colours);
+        return saved;
+    },
+
+    load(data, name) {
+        const c = this.validSaved(data).characters.find(x => x.name.toLowerCase() === String(name).toLowerCase());
+        return c ? { body: c.body, colours: Object.assign({}, c.colours), slots: JSON.parse(JSON.stringify(c.slots || {})) } : null;
     },
 
     remove(data, name) {
@@ -26232,7 +26858,7 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
                     <button class="dd-btn" id="dd-rooms-btn" title="Save part of the map (tiles, doodads, events) as a room stamp and place it again">${U.icon('map', 1)} Rooms</button>
                     <button class="dd-btn" id="dd-packs-btn" title="Put prefabs, rooms, biomes and their art in one file for another project, or bring one in">${U.icon('box', 1)} Packs</button>
-                    <button class="dd-btn" id="dd-lpc-btn" title="Character creators: the LPC library and the Memao assets on this computer">${U.icon('person', 1)} Characters</button>
+                    <button class="dd-btn" id="dd-lpc-btn" title="Character creators: RPG Maker MZ's generator parts, the LPC library and the Memao assets on this computer">${U.icon('person', 1)} Characters</button>
                     <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
@@ -28947,6 +29573,7 @@ DocsDoodads.Workspace = {
         add('Doodad Packs (make or bring in)', () => this.showPacksCard());
         add('Characters: LPC library and credits', () => this.showLpcCard());
         add('Characters: Memao creator', () => (this.memaoIndex() ? this.openMemaoCreator() : this.showLpcCard()));
+        add('Characters: MZ creator (RPG Maker MZ generator parts)', () => (this.mzgenIndex() ? this.openMzGenCreator() : this.showLpcCard()));
         add('Character Creator (LPC)', () => this.openCreator());
         add('Write CREDITS_LPC.txt (LPC artists)', () => this.writeLpcCreditsText());
         add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });
@@ -34682,15 +35309,17 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
-// SECTION 25q: CHARACTER CREATOR KITS (LPC, MEMAO)
+// SECTION 25q: CHARACTER CREATOR KITS (LPC, MEMAO, MZ)
 //==========================================================
-// The libraries the Character Creator window (44_workspace_lpc_creator.js) can build from. The window asks the
-// open kit for its slots and index, how to draw an animation, what its stage and top bar show, its credits and
-// its export, so every library gets the same window, look and controls. LPC is the default.
+// The libraries the Character Creator window (44_workspace_lpc_creator.js) can build from: the LPC library, the
+// Memao assets and RPG Maker MZ's own generator parts. The window asks the open kit for its slots and index, how
+// to draw an animation, what its stage and top bar show, its credits and its export, so every library gets the
+// same window, look and controls. LPC is the default.
 //
-//   slots      the pickers (LpcSlots, MemaoSlots: the same functions)
+//   slots      the pickers (LpcSlots, MemaoSlots, MzGenSlots: the same functions; MZ's also have colour
+//              channels: channels, getColour, setColour)
 //   compose    the compositor's layout facts: frame, directions, animations, frameRect
-//   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport)
+//   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport, MzGenExport)
 DocsDoodads.CreatorKits = {
     lpc: {
         id: 'lpc',
@@ -34765,6 +35394,55 @@ DocsDoodads.CreatorKits = {
         exportFiles: (ws, name, o) => ws.memaoExportFiles(name, o),
         exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
+    },
+
+    mz: {
+        id: 'mz',
+        title: 'MZ Character Creator',
+        slots: DocsDoodads.MzGenSlots,
+        compose: DocsDoodads.MzGenCompose,
+        exporter: DocsDoodads.MzGenExport,
+        safeSwitch: false,
+        addons: false,
+        parts: false,
+        // Walking frames (48) 5 times, battler cells (64) 4 times, the face (144) twice; less in a small window
+        // (MZ's figures fill their frame, so they need the room under the name).
+        stageScaleFor(F, narrow) {
+            if (F >= 144) return narrow ? 1 : 2;
+            if (F >= 64) return narrow ? 2 : 4;
+            return narrow ? 3 : 5;
+        },
+        stageScale: 5,
+        narrowScale: 3,
+        feetGap: 0,
+        animations: () => [['walk', 'Walk'], ['damage', 'Damaged'], ['face', 'Face']].concat(DocsDoodads.MzGenCompose.svMotions.map(m => ['sv_' + m, { walk: 'Battle walk', damage: 'Hurt' }[m] || m.charAt(0).toUpperCase() + m.slice(1)])),
+        fps: () => ({ walk: 6, damage: 4, face: 1 }),
+        index: ws => ws.mzgenIndex(),
+        noLibrary(ws) { ws.showToast("Scan RPG Maker MZ's generator folder first (More > Characters).", 'info'); ws.showLpcCard(); },
+        draw: (ws, recipe, anim) => ws.composeMzGen(recipe, anim),
+        // MZ's walk and battler motions go 0, 1, 2, 1.
+        stageFrames(anim) {
+            if (anim === 'face') return { first: 0, count: 1 };
+            if (anim === 'damage') return { first: 0, count: 3 };
+            return { first: 0, count: 3, sequence: [0, 1, 2, 1] };
+        },
+        libraryLine(ws, index) {
+            const s = DocsDoodads.MzGen.summary(index);
+            return `MZ generator · ${s ? s.parts : 0} parts · ${s ? s.bases.join(', ') : ''}`;
+        },
+        credits: () => [{ file: 'RPG Maker MZ', part: "RPG Maker MZ's Character Generator parts", authors: ['Gotcha Gotcha Games / KADOKAWA'], licences: ['the RPG Maker MZ licence'], urls: [], safeToEncrypt: true }],
+        creditsNote: () => 'Made from the parts that come with RPG Maker MZ: they may be used in games made with RPG Maker MZ.',
+        exportNote: () => 'Made from the parts that come with RPG Maker MZ, for games made with it. The character is saved under its name to change and export again.',
+        missingNote: 'the generator folder changed',
+        exportTicks: N => [
+            ['classic', 'Walking character', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`],
+            ['damage', 'Damaged character', `${escapeHtml(N.damage)}.png: the three damaged frames, for Play Character Action or an event.`],
+            ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: MZ's 18 battle motions.`]
+        ],
+        exportDefaults: ws => ws.mzgenExportDefaults(),
+        exportFiles: (ws, name, o) => ws.mzgenExportFiles(name, o),
+        exportRun: (ws, state, o) => ws.exportMzGenCharacter(state, o),
+        tryOnPlayer: (ws, names) => ws.tryLpcOnPlayer(names, false)
     }
 };
 //==========================================================
@@ -35732,10 +36410,20 @@ Object.assign(DocsDoodads.Workspace, {
         const part = pick && index.parts.find(p => p.id === pick.id);
         const value = part ? part.name : (options.length ? 'None' : 'Nothing for this body');
         let channel = -1;
-        if (part) channel = S.colours(index, part, 0).length ? 0 : S.colours(index, part, 1).length ? 1 : -1;
-        const colourName = channel === 1 ? pick.colour2 : channel === 0 ? pick.colour : '';
+        const channels = part && S.channels ? S.channels(index, part) : null;
+        if (channels) channel = channels.length ? 0 : -1;
+        else if (part) channel = S.colours(index, part, 0).length ? 0 : S.colours(index, part, 1).length ? 1 : -1;
+        const colourName = channel >= 0 ? this.creatorColourOf(row.key, channel) : '';
         const addonOff = row.addon && !c.addons;
-        return { value, part, channel, colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '', off: !options.length || addonOff, count: options.length };
+        return { value, part, channel, channels: channels || [], colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '', off: !options.length || addonOff, count: options.length };
+    },
+
+    // A row's colour on one channel: the kit's (MZ's shared colour slots), or the pick's colour / colour2.
+    creatorColourOf(rowKey, channel) {
+        const S = this.creatorSlots(), c = this._creator;
+        if (S.getColour) return S.getColour(c.state, this.creatorIndex(), rowKey, channel);
+        const pick = c.state.slots[rowKey] || {};
+        return (channel === 1 ? pick.colour2 : pick.colour) || '';
     },
 
     // ---- Changing the character ----
@@ -35760,13 +36448,17 @@ Object.assign(DocsDoodads.Workspace, {
         this.creatorChanged();
     },
 
-    creatorColour(rowKey, dir, name) {
+    // name: set that colour (or, for the kit's colour slots, '' for as drawn); otherwise step through them.
+    creatorColour(rowKey, dir, name, channel) {
         const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         const view = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
         if (view.channel < 0) return;
+        const ch = channel === undefined ? view.channel : channel;
         const pick = c.state.slots[rowKey];
-        if (name) pick[view.channel === 1 ? 'colour2' : 'colour'] = name;
-        else S.stepColour(c.state, index, rowKey, dir, view.channel);
+        if (name !== undefined && name !== null) {
+            if (S.setColour) S.setColour(c.state, index, rowKey, ch, name);
+            else pick[ch === 1 ? 'colour2' : 'colour'] = name;
+        } else S.stepColour(c.state, index, rowKey, dir, ch);
         this.creatorChanged();
     },
 
@@ -35820,7 +36512,7 @@ Object.assign(DocsDoodads.Workspace, {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!composed.sheet) return false;
         const shown = K.stageFrames(c.anim);
-        const frame = shown.first + (c.frame % Math.max(1, shown.count));
+        const frame = shown.sequence ? shown.sequence[c.frame % shown.sequence.length] : shown.first + (c.frame % Math.max(1, shown.count));
         const rect = C.frameRect(c.anim, c.dir, frame, F);
         if (rect.x + rect.w > composed.sheet.width || rect.y + rect.h > composed.sheet.height) return false;
         const img = ctx.createImageData(rect.w, rect.h);
@@ -35839,9 +36531,22 @@ Object.assign(DocsDoodads.Workspace, {
     // window; its CSS size). With oversize weapon art the canvas grows around the same body (same size, same
     // place) and the swing spills over the stage; it lets clicks through.
     fitCreatorCanvas(canvas, F) {
-        const K = this.creatorKit(), body = K.compose.frame, k = K.stageScale || 4;
+        const K = this.creatorKit(), narrow = Boolean(this._creator && this._creator.narrow);
+        if (K.stageScaleFor) {
+            // Sheets of several sizes (walking 48, battler 64, face 144), each drawn whole at its own scale.
+            const k = K.stageScaleFor(F, false), s = K.stageScaleFor(F, narrow), size = s * F, css = narrow ? 192 : 256;
+            if (canvas.width === k * F && canvas.height === k * F && canvas._ddSize === size) return;
+            canvas.width = canvas.height = k * F;
+            canvas._ddSize = size;
+            if (!canvas.style) return;
+            canvas.style.width = canvas.style.height = size === css ? '' : size + 'px';
+            canvas.style.margin = '';
+            canvas.style.pointerEvents = size > css ? 'none' : '';
+            return;
+        }
+        const body = K.compose.frame, k = K.stageScale || 4;
         if (canvas.width === k * F && canvas.height === k * F) return;
-        const s = this._creator && this._creator.narrow ? (K.narrowScale || 3) : k;
+        const s = narrow ? (K.narrowScale || 3) : k;
         const css = this._creator && this._creator.narrow ? 192 : 256;
         const size = s * F, spill = (size - s * body) / 2;
         canvas.width = canvas.height = k * F;
@@ -35979,10 +36684,15 @@ Object.assign(DocsDoodads.Workspace, {
         const pop = c.pop;
         if (pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: pop.row }, S.slot(pop.row)));
-            const names = S.colours(index, view.part, view.channel);
+            const ch = pop.channel !== undefined ? pop.channel : view.channel;
+            const names = S.colours(index, view.part, ch);
+            const current = this.creatorColourOf(pop.row, ch);
+            const label = n => (n ? n.replace(/_/g, ' ') : 'As drawn');
+            const tabs = view.channels.length > 1 ? `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">${view.channels.map((x, i) => `<button type="button" class="dd-cr-anim" id="dd-cr-palch-${i}" aria-pressed="${i === ch}">${escapeHtml(x.label)}</button>`).join('')}</div>` : '';
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="left: ${pop.x}px; top: ${pop.y}px;" role="listbox" aria-label="Colours">
-                <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">${escapeHtml(S.slot(pop.row).label)} colour</div>
-                <div class="dd-cr-palette">${names.map((n, i) => `<button type="button" id="dd-cr-pal-${i}" aria-pressed="${n === view.colourName}" style="background: ${escapeHtml(S.swatch(index, view.part, n, view.channel))};" title="${escapeHtml(n.replace(/_/g, ' '))}" aria-label="${escapeHtml(n.replace(/_/g, ' '))}"></button>`).join('')}</div>
+                <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">${escapeHtml(view.channels.length ? view.channels[ch].label : S.slot(pop.row).label)} colour</div>
+                ${tabs}
+                <div class="dd-cr-palette">${names.map((n, i) => `<button type="button" id="dd-cr-pal-${i}" aria-pressed="${n === current}" style="background: ${escapeHtml(S.swatch(index, view.part, n, ch))};" title="${escapeHtml(label(n))}" aria-label="${escapeHtml(label(n))}"></button>`).join('')}</div>
             </div>`;
         }
         if (pop.kind === 'load') {
@@ -36004,10 +36714,12 @@ Object.assign(DocsDoodads.Workspace, {
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
                 <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(E.cleanName(c.name) || 'your character')} to RPG Maker</div>
                 ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
-                ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
-                ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
-                ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>
+                ${(K.exportTicks ? K.exportTicks(N) : [
+                    ['classic', 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`],
+                    ['smooth', 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`],
+                    ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`]
+                ]).map(([key, label, note]) => tick('dd-cr-ex-' + key, o[key], label, note)).join('')}
+                ${E.actions.length ? `<div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>` : ''}
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
                 ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
@@ -36091,15 +36803,16 @@ Object.assign(DocsDoodads.Workspace, {
                     this.addLpcNotetag(v[0], parseInt(v.slice(1), 10), p.notetag, p.slot);
                 });
             });
-            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
         }
         if (c.pop && c.pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
-            const row = c.pop.row;
-            S.colours(this.creatorIndex(), view.part, view.channel).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = null; this.creatorColour(row, 0, n); }));
+            const row = c.pop.row, ch = c.pop.channel !== undefined ? c.pop.channel : view.channel;
+            S.colours(this.creatorIndex(), view.part, ch).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = view.channels.length > 1 ? c.pop : null; this.creatorColour(row, 0, n, ch); }));
+            view.channels.forEach((x, i) => on('dd-cr-palch-' + i, () => { c.pop.channel = i; this.renderCreator(); }));
         }
         if (c.pop && c.pop.kind === 'load') {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
@@ -36856,8 +37569,10 @@ Object.assign(DocsDoodads.Workspace, {
         const categories = s ? Object.entries(s.categories).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(' · ') : '';
         const skipped = index && index.skipped && index.skipped.length ? index.skipped : [];
         card.innerHTML = `
-            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters (LPC and Memao)</span>
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters</span>
                 <button class="dd-btn dd-fold" id="dd-lpc-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            ${this.mzgenCardHtml()}
+            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">The LPC character library</div>
             <div class="dd-lpc-group">Library folder (on this computer)</div>
             <div class="dd-lpc-row">
                 <input type="text" id="dd-lpc-folder" value="${escapeHtml(folder)}" placeholder="The Universal LPC Spritesheet Character Generator folder" aria-label="Library folder" />
@@ -36925,6 +37640,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
         on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
         this.bindMemaoCard();
+        this.bindMzGenCard();
         if (document.getElementById('dd-lpc-preview')) {
             if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
             else this.drawLpcPreview();
@@ -38110,6 +38826,222 @@ DocsDoodads.Workspace.mapSections.push({
         if (details) details.ontoggle = () => { this._openMinimap = details.open; };
         const select = document.getElementById('dd-minimap-mode');
         if (select) select.onchange = e => this.setMapSetting('minimap', e.target.value === 'auto' ? undefined : e.target.value);
+    }
+});
+//==========================================================
+// SECTION 25v: MZ GENERATOR CHARACTERS (FOLDER, SCAN, DRAWING, EXPORT)
+//==========================================================
+// More > Characters, RPG Maker MZ part: the generator folder of the MZ installation (found from the playtest's
+// own nw.exe, or chosen), a scan of its parts into the editor's cache, and Open the MZ Character Creator, the
+// same window as the LPC and Memao creators (44_workspace_creator_kits.js). Export writes the walking, damaged
+// and battler sheets and the face, which are MZ's own layouts (23_mzgen_export.js).
+Object.assign(DocsDoodads.Workspace, {
+    _mzgenIndex: undefined,
+
+    // The chosen folder, or the generator folder beside the MZ that runs this playtest.
+    mzgenLibraryFolder() {
+        const v = DocsDoodads.Ui.prefs().mzgenLibrary;
+        if (typeof v === 'string' && v) return v;
+        return this.mzgenDetectFolder();
+    },
+
+    mzgenDetectFolder() {
+        const FS = DocsDoodads.FS;
+        try {
+            const exe = typeof process !== 'undefined' && process.execPath ? process.execPath : '';
+            if (!exe || !FS.path || !FS.fs) return '';
+            const folder = FS.path.resolve(FS.path.dirname(exe), '..', 'generator');
+            return DocsDoodads.MzGen.isLibrary(FS.fs, FS.path, folder) ? folder : '';
+        } catch (e) {
+            return '';
+        }
+    },
+
+    setMzGenLibraryFolder(folder) {
+        const clean = String(folder || '').trim();
+        DocsDoodads.Ui.setPref('mzgenLibrary', clean || undefined);
+        return clean;
+    },
+
+    mzgenIndex() {
+        if (this._mzgenIndex === undefined) {
+            const D = DocsDoodads;
+            let data = null;
+            try { data = D.FS.existsSync(D.MzGen.indexFile) ? D.FS.readJson(D.MzGen.indexFile) : null; } catch (e) { data = null; }
+            this._mzgenIndex = D.MzGen.validIndex(data);
+        }
+        return this._mzgenIndex;
+    },
+
+    scanMzGenLibrary(folder = this.mzgenLibraryFolder()) {
+        const D = DocsDoodads, M = D.MzGen, FS = D.FS;
+        if (!FS.fs || !FS.path) return null;
+        if (!folder) { this.showToast("Choose RPG Maker MZ's generator folder first (RPG Maker MZ/generator).", 'info'); return null; }
+        if (!M.isLibrary(FS.fs, FS.path, folder)) {
+            this.showToast("That folder has no TV folder and grad_common.png. Choose the generator folder inside RPG Maker MZ's installation.", 'error');
+            return null;
+        }
+        const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+        const index = M.scan(FS.fs, FS.path, FS.path.resolve(folder), data => zlib.inflateSync(data));
+        if (!index) return null;
+        if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the generator index.', 'error'); return null; }
+        this._mzgenIndex = index;
+        this._mzgenCache = null;
+        const s = M.summary(index);
+        this.showToast(`Found ${s.parts} generator parts (${s.bases.join(', ')}).`, 'success');
+        return index;
+    },
+
+    mzgenIndexMissing(index = this.mzgenIndex()) {
+        const D = DocsDoodads, FS = D.FS;
+        return Boolean(index && FS.fs && !D.MzGen.isLibrary(FS.fs, FS.path, index.library));
+    },
+
+    // ---- Drawing ----
+
+    mzgenSheetPath(file, index = this.mzgenIndex()) {
+        const FS = DocsDoodads.FS;
+        return index && FS.path ? FS.path.join(index.library, file) : '';
+    },
+
+    mzgenLoadImage(file) {
+        const FS = DocsDoodads.FS;
+        try {
+            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+            if (!zlib || !FS.fs) return null;
+            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.mzgenSheetPath(file)), data => zlib.inflateSync(data));
+        } catch (e) {
+            return null;
+        }
+    },
+
+    mzgenCache() {
+        if (!this._mzgenCache) this._mzgenCache = DocsDoodads.LpcCompose.newCache(400);
+        return this._mzgenCache;
+    },
+
+    // recipe -> { sheet, view, warnings, used } for one animation (walk, damage, face, sv_swing...), or null.
+    composeMzGen(recipe, animation = 'walk') {
+        const D = DocsDoodads, FS = D.FS;
+        const index = this.mzgenIndex();
+        if (!index || !FS.fs) return null;
+        const resolved = D.MzGenCompose.resolve(index, recipe, animation, file => FS.existsSync(this.mzgenSheetPath(file, index)));
+        const out = D.MzGenCompose.compose(resolved, index, file => this.mzgenLoadImage(file), this.mzgenCache());
+        return { sheet: out.sheet, view: out.view, warnings: out.warnings, used: resolved.used };
+    },
+
+    openMzGenCreator(state) {
+        return this.openCreator(state, 'mz');
+    },
+
+    // ---- Export ----
+
+    mzgenExportDefaults() {
+        return { classic: true, damage: true, battler: true, face: true, faceSlot: 0, actions: [] };
+    },
+
+    mzgenExportFiles(name, options) {
+        const N = DocsDoodads.MzGenExport.names(name);
+        const files = [];
+        if (options.classic) files.push('img/characters/' + N.classic + '.png');
+        if (options.damage) files.push('img/characters/' + N.damage + '.png');
+        if (options.face) files.push('img/faces/' + N.face + '.png');
+        if (options.battler) files.push('img/sv_actors/' + N.face + '.png');
+        return files;
+    },
+
+    exportMzGenCharacter(state, options) {
+        const D = DocsDoodads, E = D.MzGenExport, S = D.MzGenSlots, FS = D.FS;
+        if (!FS.fs || !FS.writable()) { this.showToast('Characters are exported in a playtest.', 'info'); return null; }
+        const name = E.cleanName(options.name);
+        if (!name) { this.showToast('Give the character a name first.', 'info'); return null; }
+        const N = E.names(name);
+        const recipe = S.toRecipe(state);
+        const warnings = [];
+        const viewOf = anim => {
+            const out = this.composeMzGen(recipe, anim);
+            if (out) warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
+            return out && out.view;
+        };
+        const walk = viewOf('walk');
+        if (!walk) { this.showToast('Nothing to export: the character has no walking parts.', 'error'); return null; }
+        const written = [];
+        const write = (file, image) => { this.writeLpcPng(file, image); written.push(file); };
+        try {
+            if (options.classic) write('img/characters/' + N.classic + '.png', walk);
+            if (options.damage) {
+                const damage = viewOf('damage');
+                if (damage) write('img/characters/' + N.damage + '.png', damage);
+                else warnings.push('No damaged sheet: the parts have no damaged pictures.');
+            }
+            if (options.battler) {
+                const sv = viewOf('sv_wait');
+                if (sv) write('img/sv_actors/' + N.face + '.png', sv);
+                else warnings.push('No battler: the parts have no battler pictures.');
+            }
+            if (options.face) {
+                const face = viewOf('face');
+                const file = 'img/faces/' + N.face + '.png';
+                if (face) write(file, E.faceSheet(this.readLpcPng(file), face, options.faceSlot || 0));
+                else warnings.push('No face: the parts have no face pictures.');
+            }
+        } catch (e) {
+            this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
+            return null;
+        }
+        FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(S), name, state));
+        this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}.`, 'success');
+        return { files: written, warnings: [...new Set(warnings)], names: N, parts: [] };
+    },
+
+    // ---- On the Characters card ----
+
+    mzgenCardHtml() {
+        const D = DocsDoodads, U = D.Ui, M = D.MzGen, FS = D.FS;
+        const folder = this.mzgenLibraryFolder();
+        const index = this.mzgenIndex();
+        const s = index ? M.summary(index) : null;
+        const missing = index ? this.mzgenIndexMissing(index) : false;
+        const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
+        return `
+            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">RPG Maker MZ's generator parts</div>
+            <div class="dd-lpc-row">
+                <input type="text" id="dd-mzgen-folder" value="${escapeHtml(folder)}" placeholder="RPG Maker MZ/generator" aria-label="MZ generator folder" />
+                <button class="dd-btn" id="dd-mzgen-choose" type="button" title="Pick the folder">${U.icon('folder', 1)} Choose...</button>
+            </div>
+            <div class="dd-lpc-row">
+                <button class="dd-btn dd-btn-primary" id="dd-mzgen-scan" type="button" title="Read the generator's parts">${index ? 'Scan Again' : 'Scan the Parts'}</button>
+                ${index && !missing ? `<button class="dd-btn dd-btn-good" id="dd-mzgen-creator" type="button" title="Make a character from MZ's generator parts">${U.icon('person', 1)} Open the MZ Creator</button>` : ''}
+            </div>
+            ${s ? `<div class="dd-lpc-box" id="dd-mzgen-status"><b>${s.parts} parts</b> · ${escapeHtml(s.bases.join(', '))} · scanned ${escapeHtml(day(s.built))}${s.warnings.length ? `<br><span style="color: var(--dd-warn);">${s.warnings.map(w => escapeHtml(w)).join('<br>')}</span>` : ''}</div>` : '<div class="dd-lpc-box" id="dd-mzgen-status">Not scanned yet.</div>'}
+            ${missing ? `<div class="dd-lpc-warn" id="dd-mzgen-missing">The generator isn't at ${escapeHtml(index.library)} any more. Choose where it is now.</div>` : ''}
+            <div class="dd-lpc-note">The parts that come with RPG Maker MZ (the editor's own Character Generator), read where they are and never copied into the project. Characters made from them may be used in games made with RPG Maker MZ.</div>`;
+    },
+
+    bindMzGenCard() {
+        const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+        const field = document.getElementById('dd-mzgen-folder');
+        if (field) field.onchange = e => { this.setMzGenLibraryFolder(e.target.value); this.refreshLpcCard(); };
+        on('dd-mzgen-choose', () => {
+            if (typeof document === 'undefined') return;
+            const input = document.createElement('input');
+            input.type = 'file';
+            if (typeof input.setAttribute === 'function') input.setAttribute('nwdirectory', '');
+            input.onchange = () => { const chosen = input.value || (input.files && input.files[0] && input.files[0].path) || ''; if (chosen) { this.setMzGenLibraryFolder(chosen); this.refreshLpcCard(); } };
+            if (typeof input.click === 'function') input.click();
+        });
+        on('dd-mzgen-scan', () => {
+            const typed = field ? field.value : this.mzgenLibraryFolder();
+            if (typed && typed !== this.mzgenLibraryFolder()) this.setMzGenLibraryFolder(typed);
+            const button = document.getElementById('dd-mzgen-scan');
+            if (button) { button.disabled = true; button.textContent = 'Scanning...'; }
+            return new Promise(resolve => setTimeout(() => {
+                this.scanMzGenLibrary(this.mzgenLibraryFolder());
+                this.refreshLpcCard();
+                resolve();
+            }, 30));
+        });
+        on('dd-mzgen-creator', () => this.openMzGenCreator());
     }
 });
 //==========================================================

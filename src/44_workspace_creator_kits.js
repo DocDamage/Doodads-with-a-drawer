@@ -1,13 +1,15 @@
 //==========================================================
-// SECTION 25q: CHARACTER CREATOR KITS (LPC, MEMAO)
+// SECTION 25q: CHARACTER CREATOR KITS (LPC, MEMAO, MZ)
 //==========================================================
-// The libraries the Character Creator window (44_workspace_lpc_creator.js) can build from. The window asks the
-// open kit for its slots and index, how to draw an animation, what its stage and top bar show, its credits and
-// its export, so every library gets the same window, look and controls. LPC is the default.
+// The libraries the Character Creator window (44_workspace_lpc_creator.js) can build from: the LPC library, the
+// Memao assets and RPG Maker MZ's own generator parts. The window asks the open kit for its slots and index, how
+// to draw an animation, what its stage and top bar show, its credits and its export, so every library gets the
+// same window, look and controls. LPC is the default.
 //
-//   slots      the pickers (LpcSlots, MemaoSlots: the same functions)
+//   slots      the pickers (LpcSlots, MemaoSlots, MzGenSlots: the same functions; MZ's also have colour
+//              channels: channels, getColour, setColour)
 //   compose    the compositor's layout facts: frame, directions, animations, frameRect
-//   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport)
+//   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport, MzGenExport)
 DocsDoodads.CreatorKits = {
     lpc: {
         id: 'lpc',
@@ -82,5 +84,54 @@ DocsDoodads.CreatorKits = {
         exportFiles: (ws, name, o) => ws.memaoExportFiles(name, o),
         exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
+    },
+
+    mz: {
+        id: 'mz',
+        title: 'MZ Character Creator',
+        slots: DocsDoodads.MzGenSlots,
+        compose: DocsDoodads.MzGenCompose,
+        exporter: DocsDoodads.MzGenExport,
+        safeSwitch: false,
+        addons: false,
+        parts: false,
+        // Walking frames (48) 5 times, battler cells (64) 4 times, the face (144) twice; less in a small window
+        // (MZ's figures fill their frame, so they need the room under the name).
+        stageScaleFor(F, narrow) {
+            if (F >= 144) return narrow ? 1 : 2;
+            if (F >= 64) return narrow ? 2 : 4;
+            return narrow ? 3 : 5;
+        },
+        stageScale: 5,
+        narrowScale: 3,
+        feetGap: 0,
+        animations: () => [['walk', 'Walk'], ['damage', 'Damaged'], ['face', 'Face']].concat(DocsDoodads.MzGenCompose.svMotions.map(m => ['sv_' + m, { walk: 'Battle walk', damage: 'Hurt' }[m] || m.charAt(0).toUpperCase() + m.slice(1)])),
+        fps: () => ({ walk: 6, damage: 4, face: 1 }),
+        index: ws => ws.mzgenIndex(),
+        noLibrary(ws) { ws.showToast("Scan RPG Maker MZ's generator folder first (More > Characters).", 'info'); ws.showLpcCard(); },
+        draw: (ws, recipe, anim) => ws.composeMzGen(recipe, anim),
+        // MZ's walk and battler motions go 0, 1, 2, 1.
+        stageFrames(anim) {
+            if (anim === 'face') return { first: 0, count: 1 };
+            if (anim === 'damage') return { first: 0, count: 3 };
+            return { first: 0, count: 3, sequence: [0, 1, 2, 1] };
+        },
+        libraryLine(ws, index) {
+            const s = DocsDoodads.MzGen.summary(index);
+            return `MZ generator · ${s ? s.parts : 0} parts · ${s ? s.bases.join(', ') : ''}`;
+        },
+        credits: () => [{ file: 'RPG Maker MZ', part: "RPG Maker MZ's Character Generator parts", authors: ['Gotcha Gotcha Games / KADOKAWA'], licences: ['the RPG Maker MZ licence'], urls: [], safeToEncrypt: true }],
+        creditsNote: () => 'Made from the parts that come with RPG Maker MZ: they may be used in games made with RPG Maker MZ.',
+        exportNote: () => 'Made from the parts that come with RPG Maker MZ, for games made with it. The character is saved under its name to change and export again.',
+        missingNote: 'the generator folder changed',
+        exportTicks: N => [
+            ['classic', 'Walking character', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`],
+            ['damage', 'Damaged character', `${escapeHtml(N.damage)}.png: the three damaged frames, for Play Character Action or an event.`],
+            ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: MZ's 18 battle motions.`]
+        ],
+        exportDefaults: ws => ws.mzgenExportDefaults(),
+        exportFiles: (ws, name, o) => ws.mzgenExportFiles(name, o),
+        exportRun: (ws, state, o) => ws.exportMzGenCharacter(state, o),
+        tryOnPlayer: (ws, names) => ws.tryLpcOnPlayer(names, false)
     }
 };

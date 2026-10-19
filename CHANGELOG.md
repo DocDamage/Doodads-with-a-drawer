@@ -2,6 +2,8 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- An MZ creator (More > Characters, first on the card): makes characters from RPG Maker MZ's own Character Generator parts, read from MZ's installation (found by itself in a playtest, never copied into the project), in the same Character Creator window. Colour slots are shared across parts as in MZ's generator, with tabs in the palette for parts with several; the stage plays the walk, the damaged pose, the face and MZ's 18 battle motions; export writes the walking and damaged characters, the side-view battler and the face in MZ's own layouts.
+- PNGs saved interlaced (Adam7) are read too (a few of MZ's generator parts are).
 - A Memao creator beside the LPC one (More > Characters): reads the Memao Sprite Sheet Creator's asset pack from a folder on this computer (it never goes into the project or the plugin), and builds characters in the same Character Creator window, with its own colour ramps, sleeves that follow the arms, a Tools tab, and all 22 animations. Export writes 48-pixel MZ sheets: classic and smooth walkers with idle and run, actions, a side-view battler and a face. The creator window now serves both libraries through a kit (`DocsDoodads.CreatorKits`).
 - The Character Creator's "Only art safe to encrypt" (on for a new project) says how many parts it lets through, and where it hides parts in the tab in view, a line says how many, with **Show all parts** to turn it off.
 - The Character Creator offers the big weapons that only have the library's bigger art: long spear, dragon spear, trident, katana, scimitar, the other longsword, club and boomerang. Before, they couldn't be picked.

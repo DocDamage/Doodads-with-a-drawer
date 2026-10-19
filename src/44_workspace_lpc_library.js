@@ -279,8 +279,10 @@ Object.assign(DocsDoodads.Workspace, {
         const categories = s ? Object.entries(s.categories).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(' · ') : '';
         const skipped = index && index.skipped && index.skipped.length ? index.skipped : [];
         card.innerHTML = `
-            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters (LPC and Memao)</span>
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters</span>
                 <button class="dd-btn dd-fold" id="dd-lpc-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            ${this.mzgenCardHtml()}
+            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">The LPC character library</div>
             <div class="dd-lpc-group">Library folder (on this computer)</div>
             <div class="dd-lpc-row">
                 <input type="text" id="dd-lpc-folder" value="${escapeHtml(folder)}" placeholder="The Universal LPC Spritesheet Character Generator folder" aria-label="Library folder" />
@@ -348,6 +350,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
         on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
         this.bindMemaoCard();
+        this.bindMzGenCard();
         if (document.getElementById('dd-lpc-preview')) {
             if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
             else this.drawLpcPreview();

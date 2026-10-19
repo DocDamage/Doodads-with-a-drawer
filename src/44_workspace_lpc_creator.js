@@ -172,10 +172,20 @@ Object.assign(DocsDoodads.Workspace, {
         const part = pick && index.parts.find(p => p.id === pick.id);
         const value = part ? part.name : (options.length ? 'None' : 'Nothing for this body');
         let channel = -1;
-        if (part) channel = S.colours(index, part, 0).length ? 0 : S.colours(index, part, 1).length ? 1 : -1;
-        const colourName = channel === 1 ? pick.colour2 : channel === 0 ? pick.colour : '';
+        const channels = part && S.channels ? S.channels(index, part) : null;
+        if (channels) channel = channels.length ? 0 : -1;
+        else if (part) channel = S.colours(index, part, 0).length ? 0 : S.colours(index, part, 1).length ? 1 : -1;
+        const colourName = channel >= 0 ? this.creatorColourOf(row.key, channel) : '';
         const addonOff = row.addon && !c.addons;
-        return { value, part, channel, colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '', off: !options.length || addonOff, count: options.length };
+        return { value, part, channel, channels: channels || [], colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '', off: !options.length || addonOff, count: options.length };
+    },
+
+    // A row's colour on one channel: the kit's (MZ's shared colour slots), or the pick's colour / colour2.
+    creatorColourOf(rowKey, channel) {
+        const S = this.creatorSlots(), c = this._creator;
+        if (S.getColour) return S.getColour(c.state, this.creatorIndex(), rowKey, channel);
+        const pick = c.state.slots[rowKey] || {};
+        return (channel === 1 ? pick.colour2 : pick.colour) || '';
     },
 
     // ---- Changing the character ----
@@ -200,13 +210,17 @@ Object.assign(DocsDoodads.Workspace, {
         this.creatorChanged();
     },
 
-    creatorColour(rowKey, dir, name) {
+    // name: set that colour (or, for the kit's colour slots, '' for as drawn); otherwise step through them.
+    creatorColour(rowKey, dir, name, channel) {
         const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         const view = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
         if (view.channel < 0) return;
+        const ch = channel === undefined ? view.channel : channel;
         const pick = c.state.slots[rowKey];
-        if (name) pick[view.channel === 1 ? 'colour2' : 'colour'] = name;
-        else S.stepColour(c.state, index, rowKey, dir, view.channel);
+        if (name !== undefined && name !== null) {
+            if (S.setColour) S.setColour(c.state, index, rowKey, ch, name);
+            else pick[ch === 1 ? 'colour2' : 'colour'] = name;
+        } else S.stepColour(c.state, index, rowKey, dir, ch);
         this.creatorChanged();
     },
 
@@ -260,7 +274,7 @@ Object.assign(DocsDoodads.Workspace, {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!composed.sheet) return false;
         const shown = K.stageFrames(c.anim);
-        const frame = shown.first + (c.frame % Math.max(1, shown.count));
+        const frame = shown.sequence ? shown.sequence[c.frame % shown.sequence.length] : shown.first + (c.frame % Math.max(1, shown.count));
         const rect = C.frameRect(c.anim, c.dir, frame, F);
         if (rect.x + rect.w > composed.sheet.width || rect.y + rect.h > composed.sheet.height) return false;
         const img = ctx.createImageData(rect.w, rect.h);
@@ -279,9 +293,22 @@ Object.assign(DocsDoodads.Workspace, {
     // window; its CSS size). With oversize weapon art the canvas grows around the same body (same size, same
     // place) and the swing spills over the stage; it lets clicks through.
     fitCreatorCanvas(canvas, F) {
-        const K = this.creatorKit(), body = K.compose.frame, k = K.stageScale || 4;
+        const K = this.creatorKit(), narrow = Boolean(this._creator && this._creator.narrow);
+        if (K.stageScaleFor) {
+            // Sheets of several sizes (walking 48, battler 64, face 144), each drawn whole at its own scale.
+            const k = K.stageScaleFor(F, false), s = K.stageScaleFor(F, narrow), size = s * F, css = narrow ? 192 : 256;
+            if (canvas.width === k * F && canvas.height === k * F && canvas._ddSize === size) return;
+            canvas.width = canvas.height = k * F;
+            canvas._ddSize = size;
+            if (!canvas.style) return;
+            canvas.style.width = canvas.style.height = size === css ? '' : size + 'px';
+            canvas.style.margin = '';
+            canvas.style.pointerEvents = size > css ? 'none' : '';
+            return;
+        }
+        const body = K.compose.frame, k = K.stageScale || 4;
         if (canvas.width === k * F && canvas.height === k * F) return;
-        const s = this._creator && this._creator.narrow ? (K.narrowScale || 3) : k;
+        const s = narrow ? (K.narrowScale || 3) : k;
         const css = this._creator && this._creator.narrow ? 192 : 256;
         const size = s * F, spill = (size - s * body) / 2;
         canvas.width = canvas.height = k * F;
@@ -419,10 +446,15 @@ Object.assign(DocsDoodads.Workspace, {
         const pop = c.pop;
         if (pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: pop.row }, S.slot(pop.row)));
-            const names = S.colours(index, view.part, view.channel);
+            const ch = pop.channel !== undefined ? pop.channel : view.channel;
+            const names = S.colours(index, view.part, ch);
+            const current = this.creatorColourOf(pop.row, ch);
+            const label = n => (n ? n.replace(/_/g, ' ') : 'As drawn');
+            const tabs = view.channels.length > 1 ? `<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px;">${view.channels.map((x, i) => `<button type="button" class="dd-cr-anim" id="dd-cr-palch-${i}" aria-pressed="${i === ch}">${escapeHtml(x.label)}</button>`).join('')}</div>` : '';
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="left: ${pop.x}px; top: ${pop.y}px;" role="listbox" aria-label="Colours">
-                <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">${escapeHtml(S.slot(pop.row).label)} colour</div>
-                <div class="dd-cr-palette">${names.map((n, i) => `<button type="button" id="dd-cr-pal-${i}" aria-pressed="${n === view.colourName}" style="background: ${escapeHtml(S.swatch(index, view.part, n, view.channel))};" title="${escapeHtml(n.replace(/_/g, ' '))}" aria-label="${escapeHtml(n.replace(/_/g, ' '))}"></button>`).join('')}</div>
+                <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">${escapeHtml(view.channels.length ? view.channels[ch].label : S.slot(pop.row).label)} colour</div>
+                ${tabs}
+                <div class="dd-cr-palette">${names.map((n, i) => `<button type="button" id="dd-cr-pal-${i}" aria-pressed="${n === current}" style="background: ${escapeHtml(S.swatch(index, view.part, n, ch))};" title="${escapeHtml(label(n))}" aria-label="${escapeHtml(label(n))}"></button>`).join('')}</div>
             </div>`;
         }
         if (pop.kind === 'load') {
@@ -444,10 +476,12 @@ Object.assign(DocsDoodads.Workspace, {
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
                 <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(E.cleanName(c.name) || 'your character')} to RPG Maker</div>
                 ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
-                ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
-                ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
-                ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>
+                ${(K.exportTicks ? K.exportTicks(N) : [
+                    ['classic', 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`],
+                    ['smooth', 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`],
+                    ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`]
+                ]).map(([key, label, note]) => tick('dd-cr-ex-' + key, o[key], label, note)).join('')}
+                ${E.actions.length ? `<div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>` : ''}
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
                 ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
@@ -531,15 +565,16 @@ Object.assign(DocsDoodads.Workspace, {
                     this.addLpcNotetag(v[0], parseInt(v.slice(1), 10), p.notetag, p.slot);
                 });
             });
-            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
         }
         if (c.pop && c.pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
-            const row = c.pop.row;
-            S.colours(this.creatorIndex(), view.part, view.channel).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = null; this.creatorColour(row, 0, n); }));
+            const row = c.pop.row, ch = c.pop.channel !== undefined ? c.pop.channel : view.channel;
+            S.colours(this.creatorIndex(), view.part, ch).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = view.channels.length > 1 ? c.pop : null; this.creatorColour(row, 0, n, ch); }));
+            view.channels.forEach((x, i) => on('dd-cr-palch-' + i, () => { c.pop.channel = i; this.renderCreator(); }));
         }
         if (c.pop && c.pop.kind === 'load') {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
