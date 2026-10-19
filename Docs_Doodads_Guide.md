@@ -67,7 +67,7 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 ## 4. The Item Bag & Search
 
 ### The editor at a glance
-Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**.
+Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**. From the card (More > How to Use) you can also **Add Sample Items** (four small pictures in `img/doodads/samples`, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), **Replay Tool Tours**, and read **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
 
 - **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
 - With unsaved changes, **Done**, the toggle key, closing the Playtest window and **F5** ask first: **Save**, **Don't Save** (the doodads and events go back to how they were last saved) or **Keep Editing**.
@@ -77,6 +77,14 @@ Press **F10** in a playtest. The first time, a short welcome card shows the thre
 - **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
 - The **hint bubble** at the bottom always says what to do next for the tool or the thing you have picked.
 - Rest the mouse on a button for its **tooltip**, with the shortcut in a key cap.
+- **Clock** (top of the map panel, when nothing is picked): drag to see the map at any time of day, pick a season to see its art, ▶ to run the day fast, **Now** to go back to the game's own time. It only changes what the editor shows.
+- **Show Sounds** (More): a circle for how far each sound source on a doodad or event reaches, and shaded tiles where a region sound plays. **Listen** (More): click a tile to hear what the player would hear there, sound sources, the region sound and ambience layers mixed at their volumes, with a list and Stop. Esc ends it.
+- **Show Speed** (More): frames a second, draw calls a frame, pictures loaded, doodads and lights on the map; numbers over a typical budget turn red with a hint (for many draw calls, pack the map's art).
+- **Command palette** (Ctrl+K or More > Find a Tool): words can come in any order; recently used commands come first; shortcuts show as key caps. Type a value to act on it straight away: `time 18:30` (or `6pm`) previews that time, `go to map 3` goes there, `season winter` previews a season, `size 125` sets the editor size.
+- **Map tabs** (under the top bar, once you have opened two maps): click one to go there, × to take it out; a dot marks a map with unsaved changes.
+- **Folder view** (the folder button beside the item count): the Item Bag's items in a tree of their folders; the search and tabs still narrow it.
+- **Capture** (More): **Save a Picture of the View** writes a PNG of the map as it is on screen (no editor outlines); **Orbit GIF (3D)** turns the 3D camera once round and saves a looping GIF (pick 12, 24 or 36 frames and a width). Both go into the project's `screenshots` folder.
+- **Right-click menus** remember what you use: once a few actions repeat, longer menus open with a row of your most-used actions on top.
 - **Look** (More): the editor's **size** (100, 125 or 150%), its **theme** (Light, Dark or High contrast) and the **map colours**: Standard, or **Colour-blind safe** (colours that stay apart for red-green and blue-yellow colour blindness) for the selection, guides, mirror line, paths, Old Saves, brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer.
 - **Details** remembers which sections you opened or closed. The ☆ on a section's title pins it to the top; ★ unpins it.
 - **Messages** (More) lists every message the editor has shown, newest first. After deleting doodads, an event or a layer, erasing with Scatter, clearing map dressing or Replace Art, the message has an **Undo** button (it stays while the mouse is on it).
@@ -157,6 +165,10 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Replace Art**: a new picture for the picked doodads, or for every doodad showing the same picture on this map or on every map. Type or choose the picture (the last one picked in the Item Bag is suggested); position, size, depth, motion, lights and collision stay, the frame size follows the new picture, and locked doodads are left alone. It is one undo step. An Item Bag picture's right-click menu has **Replace Art on Maps...**, which pairs with **Where Used**.
 - **Marquee Drag Box**: Click and drag on empty map space with the pointer tool to draw a blue selection box. All enclosed doodads are selected at once!
 - **Shift + Click / Shift + Marquee**: Add or toggle doodads in the active multi-selection.
+- **Handles**: a picked doodad (one, on a flat map) shows corner handles and a knob above it. Drag a corner to resize it around its foot (it stays standing where it was); **Shift** keeps its proportions. Drag the knob to turn it; **Shift** snaps to 15 degrees. Each drag is one undo step.
+- **Animation** (Details, for a doodad drawn as a strip of frames): frames across and down (the picture is split evenly), speed (game frames per picture; 0 holds still), the frame to start on, and Play: Loop, Back and forth, Once (when its switch turns on; again each time it turns on) or Hold one frame.
+- **Several picked**: Details shows "—" where the picked doodads differ (a half-ticked box, a "— mixed —" choice); changing a field sets it on all of them. **Placement** sets their X, Y, Z-order, turn and size.
+- **Number boxes** in Details: drag the label left or right to change the number (Shift for bigger steps), or use the arrow keys.
 - **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
 - **Duplicate**: Press **Ctrl + D** to duplicate all selected doodads (+16px offset) or selected event.
 - **Copy / Paste**: Press **Ctrl + C** to copy selected doodads and **Ctrl + V** to paste them.

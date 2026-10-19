@@ -300,7 +300,15 @@ Object.assign(DocsDoodads.Workspace, {
             bar.style.left = Math.round(left) + 'px';
             bar.style.width = Math.round(Math.max(120, right - left)) + 'px';
         }
-        const top = Math.round(toolbar ? toolbar.bottom + 8 : 84);
+        // The map tabs sit just under the top bar; the key and pills go under them.
+        const tabs = document.getElementById('dd-map-tabs');
+        let top = Math.round(toolbar ? toolbar.bottom + 8 : 84);
+        if (tabs && tabs.style) {
+            tabs.style.left = Math.round(left) + 'px';
+            tabs.style.width = Math.round(Math.max(120, right - left)) + 'px';
+            tabs.style.top = Math.round(toolbar ? toolbar.bottom + 4 : 80) + 'px';
+            if (tabs.style.display !== 'none') top += 32;
+        }
         const legend = document.getElementById('dd-collision-legend');
         if (legend && legend.style) {
             legend.style.left = Math.round(left) + 'px';

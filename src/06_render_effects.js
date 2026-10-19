@@ -367,3 +367,46 @@ DocsDoodads.Lighting = {
     }
 };
 
+
+// Picture-strip animation on a doodad: which frame shows after a number of steps (one step every
+// frameUpdate game frames). anim: { mode: 'loop' | 'pingpong' | 'once' | 'still', offset, frame, switchId }.
+DocsDoodads.FrameAnim = {
+    modes: [
+        { value: 'loop', label: 'Loop' },
+        { value: 'pingpong', label: 'Back and forth' },
+        { value: 'once', label: 'Once (when its switch turns on)' },
+        { value: 'still', label: 'Hold one frame' }
+    ],
+
+    mode(d) {
+        const m = d && d.anim && d.anim.mode;
+        return this.modes.some(x => x.value === m) ? m : 'loop';
+    },
+
+    // Whether the steps should advance now: 'still' never does; 'once' waits for its switch (if any).
+    moving(d, switchOn) {
+        const mode = this.mode(d);
+        if (mode === 'still') return false;
+        if (mode === 'once' && Number(d.anim && d.anim.switchId) > 0) return Boolean(switchOn);
+        return true;
+    },
+
+    index(d, steps, total) {
+        total = Math.max(1, Math.round(Number(total) || 1));
+        const a = (d && d.anim) || {};
+        const clamp = v => Math.max(0, Math.min(total - 1, Math.round(Number(v) || 0)));
+        const offset = clamp(a.offset);
+        steps = Math.max(0, Math.round(Number(steps) || 0));
+        switch (this.mode(d)) {
+            case 'still': return clamp(a.frame);
+            case 'once': return Math.min(total - 1, offset + steps);
+            case 'pingpong': {
+                if (total < 2) return 0;
+                const period = 2 * total - 2;
+                const p = (offset + steps) % period;
+                return p < total ? p : period - p;
+            }
+            default: return (offset + steps) % total;
+        }
+    }
+};

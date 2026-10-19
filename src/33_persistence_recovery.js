@@ -8,9 +8,21 @@ DocsDoodads.Persistence = {
     _dirtyMap: false,
     _dirtyDoodads: false,
     get dirtyMap() { return this._dirtyMap; },
-    set dirtyMap(value) { this._dirtyMap = Boolean(value); this.changed(); },
+    set dirtyMap(value) { this._dirtyMap = Boolean(value); if (value) this.touch(); this.changed(); },
     get dirtyDoodads() { return this._dirtyDoodads; },
-    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); this.changed(); },
+    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); if (value) this.touch(); this.changed(); },
+    // The maps changed since the last save (for the map tabs' dots).
+    touchedMaps: new Set(),
+
+    touch() {
+        const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
+        if (gameMap && typeof gameMap.mapId === 'function') this.touchedMaps.add(Number(gameMap.mapId()));
+    },
+
+    mapHasUnsaved(mapId) {
+        mapId = Number(mapId);
+        return this.hasUnsavedWork() && (this.touchedMaps.has(mapId) || Boolean(this.stagedMaps[mapId]));
+    },
     // Unsaved event edits for maps other than the current one, keyed by map id.
     stagedMaps: {},
 
@@ -152,8 +164,10 @@ DocsDoodads.Persistence = {
     },
 
     changed() {
+        if (!this.hasUnsavedWork()) this.touchedMaps.clear();
         const W = DocsDoodads.Workspace;
         if (W && W.mounted && W.updateSaveState) W.updateSaveState();
+        if (W && W.mounted && W.renderMapTabs) W.renderMapTabs();
     },
 
     // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped

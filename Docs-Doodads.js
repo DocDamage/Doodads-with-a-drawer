@@ -1942,6 +1942,49 @@ DocsDoodads.Lighting = {
     }
 };
 
+
+// Picture-strip animation on a doodad: which frame shows after a number of steps (one step every
+// frameUpdate game frames). anim: { mode: 'loop' | 'pingpong' | 'once' | 'still', offset, frame, switchId }.
+DocsDoodads.FrameAnim = {
+    modes: [
+        { value: 'loop', label: 'Loop' },
+        { value: 'pingpong', label: 'Back and forth' },
+        { value: 'once', label: 'Once (when its switch turns on)' },
+        { value: 'still', label: 'Hold one frame' }
+    ],
+
+    mode(d) {
+        const m = d && d.anim && d.anim.mode;
+        return this.modes.some(x => x.value === m) ? m : 'loop';
+    },
+
+    // Whether the steps should advance now: 'still' never does; 'once' waits for its switch (if any).
+    moving(d, switchOn) {
+        const mode = this.mode(d);
+        if (mode === 'still') return false;
+        if (mode === 'once' && Number(d.anim && d.anim.switchId) > 0) return Boolean(switchOn);
+        return true;
+    },
+
+    index(d, steps, total) {
+        total = Math.max(1, Math.round(Number(total) || 1));
+        const a = (d && d.anim) || {};
+        const clamp = v => Math.max(0, Math.min(total - 1, Math.round(Number(v) || 0)));
+        const offset = clamp(a.offset);
+        steps = Math.max(0, Math.round(Number(steps) || 0));
+        switch (this.mode(d)) {
+            case 'still': return clamp(a.frame);
+            case 'once': return Math.min(total - 1, offset + steps);
+            case 'pingpong': {
+                if (total < 2) return 0;
+                const period = 2 * total - 2;
+                const p = (offset + steps) % period;
+                return p < total ? p : period - p;
+            }
+            default: return (offset + steps) % total;
+        }
+    }
+};
 //==========================================================
 // SECTION 5C: WORLD ATMOSPHERE (DAY/NIGHT, SUN, CHARACTER FX, SEE-THROUGH, SEASONS, WATER)
 //==========================================================
@@ -4136,6 +4179,120 @@ DocsDoodads.AnimatedThumb = {
     }
 };
 
+
+// A small animated GIF writer (GIF89a, looping): one shared palette of up to 256 colours picked from the
+// frames' most common colours, and LZW-packed frames. frames: [{ width, height, rgba }] of one size.
+DocsDoodads.Gif = {
+    // The most common colours (4 bits a channel), up to 256; see-through pixels count as black.
+    palette(frames) {
+        const counts = new Map();
+        for (const f of frames) {
+            const px = f.rgba;
+            for (let i = 0; i < px.length; i += 4 * 3) {
+                const key = ((px[i] >> 4) << 8) | ((px[i + 1] >> 4) << 4) | (px[i + 2] >> 4);
+                counts.set(key, (counts.get(key) || 0) + 1);
+            }
+        }
+        const keys = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 256).map(e => e[0]);
+        if (!keys.length) keys.push(0);
+        return keys.map(k => [((k >> 8) & 15) * 17, ((k >> 4) & 15) * 17, (k & 15) * 17]);
+    },
+
+    // Each pixel as its nearest palette colour.
+    indices(frame, palette) {
+        const cache = new Map();
+        const px = frame.rgba, out = new Uint8Array(frame.width * frame.height);
+        for (let p = 0, i = 0; p < out.length; p++, i += 4) {
+            const key = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2];
+            let best = cache.get(key);
+            if (best === undefined) {
+                let dist = Infinity;
+                best = 0;
+                for (let c = 0; c < palette.length; c++) {
+                    const dr = palette[c][0] - px[i], dg = palette[c][1] - px[i + 1], db = palette[c][2] - px[i + 2];
+                    const d = dr * dr * 2 + dg * dg * 4 + db * db * 3;
+                    if (d < dist) { dist = d; best = c; }
+                }
+                cache.set(key, best);
+            }
+            out[p] = best;
+        }
+        return out;
+    },
+
+    // LZW as GIF wants it: variable-width codes packed little-end first, in sub-blocks of up to 255 bytes.
+    lzw(indices, minCodeSize) {
+        const clear = 1 << minCodeSize, end = clear + 1;
+        const bytes = [];
+        let cur = 0, bits = 0;
+        const emit = (code, size) => {
+            cur |= code << bits;
+            bits += size;
+            while (bits >= 8) { bytes.push(cur & 255); cur >>>= 8; bits -= 8; }
+        };
+        let size = minCodeSize + 1, next = end + 1;
+        let dict = new Map();
+        emit(clear, size);
+        let prefix = indices.length ? indices[0] : 0;
+        for (let i = 1; i < indices.length; i++) {
+            const k = indices[i];
+            const key = prefix * 256 + k;
+            const found = dict.get(key);
+            if (found !== undefined) { prefix = found; continue; }
+            emit(prefix, size);
+            if (next < 4096) {
+                dict.set(key, next++);
+                if (next > (1 << size) && size < 12) size++;
+            } else {
+                emit(clear, size);
+                dict = new Map();
+                size = minCodeSize + 1;
+                next = end + 1;
+            }
+            prefix = k;
+        }
+        emit(prefix, size);
+        emit(end, size);
+        if (bits > 0) bytes.push(cur & 255);
+        const out = [];
+        for (let i = 0; i < bytes.length; i += 255) {
+            const n = Math.min(255, bytes.length - i);
+            out.push(n);
+            for (let j = 0; j < n; j++) out.push(bytes[i + j]);
+        }
+        out.push(0);
+        return out;
+    },
+
+    // delay: hundredths of a second a frame.
+    encode(frames, options = {}) {
+        if (!frames || !frames.length) throw new Error('No frames to write.');
+        const w = frames[0].width, h = frames[0].height;
+        const palette = this.palette(frames);
+        let depth = 1;
+        while ((1 << depth) < palette.length) depth++;
+        const size = 1 << depth;
+        const out = [];
+        const word = v => { out.push(v & 255, (v >> 8) & 255); };
+        out.push(...[71, 73, 70, 56, 57, 97]); // GIF89a
+        word(w); word(h);
+        out.push(0x80 | 0x70 | (depth - 1), 0, 0);
+        for (let i = 0; i < size; i++) { const c = palette[i] || [0, 0, 0]; out.push(c[0], c[1], c[2]); }
+        // Loop forever (NETSCAPE2.0).
+        out.push(0x21, 0xff, 11, ...Array.from('NETSCAPE2.0').map(ch => ch.charCodeAt(0)), 3, 1, 0, 0, 0);
+        const minCode = Math.max(2, depth);
+        for (const f of frames) {
+            if (f.width !== w || f.height !== h) throw new Error('Every frame must be the same size.');
+            out.push(0x21, 0xf9, 4, 0); word(Math.max(2, Math.round(Number(options.delay) || 6))); out.push(0, 0);
+            out.push(0x2c); word(0); word(0); word(w); word(h); out.push(0);
+            out.push(minCode);
+            const packed = this.lzw(this.indices(f, palette), minCode);
+            for (let i = 0; i < packed.length; i++) out.push(packed[i]);
+        }
+        out.push(0x3b);
+        return Uint8Array.from(out);
+    }
+};
 //==========================================================
 // SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
 //==========================================================
@@ -7092,12 +7249,22 @@ if (typeof PIXI !== 'undefined') {
         this._lastUpdateFrame = frame;
         const d = this._data;
         if (d.rotateSpeed) this._spin += d.rotateSpeed * Math.PI / 180;
-        if (d.frameUpdate && (d.xFrame > 1 || d.yFrame > 1)) {
-            this._frameTimer++;
-            if (this._frameTimer >= d.frameUpdate) {
-                this._frameTimer = 0;
-                this.updateFrameAnimation();
+        if (d.xFrame > 1 || d.yFrame > 1) {
+            const A = DocsDoodads.FrameAnim;
+            // "Once" waits for its switch; the steps count from when it turned on.
+            const switchId = Number(d.anim && d.anim.switchId) || 0;
+            const switchOn = switchId > 0 && typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(switchId) : false;
+            if (A.mode(d) === 'once' && switchId > 0 && !switchOn) this._animSteps = 0;
+            if (d.frameUpdate > 0 && A.moving(d, switchOn)) {
+                this._frameTimer++;
+                if (this._frameTimer >= d.frameUpdate) {
+                    this._frameTimer = 0;
+                    this._animSteps = (this._animSteps || 0) + 1;
+                }
             }
+            const total = (d.xFrame || 1) * (d.yFrame || 1);
+            const want = A.index(d, this._animSteps || 0, total);
+            if (want !== this._currentFrame || this._animShownFor !== this._bmp) this.showFrame(want);
         }
         if (d.bit && d.bit[0] === 3 && this._loadedPath !== undefined && this.seasonPath() !== this._loadedPath) this.loadTexture();
         this.updatePlacement();
@@ -7326,10 +7493,17 @@ if (typeof PIXI !== 'undefined') {
         this._shadowSprite = null;
     };
 
+    // One frame on (looping).
     Sprite_DocsDoodad.prototype.updateFrameAnimation = function() {
-        if (!this._bmp || !this._bmp._baseTexture) return;
         const total = (this._data.xFrame || 1) * (this._data.yFrame || 1);
-        this._currentFrame = (this._currentFrame + 1) % total;
+        this.showFrame((this._currentFrame + 1) % total);
+    };
+
+    // Frame `index` of the strip (left to right, then down).
+    Sprite_DocsDoodad.prototype.showFrame = function(index) {
+        if (!this._bmp || !this._bmp._baseTexture) return;
+        this._currentFrame = index;
+        this._animShownFor = this._bmp;
         const xF = this._data.xFrame || 1;
         const col = this._currentFrame % xF;
         const row = Math.floor(this._currentFrame / xF);
@@ -17488,9 +17662,21 @@ DocsDoodads.Persistence = {
     _dirtyMap: false,
     _dirtyDoodads: false,
     get dirtyMap() { return this._dirtyMap; },
-    set dirtyMap(value) { this._dirtyMap = Boolean(value); this.changed(); },
+    set dirtyMap(value) { this._dirtyMap = Boolean(value); if (value) this.touch(); this.changed(); },
     get dirtyDoodads() { return this._dirtyDoodads; },
-    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); this.changed(); },
+    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); if (value) this.touch(); this.changed(); },
+    // The maps changed since the last save (for the map tabs' dots).
+    touchedMaps: new Set(),
+
+    touch() {
+        const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
+        if (gameMap && typeof gameMap.mapId === 'function') this.touchedMaps.add(Number(gameMap.mapId()));
+    },
+
+    mapHasUnsaved(mapId) {
+        mapId = Number(mapId);
+        return this.hasUnsavedWork() && (this.touchedMaps.has(mapId) || Boolean(this.stagedMaps[mapId]));
+    },
     // Unsaved event edits for maps other than the current one, keyed by map id.
     stagedMaps: {},
 
@@ -17632,8 +17818,10 @@ DocsDoodads.Persistence = {
     },
 
     changed() {
+        if (!this.hasUnsavedWork()) this.touchedMaps.clear();
         const W = DocsDoodads.Workspace;
         if (W && W.mounted && W.updateSaveState) W.updateSaveState();
+        if (W && W.mounted && W.renderMapTabs) W.renderMapTabs();
     },
 
     // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped
@@ -19267,6 +19455,7 @@ DocsDoodads.Workspace = {
     toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
 
     setPlacementTool(tool) {
+        if (this._tour && this._tour.tool !== tool) this.endTour();
         this.placementTool = tool || null;
         for (const [name, id] of Object.entries(this.toolButtons)) {
             const btn = document.getElementById(id);
@@ -19279,7 +19468,9 @@ DocsDoodads.Workspace = {
             if (this.placementTool === name) this.placePopover(pop, this.toolButtons[name]);
         }
         this.showMoreMenu(false);
+        if (this.placementTool !== 'listen' && this._listenProbe) this.stopListening();
         DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
+        if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
@@ -19290,7 +19481,9 @@ DocsDoodads.Workspace = {
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
+        this.showSounds = DocsDoodads.Ui.prefs().soundOverlay === true;
         DocsDoodads.Ui.applyLook();
+        this.bagView = DocsDoodads.Ui.prefs().bagView === 'folders' ? 'folders' : 'grid';
         const sort = DocsDoodads.Ui.prefs().bagSort;
         this.bagSort = this.bagSorts.some(s => s.value === sort) ? sort : 'search';
         DocsDoodads.Persistence.captureSession();
@@ -19307,6 +19500,7 @@ DocsDoodads.Workspace = {
         }
         this.updateCollisionLegend();
         DocsDoodads.Ui.installTooltips();
+        if (DocsDoodads.Ui.prefs().perfOverlay === true) this.startPerf();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
         this.showRecoveryNotices();
@@ -19332,6 +19526,9 @@ DocsDoodads.Workspace = {
         DocsDoodads.Ui.removeTooltips();
         this.closeToastHistory();
         this.closeLookCard();
+        this.closeMapTools();
+        this.endTour();
+        this.closeCaptureCard();
         clearTimeout(this._hoverShow);
         this.hideHoverCard(true);
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
@@ -19601,6 +19798,10 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
+                    <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
+                    <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
+                    <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
                     <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
                 </div>
                 <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
@@ -19641,10 +19842,10 @@ DocsDoodads.Workspace = {
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800; white-space: nowrap;" id="dd-asset-count">0 items</span>
+                <button class="dd-btn" id="dd-bag-view" type="button" style="padding: 2px 6px;" title="${this.bagView === 'folders' ? 'Show the items as cards' : 'Show the items in their folders'}">${U.icon('folder', 1)}</button>
                 <select id="dd-bag-sort" title="Order of the items">${this.bagSorts.map(s => `<option value="${s.value}"${s.value === this.bagSort ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}</select>
-                <div style="display: flex; align-items: center; gap: 4px;" title="Card size">
-                    ${U.icon('picture', 1)}
-                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 60px;" />
+                <div style="display: flex; align-items: center; flex: none;" title="Card size">
+                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 54px;" />
                 </div>
             </div>
             <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 2px 2px 8px; position: relative; margin: 0 -4px 0 0;">
@@ -19690,6 +19891,7 @@ DocsDoodads.Workspace = {
         this.inspectorEl = inspector;
         this.applyScale();
         this.buildStatusBar();
+        this.rememberMap(this.currentMapId());
 
         this.bindEvents();
         this.updateSaveState();
@@ -19703,6 +19905,7 @@ DocsDoodads.Workspace = {
         this.refreshDrawerCards();
         this.refreshInspector();
         if (!prefs.welcomed) this.showWelcome();
+        else this.maybeShowWhatsNew();
     },
 
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
@@ -19803,16 +20006,29 @@ DocsDoodads.Workspace = {
                 <li><span class="dd-num">2</span>${U.icon('select', 2)}<span><b>Click the map</b> to put it there. Drag things to move them; right-click for more.</span></li>
                 <li><span class="dd-num">3</span>${U.icon('save', 2)}<span>Press <b>Save</b>, then <b>Done</b> to play.</span></li>
             </ol>
-            <div style="color: var(--dd-muted); font-size: 11px; margin-bottom: 12px;">Stuck? The bubble at the bottom always says what to do next.</div>
+            <div style="color: var(--dd-muted); font-size: 11px; margin-bottom: 10px;">Stuck? The bubble at the bottom always says what to do next.</div>
+            <div class="dd-welcome-more">
+                <button class="dd-btn" id="dd-welcome-samples" type="button" title="Draws a few pictures into img/doodads/samples and adds two prefabs and a biome to try">${U.icon('box', 1)} Add Sample Items</button>
+                <button class="dd-btn" id="dd-welcome-tours" type="button">${U.icon('help', 1)} Replay Tool Tours</button>
+                <button class="dd-btn" id="dd-welcome-new" type="button">${U.icon('sparkle', 1)} What's New</button>
+            </div>
             <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
         `;
         (this.container || document.body).appendChild(card);
         const ok = document.getElementById('dd-welcome-ok');
-        if (ok) ok.onclick = () => {
+        const dismiss = () => {
+            // Someone just welcomed has nothing "new" to catch up on.
+            if (!U.prefs().welcomed) U.setPref('whatsNewSeen', DocsDoodads.WhatsNew.id);
             U.setPref('welcomed', true);
-            U.sound('ok');
             if (card.parentNode) card.parentNode.removeChild(card);
         };
+        if (ok) ok.onclick = () => { U.sound('ok'); dismiss(); };
+        const samples = document.getElementById('dd-welcome-samples');
+        if (samples) samples.onclick = () => { dismiss(); this.addSampleContent(); };
+        const tours = document.getElementById('dd-welcome-tours');
+        if (tours) tours.onclick = () => { dismiss(); this.replayTours(); };
+        const whatsNew = document.getElementById('dd-welcome-new');
+        if (whatsNew) whatsNew.onclick = () => { dismiss(); this.showWhatsNew(); };
     },
 
     refreshLayoutSelector() {
@@ -19981,6 +20197,8 @@ DocsDoodads.Workspace = {
         };
         const sortSel = document.getElementById('dd-bag-sort');
         if (sortSel) sortSel.onchange = e => this.setBagSort(e.target.value);
+        const viewBtn = document.getElementById('dd-bag-view');
+        if (viewBtn) viewBtn.onclick = () => this.setBagView(this.bagView === 'folders' ? 'grid' : 'folders');
         this.refreshSearchChips();
 
         this.refreshCollectionPicker();
@@ -20034,6 +20252,10 @@ DocsDoodads.Workspace = {
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
+        on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
+        on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
+        on('dd-listen-btn', () => { this.setPlacementTool('listen'); });
+        on('dd-perf-btn', () => { this.togglePerfOverlay(); this.showMoreMenu(false); });
         on('dd-help-btn', () => { this.showMoreMenu(false); this.showWelcome(); });
         on('dd-drawer-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('drawer', !this.isFolded('drawer')); });
         on('dd-inspector-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('inspector', !this.isFolded('inspector')); });
@@ -20197,6 +20419,18 @@ DocsDoodads.Workspace = {
 
         const assets = this.filteredAssets || [];
         const totalCount = assets.length;
+        viewport.style.position = this.bagView === 'folders' && totalCount > 0 ? 'relative' : 'absolute';
+        if (this.bagView === 'folders' && totalCount > 0) {
+            // The folder tree is not windowed: folders start closed, and an open folder shows its items.
+            sizer.style.height = 'auto';
+            viewport.style.transform = '';
+            viewport.style.gridTemplateColumns = '1fr';
+            viewport.style.display = 'block';
+            this._gridRange = null;
+            this.renderFolderTree(viewport, assets, this.thumbSize || defaultThumbnailSize);
+            return;
+        }
+        viewport.style.display = 'grid';
         if (totalCount === 0) {
             sizer.style.height = '0px';
             viewport.style.transform = '';
@@ -21073,6 +21307,7 @@ DocsDoodads.Workspace = {
             shadow: DocsDoodads.Shadow.defaults,
             light: DocsDoodads.Lighting.lightDefaults,
             motion: { type: 'none', amount: 0.5, speed: 1 },
+            anim: { mode: 'loop', offset: 0, switchId: 0, frame: 0 },
             transition: DocsDoodads.Transition.defaults,
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
             sound: DocsDoodads.SpatialSound.emitterDefaults,
@@ -21090,6 +21325,8 @@ DocsDoodads.Workspace = {
         if (key === 'switchText') return DocsDoodads.Appearance.formatSwitches(d.switch);
         if (key === 'depth') return DocsDoodads.Depth.resolve(d);
         if (key === 'layer') return DocsDoodads.Layers.of(d);
+        // Size: how big, whichever way it is flipped (the larger side when stretched).
+        if (key === 'scale') return Math.round(Math.max(Math.abs(d.scaleX !== undefined ? d.scaleX : 1), Math.abs(d.scaleY !== undefined ? d.scaleY : 1)) * 100) / 100;
         if (key.indexOf('seasonIn.') === 0) return Array.isArray(d.seasons) && d.seasons.includes(Number(key.slice(9)));
         if (d[key] === undefined && this.propertyFallbacks[key] !== undefined) return this.propertyFallbacks[key];
         const dot = key.indexOf('.');
@@ -21109,6 +21346,21 @@ DocsDoodads.Workspace = {
         }
         if (key === 'switchText') {
             d.switch = DocsDoodads.Appearance.parseSwitchText(value);
+            return;
+        }
+        // Frames across or down: the picture's whole width (or height) is split into that many frames.
+        if (key === 'xFrame' || key === 'yFrame') {
+            const side = key === 'xFrame' ? 'frameW' : 'frameH';
+            const n = Math.max(1, Math.min(64, Math.round(Number(value) || 1)));
+            const full = (Number(d[side]) || 48) * Math.max(1, Number(d[key]) || 1);
+            d[key] = n;
+            d[side] = Math.max(1, Math.round(full / n));
+            return;
+        }
+        if (key === 'scale') {
+            const size = Math.max(0.05, Math.min(20, Number(value) || 1));
+            d.scaleX = size * ((d.scaleX !== undefined ? d.scaleX : 1) < 0 ? -1 : 1);
+            d.scaleY = size * ((d.scaleY !== undefined ? d.scaleY : 1) < 0 ? -1 : 1);
             return;
         }
         // "None" removes the emitter or attached effect rather than storing an empty one.
@@ -21265,6 +21517,15 @@ DocsDoodads.Workspace = {
                 { key: 'flipX', label: 'Flip horizontally', type: 'checkbox' },
                 { key: 'flipY', label: 'Flip vertically', type: 'checkbox' }
             ] },
+            { title: 'Animation', fields: [
+                number('xFrame', 'Frames across (in the picture)'),
+                number('yFrame', 'Frames down'),
+                number('frameUpdate', 'Speed: game frames per picture (0 = still)'),
+                { key: 'anim.mode', label: 'Play', type: 'select', options: D.FrameAnim.modes },
+                number('anim.offset', 'Start at frame (0 = first)'),
+                number('anim.switchId', 'Once: when this switch turns on (0 = at once)'),
+                number('anim.frame', 'Hold: frame to show')
+            ] },
             { title: 'Motion', fields: [
                 { key: 'motion.type', label: 'Type', type: 'select', options: D.Motion.types },
                 range('motion.amount', 'Amount', 0, 1, 0.05),
@@ -21336,36 +21597,55 @@ DocsDoodads.Workspace = {
         ];
     },
 
-    fieldHtml(id, f, value) {
+    // mixed: the picked doodads differ here. The field shows "—" (an empty box, a "mixed" choice, a
+    // half-ticked box) and an edit sets them all.
+    fieldHtml(id, f, value, mixed) {
         const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px; border-radius: 3px; font-size: 11px;';
-        const label = `<label for="${id}" style="font-size: 10px; color: var(--dd-muted);">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: var(--dd-text);">${escapeHtml(String(value))}</span>` : ''}</label>`;
+        const shown = mixed ? '—' : String(value);
+        const label = `<label for="${id}" style="font-size: 10px; color: var(--dd-muted);">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: var(--dd-text);">${escapeHtml(shown)}</span>` : ''}${mixed && (f.type === 'color' || f.type === 'checkbox') ? ' (mixed)' : ''}</label>`;
         if (f.type === 'checkbox') {
-            return `<label style="font-size: 11px; color: var(--dd-text); display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
+            return `<label style="font-size: 11px; color: var(--dd-text); display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value && !mixed ? 'checked' : ''}${mixed ? ' data-mixed="1"' : ''} /> ${escapeHtml(f.label)}${mixed ? ' (mixed)' : ''}</label>`;
         }
         if (f.type === 'select') {
-            const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+            const options = (mixed ? '<option value="__mixed" selected>— mixed —</option>' : '') +
+                f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${!mixed && String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
             return `<div>${label}<select id="${id}" style="${inputStyle}">${options}</select></div>`;
         }
         if (f.type === 'range') {
-            return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
+            return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}"${mixed ? ' data-mixed="1"' : ''} style="width: 100%;" /></div>`;
         }
         if (f.type === 'color') {
             return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: var(--dd-field); border: 1px solid var(--dd-line);" /></div>`;
         }
         const type = f.type === 'number' ? 'number' : 'text';
-        return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
+        const text = mixed || value === undefined || value === null ? '' : value;
+        return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(text))}"${mixed ? ' placeholder="—" data-mixed="1"' : ''} style="${inputStyle}" /></div>`;
+    },
+
+    // Where several picked doodads stand and how big they are, for Details with more than one picked.
+    placementSection() {
+        const number = (key, label, step = 1) => ({ key, label, type: 'number', step });
+        return { title: 'Placement', fields: [number('x', 'X (pixels)'), number('y', 'Y (pixels)'), number('z', 'Z-order'),
+            number('rotation', 'Turn (degrees)'), number('scale', 'Size (1 = as drawn)', 0.05)] };
+    },
+
+    // The value the picked doodads share, or { mixed: true } with the first one's.
+    sharedValue(items, key) {
+        const values = items.map(d => this.getDoodadProperty(d, key));
+        const first = JSON.stringify(values[0]);
+        return { value: values[0], mixed: values.some(v => JSON.stringify(v) !== first) };
     },
 
     // The sections are built once per render and bound from the same list.
     renderEffectSections(items) {
         const first = items[0];
         this._openEffectSections = this._openEffectSections || {};
-        this._effectSections = this.effectSections();
+        this._effectSections = (items.length > 1 ? [this.placementSection()] : []).concat(this.effectSections());
         return this._effectSections.map((section, si) => {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;
-                const value = this.getDoodadProperty(first, f.key);
-                return this.fieldHtml(id, f, value);
+                const shared = items.length > 1 ? this.sharedValue(items, f.key) : { value: this.getDoodadProperty(first, f.key), mixed: false };
+                return this.fieldHtml(id, f, shared.value, shared.mixed);
             }).join('');
             return `
                 <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
@@ -21384,6 +21664,8 @@ DocsDoodads.Workspace = {
             section.fields.forEach((f, fi) => {
                 const input = document.getElementById(`dd-fx-${si}-${fi}`);
                 if (!input) return;
+                const mixed = input.getAttribute && input.getAttribute('data-mixed') === '1';
+                if (mixed && f.type === 'checkbox') input.indeterminate = true;
                 const read = () => {
                     if (f.type === 'checkbox') return Boolean(input.checked);
                     if (f.type === 'range' || f.type === 'number') return parseFloat(input.value) || 0;
@@ -21401,7 +21683,14 @@ DocsDoodads.Workspace = {
                     };
                     input.onpointerup = input.onblur = () => setTimeout(() => this.commitPropertyPreview(), 0);
                 } else {
-                    input.onchange = () => this.setDoodadProperty(items, f.key, read());
+                    input.onchange = () => {
+                        // Leaving a mixed field as it was ("—" or the mixed choice) changes nothing.
+                        if (f.type === 'select' && input.value === '__mixed') return;
+                        if (mixed && (f.type === 'number' || f.type === 'text') && String(input.value) === '') return;
+                        if (f.type === 'number' && String(input.value).trim() === '') return;
+                        this.setDoodadProperty(items, f.key, read());
+                        if (f.key === 'x' || f.key === 'y' || f.key === 'z' || f.key === 'scale' || f.key === 'rotation') this.refreshSpriteset(true);
+                    };
                 }
             });
         });
@@ -22117,11 +22406,11 @@ DocsDoodads.Workspace = {
     paletteCommands() {
         const D = DocsDoodads;
         const out = [];
-        const add = (label, run, group) => out.push({ label, run, group: group || 'Command' });
-        add('Save', () => D.Persistence.saveAll());
-        add('Undo', () => D.Undo.undo());
-        add('Redo', () => D.Undo.redo());
-        add('Toggle Grid', () => this.toggleGrid());
+        const add = (label, run, group, keys) => out.push({ label, run, group: group || 'Command', keys });
+        add('Save', () => D.Persistence.saveAll(), null, 'Ctrl+S');
+        add('Undo', () => D.Undo.undo(), null, 'Ctrl+Z');
+        add('Redo', () => D.Undo.redo(), null, 'Ctrl+Y');
+        add('Toggle Grid', () => this.toggleGrid(), null, 'G');
         add('Show / Hide Collision', () => this.toggleCollisionOverlay());
         for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');
         add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
@@ -22139,6 +22428,17 @@ DocsDoodads.Workspace = {
         add('Clear Map Dressing', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
         add('Messages (read them again)', () => this.showToastHistory());
         add('Look: size, theme, map colours', () => this.showLookCard());
+        add('How to Use (welcome card)', () => this.showWelcome());
+        add('Replay Tool Tours', () => this.replayTours());
+        add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());
+        add("What's New", () => this.showWhatsNew());
+        add('Capture: picture of the view (PNG)', () => this.capturePicture());
+        add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());
+        add('Clock: run the day fast', () => this.playClock(), 'Clock');
+        add('Clock: back to the game\'s time', () => { this.stopClock(); this.previewMinutes = null; this.previewSeason = null; this.updateClockBar(true); }, 'Clock');
+        add('Show / Hide Sounds', () => this.toggleSoundOverlay());
+        add('Listen Here (click a tile)', () => this.setPlacementTool('listen'));
+        add('Show / Hide Speed (performance)', () => this.togglePerfOverlay());
         for (const s of D.Ui.scales) add(`Editor size ${Math.round(s * 100)}%`, () => this.setLook('uiScale', s), 'Look');
         for (const t of D.Ui.themes) add('Theme: ' + t.label, () => this.setLook('theme', t.value), 'Look');
         add('Map colours: colour-blind safe', () => this.setLook('mapColors', 'safe'), 'Look');
@@ -22177,7 +22477,7 @@ DocsDoodads.Workspace = {
         panel.className = 'dd-glass';
         panel.style.cssText = 'position: fixed; top: 90px; left: 50%; transform: translateX(-50%); width: 520px; max-width: calc(100vw - 32px); padding: 10px; z-index: 10050; display: flex; flex-direction: column; gap: 6px;';
         panel.innerHTML = `
-            <input type="text" id="dd-palette-input" placeholder="Type a command, map or asset..." style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-primary); padding: 8px; border-radius: 6px; font-size: 13px;" />
+            <input type="text" id="dd-palette-input" placeholder="Type a command, map or asset... (or: time 18:30, go to map 3)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-primary); padding: 8px; border-radius: 6px; font-size: 13px;" />
             <div id="dd-palette-list" style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 1px;"></div>`;
         document.body.appendChild(panel);
         const input = document.getElementById('dd-palette-input');
@@ -22185,12 +22485,16 @@ DocsDoodads.Workspace = {
         let results = [], index = 0;
         const close = () => { if (panel.parentNode) panel.parentNode.removeChild(panel); };
         const draw = () => {
-            results = DocsDoodads.CommandPalette.rank(input.value, commands, 50);
+            results = this.paletteResults(input.value, commands, 50);
             index = Math.min(index, Math.max(0, results.length - 1));
-            listEl.innerHTML = results.map((c, i) => `
-                <div class="dd-palette-row" data-i="${i}" style="display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
-                    <span>${escapeHtml(c.label)}</span><span style="color: var(--dd-faint); font-size: 10px;">${escapeHtml(c.group)}</span>
-                </div>`).join('') || '<div style="font-size: 12px; color: var(--dd-faint); padding: 6px;">No matches</div>';
+            listEl.innerHTML = results.map((c, i) => {
+                const parts = this.paletteRowParts(c);
+                return `
+                <div class="dd-palette-row" data-i="${i}" style="display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
+                    <span style="flex: 1; min-width: 0;">${escapeHtml(parts.name)}</span>${parts.keys ? `<kbd>${escapeHtml(parts.keys)}</kbd>` : ''}
+                    <span style="color: var(--dd-faint); font-size: 10px;">${c.recent ? 'Recent · ' : ''}${escapeHtml(c.group)}</span>
+                </div>`;
+            }).join('') || '<div style="font-size: 12px; color: var(--dd-faint); padding: 6px;">No matches</div>';
             listEl.querySelectorAll('.dd-palette-row').forEach(row => {
                 row.onmousedown = e => { e.preventDefault(); run(parseInt(row.dataset.i, 10)); };
             });
@@ -22199,6 +22503,8 @@ DocsDoodads.Workspace = {
             const c = results[i];
             close();
             if (c) {
+                // Typed values (a time, a map) are made fresh each time; named commands are remembered.
+                if (commands.some(x => x.label === c.label)) this.rememberCommand(c.label);
                 try { c.run(); } catch (error) { this.showToast(error.message || String(error), 'error'); }
             }
         };
@@ -24072,6 +24378,7 @@ DocsDoodads.Workspace = {
         const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
         content.innerHTML = `
             <div style="color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Nothing is picked, so this is the map's own settings. (Map ${mapId})</div>
+            ${this.renderClockBar()}
             <input type="search" id="dd-map-search" placeholder="Find a setting (fog, shadow, snow...)" value="${escapeHtml(this._mapSearch || '')}"
                 style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
             <div id="dd-map-search-none" style="display: none; font-size: 11px; color: var(--dd-faint); margin-bottom: 6px;">No settings match.</div>
@@ -24136,6 +24443,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-map-daynight').onchange = (e) => this.setMapSetting('dayNight', e.target.value === 'auto' ? undefined : e.target.value);
         document.getElementById('dd-map-reflections').onchange = (e) => this.setMapSetting('reflections', e.target.checked ? undefined : false);
         document.getElementById('dd-map-charshadows').onchange = (e) => this.setMapSetting('characterShadows', e.target.checked ? undefined : false);
+        this.bindClockBar();
         this.bindPerspectivePanel();
         this.bindTerrainPanel();
         this.bindMapSoundPanel(mapSettings);
@@ -24511,6 +24819,7 @@ DocsDoodads.Workspace = {
     onMapLoaded() {
         if (!this.mounted) return;
         this.updateCollisionLegend();
+        this.rememberMap(this.currentMapId());
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
@@ -25748,6 +26057,8 @@ DocsDoodads.Workspace = {
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
         this.drawCollisionOverlay(g);
+        this.drawSoundOverlay(g);
+        this.drawTransformHandles(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -26218,6 +26529,11 @@ DocsDoodads.Workspace = {
                 return;
             }
 
+            if (this.placementTool === 'listen') {
+                this.listenHere(coords.tileX, coords.tileY);
+                return;
+            }
+
             // 3. Stamp Tool
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 const snapCoords = e.altKey ? coords : this.snapToTile(coords);
@@ -26256,6 +26572,10 @@ DocsDoodads.Workspace = {
                 this.biomePaintAt(e.clientX, e.clientY);
                 return;
             }
+            if (!this.placementTool && e.button === 0) {
+                const handle = this.handleAt(this.clientToCanvas(e.clientX, e.clientY));
+                if (handle && this.beginHandleDrag(handle, this.clientToCanvas(e.clientX, e.clientY))) return;
+            }
             if (!this.placementTool && e.button === 0 && !e.shiftKey && !e.altKey) {
                 const point = this.clientToMapCoords(e.clientX, e.clientY);
                 if (this.beginDoodadDrag(point)) {
@@ -26283,6 +26603,19 @@ DocsDoodads.Workspace = {
                 return;
             }
             this.trackCursor(e.clientX, e.clientY, e.target);
+            if (this._handleDrag) {
+                if (e.buttons === 0) { if (this.endHandleDrag()) this._suppressNextClick = true; return; }
+                this.updateHandleDrag(this.clientToCanvas(e.clientX, e.clientY), e.shiftKey);
+                this.showHandleReadout(e.clientX, e.clientY);
+                return;
+            }
+            // A resize or turn cursor over the handles.
+            if (!this.placementTool && !this._drag) {
+                const canvas = DocsDoodads.Compat.getCanvas();
+                const over = this.handleAt(this.clientToCanvas(e.clientX, e.clientY));
+                if (canvas && canvas.style) canvas.style.cursor = !over ? '' : over.kind === 'rotate' ? 'grab'
+                    : (over.corner === 'nw' || over.corner === 'se' ? 'nwse-resize' : 'nesw-resize');
+            }
             if (this._drag) {
                 // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
                 if (e.buttons === 0) {
@@ -26345,6 +26678,12 @@ DocsDoodads.Workspace = {
         this._onCanvasMouseUp = (e) => {
             if (this._camDrag) {
                 this.endCameraDrag();
+                return;
+            }
+            if (this._handleDrag) {
+                // The click that follows must not pick something else.
+                this.endHandleDrag();
+                this._suppressNextClick = true;
                 return;
             }
             if (this._drag) {
@@ -26953,6 +27292,29 @@ DocsDoodads.Workspace = {
         menu.className = 'dd-glass';
         menu.style.cssText = 'position: fixed; z-index: 10050; display: flex; flex-direction: column; gap: 1px;';
         DocsDoodads.Ui.sound('cursor');
+        const run = item => {
+            this.closeContextMenu();
+            this.noteMenuUse(item.label);
+            if (item.onClick) item.onClick();
+        };
+        // The actions used most, as a row of buttons at the top.
+        const quick = this.quickMenuItems(items);
+        if (quick.length) {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'dd-quick-row';
+            quick.forEach(item => {
+                const b = document.createElement('button');
+                b.className = 'dd-btn' + (item.danger ? ' dd-danger' : '');
+                b.title = item.label;
+                b.innerHTML = `${item.iconName ? DocsDoodads.Ui.icon(item.iconName, 1) : `<span>${escapeHtml(item.icon || '•')}</span>`}<span>${escapeHtml(this.menuKey(item.label).replace(/#/g, '').replace(/\.\.\.$/, '').trim())}</span>`;
+                b.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); run(item); };
+                rowEl.appendChild(b);
+            });
+            menu.appendChild(rowEl);
+            const sep = document.createElement('div');
+            sep.className = 'dd-menu-sep';
+            menu.appendChild(sep);
+        }
         items.forEach(item => {
             if (item.separator) {
                 const sep = document.createElement('div');
@@ -26968,8 +27330,7 @@ DocsDoodads.Workspace = {
             row.innerHTML = `${icon}<span>${escapeHtml(item.label)}</span>`;
             row.onclick = (e) => {
                 e.stopPropagation();
-                this.closeContextMenu();
-                if (item.onClick) item.onClick();
+                run(item);
             };
             menu.appendChild(row);
         });
@@ -27393,13 +27754,188 @@ DocsDoodads.Workspace = {
 };
 
 //==========================================================
+// SECTION 25i: WORKSPACE CAPTURE AND QUICK MENU
+//==========================================================
+// Capture saves a picture of the map as it is on screen (without the editor's outlines), or a short GIF
+// of the 3D camera turning round, into screenshots/. The right-click menu learns which actions are used
+// most and offers up to eight of them in a row at its top.
+DocsDoodads.Ui.css += `
+#dd-capture-card { position: fixed; top: 90px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 300px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 11px; }
+#dd-capture-card .dd-btn { justify-content: flex-start; }
+#dd-capture-card .dd-capture-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#dd-context-menu .dd-quick-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 2px; max-width: 280px; }
+#dd-context-menu .dd-quick-row .dd-btn { flex-direction: column; gap: 2px; height: 48px; padding: 3px 2px; font-size: 10px; line-height: 1.1; white-space: normal; text-align: center; justify-content: center; background: var(--dd-panel-2); border-radius: 10px; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Capture ----
+    // The map as drawn, into a canvas the size of the game screen (the editor's outlines left out).
+    renderSceneCanvas() {
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
+        const spriteset = scene && scene._spriteset;
+        const renderer = this.renderer();
+        if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
+        const outline = spriteset._docsSelectionOutline;
+        const wasVisible = outline ? outline.visible : null;
+        if (outline) outline.visible = false;
+        const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
+        try {
+            renderer.render(spriteset, rt);
+            return renderer.extract.canvas(rt);
+        } finally {
+            rt.destroy(true);
+            if (outline) outline.visible = wasVisible;
+        }
+    },
+
+    captureName(kind, ext) {
+        const d = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+        return `${kind}_Map${String(this.currentMapId()).padStart(3, '0')}_${stamp}.${ext}`;
+    },
+
+    // bytes: a Buffer or Uint8Array. Returns the path written.
+    saveCapture(name, bytes) {
+        const FS = DocsDoodads.FS;
+        FS.mkdirp('screenshots');
+        const out = 'screenshots/' + name;
+        FS.fs.writeFileSync(out, typeof Buffer !== 'undefined' && !Buffer.isBuffer(bytes) ? Buffer.from(bytes) : bytes);
+        try { if (typeof nw !== 'undefined' && nw.Shell && FS.path) nw.Shell.showItemInFolder(FS.path.resolve(out)); } catch (e) {}
+        return out;
+    },
+
+    capturePicture() {
+        if (!DocsDoodads.FS.fs) { this.showToast('Capture needs the desktop playtest.', 'error'); return null; }
+        const canvas = this.renderSceneCanvas();
+        if (!canvas) { this.showToast('Open a map to capture it.', 'error'); return null; }
+        const base64 = canvas.toDataURL('image/png').split(',')[1];
+        const out = this.saveCapture(this.captureName('view', 'png'), Buffer.from(base64, 'base64'));
+        this.showToast(`Saved a picture of the view: ${out}`, 'success');
+        return out;
+    },
+
+    // A canvas's pixels at a given width (keeping its shape), for a GIF frame.
+    framePixels(canvas, width) {
+        const scale = Math.min(1, width / canvas.width);
+        const w = Math.max(1, Math.round(canvas.width * scale)), h = Math.max(1, Math.round(canvas.height * scale));
+        const small = document.createElement('canvas');
+        small.width = w;
+        small.height = h;
+        const ctx = small.getContext('2d');
+        ctx.drawImage(canvas, 0, 0, w, h);
+        return { width: w, height: h, rgba: ctx.getImageData(0, 0, w, h).data };
+    },
+
+    nextFrame() {
+        return new Promise(resolve => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => resolve()) : setTimeout(resolve, 16)));
+    },
+
+    // The 3D camera turns once round; one picture per step, then the camera goes back.
+    async captureOrbitGif(options = {}) {
+        const P = DocsDoodads.Perspective;
+        if (!DocsDoodads.FS.fs) { this.showToast('Capture needs the desktop playtest.', 'error'); return null; }
+        if (!P.liveCamera || !P.liveCamera()) { this.showToast('Turn on the 3D view (map panel) to make an orbit.', 'info'); return null; }
+        const count = Math.max(4, Math.min(72, Math.round(Number(options.frames) || 24)));
+        const width = Math.max(120, Math.min(1280, Math.round(Number(options.width) || 480)));
+        const before = $gameMap._docsCamera ? Object.assign({}, $gameMap._docsCamera) : null;
+        const start = (P.active() || {}).yaw || 0;
+        const pill = DocsDoodads.Ui.progress('Making the orbit GIF', { onCancel: () => {} });
+        const frames = [];
+        try {
+            for (let i = 0; i < count && !pill.cancelled; i++) {
+                pill.update(i, count);
+                this.setCameraView({ yaw: (start + i * 360 / count) % 360 });
+                await this.nextFrame();
+                await this.nextFrame();
+                const canvas = this.renderSceneCanvas();
+                if (!canvas) break;
+                frames.push(this.framePixels(canvas, width));
+            }
+        } finally {
+            this.setCameraView(before);
+            pill.finish();
+        }
+        if (pill.cancelled) { this.showToast('Orbit cancelled; nothing was saved.', 'info'); return null; }
+        if (!frames.length) { this.showToast('Nothing could be captured.', 'error'); return null; }
+        // One turn takes about four seconds (a frame is at least 4 hundredths).
+        const gif = DocsDoodads.Gif.encode(frames, { delay: Math.max(4, Math.round(400 / count)) });
+        const out = this.saveCapture(this.captureName('orbit', 'gif'), gif);
+        this.showToast(`Saved a ${frames.length}-frame orbit: ${out}`, 'success');
+        return out;
+    },
+
+    showCaptureCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui;
+        this.closeCaptureCard();
+        const card = document.createElement('div');
+        card.id = 'dd-capture-card';
+        card.className = 'dd-glass';
+        const in3d = DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera();
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('picture', 1)} Capture</span>
+                <button class="dd-btn dd-fold" id="dd-capture-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <button class="dd-btn dd-btn-primary" id="dd-capture-png" type="button">${U.icon('picture', 1)} Save a Picture of the View (PNG)</button>
+            <div class="dd-capture-row">
+                <label>Frames<select id="dd-capture-frames"><option value="12">12</option><option value="24" selected>24</option><option value="36">36</option></select></label>
+                <label>Width<select id="dd-capture-width"><option value="320">320 px</option><option value="480" selected>480 px</option><option value="640">640 px</option></select></label>
+            </div>
+            <button class="dd-btn" id="dd-capture-gif" type="button"${in3d ? '' : ' disabled title="Turn on the 3D view first"'}>${U.icon('sparkle', 1)} Orbit GIF (3D)</button>
+            <div style="color: var(--dd-faint); line-height: 1.4;">Saved in the project's screenshots folder. The editor's outlines are left out.</div>`;
+        document.body.appendChild(card);
+        const byId = id => document.getElementById(id);
+        if (byId('dd-capture-close')) byId('dd-capture-close').onclick = () => this.closeCaptureCard();
+        if (byId('dd-capture-png')) byId('dd-capture-png').onclick = () => { this.closeCaptureCard(); this.capturePicture(); };
+        if (byId('dd-capture-gif')) byId('dd-capture-gif').onclick = () => {
+            const frames = byId('dd-capture-frames') ? byId('dd-capture-frames').value : 24;
+            const width = byId('dd-capture-width') ? byId('dd-capture-width').value : 480;
+            this.closeCaptureCard();
+            return this.captureOrbitGif({ frames, width });
+        };
+        return card;
+    },
+
+    closeCaptureCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-capture-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+    },
+
+    // ---- Quick menu: the right-click actions used most ----
+    menuKey(label) {
+        return String(label || '').replace(/\([^)]*\)/g, '').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+    },
+
+    noteMenuUse(label) {
+        const key = this.menuKey(label);
+        if (!key) return;
+        const U = DocsDoodads.Ui;
+        const counts = Object.assign({}, U.prefs().menuUse || {});
+        counts[key] = (counts[key] || 0) + 1;
+        // Remembers the 60 most used.
+        const keep = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 60);
+        U.setPref('menuUse', Object.fromEntries(keep));
+    },
+
+    // Up to eight of the offered actions that were used at least twice, most used first; only for
+    // menus long enough to be worth a shortcut row.
+    quickMenuItems(items) {
+        const counts = DocsDoodads.Ui.prefs().menuUse || {};
+        const actions = (items || []).filter(i => i && !i.separator && i.onClick);
+        if (actions.length < 6) return [];
+        const quick = actions.map(i => ({ i, n: counts[this.menuKey(i.label)] || 0 })).filter(x => x.n >= 2)
+            .sort((a, b) => b.n - a.n).slice(0, 8).map(x => x.i);
+        return quick.length >= 2 ? quick : [];
+    }
+});
+//==========================================================
 // SECTION 25c: WORKSPACE ITEM BAG EXTRAS (SORTING, SEARCH CHIPS, HOVER CARD, EMPTY TABS)
 //==========================================================
 // Sorting the bag, the search's terms as removable chips with named saved searches beside them, a card
 // with an item's details when the mouse rests on it, and a word on what goes in an empty tab.
 DocsDoodads.Ui.css += `
 /* Item Bag: sort picker, search chips, hover card, empty tabs. */
-#dd-bag-sort { flex: 1; min-width: 0; width: auto; max-width: 118px; height: 26px; min-height: 26px !important; padding: 2px 6px !important; font-size: 11px !important; }
+#dd-bag-sort { flex: 1; min-width: 84px; width: auto; max-width: 118px; height: 26px; min-height: 26px !important; padding: 2px 6px !important; font-size: 11px !important; }
 #dd-search-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 #dd-search-chips:empty { display: none; }
 .dd-chip {
@@ -27771,7 +28307,9 @@ Object.assign(DocsDoodads.Workspace, {
     // ---- Details memory: open sections stay open, pinned ones go to the top ----
     refreshInspector() {
         this.renderInspector();
-        this.applyDetailsMemory(typeof document !== 'undefined' ? document.getElementById('dd-inspector-content') : null);
+        const content = typeof document !== 'undefined' ? document.getElementById('dd-inspector-content') : null;
+        this.applyDetailsMemory(content);
+        if (this.attachNumberScrubbing) this.attachNumberScrubbing(content);
     },
 
     detailsKey(summary) {
@@ -27835,6 +28373,1028 @@ Object.assign(DocsDoodads.Workspace, {
             const first = Array.from(parent.childNodes || parent.children || []).find(c => c && c.tagName === 'DETAILS');
             if (first && first !== d) parent.insertBefore(d, first);
         }
+    }
+});
+//==========================================================
+// SECTION 25e: WORKSPACE MAP TOOLS (CLOCK, SOUNDS, PERFORMANCE)
+//==========================================================
+// A clock at the top of the map panel previews any time of day and season (lamps, shadows, the 3D sky,
+// season art) and can run the day fast; the sounds on a map can be seen and listened to from any tile;
+// and a small readout shows how hard the map works the computer.
+DocsDoodads.Ui.css += `
+#dd-clock-bar { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; margin-bottom: 8px; border-radius: 14px; background: var(--dd-panel-2); border: 2px solid var(--dd-line-soft); }
+#dd-clock-bar .dd-clock-row { display: flex; align-items: center; gap: 6px; }
+#dd-clock-bar .dd-clock-time { font-weight: 900; font-size: 14px; color: var(--dd-text); min-width: 46px; font-variant-numeric: tabular-nums; }
+#dd-clock-bar input[type=range] { flex: 1; min-width: 0; }
+#dd-clock-bar .dd-btn { padding: 3px 8px; }
+#dd-clock-bar select { flex: 1; min-width: 0; }
+#dd-listen-card { position: fixed; z-index: 10026; width: 280px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 11px; }
+#dd-listen-card .dd-ls-row { display: grid; grid-template-columns: 1fr 64px 38px; gap: 6px; align-items: center; }
+#dd-listen-card .dd-ls-bar { height: 6px; border-radius: 6px; background: var(--dd-line-soft); overflow: hidden; }
+#dd-listen-card .dd-ls-bar i { display: block; height: 100%; background: var(--dd-primary); }
+#dd-listen-card .dd-ls-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dd-text); font-weight: 800; }
+#dd-listen-card .dd-ls-kind { color: var(--dd-faint); font-weight: 700; }
+#dd-perf { position: absolute; z-index: 5; bottom: 42px; padding: 7px 10px; font-size: 11px; display: grid; grid-template-columns: auto auto; gap: 1px 10px; min-width: 170px; }
+#dd-perf b { text-align: right; font-variant-numeric: tabular-nums; color: var(--dd-text); }
+#dd-perf .dd-perf-over { color: var(--dd-danger-dark) !important; }
+#dd-perf .dd-perf-note { grid-column: 1 / -1; color: var(--dd-danger-dark); font-weight: 800; margin-top: 3px; }
+`;
+
+DocsDoodads.Ui.hints.listen = 'Listen: click a tile to hear what the player would hear there. Esc to stop.';
+Object.assign(DocsDoodads.Ui.mapPalettes.standard, { sound: 0x818cf8, soundRegion: 0x2dd4bf, probe: 0xfacc15 });
+Object.assign(DocsDoodads.Ui.mapPalettes.safe, { sound: 0x0072b2, soundRegion: 0x009e73, probe: 0xf0e442 });
+DocsDoodads.Ui.mapColorMeanings.push(['sound', 'Sound reach'], ['soundRegion', 'Region with a sound']);
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Clock: preview a time and season, or run the day fast ----
+    clockStep: 5, // minutes per tick while playing (a day in about 15 seconds)
+
+    renderClockBar() {
+        const Time = DocsDoodads.TimeOfDay;
+        const previewing = this.previewMinutes !== null && this.previewMinutes !== undefined;
+        const minutes = previewing ? this.previewMinutes : DocsDoodads.Atmosphere.minutes();
+        const names = (DocsDoodads.World.settings().seasons || {}).names || [];
+        const season = this.previewSeason !== null && this.previewSeason !== undefined ? this.previewSeason : -1;
+        return `
+            <div id="dd-clock-bar">
+                <div class="dd-clock-row">
+                    <span class="dd-clock-time" id="dd-clock-time">${escapeHtml(Time.format(Math.round(minutes)))}</span>
+                    <input type="range" id="dd-clock-slider" min="0" max="1439" step="5" value="${Math.round(minutes)}" title="Drag to see the map at another time" />
+                    <button class="dd-btn" id="dd-clock-play" type="button" title="Run the clock fast">${this._clockTimer ? '❚❚' : '▶'}</button>
+                </div>
+                <div class="dd-clock-row">
+                    <select id="dd-clock-season" title="See the map in another season">
+                        <option value="-1"${season < 0 ? ' selected' : ''}>Season: the game's</option>
+                        ${names.map((n, i) => `<option value="${i}"${season === i ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('')}
+                    </select>
+                    <button class="dd-btn" id="dd-clock-now" type="button" title="Back to the game's own time and season"${previewing || season >= 0 ? '' : ' disabled'}>Now</button>
+                </div>
+            </div>`;
+    },
+
+    bindClockBar() {
+        const byId = id => document.getElementById(id);
+        const slider = byId('dd-clock-slider');
+        if (slider) slider.oninput = () => { const minutes = parseInt(slider.value, 10) || 0; this.stopClock(); this.setClock(minutes); };
+        const play = byId('dd-clock-play');
+        if (play) play.onclick = () => (this._clockTimer ? this.stopClock() : this.playClock());
+        const season = byId('dd-clock-season');
+        if (season) season.onchange = () => { const v = parseInt(season.value, 10); this.previewSeason = v >= 0 ? v : null; this.refreshSpriteset(); this.updateClockBar(); };
+        const now = byId('dd-clock-now');
+        if (now) now.onclick = () => { this.stopClock(); this.previewMinutes = null; this.previewSeason = null; this.refreshSpriteset(); this.updateClockBar(true); };
+    },
+
+    setClock(minutes) {
+        this.previewMinutes = ((Math.round(Number(minutes) || 0) % 1440) + 1440) % 1440;
+        this.updateClockBar();
+        return this.previewMinutes;
+    },
+
+    // The bar's time, slider and buttons follow the clock without redrawing the panel.
+    updateClockBar(resetSeason) {
+        if (typeof document === 'undefined') return;
+        const previewing = this.previewMinutes !== null && this.previewMinutes !== undefined;
+        const minutes = previewing ? this.previewMinutes : DocsDoodads.Atmosphere.minutes();
+        const label = document.getElementById('dd-clock-time');
+        if (label) label.textContent = DocsDoodads.TimeOfDay.format(Math.round(minutes));
+        const slider = document.getElementById('dd-clock-slider');
+        if (slider && document.activeElement !== slider) slider.value = String(Math.round(minutes));
+        const play = document.getElementById('dd-clock-play');
+        if (play) play.textContent = this._clockTimer ? '❚❚' : '▶';
+        const now = document.getElementById('dd-clock-now');
+        if (now) now.disabled = !previewing && !(this.previewSeason >= 0);
+        const season = document.getElementById('dd-clock-season');
+        if (season && resetSeason) season.value = '-1';
+    },
+
+    playClock() {
+        if (this._clockTimer) return;
+        if (this.previewMinutes === null || this.previewMinutes === undefined) this.previewMinutes = Math.round(DocsDoodads.Atmosphere.minutes());
+        this._clockTimer = setInterval(() => {
+            if (!this.mounted) { this.stopClock(); return; }
+            this.setClock(this.previewMinutes + this.clockStep);
+        }, 50);
+        this.updateClockBar();
+    },
+
+    stopClock() {
+        clearInterval(this._clockTimer);
+        this._clockTimer = null;
+        this.updateClockBar();
+    },
+
+    // ---- Sounds on the map: where each sound reaches, and what a tile hears ----
+    showSounds: false,
+
+    toggleSoundOverlay(on) {
+        this.showSounds = on === undefined ? !this.showSounds : Boolean(on);
+        DocsDoodads.Ui.setPref('soundOverlay', this.showSounds);
+        const label = typeof document !== 'undefined' ? document.getElementById('dd-sounds-label') : null;
+        if (label) label.textContent = this.showSounds ? 'Hide Sounds' : 'Show Sounds';
+        return this.showSounds;
+    },
+
+    // Emitters (tile coordinates, as SoundEmitters plays them) and the region-sound tiles in view.
+    soundOverlayData(view) {
+        const gameMap = window.$gameMap;
+        const emitters = DocsDoodads.SoundEmitters.sources().map(s => ({ x: s.x, y: s.y, radius: s.emitter.radius, name: s.emitter.name, loop: s.emitter.loop }));
+        const list = (DocsDoodads.Lighting.mapSettings(gameMap.mapId()) || {}).regionSounds || [];
+        const regionTiles = [];
+        if (view && list.length && typeof gameMap.regionId === 'function') {
+            for (let y = view.y0; y <= view.y1; y++) {
+                for (let x = view.x0; x <= view.x1; x++) {
+                    const entry = DocsDoodads.SpatialSound.regionSoundFor(list, gameMap.regionId(x, y));
+                    if (entry) regionTiles.push({ x, y, name: entry.name });
+                }
+            }
+        }
+        return { emitters, regionTiles };
+    },
+
+    drawSoundOverlay(g) {
+        const gameMap = window.$gameMap;
+        if (!gameMap || (!this.showSounds && !this._listenProbe)) return;
+        if (DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera()) return;
+        const U = DocsDoodads.Ui;
+        const tw = gameMap.tileWidth(), th = gameMap.tileHeight();
+        const at = (tx, ty) => DocsDoodads.mapToScreen((tx + 0.5) * tw, (ty + 0.5) * th);
+        g.lineStyle(0);
+        if (this.showSounds) {
+            const width = typeof Graphics !== 'undefined' ? Graphics.width : 816, height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+            const x0 = Math.floor(gameMap.displayX()), y0 = Math.floor(gameMap.displayY());
+            const data = this.soundOverlayData({ x0, y0, x1: x0 + Math.ceil(width / tw), y1: y0 + Math.ceil(height / th) });
+            for (const t of data.regionTiles) {
+                g.beginFill(U.mapColor('soundRegion'), 0.22);
+                g.drawRect(gameMap.adjustX(t.x) * tw, gameMap.adjustY(t.y) * th, tw, th);
+                g.endFill();
+            }
+            for (const e of data.emitters) {
+                const c = at(e.x, e.y);
+                g.lineStyle(2, U.mapColor('sound'), 0.9);
+                g.beginFill(U.mapColor('sound'), 0.08);
+                g.drawCircle(c.x, c.y, e.radius * tw);
+                g.endFill();
+                g.beginFill(U.mapColor('sound'), 0.9);
+                g.drawCircle(c.x, c.y, 4);
+                g.endFill();
+            }
+            g.lineStyle(0);
+        }
+        const probe = this._listenProbe;
+        if (probe) {
+            const c = at(probe.tileX, probe.tileY);
+            // How far each ambience layer listens around the probe.
+            for (const layer of DocsDoodads.World.settings().ambience.layers || []) {
+                if (!layer || !layer.sound) continue;
+                g.lineStyle(1, U.mapColor('probe'), 0.7);
+                g.drawCircle(c.x, c.y, Math.max(1, Math.min(20, Number(layer.radius) || 6)) * tw);
+            }
+            g.lineStyle(3, U.mapColor('probe'), 1);
+            g.drawCircle(c.x, c.y, 10);
+            g.lineStyle(0);
+        }
+    },
+
+    // What the player would hear standing on a tile: each sound with its volume (0-100), pan and pitch.
+    listenAt(tileX, tileY) {
+        const gameMap = window.$gameMap;
+        const SS = DocsDoodads.SpatialSound;
+        const out = [];
+        const s = SS.settings();
+        const sources = DocsDoodads.SoundEmitters.sources();
+        const plan = SS.planEmitters(sources.map((src, i) => ({ key: i, emitter: src.emitter,
+            dx: gameMap.deltaX ? gameMap.deltaX(src.x, tileX) : src.x - tileX, dy: gameMap.deltaY ? gameMap.deltaY(src.y, tileY) : src.y - tileY })), s);
+        sources.forEach((src, i) => {
+            const p = plan[i];
+            const volume = Math.round(src.emitter.volume * Math.min(1, p.gain));
+            if (volume >= 1) out.push({ kind: 'Sound source', folder: src.emitter.folder, name: src.emitter.name, volume, pan: p.pan, pitch: src.emitter.pitch, loop: src.emitter.loop });
+        });
+        const regions = (DocsDoodads.Lighting.mapSettings(gameMap.mapId()) || {}).regionSounds;
+        const region = typeof gameMap.regionId === 'function' ? SS.regionSoundFor(regions, gameMap.regionId(tileX, tileY)) : null;
+        if (region) out.push({ kind: 'Region ' + region.regionId, folder: 'bgs', name: region.name, volume: Math.round(Number(region.volume) || 90), pan: 0, pitch: 100, loop: true });
+        const layers = DocsDoodads.World.settings().ambience.layers || [];
+        if (layers.some(l => l && l.sound)) {
+            const q = DocsDoodads.Ambience.query();
+            layers.forEach(layer => {
+                const name = String((layer && layer.sound) || '').trim();
+                if (!name) return;
+                const c = SS.coverage(layer, tileX, tileY, q, q.tw, q.th);
+                const quiet = layer.quiet === undefined || layer.quiet === '' ? 0.4 : Number(layer.quiet);
+                const volume = Math.round(Math.min(100, (Number(layer.volume) || 60) * c.coverage * SS.closeness(quiet, 0)));
+                if (volume >= 1) out.push({ kind: 'Ambience', folder: 'bgs', name, volume, pan: c.pan, pitch: Number(layer.pitch) || 100, loop: true });
+            });
+        }
+        return out.sort((a, b) => b.volume - a.volume);
+    },
+
+    // The Listen tool: plays what a tile hears and lists it, until Stop, Esc or another tool.
+    listenHere(tileX, tileY) {
+        this.stopListening(true);
+        const sounds = this.listenAt(tileX, tileY);
+        this._listenProbe = { tileX, tileY };
+        this._listenBuffers = [];
+        if (typeof AudioManager !== 'undefined') {
+            for (const s of sounds) {
+                try {
+                    if (s.loop) {
+                        const buffer = AudioManager.createBuffer(s.folder + '/', s.name);
+                        AudioManager.updateBufferParameters(buffer, AudioManager._bgsVolume, { volume: s.volume, pitch: s.pitch, pan: s.pan });
+                        buffer.play(true, 0);
+                        this._listenBuffers.push(buffer);
+                    } else {
+                        AudioManager.playSe({ name: s.name, volume: s.volume, pitch: s.pitch, pan: s.pan });
+                    }
+                } catch (e) {}
+            }
+        }
+        this.showListenCard(sounds, tileX, tileY);
+        return sounds;
+    },
+
+    stopListening(keepProbe) {
+        for (const buffer of this._listenBuffers || []) { try { buffer.stop(); } catch (e) {} }
+        this._listenBuffers = [];
+        if (!keepProbe) {
+            this._listenProbe = null;
+            const card = typeof document !== 'undefined' ? document.getElementById('dd-listen-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        }
+    },
+
+    showListenCard(sounds, tileX, tileY) {
+        if (typeof document === 'undefined') return null;
+        let card = document.getElementById('dd-listen-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-listen-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const rows = sounds.map(s => `
+            <div class="dd-ls-row"><span class="dd-ls-name" title="${escapeHtml(s.folder + '/' + s.name)}">${escapeHtml(s.name)} <span class="dd-ls-kind">${escapeHtml(s.kind)}</span></span>
+                <span class="dd-ls-bar"><i style="width: ${Math.max(2, Math.min(100, s.volume))}%;"></i></span><b>${s.volume}%</b></div>`).join('');
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${DocsDoodads.Ui.icon('sound', 1)} Tile ${tileX}, ${tileY}</span>
+                <button class="dd-btn" id="dd-listen-stop" type="button">Stop</button></div>
+            ${rows || '<div class="dd-empty">Silent here: no sound sources, region sound or ambience reach this tile.</div>'}`;
+        const stop = document.getElementById('dd-listen-stop');
+        if (stop) stop.onclick = () => { this.stopListening(); if (this.placementTool === 'listen') this.setPlacementTool(null); };
+        const s = this.uiScaleNow ? this.uiScaleNow() : 1;
+        const room = this.roomSize ? this.roomSize() : { w: 816 };
+        const inspector = document.getElementById('dd-inspector-panel');
+        const right = inspector && inspector.getBoundingClientRect ? inspector.getBoundingClientRect().left - 8 : room.w - 8;
+        // Above the speed readout when that shows (both sit at the bottom right of the map).
+        const perf = document.getElementById('dd-perf');
+        const below = perf && perf.offsetHeight ? 42 + perf.offsetHeight + 8 : 44;
+        card.style.right = Math.round((room.w - right) * s) + 'px';
+        card.style.bottom = Math.round(below * s) + 'px';
+        return card;
+    },
+
+    // ---- Performance: frames per second, draw calls, texture memory, doodads and lights ----
+    perfBudgets: { fps: 50, draws: 300, textureMB: 256, doodads: 800, lit: 32 },
+
+    togglePerfOverlay(on) {
+        const show = on === undefined ? !this._perf : Boolean(on);
+        DocsDoodads.Ui.setPref('perfOverlay', show);
+        if (show) this.startPerf(); else this.stopPerf();
+        const label = typeof document !== 'undefined' ? document.getElementById('dd-perf-label') : null;
+        if (label) label.textContent = show ? 'Hide Speed' : 'Show Speed';
+        return show;
+    },
+
+    renderer() {
+        if (typeof Graphics === 'undefined') return null;
+        const app = Graphics.app || Graphics._app;
+        return (app && app.renderer) || Graphics._renderer || null;
+    },
+
+    startPerf() {
+        if (this._perf) return;
+        const perf = this._perf = { frames: 0, draws: 0, since: Date.now(), stats: null, gl: null, wrapped: null };
+        // Draw calls are counted by wrapping the WebGL context's draw functions while this is open.
+        const renderer = this.renderer();
+        const gl = renderer && renderer.gl;
+        if (gl && typeof gl.drawElements === 'function') {
+            const real = { drawElements: gl.drawElements, drawArrays: gl.drawArrays };
+            gl.drawElements = function() { perf.draws++; return real.drawElements.apply(this, arguments); };
+            gl.drawArrays = function() { perf.draws++; return real.drawArrays.apply(this, arguments); };
+            perf.gl = gl;
+            perf.wrapped = real;
+        }
+        const tick = () => {
+            if (this._perf !== perf) return;
+            perf.frames++;
+            perf.raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(tick) : null;
+        };
+        tick();
+        perf.timer = setInterval(() => this.updatePerf(), 500);
+        if (perf.timer && typeof perf.timer.unref === 'function') perf.timer.unref();
+        this.updatePerf();
+    },
+
+    stopPerf() {
+        const perf = this._perf;
+        this._perf = null;
+        if (!perf) return;
+        clearInterval(perf.timer);
+        if (perf.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(perf.raf);
+        if (perf.gl && perf.wrapped) {
+            perf.gl.drawElements = perf.wrapped.drawElements;
+            perf.gl.drawArrays = perf.wrapped.drawArrays;
+        }
+        const el = typeof document !== 'undefined' ? document.getElementById('dd-perf') : null;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    },
+
+    // The textures the renderer holds, in megabytes (4 bytes a pixel).
+    textureMegabytes() {
+        const renderer = this.renderer();
+        const managed = renderer && renderer.texture && renderer.texture.managedTextures;
+        if (!Array.isArray(managed)) return null;
+        let bytes = 0;
+        for (const t of managed) bytes += (Number(t.realWidth || t.width) || 0) * (Number(t.realHeight || t.height) || 0) * 4;
+        return Math.round(bytes / 1048576);
+    },
+
+    perfStats() {
+        const perf = this._perf;
+        const now = Date.now();
+        const seconds = perf ? Math.max(0.001, (now - perf.since) / 1000) : 1;
+        const fps = perf ? Math.round(perf.frames / seconds) : null;
+        const draws = perf && perf.gl && perf.frames ? Math.round(perf.draws / perf.frames) : null;
+        if (perf) { perf.frames = 0; perf.draws = 0; perf.since = now; }
+        const doodads = (DocsDoodads.doodads() || []).filter(Boolean);
+        const lit = doodads.filter(d => d.light && (Number(d.light.radius) || 0) > 0 && !d.editorHidden).length;
+        return { fps, draws, textureMB: this.textureMegabytes(), doodads: doodads.length, lit };
+    },
+
+    // Over budget: { key: message } for what is heavier than a typical computer handles well.
+    perfWarnings(stats) {
+        const b = this.perfBudgets, out = {};
+        if (stats.fps !== null && stats.fps < b.fps) out.fps = `Under ${b.fps} frames a second`;
+        if (stats.draws !== null && stats.draws > b.draws) out.draws = `Over ${b.draws} draw calls: pack this map's art (map panel)`;
+        if (stats.textureMB !== null && stats.textureMB > b.textureMB) out.textureMB = `Over ${b.textureMB} MB of pictures loaded`;
+        if (stats.doodads > b.doodads) out.doodads = `Over ${b.doodads} doodads on one map`;
+        if (stats.lit > b.lit) out.lit = `Over ${b.lit} lights: try fewer, larger lights`;
+        return out;
+    },
+
+    updatePerf() {
+        if (!this._perf || typeof document === 'undefined') return null;
+        const stats = this._perf.stats = this.perfStats();
+        const warn = this.perfWarnings(stats);
+        let el = document.getElementById('dd-perf');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-perf';
+            el.className = 'dd-glass';
+            (this.container || document.body).appendChild(el);
+        }
+        const row = (key, label, value) => `<span>${label}</span><b class="${warn[key] ? 'dd-perf-over' : ''}">${value === null ? '–' : value}</b>`;
+        el.innerHTML = row('fps', 'Frames a second', stats.fps) + row('draws', 'Draw calls a frame', stats.draws) +
+            row('textureMB', 'Pictures loaded', stats.textureMB === null ? null : stats.textureMB + ' MB') +
+            row('doodads', 'Doodads', stats.doodads) + row('lit', 'Lights', stats.lit) +
+            Object.values(warn).map(w => `<span class="dd-perf-note">${escapeHtml(w)}</span>`).join('');
+        const room = this.roomSize ? this.roomSize().w : 816;
+        const inspector = document.getElementById('dd-inspector-panel');
+        const right = inspector && inspector.getBoundingClientRect ? inspector.getBoundingClientRect().left - 8 : room - 8;
+        el.style.right = Math.round(room - right) + 'px';
+        return stats;
+    },
+
+    // Stops everything here when the editor closes.
+    closeMapTools() {
+        this.stopClock();
+        this.stopListening();
+        this.stopPerf();
+    }
+});
+//==========================================================
+// SECTION 25f: WORKSPACE NAVIGATION (PALETTE, MAP TABS, FOLDER VIEW)
+//==========================================================
+// Getting around: the command palette (any word order, recent first, shortcuts shown, and values typed
+// straight in: "time 18:30", "go to map 3"), tabs for recently opened maps with an unsaved dot, and a
+// folder tree in the Item Bag.
+DocsDoodads.Ui.css += `
+#dd-map-tabs { position: absolute; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; padding: 2px; pointer-events: auto; scrollbar-width: none; }
+#dd-map-tabs::-webkit-scrollbar { display: none; }
+.dd-map-tab { display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 170px; height: 26px; padding: 0 4px 0 10px; border-radius: 13px;
+    font-family: var(--dd-font); font-size: 11px; font-weight: 800; color: var(--dd-text); background: var(--dd-panel); border: 2px solid var(--dd-line);
+    box-shadow: 0 2px 0 var(--dd-line); cursor: pointer; white-space: nowrap; }
+.dd-map-tab span { overflow: hidden; text-overflow: ellipsis; }
+.dd-map-tab.dd-current { border-color: var(--dd-primary); background: var(--dd-primary-soft); }
+.dd-map-tab .dd-tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dd-warn); flex: none; }
+.dd-map-tab button { border: none; background: transparent; color: var(--dd-faint); cursor: pointer; font-weight: 900; padding: 0 3px; border-radius: 8px; }
+.dd-map-tab button:hover { color: var(--dd-danger-dark); background: rgba(0, 0, 0, 0.06); }
+#dd-palette .dd-palette-row kbd { margin-left: 8px; padding: 0 5px; border-radius: 5px; font-family: inherit; font-size: 10px; font-weight: 900; color: var(--dd-text); background: var(--dd-panel-2); border: 1px solid var(--dd-line); }
+.dd-folder { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 800; color: var(--dd-text); }
+.dd-folder:hover { background: var(--dd-primary-soft); }
+.dd-folder .dd-folder-count { margin-left: auto; color: var(--dd-faint); font-size: 11px; }
+.dd-folder-items { display: grid; gap: 8px; padding: 4px 0 8px; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Command palette ----
+    // How well a query fits a label: in order (CommandPalette.score), or else every word somewhere (lower).
+    paletteScore(query, label) {
+        const P = DocsDoodads.CommandPalette;
+        const direct = P.score(query, label);
+        if (direct >= 0) return direct;
+        const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+        if (words.length < 2) return -1;
+        let total = 0;
+        for (const w of words) {
+            const s = P.score(w, label);
+            if (s < 0) return -1;
+            total += s;
+        }
+        return total * 0.6;
+    },
+
+    recentCommands() {
+        const list = DocsDoodads.Ui.prefs().recentCommands;
+        return Array.isArray(list) ? list.filter(l => typeof l === 'string') : [];
+    },
+
+    rememberCommand(label) {
+        const next = [label].concat(this.recentCommands().filter(l => l !== label)).slice(0, 8);
+        DocsDoodads.Ui.setPref('recentCommands', next);
+    },
+
+    // Commands made from what was typed: a time, a map, a season or an editor size.
+    paletteValueCommands(query) {
+        const q = String(query || '').trim();
+        const out = [];
+        const time = /^(?:time|clock|at)\s+(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm)?$/i.exec(q);
+        if (time) {
+            let h = Number(time[1]) % 24;
+            const m = Math.min(59, Number(time[2]) || 0);
+            if (time[3] && time[3].toLowerCase() === 'pm' && h < 12) h += 12;
+            if (time[3] && time[3].toLowerCase() === 'am' && h === 12) h = 0;
+            const minutes = h * 60 + m;
+            out.push({ label: `Preview the time ${DocsDoodads.TimeOfDay.format(minutes)}`, group: 'Clock', run: () => { this.stopClock(); this.setClock(minutes); } });
+        }
+        const map = /^(?:go\s*to\s*)?(?:map\s*)?0*(\d{1,4})$/i.exec(q.replace(/^go\s*to\s*map/i, 'map'));
+        if (map && /map|go/i.test(q)) {
+            const id = Number(map[1]);
+            const entry = this.mapEntries().find(m => m.id === id);
+            if (entry) out.push({ label: `Go to map ${id}: ${entry.name}`, group: 'Map', run: () => this.goToMap(id) });
+        }
+        const season = /^season\s+(.+)$/i.exec(q);
+        if (season) {
+            const names = (DocsDoodads.World.settings().seasons || {}).names || [];
+            const want = season[1].toLowerCase();
+            names.forEach((n, i) => {
+                if (String(n).toLowerCase().startsWith(want)) out.push({ label: `Preview the season ${n}`, group: 'Clock', run: () => { this.previewSeason = i; this.refreshSpriteset(); this.updateClockBar(); } });
+            });
+        }
+        const size = /^(?:size|scale|zoom ui|ui)\s+(\d{2,3})%?$/i.exec(q);
+        if (size && DocsDoodads.Ui.scales.includes(Number(size[1]) / 100)) {
+            out.push({ label: `Editor size ${size[1]}%`, group: 'Look', run: () => this.setLook('uiScale', Number(size[1]) / 100) });
+        }
+        return out;
+    },
+
+    // What the palette lists for a query: typed values first, then the best matches (recent ones lifted).
+    paletteResults(query, commands, limit = 50) {
+        const q = String(query || '').trim();
+        const recent = this.recentCommands();
+        const boost = label => { const i = recent.indexOf(label); return i < 0 ? 0 : 12 - i; };
+        if (!q) {
+            const byLabel = new Map(commands.map(c => [c.label, c]));
+            const first = recent.map(l => byLabel.get(l)).filter(Boolean).map(c => Object.assign({}, c, { recent: true }));
+            return first.concat(commands.filter(c => !recent.includes(c.label))).slice(0, limit);
+        }
+        const ranked = commands.map(c => ({ c, s: this.paletteScore(q, c.label) }))
+            .filter(r => r.s >= 0)
+            .map(r => ({ c: r.c, s: r.s + boost(r.c.label) }))
+            .sort((a, b) => b.s - a.s)
+            .map(r => (recent.includes(r.c.label) ? Object.assign({}, r.c, { recent: true }) : r.c));
+        return this.paletteValueCommands(q).concat(ranked).slice(0, limit);
+    },
+
+    // A command's name and its shortcut (from "(Ctrl+A)" at the end of the label, or c.keys).
+    paletteRowParts(c) {
+        const [name, keys] = DocsDoodads.Ui.splitTip(c.label);
+        return { name, keys: c.keys || keys };
+    },
+
+    // ---- Map tabs: recently opened maps, one click away ----
+    recentMaps() {
+        const list = DocsDoodads.Ui.prefs().recentMaps;
+        return Array.isArray(list) ? list.map(Number).filter(id => id > 0) : [];
+    },
+
+    rememberMap(mapId) {
+        mapId = Number(mapId);
+        if (!(mapId > 0)) return;
+        const list = this.recentMaps();
+        // A map already in the tabs keeps its place; a new one goes at the end (the oldest drops off).
+        const next = list.includes(mapId) ? list : list.concat([mapId]).slice(-8);
+        DocsDoodads.Ui.setPref('recentMaps', next);
+        this.renderMapTabs();
+    },
+
+    forgetMap(mapId) {
+        DocsDoodads.Ui.setPref('recentMaps', this.recentMaps().filter(id => id !== Number(mapId)));
+        this.renderMapTabs();
+    },
+
+    renderMapTabs() {
+        if (!this.container || typeof document === 'undefined') return null;
+        let strip = document.getElementById('dd-map-tabs');
+        if (!strip) {
+            strip = document.createElement('div');
+            strip.id = 'dd-map-tabs';
+            this.container.appendChild(strip);
+        }
+        const names = new Map(this.mapEntries().map(m => [m.id, m.name]));
+        const current = this.currentMapId();
+        const P = DocsDoodads.Persistence;
+        const ids = this.recentMaps().filter(id => names.has(id) || id === current);
+        strip.innerHTML = '';
+        strip.style.display = ids.length > 1 ? 'flex' : 'none';
+        for (const id of ids) {
+            const tab = document.createElement('div');
+            tab.className = 'dd-map-tab' + (id === current ? ' dd-current' : '');
+            tab.title = `Map ${id}: ${names.get(id) || ''}`;
+            if (P.mapHasUnsaved(id)) {
+                const dot = document.createElement('i');
+                dot.className = 'dd-tab-dot';
+                dot.title = 'Not saved';
+                tab.appendChild(dot);
+            }
+            const label = document.createElement('span');
+            label.textContent = names.get(id) || `Map ${id}`;
+            tab.appendChild(label);
+            if (id !== current) {
+                const x = document.createElement('button');
+                x.type = 'button';
+                x.textContent = '×';
+                x.title = 'Take this map out of the tabs';
+                x.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); this.forgetMap(id); };
+                tab.appendChild(x);
+                tab.onclick = () => this.goToMap(id);
+            }
+            strip.appendChild(tab);
+        }
+        this.placeReadouts();
+        return strip;
+    },
+
+    // ---- Folder view: the bag's items in their folders ----
+    bagView: 'grid',
+
+    setBagView(view) {
+        this.bagView = view === 'folders' ? 'folders' : 'grid';
+        DocsDoodads.Ui.setPref('bagView', this.bagView);
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-bag-view') : null;
+        if (btn) btn.title = this.bagView === 'folders' ? 'Show the items as cards' : 'Show the items in their folders';
+        this._gridRange = null;
+        this.updateVirtualGrid(true);
+        return this.bagView;
+    },
+
+    // { name, path, folders: [node], items: [asset], count } from the items' paths.
+    folderTree(assets) {
+        const root = { name: '', path: '', folders: [], items: [], count: 0, byName: new Map() };
+        for (const a of assets || []) {
+            const parts = String(a.path || '').replace(/\\/g, '/').split('/');
+            parts.pop();
+            let node = root;
+            node.count++;
+            let path = '';
+            for (const part of parts) {
+                path = path ? path + '/' + part : part;
+                let child = node.byName.get(part);
+                if (!child) {
+                    child = { name: part, path, folders: [], items: [], count: 0, byName: new Map() };
+                    node.byName.set(part, child);
+                    node.folders.push(child);
+                }
+                child.count++;
+                node = child;
+            }
+            node.items.push(a);
+        }
+        // A chain of single folders (img > doodads) reads as one: "img/doodads".
+        const squash = node => {
+            node.folders.forEach(squash);
+            node.folders.sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+            node.folders = node.folders.map(f => {
+                while (f.items.length === 0 && f.folders.length === 1) {
+                    const only = f.folders[0];
+                    f = Object.assign({}, only, { name: f.name + '/' + only.name });
+                }
+                return f;
+            });
+        };
+        squash(root);
+        return root;
+    },
+
+    openFolders() {
+        const list = DocsDoodads.Ui.prefs().openFolders;
+        return new Set(Array.isArray(list) ? list : []);
+    },
+
+    toggleFolder(path) {
+        const open = this.openFolders();
+        if (open.has(path)) open.delete(path); else open.add(path);
+        DocsDoodads.Ui.setPref('openFolders', Array.from(open).slice(-200));
+        this.updateVirtualGrid(true);
+    },
+
+    renderFolderTree(viewport, assets, cardSize) {
+        viewport.innerHTML = '';
+        const open = this.openFolders();
+        const tree = this.folderTree(assets);
+        const cols = Math.max(1, Math.floor(((viewport.clientWidth || 230) + 8) / (cardSize + 8)));
+        const addFolder = (node, depth) => {
+            const row = document.createElement('div');
+            row.className = 'dd-folder';
+            row.style.paddingLeft = (6 + depth * 12) + 'px';
+            const isOpen = open.has(node.path);
+            const part = (tag, text, className) => {
+                const el = document.createElement(tag);
+                if (className) el.className = className;
+                el.textContent = text;
+                row.appendChild(el);
+                return el;
+            };
+            part('span', isOpen ? '▾' : '▸');
+            part('span', node.name, 'dd-folder-name');
+            part('span', String(node.count), 'dd-folder-count');
+            row.title = node.path;
+            row.onclick = () => this.toggleFolder(node.path);
+            viewport.appendChild(row);
+            if (!isOpen) return;
+            node.folders.forEach(f => addFolder(f, depth + 1));
+            if (node.items.length) {
+                const grid = document.createElement('div');
+                grid.className = 'dd-folder-items';
+                grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+                grid.style.paddingLeft = (6 + depth * 12) + 'px';
+                // A big folder shows its first 300 items; the search narrows it.
+                for (const a of node.items.slice(0, 300)) grid.appendChild(this.createCardElement(a, cardSize + 24));
+                viewport.appendChild(grid);
+            }
+        };
+        tree.folders.forEach(f => addFolder(f, 0));
+        if (tree.items.length) tree.items.slice(0, 300).forEach(a => viewport.appendChild(this.createCardElement(a, cardSize + 24)));
+        return tree;
+    }
+});
+//==========================================================
+// SECTION 25h: WORKSPACE ONBOARDING (TOOL TOURS, SAMPLE ITEMS, WHAT'S NEW)
+//==========================================================
+// The first time each tool is picked, a short tour points at its options and the map. How to Use can
+// replay them, add a few sample items to play with (pictures drawn here, two prefabs and a biome), and
+// show what changed since the last version.
+DocsDoodads.Ui.css += `
+#dd-tour { position: absolute; z-index: 10041; width: 260px; padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 700; color: var(--dd-text); animation: dd-rise 0.18s ease; }
+#dd-tour .dd-tour-step { font-size: 10px; color: var(--dd-faint); font-weight: 800; }
+#dd-tour .dd-tour-buttons { display: flex; gap: 6px; justify-content: flex-end; align-items: center; }
+#dd-tour .dd-tour-off { margin-right: auto; border: none; background: transparent; color: var(--dd-faint); font: inherit; font-size: 10px; cursor: pointer; padding: 0; text-decoration: underline; }
+#dd-welcome .dd-welcome-more { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+#dd-welcome .dd-welcome-more .dd-btn { font-size: 11px; padding: 4px 9px; }
+#dd-whats-new { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 400px; max-width: calc(100vw - 32px); max-height: 80vh; overflow-y: auto; padding: 16px 18px; z-index: 10040; }
+#dd-whats-new h2 { margin: 4px 0 8px; font-size: 18px; font-weight: 900; color: var(--dd-text); }
+#dd-whats-new ul { margin: 0 0 12px; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 700; color: var(--dd-text); line-height: 1.4; }
+`;
+
+// Small pictures for the sample items, drawn as pixels (doubled to suit 48-pixel tiles).
+DocsDoodads.SampleArt = {
+    kinds: ['bush', 'flowers', 'rock', 'lamp'],
+
+    canvas(w, h) {
+        const rgba = new Uint8Array(w * h * 4);
+        const set = (x, y, c) => {
+            x = Math.round(x); y = Math.round(y);
+            if (x < 0 || y < 0 || x >= w || y >= h || !c) return;
+            const i = (y * w + x) * 4;
+            rgba[i] = c[0]; rgba[i + 1] = c[1]; rgba[i + 2] = c[2]; rgba[i + 3] = c[3] === undefined ? 255 : c[3];
+        };
+        const get = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : rgba[(y * w + x) * 4 + 3]);
+        const ellipse = (cx, cy, rx, ry, colorAt) => {
+            for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+                for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+                    const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+                    if (dx * dx + dy * dy <= 1) set(x, y, colorAt(dx, dy));
+                }
+            }
+        };
+        const rect = (x0, y0, x1, y1, c) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) set(x, y, c); };
+        // A dark edge round everything drawn, in the darkest colour given.
+        const outline = c => {
+            const edge = [];
+            for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+                if (get(x, y)) continue;
+                if (get(x - 1, y) || get(x + 1, y) || get(x, y - 1) || get(x, y + 1)) edge.push([x, y]);
+            }
+            edge.forEach(([x, y]) => set(x, y, c));
+        };
+        return { w, h, rgba, set, ellipse, rect, outline };
+    },
+
+    // { width, height, rgba } at double size.
+    draw(kind) {
+        const art = this[kind] ? this[kind]() : null;
+        if (!art) return null;
+        const w = art.w * 2, h = art.h * 2, out = new Uint8Array(w * h * 4);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const s = ((y >> 1) * art.w + (x >> 1)) * 4, d = (y * w + x) * 4;
+            out[d] = art.rgba[s]; out[d + 1] = art.rgba[s + 1]; out[d + 2] = art.rgba[s + 2]; out[d + 3] = art.rgba[s + 3];
+        }
+        return { width: w, height: h, rgba: out };
+    },
+
+    bush() {
+        const c = this.canvas(24, 18);
+        const shade = (dx, dy) => (dx + dy < -0.6 ? [128, 196, 92] : dx + dy < 0.4 ? [82, 156, 64] : [52, 112, 50]);
+        c.ellipse(8, 11, 7, 6, shade);
+        c.ellipse(16, 11, 7, 6, shade);
+        c.ellipse(12, 7, 7, 6, shade);
+        c.outline([30, 62, 34]);
+        return c;
+    },
+
+    flowers() {
+        const c = this.canvas(18, 12);
+        const blade = [72, 150, 60], dark = [40, 96, 40];
+        for (const [x, top] of [[2, 6], [5, 4], [8, 7], [11, 5], [14, 6], [16, 8]]) c.rect(x, top, x, 11, blade);
+        const petals = [[[255, 140, 180], 3, 4], [[255, 230, 90], 9, 3], [[255, 255, 255], 14, 4], [[180, 140, 255], 6, 7]];
+        for (const [color, x, y] of petals) {
+            c.rect(x - 1, y, x + 1, y, color);
+            c.rect(x, y - 1, x, y + 1, color);
+            c.set(x, y, [255, 200, 60]);
+        }
+        c.outline(dark);
+        return c;
+    },
+
+    rock() {
+        const c = this.canvas(18, 12);
+        c.ellipse(9, 7, 8, 5, (dx, dy) => (dy < -0.35 && dx < 0.3 ? [196, 196, 204] : dy < 0.3 ? [150, 150, 162] : [112, 112, 126]));
+        c.set(6, 6, [112, 112, 126]); c.set(7, 7, [112, 112, 126]);
+        c.outline([62, 60, 74]);
+        return c;
+    },
+
+    lamp() {
+        const c = this.canvas(12, 40);
+        const post = [70, 66, 84], light = [255, 226, 130], frame = [44, 40, 56];
+        c.rect(5, 12, 6, 37, post);
+        c.rect(3, 37, 8, 39, frame);
+        c.rect(3, 3, 8, 10, light);
+        c.rect(2, 2, 9, 2, frame);
+        c.rect(2, 11, 9, 11, frame);
+        c.rect(5, 0, 6, 1, frame);
+        c.set(4, 4, [255, 248, 210]); c.set(4, 5, [255, 248, 210]);
+        c.outline(frame);
+        return c;
+    }
+};
+
+// What changed in this version, shown once after an update (and from How to Use).
+DocsDoodads.WhatsNew = {
+    id: '2026-10-editor',
+    title: 'New in the editor',
+    items: [
+        'Questions come up in the editor\'s own cards, and closing with unsaved work asks first.',
+        'Select All, Same Art, Replace Art, Paste in Place, and handles to resize and turn.',
+        'Scatter erases with the right button; Hills shows heights; [ and ] size the brushes.',
+        'Show Collision, Show Sounds, Listen, Show Speed, and a status bar along the bottom.',
+        'Sort the Item Bag, folder view, saved searches, and a card when you rest on an item.',
+        'Look: bigger sizes, dark and high-contrast themes, colour-blind-safe map colours.',
+        'A clock to preview any time and season, map tabs, and a smarter Ctrl+K.'
+    ]
+};
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Tool tours ----
+    // Steps: { at: an element id, 'map' or 'hint', text }.
+    tours: {
+        stamp: [
+            { at: 'dd-drawer-panel', text: 'Stamp places the item picked in the Item Bag. Pick one here first.' },
+            { at: 'map', text: 'Click the map to place it, again and again. Hold Alt to place it off the grid.' },
+            { at: 'hint', text: 'Press Esc (or Select) when you are done stamping.' }
+        ],
+        brush: [
+            { at: 'dd-brush-popover', text: 'Size, how many and the space between them. [ and ] change the size.' },
+            { at: 'map', text: 'Drag over the map to sprinkle the picked item. Right-drag to erase it again.' }
+        ],
+        biome: [
+            { at: 'dd-biome-popover', text: 'Pick a mix of plants. Make mixes in Details (with nothing picked), under Biomes.' },
+            { at: 'map', text: 'Drag to paint the mix: thinner at the edge, in natural patches.' }
+        ],
+        path: [
+            { at: 'dd-path-popover', text: 'Spacing, a bit of wobble, and end and corner pieces.' },
+            { at: 'map', text: 'Click to add points. Double-click or Enter lays the items; Backspace takes the last point back.' }
+        ],
+        terrain: [
+            { at: 'dd-terrain-popover', text: 'Raise, lower, flatten or set heights. A hard edge makes plateaus and steps.' },
+            { at: 'map', text: 'Drag to shape the ground; the numbers are each tile\'s height. See the hills in the 3D view.' }
+        ],
+        eyedropper: [
+            { at: 'map', text: 'Click a doodad (or Alt+click with any tool) to pick up what it is made of in the Item Bag.' }
+        ],
+        listen: [
+            { at: 'map', text: 'Click a tile to hear what the player would hear standing there. Esc stops.' }
+        ]
+    },
+
+    toursOn() {
+        return DocsDoodads.Ui.prefs().toursOff !== true;
+    },
+
+    tourSeen(tool) {
+        const seen = DocsDoodads.Ui.prefs().toursSeen;
+        return Boolean(seen && seen[tool]);
+    },
+
+    // Called when a tool is picked: its tour, the first time.
+    maybeStartTour(tool) {
+        if (!tool || !this.tours[tool] || !this.toursOn() || this.tourSeen(tool)) return false;
+        return this.startTour(tool);
+    },
+
+    startTour(tool) {
+        if (!this.tours[tool]) return false;
+        this._tour = { tool, step: 0 };
+        const seen = Object.assign({}, DocsDoodads.Ui.prefs().toursSeen || {});
+        seen[tool] = true;
+        DocsDoodads.Ui.setPref('toursSeen', seen);
+        this.renderTour();
+        return true;
+    },
+
+    endTour() {
+        this._tour = null;
+        const el = typeof document !== 'undefined' ? document.getElementById('dd-tour') : null;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    },
+
+    replayTours() {
+        DocsDoodads.Ui.setPref('toursSeen', {});
+        DocsDoodads.Ui.setPref('toursOff', false);
+        this.showToast('Tool tours will show again the next time you pick each tool.', 'success');
+    },
+
+    renderTour() {
+        const tour = this._tour;
+        if (!tour || typeof document === 'undefined') return null;
+        const steps = this.tours[tour.tool];
+        const step = steps[tour.step];
+        if (!step) { this.endTour(); return null; }
+        let el = document.getElementById('dd-tour');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-tour';
+            el.className = 'dd-glass';
+            (this.container || document.body).appendChild(el);
+        }
+        const last = tour.step === steps.length - 1;
+        el.innerHTML = `
+            <div class="dd-tour-step">${tour.step + 1} of ${steps.length}</div>
+            <div id="dd-tour-text"></div>
+            <div class="dd-tour-buttons">
+                <button class="dd-tour-off" id="dd-tour-off" type="button">No more tours</button>
+                <button class="dd-btn${last ? ' dd-btn-primary' : ''}" id="dd-tour-next" type="button">${last ? 'Got it' : 'Next'}</button>
+            </div>`;
+        const text = document.getElementById('dd-tour-text');
+        if (text) text.textContent = step.text;
+        const next = document.getElementById('dd-tour-next');
+        if (next) next.onclick = () => { tour.step++; if (tour.step >= steps.length) this.endTour(); else this.renderTour(); };
+        const off = document.getElementById('dd-tour-off');
+        if (off) off.onclick = () => { DocsDoodads.Ui.setPref('toursOff', true); this.endTour(); };
+        this.placeTour(el, step.at);
+        return el;
+    },
+
+    // Next to what it is about: under an options card or the bag, over the map's middle, above the hint.
+    placeTour(el, at) {
+        if (!el || !el.style) return;
+        const rect = id => { const n = document.getElementById(id); return n && n.getBoundingClientRect && n.style && n.style.display !== 'none' ? n.getBoundingClientRect() : null; };
+        const room = this.roomSize ? this.roomSize() : { w: 816, h: 624 };
+        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
+        const mapLeft = drawer ? drawer.right + 8 : 8, mapRight = inspector ? inspector.left - 8 : room.w - 8;
+        let left, top;
+        if (at === 'map') {
+            left = (mapLeft + mapRight) / 2 - 130;
+            top = room.h * 0.4;
+        } else if (at === 'hint') {
+            const hint = rect('dd-hint');
+            left = (mapLeft + mapRight) / 2 - 130;
+            top = hint ? hint.top - 120 : room.h - 180;
+        } else {
+            const r = rect(at);
+            if (r && at === 'dd-drawer-panel') { left = r.right + 10; top = r.top + 60; }
+            else if (r) { left = r.left; top = r.bottom + 10; }
+            else { left = (mapLeft + mapRight) / 2 - 130; top = room.h * 0.4; }
+        }
+        el.style.left = Math.round(Math.max(8, Math.min(room.w - 268, left))) + 'px';
+        el.style.top = Math.round(Math.max(8, Math.min(room.h - 140, top))) + 'px';
+    },
+
+    // ---- Sample items ----
+    samplePath(kind) {
+        return `img/doodads/samples/sample_${kind}.png`;
+    },
+
+    // Writes the sample pictures (keeping any already there), adds them to the Item Bag, and adds the
+    // Sample Garden and Sample Lamp Post prefabs and the Sample Meadow biome, unless they exist.
+    async addSampleContent() {
+        const FS = DocsDoodads.FS;
+        if (!FS.fs || typeof require === 'undefined') {
+            this.showToast('Sample items need the desktop playtest.', 'error');
+            return null;
+        }
+        const zlib = require('zlib');
+        const A = DocsDoodads.AsepriteSheets;
+        const AI = DocsDoodads.AssetIndex;
+        FS.mkdirp('img/doodads/samples');
+        const assets = {};
+        let drawn = 0;
+        for (const kind of DocsDoodads.SampleArt.kinds) {
+            const path = this.samplePath(kind);
+            if (!FS.existsSync(path)) {
+                const art = DocsDoodads.SampleArt.draw(kind);
+                FS.fs.writeFileSync(path, A.encodePng(art.width, art.height, art.rgba, data => zlib.deflateSync(data)));
+                drawn++;
+            }
+            AI.indexFile(path, path.split('/').pop(), '.png', path);
+            assets[kind] = AI.data.assets[path.toLowerCase()];
+        }
+        AI.rebuildList();
+        AI.save();
+        const P = DocsDoodads.Prefabs;
+        const has = name => P.ensureLoaded().some(p => p.name === name);
+        const tw = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const piece = (kind, x, y, more) => Object.assign(this.newDoodadFromAsset(assets[kind], x, y), more || {});
+        let prefabs = 0;
+        if (!has('Sample Garden')) {
+            const items = [piece('flowers', 200, 300), piece('bush', 240, 300), piece('rock', 280, 302), piece('flowers', 300, 296)];
+            items.forEach(d => { delete d.uid; delete d.layer; });
+            P.add(P.capture('Sample Garden', items, [], { tileWidth: tw, tileHeight: th }));
+            prefabs++;
+        }
+        if (!has('Sample Lamp Post')) {
+            const lamp = piece('lamp', 240, 300, { light: Object.assign({}, DocsDoodads.Lighting.lightDefaults, { enabled: true, when: 'dark', radius: 168, flicker: 0.1, offsetY: -66 }) });
+            delete lamp.uid; delete lamp.layer;
+            P.add(P.capture('Sample Lamp Post', [lamp], [], { tileWidth: tw, tileHeight: th }));
+            prefabs++;
+        }
+        if (prefabs) P.save();
+        let biome = (DocsDoodads.World.get('biomes.list') || []).find(b => b.name === 'Sample Meadow');
+        if (!biome) {
+            const id = this.newBiome('Sample Meadow');
+            this.editBiome(id, b => {
+                b.entries = [
+                    { path: this.samplePath('flowers'), weight: 5, scaleMin: 0.8, scaleMax: 1.1 },
+                    { path: this.samplePath('bush'), weight: 2, scaleMin: 0.8, scaleMax: 1.2 },
+                    { path: this.samplePath('rock'), weight: 1, scaleMin: 0.7, scaleMax: 1 }
+                ];
+            });
+            biome = { id };
+        }
+        this.biomeSettings.biomeId = biome.id;
+        this.refreshDrawerCards();
+        this.showToast(`Sample items ready: ${drawn ? drawn + ' new picture(s), ' : ''}look in Prefabs, and paint the Sample Meadow biome.`, 'success');
+        return { drawn, prefabs, biome: biome.id };
+    },
+
+    // ---- What's New ----
+    maybeShowWhatsNew() {
+        const prefs = DocsDoodads.Ui.prefs();
+        if (!prefs.welcomed || prefs.whatsNewSeen === DocsDoodads.WhatsNew.id) return false;
+        this.showWhatsNew();
+        return true;
+    },
+
+    showWhatsNew() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, W = DocsDoodads.WhatsNew;
+        const old = document.getElementById('dd-whats-new');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        const card = document.createElement('div');
+        card.id = 'dd-whats-new';
+        card.className = 'dd-glass';
+        card.innerHTML = `${U.icon('sparkle', 2)}<h2>${escapeHtml(W.title)}</h2>
+            <ul>${W.items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>
+            <div style="display: flex; justify-content: flex-end; gap: 6px;">
+                <button class="dd-btn" id="dd-whats-new-tours" type="button">Replay Tool Tours</button>
+                <button class="dd-btn dd-btn-primary" id="dd-whats-new-ok" type="button">Nice!</button>
+            </div>`;
+        (this.container || document.body).appendChild(card);
+        const close = () => { U.setPref('whatsNewSeen', W.id); if (card.parentNode) card.parentNode.removeChild(card); };
+        const ok = document.getElementById('dd-whats-new-ok');
+        if (ok) ok.onclick = () => { U.sound('ok'); close(); };
+        const tours = document.getElementById('dd-whats-new-tours');
+        if (tours) tours.onclick = () => { close(); this.replayTours(); };
+        return card;
     }
 });
 //==========================================================
@@ -28139,7 +29699,15 @@ Object.assign(DocsDoodads.Workspace, {
             bar.style.left = Math.round(left) + 'px';
             bar.style.width = Math.round(Math.max(120, right - left)) + 'px';
         }
-        const top = Math.round(toolbar ? toolbar.bottom + 8 : 84);
+        // The map tabs sit just under the top bar; the key and pills go under them.
+        const tabs = document.getElementById('dd-map-tabs');
+        let top = Math.round(toolbar ? toolbar.bottom + 8 : 84);
+        if (tabs && tabs.style) {
+            tabs.style.left = Math.round(left) + 'px';
+            tabs.style.width = Math.round(Math.max(120, right - left)) + 'px';
+            tabs.style.top = Math.round(toolbar ? toolbar.bottom + 4 : 80) + 'px';
+            if (tabs.style.display !== 'none') top += 32;
+        }
         const legend = document.getElementById('dd-collision-legend');
         if (legend && legend.style) {
             legend.style.left = Math.round(left) + 'px';
@@ -28153,6 +29721,232 @@ Object.assign(DocsDoodads.Workspace, {
                 el.style.top = Math.round(top * scale) + 'px';
             }
         }
+    }
+});
+//==========================================================
+// SECTION 25g: WORKSPACE SELECTION EDITING (NUMBER SCRUBBING, HANDLES)
+//==========================================================
+// Numbers in Details change by dragging their label left and right, and step with the arrow keys
+// (Shift: ten steps). A picked doodad has handles: corners to resize (Shift keeps its proportions) and
+// a knob above it to turn it (Shift snaps to 15 degrees). Each drag is one undo step.
+DocsDoodads.Ui.css += `
+.dd-scrub { cursor: ew-resize; user-select: none; }
+.dd-scrub:hover { color: var(--dd-primary) !important; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Number scrubbing ----
+    numberStep(input) {
+        const step = parseFloat(input.step);
+        return step > 0 ? step : 1;
+    },
+
+    // Round to the step's own decimals, so 0.05 steps never show 0.30000000000000004.
+    stepValue(value, step) {
+        const decimals = (String(step).split('.')[1] || '').length;
+        const n = Math.round(value / step) * step;
+        return Number(n.toFixed(Math.min(6, decimals)));
+    },
+
+    applyNumberInput(input, value) {
+        const min = input.min !== undefined && input.min !== '' ? parseFloat(input.min) : -Infinity;
+        const max = input.max !== undefined && input.max !== '' ? parseFloat(input.max) : Infinity;
+        const v = Math.max(min, Math.min(max, value));
+        input.value = String(this.stepValue(v, this.numberStep(input)));
+        if (typeof input.oninput === 'function') input.oninput({ target: input });
+        return input.value;
+    },
+
+    commitNumberInput(input) {
+        if (typeof input.onchange === 'function') input.onchange({ target: input });
+    },
+
+    // Every number box in Details: its label scrubs, the arrows step.
+    attachNumberScrubbing(root) {
+        if (!root || typeof root.querySelectorAll !== 'function') return 0;
+        let n = 0;
+        for (const input of Array.from(root.querySelectorAll('input[type=number]'))) {
+            if (input._ddScrub) continue;
+            input._ddScrub = true;
+            n++;
+            if (input.addEventListener) input.addEventListener('keydown', e => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                if (e.preventDefault) e.preventDefault();
+                const start = String(input.value).trim() === '' ? 0 : parseFloat(input.value) || 0;
+                const step = this.numberStep(input) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+                this.applyNumberInput(input, start + step);
+                this.commitNumberInput(input);
+            });
+            const label = (input.id && root.querySelector ? root.querySelector(`label[for="${input.id}"]`) : null) ||
+                (input.previousElementSibling && input.previousElementSibling.tagName === 'LABEL' ? input.previousElementSibling : null);
+            if (!label || label._ddScrub) continue;
+            label._ddScrub = true;
+            if (label.classList) label.classList.add('dd-scrub');
+            if (!label.title) label.title = 'Drag left or right to change';
+            label.onmousedown = e => this.beginScrub(input, e);
+        }
+        return n;
+    },
+
+    // Two pixels of drag a step (Shift: ten steps).
+    beginScrub(input, e) {
+        if (e && e.button !== undefined && e.button !== 0) return false;
+        if (e && e.preventDefault) e.preventDefault();
+        const start = String(input.value).trim() === '' ? 0 : parseFloat(input.value) || 0;
+        const scrub = this._scrub = { input, startX: e ? e.clientX : 0, start, moved: false };
+        const move = ev => {
+            if (this._scrub !== scrub) return;
+            const dx = ev.clientX - scrub.startX;
+            if (!scrub.moved && Math.abs(dx) < 2) return;
+            scrub.moved = true;
+            this.applyNumberInput(input, scrub.start + Math.round(dx / 2) * this.numberStep(input) * (ev.shiftKey ? 10 : 1));
+        };
+        const up = () => {
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            if (this._scrub !== scrub) return;
+            this._scrub = null;
+            if (scrub.moved) this.commitNumberInput(input);
+            else if (input.focus) input.focus();
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+        return true;
+    },
+
+    // ---- Handles on the picked doodad ----
+    // The one picked doodad they work on (unlocked, shown, on a flat map), or null.
+    handleTarget() {
+        const items = this.selectionItems();
+        if (items.length !== 1) return null;
+        const d = items[0];
+        if (!d || d.locked || d.editorHidden || d.posMode === 0) return null;
+        if (DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera()) return null;
+        return d;
+    },
+
+    // In screen (canvas) pixels: the four corners resize, the knob above turns.
+    transformHandles() {
+        const d = this.handleTarget();
+        if (!d) return [];
+        const box = this.selectionScreenRects()[0];
+        if (!box) return [];
+        // A small doodad's handles spread out to a 28-pixel box, so they don't sit on top of each other.
+        const px = Math.max(0, (28 - box.w) / 2), py = Math.max(0, (28 - box.h) / 2);
+        const r = { x: box.x - px, y: box.y - py, w: box.w + px * 2, h: box.h + py * 2 };
+        return [
+            { kind: 'scale', corner: 'nw', x: r.x, y: r.y },
+            { kind: 'scale', corner: 'ne', x: r.x + r.w, y: r.y },
+            { kind: 'scale', corner: 'sw', x: r.x, y: r.y + r.h },
+            { kind: 'scale', corner: 'se', x: r.x + r.w, y: r.y + r.h },
+            { kind: 'rotate', x: r.x + r.w / 2, y: r.y - 22, stemY: r.y }
+        ];
+    },
+
+    handleAt(point) {
+        if (!point) return null;
+        return this.transformHandles().find(h => Math.abs(h.x - point.x) <= 8 && Math.abs(h.y - point.y) <= 8) || null;
+    },
+
+    drawTransformHandles(g) {
+        const handles = this.transformHandles();
+        if (!handles.length) return;
+        const color = DocsDoodads.Ui.mapColor('selection');
+        for (const h of handles) {
+            if (h.kind === 'rotate') {
+                g.lineStyle(1, color, 0.9);
+                g.moveTo(h.x, h.stemY);
+                g.lineTo(h.x, h.y + 5);
+                g.lineStyle(2, color, 1);
+                g.beginFill(0xffffff, 1);
+                g.drawCircle(h.x, h.y, 5);
+            } else {
+                g.lineStyle(2, color, 1);
+                g.beginFill(0xffffff, 1);
+                g.drawRect(h.x - 4, h.y - 4, 8, 8);
+            }
+            g.endFill();
+        }
+        g.lineStyle(0);
+    },
+
+    beginHandleDrag(handle, point) {
+        const d = this.handleTarget();
+        if (!d || !handle) return false;
+        const anchor = DocsDoodads.mapToScreen(d.x, d.y);
+        this._handleDrag = {
+            handle, d, anchor, start: point,
+            before: this.snapshotDoodads([d]),
+            scaleX: d.scaleX !== undefined ? d.scaleX : 1,
+            scaleY: d.scaleY !== undefined ? d.scaleY : 1,
+            rotation: Number(d.rotation) || 0,
+            angle: Math.atan2(point.y - anchor.y, point.x - anchor.x),
+            moved: false
+        };
+        return true;
+    },
+
+    // shift: keep proportions (resize) or snap to 15 degrees (turn).
+    updateHandleDrag(point, shift) {
+        const drag = this._handleDrag;
+        if (!drag || !point) return null;
+        const { d, anchor, start } = drag;
+        if (Math.abs(point.x - start.x) + Math.abs(point.y - start.y) > 0) drag.moved = true;
+        const round = v => Math.round(v * 100) / 100;
+        if (drag.handle.kind === 'rotate') {
+            let deg = drag.rotation + (Math.atan2(point.y - anchor.y, point.x - anchor.x) - drag.angle) * 180 / Math.PI;
+            if (shift) deg = Math.round(deg / 15) * 15;
+            deg = ((Math.round(deg) % 360) + 540) % 360 - 180;
+            d.rotation = deg === -180 ? 180 : deg;
+            this.refreshSpriteset(true);
+            return { rotation: d.rotation };
+        }
+        // Sizes change around the doodad's foot (it stays where it stands). A corner level with the foot
+        // (the bottom ones) can only say how wide: the height follows.
+        const rx = Math.abs(start.x - anchor.x) >= 4 ? Math.abs(point.x - anchor.x) / Math.abs(start.x - anchor.x) : null;
+        const ry = Math.abs(start.y - anchor.y) >= 4 ? Math.abs(point.y - anchor.y) / Math.abs(start.y - anchor.y) : null;
+        let fx = rx !== null ? rx : ry, fy = ry !== null ? ry : rx;
+        if (fx === null) return null;
+        if (shift || ry === null || rx === null) { const both = rx !== null && ry !== null ? Math.max(rx, ry) : fx; fx = both; fy = both; }
+        const clamp = v => Math.max(0.05, Math.min(20, v));
+        d.scaleX = round(clamp(Math.abs(drag.scaleX) * fx)) * (drag.scaleX < 0 ? -1 : 1);
+        d.scaleY = round(clamp(Math.abs(drag.scaleY) * fy)) * (drag.scaleY < 0 ? -1 : 1);
+        this.refreshSpriteset(true);
+        return { scaleX: d.scaleX, scaleY: d.scaleY };
+    },
+
+    endHandleDrag() {
+        const drag = this._handleDrag;
+        this._handleDrag = null;
+        this.hideDragReadout();
+        if (!drag || !drag.moved) return false;
+        if (JSON.stringify(this.snapshotDoodads([drag.d])) === JSON.stringify(drag.before)) return false;
+        this.recordDoodadEdit([drag.d], drag.before, 'transform_doodad');
+        this.refreshInspector();
+        return true;
+    },
+
+    // What a handle drag shows beside the cursor.
+    handleReadoutText() {
+        const drag = this._handleDrag;
+        if (!drag) return '';
+        const d = drag.d;
+        if (drag.handle.kind === 'rotate') return `Turn ${Math.round(Number(d.rotation) || 0)}°`;
+        const w = Math.round((d.frameW || 48) * Math.abs(d.scaleX)), h = Math.round((d.frameH || 48) * Math.abs(d.scaleY));
+        return `Size ×${Math.abs(d.scaleX)} × ${Math.abs(d.scaleY)} · ${w}×${h} px`;
+    },
+
+    showHandleReadout(clientX, clientY) {
+        if (typeof document === 'undefined' || !this._handleDrag) return;
+        let el = document.getElementById('dd-drag-readout');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-drag-readout';
+            document.body.appendChild(el);
+        }
+        el.textContent = this.handleReadoutText();
+        el.style.left = Math.round(clientX + 18) + 'px';
+        el.style.top = Math.round(clientY + 20) + 'px';
     }
 });
 //==========================================================

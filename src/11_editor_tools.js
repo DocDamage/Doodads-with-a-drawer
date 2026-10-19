@@ -362,3 +362,117 @@ DocsDoodads.AnimatedThumb = {
     }
 };
 
+
+// A small animated GIF writer (GIF89a, looping): one shared palette of up to 256 colours picked from the
+// frames' most common colours, and LZW-packed frames. frames: [{ width, height, rgba }] of one size.
+DocsDoodads.Gif = {
+    // The most common colours (4 bits a channel), up to 256; see-through pixels count as black.
+    palette(frames) {
+        const counts = new Map();
+        for (const f of frames) {
+            const px = f.rgba;
+            for (let i = 0; i < px.length; i += 4 * 3) {
+                const key = ((px[i] >> 4) << 8) | ((px[i + 1] >> 4) << 4) | (px[i + 2] >> 4);
+                counts.set(key, (counts.get(key) || 0) + 1);
+            }
+        }
+        const keys = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 256).map(e => e[0]);
+        if (!keys.length) keys.push(0);
+        return keys.map(k => [((k >> 8) & 15) * 17, ((k >> 4) & 15) * 17, (k & 15) * 17]);
+    },
+
+    // Each pixel as its nearest palette colour.
+    indices(frame, palette) {
+        const cache = new Map();
+        const px = frame.rgba, out = new Uint8Array(frame.width * frame.height);
+        for (let p = 0, i = 0; p < out.length; p++, i += 4) {
+            const key = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2];
+            let best = cache.get(key);
+            if (best === undefined) {
+                let dist = Infinity;
+                best = 0;
+                for (let c = 0; c < palette.length; c++) {
+                    const dr = palette[c][0] - px[i], dg = palette[c][1] - px[i + 1], db = palette[c][2] - px[i + 2];
+                    const d = dr * dr * 2 + dg * dg * 4 + db * db * 3;
+                    if (d < dist) { dist = d; best = c; }
+                }
+                cache.set(key, best);
+            }
+            out[p] = best;
+        }
+        return out;
+    },
+
+    // LZW as GIF wants it: variable-width codes packed little-end first, in sub-blocks of up to 255 bytes.
+    lzw(indices, minCodeSize) {
+        const clear = 1 << minCodeSize, end = clear + 1;
+        const bytes = [];
+        let cur = 0, bits = 0;
+        const emit = (code, size) => {
+            cur |= code << bits;
+            bits += size;
+            while (bits >= 8) { bytes.push(cur & 255); cur >>>= 8; bits -= 8; }
+        };
+        let size = minCodeSize + 1, next = end + 1;
+        let dict = new Map();
+        emit(clear, size);
+        let prefix = indices.length ? indices[0] : 0;
+        for (let i = 1; i < indices.length; i++) {
+            const k = indices[i];
+            const key = prefix * 256 + k;
+            const found = dict.get(key);
+            if (found !== undefined) { prefix = found; continue; }
+            emit(prefix, size);
+            if (next < 4096) {
+                dict.set(key, next++);
+                if (next > (1 << size) && size < 12) size++;
+            } else {
+                emit(clear, size);
+                dict = new Map();
+                size = minCodeSize + 1;
+                next = end + 1;
+            }
+            prefix = k;
+        }
+        emit(prefix, size);
+        emit(end, size);
+        if (bits > 0) bytes.push(cur & 255);
+        const out = [];
+        for (let i = 0; i < bytes.length; i += 255) {
+            const n = Math.min(255, bytes.length - i);
+            out.push(n);
+            for (let j = 0; j < n; j++) out.push(bytes[i + j]);
+        }
+        out.push(0);
+        return out;
+    },
+
+    // delay: hundredths of a second a frame.
+    encode(frames, options = {}) {
+        if (!frames || !frames.length) throw new Error('No frames to write.');
+        const w = frames[0].width, h = frames[0].height;
+        const palette = this.palette(frames);
+        let depth = 1;
+        while ((1 << depth) < palette.length) depth++;
+        const size = 1 << depth;
+        const out = [];
+        const word = v => { out.push(v & 255, (v >> 8) & 255); };
+        out.push(...[71, 73, 70, 56, 57, 97]); // GIF89a
+        word(w); word(h);
+        out.push(0x80 | 0x70 | (depth - 1), 0, 0);
+        for (let i = 0; i < size; i++) { const c = palette[i] || [0, 0, 0]; out.push(c[0], c[1], c[2]); }
+        // Loop forever (NETSCAPE2.0).
+        out.push(0x21, 0xff, 11, ...Array.from('NETSCAPE2.0').map(ch => ch.charCodeAt(0)), 3, 1, 0, 0, 0);
+        const minCode = Math.max(2, depth);
+        for (const f of frames) {
+            if (f.width !== w || f.height !== h) throw new Error('Every frame must be the same size.');
+            out.push(0x21, 0xf9, 4, 0); word(Math.max(2, Math.round(Number(options.delay) || 6))); out.push(0, 0);
+            out.push(0x2c); word(0); word(0); word(w); word(h); out.push(0);
+            out.push(minCode);
+            const packed = this.lzw(this.indices(f, palette), minCode);
+            for (let i = 0; i < packed.length; i++) out.push(packed[i]);
+        }
+        out.push(0x3b);
+        return Uint8Array.from(out);
+    }
+};

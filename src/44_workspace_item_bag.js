@@ -5,7 +5,7 @@
 // with an item's details when the mouse rests on it, and a word on what goes in an empty tab.
 DocsDoodads.Ui.css += `
 /* Item Bag: sort picker, search chips, hover card, empty tabs. */
-#dd-bag-sort { flex: 1; min-width: 0; width: auto; max-width: 118px; height: 26px; min-height: 26px !important; padding: 2px 6px !important; font-size: 11px !important; }
+#dd-bag-sort { flex: 1; min-width: 84px; width: auto; max-width: 118px; height: 26px; min-height: 26px !important; padding: 2px 6px !important; font-size: 11px !important; }
 #dd-search-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 #dd-search-chips:empty { display: none; }
 .dd-chip {

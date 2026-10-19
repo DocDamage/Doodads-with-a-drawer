@@ -138,12 +138,22 @@ if (typeof PIXI !== 'undefined') {
         this._lastUpdateFrame = frame;
         const d = this._data;
         if (d.rotateSpeed) this._spin += d.rotateSpeed * Math.PI / 180;
-        if (d.frameUpdate && (d.xFrame > 1 || d.yFrame > 1)) {
-            this._frameTimer++;
-            if (this._frameTimer >= d.frameUpdate) {
-                this._frameTimer = 0;
-                this.updateFrameAnimation();
+        if (d.xFrame > 1 || d.yFrame > 1) {
+            const A = DocsDoodads.FrameAnim;
+            // "Once" waits for its switch; the steps count from when it turned on.
+            const switchId = Number(d.anim && d.anim.switchId) || 0;
+            const switchOn = switchId > 0 && typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(switchId) : false;
+            if (A.mode(d) === 'once' && switchId > 0 && !switchOn) this._animSteps = 0;
+            if (d.frameUpdate > 0 && A.moving(d, switchOn)) {
+                this._frameTimer++;
+                if (this._frameTimer >= d.frameUpdate) {
+                    this._frameTimer = 0;
+                    this._animSteps = (this._animSteps || 0) + 1;
+                }
             }
+            const total = (d.xFrame || 1) * (d.yFrame || 1);
+            const want = A.index(d, this._animSteps || 0, total);
+            if (want !== this._currentFrame || this._animShownFor !== this._bmp) this.showFrame(want);
         }
         if (d.bit && d.bit[0] === 3 && this._loadedPath !== undefined && this.seasonPath() !== this._loadedPath) this.loadTexture();
         this.updatePlacement();
@@ -372,10 +382,17 @@ if (typeof PIXI !== 'undefined') {
         this._shadowSprite = null;
     };
 
+    // One frame on (looping).
     Sprite_DocsDoodad.prototype.updateFrameAnimation = function() {
-        if (!this._bmp || !this._bmp._baseTexture) return;
         const total = (this._data.xFrame || 1) * (this._data.yFrame || 1);
-        this._currentFrame = (this._currentFrame + 1) % total;
+        this.showFrame((this._currentFrame + 1) % total);
+    };
+
+    // Frame `index` of the strip (left to right, then down).
+    Sprite_DocsDoodad.prototype.showFrame = function(index) {
+        if (!this._bmp || !this._bmp._baseTexture) return;
+        this._currentFrame = index;
+        this._animShownFor = this._bmp;
         const xF = this._data.xFrame || 1;
         const col = this._currentFrame % xF;
         const row = Math.floor(this._currentFrame / xF);
