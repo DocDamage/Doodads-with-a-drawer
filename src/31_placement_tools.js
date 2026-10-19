@@ -137,7 +137,8 @@ DocsDoodads.Guides = {
         const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
         const left = d.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5);
         const top = d.y - h * (d.anchorY !== undefined ? d.anchorY : 1);
-        return { left, right: left + w, top, bottom: top + h, cx: left + w / 2, cy: top + h / 2 };
+        // base: the line the doodad stands on (its anchor), which is not always its bottom edge.
+        return { left, right: left + w, top, bottom: top + h, cx: left + w / 2, cy: top + h / 2, base: d.y };
     },
 
     unionRect(rects) {
@@ -148,11 +149,14 @@ DocsDoodads.Guides = {
         }
         r.cx = (r.left + r.right) / 2;
         r.cy = (r.top + r.bottom) / 2;
+        // Several doodads move as one: the lowest base line is theirs.
+        if (rects.length && rects.every(x => x.base !== undefined)) r.base = Math.max(...rects.map(x => x.base));
         return r;
     },
 
-    // Edge/centre alignment first; otherwise equal spacing between the nearest neighbours.
-    snap(moving, others, threshold = 6) {
+    // Edge/centre/base alignment first; otherwise equal spacing between the nearest neighbours; otherwise
+    // (opts.tile: { w, h }) an edge or the base line on a tile line.
+    snap(moving, others, threshold = 6, opts = {}) {
         const result = { dx: 0, dy: 0, lines: [] };
         const m = Object.assign({}, moving);
         if (m.cx === undefined) m.cx = (m.left + m.right) / 2;
@@ -198,8 +202,21 @@ DocsDoodads.Guides = {
             ] };
         };
 
-        const x = axis(['left', 'cx', 'right'], 'top', 'bottom', 'x') || spacing('left', 'right', 'top', 'bottom', 'x-gap');
-        const y = axis(['top', 'cy', 'bottom'], 'left', 'right', 'y') || spacing('top', 'bottom', 'left', 'right', 'y-gap');
+        const onTiles = (keys, size, crossFrom, crossTo, name) => {
+            if (!(size > 0)) return null;
+            let best = null;
+            for (const mk of keys) {
+                if (!Number.isFinite(m[mk])) continue;
+                const diff = Math.round(m[mk] / size) * size - m[mk];
+                if (Math.abs(diff) <= threshold && (best === null || Math.abs(diff) < Math.abs(best.delta))) best = { delta: diff, at: m[mk] + diff };
+            }
+            return best ? { delta: best.delta, lines: [{ axis: name, kind: 'tile', at: best.at, from: m[crossFrom] - size / 2, to: m[crossTo] + size / 2 }] } : null;
+        };
+        const tile = opts.tile || null;
+        const x = axis(['left', 'cx', 'right'], 'top', 'bottom', 'x') || spacing('left', 'right', 'top', 'bottom', 'x-gap') ||
+            (tile ? onTiles(['left', 'right'], tile.w, 'top', 'bottom', 'x') : null);
+        const y = axis(['top', 'cy', 'bottom', 'base'], 'left', 'right', 'y') || spacing('top', 'bottom', 'left', 'right', 'y-gap') ||
+            (tile ? onTiles(['base', 'top', 'bottom'], tile.h, 'left', 'right', 'y') : null);
         if (x) { result.dx = x.delta; result.lines.push(...x.lines); }
         if (y) { result.dy = y.delta; result.lines.push(...y.lines); }
         return result;

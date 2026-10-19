@@ -111,7 +111,7 @@ const between = Guides.snap({ left: 98, right: 146, top: 0, bottom: 48 }, row, 6
 assert.strictEqual(between.dx, 2, "equal gaps on both sides");
 assert.ok(between.lines.some(l => l.kind === 'spacing'));
 assert.deepStrictEqual(Guides.rectOf(Object.assign(DocsDoodads.standardStruct(), { x: 100, y: 200, frameW: 40, frameH: 60 })),
-    { left: 80, right: 120, top: 140, bottom: 200, cx: 100, cy: 170 });
+    { left: 80, right: 120, top: 140, bottom: 200, cx: 100, cy: 170, base: 200 });
 
 // Dragging selected doodads moves them with guides, as one undo step; locked doodads stay put.
 const anchor = Object.assign(DocsDoodads.standardStruct(), { x: 224, y: 48, frameW: 48, frameH: 48 });

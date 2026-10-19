@@ -143,7 +143,8 @@
         if (!this.placementTool) U.setHint(hint || U.hints.none);
     },
 
-    refreshInspector() {
+    // Draws Details; refreshInspector (44_workspace_look.js) also applies the remembered sections.
+    renderInspector() {
         const content = document.getElementById('dd-inspector-content');
         if (!content) return;
         this.updateInspectorHead();

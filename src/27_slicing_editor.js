@@ -71,7 +71,9 @@ DocsDoodads.Slicing.Editor = {
         if (w * h <= this.asyncPixels) return Promise.resolve(finish(V.analyze(this.img)));
         const token = this._autoToken = { isCancelled: false };
         if (button) button.textContent = 'Cancel';
-        return V.analyzeAsync(this.img, {}, null, token).then(res => {
+        const pill = DocsDoodads.Ui.progress('Auto-Slice', { onCancel: () => { token.isCancelled = true; } });
+        return V.analyzeAsync(this.img, {}, (stage, percent) => pill.update(Number(percent) || 0, 100, stage), token).then(res => {
+            pill.finish();
             this._autoToken = null;
             if (button) button.textContent = 'Auto-Slice';
             if (!res) {

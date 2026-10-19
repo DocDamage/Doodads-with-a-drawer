@@ -7745,7 +7745,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             for (const y of grid.ys) { outline.moveTo(0, y); outline.lineTo(width, y); }
         }
         for (const rect of this._docs3d ? [] : workspace.selectionScreenRects()) {
-            outline.lineStyle(2, 0x38bdf8, 1);
+            outline.lineStyle(2, DocsDoodads.Ui.mapColor('selection'), 1);
             outline.drawRect(rect.x, rect.y, rect.w, rect.h);
         }
         if (typeof workspace.drawEditorOverlayExtras === 'function') workspace.drawEditorOverlayExtras(outline);
@@ -10927,14 +10927,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 const item = ws.doodadFlatBox(d);
                 const box = P.gizmoBox(cam, item.rect, item.pivot);
                 if (!box) continue;
-                g.lineStyle(1.5, 0xef4444, 0.9);
+                g.lineStyle(1.5, DocsDoodads.Ui.mapColor('warning'), 0.9);
                 for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
             }
         }
         for (const item of ws.selection3d ? ws.selection3d() : []) {
             const box = P.gizmoBox(cam, item.rect, item.pivot);
             if (!box) continue;
-            g.lineStyle(1.5, 0xfacc15, 0.95);
+            g.lineStyle(1.5, DocsDoodads.Ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
         }
     };
@@ -13794,6 +13794,8 @@ DocsDoodads.AssetIndex = {
             extension: ext,
             mtimeMs: stat.mtimeMs,
             sizeBytes: stat.size,
+            // When the bag first saw the file (Newest first); older entries fall back to the file's time.
+            addedAt: existing && existing.addedAt ? existing.addedAt : (existing ? existing.mtimeMs || 0 : Date.now()),
             entryRevision: this.entryRevision,
             width: 0,
             height: 0,
@@ -13969,6 +13971,32 @@ DocsDoodads.AssetIndex = {
 
     getCollections() {
         return Object.keys(this.data.collections || {});
+    },
+
+    // Named searches kept as chips under the search box, saved with the library like collections.
+    savedSearches() {
+        const list = Array.isArray(this.data.savedSearches) ? this.data.savedSearches : [];
+        return list.filter(s => s && typeof s.name === 'string' && typeof s.query === 'string');
+    },
+
+    saveSearch(name, query) {
+        name = String(name || '').trim();
+        query = String(query || '').trim();
+        if (!name || !query) return false;
+        const list = this.savedSearches().filter(s => s.name !== name);
+        list.push({ name, query });
+        this.data.savedSearches = list;
+        this.save();
+        return true;
+    },
+
+    deleteSearch(name) {
+        const list = this.savedSearches();
+        const next = list.filter(s => s.name !== name);
+        if (next.length === list.length) return false;
+        this.data.savedSearches = next;
+        this.save();
+        return true;
     }
 };
 
@@ -14661,6 +14689,15 @@ DocsDoodads.Search = {
             }
         }
         return true;
+    },
+
+    // The query's terms as typed (a quoted phrase stays one term), for showing and removing them one by one.
+    tokens(queryString) {
+        const out = [];
+        const regex = /(-?\w+:)?("[^"]*"|'[^']*'|[^\s]+)/g;
+        let match;
+        while ((match = regex.exec(String(queryString || ''))) !== null) out.push(match[0]);
+        return out;
     },
 
     filter(assets, queryString) {
@@ -15577,7 +15614,9 @@ DocsDoodads.Slicing.Editor = {
         if (w * h <= this.asyncPixels) return Promise.resolve(finish(V.analyze(this.img)));
         const token = this._autoToken = { isCancelled: false };
         if (button) button.textContent = 'Cancel';
-        return V.analyzeAsync(this.img, {}, null, token).then(res => {
+        const pill = DocsDoodads.Ui.progress('Auto-Slice', { onCancel: () => { token.isCancelled = true; } });
+        return V.analyzeAsync(this.img, {}, (stage, percent) => pill.update(Number(percent) || 0, 100, stage), token).then(res => {
+            pill.finish();
             this._autoToken = null;
             if (button) button.textContent = 'Auto-Slice';
             if (!res) {
@@ -16862,25 +16901,48 @@ DocsDoodads.Collision = {
     }
 };
 
+// A doodad's collision body in map pixels ({ x, y, w, h }), or null when it has none.
+DocsDoodads.Collision.bodyOf = function(dData) {
+    if (!dData || !dData.collision || dData.collision.preset === "none") return null;
+    const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
+    if (!shape) return null;
+    const dw = (dData.frameW || 48) * (dData.scaleX || 1);
+    const dh = (dData.frameH || 48) * (dData.scaleY || 1);
+    const ax = dData.anchorX !== undefined ? dData.anchorX : 0.5;
+    const ay = dData.anchorY !== undefined ? dData.anchorY : 1.0;
+    const originX = dData.x - dw * ax;
+    const originY = dData.y - dh * ay;
+    return DocsDoodads.box(originX + shape.x * dw + (shape.w * dw) / 2, originY + shape.y * dh + (shape.h * dh) / 2, shape.w * dw, shape.h * dh);
+};
+
+// The box a tile is tested with: two thirds of the tile, at its centre.
+DocsDoodads.Collision.tileBox = function(tx, ty, tw, th) {
+    return DocsDoodads.box(tx * tw + tw / 2, ty * th + th / 2, tw * 2 / 3, th * 2 / 3);
+};
+
+// The tiles a collision body blocks (by the same test as blocksTile).
+DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
+    if (!body) return [];
+    const out = [];
+    for (let ty = Math.floor(body.y / th) - 1; ty <= Math.floor((body.y + body.h) / th) + 1; ty++) {
+        for (let tx = Math.floor(body.x / tw) - 1; tx <= Math.floor((body.x + body.w) / tw) + 1; tx++) {
+            if (DocsDoodads.judge(body, this.tileBox(tx, ty, tw, th))) out.push({ x: tx, y: ty });
+        }
+    }
+    return out;
+};
+
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
 // Doodads hidden by their switch, condition, season or a layer hidden in game never block.
 DocsDoodads.Collision.blocksTile = function(tx, ty) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-    const tileBox = DocsDoodads.box(tx * tw + tw / 2, ty * th + th / 2, tw * 2 / 3, th * 2 / 3);
+    const tileBox = this.tileBox(tx, ty, tw, th);
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
     for (const dData of doodads) {
-        if (!dData || !dData.collision || dData.collision.preset === "none") continue;
-        const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
-        if (!shape) continue;
-        const dw = (dData.frameW || 48) * (dData.scaleX || 1);
-        const dh = (dData.frameH || 48) * (dData.scaleY || 1);
-        const ax = dData.anchorX !== undefined ? dData.anchorX : 0.5;
-        const ay = dData.anchorY !== undefined ? dData.anchorY : 1.0;
-        const originX = dData.x - dw * ax;
-        const originY = dData.y - dh * ay;
-        const colBody = DocsDoodads.box(originX + shape.x * dw + (shape.w * dw) / 2, originY + shape.y * dh + (shape.h * dh) / 2, shape.w * dw, shape.h * dh);
+        const colBody = this.bodyOf(dData);
+        if (!colBody) continue;
         // The box test is cheap; switches and conditions are only checked for doodads on this tile.
         if (!DocsDoodads.judge(colBody, tileBox)) continue;
         if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {})) return true;
@@ -17040,7 +17102,8 @@ DocsDoodads.Guides = {
         const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1);
         const left = d.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5);
         const top = d.y - h * (d.anchorY !== undefined ? d.anchorY : 1);
-        return { left, right: left + w, top, bottom: top + h, cx: left + w / 2, cy: top + h / 2 };
+        // base: the line the doodad stands on (its anchor), which is not always its bottom edge.
+        return { left, right: left + w, top, bottom: top + h, cx: left + w / 2, cy: top + h / 2, base: d.y };
     },
 
     unionRect(rects) {
@@ -17051,11 +17114,14 @@ DocsDoodads.Guides = {
         }
         r.cx = (r.left + r.right) / 2;
         r.cy = (r.top + r.bottom) / 2;
+        // Several doodads move as one: the lowest base line is theirs.
+        if (rects.length && rects.every(x => x.base !== undefined)) r.base = Math.max(...rects.map(x => x.base));
         return r;
     },
 
-    // Edge/centre alignment first; otherwise equal spacing between the nearest neighbours.
-    snap(moving, others, threshold = 6) {
+    // Edge/centre/base alignment first; otherwise equal spacing between the nearest neighbours; otherwise
+    // (opts.tile: { w, h }) an edge or the base line on a tile line.
+    snap(moving, others, threshold = 6, opts = {}) {
         const result = { dx: 0, dy: 0, lines: [] };
         const m = Object.assign({}, moving);
         if (m.cx === undefined) m.cx = (m.left + m.right) / 2;
@@ -17101,8 +17167,21 @@ DocsDoodads.Guides = {
             ] };
         };
 
-        const x = axis(['left', 'cx', 'right'], 'top', 'bottom', 'x') || spacing('left', 'right', 'top', 'bottom', 'x-gap');
-        const y = axis(['top', 'cy', 'bottom'], 'left', 'right', 'y') || spacing('top', 'bottom', 'left', 'right', 'y-gap');
+        const onTiles = (keys, size, crossFrom, crossTo, name) => {
+            if (!(size > 0)) return null;
+            let best = null;
+            for (const mk of keys) {
+                if (!Number.isFinite(m[mk])) continue;
+                const diff = Math.round(m[mk] / size) * size - m[mk];
+                if (Math.abs(diff) <= threshold && (best === null || Math.abs(diff) < Math.abs(best.delta))) best = { delta: diff, at: m[mk] + diff };
+            }
+            return best ? { delta: best.delta, lines: [{ axis: name, kind: 'tile', at: best.at, from: m[crossFrom] - size / 2, to: m[crossTo] + size / 2 }] } : null;
+        };
+        const tile = opts.tile || null;
+        const x = axis(['left', 'cx', 'right'], 'top', 'bottom', 'x') || spacing('left', 'right', 'top', 'bottom', 'x-gap') ||
+            (tile ? onTiles(['left', 'right'], tile.w, 'top', 'bottom', 'x') : null);
+        const y = axis(['top', 'cy', 'bottom', 'base'], 'left', 'right', 'y') || spacing('top', 'bottom', 'left', 'right', 'y-gap') ||
+            (tile ? onTiles(['base', 'top', 'bottom'], tile.h, 'left', 'right', 'y') : null);
         if (x) { result.dx = x.delta; result.lines.push(...x.lines); }
         if (y) { result.dy = y.delta; result.lines.push(...y.lines); }
         return result;
@@ -17538,6 +17617,7 @@ DocsDoodads.Persistence = {
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
         this.stagedMaps = {};
 
+        this.lastSavedAt = Date.now();
         this.dirtyMap = false;
         this.dirtyDoodads = false;
         this.clearRecovery();
@@ -18300,6 +18380,13 @@ DocsDoodads.Ui = {
     --dd-warn-soft: #fff4c9;
     --dd-purple: #8a63f0;
     --dd-pink: #f2559c;
+    --dd-rim: #ffffff;
+    --dd-primary-line: #b8dbff;
+    --dd-check-a: #f4f2fa;
+    --dd-check-b: #e8e5f1;
+    --dd-switch-off: #d9d4e7;
+    --dd-switch-line: #cbc5dc;
+    --dd-scroll: #d6d1e6;
     --dd-tint: rgba(46, 155, 255, 0.08);
     --dd-shadow: 0 4px 0 rgba(47, 42, 67, 0.10), 0 12px 30px rgba(20, 16, 40, 0.30);
     --dd-font: 'Doodads Nunito', 'Nunito', 'M PLUS Rounded 1c', 'rmmz-mainfont', 'Segoe UI', system-ui, sans-serif;
@@ -18308,7 +18395,7 @@ DocsDoodads.Ui = {
 #dd-asset-workspace-root *, .dd-glass * { box-sizing: border-box; }
 .dd-glass {
     background: var(--dd-panel);
-    border: 3px solid #ffffff;
+    border: 3px solid var(--dd-rim);
     border-radius: 20px;
     color: var(--dd-text);
     box-shadow: var(--dd-shadow);
@@ -18322,12 +18409,12 @@ DocsDoodads.Ui = {
 /* Buttons: white, rounded, and they press down. */
 .dd-btn {
     font-family: inherit; font-weight: 800; font-size: 12px; line-height: 1.15; color: var(--dd-text);
-    background: #ffffff; border: 2px solid var(--dd-line); border-radius: 12px; padding: 5px 11px;
+    background: var(--dd-panel); border: 2px solid var(--dd-line); border-radius: 12px; padding: 5px 11px;
     box-shadow: 0 3px 0 var(--dd-line); cursor: pointer; white-space: nowrap;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 #b8dbff; transform: translateY(-1px); }
+.dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 var(--dd-primary-line); transform: translateY(-1px); }
 .dd-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--dd-line); }
 .dd-btn:focus { outline: none; }
 .dd-btn:focus-visible { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
@@ -18356,7 +18443,7 @@ DocsDoodads.Ui = {
 #dd-save-btn { position: relative; }
 #dd-save-btn.dd-unsaved::after {
     content: ''; position: absolute; top: 3px; right: 4px; width: 11px; height: 11px; border-radius: 50%;
-    background: var(--dd-warn); border: 2px solid #ffffff; animation: dd-pop 0.22s ease;
+    background: var(--dd-warn); border: 2px solid var(--dd-panel); animation: dd-pop 0.22s ease;
 }
 #dd-save-btn.dd-just-saved { animation: dd-pop 0.3s ease; filter: brightness(1.08); }
 
@@ -18384,17 +18471,17 @@ DocsDoodads.Ui = {
 
 /* Item cards. */
 .dd-card {
-    background: #ffffff; border: 2px solid var(--dd-line); border-radius: 14px; box-shadow: 0 3px 0 var(--dd-line);
+    background: var(--dd-panel); border: 2px solid var(--dd-line); border-radius: 14px; box-shadow: 0 3px 0 var(--dd-line);
     cursor: pointer; position: relative; overflow: hidden; color: var(--dd-text);
     transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 .dd-card img, .dd-card canvas {
     border-radius: 8px;
-    background-color: #f4f2fa;
-    background-image: linear-gradient(45deg, #e8e5f1 25%, transparent 25%, transparent 75%, #e8e5f1 75%), linear-gradient(45deg, #e8e5f1 25%, transparent 25%, transparent 75%, #e8e5f1 75%);
+    background-color: var(--dd-check-a);
+    background-image: linear-gradient(45deg, var(--dd-check-b) 25%, transparent 25%, transparent 75%, var(--dd-check-b) 75%), linear-gradient(45deg, var(--dd-check-b) 25%, transparent 25%, transparent 75%, var(--dd-check-b) 75%);
     background-size: 12px 12px; background-position: 0 0, 6px 6px;
 }
-.dd-card:hover { transform: translateY(-2px); border-color: var(--dd-primary); box-shadow: 0 4px 0 #b8dbff; }
+.dd-card:hover { transform: translateY(-2px); border-color: var(--dd-primary); box-shadow: 0 4px 0 var(--dd-primary-line); }
 .dd-card.selected { border-color: var(--dd-primary); box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.35), 0 3px 0 var(--dd-primary-dark); animation: dd-pop 0.22s ease; }
 .dd-card > div { color: var(--dd-text) !important; font-weight: 700; }
 .dd-badge { position: absolute; top: 4px; right: 4px; background: var(--dd-warn-soft); border: 2px solid #f2b600; padding: 0 5px; border-radius: 10px; font-size: 10px; color: var(--dd-warn); font-weight: 900; }
@@ -18409,10 +18496,10 @@ DocsDoodads.Ui = {
 }
 #dd-asset-workspace-root input:focus, #dd-asset-workspace-root select:focus, #dd-asset-workspace-root textarea:focus,
 .dd-glass input:focus, .dd-glass select:focus, .dd-glass textarea:focus {
-    border-color: var(--dd-primary) !important; background: #ffffff !important; box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.22);
+    border-color: var(--dd-primary) !important; background: var(--dd-panel) !important; box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.22);
 }
 .dd-glass input[type=color], #dd-asset-workspace-root input[type=color] {
-    -webkit-appearance: none; border: 2px solid var(--dd-line) !important; border-radius: 10px; padding: 2px; background: #fff !important; height: 28px; cursor: pointer;
+    -webkit-appearance: none; border: 2px solid var(--dd-line) !important; border-radius: 10px; padding: 2px; background: var(--dd-panel) !important; height: 28px; cursor: pointer;
 }
 .dd-glass input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
 .dd-glass input[type=color]::-webkit-color-swatch { border: none; border-radius: 7px; }
@@ -18431,7 +18518,7 @@ DocsDoodads.Ui = {
 /* Check boxes are on/off switches; radios are round. */
 .dd-glass input[type=checkbox] {
     -webkit-appearance: none; width: 34px; height: 20px; margin: 0 2px; border-radius: 20px; flex: none; vertical-align: middle;
-    background: #d9d4e7; border: 2px solid #cbc5dc; position: relative; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
+    background: var(--dd-switch-off); border: 2px solid var(--dd-switch-line); position: relative; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease;
 }
 .dd-glass input[type=checkbox]::after {
     content: ''; position: absolute; top: 1px; left: 1px; width: 14px; height: 14px; border-radius: 50%;
@@ -18441,7 +18528,7 @@ DocsDoodads.Ui = {
 .dd-glass input[type=checkbox]:checked::after { left: 15px; }
 .dd-glass input[type=radio] {
     -webkit-appearance: none; width: 16px; height: 16px; margin: 0 2px; border-radius: 50%; flex: none; vertical-align: middle;
-    background: #ffffff; border: 2px solid #cbc5dc; cursor: pointer;
+    background: var(--dd-panel); border: 2px solid var(--dd-switch-line); cursor: pointer;
 }
 .dd-glass input[type=radio]:checked { border: 5px solid var(--dd-primary); }
 
@@ -18450,7 +18537,7 @@ DocsDoodads.Ui = {
     background: var(--dd-panel-2); border: 2px solid var(--dd-line-soft) !important; border-radius: 14px;
     padding: 6px 10px !important; margin-top: 8px !important;
 }
-.dd-glass details[open] { background: #ffffff; border-color: var(--dd-line) !important; }
+.dd-glass details[open] { background: var(--dd-panel); border-color: var(--dd-line) !important; }
 .dd-glass summary {
     list-style: none; cursor: pointer; display: flex; align-items: center; gap: 6px;
     font-weight: 900 !important; font-size: 12px !important; color: var(--dd-text) !important; padding: 2px 0;
@@ -18464,7 +18551,7 @@ DocsDoodads.Ui = {
 
 /* Scroll bars. */
 .dd-glass ::-webkit-scrollbar, #dd-asset-workspace-root ::-webkit-scrollbar { width: 10px; height: 10px; }
-.dd-glass ::-webkit-scrollbar-thumb, #dd-asset-workspace-root ::-webkit-scrollbar-thumb { background: #d6d1e6; border-radius: 10px; border: 2px solid #ffffff; }
+.dd-glass ::-webkit-scrollbar-thumb, #dd-asset-workspace-root ::-webkit-scrollbar-thumb { background: var(--dd-scroll); border-radius: 10px; border: 2px solid var(--dd-panel); }
 .dd-glass ::-webkit-scrollbar-track { background: transparent; }
 
 /* Panel insides: labels, and buttons that wrap rather than spill out of narrow panels. */
@@ -18483,7 +18570,7 @@ DocsDoodads.Ui = {
 .dd-toast {
     position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 10030; pointer-events: none;
     display: flex; align-items: center; gap: 8px; padding: 8px 16px 8px 10px; border-radius: 22px;
-    font-family: var(--dd-font); font-size: 13px; font-weight: 800; color: var(--dd-text); background: #ffffff;
+    font-family: var(--dd-font); font-size: 13px; font-weight: 800; color: var(--dd-text); background: var(--dd-panel);
     border: 3px solid var(--dd-primary); box-shadow: 0 4px 0 var(--dd-primary-dark), 0 10px 24px rgba(20, 16, 40, 0.3);
     animation: dd-bounce 0.35s ease; transition: opacity 0.3s ease;
 }
@@ -18770,6 +18857,321 @@ Object.assign(DocsDoodads.Ui, {
 });
 
 //==========================================================
+// SECTION 24e: DocsDoodads.Ui FEEDBACK (PROGRESS PILLS, TOOLTIPS)
+//==========================================================
+// Long jobs (indexing, packing, Auto-Slice, importing) show a small pill with a bar and Cancel, all in
+// one place, and never block the editor. Buttons get a themed tooltip with their shortcut after a moment.
+DocsDoodads.Ui.css += `
+/* Progress pills: top right of the map. */
+#dd-progress-stack { position: fixed; top: 84px; right: 16px; z-index: 10024; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; pointer-events: none; }
+.dd-progress {
+    pointer-events: auto; display: flex; align-items: center; gap: 8px; min-width: 220px; max-width: 320px; padding: 6px 6px 6px 12px;
+    border-radius: 18px; font-family: var(--dd-font); font-size: 11px; font-weight: 800; color: var(--dd-text); background: var(--dd-panel);
+    border: 2px solid var(--dd-line); box-shadow: 0 3px 0 var(--dd-line), 0 8px 20px rgba(20, 16, 40, 0.22); animation: dd-rise 0.18s ease;
+}
+.dd-progress .dd-progress-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.dd-progress .dd-progress-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-progress .dd-progress-track { height: 6px; border-radius: 6px; background: var(--dd-line-soft); overflow: hidden; }
+.dd-progress .dd-progress-bar { height: 100%; width: 0%; border-radius: 6px; background: var(--dd-primary); transition: width 0.2s ease; }
+.dd-progress.dd-progress-unknown .dd-progress-bar { width: 35%; animation: dd-progress-slide 1.1s ease-in-out infinite; }
+.dd-progress .dd-btn { padding: 3px 9px; font-size: 11px; border-radius: 12px; }
+@keyframes dd-progress-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+
+/* Tooltips: the button's name, and its shortcut in a key cap. */
+#dd-tooltip {
+    position: fixed; z-index: 10070; pointer-events: none; max-width: 280px; padding: 5px 9px; border-radius: 10px;
+    font-family: var(--dd-font); font-size: 11px; font-weight: 800; line-height: 1.35; color: #ffffff; background: rgba(31, 27, 48, 0.92);
+    box-shadow: 0 6px 16px rgba(20, 16, 40, 0.3); animation: dd-rise 0.12s ease;
+}
+#dd-tooltip kbd {
+    display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 5px; font-family: inherit; font-size: 10px; font-weight: 900;
+    color: #2f2a43; background: #ffffff; box-shadow: 0 2px 0 #b9b3cc;
+}
+`;
+
+Object.assign(DocsDoodads.Ui, {
+    // ---- Progress pills ----
+    // label: what is happening. opts: { onCancel (shows Cancel), delay (ms before the pill shows, so quick
+    // jobs never flash one) }. Returns { update(done, total, text), finish(), cancelled }.
+    progress(label, opts = {}) {
+        const U = this;
+        const handle = {
+            label, done: 0, total: 0, text: '', cancelled: false, finished: false, el: null,
+            update(done, total, text) {
+                this.done = Number(done) || 0;
+                this.total = Number(total) || 0;
+                if (text !== undefined) this.text = String(text);
+                U.drawProgress(this);
+                return this;
+            },
+            cancel() {
+                if (this.cancelled || this.finished) return;
+                this.cancelled = true;
+                this.text = 'Cancelling…';
+                U.drawProgress(this);
+                if (typeof opts.onCancel === 'function') opts.onCancel();
+            },
+            finish() {
+                this.finished = true;
+                clearTimeout(this._timer);
+                if (this.el && this.el.parentNode) this.el.parentNode.removeChild(this.el);
+                this.el = null;
+                U._progress = (U._progress || []).filter(h => h !== this);
+                return this;
+            }
+        };
+        handle.cancellable = typeof opts.onCancel === 'function';
+        this._progress = (this._progress || []).concat([handle]);
+        const show = () => { if (!handle.finished) { handle.shown = true; U.drawProgress(handle); } };
+        if (opts.delay > 0) handle._timer = setTimeout(show, opts.delay); else show();
+        if (handle._timer && typeof handle._timer.unref === 'function') handle._timer.unref();
+        return handle;
+    },
+
+    activeProgress() {
+        return (this._progress || []).slice();
+    },
+
+    progressText(h) {
+        const count = h.total > 0 ? ` ${Math.min(h.done, h.total)}/${h.total}` : '';
+        return h.text ? `${h.label}${count} · ${h.text}` : `${h.label}${count}`;
+    },
+
+    drawProgress(h) {
+        if (!h.shown || h.finished || typeof document === 'undefined' || !document.createElement) return;
+        let stack = document.getElementById('dd-progress-stack');
+        if (!stack) {
+            stack = document.createElement('div');
+            stack.id = 'dd-progress-stack';
+            (document.body || document.documentElement).appendChild(stack);
+            const W = DocsDoodads.Workspace;
+            if (W && W.placeReadouts) W.placeReadouts();
+        }
+        if (!h.el) {
+            const el = document.createElement('div');
+            el.className = 'dd-progress';
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'dd-progress-body';
+            const labelEl = document.createElement('div');
+            labelEl.className = 'dd-progress-label';
+            const track = document.createElement('div');
+            track.className = 'dd-progress-track';
+            const bar = document.createElement('div');
+            bar.className = 'dd-progress-bar';
+            track.appendChild(bar);
+            bodyEl.appendChild(labelEl);
+            bodyEl.appendChild(track);
+            el.appendChild(bodyEl);
+            if (h.cancellable) {
+                const btn = document.createElement('button');
+                btn.className = 'dd-btn';
+                btn.type = 'button';
+                btn.textContent = 'Cancel';
+                btn.onclick = () => h.cancel();
+                el.appendChild(btn);
+                h.cancelButton = btn;
+            }
+            if (el.setAttribute) { el.setAttribute('role', 'progressbar'); el.setAttribute('aria-label', h.label); }
+            stack.appendChild(el);
+            h.el = el; h.labelEl = labelEl; h.barEl = bar;
+        }
+        h.labelEl.textContent = this.progressText(h);
+        const known = h.total > 0;
+        if (h.el.classList) h.el.classList.toggle('dd-progress-unknown', !known);
+        h.barEl.style.width = known ? Math.round(Math.min(1, h.done / h.total) * 100) + '%' : '';
+        if (h.el.setAttribute && known) h.el.setAttribute('aria-valuenow', String(Math.round(Math.min(1, h.done / h.total) * 100)));
+        if (h.cancelButton) h.cancelButton.disabled = h.cancelled;
+    },
+
+    // ---- Tooltips ----
+    // The shortcut at the end of a title, "Save everything (Ctrl+S)" -> ['Save everything', 'Ctrl+S'].
+    splitTip(title) {
+        const text = String(title || '').trim();
+        const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(text);
+        const isKey = k => /^((Ctrl|Shift|Alt)\s*\+\s*)*([A-Z0-9`\[\]]|F\d{1,2}|Esc|Del|Delete|Enter|Space|Tab|Backspace)$/.test(k);
+        if (m && isKey(m[2].trim())) return [m[1].replace(/[:\s]+$/, ''), m[2].trim().replace(/\s*\+\s*/g, '+')];
+        return [text, ''];
+    },
+
+    // Editor elements with a title show it as a themed tooltip after a short rest (the browser's own
+    // tooltip is turned off by moving the title to data-dd-tip; screen readers keep it as aria-label).
+    tooltipDelay: 450,
+
+    tipTarget(target) {
+        if (!target || typeof target.closest !== 'function') return null;
+        const el = target.closest('[title], [data-dd-tip]');
+        if (!el || !el.closest('#dd-asset-workspace-root, .dd-glass, #dd-dialog-overlay')) return null;
+        if (el.hasAttribute && el.hasAttribute('title')) {
+            const title = el.getAttribute('title');
+            el.removeAttribute('title');
+            if (title) {
+                el.setAttribute('data-dd-tip', title);
+                if (!el.hasAttribute('aria-label') && !String(el.textContent || '').trim()) el.setAttribute('aria-label', title);
+            }
+        }
+        return el.getAttribute && el.getAttribute('data-dd-tip') ? el : null;
+    },
+
+    showTooltip(el) {
+        if (typeof document === 'undefined' || !el || !el.getAttribute) return null;
+        this.hideTooltip();
+        const [text, keys] = this.splitTip(el.getAttribute('data-dd-tip'));
+        if (!text) return null;
+        const tip = document.createElement('div');
+        tip.id = 'dd-tooltip';
+        tip.textContent = text;
+        if (keys) {
+            const kbd = document.createElement('kbd');
+            kbd.textContent = keys;
+            tip.appendChild(kbd);
+        }
+        (document.body || document.documentElement).appendChild(tip);
+        let r = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, right: 0, top: 0, bottom: 0 };
+        // Inside the zoomed workspace, rects are in its own units: to window pixels.
+        const s = el.closest && el.closest('#dd-asset-workspace-root') && this.uiScale ? this.uiScale() : 1;
+        if (s !== 1) r = { left: r.left * s, right: r.right * s, top: r.top * s, bottom: r.bottom * s };
+        const roomW = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const roomH = (typeof window !== 'undefined' && window.innerHeight) || 624;
+        const w = tip.offsetWidth || 160, h = tip.offsetHeight || 24;
+        const below = r.bottom + 8 + h < roomH;
+        tip.style.left = Math.round(Math.max(6, Math.min(roomW - w - 6, (r.left + r.right) / 2 - w / 2))) + 'px';
+        tip.style.top = Math.round(below ? r.bottom + 8 : Math.max(6, r.top - h - 8)) + 'px';
+        this._tooltip = { tip, el };
+        return tip;
+    },
+
+    hideTooltip() {
+        clearTimeout(this._tipTimer);
+        const t = this._tooltip;
+        this._tooltip = null;
+        if (t && t.tip.parentNode) t.tip.parentNode.removeChild(t.tip);
+    },
+
+    installTooltips() {
+        if (this._tipHandlers || typeof document === 'undefined' || !document.addEventListener) return;
+        const over = e => {
+            const el = this.tipTarget(e.target);
+            if (!el) { if (this._tooltip || this._tipFor) { this._tipFor = null; this.hideTooltip(); } return; }
+            if (this._tipFor === el) return;
+            this._tipFor = el;
+            this.hideTooltip();
+            this._tipTimer = setTimeout(() => { if (this._tipFor === el && el.isConnected !== false) this.showTooltip(el); }, this.tooltipDelay);
+        };
+        const away = () => { this._tipFor = null; this.hideTooltip(); };
+        this._tipHandlers = { over, away };
+        document.addEventListener('mouseover', over, true);
+        document.addEventListener('mousedown', away, true);
+        document.addEventListener('keydown', away, true);
+        document.addEventListener('wheel', away, true);
+    },
+
+    removeTooltips() {
+        const h = this._tipHandlers;
+        this._tipHandlers = null;
+        this._tipFor = null;
+        this.hideTooltip();
+        if (!h || typeof document === 'undefined') return;
+        document.removeEventListener('mouseover', h.over, true);
+        document.removeEventListener('mousedown', h.away, true);
+        document.removeEventListener('keydown', h.away, true);
+        document.removeEventListener('wheel', h.away, true);
+    }
+});
+//==========================================================
+// SECTION 24f: DocsDoodads.Ui LOOK (SIZE, THEMES, MAP COLOURS)
+//==========================================================
+// How the editor looks on this computer: its size (100, 125 or 150%), a light, dark or high-contrast
+// theme, and map colours (selection, guides, brushes, collision) that stay apart for colour-blind eyes.
+// The themes are only values for the --dd-* colours, set on the page's root element.
+DocsDoodads.Ui.css += `
+:root[data-dd-theme="dark"] {
+    --dd-panel: #24203a; --dd-panel-2: #2b2644; --dd-field: #1b1830; --dd-line: #3f3960; --dd-line-soft: #332e4f;
+    --dd-text: #f1eefb; --dd-muted: #bcb5d6; --dd-faint: #8f88aa; --dd-primary-soft: #1c3554; --dd-good-soft: #173a28;
+    --dd-danger-soft: #4a2028; --dd-warn-soft: #463a10; --dd-tint: rgba(46, 155, 255, 0.16); --dd-rim: #3f3960;
+    --dd-primary-line: #1c4f86; --dd-check-a: #2b2644; --dd-check-b: #35304f; --dd-switch-off: #4a4466; --dd-switch-line: #5a5379;
+    --dd-scroll: #4a4466; --dd-shadow: 0 4px 0 rgba(0, 0, 0, 0.35), 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+:root[data-dd-theme="contrast"] {
+    --dd-panel: #ffffff; --dd-panel-2: #ffffff; --dd-field: #ffffff; --dd-line: #2f2a43; --dd-line-soft: #2f2a43;
+    --dd-text: #000000; --dd-muted: #1f1b2e; --dd-faint: #3a3550; --dd-primary: #0059c9; --dd-primary-dark: #003d8f;
+    --dd-primary-soft: #dbe9ff; --dd-good: #0a7d3b; --dd-good-dark: #05582a; --dd-danger: #c4141b; --dd-danger-dark: #8e0b10;
+    --dd-warn: #8a5a00; --dd-rim: #000000; --dd-primary-line: #003d8f; --dd-check-a: #ffffff; --dd-check-b: #d6d6d6;
+    --dd-switch-off: #8c8c8c; --dd-switch-line: #2f2a43; --dd-scroll: #2f2a43;
+}
+:root[data-dd-theme="contrast"] .dd-glass, :root[data-dd-theme="contrast"] .dd-btn { border-width: 3px; }
+:root[data-dd-theme="contrast"] .dd-btn:focus-visible, :root[data-dd-theme="contrast"] .dd-glass input:focus { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="dark"] .dd-btn-active, :root[data-dd-theme="dark"] .dd-badge { color: #fff4c9 !important; }
+.dd-dialog { zoom: var(--dd-scale, 1); }
+`;
+
+Object.assign(DocsDoodads.Ui, {
+    scales: [1, 1.25, 1.5],
+    themes: [
+        { value: 'light', label: 'Light' },
+        { value: 'dark', label: 'Dark' },
+        { value: 'contrast', label: 'High contrast' }
+    ],
+
+    // Map colours (PIXI numbers). 'safe' uses the Okabe-Ito colours, which stay apart for the common kinds of
+    // colour blindness (red-green and blue-yellow).
+    mapPalettes: {
+        standard: {
+            selection: 0x38bdf8, selection3d: 0xfacc15, warning: 0xef4444, guideAlign: 0xec4899, guideSpacing: 0xf59e0b, guideTile: 0x14b8a6, mirror: 0xa78bfa,
+            path: 0x22d3ee, pathCorner: 0xf59e0b, added: 0x4ade80, changed: 0xfbbf24, removed: 0xf87171,
+            brushPaint: 0x22c55e, brushErase: 0xef4444, blocked: 0xef4444,
+            raise: 0x22c55e, lower: 0xf97316, flatten: 0x38bdf8, set: 0xa855f7, erase: 0xef4444,
+            full: 0xef4444, bottomHalf: 0xf97316, bottomThird: 0xeab308, center: 0x22c55e, trunk: 0x14b8a6,
+            thinWall: 0x3b82f6, wideWall: 0x8b5cf6, custom: 0xec4899
+        },
+        safe: {
+            selection: 0x56b4e9, selection3d: 0xf0e442, warning: 0xd55e00, guideAlign: 0xcc79a7, guideSpacing: 0xe69f00, guideTile: 0x009e73, mirror: 0x0072b2,
+            path: 0x56b4e9, pathCorner: 0xe69f00, added: 0x009e73, changed: 0xf0e442, removed: 0xd55e00,
+            brushPaint: 0x009e73, brushErase: 0xd55e00, blocked: 0xd55e00,
+            raise: 0x009e73, lower: 0xe69f00, flatten: 0x56b4e9, set: 0xcc79a7, erase: 0xd55e00,
+            full: 0xd55e00, bottomHalf: 0xe69f00, bottomThird: 0xf0e442, center: 0x009e73, trunk: 0x56b4e9,
+            thinWall: 0x0072b2, wideWall: 0xcc79a7, custom: 0xbbbbbb
+        }
+    },
+
+    // What each map colour means, for the key in Look.
+    mapColorMeanings: [
+        ['selection', 'Picked doodads'], ['selection3d', 'Picked doodads (3D)'], ['warning', 'Doodad on a slope (3D)'], ['guideAlign', 'Lined up with a doodad'], ['guideSpacing', 'Equal spacing'],
+        ['guideTile', 'On a tile line'], ['mirror', 'Mirror line'], ['brushPaint', 'Scatter: paint'], ['brushErase', 'Scatter: erase'],
+        ['raise', 'Hills: raise'], ['lower', 'Hills: lower'], ['added', 'Old Saves: added'], ['changed', 'Old Saves: changed'],
+        ['removed', 'Old Saves: removed'], ['blocked', 'Tile a doodad blocks']
+    ],
+
+    uiScale() {
+        const s = Number(this.prefs().uiScale);
+        return this.scales.includes(s) ? s : 1;
+    },
+
+    theme() {
+        const t = this.prefs().theme;
+        return this.themes.some(x => x.value === t) ? t : 'light';
+    },
+
+    mapColorMode() {
+        return this.prefs().mapColors === 'safe' ? 'safe' : 'standard';
+    },
+
+    mapColor(name) {
+        const palette = this.mapPalettes[this.mapColorMode()];
+        return palette[name] !== undefined ? palette[name] : this.mapPalettes.standard[name];
+    },
+
+    // The theme and size on the page: data-dd-theme and --dd-scale on the root element.
+    applyLook() {
+        const root = typeof document !== 'undefined' ? document.documentElement : null;
+        if (!root) return;
+        const theme = this.theme();
+        if (root.setAttribute && root.removeAttribute) {
+            if (theme === 'light') root.removeAttribute('data-dd-theme'); else root.setAttribute('data-dd-theme', theme);
+        }
+        if (root.style && root.style.setProperty) root.style.setProperty('--dd-scale', String(this.uiScale()));
+    }
+});
+//==========================================================
 // SECTION 25: DocsDoodads.WORKSPACE (GLASSMORPHIC WORKSPACE UI & TOOLS)
 //==========================================================
 DocsDoodads.Workspace = {
@@ -18841,7 +19243,9 @@ DocsDoodads.Workspace = {
         if (!btn) return;
         const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
         if (btn.classList) btn.classList.toggle('dd-unsaved', unsaved);
-        btn.title = unsaved ? 'Save everything (Ctrl+S): some changes are not saved yet' : 'Save everything (Ctrl+S): everything is saved';
+        // The tooltip reads it from data-dd-tip once it has taken over the title.
+        const tip = unsaved ? 'Save everything: some changes are not saved yet (Ctrl+S)' : 'Save everything: everything is saved (Ctrl+S)';
+        if (btn.getAttribute && btn.getAttribute('data-dd-tip')) btn.setAttribute('data-dd-tip', tip); else btn.title = tip;
         const label = btn.querySelector ? btn.querySelector('b') : null;
         clearTimeout(this._savedTimer);
         if (justSaved && !unsaved) {
@@ -18885,6 +19289,10 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
+        DocsDoodads.Ui.applyLook();
+        const sort = DocsDoodads.Ui.prefs().bagSort;
+        this.bagSort = this.bagSorts.some(s => s.value === sort) ? sort : 'search';
         DocsDoodads.Persistence.captureSession();
         DocsDoodads.AssetIndex.init();
         // init() reloads every asset; a selection kept from last time must be the new object.
@@ -18897,6 +19305,8 @@ DocsDoodads.Workspace = {
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }
+        this.updateCollisionLegend();
+        DocsDoodads.Ui.installTooltips();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
         this.showRecoveryNotices();
@@ -18918,6 +19328,12 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        this.stopStatusBar();
+        DocsDoodads.Ui.removeTooltips();
+        this.closeToastHistory();
+        this.closeLookCard();
+        clearTimeout(this._hoverShow);
+        this.hideHoverCard(true);
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
         this.detachCanvasListeners();
         if (this._onWindowResize) window.removeEventListener('resize', this._onWindowResize);
@@ -18998,13 +19414,23 @@ DocsDoodads.Workspace = {
         const token = { cancelled: false };
         this._assetScanToken = token;
         const status = document.getElementById('dd-status-right');
-        const result = await DocsDoodads.AssetIndex.scanAsync({
-            loadCache: false,
-            cancellationToken: token,
-            onProgress: progress => {
-                if (status && !token.cancelled) status.textContent = `Indexing assets ${progress.completed}/${progress.total}`;
-            }
-        });
+        // A pill (with Cancel) once the scan takes a moment; a quick, cached scan shows none.
+        const pill = DocsDoodads.Ui.progress('Finding your art', { delay: 600, onCancel: () => { token.cancelled = true; } });
+        let result;
+        try {
+            result = await DocsDoodads.AssetIndex.scanAsync({
+                loadCache: false,
+                cancellationToken: token,
+                onProgress: progress => {
+                    if (token.cancelled) return;
+                    if (status) status.textContent = `Indexing assets ${progress.completed}/${progress.total}`;
+                    pill.update(progress.completed, progress.total);
+                }
+            });
+        } finally {
+            pill.finish();
+        }
+        if (pill.cancelled && this.mounted) this.showToast('Stopped looking for art; the Item Bag shows what was found so far.', 'info');
         if (this._assetScanToken !== token || token.cancelled || result.cancelled) return result;
         this._assetScanToken = null;
         if (!result.errors.length) DocsDoodads.Thumbnail.pruneDisk(DocsDoodads.AssetIndex.list);
@@ -19170,8 +19596,11 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
                     <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
                     <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-collision-btn" title="Show every doodad's collision and the tiles you can't walk on">${U.icon('lock', 1)} <span id="dd-collision-label">${this.showCollision ? 'Hide Collision' : 'Show Collision'}</span></button>
                     <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
                     <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
+                    <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
                     <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
                 </div>
                 <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
@@ -19202,6 +19631,7 @@ DocsDoodads.Workspace = {
             <div style="display: flex; gap: 6px;">
                 <div class="dd-search">${U.icon('search', 1)}<input type="text" id="dd-search-input" placeholder="Find... (tree, tag:rock, -dead)" /></div>
             </div>
+            <div id="dd-search-chips"></div>
             <div style="display: flex; gap: 6px;">
                 <select id="dd-collection-select" title="Show one collection (right-click an item: Add to Collection)" style="flex: 1; min-width: 0;"></select>
                 <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the items stay)" style="display: none; padding: 3px 7px;">${U.icon('trash', 1)}</button>
@@ -19210,10 +19640,11 @@ DocsDoodads.Workspace = {
                 ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}">${U.icon(icon, 1)}</button>`).join('')}
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-                <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800;" id="dd-asset-count">0 items</span>
+                <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800; white-space: nowrap;" id="dd-asset-count">0 items</span>
+                <select id="dd-bag-sort" title="Order of the items">${this.bagSorts.map(s => `<option value="${s.value}"${s.value === this.bagSort ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}</select>
                 <div style="display: flex; align-items: center; gap: 4px;" title="Card size">
                     ${U.icon('picture', 1)}
-                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 80px;" />
+                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 60px;" />
                 </div>
             </div>
             <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 2px 2px 8px; position: relative; margin: 0 -4px 0 0;">
@@ -19257,6 +19688,8 @@ DocsDoodads.Workspace = {
         this.container = wrap;
         this.drawerEl = drawer;
         this.inspectorEl = inspector;
+        this.applyScale();
+        this.buildStatusBar();
 
         this.bindEvents();
         this.updateSaveState();
@@ -19275,6 +19708,7 @@ DocsDoodads.Workspace = {
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
     // follow their buttons.
     layoutPanels() {
+        this.applyScale();
         const toolbar = document.getElementById('dd-toolbar');
         if (!toolbar) return;
         const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
@@ -19294,12 +19728,13 @@ DocsDoodads.Workspace = {
         const hint = document.getElementById('dd-hint');
         if (!hint || !hint.style) return;
         const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
-        const room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const room = this.roomSize().w;
         const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
         const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
         const width = Math.max(140, right - left);
         hint.style.left = Math.round(left + width / 2) + 'px';
         hint.style.maxWidth = Math.round(width) + 'px';
+        this.placeReadouts();
     },
 
     // An options card just under its top-bar button, kept inside the window.
@@ -19308,7 +19743,7 @@ DocsDoodads.Workspace = {
         const btn = document.getElementById(buttonId);
         if (!pop || !toolbar || !btn || typeof btn.getBoundingClientRect !== 'function') return;
         const bar = toolbar.getBoundingClientRect(), at = btn.getBoundingClientRect();
-        const width = pop.offsetWidth || 270, room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const width = pop.offsetWidth || 270, room = this.roomSize().w;
         pop.style.top = Math.round(bar.bottom + 8) + 'px';
         pop.style.left = Math.round(Math.max(8, Math.min(room - width - 8, at.left + at.width / 2 - width / 2))) + 'px';
     },
@@ -19415,6 +19850,7 @@ DocsDoodads.Workspace = {
         if (input) input.value = this.searchQuery;
         this.refreshDrawerCards();
         this.refreshCollectionPicker();
+        this.refreshSearchChips();
     },
 
     refreshCollectionPicker() {
@@ -19494,7 +19930,7 @@ DocsDoodads.Workspace = {
                 startWidth = parseInt(this.drawerEl.style.width, 10) || 360;
                 const onMouseMove = (ev) => {
                     if (!isResizing) return;
-                    const newW = Math.max(200, Math.min(800, startWidth + (ev.clientX - startX)));
+                    const newW = Math.max(200, Math.min(800, startWidth + (ev.clientX - startX) / this.uiScaleNow()));
                     this.drawerEl.style.width = newW + 'px';
                     this.updateVirtualGrid(true);
                     this.placeHint();
@@ -19522,7 +19958,7 @@ DocsDoodads.Workspace = {
                 startWidth = parseInt(this.inspectorEl.style.width, 10) || 280;
                 const onMouseMove = (ev) => {
                     if (!isResizing) return;
-                    const newW = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX)));
+                    const newW = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX) / this.uiScaleNow()));
                     this.inspectorEl.style.width = newW + 'px';
                     this.placeHint();
                 };
@@ -19541,7 +19977,11 @@ DocsDoodads.Workspace = {
             this.searchQuery = e.target.value;
             this.refreshDrawerCards();
             this.refreshCollectionPicker();
+            this.refreshSearchChips();
         };
+        const sortSel = document.getElementById('dd-bag-sort');
+        if (sortSel) sortSel.onchange = e => this.setBagSort(e.target.value);
+        this.refreshSearchChips();
 
         this.refreshCollectionPicker();
         const collectionSel = document.getElementById('dd-collection-select');
@@ -19585,12 +20025,15 @@ DocsDoodads.Workspace = {
         on('dd-select-btn', () => { U.sound('ok'); this.setPlacementTool(null); });
         on('dd-more-btn', () => { U.sound('cursor'); this.showMoreMenu(document.getElementById('dd-more-menu').style.display !== 'block'); });
         on('dd-grid-btn', () => { this.toggleGrid(); this.showMoreMenu(false); });
+        on('dd-collision-btn', () => { this.toggleCollisionOverlay(); this.showMoreMenu(false); });
         on('dd-sound-btn', () => {
             U.setPref('sounds', U.prefs().sounds === false);
             U.sound('ok');
             this.showMoreMenu(true);
         });
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
+        on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
+        on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-help-btn', () => { this.showMoreMenu(false); this.showWelcome(); });
         on('dd-drawer-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('drawer', !this.isFolded('drawer')); });
         on('dd-inspector-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('inspector', !this.isFolded('inspector')); });
@@ -19720,6 +20163,8 @@ DocsDoodads.Workspace = {
             filtered = filtered.filter(a => a.category === this.currentCategory);
         }
         filtered = DocsDoodads.Search.filter(filtered, this.searchQuery);
+        // Recent and Look-alikes have their own order.
+        if (this.currentCategory !== 'Recent' && this.currentCategory !== 'Similar') filtered = this.sortAssets(filtered, this.bagSort);
         // The bag opens on Doodads; a project without any (yet) opens on Everything instead.
         if (!this._categoryChosen && this.currentCategory === 'Doodads' && filtered.length === 0 && !this.searchQuery &&
             DocsDoodads.AssetIndex.list.length > 0 && !DocsDoodads.AssetIndex.list.some(a => a.category === 'Doodads')) {
@@ -19736,7 +20181,7 @@ DocsDoodads.Workspace = {
         if (catEl) catEl.textContent = '· ' + this.categoryName(this.currentCategory);
 
         // Back to the top only for a new search or tab; a reload, favourite or save keeps the place.
-        const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}`;
+        const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}|${this.bagSort}`;
         const container = document.getElementById('dd-cards-container');
         if (container && view !== this._drawerView) container.scrollTop = 0;
         this._drawerView = view;
@@ -19754,7 +20199,10 @@ DocsDoodads.Workspace = {
         const totalCount = assets.length;
         if (totalCount === 0) {
             sizer.style.height = '0px';
-            viewport.innerHTML = '<div style="color: var(--dd-faint); font-size: 12px; padding: 16px; text-align: center;">No matching assets found.</div>';
+            viewport.style.transform = '';
+            viewport.style.gridTemplateColumns = '1fr';
+            this._gridRange = null;
+            this.renderEmptyBag(viewport);
             return;
         }
 
@@ -19807,6 +20255,10 @@ DocsDoodads.Workspace = {
         });
         card.appendChild(imgEl);
         this.attachThumbAnimation(card, imgEl, asset);
+        if (card.addEventListener) {
+            card.addEventListener('mouseenter', () => this.hoverCardEnter(asset, card));
+            card.addEventListener('mouseleave', () => this.hoverCardLeave());
+        }
 
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 10px; color: var(--dd-text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin-top: 3px;';
@@ -19821,6 +20273,7 @@ DocsDoodads.Workspace = {
         }
 
         card.onclick = () => {
+            this.hideHoverCard(true);
             this.selectAsset(asset);
             const container = document.getElementById('dd-cards-container');
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));
@@ -20100,7 +20553,8 @@ DocsDoodads.Workspace = {
         if (!this.placementTool) U.setHint(hint || U.hints.none);
     },
 
-    refreshInspector() {
+    // Draws Details; refreshInspector (44_workspace_look.js) also applies the remembered sections.
+    renderInspector() {
         const content = document.getElementById('dd-inspector-content');
         if (!content) return;
         this.updateInspectorHead();
@@ -21130,6 +21584,7 @@ DocsDoodads.Workspace = {
                     { title: 'Delete layer?', ok: 'Delete Layer', danger: true }))) return;
                 this.deleteLayer(l.id);
                 this.refreshInspector();
+                this.toastUndo(`Deleted the layer "${l.name}".`);
             };
         });
         const add = byId('dd-layer-add');
@@ -21477,7 +21932,7 @@ DocsDoodads.Workspace = {
         on('dd-dress-add-rule', 'onclick', () => { this.addDressRule(); this.refreshInspector(); });
         on('dd-dress-run', 'onclick', () => { const n = this.dressMap(); this.showToast(n ? `Dressed the map with ${n} prop(s).` : 'Nothing to add: check the rules have art and matching tiles.', n ? 'success' : 'info'); });
         on('dd-dress-reroll', 'onclick', () => { this.clearDressing(); const n = this.dressMap(); this.showToast(`Re-rolled: ${n} prop(s).`, 'success'); });
-        on('dd-dress-clear', 'onclick', () => { const n = this.clearDressing(); this.showToast(`Removed ${n} dressed prop(s).`, 'info'); });
+        on('dd-dress-clear', 'onclick', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
     },
 
     // Asset inspector: add the selected art to a biome or a dressing rule.
@@ -21652,9 +22107,10 @@ DocsDoodads.Workspace = {
             const at = DocsDoodads.mapToScreen(d.x, d.y);
             return { x: at.x - (d.anchorX !== undefined ? d.anchorX : 0.5) * w, y: at.y - (d.anchorY !== undefined ? d.anchorY : 1) * h, w, h };
         };
-        return diff.doodads.added.map(d => Object.assign(rect(d), { color: 0x4ade80 }))
-            .concat(diff.doodads.changed.map(c => Object.assign(rect(c.backup), { color: 0xfbbf24 })))
-            .concat(diff.doodads.removed.map(d => Object.assign(rect(d), { color: 0xf87171 })));
+        const U = DocsDoodads.Ui;
+        return diff.doodads.added.map(d => Object.assign(rect(d), { color: U.mapColor('added') }))
+            .concat(diff.doodads.changed.map(c => Object.assign(rect(c.backup), { color: U.mapColor('changed') })))
+            .concat(diff.doodads.removed.map(d => Object.assign(rect(d), { color: U.mapColor('removed') })));
     },
 
     // ---- Ctrl+K command palette ----
@@ -21666,6 +22122,10 @@ DocsDoodads.Workspace = {
         add('Undo', () => D.Undo.undo());
         add('Redo', () => D.Undo.redo());
         add('Toggle Grid', () => this.toggleGrid());
+        add('Show / Hide Collision', () => this.toggleCollisionOverlay());
+        for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');
+        add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
+        for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
         add('Screen Looks (post-processing)', () => this.showPostFxBuilder());
         add('Effects Maker (VFX)', () => this.showVfxBuilder());
         add('File Check (duplicates, unused files)', () => this.showAssetTools());
@@ -21676,7 +22136,13 @@ DocsDoodads.Workspace = {
             const n = this.dressMap();
             this.showToast(n ? `Dressed the map with ${n} prop(s).` : 'Nothing to add: check the rules have art and matching tiles.', n ? 'success' : 'info');
         });
-        add('Clear Map Dressing', () => this.showToast(`Removed ${this.clearDressing()} dressed prop(s).`, 'info'));
+        add('Clear Map Dressing', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
+        add('Messages (read them again)', () => this.showToastHistory());
+        add('Look: size, theme, map colours', () => this.showLookCard());
+        for (const s of D.Ui.scales) add(`Editor size ${Math.round(s * 100)}%`, () => this.setLook('uiScale', s), 'Look');
+        for (const t of D.Ui.themes) add('Theme: ' + t.label, () => this.setLook('theme', t.value), 'Look');
+        add('Map colours: colour-blind safe', () => this.setLook('mapColors', 'safe'), 'Look');
+        add('Map colours: standard', () => this.setLook('mapColors', 'standard'), 'Look');
         add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'));
         add('Tool: Stamp', () => this.setPlacementTool('stamp'));
         add('Tool: Scatter', () => this.setPlacementTool('brush'));
@@ -24044,6 +24510,7 @@ DocsDoodads.Workspace = {
 
     onMapLoaded() {
         if (!this.mounted) return;
+        this.updateCollisionLegend();
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
@@ -24277,15 +24744,26 @@ DocsDoodads.Workspace = {
         }
         const packed = Packer.pack(regions.map(r => ({ key: r.key, w: r.rect.w, h: r.rect.h })), { maxSize: 2048, padding: 2 });
         const images = {};
-        for (const r of regions) {
-            if (!images[r.path]) {
-                images[r.path] = await new Promise((resolve, reject) => {
+        const paths = [...new Set(regions.map(r => r.path))];
+        // Loading the pictures is the slow part: a pill counts them, and Cancel stops before anything is written.
+        const pill = DocsDoodads.Ui.progress('Packing map art', { delay: 300, onCancel: () => {} });
+        try {
+            for (const p of paths) {
+                if (pill.cancelled) break;
+                pill.update(Object.keys(images).length, paths.length);
+                images[p] = await new Promise((resolve, reject) => {
                     const img = new Image();
                     img.onload = () => resolve(img);
-                    img.onerror = () => reject(new Error(`Could not load ${r.path}`));
-                    img.src = DocsDoodads.LiveReload.urlFor(r.path);
+                    img.onerror = () => reject(new Error(`Could not load ${p}`));
+                    img.src = DocsDoodads.LiveReload.urlFor(p);
                 });
             }
+        } finally {
+            pill.finish();
+        }
+        if (pill.cancelled) {
+            this.showToast('Packing cancelled; nothing was written.', 'info');
+            return null;
         }
         const clipped = Packer.clampRegions(regions, p => (images[p] ? { w: images[p].naturalWidth, h: images[p].naturalHeight } : null));
         regions.splice(0, regions.length, ...clipped);
@@ -24917,7 +25395,8 @@ DocsDoodads.Workspace = {
         const items = values.scope === 'selected' ? picked : this.doodadsShowing(source, values.scope);
         const n = this.replaceArt(items, asset);
         this.refreshInspector();
-        this.showToast(n ? `Now showing ${asset.fileName} on ${n} doodad(s).` : 'Nothing to change (locked doodads stay as they are).', n ? 'success' : 'info');
+        if (n) this.toastUndo(`Now showing ${asset.fileName} on ${n} doodad(s).`, 'success');
+        else this.showToast('Nothing to change (locked doodads stay as they are).', 'info');
         return n;
     },
 
@@ -25236,7 +25715,8 @@ DocsDoodads.Workspace = {
             dy += Math.round(py / th) * th - py;
         } else if (!modifiers.altKey) {
             const rects = drag.items.map((d, i) => DocsDoodads.Guides.rectOf(Object.assign({}, d, { x: drag.origin[i].x + dx, y: drag.origin[i].y + dy })));
-            const snap = DocsDoodads.Guides.snap(DocsDoodads.Guides.unionRect(rects), drag.others, 6);
+            const tile = { w: window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48, h: window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48 };
+            const snap = DocsDoodads.Guides.snap(DocsDoodads.Guides.unionRect(rects), drag.others, 6, { tile });
             dx += snap.dx;
             dy += snap.dy;
             this.activeGuides = snap.lines;
@@ -25258,6 +25738,7 @@ DocsDoodads.Workspace = {
         const drag = this._drag;
         this._drag = null;
         this.activeGuides = [];
+        this.hideDragReadout();
         if (!drag || !drag.moved) return false;
         this.recordDoodadEdit(drag.items, drag.before, 'move_doodads');
         this.refreshInspector();
@@ -25266,10 +25747,11 @@ DocsDoodads.Workspace = {
 
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
+        this.drawCollisionOverlay(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-            const color = T.brushColors[this.terrainBrush.mode] || 0xffffff;
+            const color = DocsDoodads.Ui.mapColor(this.terrainBrush.mode) || T.brushColors[this.terrainBrush.mode] || 0xffffff;
             heightTiles = T.brushFootprint(this._terrainHover.tileX, this._terrainHover.tileY, this.terrainBrush.radius, this.terrainBrush.falloff);
             for (const t of heightTiles) {
                 // Stronger towards the centre, as the brush is (the same all over with a hard edge).
@@ -25284,7 +25766,7 @@ DocsDoodads.Workspace = {
         // Scatter's circle: green to paint, red while right-dragging to erase.
         if (this.placementTool === 'brush' && this._brushHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const at = DocsDoodads.mapToScreen(this._brushHover.x, this._brushHover.y);
-            g.lineStyle(2, this._scatterErase ? 0xef4444 : 0x22c55e, 0.9);
+            g.lineStyle(2, DocsDoodads.Ui.mapColor(this._scatterErase ? 'brushErase' : 'brushPaint'), 0.9);
             g.drawCircle(at.x, at.y, Math.max(4, Number(this.brushSettings.radius) || 0));
             g.lineStyle(0);
         }
@@ -25294,7 +25776,8 @@ DocsDoodads.Workspace = {
         const ox = anchor.x - anchorScreen.x;
         const oy = anchor.y - anchorScreen.y;
         for (const line of this.activeGuides || []) {
-            g.lineStyle(1, line.kind === 'spacing' ? 0xf59e0b : 0xec4899, 1);
+            // Pink: lined up with a doodad; orange: equal spacing; teal: on a tile line.
+            g.lineStyle(1, DocsDoodads.Ui.mapColor(line.kind === 'spacing' ? 'guideSpacing' : line.kind === 'tile' ? 'guideTile' : 'guideAlign'), 1);
             if (line.axis === 'x') { g.moveTo(line.at - ox, line.from - oy); g.lineTo(line.at - ox, line.to - oy); }
             else if (line.axis === 'y') { g.moveTo(line.from - ox, line.at - oy); g.lineTo(line.to - ox, line.at - oy); }
             else if (line.axis === 'x-gap') { g.moveTo(line.from - ox, line.at - oy); g.lineTo(line.to - ox, line.at - oy); }
@@ -25304,7 +25787,7 @@ DocsDoodads.Workspace = {
         if (sym.mode !== 'off') {
             const at = DocsDoodads.mapToScreen(sym.axisX, sym.axisY);
             const width = typeof Graphics !== 'undefined' ? Graphics.width : 816, height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
-            g.lineStyle(1, 0xa78bfa, 0.9);
+            g.lineStyle(1, DocsDoodads.Ui.mapColor('mirror'), 0.9);
             if (sym.mode === 'x' || sym.mode === 'xy') { g.moveTo(at.x, 0); g.lineTo(at.x, height); }
             if (sym.mode === 'y' || sym.mode === 'xy') { g.moveTo(0, at.y); g.lineTo(width, at.y); }
         }
@@ -25314,11 +25797,11 @@ DocsDoodads.Workspace = {
         }
         if (this.placementTool === 'path' && this.pathPoints && this.pathPoints.length > 0) {
             const points = this.pathPoints.concat(this._pathHover ? [this._pathHover] : []);
-            g.lineStyle(2, 0x22d3ee, 0.9);
+            g.lineStyle(2, DocsDoodads.Ui.mapColor('path'), 0.9);
             points.forEach((p, i) => { if (i === 0) g.moveTo(p.x - ox, p.y - oy); else g.lineTo(p.x - ox, p.y - oy); });
             g.lineStyle(0);
             for (const s of DocsDoodads.Paths.sample(points, this.pathSettings.spacing, { smooth: this.pathSettings.smooth })) {
-                g.beginFill(s.kind === 'segment' ? 0x22d3ee : 0xf59e0b, 0.9);
+                g.beginFill(DocsDoodads.Ui.mapColor(s.kind === 'segment' ? 'path' : 'pathCorner'), 0.9);
                 g.drawCircle(s.x - ox, s.y - oy, s.kind === 'segment' ? 3 : 5);
                 g.endFill();
             }
@@ -25462,7 +25945,7 @@ DocsDoodads.Workspace = {
         this.selectedDoodad = null;
         this.selectedDoodads = [];
         this.refreshInspector();
-        this.showToast(`Deleted ${toDelete.length} Doodad(s)`);
+        this.toastUndo(`Deleted ${toDelete.length} Doodad(s)`);
     },
 
     duplicateSelectedDoodad() {
@@ -25799,6 +26282,7 @@ DocsDoodads.Workspace = {
                 this.updateCameraDrag(e);
                 return;
             }
+            this.trackCursor(e.clientX, e.clientY, e.target);
             if (this._drag) {
                 // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
                 if (e.buttons === 0) {
@@ -25810,6 +26294,7 @@ DocsDoodads.Workspace = {
                 if (!this._dragActive && Math.hypot(e.clientX - this._dragClientStart.x, e.clientY - this._dragClientStart.y) < 4) return;
                 this._dragActive = true;
                 this.updateDoodadDrag(this.clientToMapCoords(e.clientX, e.clientY), { shiftKey: e.shiftKey, altKey: e.altKey });
+                this.showDragReadout(e.clientX, e.clientY);
                 return;
             }
             if (this.placementTool === 'path') {
@@ -26098,7 +26583,7 @@ DocsDoodads.Workspace = {
         this._scatterErase = null;
         if (!erase || !erase.removed) return 0;
         this.recordMapListsEdit(erase.before, 'scatter_erase');
-        this.showToast(`Erased ${erase.removed} prop(s).`);
+        this.toastUndo(`Erased ${erase.removed} prop(s).`);
         return erase.removed;
     },
 
@@ -26397,7 +26882,7 @@ DocsDoodads.Workspace = {
         };
         DocsDoodads.Undo.execute(cmd);
         this.selectEvent(null);
-        this.showToast(`Deleted Event EV${String(evId).padStart(3, '0')}`);
+        this.toastUndo(`Deleted Event EV${String(evId).padStart(3, '0')}`);
     },
 
     // The selected event's staged copy (what Save writes); the selection is pointed at it.
@@ -26630,41 +27115,42 @@ DocsDoodads.Workspace = {
         const warning = document.getElementById('dd-import-warning');
         const confirmButton = document.getElementById('dd-import-confirm');
         const cancelButton = document.getElementById('dd-import-cancel');
-        let activeCancellation = null;
 
         collision.onchange = () => {
             warning.style.display = collision.value === 'overwrite' ? 'block' : 'none';
         };
-        cancelButton.onclick = () => {
-            if (activeCancellation) {
-                activeCancellation.cancelled = true;
-                cancelButton.disabled = true;
-                cancelButton.textContent = 'Cancelling…';
-            } else {
-                close();
-            }
-        };
+        cancelButton.onclick = () => close();
+        // The import runs on in a progress pill (with Cancel), so the editor stays usable meanwhile.
         confirmButton.onclick = async () => {
-            activeCancellation = { cancelled: false };
-            confirmButton.disabled = true;
-            destination.disabled = true;
-            collision.disabled = true;
-            autoSlice.disabled = true;
-            const result = await this.runAssetImport(sourcePaths, {
-                destination: destination.value,
-                collisionPolicy: collision.value,
-                autoSlice: Boolean(autoSlice.checked),
-                cancellationToken: activeCancellation,
-                onProgress: progress => {
-                    confirmButton.textContent = `Importing ${progress.completed}/${progress.total}…`;
-                }
-            });
-            activeCancellation = null;
+            const token = { cancelled: false };
+            const options = { destination: destination.value, collisionPolicy: collision.value, autoSlice: Boolean(autoSlice.checked) };
             close();
+            const pill = DocsDoodads.Ui.progress('Bringing in files', { onCancel: () => { token.cancelled = true; } });
+            pill.update(0, sourcePaths.length);
+            let result;
+            try {
+                result = await this.runAssetImport(sourcePaths, Object.assign(options, {
+                    cancellationToken: token,
+                    onProgress: progress => pill.update(progress.completed, progress.total)
+                }));
+            } finally {
+                pill.finish();
+            }
             this.showToast(DocsDoodads.Import.describeResult(result), result.ok ? 3500 : 6000);
             this.updateIndexStatus();
         };
-        overlay.onclick = event => { if (event.target === overlay && !activeCancellation) close(); };
+        overlay.onclick = event => { if (event.target === overlay) close(); };
+    },
+
+    // A message after a step that throws work away, with Undo while that step is still the last one.
+    toastUndo(msg, kind) {
+        const Undo = DocsDoodads.Undo;
+        const cmd = Undo.undoStack[Undo.undoStack.length - 1];
+        if (!cmd) return this.showToast(msg, kind);
+        return this.showToast(msg, kind, { action: { label: 'Undo', run: () => {
+            if (Undo.undoStack[Undo.undoStack.length - 1] === cmd) Undo.undo();
+            else this.showToast('Other changes came after it: open Steps to go back further.', 'info');
+        } } });
     },
 
     // A sound dropped on the map: add it to the event on that tile, or make a new event that plays it.
@@ -26852,10 +27338,17 @@ DocsDoodads.Workspace = {
     },
 
     // kind: a duration in ms, or 'info' / 'success' / 'error' (colour, and errors stay longer).
-    showToast(msg, kind) {
+    // opts.action: { label, run } adds a button (Undo, for one) and keeps the message up longer.
+    // Every message is kept in the Messages list (More), so a missed one can be read again.
+    toastLog: [],
+
+    showToast(msg, kind, opts = {}) {
         const styles = { info: ['info', 2200], success: ['done', 2200], error: ['close', 5000] };
         const [icon, wait] = typeof kind === 'number' ? ['info', kind] : (styles[kind] || styles.info);
-        const duration = Math.max(800, Number(wait) || 2200);
+        const action = opts && opts.action && typeof opts.action.run === 'function' ? opts.action : null;
+        const duration = Math.max(action ? 8000 : 800, Number(wait) || 2200);
+        this.toastLog = [{ msg: String(msg), kind: typeof kind === 'string' ? kind : 'info', at: Date.now() }].concat(this.toastLog || []).slice(0, 60);
+        if (this._toastHistoryOpen) this.renderToastHistory();
         // One at a time: a new message replaces the last.
         const old = document.getElementById('dd-toast');
         if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -26866,10 +27359,27 @@ DocsDoodads.Workspace = {
         const text = toast.querySelector ? toast.querySelector('span') : null;
         if (text) text.textContent = msg; else toast.textContent = msg;
         if (kind === 'error') DocsDoodads.Ui.sound('buzzer');
+        if (action) {
+            toast.style.pointerEvents = 'auto';
+            const btn = document.createElement('button');
+            btn.className = 'dd-btn';
+            btn.type = 'button';
+            btn.textContent = action.label || 'Undo';
+            btn.onclick = () => { if (toast.parentNode) toast.parentNode.removeChild(toast); action.run(); };
+            toast.appendChild(btn);
+            toast._ddAction = btn;
+            // While the mouse is on it, it stays.
+            toast.onmouseenter = () => { toast._ddHover = true; };
+            toast.onmouseleave = () => { toast._ddHover = false; if (toast._ddExpired) fade(); };
+        }
         document.body.appendChild(toast);
-        setTimeout(() => {
+        const fade = () => {
             toast.style.opacity = '0';
             setTimeout(() => toast.parentNode && toast.parentNode.removeChild(toast), 300);
+        };
+        setTimeout(() => {
+            toast._ddExpired = true;
+            if (!toast._ddHover) fade();
         }, duration);
     },
 
@@ -26882,6 +27392,769 @@ DocsDoodads.Workspace = {
     }
 };
 
+//==========================================================
+// SECTION 25c: WORKSPACE ITEM BAG EXTRAS (SORTING, SEARCH CHIPS, HOVER CARD, EMPTY TABS)
+//==========================================================
+// Sorting the bag, the search's terms as removable chips with named saved searches beside them, a card
+// with an item's details when the mouse rests on it, and a word on what goes in an empty tab.
+DocsDoodads.Ui.css += `
+/* Item Bag: sort picker, search chips, hover card, empty tabs. */
+#dd-bag-sort { flex: 1; min-width: 0; width: auto; max-width: 118px; height: 26px; min-height: 26px !important; padding: 2px 6px !important; font-size: 11px !important; }
+#dd-search-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+#dd-search-chips:empty { display: none; }
+.dd-chip {
+    display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 4px 2px 8px; border-radius: 12px;
+    font-size: 11px; font-weight: 800; line-height: 18px; color: var(--dd-text); background: var(--dd-primary-soft);
+    border: 2px solid var(--dd-primary-line); cursor: default; overflow: hidden;
+}
+.dd-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-chip.dd-chip-saved { background: var(--dd-warn-soft); border-color: #f2d36b; cursor: pointer; }
+.dd-chip.dd-chip-save { background: var(--dd-panel); border-color: var(--dd-line); cursor: pointer; padding-right: 8px; }
+.dd-chip button { border: none; background: transparent; color: var(--dd-muted); font-weight: 900; cursor: pointer; padding: 0 4px; font-size: 12px; line-height: 16px; border-radius: 8px; }
+.dd-chip button:hover { background: rgba(0, 0, 0, 0.08); color: var(--dd-danger-dark); }
+#dd-hover-card { position: fixed; z-index: 10018; width: 230px; padding: 10px 12px; font-size: 11px; display: flex; flex-direction: column; gap: 4px; animation: dd-rise 0.15s ease; }
+#dd-hover-card .dd-hc-name { font-weight: 900; font-size: 13px; color: var(--dd-text); overflow-wrap: anywhere; }
+#dd-hover-card .dd-hc-path { color: var(--dd-faint); overflow-wrap: anywhere; }
+#dd-hover-card .dd-hc-row { display: flex; justify-content: space-between; gap: 8px; color: var(--dd-muted); }
+#dd-hover-card .dd-hc-row b { color: var(--dd-text); text-align: right; }
+#dd-hover-card .dd-hc-links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+#dd-hover-card .dd-hc-links .dd-btn { padding: 3px 8px; font-size: 11px; }
+.dd-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 10px; text-align: center; color: var(--dd-muted); font-size: 12px; font-weight: 700; line-height: 1.45; }
+.dd-empty b { color: var(--dd-text); font-size: 13px; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Sorting ----
+    bagSorts: [
+        { value: 'search', label: 'Best match' },
+        { value: 'name', label: 'Name' },
+        { value: 'added', label: 'Newest first' },
+        { value: 'size', label: 'Biggest first' },
+        { value: 'placed', label: 'Most placed' },
+        { value: 'last', label: 'Last placed' }
+    ],
+    bagSort: 'search',
+
+    // A sorted copy (the list keeps its order for 'search', and Recent and Look-alikes keep theirs).
+    sortAssets(list, mode) {
+        const by = {
+            name: (a, b) => String(a.fileName || '').localeCompare(String(b.fileName || ''), undefined, { numeric: true, sensitivity: 'base' }),
+            added: (a, b) => (Number(b.addedAt || b.mtimeMs) || 0) - (Number(a.addedAt || a.mtimeMs) || 0),
+            size: (a, b) => ((Number(b.width) || 0) * (Number(b.height) || 0)) - ((Number(a.width) || 0) * (Number(a.height) || 0)),
+            placed: (a, b) => ((b.usage && b.usage.useCount) || 0) - ((a.usage && a.usage.useCount) || 0),
+            last: (a, b) => ((b.usage && b.usage.lastUsedAt) || 0) - ((a.usage && a.usage.lastUsedAt) || 0)
+        }[mode];
+        if (!by) return list;
+        // Ties keep the order they came in.
+        return list.map((a, i) => [a, i]).sort((x, y) => by(x[0], y[0]) || x[1] - y[1]).map(x => x[0]);
+    },
+
+    setBagSort(mode) {
+        this.bagSort = this.bagSorts.some(s => s.value === mode) ? mode : 'search';
+        DocsDoodads.Ui.setPref('bagSort', this.bagSort);
+        const select = typeof document !== 'undefined' ? document.getElementById('dd-bag-sort') : null;
+        if (select) select.value = this.bagSort;
+        this._drawerView = null; // a new order starts at the top
+        this.refreshDrawerCards();
+    },
+
+    // ---- Search chips: the terms typed, each removable, and saved searches to bring back ----
+    setSearchQuery(query) {
+        this.searchQuery = String(query || '').replace(/\s+/g, ' ').trim();
+        const input = typeof document !== 'undefined' ? document.getElementById('dd-search-input') : null;
+        if (input) input.value = this.searchQuery;
+        this.refreshDrawerCards();
+        this.refreshCollectionPicker();
+        this.refreshSearchChips();
+    },
+
+    removeSearchToken(index) {
+        const tokens = DocsDoodads.Search.tokens(this.searchQuery);
+        tokens.splice(index, 1);
+        this.setSearchQuery(tokens.join(' '));
+    },
+
+    async saveCurrentSearch() {
+        const query = String(this.searchQuery || '').trim();
+        if (!query) return null;
+        const name = await DocsDoodads.Ui.prompt(`Keep "${query}" as a chip under the search box. Name it:`,
+            query.length > 24 ? query.slice(0, 24) : query, { title: 'Save search', ok: 'Save', icon: 'search' });
+        if (!name || !name.trim()) return null;
+        DocsDoodads.AssetIndex.saveSearch(name.trim(), query);
+        this.refreshSearchChips();
+        this.showToast(`Saved the search "${name.trim()}".`, 'success');
+        return name.trim();
+    },
+
+    refreshSearchChips() {
+        const box = typeof document !== 'undefined' ? document.getElementById('dd-search-chips') : null;
+        if (!box) return;
+        box.innerHTML = '';
+        const make = (className, text, title) => {
+            const chip = document.createElement('div');
+            chip.className = 'dd-chip ' + className;
+            const label = document.createElement('span');
+            label.textContent = text;
+            chip.appendChild(label);
+            if (title) chip.title = title;
+            box.appendChild(chip);
+            return chip;
+        };
+        const closeButton = (chip, title, run) => {
+            const x = document.createElement('button');
+            x.type = 'button';
+            x.textContent = '×';
+            x.title = title;
+            x.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); run(); };
+            chip.appendChild(x);
+        };
+        const tokens = DocsDoodads.Search.tokens(this.searchQuery);
+        // One chip per term is only worth it once there is more than a single word.
+        if (tokens.length > 1 || (tokens.length === 1 && /:/.test(tokens[0]))) {
+            tokens.forEach((token, i) => closeButton(make('dd-chip-term', token, 'Part of the search'), 'Take this out of the search', () => this.removeSearchToken(i)));
+        }
+        const saved = DocsDoodads.AssetIndex.savedSearches();
+        const current = String(this.searchQuery || '').trim();
+        for (const s of saved) {
+            const chip = make('dd-chip-saved', s.name, `Search for: ${s.query}`);
+            chip.onclick = () => this.setSearchQuery(s.query);
+            closeButton(chip, 'Forget this saved search', () => { DocsDoodads.AssetIndex.deleteSearch(s.name); this.refreshSearchChips(); });
+        }
+        if (current && !saved.some(s => s.query === current)) {
+            const chip = make('dd-chip-save', '☆ Save search', 'Keep this search as a chip');
+            chip.onclick = () => this.saveCurrentSearch();
+        }
+    },
+
+    // ---- The hover card: what an item is, how it is used, and where to change it ----
+    hoverCardFacts(asset) {
+        const frames = DocsDoodads.AnimatedThumb.framesFor(asset);
+        const index = DocsDoodads.Usage.lastIndex;
+        const used = asset.type === 'prefab' || !index ? null : (index.get(DocsDoodads.Usage.keyOf(asset.path)) || []).length;
+        const depth = DocsDoodads.Depth.modes.includes(asset.placement && asset.placement.depth) ? asset.placement.depth : DocsDoodads.Depth.suggestFor(asset);
+        const facts = [];
+        if (asset.width && asset.height) facts.push(['Size', `${asset.width} × ${asset.height} px`]);
+        facts.push(['Frames', frames && frames.length > 1 ? `${frames.length} (animated)` : '1']);
+        if (asset.category !== 'Audio' && asset.type !== 'prefab') facts.push(['Depth', (DocsDoodads.Depth.labels[depth] || depth).replace(/ \(.*\)$/, '')]);
+        if (asset.type !== 'prefab') facts.push(['Used in', used === null ? 'press Where Used' : `${used} place(s)`]);
+        if (asset.usage && asset.usage.useCount) facts.push(['Placed', `${asset.usage.useCount} time(s)`]);
+        return facts;
+    },
+
+    showHoverCard(asset, card) {
+        if (typeof document === 'undefined' || !asset || !this.mounted) return null;
+        this.hideHoverCard(true);
+        const el = document.createElement('div');
+        el.id = 'dd-hover-card';
+        el.className = 'dd-glass';
+        const add = (tag, className, text) => {
+            const n = document.createElement(tag);
+            if (className) n.className = className;
+            if (text !== undefined) n.textContent = text;
+            el.appendChild(n);
+            return n;
+        };
+        add('div', 'dd-hc-name', asset.fileName || '');
+        if (asset.path) add('div', 'dd-hc-path', asset.path);
+        for (const [label, value] of this.hoverCardFacts(asset)) {
+            const row = add('div', 'dd-hc-row');
+            const l = document.createElement('span'); l.textContent = label;
+            const v = document.createElement('b'); v.textContent = value;
+            row.appendChild(l); row.appendChild(v);
+        }
+        const links = add('div', 'dd-hc-links');
+        const link = (text, run) => {
+            const b = document.createElement('button');
+            b.className = 'dd-btn';
+            b.type = 'button';
+            b.textContent = text;
+            b.onclick = () => { this.hideHoverCard(true); run(); };
+            links.appendChild(b);
+        };
+        link('Details', () => this.selectAsset(asset));
+        if (asset.category !== 'Audio' && asset.type !== 'prefab') link('Cut Up', () => DocsDoodads.Slicing.Editor.open(asset));
+        if (asset.type !== 'prefab') link('Where Used', () => { this.refreshUsageIndex(); this.showHoverCard(asset, card); });
+        // Beside the bag, level with the card; it stays while the mouse is on it.
+        const rect = card && card.getBoundingClientRect ? card.getBoundingClientRect() : { right: 260, top: 120 };
+        const drawer = document.getElementById('dd-drawer-panel');
+        const edge = drawer && drawer.getBoundingClientRect ? drawer.getBoundingClientRect().right : rect.right;
+        const roomH = (typeof window !== 'undefined' && window.innerHeight) || 624;
+        // The card is on the page; the bag may be zoomed (its rects are in its own units).
+        const scale = this.uiScaleNow ? this.uiScaleNow() : 1;
+        el.style.left = Math.round(Math.max(edge, rect.right) * scale + 10) + 'px';
+        el.style.top = Math.round(Math.max(8, Math.min(roomH - 220, rect.top * scale))) + 'px';
+        el.onmouseenter = () => clearTimeout(this._hoverHide);
+        el.onmouseleave = () => this.hideHoverCard();
+        document.body.appendChild(el);
+        this._hoverCard = { el, asset };
+        return el;
+    },
+
+    // now: at once; otherwise after a moment, so the mouse can cross to the card.
+    hideHoverCard(now) {
+        clearTimeout(this._hoverHide);
+        const go = () => {
+            const card = this._hoverCard;
+            this._hoverCard = null;
+            if (card && card.el.parentNode) card.el.parentNode.removeChild(card.el);
+        };
+        if (now) go(); else this._hoverHide = setTimeout(go, 220);
+    },
+
+    // The bag's cards call these on mouse enter and leave: the card shows after a short rest.
+    hoverCardEnter(asset, card) {
+        clearTimeout(this._hoverShow);
+        clearTimeout(this._hoverHide);
+        if (this._hoverCard && this._hoverCard.asset === asset) return;
+        this._hoverShow = setTimeout(() => {
+            if (!card || card.isConnected !== false) this.showHoverCard(asset, card);
+        }, 550);
+    },
+
+    hoverCardLeave() {
+        clearTimeout(this._hoverShow);
+        this.hideHoverCard();
+    },
+
+    // ---- Empty tabs: what goes here, and a button to do it ----
+    emptyBagState() {
+        const searching = String(this.searchQuery || '').trim();
+        const all = { label: 'Show Everything', run: () => { this._categoryChosen = true; this.setCategory('All'); } };
+        if (searching) {
+            return { title: 'Nothing matches', text: `No items match "${searching}"${this.currentCategory !== 'All' ? ` in ${this.categoryName(this.currentCategory)}` : ''}.`,
+                button: { label: 'Clear the Search', run: () => this.setSearchQuery('') } };
+        }
+        const states = {
+            Doodads: { title: 'No doodads yet', text: 'Put pictures in img/doodads, or drop image files from your computer onto this window to bring them in.', button: { label: 'Bring In Files...', run: () => this.pickFilesToImport() } },
+            Favorites: { title: 'No favourites yet', text: 'Right-click an item and choose Add to Favorites, or press ☆ Favorite in its details.', button: all },
+            Recent: { title: 'Nothing placed yet', text: 'The items you place on maps show here, most recent first.', button: all },
+            Prefabs: { title: 'No prefabs yet', text: 'Pick a few doodads on the map, then press Save Prefab in Details to keep them as one item.', button: { label: 'Show Doodads', run: () => { this._categoryChosen = true; this.setCategory('Doodads'); } } },
+            Similar: { title: 'Nothing to compare', text: 'Right-click an item and choose More Like This to see pictures that look like it.', button: all },
+            All: { title: 'The bag is empty', text: 'No pictures or sounds were found in this project yet. Drop files onto this window to bring them in.', button: { label: 'Bring In Files...', run: () => this.pickFilesToImport() } }
+        };
+        return states[this.currentCategory] || { title: `No ${this.categoryName(this.currentCategory).toLowerCase()} here`, text: 'This project has none of these files yet.', button: all };
+    },
+
+    renderEmptyBag(viewport) {
+        const state = this.emptyBagState();
+        viewport.innerHTML = '';
+        const box = document.createElement('div');
+        box.className = 'dd-empty';
+        const title = document.createElement('b');
+        title.textContent = state.title;
+        const text = document.createElement('div');
+        text.textContent = state.text;
+        box.appendChild(title);
+        box.appendChild(text);
+        if (state.button) {
+            const btn = document.createElement('button');
+            btn.className = 'dd-btn dd-btn-primary';
+            btn.type = 'button';
+            btn.textContent = state.button.label;
+            btn.onclick = () => state.button.run();
+            box.appendChild(btn);
+        }
+        viewport.appendChild(box);
+        return state;
+    },
+
+    // A file picker for the same import as dropping files on the window.
+    pickFilesToImport() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = 'image/*,audio/*,.json,.aseprite,.ase,.glb,.gltf';
+        input.onchange = () => {
+            const paths = Array.from(input.files || []).map(f => f.path).filter(Boolean);
+            if (paths.length) this.showAssetImportModal(paths);
+        };
+        if (typeof input.click === 'function') input.click();
+        return true;
+    }
+});
+//==========================================================
+// SECTION 25d: WORKSPACE LOOK (SIZE, THEME, MAP COLOURS) AND DETAILS MEMORY
+//==========================================================
+// More > Look: the editor's size, theme and map colours, with a key to what each map colour means.
+// Details remembers which sections were open, and pinned sections stay at the top.
+DocsDoodads.Ui.css += `
+#dd-look-card { position: fixed; top: 90px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 330px; max-width: calc(100vw - 32px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#dd-look-card label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+#dd-look-card select { width: 100%; }
+#dd-look-card .dd-look-key { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 11px; color: var(--dd-muted); }
+#dd-look-card .dd-swatch { display: inline-block; width: 14px; height: 6px; border-radius: 3px; margin-right: 6px; vertical-align: 2px; }
+.dd-glass summary .dd-pin { margin-left: auto; border: none; background: transparent; color: var(--dd-faint); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 2px; }
+.dd-glass summary .dd-pin.dd-pinned { color: var(--dd-warn); }
+.dd-glass summary .dd-pin:hover { color: var(--dd-primary); }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Size: the workspace is drawn larger with CSS zoom ----
+    // In MZ's Chromium, rects inside a zoomed element come back in its own (unzoomed) units, so placing
+    // things inside the workspace needs no conversion; only the window size (and anything placed outside
+    // the workspace from a rect inside it) is converted, with these.
+    uiScaleNow() {
+        return DocsDoodads.Ui.uiScale();
+    },
+
+    // The window's width and height in the workspace's own units.
+    roomSize() {
+        const s = this.uiScaleNow();
+        const w = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const h = (typeof window !== 'undefined' && window.innerHeight) || 624;
+        return { w: w / s, h: h / s };
+    },
+
+    applyScale() {
+        const root = this.container;
+        if (!root || !root.style) return;
+        const s = this.uiScaleNow();
+        const room = this.roomSize();
+        root.style.zoom = s === 1 ? '' : String(s);
+        root.style.width = s === 1 ? '100vw' : Math.floor(room.w) + 'px';
+        root.style.height = s === 1 ? '100vh' : Math.floor(room.h) + 'px';
+    },
+
+    // ---- The Look card ----
+    setLook(key, value) {
+        const U = DocsDoodads.Ui;
+        if (key === 'uiScale') value = U.scales.includes(Number(value)) ? Number(value) : 1;
+        else if (key === 'theme') value = U.themes.some(t => t.value === value) ? value : 'light';
+        else if (key === 'mapColors') value = value === 'safe' ? 'safe' : 'standard';
+        else return false;
+        U.setPref(key, value);
+        U.applyLook();
+        this.applyScale();
+        if (this.mounted) this.layoutPanels();
+        this.updateCollisionLegend();
+        if (typeof document !== 'undefined' && document.getElementById('dd-look-card')) this.showLookCard();
+        return true;
+    },
+
+    showLookCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui;
+        let card = document.getElementById('dd-look-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-look-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const option = (value, label, current) => `<option value="${value}"${String(value) === String(current) ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        const hex = c => '#' + c.toString(16).padStart(6, '0');
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('eye', 1)} Look</span>
+                <button class="dd-btn dd-fold" id="dd-look-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <label>Editor size<select id="dd-look-scale">${U.scales.map(s => option(s, Math.round(s * 100) + '%', U.uiScale())).join('')}</select></label>
+            <label>Theme<select id="dd-look-theme">${U.themes.map(t => option(t.value, t.label, U.theme())).join('')}</select></label>
+            <label>Map colours<select id="dd-look-colors">${option('standard', 'Standard', U.mapColorMode())}${option('safe', 'Colour-blind safe', U.mapColorMode())}</select></label>
+            <div class="dd-label" style="margin: 2px 0 0;">What the map colours mean</div>
+            <div class="dd-look-key" id="dd-look-key">${U.mapColorMeanings.map(([name, text]) =>
+                `<div><span class="dd-swatch" style="background: ${hex(U.mapColor(name))};"></span>${escapeHtml(text)}</div>`).join('')}</div>
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Kept on this computer. Collision colours have their own key while Show Collision is on.</div>`;
+        const on = (id, run) => { const el = document.getElementById(id); if (el) el.onchange = e => run(e.target.value); };
+        on('dd-look-scale', v => this.setLook('uiScale', v));
+        on('dd-look-theme', v => this.setLook('theme', v));
+        on('dd-look-colors', v => this.setLook('mapColors', v));
+        const close = document.getElementById('dd-look-close');
+        if (close) close.onclick = () => this.closeLookCard();
+        return card;
+    },
+
+    closeLookCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-look-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+    },
+
+    // ---- Details memory: open sections stay open, pinned ones go to the top ----
+    refreshInspector() {
+        this.renderInspector();
+        this.applyDetailsMemory(typeof document !== 'undefined' ? document.getElementById('dd-inspector-content') : null);
+    },
+
+    detailsKey(summary) {
+        const text = summary ? String(summary.textContent || '') : '';
+        return text.replace(/[☆★]/g, '').replace(/\s+/g, ' ').trim();
+    },
+
+    toggleDetailsPin(key) {
+        const U = DocsDoodads.Ui;
+        const pinned = (U.prefs().detailsPinned || []).filter(k => typeof k === 'string');
+        const next = pinned.includes(key) ? pinned.filter(k => k !== key) : pinned.concat([key]);
+        U.setPref('detailsPinned', next);
+        this.refreshInspector();
+        return next.includes(key);
+    },
+
+    applyDetailsMemory(root) {
+        if (!root || typeof root.querySelectorAll !== 'function' || typeof document === 'undefined') return;
+        const U = DocsDoodads.Ui;
+        const prefs = U.prefs();
+        const open = prefs.detailsOpen && typeof prefs.detailsOpen === 'object' ? prefs.detailsOpen : {};
+        const pinned = Array.isArray(prefs.detailsPinned) ? prefs.detailsPinned : [];
+        const pinnedEls = [];
+        for (const d of Array.from(root.querySelectorAll('details'))) {
+            // Only the outer sections: a section inside a section folds with it.
+            const outer = d.parentNode && typeof d.parentNode.closest === 'function' ? d.parentNode.closest('details') : null;
+            if (outer) continue;
+            const summary = d.querySelector ? d.querySelector('summary') : null;
+            const key = this.detailsKey(summary);
+            if (!key) continue;
+            if (Object.prototype.hasOwnProperty.call(open, key)) d.open = Boolean(open[key]);
+            if (d.addEventListener && !d._ddRemember) {
+                d._ddRemember = true;
+                d.addEventListener('toggle', () => {
+                    const now = Object.assign({}, U.prefs().detailsOpen || {});
+                    now[key] = Boolean(d.open);
+                    U.setPref('detailsOpen', now);
+                });
+            }
+            const isPinned = pinned.includes(key);
+            if (!(summary.querySelector && summary.querySelector('.dd-pin'))) {
+                const pin = document.createElement('button');
+                pin.type = 'button';
+                pin.className = 'dd-pin' + (isPinned ? ' dd-pinned' : '');
+                pin.textContent = isPinned ? '★' : '☆';
+                pin.title = isPinned ? 'Unpin: back to its place' : 'Pin to the top of Details';
+                pin.onclick = e => {
+                    if (e && e.preventDefault) e.preventDefault();
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    this.toggleDetailsPin(key);
+                };
+                summary.appendChild(pin);
+            }
+            if (isPinned) pinnedEls.push({ d, at: pinned.indexOf(key) });
+        }
+        // Pinned sections first, in the order they were pinned, ahead of the other sections beside them.
+        pinnedEls.sort((a, b) => b.at - a.at);
+        for (const { d } of pinnedEls) {
+            const parent = d.parentNode;
+            if (!parent || !parent.insertBefore) continue;
+            const first = Array.from(parent.childNodes || parent.children || []).find(c => c && c.tagName === 'DETAILS');
+            if (first && first !== d) parent.insertBefore(d, first);
+        }
+    }
+});
+//==========================================================
+// SECTION 25b: WORKSPACE READOUTS (COLLISION OVERLAY, DRAG READOUT, STATUS BAR)
+//==========================================================
+// What the editor tells you about the map while you work: every doodad's collision at once, where a
+// dragged doodad is and how big, and a status bar with the cursor, map, selection, layer, zoom and saving.
+DocsDoodads.Ui.css += `
+/* The status bar along the bottom of the map, and the readout beside a dragged doodad. */
+#dd-statusbar {
+    position: absolute; bottom: 8px; height: 26px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+    border-radius: 13px; font-size: 11px; font-weight: 800; color: var(--dd-muted); white-space: nowrap; overflow: hidden;
+}
+#dd-statusbar b { color: var(--dd-text); font-weight: 900; }
+#dd-statusbar .dd-sb-sep { width: 2px; height: 12px; background: var(--dd-line); border-radius: 2px; flex: none; }
+#dd-statusbar .dd-sb-unsaved { color: var(--dd-warn); }
+#dd-statusbar .dd-sb-saved { color: var(--dd-good-dark); }
+#dd-statusbar .dd-sb-grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#dd-hint.dd-hint-raised { bottom: 42px; }
+#dd-drag-readout {
+    position: fixed; z-index: 10020; pointer-events: none; padding: 4px 9px; border-radius: 10px; font-family: var(--dd-font);
+    font-size: 11px; font-weight: 800; color: #ffffff; background: rgba(31, 27, 48, 0.86); white-space: nowrap;
+}
+#dd-toast-history { position: fixed; z-index: 10032; width: 340px; max-width: calc(100vw - 32px); max-height: 60vh; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#dd-toast-history .dd-th-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+#dd-toast-history .dd-th-item { display: flex; gap: 8px; align-items: flex-start; padding: 5px 8px; border-radius: 10px; background: var(--dd-panel-2); font-size: 11px; font-weight: 700; color: var(--dd-text); }
+#dd-toast-history .dd-th-item.dd-th-error { background: var(--dd-danger-soft); }
+#dd-toast-history .dd-th-item.dd-th-success { background: var(--dd-good-soft); }
+#dd-toast-history .dd-th-time { color: var(--dd-faint); flex: none; font-variant-numeric: tabular-nums; }
+#dd-toast-history .dd-th-msg { overflow-wrap: anywhere; }
+#dd-collision-legend { position: absolute; padding: 8px 10px; font-size: 11px; display: flex; flex-direction: column; gap: 3px; max-width: 220px; }
+#dd-collision-legend .dd-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; border: 2px solid rgba(0, 0, 0, 0.15); }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // ---- Collision overlay: every doodad's collision box, coloured by preset, and the blocked tiles ----
+    // (The colours come from the map palette, standard or colour-blind safe: DocsDoodads.Ui.mapColor.)
+    collisionNames: {
+        full: 'Full', bottomHalf: 'Bottom half', bottomThird: 'Bottom third', center: 'Centre', trunk: 'Tree trunk',
+        thinWall: 'Thin wall', wideWall: 'Wide wall', custom: 'Custom / traced'
+    },
+    showCollision: false,
+
+    toggleCollisionOverlay(on) {
+        this.showCollision = on === undefined ? !this.showCollision : Boolean(on);
+        DocsDoodads.Ui.setPref('collisionOverlay', this.showCollision);
+        const label = typeof document !== 'undefined' ? document.getElementById('dd-collision-label') : null;
+        if (label) label.textContent = this.showCollision ? 'Hide Collision' : 'Show Collision';
+        this.updateCollisionLegend();
+        return this.showCollision;
+    },
+
+    // The preset a doodad's collision is shown as: a traced or hand-drawn shape counts as custom.
+    collisionPreset(d) {
+        const preset = d && d.collision ? d.collision.preset : 'none';
+        if (!preset || preset === 'none') return null;
+        return d.collision.shape || !this.collisionNames[preset] ? 'custom' : preset;
+    },
+
+    // What the overlay draws, in map pixels and tiles: { bodies: [{ rect, preset, shows }], doodadTiles,
+    // mapTiles } for the tiles in view (doodadTiles: blocked by a showing doodad; mapTiles: by the map).
+    collisionOverlayData(view) {
+        const C = DocsDoodads.Collision;
+        const gameMap = window.$gameMap;
+        const tw = gameMap.tileWidth(), th = gameMap.tileHeight();
+        const settings = DocsDoodads.Lighting.mapSettings(gameMap.mapId());
+        const bodies = [], doodadTiles = new Set(), mapTiles = new Set();
+        for (const d of DocsDoodads.doodads() || []) {
+            const body = C.bodyOf(d);
+            if (!body) continue;
+            const shows = DocsDoodads.Layers.visibleInGame(d, settings) && DocsDoodads.Appearance.isVisible(d, {});
+            bodies.push({ rect: body, preset: this.collisionPreset(d), shows });
+            if (shows) for (const t of C.tilesUnder(body, tw, th)) doodadTiles.add(t.x + ',' + t.y);
+        }
+        if (view && typeof gameMap.isPassable === 'function') {
+            for (let y = view.y0; y <= view.y1; y++) {
+                for (let x = view.x0; x <= view.x1; x++) {
+                    const mx = typeof gameMap.roundX === 'function' ? gameMap.roundX(x) : x;
+                    const my = typeof gameMap.roundY === 'function' ? gameMap.roundY(y) : y;
+                    if (gameMap.isValid && !gameMap.isValid(mx, my)) continue;
+                    if (![2, 4, 6, 8].some(dir => gameMap.isPassable(mx, my, dir))) mapTiles.add(mx + ',' + my);
+                }
+            }
+        }
+        return { bodies, doodadTiles, mapTiles };
+    },
+
+    drawCollisionOverlay(g) {
+        if (!this.showCollision || !window.$gameMap) return;
+        const cam = DocsDoodads.Perspective.liveCamera ? DocsDoodads.Perspective.liveCamera() : null;
+        if (cam) return; // flat maps only: the 3D view has its own sense of what is in front
+        const gameMap = window.$gameMap;
+        const tw = gameMap.tileWidth(), th = gameMap.tileHeight();
+        const width = typeof Graphics !== 'undefined' ? Graphics.width : 816, height = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const x0 = Math.floor(gameMap.displayX()), y0 = Math.floor(gameMap.displayY());
+        const view = { x0, y0, x1: x0 + Math.ceil(width / tw), y1: y0 + Math.ceil(height / th) };
+        const data = this.collisionOverlayData(view);
+        // Outlines drawn before (the selection's) leave their line style set: tiles are fills only.
+        g.lineStyle(0);
+        const tile = (key, color, alpha) => {
+            const [x, y] = key.split(',').map(Number);
+            g.beginFill(color, alpha);
+            g.drawRect(gameMap.adjustX(x) * tw, gameMap.adjustY(y) * th, tw, th);
+            g.endFill();
+        };
+        for (const key of data.mapTiles) if (!data.doodadTiles.has(key)) tile(key, 0x2f2a43, 0.28);
+        for (const key of data.doodadTiles) tile(key, DocsDoodads.Ui.mapColor('blocked'), 0.22);
+        for (const b of data.bodies) {
+            const color = DocsDoodads.Ui.mapColor(b.preset);
+            const at = DocsDoodads.mapToScreen(b.rect.x, b.rect.y);
+            g.lineStyle(2, color, b.shows ? 1 : 0.4);
+            g.beginFill(color, b.shows ? 0.25 : 0.06);
+            g.drawRect(at.x, at.y, b.rect.w, b.rect.h);
+            g.endFill();
+        }
+        g.lineStyle(0);
+    },
+
+    // A small key to the colours, beside the Item Bag while the overlay is on.
+    updateCollisionLegend() {
+        if (typeof document === 'undefined') return;
+        let legend = document.getElementById('dd-collision-legend');
+        if (!this.showCollision || !this.mounted) {
+            if (legend && legend.parentNode) legend.parentNode.removeChild(legend);
+            return;
+        }
+        const presets = new Set((DocsDoodads.doodads() || []).map(d => this.collisionPreset(d)).filter(Boolean));
+        const hex = c => '#' + c.toString(16).padStart(6, '0');
+        const row = (color, text) => `<div><span class="dd-swatch" style="background: ${color};"></span>${escapeHtml(text)}</div>`;
+        const html = `<div class="dd-pop-title" style="margin-bottom: 2px;">${DocsDoodads.Ui.icon('grid', 1)} Collision</div>` +
+            row(hex(DocsDoodads.Ui.mapColor('blocked')), 'Tile a doodad blocks') + row('rgba(47, 42, 67, 0.45)', 'Tile the map blocks') +
+            Object.keys(this.collisionNames).filter(p => presets.has(p)).map(p => row(hex(DocsDoodads.Ui.mapColor(p)), this.collisionNames[p])).join('') +
+            (presets.size ? '' : '<div>No doodads with collision on this map.</div>');
+        if (legend && legend._ddHtml === html) return;
+        if (!legend) {
+            legend = document.createElement('div');
+            legend.id = 'dd-collision-legend';
+            legend.className = 'dd-glass';
+            const root = this.container || document.body;
+            root.appendChild(legend);
+        }
+        legend.innerHTML = html;
+        legend._ddHtml = html;
+        this.placeReadouts();
+    },
+
+    // ---- The readout beside a dragged doodad: where it is and how big ----
+    dragReadoutText(d) {
+        const gameMap = window.$gameMap;
+        const tw = gameMap && gameMap.tileWidth ? gameMap.tileWidth() : 48, th = gameMap && gameMap.tileHeight ? gameMap.tileHeight() : 48;
+        const w = Math.round((d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1));
+        const h = Math.round((d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1));
+        const tiles = v => Math.round(v * 100) / 100;
+        return `x ${Math.round(d.x)}, y ${Math.round(d.y)} · tile ${Math.floor(d.x / tw)}, ${Math.floor((d.y - 1) / th)} · ${w}×${h} px (${tiles(w / tw)}×${tiles(h / th)} tiles)`;
+    },
+
+    showDragReadout(clientX, clientY) {
+        if (typeof document === 'undefined' || !this._drag || !this._drag.primary) return;
+        let el = document.getElementById('dd-drag-readout');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-drag-readout';
+            document.body.appendChild(el);
+        }
+        const count = this._drag.items.length;
+        el.textContent = this.dragReadoutText(this._drag.primary) + (count > 1 ? ` · ${count} moving` : '');
+        const room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        el.style.left = Math.round(Math.min(clientX + 18, room - 330)) + 'px';
+        el.style.top = Math.round(clientY + 20) + 'px';
+    },
+
+    hideDragReadout() {
+        const el = typeof document !== 'undefined' ? document.getElementById('dd-drag-readout') : null;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    },
+
+    // ---- The status bar ----
+    _cursor: null,
+
+    // Over the map only: moving across the panels (the bag, Details, the bar itself) keeps the last tile.
+    trackCursor(clientX, clientY, target) {
+        if (target && typeof target.closest === 'function' && target.closest('.dd-glass')) return;
+        this._cursor = this.clientToMapCoords(clientX, clientY);
+        this.updateStatusBar();
+    },
+
+    mapLabel() {
+        const id = this.currentMapId();
+        const info = typeof window !== 'undefined' && window.$dataMapInfos ? window.$dataMapInfos[id] : null;
+        return `Map ${id}${info && info.name ? ' · ' + info.name : ''}`;
+    },
+
+    // The bar's parts as text, so they can be checked without a page: [cursor, map, picked, layer, zoom, saving].
+    statusParts() {
+        const c = this._cursor;
+        const cursor = c ? `Tile ${c.tileX}, ${c.tileY} · ${Math.round(c.x)}, ${Math.round(c.y)} px` : 'Tile –';
+        const picked = this.selectionItems().length;
+        const event = this.selectedEvent ? 'an event' : '';
+        const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
+        const layer = (layers.find(l => l.id === (this.activeLayer || 'main')) || layers[0] || { name: 'Main' }).name;
+        const zoom = typeof $gameScreen !== 'undefined' && $gameScreen && typeof $gameScreen.zoomScale === 'function' ? $gameScreen.zoomScale() : 1;
+        const P = DocsDoodads.Persistence;
+        const saving = P.hasUnsavedWork() ? 'Not saved'
+            : P.lastSavedAt ? 'Saved ' + new Date(P.lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No changes';
+        return [cursor, this.mapLabel(), picked ? `${picked} picked` : (event ? 'An event picked' : 'Nothing picked'),
+            `Layer: ${layer}`, `Zoom ${Math.round(zoom * 100)}%`, saving];
+    },
+
+    updateStatusBar() {
+        const bar = typeof document !== 'undefined' ? document.getElementById('dd-statusbar') : null;
+        if (!bar) return;
+        const parts = this.statusParts();
+        const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
+        const html = parts.map((p, i) => {
+            const cls = i === 5 ? (unsaved ? ' class="dd-sb-unsaved"' : ' class="dd-sb-saved"') : i === 1 ? ' class="dd-sb-grow"' : '';
+            const text = i === 5 && unsaved ? '● ' + p : p;
+            return `<span${cls}>${i === 0 || i === 3 ? `<b>${escapeHtml(text)}</b>` : escapeHtml(text)}</span>`;
+        }).join('<span class="dd-sb-sep"></span>');
+        if (bar._ddHtml !== html) {
+            bar.innerHTML = html;
+            bar._ddHtml = html;
+        }
+    },
+
+    buildStatusBar() {
+        if (!this.container || typeof document === 'undefined') return;
+        const bar = document.createElement('div');
+        bar.id = 'dd-statusbar';
+        bar.className = 'dd-glass';
+        this.container.appendChild(bar);
+        const hint = document.getElementById('dd-hint');
+        if (hint && hint.classList) hint.classList.add('dd-hint-raised');
+        clearInterval(this._statusTimer);
+        // The saving time, the selection and collision presets change without a mouse move; four times a
+        // second is plenty.
+        this._statusTimer = setInterval(() => {
+            if (!this.mounted) return;
+            this.updateStatusBar();
+            if (this.showCollision) this.updateCollisionLegend();
+        }, 250);
+        if (this._statusTimer && typeof this._statusTimer.unref === 'function') this._statusTimer.unref();
+        this.updateStatusBar();
+    },
+
+    stopStatusBar() {
+        clearInterval(this._statusTimer);
+        this._statusTimer = null;
+        this.hideDragReadout();
+    },
+
+    // ---- Messages: every toast, newest first, to read again ----
+    showToastHistory() {
+        if (typeof document === 'undefined') return null;
+        this.closeToastHistory();
+        const panel = document.createElement('div');
+        panel.id = 'dd-toast-history';
+        panel.className = 'dd-glass';
+        panel.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${DocsDoodads.Ui.icon('history', 1)} Messages</span>
+                <button class="dd-btn" id="dd-th-clear" type="button">Clear</button>
+                <button class="dd-btn dd-fold" id="dd-th-close" type="button" title="Close">${DocsDoodads.Ui.icon('close', 1)}</button></div>
+            <div class="dd-th-list" id="dd-th-list"></div>`;
+        document.body.appendChild(panel);
+        this._toastHistoryOpen = true;
+        const clear = document.getElementById('dd-th-clear');
+        if (clear) clear.onclick = () => { this.toastLog = []; this.renderToastHistory(); };
+        const close = document.getElementById('dd-th-close');
+        if (close) close.onclick = () => this.closeToastHistory();
+        this.renderToastHistory();
+        this.placeReadouts();
+        return panel;
+    },
+
+    renderToastHistory() {
+        const list = typeof document !== 'undefined' ? document.getElementById('dd-th-list') : null;
+        if (!list) return;
+        const items = this.toastLog || [];
+        const time = at => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        list.innerHTML = items.length
+            ? items.map(t => `<div class="dd-th-item${t.kind === 'error' ? ' dd-th-error' : t.kind === 'success' ? ' dd-th-success' : ''}">` +
+                `<span class="dd-th-time">${escapeHtml(time(t.at))}</span><span class="dd-th-msg">${escapeHtml(t.msg)}</span></div>`).join('')
+            : '<div class="dd-empty">No messages yet.</div>';
+    },
+
+    closeToastHistory() {
+        this._toastHistoryOpen = false;
+        const panel = typeof document !== 'undefined' ? document.getElementById('dd-toast-history') : null;
+        if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+    },
+
+    // The status bar spans the map between the panels; the collision key sits at the map's top left,
+    // long-job pills at its top right, and Messages under them.
+    placeReadouts() {
+        if (typeof document === 'undefined') return;
+        const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
+        const room = this.roomSize ? this.roomSize().w : ((typeof window !== 'undefined' && window.innerWidth) || 816);
+        const scale = this.uiScaleNow ? this.uiScaleNow() : 1;
+        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel'), toolbar = rect('dd-toolbar');
+        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
+        const bar = document.getElementById('dd-statusbar');
+        if (bar && bar.style) {
+            bar.style.left = Math.round(left) + 'px';
+            bar.style.width = Math.round(Math.max(120, right - left)) + 'px';
+        }
+        const top = Math.round(toolbar ? toolbar.bottom + 8 : 84);
+        const legend = document.getElementById('dd-collision-legend');
+        if (legend && legend.style) {
+            legend.style.left = Math.round(left) + 'px';
+            legend.style.top = top + 'px';
+        }
+        // These two are on the page, outside the (possibly zoomed) workspace: window pixels.
+        for (const id of ['dd-progress-stack', 'dd-toast-history']) {
+            const el = document.getElementById(id);
+            if (el && el.style) {
+                el.style.right = Math.round((room - right) * scale) + 'px';
+                el.style.top = Math.round(top * scale) + 'px';
+            }
+        }
+    }
+});
 //==========================================================
 // SECTION 25: SCENE_MAP INTEGRATION & KEY BINDINGS
 //==========================================================

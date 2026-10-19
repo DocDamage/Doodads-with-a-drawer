@@ -104,6 +104,15 @@ DocsDoodads.Search = {
         return true;
     },
 
+    // The query's terms as typed (a quoted phrase stays one term), for showing and removing them one by one.
+    tokens(queryString) {
+        const out = [];
+        const regex = /(-?\w+:)?("[^"]*"|'[^']*'|[^\s]+)/g;
+        let match;
+        while ((match = regex.exec(String(queryString || ''))) !== null) out.push(match[0]);
+        return out;
+    },
+
     filter(assets, queryString) {
         const parsed = this.parseQuery(queryString);
         return assets.filter(a => this.matches(a, parsed));

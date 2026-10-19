@@ -256,7 +256,8 @@
         const items = values.scope === 'selected' ? picked : this.doodadsShowing(source, values.scope);
         const n = this.replaceArt(items, asset);
         this.refreshInspector();
-        this.showToast(n ? `Now showing ${asset.fileName} on ${n} doodad(s).` : 'Nothing to change (locked doodads stay as they are).', n ? 'success' : 'info');
+        if (n) this.toastUndo(`Now showing ${asset.fileName} on ${n} doodad(s).`, 'success');
+        else this.showToast('Nothing to change (locked doodads stay as they are).', 'info');
         return n;
     },
 

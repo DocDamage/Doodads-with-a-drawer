@@ -175,6 +175,7 @@
                     { title: 'Delete layer?', ok: 'Delete Layer', danger: true }))) return;
                 this.deleteLayer(l.id);
                 this.refreshInspector();
+                this.toastUndo(`Deleted the layer "${l.name}".`);
             };
         });
         const add = byId('dd-layer-add');
@@ -522,7 +523,7 @@
         on('dd-dress-add-rule', 'onclick', () => { this.addDressRule(); this.refreshInspector(); });
         on('dd-dress-run', 'onclick', () => { const n = this.dressMap(); this.showToast(n ? `Dressed the map with ${n} prop(s).` : 'Nothing to add: check the rules have art and matching tiles.', n ? 'success' : 'info'); });
         on('dd-dress-reroll', 'onclick', () => { this.clearDressing(); const n = this.dressMap(); this.showToast(`Re-rolled: ${n} prop(s).`, 'success'); });
-        on('dd-dress-clear', 'onclick', () => { const n = this.clearDressing(); this.showToast(`Removed ${n} dressed prop(s).`, 'info'); });
+        on('dd-dress-clear', 'onclick', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
     },
 
     // Asset inspector: add the selected art to a biome or a dressing rule.
@@ -697,9 +698,10 @@
             const at = DocsDoodads.mapToScreen(d.x, d.y);
             return { x: at.x - (d.anchorX !== undefined ? d.anchorX : 0.5) * w, y: at.y - (d.anchorY !== undefined ? d.anchorY : 1) * h, w, h };
         };
-        return diff.doodads.added.map(d => Object.assign(rect(d), { color: 0x4ade80 }))
-            .concat(diff.doodads.changed.map(c => Object.assign(rect(c.backup), { color: 0xfbbf24 })))
-            .concat(diff.doodads.removed.map(d => Object.assign(rect(d), { color: 0xf87171 })));
+        const U = DocsDoodads.Ui;
+        return diff.doodads.added.map(d => Object.assign(rect(d), { color: U.mapColor('added') }))
+            .concat(diff.doodads.changed.map(c => Object.assign(rect(c.backup), { color: U.mapColor('changed') })))
+            .concat(diff.doodads.removed.map(d => Object.assign(rect(d), { color: U.mapColor('removed') })));
     },
 
     // ---- Ctrl+K command palette ----
@@ -711,6 +713,10 @@
         add('Undo', () => D.Undo.undo());
         add('Redo', () => D.Undo.redo());
         add('Toggle Grid', () => this.toggleGrid());
+        add('Show / Hide Collision', () => this.toggleCollisionOverlay());
+        for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');
+        add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
+        for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
         add('Screen Looks (post-processing)', () => this.showPostFxBuilder());
         add('Effects Maker (VFX)', () => this.showVfxBuilder());
         add('File Check (duplicates, unused files)', () => this.showAssetTools());
@@ -721,7 +727,13 @@
             const n = this.dressMap();
             this.showToast(n ? `Dressed the map with ${n} prop(s).` : 'Nothing to add: check the rules have art and matching tiles.', n ? 'success' : 'info');
         });
-        add('Clear Map Dressing', () => this.showToast(`Removed ${this.clearDressing()} dressed prop(s).`, 'info'));
+        add('Clear Map Dressing', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
+        add('Messages (read them again)', () => this.showToastHistory());
+        add('Look: size, theme, map colours', () => this.showLookCard());
+        for (const s of D.Ui.scales) add(`Editor size ${Math.round(s * 100)}%`, () => this.setLook('uiScale', s), 'Look');
+        for (const t of D.Ui.themes) add('Theme: ' + t.label, () => this.setLook('theme', t.value), 'Look');
+        add('Map colours: colour-blind safe', () => this.setLook('mapColors', 'safe'), 'Look');
+        add('Map colours: standard', () => this.setLook('mapColors', 'standard'), 'Look');
         add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'));
         add('Tool: Stamp', () => this.setPlacementTool('stamp'));
         add('Tool: Scatter', () => this.setPlacementTool('brush'));

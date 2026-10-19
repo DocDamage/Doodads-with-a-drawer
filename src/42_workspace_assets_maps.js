@@ -363,6 +363,7 @@
 
     onMapLoaded() {
         if (!this.mounted) return;
+        this.updateCollisionLegend();
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
@@ -596,15 +597,26 @@
         }
         const packed = Packer.pack(regions.map(r => ({ key: r.key, w: r.rect.w, h: r.rect.h })), { maxSize: 2048, padding: 2 });
         const images = {};
-        for (const r of regions) {
-            if (!images[r.path]) {
-                images[r.path] = await new Promise((resolve, reject) => {
+        const paths = [...new Set(regions.map(r => r.path))];
+        // Loading the pictures is the slow part: a pill counts them, and Cancel stops before anything is written.
+        const pill = DocsDoodads.Ui.progress('Packing map art', { delay: 300, onCancel: () => {} });
+        try {
+            for (const p of paths) {
+                if (pill.cancelled) break;
+                pill.update(Object.keys(images).length, paths.length);
+                images[p] = await new Promise((resolve, reject) => {
                     const img = new Image();
                     img.onload = () => resolve(img);
-                    img.onerror = () => reject(new Error(`Could not load ${r.path}`));
-                    img.src = DocsDoodads.LiveReload.urlFor(r.path);
+                    img.onerror = () => reject(new Error(`Could not load ${p}`));
+                    img.src = DocsDoodads.LiveReload.urlFor(p);
                 });
             }
+        } finally {
+            pill.finish();
+        }
+        if (pill.cancelled) {
+            this.showToast('Packing cancelled; nothing was written.', 'info');
+            return null;
         }
         const clipped = Packer.clampRegions(regions, p => (images[p] ? { w: images[p].naturalWidth, h: images[p].naturalHeight } : null));
         regions.splice(0, regions.length, ...clipped);

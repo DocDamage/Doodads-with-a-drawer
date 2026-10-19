@@ -70,7 +70,9 @@ DocsDoodads.Workspace = {
         if (!btn) return;
         const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
         if (btn.classList) btn.classList.toggle('dd-unsaved', unsaved);
-        btn.title = unsaved ? 'Save everything (Ctrl+S): some changes are not saved yet' : 'Save everything (Ctrl+S): everything is saved';
+        // The tooltip reads it from data-dd-tip once it has taken over the title.
+        const tip = unsaved ? 'Save everything: some changes are not saved yet (Ctrl+S)' : 'Save everything: everything is saved (Ctrl+S)';
+        if (btn.getAttribute && btn.getAttribute('data-dd-tip')) btn.setAttribute('data-dd-tip', tip); else btn.title = tip;
         const label = btn.querySelector ? btn.querySelector('b') : null;
         clearTimeout(this._savedTimer);
         if (justSaved && !unsaved) {
@@ -114,6 +116,10 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
+        DocsDoodads.Ui.applyLook();
+        const sort = DocsDoodads.Ui.prefs().bagSort;
+        this.bagSort = this.bagSorts.some(s => s.value === sort) ? sort : 'search';
         DocsDoodads.Persistence.captureSession();
         DocsDoodads.AssetIndex.init();
         // init() reloads every asset; a selection kept from last time must be the new object.
@@ -126,6 +132,8 @@ DocsDoodads.Workspace = {
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }
+        this.updateCollisionLegend();
+        DocsDoodads.Ui.installTooltips();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
         this.showRecoveryNotices();
@@ -147,6 +155,12 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        this.stopStatusBar();
+        DocsDoodads.Ui.removeTooltips();
+        this.closeToastHistory();
+        this.closeLookCard();
+        clearTimeout(this._hoverShow);
+        this.hideHoverCard(true);
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
         this.detachCanvasListeners();
         if (this._onWindowResize) window.removeEventListener('resize', this._onWindowResize);
@@ -227,13 +241,23 @@ DocsDoodads.Workspace = {
         const token = { cancelled: false };
         this._assetScanToken = token;
         const status = document.getElementById('dd-status-right');
-        const result = await DocsDoodads.AssetIndex.scanAsync({
-            loadCache: false,
-            cancellationToken: token,
-            onProgress: progress => {
-                if (status && !token.cancelled) status.textContent = `Indexing assets ${progress.completed}/${progress.total}`;
-            }
-        });
+        // A pill (with Cancel) once the scan takes a moment; a quick, cached scan shows none.
+        const pill = DocsDoodads.Ui.progress('Finding your art', { delay: 600, onCancel: () => { token.cancelled = true; } });
+        let result;
+        try {
+            result = await DocsDoodads.AssetIndex.scanAsync({
+                loadCache: false,
+                cancellationToken: token,
+                onProgress: progress => {
+                    if (token.cancelled) return;
+                    if (status) status.textContent = `Indexing assets ${progress.completed}/${progress.total}`;
+                    pill.update(progress.completed, progress.total);
+                }
+            });
+        } finally {
+            pill.finish();
+        }
+        if (pill.cancelled && this.mounted) this.showToast('Stopped looking for art; the Item Bag shows what was found so far.', 'info');
         if (this._assetScanToken !== token || token.cancelled || result.cancelled) return result;
         this._assetScanToken = null;
         if (!result.errors.length) DocsDoodads.Thumbnail.pruneDisk(DocsDoodads.AssetIndex.list);
@@ -399,8 +423,11 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
                     <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
                     <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-collision-btn" title="Show every doodad's collision and the tiles you can't walk on">${U.icon('lock', 1)} <span id="dd-collision-label">${this.showCollision ? 'Hide Collision' : 'Show Collision'}</span></button>
                     <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
                     <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
+                    <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
                     <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
                 </div>
                 <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
@@ -431,6 +458,7 @@ DocsDoodads.Workspace = {
             <div style="display: flex; gap: 6px;">
                 <div class="dd-search">${U.icon('search', 1)}<input type="text" id="dd-search-input" placeholder="Find... (tree, tag:rock, -dead)" /></div>
             </div>
+            <div id="dd-search-chips"></div>
             <div style="display: flex; gap: 6px;">
                 <select id="dd-collection-select" title="Show one collection (right-click an item: Add to Collection)" style="flex: 1; min-width: 0;"></select>
                 <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the items stay)" style="display: none; padding: 3px 7px;">${U.icon('trash', 1)}</button>
@@ -439,10 +467,11 @@ DocsDoodads.Workspace = {
                 ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}">${U.icon(icon, 1)}</button>`).join('')}
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-                <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800;" id="dd-asset-count">0 items</span>
+                <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800; white-space: nowrap;" id="dd-asset-count">0 items</span>
+                <select id="dd-bag-sort" title="Order of the items">${this.bagSorts.map(s => `<option value="${s.value}"${s.value === this.bagSort ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}</select>
                 <div style="display: flex; align-items: center; gap: 4px;" title="Card size">
                     ${U.icon('picture', 1)}
-                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 80px;" />
+                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 60px;" />
                 </div>
             </div>
             <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 2px 2px 8px; position: relative; margin: 0 -4px 0 0;">
@@ -486,6 +515,8 @@ DocsDoodads.Workspace = {
         this.container = wrap;
         this.drawerEl = drawer;
         this.inspectorEl = inspector;
+        this.applyScale();
+        this.buildStatusBar();
 
         this.bindEvents();
         this.updateSaveState();
@@ -504,6 +535,7 @@ DocsDoodads.Workspace = {
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
     // follow their buttons.
     layoutPanels() {
+        this.applyScale();
         const toolbar = document.getElementById('dd-toolbar');
         if (!toolbar) return;
         const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
@@ -523,12 +555,13 @@ DocsDoodads.Workspace = {
         const hint = document.getElementById('dd-hint');
         if (!hint || !hint.style) return;
         const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
-        const room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const room = this.roomSize().w;
         const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
         const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
         const width = Math.max(140, right - left);
         hint.style.left = Math.round(left + width / 2) + 'px';
         hint.style.maxWidth = Math.round(width) + 'px';
+        this.placeReadouts();
     },
 
     // An options card just under its top-bar button, kept inside the window.
@@ -537,7 +570,7 @@ DocsDoodads.Workspace = {
         const btn = document.getElementById(buttonId);
         if (!pop || !toolbar || !btn || typeof btn.getBoundingClientRect !== 'function') return;
         const bar = toolbar.getBoundingClientRect(), at = btn.getBoundingClientRect();
-        const width = pop.offsetWidth || 270, room = (typeof window !== 'undefined' && window.innerWidth) || 816;
+        const width = pop.offsetWidth || 270, room = this.roomSize().w;
         pop.style.top = Math.round(bar.bottom + 8) + 'px';
         pop.style.left = Math.round(Math.max(8, Math.min(room - width - 8, at.left + at.width / 2 - width / 2))) + 'px';
     },
@@ -644,6 +677,7 @@ DocsDoodads.Workspace = {
         if (input) input.value = this.searchQuery;
         this.refreshDrawerCards();
         this.refreshCollectionPicker();
+        this.refreshSearchChips();
     },
 
     refreshCollectionPicker() {
@@ -723,7 +757,7 @@ DocsDoodads.Workspace = {
                 startWidth = parseInt(this.drawerEl.style.width, 10) || 360;
                 const onMouseMove = (ev) => {
                     if (!isResizing) return;
-                    const newW = Math.max(200, Math.min(800, startWidth + (ev.clientX - startX)));
+                    const newW = Math.max(200, Math.min(800, startWidth + (ev.clientX - startX) / this.uiScaleNow()));
                     this.drawerEl.style.width = newW + 'px';
                     this.updateVirtualGrid(true);
                     this.placeHint();
@@ -751,7 +785,7 @@ DocsDoodads.Workspace = {
                 startWidth = parseInt(this.inspectorEl.style.width, 10) || 280;
                 const onMouseMove = (ev) => {
                     if (!isResizing) return;
-                    const newW = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX)));
+                    const newW = Math.max(200, Math.min(600, startWidth - (ev.clientX - startX) / this.uiScaleNow()));
                     this.inspectorEl.style.width = newW + 'px';
                     this.placeHint();
                 };
@@ -770,7 +804,11 @@ DocsDoodads.Workspace = {
             this.searchQuery = e.target.value;
             this.refreshDrawerCards();
             this.refreshCollectionPicker();
+            this.refreshSearchChips();
         };
+        const sortSel = document.getElementById('dd-bag-sort');
+        if (sortSel) sortSel.onchange = e => this.setBagSort(e.target.value);
+        this.refreshSearchChips();
 
         this.refreshCollectionPicker();
         const collectionSel = document.getElementById('dd-collection-select');
@@ -814,12 +852,15 @@ DocsDoodads.Workspace = {
         on('dd-select-btn', () => { U.sound('ok'); this.setPlacementTool(null); });
         on('dd-more-btn', () => { U.sound('cursor'); this.showMoreMenu(document.getElementById('dd-more-menu').style.display !== 'block'); });
         on('dd-grid-btn', () => { this.toggleGrid(); this.showMoreMenu(false); });
+        on('dd-collision-btn', () => { this.toggleCollisionOverlay(); this.showMoreMenu(false); });
         on('dd-sound-btn', () => {
             U.setPref('sounds', U.prefs().sounds === false);
             U.sound('ok');
             this.showMoreMenu(true);
         });
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
+        on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
+        on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-help-btn', () => { this.showMoreMenu(false); this.showWelcome(); });
         on('dd-drawer-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('drawer', !this.isFolded('drawer')); });
         on('dd-inspector-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('inspector', !this.isFolded('inspector')); });
@@ -949,6 +990,8 @@ DocsDoodads.Workspace = {
             filtered = filtered.filter(a => a.category === this.currentCategory);
         }
         filtered = DocsDoodads.Search.filter(filtered, this.searchQuery);
+        // Recent and Look-alikes have their own order.
+        if (this.currentCategory !== 'Recent' && this.currentCategory !== 'Similar') filtered = this.sortAssets(filtered, this.bagSort);
         // The bag opens on Doodads; a project without any (yet) opens on Everything instead.
         if (!this._categoryChosen && this.currentCategory === 'Doodads' && filtered.length === 0 && !this.searchQuery &&
             DocsDoodads.AssetIndex.list.length > 0 && !DocsDoodads.AssetIndex.list.some(a => a.category === 'Doodads')) {
@@ -965,7 +1008,7 @@ DocsDoodads.Workspace = {
         if (catEl) catEl.textContent = '· ' + this.categoryName(this.currentCategory);
 
         // Back to the top only for a new search or tab; a reload, favourite or save keeps the place.
-        const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}`;
+        const view = `${this.currentCategory}|${this.searchQuery || ''}|${this.similarSource || ''}|${this.bagSort}`;
         const container = document.getElementById('dd-cards-container');
         if (container && view !== this._drawerView) container.scrollTop = 0;
         this._drawerView = view;
@@ -983,7 +1026,10 @@ DocsDoodads.Workspace = {
         const totalCount = assets.length;
         if (totalCount === 0) {
             sizer.style.height = '0px';
-            viewport.innerHTML = '<div style="color: var(--dd-faint); font-size: 12px; padding: 16px; text-align: center;">No matching assets found.</div>';
+            viewport.style.transform = '';
+            viewport.style.gridTemplateColumns = '1fr';
+            this._gridRange = null;
+            this.renderEmptyBag(viewport);
             return;
         }
 
@@ -1036,6 +1082,10 @@ DocsDoodads.Workspace = {
         });
         card.appendChild(imgEl);
         this.attachThumbAnimation(card, imgEl, asset);
+        if (card.addEventListener) {
+            card.addEventListener('mouseenter', () => this.hoverCardEnter(asset, card));
+            card.addEventListener('mouseleave', () => this.hoverCardLeave());
+        }
 
         const title = document.createElement('div');
         title.style.cssText = 'font-size: 10px; color: var(--dd-text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin-top: 3px;';
@@ -1050,6 +1100,7 @@ DocsDoodads.Workspace = {
         }
 
         card.onclick = () => {
+            this.hideHoverCard(true);
             this.selectAsset(asset);
             const container = document.getElementById('dd-cards-container');
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));

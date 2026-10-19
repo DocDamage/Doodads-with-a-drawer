@@ -62,25 +62,48 @@ DocsDoodads.Collision = {
     }
 };
 
+// A doodad's collision body in map pixels ({ x, y, w, h }), or null when it has none.
+DocsDoodads.Collision.bodyOf = function(dData) {
+    if (!dData || !dData.collision || dData.collision.preset === "none") return null;
+    const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
+    if (!shape) return null;
+    const dw = (dData.frameW || 48) * (dData.scaleX || 1);
+    const dh = (dData.frameH || 48) * (dData.scaleY || 1);
+    const ax = dData.anchorX !== undefined ? dData.anchorX : 0.5;
+    const ay = dData.anchorY !== undefined ? dData.anchorY : 1.0;
+    const originX = dData.x - dw * ax;
+    const originY = dData.y - dh * ay;
+    return DocsDoodads.box(originX + shape.x * dw + (shape.w * dw) / 2, originY + shape.y * dh + (shape.h * dh) / 2, shape.w * dw, shape.h * dh);
+};
+
+// The box a tile is tested with: two thirds of the tile, at its centre.
+DocsDoodads.Collision.tileBox = function(tx, ty, tw, th) {
+    return DocsDoodads.box(tx * tw + tw / 2, ty * th + th / 2, tw * 2 / 3, th * 2 / 3);
+};
+
+// The tiles a collision body blocks (by the same test as blocksTile).
+DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
+    if (!body) return [];
+    const out = [];
+    for (let ty = Math.floor(body.y / th) - 1; ty <= Math.floor((body.y + body.h) / th) + 1; ty++) {
+        for (let tx = Math.floor(body.x / tw) - 1; tx <= Math.floor((body.x + body.w) / tw) + 1; tx++) {
+            if (DocsDoodads.judge(body, this.tileBox(tx, ty, tw, th))) out.push({ x: tx, y: ty });
+        }
+    }
+    return out;
+};
+
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
 // Doodads hidden by their switch, condition, season or a layer hidden in game never block.
 DocsDoodads.Collision.blocksTile = function(tx, ty) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-    const tileBox = DocsDoodads.box(tx * tw + tw / 2, ty * th + th / 2, tw * 2 / 3, th * 2 / 3);
+    const tileBox = this.tileBox(tx, ty, tw, th);
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
     for (const dData of doodads) {
-        if (!dData || !dData.collision || dData.collision.preset === "none") continue;
-        const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
-        if (!shape) continue;
-        const dw = (dData.frameW || 48) * (dData.scaleX || 1);
-        const dh = (dData.frameH || 48) * (dData.scaleY || 1);
-        const ax = dData.anchorX !== undefined ? dData.anchorX : 0.5;
-        const ay = dData.anchorY !== undefined ? dData.anchorY : 1.0;
-        const originX = dData.x - dw * ax;
-        const originY = dData.y - dh * ay;
-        const colBody = DocsDoodads.box(originX + shape.x * dw + (shape.w * dw) / 2, originY + shape.y * dh + (shape.h * dh) / 2, shape.w * dw, shape.h * dh);
+        const colBody = this.bodyOf(dData);
+        if (!colBody) continue;
         // The box test is cheap; switches and conditions are only checked for doodads on this tile.
         if (!DocsDoodads.judge(colBody, tileBox)) continue;
         if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {})) return true;
