@@ -47,12 +47,16 @@ Object.assign(DocsDoodads.Workspace, {
         const name = E.cleanName(options.name);
         if (!name) { this.showToast('Give the character a name first.', 'info'); return null; }
         const N = E.names(name);
-        const recipe = S.toRecipe(state, { addons: options.addons !== false });
+        // With the outfit as Visual Equipment parts, the character's own sheets are the body and face only;
+        // what it wears comes from its equipment.
+        const own = options.parts ? { body: state.body, slots: Object.fromEntries(Object.entries(state.slots).filter(([k]) => S.slot(k) && S.slot(k).card === 'body')) } : state;
+        const recipe = S.toRecipe(own, { addons: options.addons !== false });
         const walk = this.composeLpc(recipe, 'walk');
         if (!walk || !walk.sheet) { this.showToast('Nothing to export: the character has no walk.', 'error'); return null; }
         const written = [];
         const warnings = walk.warnings.slice();
         const record = (file, used) => { written.push(file); this.recordLpcImage(file, used); };
+        let parts = [];
         try {
             if (options.classic) {
                 const file = 'img/characters/' + N.classic + '.png';
@@ -103,6 +107,7 @@ Object.assign(DocsDoodads.Workspace, {
                 this.writeLpcPng(file, E.faceSheet(this.readLpcPng(file), E.face(faceWalk.sheet), options.faceSlot || 0));
                 record(file, faceWalk.used);
             }
+            if (options.parts) parts = this.exportLpcParts(state, options, record, warnings);
         } catch (e) {
             this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
             return null;
@@ -112,7 +117,121 @@ Object.assign(DocsDoodads.Workspace, {
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
-        return { files: written, warnings: [...new Set(warnings)], names: N };
+        return { files: written, warnings: [...new Set(warnings)], names: N, parts };
+    },
+
+    // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the
+    // pieces follow its walk, idle, run, actions and battler), with the notetag that puts it on an item.
+    // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot.
+    exportLpcParts(state, options, record, warnings) {
+        const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
+        const index = this.lpcIndex();
+        const out = [];
+        for (const slot of S.allSlots().filter(s => s.card === 'outfit')) {
+            const pick = state.slots[slot.key];
+            const part = pick && index.parts.find(p => p.id === pick.id);
+            if (!part) continue;
+            const colours = [pick.colour || ''].concat(pick.colour2 ? [pick.colour2] : []);
+            const recipe = { body: state.body, picks: [{ id: pick.id, colours, variant: pick.colour || undefined }] };
+            const pieces = [], files = [];
+            const write = (file, image, used) => { this.writeLpcPng(file, image); record(file, used); files.push(file); };
+            for (const behind of [false, true]) {
+                const keep = l => (behind ? l.z < E.bodyZ : l.z >= E.bodyZ);
+                const walk = this.composeLpc(recipe, 'walk', keep);
+                if (!walk || !walk.sheet || !walk.used.length) continue;
+                const base = E.partBase(slot.label, part.name, pick.colour, state.body, behind);
+                const N = E.names(base);
+                if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk.sheet), walk.used);
+                if (options.smooth) {
+                    write('img/characters/' + N.smooth + '.png', E.allFrames(walk.sheet), walk.used);
+                    for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
+                        const o = this.composeLpc(recipe, anim, keep);
+                        if (o && o.sheet && o.used.length) write('img/characters/' + sheetName + '.png', E.allFrames(o.sheet), o.used);
+                    }
+                }
+                for (const anim of options.actions || []) {
+                    const o = this.composeLpc(recipe, anim, keep);
+                    if (o && o.sheet && o.used.length) write('img/characters/' + E.actionName(base, anim) + '.png', E.actionSheet(o.sheet, anim), o.used);
+                }
+                if (options.battler) {
+                    const sheets = {}, used = [];
+                    for (const anim of E.svAnimations()) {
+                        const o = this.composeLpc(recipe, anim, keep);
+                        sheets[anim] = o && o.used.length ? o.sheet : null;
+                        if (o) used.push(...o.used);
+                    }
+                    write('img/sv_actors/' + N.face + '.png', E.svSheet(sheets).sheet, used);
+                }
+                // Visual Equipment z: below 0 is behind the body; the library's order is kept.
+                const zs = part.layers.map(l => l.z).filter(z => (behind ? z < E.bodyZ : z >= E.bodyZ));
+                pieces.push({ base, z: behind ? Math.min(-1, Math.min(...zs) - E.bodyZ) : Math.max(1, Math.max(...zs) - E.bodyZ) });
+            }
+            if (!pieces.length) { warnings.push(`${part.name} has nothing to draw for the ${state.body} body.`); continue; }
+            out.push({ slot: slot.key, label: slot.label, name: part.name, files,
+                notetag: E.partNotetag(slot.key, pieces, { smooth: options.smooth !== false || !options.classic, battler: Boolean(options.battler) }) });
+        }
+        return out;
+    },
+
+    // ---- Notetags on the database's weapons and armours ----
+
+    // w: weapons, a: armours, h: actors (clothes always worn: an equipped item with the same part replaces them).
+    lpcItemKinds: { w: ['data/Weapons.json', '$dataWeapons', 'Weapon'], a: ['data/Armors.json', '$dataArmors', 'Armour'], h: ['data/Actors.json', '$dataActors', 'Actor'] },
+
+    lpcItemFile(kind) {
+        return (this.lpcItemKinds[kind] || this.lpcItemKinds.a)[0];
+    },
+
+    lpcLiveList(kind) {
+        const global = typeof window !== 'undefined' ? window : {};
+        return global[(this.lpcItemKinds[kind] || this.lpcItemKinds.a)[1]] || null;
+    },
+
+    // Weapons and armours to put a part on: [{ kind, id, name }].
+    lpcEquipItems() {
+        const out = [];
+        const add = (list, kind) => (list || []).forEach(item => { if (item && item.name) out.push({ kind, id: item.id, name: item.name }); });
+        add(typeof $dataWeapons !== 'undefined' ? $dataWeapons : null, 'w');
+        add(typeof $dataArmors !== 'undefined' ? $dataArmors : null, 'a');
+        add(typeof $dataActors !== 'undefined' ? $dataActors : null, 'h');
+        return out;
+    },
+
+    // The note with a part's notetag: an earlier LPC notetag for the same part is replaced, the rest kept.
+    lpcNoteWith(note, notetag, part) {
+        const mine = new RegExp('^\\s*<\\s*visual\\s*:\\s*\\$LPC [^>]*\\bpart\\s+' + String(part).replace(/[^\w]/g, '') + '\\s*(,[^>]*)?>\\s*$', 'i');
+        const kept = String(note || '').split('\n').filter(line => !mine.test(line));
+        while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
+        return kept.concat(notetag.split('\n')).join('\n');
+    },
+
+    // Writes the notetag into data/Weapons.json or data/Armors.json (after a backup, in MZ's own layout)
+    // and into the running game, so it can be tried at once.
+    addLpcNotetag(kind, id, notetag, part) {
+        const D = DocsDoodads, FS = D.FS;
+        const file = this.lpcItemFile(kind);
+        if (!FS.fs || !FS.writable()) { this.showToast('Notetags are added in a playtest.', 'info'); return false; }
+        let list = null;
+        try { list = FS.readJson(file); } catch (e) { list = null; }
+        const item = Array.isArray(list) ? list[id] : null;
+        if (!item) { this.showToast(`There is no ${(this.lpcItemKinds[kind] || this.lpcItemKinds.a)[2].toLowerCase()} ${id}.`, 'error'); return false; }
+        item.note = this.lpcNoteWith(item.note, notetag, part);
+        try {
+            FS.createTimestampedBackup(file);
+            const text = '[\n' + list.map(x => JSON.stringify(x)).join(',\n') + '\n]';
+            FS.fs.writeFileSync(file + '.tmp', text, 'utf8');
+            FS.fs.renameSync(file + '.tmp', file);
+        } catch (e) {
+            this.showToast('Could not write ' + file + ': ' + (e.message || e), 'error');
+            return false;
+        }
+        const live = this.lpcLiveList(kind);
+        if (live && live[id]) {
+            live[id].note = item.note;
+            if (typeof DataManager !== 'undefined' && DataManager.extractMetadata) DataManager.extractMetadata(live[id]);
+        }
+        this.showToast(`Added to ${item.name}. If MZ's editor has this project open, reopen the project there before saving, or it will put the old note back.`, 'success');
+        return true;
     },
 
     // The animation set for the smooth walker (replacing one for the same sheet).

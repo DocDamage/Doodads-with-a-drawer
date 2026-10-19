@@ -6302,6 +6302,18 @@ DocsDoodads.VisualEquip = {
         return out.sort((a, b) => a.z - b.z);
     },
 
+    // The sheet a layer draws while the body plays another of its sheets ($Hero_idle[f2], $Hero_run[f8], an
+    // action like $Hero_slash[f6]): the layer's name with the same ending and tags (Hat_idle[f2]), or ''
+    // when the body is on its own sheet. The runtime uses it only when that file is there.
+    stateSheetFor(layerImage, bodyName, currentSheet) {
+        if (!layerImage || !bodyName || !currentSheet || currentSheet === bodyName) return '';
+        const C = DocsDoodads.CharacterAnim;
+        const body = C.parseName(bodyName).base, now = C.parseName(currentSheet).base;
+        if (now === body || !now.startsWith(body)) return '';
+        const tags = (String(currentSheet).match(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]/gi) || []).join('');
+        return C.parseName(layerImage).base + now.slice(body.length) + tags;
+    },
+
     signature(layers) {
         return DocsDoodads.AsepriteVisuals.version + '/' + (layers || []).map(l => [l.image, l.z, l.up, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
     },
@@ -12268,6 +12280,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
         this.removeDocsVisual();
         for (const layer of layers) {
             const sprite = new Sprite(ImageManager.loadCharacter(layer.image));
+            sprite._docsMainBitmap = sprite.bitmap;
             sprite.anchor.set(0.5, 1);
             sprite.setHue(layer.hue || 0);
             if (layer.tint !== null && layer.tint !== undefined) sprite.tint = layer.tint;
@@ -12275,6 +12288,27 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
             sprite._docsBillboardOwner = this;
             this._docsVisualSprites.push(sprite);
         }
+        // The layers' idle and run sheets load now, so switching to them doesn't wait.
+        const ch = this._character;
+        const set = ch && ch.characterName ? C.setFor(ch.characterName(), C.sets()) : null;
+        for (const layer of set ? layers : []) {
+            for (const sheet of [set.idle, set.run].filter(Boolean)) {
+                const variant = VE.stateSheetFor(layer.image, ch.characterName(), sheet);
+                if (variant && DocsDoodads.Traversal.sheetExists(variant)) ImageManager.loadCharacter(variant);
+            }
+        }
+    };
+
+    // While the body plays its idle, run or an action sheet, a layer with a matching sheet of its own
+    // (Hat_idle[f2] beside Hat) draws that one, once it has loaded; otherwise its usual sheet.
+    Sprite_Character.prototype.docsVisualSheet = function(sprite, anim) {
+        const layer = sprite._docsLayer;
+        const variant = anim ? VE.stateSheetFor(layer.image, this._character.characterName(), anim.sheet) : '';
+        if (variant && DocsDoodads.Traversal.sheetExists(variant)) {
+            const bitmap = ImageManager.loadCharacter(variant);
+            if (bitmap.isReady()) return { name: variant, bitmap };
+        }
+        return { name: layer.image, bitmap: sprite._docsMainBitmap || sprite.bitmap };
     };
 
     // Bush depth: a translucent lower half, like MZ does for the body.
@@ -12303,12 +12337,18 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
         for (const sprite of this._docsVisualSprites) {
             if (sprite.parent !== this.parent) this.parent.addChild(sprite);
             const layer = sprite._docsLayer;
+            const sheet = this.docsVisualSheet(sprite, anim);
+            if (sprite.bitmap !== sheet.bitmap) {
+                sprite.bitmap = sheet.bitmap;
+                if (sprite._docsUpper) sprite._docsUpper.bitmap = sprite._docsLower.bitmap = sheet.bitmap;
+                sprite._docsFull = null;
+            }
             const bitmap = sprite.bitmap;
             sprite.visible = visible && bitmap.isReady();
             if (!sprite.visible) continue;
-            const layout = C.parseName(layer.image);
+            const layout = C.parseName(sheet.name);
             const row = C.rowFor(facing, layout.dirs);
-            const rect = DocsDoodads.safeFrame(VE.frameRect(layer.image, bitmap.width, bitmap.height,
+            const rect = DocsDoodads.safeFrame(VE.frameRect(sheet.name, bitmap.width, bitmap.height,
                 layer.index !== null ? layer.index : ch.characterIndex(), col, row.row), bitmap.width, bitmap.height);
             const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h) : 0;
             if (depth > 0) {
@@ -18190,7 +18230,7 @@ DocsDoodads.LpcCompose = {
                 const file = candidates.find(f => f && exists(f));
                 if (!file) { missing = true; continue; }
                 found++;
-                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick });
+                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick, folder: base });
                 used.push({ part, folder: base });
             }
             if (missing && !found) warnings.push(`${part.name} has no ${animation} picture for the ${body} body.`);
@@ -18590,6 +18630,31 @@ DocsDoodads.LpcExport = {
             cols.forEach((f, k) => this.blit(out, sheet, f * F, row * F, (Math.floor(i / 6) * 3 + k) * F, (i % 6) * F, F, F));
         });
         return { sheet: out, fellBack };
+    },
+
+    // ---- Visual Equipment parts ----
+
+    // The library draws the body at z 10; a part's layers below it go behind the body.
+    bodyZ: 10,
+
+    // Base name of a part sheet: '$LPC Shirt Longsleeve teal male' (and ' behind' for the layers behind).
+    partBase(slotLabel, partName, colour, body, behind) {
+        // A variant named after the part (the dagger's 'dagger') is not said twice.
+        const shade = String(colour || '').replace(/_/g, ' ');
+        const said = shade && shade.toLowerCase() !== String(partName || '').toLowerCase() ? shade : '';
+        return 'LPC ' + this.cleanName([slotLabel, partName, said, body].filter(Boolean).join(' ')) + (behind ? ' behind' : '');
+    },
+
+    // The notetag for one part: a <visual> line per piece (in front, behind), all in the item's slot so
+    // another item with the same part replaces it. pieces: [{ base, z }]; smooth: the [f9][w2] walker.
+    partNotetag(part, pieces, options = {}) {
+        const lines = pieces.map(p => {
+            const N = this.names(p.base);
+            const bits = [options.smooth === false ? N.classic : N.smooth, 'z ' + p.z, 'part ' + part];
+            if (options.battler) bits.push('sv ' + N.face);
+            return `<visual: ${bits.join(', ')}>`;
+        });
+        return lines.join('\n');
     },
 
     // ---- The face ----
@@ -34705,6 +34770,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
                 <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(anim.replace(/^1h_/, ''))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
+                ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
                 <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
@@ -34712,6 +34778,16 @@ Object.assign(DocsDoodads.Workspace, {
                     ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
                 </div>
                 ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}</div>` : ''}
+                ${done && done.parts && done.parts.length ? `<div style="margin-top: 8px; max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">${done.parts.map((p, i) => `
+                    <div style="background: #f6efe0; border-radius: 12px; padding: 6px 8px;">
+                        <b>${escapeHtml(p.label)}: ${escapeHtml(p.name)}</b>
+                        <pre id="dd-cr-tag-${i}" style="margin: 4px 0; white-space: pre-wrap; word-break: break-all; font-size: 10px; background: #fffaf0; border-radius: 8px; padding: 4px 6px;">${escapeHtml(p.notetag)}</pre>
+                        <div style="display: flex; gap: 4px; align-items: center;">
+                            <button type="button" class="dd-cr-anim" id="dd-cr-tag-copy-${i}">Copy</button>
+                            <select id="dd-cr-tag-item-${i}" style="flex: 1; min-width: 0; font-size: 11px;"><option value="">Put it on...</option>${this.lpcEquipItems().map(it => `<option value="${it.kind}${it.id}">${(this.lpcItemKinds[it.kind] || [])[2] || ''} ${it.id}: ${escapeHtml(it.name)}${it.kind === 'h' ? ' (always worn)' : ''}</option>`).join('')}</select>
+                            <button type="button" class="dd-cr-anim" id="dd-cr-tag-add-${i}">Add</button>
+                        </div>
+                    </div>`).join('')}</div>` : ''}
             </div>`;
         }
         if (pop.kind === 'credits') {
@@ -34763,7 +34839,19 @@ Object.assign(DocsDoodads.Workspace, {
                 o.actions = DocsDoodads.LpcExport.actions.map(a => a[0]).filter(a => list.has(a));
                 this.renderCreator();
             }));
-            for (const key of ['classic', 'smooth', 'face', 'battler']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            ((c.exported && c.exported.parts) || []).forEach((p, i) => {
+                on('dd-cr-tag-copy-' + i, () => {
+                    try { if (typeof nw !== 'undefined' && nw.Clipboard) nw.Clipboard.get().set(p.notetag, 'text'); else if (navigator.clipboard) navigator.clipboard.writeText(p.notetag); } catch (e) {}
+                    this.showToast('Copied the notetag for ' + p.name + '.', 'success');
+                });
+                on('dd-cr-tag-add-' + i, () => {
+                    const sel = document.getElementById('dd-cr-tag-item-' + i);
+                    const v = sel ? String(sel.value || '') : '';
+                    if (!v) { this.showToast('Pick the weapon or armour to put it on.', 'info'); return; }
+                    this.addLpcNotetag(v[0], parseInt(v.slice(1), 10), p.notetag, p.slot);
+                });
+            });
+            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
@@ -35002,12 +35090,16 @@ Object.assign(DocsDoodads.Workspace, {
         const name = E.cleanName(options.name);
         if (!name) { this.showToast('Give the character a name first.', 'info'); return null; }
         const N = E.names(name);
-        const recipe = S.toRecipe(state, { addons: options.addons !== false });
+        // With the outfit as Visual Equipment parts, the character's own sheets are the body and face only;
+        // what it wears comes from its equipment.
+        const own = options.parts ? { body: state.body, slots: Object.fromEntries(Object.entries(state.slots).filter(([k]) => S.slot(k) && S.slot(k).card === 'body')) } : state;
+        const recipe = S.toRecipe(own, { addons: options.addons !== false });
         const walk = this.composeLpc(recipe, 'walk');
         if (!walk || !walk.sheet) { this.showToast('Nothing to export: the character has no walk.', 'error'); return null; }
         const written = [];
         const warnings = walk.warnings.slice();
         const record = (file, used) => { written.push(file); this.recordLpcImage(file, used); };
+        let parts = [];
         try {
             if (options.classic) {
                 const file = 'img/characters/' + N.classic + '.png';
@@ -35058,6 +35150,7 @@ Object.assign(DocsDoodads.Workspace, {
                 this.writeLpcPng(file, E.faceSheet(this.readLpcPng(file), E.face(faceWalk.sheet), options.faceSlot || 0));
                 record(file, faceWalk.used);
             }
+            if (options.parts) parts = this.exportLpcParts(state, options, record, warnings);
         } catch (e) {
             this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
             return null;
@@ -35067,7 +35160,121 @@ Object.assign(DocsDoodads.Workspace, {
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
-        return { files: written, warnings: [...new Set(warnings)], names: N };
+        return { files: written, warnings: [...new Set(warnings)], names: N, parts };
+    },
+
+    // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the
+    // pieces follow its walk, idle, run, actions and battler), with the notetag that puts it on an item.
+    // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot.
+    exportLpcParts(state, options, record, warnings) {
+        const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
+        const index = this.lpcIndex();
+        const out = [];
+        for (const slot of S.allSlots().filter(s => s.card === 'outfit')) {
+            const pick = state.slots[slot.key];
+            const part = pick && index.parts.find(p => p.id === pick.id);
+            if (!part) continue;
+            const colours = [pick.colour || ''].concat(pick.colour2 ? [pick.colour2] : []);
+            const recipe = { body: state.body, picks: [{ id: pick.id, colours, variant: pick.colour || undefined }] };
+            const pieces = [], files = [];
+            const write = (file, image, used) => { this.writeLpcPng(file, image); record(file, used); files.push(file); };
+            for (const behind of [false, true]) {
+                const keep = l => (behind ? l.z < E.bodyZ : l.z >= E.bodyZ);
+                const walk = this.composeLpc(recipe, 'walk', keep);
+                if (!walk || !walk.sheet || !walk.used.length) continue;
+                const base = E.partBase(slot.label, part.name, pick.colour, state.body, behind);
+                const N = E.names(base);
+                if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk.sheet), walk.used);
+                if (options.smooth) {
+                    write('img/characters/' + N.smooth + '.png', E.allFrames(walk.sheet), walk.used);
+                    for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
+                        const o = this.composeLpc(recipe, anim, keep);
+                        if (o && o.sheet && o.used.length) write('img/characters/' + sheetName + '.png', E.allFrames(o.sheet), o.used);
+                    }
+                }
+                for (const anim of options.actions || []) {
+                    const o = this.composeLpc(recipe, anim, keep);
+                    if (o && o.sheet && o.used.length) write('img/characters/' + E.actionName(base, anim) + '.png', E.actionSheet(o.sheet, anim), o.used);
+                }
+                if (options.battler) {
+                    const sheets = {}, used = [];
+                    for (const anim of E.svAnimations()) {
+                        const o = this.composeLpc(recipe, anim, keep);
+                        sheets[anim] = o && o.used.length ? o.sheet : null;
+                        if (o) used.push(...o.used);
+                    }
+                    write('img/sv_actors/' + N.face + '.png', E.svSheet(sheets).sheet, used);
+                }
+                // Visual Equipment z: below 0 is behind the body; the library's order is kept.
+                const zs = part.layers.map(l => l.z).filter(z => (behind ? z < E.bodyZ : z >= E.bodyZ));
+                pieces.push({ base, z: behind ? Math.min(-1, Math.min(...zs) - E.bodyZ) : Math.max(1, Math.max(...zs) - E.bodyZ) });
+            }
+            if (!pieces.length) { warnings.push(`${part.name} has nothing to draw for the ${state.body} body.`); continue; }
+            out.push({ slot: slot.key, label: slot.label, name: part.name, files,
+                notetag: E.partNotetag(slot.key, pieces, { smooth: options.smooth !== false || !options.classic, battler: Boolean(options.battler) }) });
+        }
+        return out;
+    },
+
+    // ---- Notetags on the database's weapons and armours ----
+
+    // w: weapons, a: armours, h: actors (clothes always worn: an equipped item with the same part replaces them).
+    lpcItemKinds: { w: ['data/Weapons.json', '$dataWeapons', 'Weapon'], a: ['data/Armors.json', '$dataArmors', 'Armour'], h: ['data/Actors.json', '$dataActors', 'Actor'] },
+
+    lpcItemFile(kind) {
+        return (this.lpcItemKinds[kind] || this.lpcItemKinds.a)[0];
+    },
+
+    lpcLiveList(kind) {
+        const global = typeof window !== 'undefined' ? window : {};
+        return global[(this.lpcItemKinds[kind] || this.lpcItemKinds.a)[1]] || null;
+    },
+
+    // Weapons and armours to put a part on: [{ kind, id, name }].
+    lpcEquipItems() {
+        const out = [];
+        const add = (list, kind) => (list || []).forEach(item => { if (item && item.name) out.push({ kind, id: item.id, name: item.name }); });
+        add(typeof $dataWeapons !== 'undefined' ? $dataWeapons : null, 'w');
+        add(typeof $dataArmors !== 'undefined' ? $dataArmors : null, 'a');
+        add(typeof $dataActors !== 'undefined' ? $dataActors : null, 'h');
+        return out;
+    },
+
+    // The note with a part's notetag: an earlier LPC notetag for the same part is replaced, the rest kept.
+    lpcNoteWith(note, notetag, part) {
+        const mine = new RegExp('^\\s*<\\s*visual\\s*:\\s*\\$LPC [^>]*\\bpart\\s+' + String(part).replace(/[^\w]/g, '') + '\\s*(,[^>]*)?>\\s*$', 'i');
+        const kept = String(note || '').split('\n').filter(line => !mine.test(line));
+        while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
+        return kept.concat(notetag.split('\n')).join('\n');
+    },
+
+    // Writes the notetag into data/Weapons.json or data/Armors.json (after a backup, in MZ's own layout)
+    // and into the running game, so it can be tried at once.
+    addLpcNotetag(kind, id, notetag, part) {
+        const D = DocsDoodads, FS = D.FS;
+        const file = this.lpcItemFile(kind);
+        if (!FS.fs || !FS.writable()) { this.showToast('Notetags are added in a playtest.', 'info'); return false; }
+        let list = null;
+        try { list = FS.readJson(file); } catch (e) { list = null; }
+        const item = Array.isArray(list) ? list[id] : null;
+        if (!item) { this.showToast(`There is no ${(this.lpcItemKinds[kind] || this.lpcItemKinds.a)[2].toLowerCase()} ${id}.`, 'error'); return false; }
+        item.note = this.lpcNoteWith(item.note, notetag, part);
+        try {
+            FS.createTimestampedBackup(file);
+            const text = '[\n' + list.map(x => JSON.stringify(x)).join(',\n') + '\n]';
+            FS.fs.writeFileSync(file + '.tmp', text, 'utf8');
+            FS.fs.renameSync(file + '.tmp', file);
+        } catch (e) {
+            this.showToast('Could not write ' + file + ': ' + (e.message || e), 'error');
+            return false;
+        }
+        const live = this.lpcLiveList(kind);
+        if (live && live[id]) {
+            live[id].note = item.note;
+            if (typeof DataManager !== 'undefined' && DataManager.extractMetadata) DataManager.extractMetadata(live[id]);
+        }
+        this.showToast(`Added to ${item.name}. If MZ's editor has this project open, reopen the project there before saving, or it will put the old note back.`, 'success');
+        return true;
     },
 
     // The animation set for the smooth walker (replacing one for the same sheet).
@@ -35255,12 +35462,17 @@ Object.assign(DocsDoodads.Workspace, {
         return this._lpcCache;
     },
 
-    // recipe -> { sheet, warnings, used } for one animation, or null without an index.
-    composeLpc(recipe, animation = 'walk') {
+    // recipe -> { sheet, warnings, used } for one animation, or null without an index. keep(layer): only
+    // some layers (the pieces of a Visual Equipment part in front of or behind the body).
+    composeLpc(recipe, animation = 'walk', keep) {
         const C = DocsDoodads.LpcCompose, FS = DocsDoodads.FS;
         const index = this.lpcIndex();
         if (!index || !FS.fs) return null;
         const resolved = C.resolve(index, recipe, animation, file => FS.existsSync(this.lpcSheetPath(file, index)));
+        if (keep) {
+            resolved.layers = resolved.layers.filter(keep);
+            resolved.used = resolved.layers.map(l => ({ part: l.part, folder: l.folder }));
+        }
         const out = C.compose(resolved, index, file => this.lpcLoadImage(file), this.lpcCache());
         return { sheet: out.sheet, warnings: out.warnings, used: resolved.used };
     },

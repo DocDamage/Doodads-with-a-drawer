@@ -3,6 +3,8 @@
 ## Unreleased — 2.0.0-alpha.1
 
 - A Playful theme (More > Look): cream cards, teal and coral, yellow for what is picked, rounder corners and pill buttons. Filled buttons keep white text at 4.5:1 or better.
+- The Character Creator's outfit as Visual Equipment parts: the character's sheets become the body only, each piece it wears gets part sheets in the same layouts (walker, idle, run, actions, battler; front and behind pieces in one part slot) with its notetag, which can be copied or put on a weapon, armour or actor (backed up, and live in the playtest). Equipping and unequipping then changes what the character wears.
+- Visual Equipment layers follow the body's idle, run and action sheets: `Hat` draws `Hat_idle[f2]` while the body shows `$Hero_idle[f2]`, when the file is there.
 - The Character Creator also exports a side-view battler (MZ's 18 motions) and action sheets for Play Character Action (slash, thrust, spellcast, shoot, hurt, and more on request).
 - Export to RPG Maker from the Character Creator: a classic `$Name` walker, a smooth `$Name[f9][w2]` walker with `_idle` and `_run` sheets and their animation set, and a face in `img/faces` (other faces kept), with credits recorded and CREDITS_LPC.txt rewritten; Try on the player.
 - `[wN]` in a sheet name (with `[fN]`): frame 0 stands and the others walk, one cycle every N tiles at any speed.

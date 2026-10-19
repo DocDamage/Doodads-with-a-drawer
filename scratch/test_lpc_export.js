@@ -76,6 +76,7 @@ const sheet = (frames, colour) => { const w = frames * 64, d = new Uint8Array(w 
 const credit = (file, licenses) => [{ file, licenses, authors: ['Ann'], urls: ['https://opengameart.org/a'] }];
 write(lib, 'sheet_definitions/body/body.json', { name: 'Body Color', type_name: 'body', layer_1: { zPos: 10, male: 'body/m/' }, credits: credit('body', ['OGA-BY 3.0']) });
 write(lib, 'sheet_definitions/head/human_male.json', { name: 'Human Male', type_name: 'head', layer_1: { zPos: 100, male: 'head/m/' }, credits: credit('head', ['CC0']) });
+write(lib, 'sheet_definitions/torso/cloak.json', { name: 'Cloak', type_name: 'cape', layer_1: { zPos: 60, male: 'cape/front/' }, layer_2: { zPos: 5, male: 'cape/back/' }, credits: credit('cape', ['CC0']) });
 write(lib, 'sheet_definitions/weapons/sword.json', { name: 'Sword', type_name: 'weapon', layer_1: { zPos: 140, male: 'weapon/sword/' }, credits: credit('weapon', ['CC-BY-SA 3.0']) });
 write(lib, 'palette_definitions/body/meta_body.json', { default: 'ulpc', base: 'light' });
 write(lib, 'palette_definitions/body/body_ulpc.json', { light: ['#271920'] });
@@ -87,6 +88,9 @@ const oneRow = (frames, colour) => { const w = frames * 64, d = new Uint8Array(w
 write(lib, 'spritesheets/body/m/hurt.png', oneRow(6, f => [f * 20, 200, 7, 255]));
 write(lib, 'spritesheets/head/m/walk.png', sheet(9, () => [0, 0, 0, 0]));
 write(lib, 'spritesheets/weapon/sword/walk.png', sheet(9, () => [250, 250, 250, 255]));
+write(lib, 'spritesheets/cape/front/walk.png', sheet(9, () => [10, 10, 200, 255]));
+write(lib, 'spritesheets/cape/front/idle.png', sheet(2, () => [10, 10, 201, 255]));
+write(lib, 'spritesheets/cape/back/walk.png', sheet(9, () => [10, 200, 10, 255]));
 fs.mkdirSync(path.join(project, 'data'), { recursive: true });
 process.on('exit', () => { process.chdir(__dirname); fs.rmSync(fixture, { recursive: true, force: true }); });
 process.chdir(project);
@@ -226,6 +230,70 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.deepStrictEqual(E.svMotions.map(m => m.motion), ['walk', 'wait', 'chant', 'guard', 'damage', 'evade', 'thrust', 'swing', 'missile', 'skill', 'spell', 'item', 'escape', 'victory', 'dying', 'abnormal', 'sleep', 'dead'], "MZ's motion order");
     assert.strictEqual(E.actionName('Ace', '1h_backslash'), '$Ace_backslash[f13]');
     console.log('✓ actions and the side-view battler');
+
+    // 4c. The outfit as Visual Equipment parts: the body alone for the character, a part per piece (in front
+    // and behind), in the same layouts, with the notetag; the notetag put on an armour in the database.
+    write(project, 'data/Armors.json', '[\nnull,\n{"id":1,"name":"Cloak","note":"<visual base: x>\\nOld line"},\n{"id":2,"name":"Hat","note":""}\n]');
+    global.$dataArmors = [null, { id: 1, name: 'Cloak', note: '', meta: {} }, { id: 2, name: 'Hat', note: '', meta: {} }];
+    global.$dataWeapons = [null, { id: 1, name: 'Sword', note: '', meta: {} }];
+    global.DataManager = { extractMetadata(item) { item.meta = { extracted: true }; } };
+    const dressed = { body: 'male', slots: { body: { id: 'body/body', colour: 'light' }, cape: { id: 'torso/cloak', colour: '' }, weapon: { id: 'weapons/sword', colour: '' } } };
+    const vp = ws.exportLpcCharacter(dressed, { name: 'Vee', classic: false, smooth: true, battler: true, actions: ['slash'], parts: true });
+    const vimg = f => D.LpcCompose.decodePng(fs.readFileSync(path.join(project, f)), d => zlib.inflateSync(d));
+    assert.deepStrictEqual(px(vimg('img/characters/$Vee[f9][w2].png'), 10, 20), [0, 120, 7, 255], 'the character is the body without its cloak');
+    assert.deepStrictEqual(vp.parts.map(p => [p.slot, p.name]), [['cape', 'Cloak'], ['weapon', 'Sword']]);
+    const cloak = vp.parts[0];
+    assert.ok(cloak.files.includes('img/characters/$LPC Cape Cloak male[f9][w2].png') && cloak.files.includes('img/characters/$LPC Cape Cloak male behind[f9][w2].png'), 'front and behind pieces');
+    assert.ok(cloak.files.includes('img/characters/$LPC Cape Cloak male_idle[f2].png'), "an idle sheet beside it, for the body's idle");
+    assert.ok(!cloak.files.includes('img/characters/$LPC Cape Cloak male behind_idle[f2].png'), 'none where the library has no idle');
+    assert.ok(cloak.files.includes('img/sv_actors/LPC Cape Cloak male.png'), 'a battler layer');
+    assert.deepStrictEqual(px(vimg('img/characters/$LPC Cape Cloak male[f9][w2].png'), 10, 20), [10, 10, 200, 255], 'the front piece alone');
+    assert.deepStrictEqual(px(vimg('img/characters/$LPC Cape Cloak male behind[f9][w2].png'), 10, 20), [10, 200, 10, 255], 'the back piece alone');
+    assert.strictEqual(cloak.notetag, '<visual: $LPC Cape Cloak male[f9][w2], z 50, part cape, sv LPC Cape Cloak male>\n<visual: $LPC Cape Cloak male behind[f9][w2], z -5, part cape, sv LPC Cape Cloak male behind>');
+    const parsed = D.VisualEquip.parseNote(cloak.notetag).layers;
+    assert.deepStrictEqual(parsed.map(l => [l.image, l.z, l.part, l.sv]), [['$LPC Cape Cloak male[f9][w2]', 50, 'cape', 'LPC Cape Cloak male'], ['$LPC Cape Cloak male behind[f9][w2]', -5, 'cape', 'LPC Cape Cloak male behind']], 'Visual Equipment reads it');
+    assert.ok(ws.lpcCredits().images['img/characters/$LPC Cape Cloak male[f9][w2].png'], 'parts are credited');
+    assert.ok(ws.addLpcNotetag('a', 1, cloak.notetag, 'cape'));
+    const armors = JSON.parse(fs.readFileSync(path.join(project, 'data/Armors.json'), 'utf8'));
+    assert.strictEqual(armors[1].note, '<visual base: x>\nOld line\n' + cloak.notetag, 'added under what was there');
+    assert.ok(/^\[\nnull,\n\{"id":1/.test(fs.readFileSync(path.join(project, 'data/Armors.json'), 'utf8')), "MZ's layout: one item a line");
+    assert.strictEqual($dataArmors[1].note, armors[1].note, 'and in the running game');
+    assert.deepStrictEqual($dataArmors[1].meta, { extracted: true });
+    const cloakAgain = cloak.notetag.replace('z 50', 'z 51');
+    ws.addLpcNotetag('a', 1, cloakAgain, 'cape');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(project, 'data/Armors.json'), 'utf8'))[1].note, '<visual base: x>\nOld line\n' + cloakAgain, 'a part added again replaces its old lines');
+    assert.ok(fs.readdirSync(path.join(project, 'data/docs_doodads_cache/backups')).some(f => f.startsWith('Armors.json')), 'backed up first');
+    assert.strictEqual(ws.addLpcNotetag('a', 9, cloak.notetag, 'cape'), false);
+    global.$dataActors = [null, { id: 1, name: 'Reid', note: '', meta: {} }];
+    write(project, 'data/Actors.json', '[\nnull,\n{"id":1,"name":"Reid","note":""}\n]');
+    assert.deepStrictEqual(ws.lpcEquipItems().map(i => i.kind + i.id), ['w1', 'a1', 'a2', 'h1'], 'weapons, armours and actors (for clothes always worn)');
+    assert.ok(ws.addLpcNotetag('h', 1, cloak.notetag, 'cape'));
+    assert.strictEqual($dataActors[1].note, cloak.notetag, "on the actor's note");
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(project, 'data/Actors.json'), 'utf8'))[1].note, cloak.notetag);
+    // An equipped item with the same part replaces what the actor always wears (Visual Equipment's slots).
+    const worn = D.VisualEquip.resolve({ actorNote: $dataActors[1].note, equipNotes: ['<visual: $LPC Cape Red male[f9][w2], z 50, part cape>'] }, {});
+    assert.deepStrictEqual(worn.map(l => l.image), ['$LPC Cape Red male[f9][w2]'], 'the equipped cape replaces both pieces of the worn one');
+    // In the popover: the parts with their notetags, Copy and Put it on.
+    ws.openCreator(dressed);
+    ws._creator.name = 'Vee';
+    document.getElementById('dd-cr-export').onclick();
+    document.getElementById('dd-cr-ex-parts').onchange({ target: { checked: true } });
+    D.Ui.confirm = async () => true;
+    await ws.creatorExport();
+    assert.ok(/Cape: Cloak/.test(root.innerHTML) && root.innerHTML.includes('id="dd-cr-tag-add-0"') && /Armour 2: Hat/.test(root.innerHTML));
+    stubs['dd-cr-tag-item-0'] = { value: 'a2' };
+    document.getElementById('dd-cr-tag-add-0').onclick();
+    assert.ok(/part cape/.test(JSON.parse(fs.readFileSync(path.join(project, 'data/Armors.json'), 'utf8'))[2].note), 'put on the chosen armour');
+    ws.closeCreator();
+    console.log('✓ outfit as Visual Equipment parts, notetags on items');
+
+    // 4d. A worn layer follows the body's idle, run and action sheets when it has its own.
+    const VEq = D.VisualEquip;
+    assert.strictEqual(VEq.stateSheetFor('$LPC Cape Cloak male[f9][w2]', '$Vee[f9][w2]', '$Vee_idle[f2]'), '$LPC Cape Cloak male_idle[f2]');
+    assert.strictEqual(VEq.stateSheetFor('Hat', '$Vee', '$Vee_slash[f6]'), 'Hat_slash[f6]');
+    assert.strictEqual(VEq.stateSheetFor('Hat', '$Vee[f9][w2]', '$Vee[f9][w2]'), '', 'its own sheet: nothing to swap');
+    assert.strictEqual(VEq.stateSheetFor('Hat', '$Vee', '$Other_slash[f6]'), '', "another character's sheet: nothing");
+    console.log("✓ layers follow the body's state sheets");
 
     // 5. Only in a playtest; only what was ticked.
     Utils.isOptionValid = () => false;

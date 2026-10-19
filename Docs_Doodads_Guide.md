@@ -518,12 +518,15 @@ The layers show:
 - on the player and followers, while they use the actor's own image (changing the player's graphic to something else hides the gear);
 - on events tagged in their note or in a comment on the current page, with `<visual: ...>` tags or `<visual actor: 4>` to wear actor 4's look (pages without an image show nothing);
 - on side-view battlers, using each layer's `sv` sheet and following every battle motion;
+- with the body's idle, run and action sheets: while the character shows `$Hero_idle[f2]`, `$Hero_run[f8]` or an action such as `$Hero_slash[f6]`, a layer `Hat` draws `Hat_idle[f2]`, `Hat_run[f8]` or `Hat_slash[f6]` when that file is there (same ending and tags), and its usual sheet when not;
 - in water reflections, in the save and load screens, and on the equip screen. The equip screen shows the actor wearing the item you're highlighting before you equip it.
 
 Plugin commands change an actor's look without equipment:
 - **Set Visual Alias**: switch body type or outfit set.
 - **Add Visual Layer** and **Remove Visual Layer**: for a costume, a quest hat or a disguise.
 - **Set Visual Colour**: for hair dye or team colours.
+
+**LPC gear from the Character Creator.** Tick **Outfit as Visual Equipment parts** when exporting: the character's own sheets are then the body, hair and face only, and every piece it wears (shirt, trousers, shoes, hat, cape, weapon...) becomes part sheets named like `$LPC Shirt Longsleeve teal male[f9][w2]`, in the same layouts as the character (walker, idle, run, the ticked actions and a battler `sv` sheet), so the gear walks, breathes, runs, swings and fights with it. Pieces drawn behind the body (a quiver, the back of a cape) are a second layer in the same part. Each piece comes with its notetag; **Copy** it, or **Put it on** a weapon, an armour or an actor (data/Weapons.json, Armors.json or Actors.json are backed up first, and the running game picks it up at once). On an actor it is worn always, and an equipped item with the same part replaces it, so trousers on the actor give way to the armour's trousers. Parts are drawn for one body type; export again with another body for actors of that type. If MZ's editor has the project open, reopen the project there before saving, or it will put the old notes back.
 
 In the editor, open **Visual Equipment** in the map panel to turn each place on or off, and to try gear on. Pick an actor, tick items, and watch the preview walk in any direction. The **notetag builder** writes the tags for you.
 

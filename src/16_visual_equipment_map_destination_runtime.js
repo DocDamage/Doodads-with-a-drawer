@@ -132,6 +132,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
         this.removeDocsVisual();
         for (const layer of layers) {
             const sprite = new Sprite(ImageManager.loadCharacter(layer.image));
+            sprite._docsMainBitmap = sprite.bitmap;
             sprite.anchor.set(0.5, 1);
             sprite.setHue(layer.hue || 0);
             if (layer.tint !== null && layer.tint !== undefined) sprite.tint = layer.tint;
@@ -139,6 +140,27 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
             sprite._docsBillboardOwner = this;
             this._docsVisualSprites.push(sprite);
         }
+        // The layers' idle and run sheets load now, so switching to them doesn't wait.
+        const ch = this._character;
+        const set = ch && ch.characterName ? C.setFor(ch.characterName(), C.sets()) : null;
+        for (const layer of set ? layers : []) {
+            for (const sheet of [set.idle, set.run].filter(Boolean)) {
+                const variant = VE.stateSheetFor(layer.image, ch.characterName(), sheet);
+                if (variant && DocsDoodads.Traversal.sheetExists(variant)) ImageManager.loadCharacter(variant);
+            }
+        }
+    };
+
+    // While the body plays its idle, run or an action sheet, a layer with a matching sheet of its own
+    // (Hat_idle[f2] beside Hat) draws that one, once it has loaded; otherwise its usual sheet.
+    Sprite_Character.prototype.docsVisualSheet = function(sprite, anim) {
+        const layer = sprite._docsLayer;
+        const variant = anim ? VE.stateSheetFor(layer.image, this._character.characterName(), anim.sheet) : '';
+        if (variant && DocsDoodads.Traversal.sheetExists(variant)) {
+            const bitmap = ImageManager.loadCharacter(variant);
+            if (bitmap.isReady()) return { name: variant, bitmap };
+        }
+        return { name: layer.image, bitmap: sprite._docsMainBitmap || sprite.bitmap };
     };
 
     // Bush depth: a translucent lower half, like MZ does for the body.
@@ -167,12 +189,18 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
         for (const sprite of this._docsVisualSprites) {
             if (sprite.parent !== this.parent) this.parent.addChild(sprite);
             const layer = sprite._docsLayer;
+            const sheet = this.docsVisualSheet(sprite, anim);
+            if (sprite.bitmap !== sheet.bitmap) {
+                sprite.bitmap = sheet.bitmap;
+                if (sprite._docsUpper) sprite._docsUpper.bitmap = sprite._docsLower.bitmap = sheet.bitmap;
+                sprite._docsFull = null;
+            }
             const bitmap = sprite.bitmap;
             sprite.visible = visible && bitmap.isReady();
             if (!sprite.visible) continue;
-            const layout = C.parseName(layer.image);
+            const layout = C.parseName(sheet.name);
             const row = C.rowFor(facing, layout.dirs);
-            const rect = DocsDoodads.safeFrame(VE.frameRect(layer.image, bitmap.width, bitmap.height,
+            const rect = DocsDoodads.safeFrame(VE.frameRect(sheet.name, bitmap.width, bitmap.height,
                 layer.index !== null ? layer.index : ch.characterIndex(), col, row.row), bitmap.width, bitmap.height);
             const depth = this._bushDepth > 0 ? Math.min(this._bushDepth, rect.h) : 0;
             if (depth > 0) {

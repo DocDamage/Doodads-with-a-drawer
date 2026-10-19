@@ -146,6 +146,31 @@ DocsDoodads.LpcExport = {
         return { sheet: out, fellBack };
     },
 
+    // ---- Visual Equipment parts ----
+
+    // The library draws the body at z 10; a part's layers below it go behind the body.
+    bodyZ: 10,
+
+    // Base name of a part sheet: '$LPC Shirt Longsleeve teal male' (and ' behind' for the layers behind).
+    partBase(slotLabel, partName, colour, body, behind) {
+        // A variant named after the part (the dagger's 'dagger') is not said twice.
+        const shade = String(colour || '').replace(/_/g, ' ');
+        const said = shade && shade.toLowerCase() !== String(partName || '').toLowerCase() ? shade : '';
+        return 'LPC ' + this.cleanName([slotLabel, partName, said, body].filter(Boolean).join(' ')) + (behind ? ' behind' : '');
+    },
+
+    // The notetag for one part: a <visual> line per piece (in front, behind), all in the item's slot so
+    // another item with the same part replaces it. pieces: [{ base, z }]; smooth: the [f9][w2] walker.
+    partNotetag(part, pieces, options = {}) {
+        const lines = pieces.map(p => {
+            const N = this.names(p.base);
+            const bits = [options.smooth === false ? N.classic : N.smooth, 'z ' + p.z, 'part ' + part];
+            if (options.battler) bits.push('sv ' + N.face);
+            return `<visual: ${bits.join(', ')}>`;
+        });
+        return lines.join('\n');
+    },
+
     // ---- The face ----
 
     // Where the head is in the down-facing standing frame: from the top of the hair (or head) 32 pixels
