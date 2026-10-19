@@ -1,0 +1,291 @@
+# Plan: the LPC character collection and creator in Doc's Doodads
+
+Status: accepted 2026-10-19. Decided: the creator gets the Nintendo look, and the whole editor gets an opt-in
+**Playful** theme under Look (option B in section 7). Phase 0 (the spike) is under way.
+
+Mockup of the creator (Nintendo-style look): https://claude.ai/artifact/TRBsCxAj4LnjWbAxFYSece
+
+Source collection: [Universal LPC Spritesheet Character Generator](https://github.com/DocDamage/Universal-LPC-Spritesheet-Character-Generator)
+(a fork of the Liberated Pixel Cup generator).
+
+## 1. What we want
+
+- A **Character Creator** inside the editor: pick a body, face, hair and outfit from the LPC collection, see the
+  character walk, turn and act on a stage, roll the dice for a random one, and save the recipe.
+- **Export straight to RPG Maker MZ**: a walking sheet the engine uses as it is, plus the Doc's Doodads extras
+  (idle and run sheets, Character Action sheets, a side-view battler, a face, and Visual Equipment part sheets).
+- **Credits that are right by default**: every exported image knows which artists made it and under which licence.
+- A **friendlier, Nintendo-like look** for the creator: rounded cream cards, chunky pills, big ◀ ▶ pickers, bright
+  teal, yellow and coral, soft "pressed" shadows. It can be used with a gamepad.
+
+## 2. Licensing (this decides the architecture)
+
+| Part | Licence | What it means for us |
+| --- | --- | --- |
+| Generator code (TypeScript, Mithril) | GPL-3.0 | We **do not copy it**. Doc's Doodads stays MIT, so our compositor is written from scratch against the data format. |
+| `sheet_definitions/*.json`, `palette_definitions/*.json` | Part of the GPL repo | We **read them at edit time** from the user's own copy. We don't ship them in the plugin. |
+| Art (`spritesheets/**.png`) | Each file has its own: CC0, OGA-BY, CC-BY, CC-BY-SA, GPL | Credits are required for everything except CC0. Some licences limit encryption (below). |
+
+How it follows:
+
+1. **The library is installed per project, outside the plugin.** The user points the creator at a local copy
+   (a clone or the ZIP). It is about 1.5 GB, so we never bundle or download it ourselves. The default place is
+   `<project>/lpc/`, kept out of deployment. Only the **exported** sheets go into `img/`.
+2. **Credits travel with each export.** Each exported PNG gets an entry in `data/DocsDoodadsCredits.json` listing
+   the files used, their authors, licences, URLs and notes (copied from each part's `credits` block). There are
+   also a **Credits** button in the creator, an "Export CREDITS.txt" action, and an optional in-game credits scene.
+3. **Encryption filter.** CC-BY and CC-BY-SA (3.0 and 4.0) forbid "technological measures" that stop people
+   reusing the work, and MZ's "Encrypt image files" is such a measure. CC0 and OGA-BY allow it, which is why
+   OGA-BY exists.
+   - The creator has an **"Only art safe to encrypt (CC0, OGA-BY)"** switch. It hides parts that don't qualify.
+   - Every export records whether it is safe to encrypt.
+   - The Deploy checklist warns when encryption is on and a project image is not safe to encrypt. It offers to
+     leave that image unencrypted, or to point out the parts to swap.
+   - GPL art is flagged too (it needs source available). It is off by default under the switch.
+4. **Recipes are ours.** A saved character (`data/DocsDoodadsCharacters.json`) is a list of part ids, variants and
+   colours. It holds no art, so it can be shared freely.
+
+This is not legal advice. Before shipping the encryption warning we should check the wording against the LPC
+project's own FAQ.
+
+## 3. The data we read
+
+What the format looks like, from the research:
+
+- **Parts:** `sheet_definitions/<category>/<part>.json` holds:
+  - `name` and `priority`;
+  - `layer_1`…`layer_9`, each with a `zPos` and a path per body type (`male`, `muscular`, `female`, `pregnant`,
+    `teen`, `child`);
+  - `variants`, `match_body_color`, `animations`, and `credits[]`.
+- **Palettes:** `palette_definitions/*.json` hold named hex ramps (for example `body_ulpc.json` and
+  `body_lpcr.json`). Recolouring swaps a source ramp for a target ramp, with a small tolerance.
+- **Images:** `spritesheets/<path>/<animation>.png`, made of 64×64 frames, 13 frames per row at most.
+- **Directions:** the row order inside each animation is **up, left, down, right**.
+- **Animation rows on the full sheet:**
+
+  | Animation | Row |
+  | --- | --- |
+  | spellcast | 0 |
+  | thrust | 4 |
+  | walk | 8 |
+  | slash | 12 |
+  | shoot | 16 |
+  | hurt | 20 (one row only) |
+  | climb | 21 |
+  | idle | 22 |
+  | jump | 26 |
+  | sit | 30 |
+  | emote | 34 |
+  | run | 38 |
+  | combat | 42 |
+  | 1h_slash | 46 |
+  | 1h_halfslash | 50 |
+
+- **Walk frames:** 0 is standing, and 1–8 are the cycle.
+
+**The importer** (editor only, NW.js `fs`) walks a chosen library folder and writes `data/DocsDoodadsLpcIndex.json`:
+
+- one record per part: id, category, name, body types, variants, layers with z, animations, licences, authors,
+  and `safeToEncrypt`;
+- palettes, by name.
+
+Being an index means the creator opens instantly and never scans 1.5 GB twice. It is rebuilt with a **Rescan**
+button and records the library's commit or date.
+
+**Schema guard:** the importer checks the fields it knows about. If anything has changed upstream, it reports
+"N parts skipped (unknown format)" instead of failing quietly. We pin to a known commit in the docs and test against
+fixture files.
+
+## 4. The compositor (clean-room)
+
+Input is a recipe: a body type, and a list of `{part, variant, colour}`.
+
+1. **Resolve layers.** For each chosen part, take every layer that exists for the body type, giving
+   `(path, zPos)` pairs.
+   - Drop a layer whose animation is missing. The fallback is a transparent gap and a warning in the creator.
+2. **Sort by zPos**, using `priority` and then pick order to break ties.
+3. **Load and recolour.** The image comes from the index path. The palette swap happens once per
+   (image, palette) and is cached by key.
+   - A part with `match_body_color` takes the body's skin ramp.
+4. **Draw** onto one canvas per animation (64-pixel cells), then put them together into a full-sheet canvas.
+5. **Toggles:**
+   - **Show body** off: draws only the clothing layers, for Visual Equipment parts.
+   - **Body add-ons** off: skips wings, tails, horns and similar.
+   - **Cast shadow:** a soft ellipse layer, in the preview only.
+
+The compositor runs inside the editor, on Canvas 2D. A full sheet is about 832×3456. That is cheap once images are
+cached, and the stage draws only the current animation and direction.
+
+## 5. Exports to MZ
+
+Each export writes to `img/characters/` (or `img/sv_actors/`, or `img/faces/`) and records credits. The names
+follow the tags Doc's Doodads already reads.
+
+| Export | Layout | Notes |
+| --- | --- | --- |
+| **Map walker** `$Name.png` | 3 × 4 frames of 64×64 (192×256) | MZ rows are down, left, right, up (LPC is up, left, down, right). The pattern is step, stand, step: LPC walk frames ≈2 and ≈6 around stand frame 0. Which two frames to use is set per export and checked by eye. |
+| **Smooth walker** `$Name[f9].png` | 9 × 4 | Every LPC walk frame. Uses the existing `[fN]` frame-count tag. |
+| **Idle and run** `$Name_idle[fN].png`, `$Name_run[fN].png` | idle rows 22–25, run rows 38–41 | Uses the existing idle and run sheet names. |
+| **Action sheets** `$Name_slash[f6].png` etc. | one sheet per animation | For Character Actions: slash, thrust, spellcast, shoot, hurt, sit, emote, climb, jump, combat, 1h_slash. A **ready-made Character Action** entry can be made for each. |
+| **Side-view battler** `img/sv_actors/Name.png` | 9 × 6 frames of 64×64 (576×384) | MZ's battler frame is 64×64, an exact match. Motions face left (the LPC "left" row). See below for the mapping. |
+| **Face** `img/faces/Name.png` slot | 144×144 | The head from down-facing frame 0, scaled up whole-pixel (nearest) onto a soft card background. Placed in the next free slot of an existing face sheet, or a new one. |
+| **Visual Equipment parts** | one sheet per clothing part, body hidden | Same frame layout as the walker. Writes the matching Visual Equipment notetag into the clipboard, or straight onto the chosen armour or weapon. |
+
+**SV motion map:**
+
+| MZ motion | LPC animation |
+| --- | --- |
+| walk | walk |
+| wait | idle (or combat) |
+| chant | spellcast |
+| guard | combat |
+| damage | hurt, first frames |
+| evade | jump |
+| thrust | thrust |
+| swing | slash |
+| missile | shoot |
+| skill | 1h_slash |
+| spell | spellcast |
+| item | emote |
+| escape | run, mirrored |
+| victory | emote |
+| dying | hurt, middle frames |
+| abnormal | sit |
+| sleep | hurt, last frame |
+| dead | hurt, last frame |
+
+Each MZ motion has 3 frames, so we sample three evenly spaced LPC frames. The mapping is editable in the export
+dialog.
+
+**Size note:** LPC characters are 64 pixels tall and MZ tiles are 48 pixels. With `$` sheets MZ draws them
+bottom-anchored, so they look tall but correct. We keep native 64 and don't offer scaling to 48, because 0.75
+nearest-neighbour scaling ruins pixel art. The creator says so in a short note.
+
+## 6. The creator UI
+
+The mockup shows the target. The layout follows the user's reference screenshot, with a friendlier skin:
+
+- **Top bar:**
+  - a title pill;
+  - the library's name and part count;
+  - the **encryption-safe switch**;
+  - a **Palette** picker (LPC Revised, ULPC);
+  - an info button, and an optional music button.
+- **Left card, "Body":** tabs for Body, Face, Hair and Extras.
+  - Rows show `Label ◀ value ▶ [swatch]`.
+  - Body type, Skin, Head, Ears, Nose, Eyes and colour, Expression, Facial hair, Hair and colour, Hair add-on,
+    Wings, Tail, Horns, Body add-ons 1–3.
+  - A row that doesn't apply to the current body is dimmed with its reason, never hidden.
+- **Centre stage:**
+  - the live composite at 3× or 4× whole-pixel scale, with a shadow;
+  - **turn** ↺ ↻ buttons;
+  - **animation chips** (Walk, Idle, Run, Slash, Spellcast, Shoot, Hurt, and so on);
+  - two **dice**: shuffle the body, shuffle the outfit;
+  - toggles: Show body, Body add-ons, Cast shadow.
+- **Right card, "Outfit":** tabs for Head, Body, Legs and Gear.
+  - Mask, Hat, Facial, Suit, Coverall, Shirt and colour, Gloves, Belt, Pants and colour, Shoes, Back, Main hand,
+    Ammo, Off hand.
+- **Swatch:** a click cycles colours, and a long press or right-click opens the palette grid.
+- **Value pill:** a click opens a **picture grid** of every option, with thumbnails drawn by the compositor and
+  cached. The grid has a search box and a licence badge on each tile.
+- **Bottom bar:** Load, Save (recipes), **Credits · N artists**, and the primary **Export to RPG Maker** button,
+  which opens a checklist of the exports in section 5.
+
+**Nintendo-like details:**
+
+- Baloo 2 headings and Nunito text. We bundle the fonts locally (OFL); MZ games run offline, and the editor
+  should too.
+- 3D "pressed" pill buttons, and 24–30 px corner radii.
+- A cream dot-grid ground.
+- Sounds on pick, turn, dice and export. They use the existing UI sound hook and respect the mute setting.
+- Pickers bounce on change. Turned off under **Less motion**.
+- **Gamepad and keyboard:**
+  - D-pad or arrows move between rows; Left and Right change the value; A or Enter opens the grid; B or Esc goes back.
+  - L and R switch tabs; X and Y roll the dice; Start exports.
+  - Focus is always visible as a thick yellow ring.
+- Screen-reader labels on every icon button (the existing screen-reader layer). Every string goes through the
+  language layer (`36_ui_i18n`).
+
+**Entry points:**
+
+- **More > Character Creator**;
+- the Item Bag **People** tab ("New character…", or "Edit look" on an exported one, which reopens its recipe);
+- a "Make in creator" link in the Visual Equipment notetag helper.
+
+## 7. Should the whole editor get this look?
+
+The editor's colours are already only `--dd-*` tokens, switched by `data-dd-theme` (light, dark, contrast, in
+`36_ui_theme_look.js`). That makes an editor-wide version cheap and safe:
+
+- **Option A (recommended first):** the Nintendo look stays **inside the creator** only. That keeps this project
+  focused, and the dense map tools stay compact.
+- **Option B:** add a **"Playful" theme** to the existing theme list:
+  - the cream, teal and coral tokens;
+  - larger radii;
+  - pill buttons;
+  - Baloo 2 headings.
+
+  It is opt-in under Look, so nobody's layout shifts, and it is one more PR after the creator lands.
+- **Option C:** make Playful the default. Wait for a new-user test (backlog item E) before doing this.
+
+## 8. Where the code goes
+
+Following the part rules (`44_workspace_a*` and `44_workspace_b*` would land inside the Workspace literal, so the
+new parts avoid them):
+
+| Part | What it does |
+| --- | --- |
+| `src/23_lpc_index.js` | Index format, schema guard, licence classification (`safeToEncrypt`), credits merge. Pure functions, unit-testable. |
+| `src/23_lpc_compositor.js` | Layer resolve and sort, palette swap, sheet assembly, export layouts (MZ walker, `[fN]`, actions, SV, face). Pure on canvas-like inputs. |
+| `src/44_workspace_lpc_library.js` | Pick the folder, scan, Rescan, the progress card. |
+| `src/44_workspace_lpc_creator.js` | The creator window, stage, pickers, grid, gamepad navigation. |
+| `src/44_workspace_lpc_export.js` | The export checklist, file writes, credits file, Character Action and Visual Equipment hookups. |
+| `src/36_ui_theme_playful.js` | Only if option B is chosen. |
+| Deploy checklist | A new "not safe to encrypt" check. |
+
+**Tests (node, like the other 119 suites):**
+
+- fixture sheet definitions plus tiny generated PNGs (`scripts/make_lpc_fixtures.js`);
+- tests for z-order, missing-animation fallback, body-type paths, palette swap with tolerance, the up/left/down/right
+  to down/left/right/up remap, the SV motion map, licence classification, credits merge, and the schema-guard
+  report;
+- a playtest pass in MZ over the CDP method: export a character, walk it on a map, run it in a side-view battle, and
+  check its face in a message.
+
+## 9. Phases and PR sizes
+
+| Phase | Contents | Size |
+| --- | --- | --- |
+| **0. Spike** | Read a local library, index 50 parts, composite one walker, see it walk in MZ. Throwaway, to prove the format and the frame choice. | 1 day |
+| **1. Library and licences** | Importer, index file, schema guard, licence classes, credits file, CREDITS.txt export, Deploy warning. | M |
+| **2. Compositor** | Layers, z-order, body types, palettes, `match_body_color`, caching, tests. | M |
+| **3. Creator UI** | Window, cards, tabs, pickers, picture grid, stage, turn, animations, dice, toggles, recipes (Load and Save), gamepad, sounds, language strings. | L (split in two: stage and pickers, then the grid, gamepad and polish) |
+| **4. Map exports** | `$` walker, `[f9]`, idle and run, face. | S–M |
+| **5. Actions and battler** | Action sheets with ready-made Character Actions, SV battler with the editable motion map. | M |
+| **6. Visual Equipment** | Body-hidden part sheets, notetag writing, "Make in creator" link. | M |
+| **7. Optional Playful theme** | Option B above. | S |
+
+Each phase is one PR, merged on green CI. Phase 3 is the user-visible milestone, and phases 4 and up make it
+useful in games.
+
+## 10. Risks
+
+- **Library size and changes upstream:** we never bundle it; the schema guard and pinned commit protect us.
+- **Licence mistakes:** we copy credits only from each part's own `credits` block, mark anything without credits
+  as "unknown, do not ship", and show the count in the Export dialog.
+- **Performance on a slow PC (backlog item B):** we cache recoloured layers, compose only the visible
+  animation and direction on the stage, and build thumbnails lazily as the grid scrolls.
+- **Missing animations:** some parts lack some animations. The creator marks them on the chips ("3 parts have no
+  Shoot") so exports hold no surprises.
+- **Frame choice for the 3-frame walker:** two LPC frames out of eight can look stiff. Offer the `[f9]` sheet as
+  the recommended default when Doc's Doodads is present.
+
+## 11. Open questions for the owner
+
+1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
+2. **Default licence policy:** start with the encrypt-safe switch **on** (fewer parts, deploy-safe), or **off**
+   (the full collection, with a warning at deploy)?
+3. **Library location:** inside the project (`<project>/lpc/`, simple and per-project) or one shared folder for
+   all projects (saves 1.5 GB per project)?
+4. **Fork-specific additions:** does the DocDamage fork add parts or fields beyond the upstream generator that
+   should be supported from day one?
