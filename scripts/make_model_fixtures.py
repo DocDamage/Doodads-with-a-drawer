@@ -61,3 +61,41 @@ os.makedirs(os.path.dirname(out), exist_ok=True)
 bpy.ops.export_scene.gltf(filepath=out, export_format='GLB', export_morph=True, export_morph_normal=True,
                           export_tangents=True, export_animations=True, export_apply=False)
 print('Wrote', out)
+
+# scratch/fixtures/skinned_bar.glb: a tall bar on two bones; an animation bends the top bone 60 degrees
+# and back over 2 seconds (for posing skins, on the CPU and in the GPU shader).
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.context.scene.render.fps = 30
+bpy.ops.mesh.primitive_cube_add(size=1, location=(0, 0, 1))
+bar = bpy.context.active_object
+bar.scale = (0.3, 0.3, 2)
+bpy.ops.object.transform_apply(scale=True)
+bpy.ops.object.mode_set(mode='EDIT')
+bpy.ops.mesh.subdivide(number_cuts=6)
+bpy.ops.object.mode_set(mode='OBJECT')
+mat2 = bpy.data.materials.new('Bar')
+mat2.use_nodes = True
+mat2.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.2, 0.6, 0.9, 1)
+bar.data.materials.append(mat2)
+bpy.ops.object.armature_add(location=(0, 0, 0))
+arm = bpy.context.active_object
+bpy.ops.object.mode_set(mode='EDIT')
+b1 = arm.data.edit_bones[0]
+b1.head, b1.tail = (0, 0, 0), (0, 0, 1)
+b2 = arm.data.edit_bones.new('Top')
+b2.head, b2.tail, b2.parent = (0, 0, 1), (0, 0, 2), b1
+bpy.ops.object.mode_set(mode='OBJECT')
+bar.select_set(True)
+arm.select_set(True)
+bpy.context.view_layer.objects.active = arm
+bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+bpy.ops.object.mode_set(mode='POSE')
+top = arm.pose.bones['Top']
+top.rotation_mode = 'XYZ'
+for frame, angle in ((0, 0.0), (30, math.radians(60)), (60, 0.0)):
+    top.rotation_euler = (angle, 0, 0)
+    top.keyframe_insert('rotation_euler', frame=frame)
+bpy.ops.object.mode_set(mode='OBJECT')
+out2 = os.path.join(os.path.dirname(out), 'skinned_bar.glb')
+bpy.ops.export_scene.gltf(filepath=out2, export_format='GLB', export_animations=True, export_skins=True)
+print('Wrote', out2)

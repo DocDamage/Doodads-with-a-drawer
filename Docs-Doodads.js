@@ -11993,10 +11993,13 @@ DocsDoodads.Occlusion.wallsFor = function() {
     if (c && c.data === $dataMap.data && c.regions === s.wallRegions && c.mapId === $gameMap.mapId()) return c;
     const w = $gameMap.width(), h = $gameMap.height();
     const regions = this.regions(s.wallRegions);
+    const isWater = id => (typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false);
     const grid = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const blocked = ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+            // Water can't be walked on but light crosses it; only what stands up (walls, cliffs, trees) blocks.
+            const water = isWater($gameMap.tileId(x, y, 0)) || isWater($gameMap.tileId(x, y, 1));
+            const blocked = !water && ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
             grid[y * w + x] = blocked || regions.has($gameMap.regionId(x, y)) ? 1 : 0;
         }
     }
@@ -15729,6 +15732,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const gpu = obj._docsModelGpu = obj._docsModelGpu || { meshes: [], scene: new PIXI.Container(), rt: null, quad: null };
         // The pose's matrices (the skin is posed in the shader); morphs are added here when their weights move.
         const mats = animation ? G.matrices(entry, animation, time) : (entry._docsRest = entry._docsRest || G.matrices(entry, null, 0));
+        // The moment drawn (the editor's box follows it; its points are worked out only if asked for).
+        obj._docsPose = animation ? { time, entry, animation, data: null } : null;
         const bounds = this.docsModelBounds(obj, entry, animation, time);
         // Where it lands on screen: the box round its pose, projected, is the picture's size.
         const r = (yaw * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
@@ -15863,7 +15868,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const key = animation.name + '@' + time;
         let b = cache.get(key);
         if (!b) {
-            const posed = obj._docsPose && obj._docsPose.animation === animation && obj._docsPose.time === time ? obj._docsPose.data : DocsDoodads.Gltf.pose(entry, animation, time);
+            const posed = obj._docsPose && obj._docsPose.animation === animation && obj._docsPose.time === time && obj._docsPose.data ? obj._docsPose.data : DocsDoodads.Gltf.pose(entry, animation, time);
             b = DocsDoodads.Gltf.boundsOf(posed.positions) || { min: entry.min, max: entry.max };
             if (cache.size > 120) cache.clear();
             cache.set(key, b);

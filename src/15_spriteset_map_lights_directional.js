@@ -39,10 +39,13 @@ DocsDoodads.Occlusion.wallsFor = function() {
     if (c && c.data === $dataMap.data && c.regions === s.wallRegions && c.mapId === $gameMap.mapId()) return c;
     const w = $gameMap.width(), h = $gameMap.height();
     const regions = this.regions(s.wallRegions);
+    const isWater = id => (typeof Tilemap !== 'undefined' && Tilemap.isWaterTile ? Tilemap.isWaterTile(id) : false);
     const grid = new Uint8Array(w * h);
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const blocked = ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+            // Water can't be walked on but light crosses it; only what stands up (walls, cliffs, trees) blocks.
+            const water = isWater($gameMap.tileId(x, y, 0)) || isWater($gameMap.tileId(x, y, 1));
+            const blocked = !water && ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
             grid[y * w + x] = blocked || regions.has($gameMap.regionId(x, y)) ? 1 : 0;
         }
     }

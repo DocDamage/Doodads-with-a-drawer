@@ -264,7 +264,7 @@ Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**,
 
 ### Shaped lights, presets, the flashlight and wall shadows
 - In a doodad's **Light** section: **Preset** sets the colour, size, flicker and shape at once (Torch, Candle, Campfire, Lantern, Neon pink and blue, Crystal, Spotlight, Moonbeam, Window glow); change anything after. **Shape: Cone** points the light one way (**Points**: 0 right, 90 down, 180 left, 270 up) with a **Cone width**.
-- **World → Lighting on Flat Maps → Walls stop light**: light stops at tiles nobody can walk on (and any regions listed as walls), so walls cast dark edges. Each light can follow that, or always or never stop at walls (**Walls stop it**). **Shadow detail** is how many rays each light casts; outlines are worked out again only when a light or the map changes.
+- **World → Lighting on Flat Maps → Walls stop light**: light stops at tiles nobody can walk on, except water (and at any regions listed as walls), so walls cast dark edges. Each light can follow that, or always or never stop at walls (**Walls stop it**). **Shadow detail** is how many rays each light casts; outlines are worked out again only when a light or the map changes.
 - **The flashlight**: the player can carry one (World → Lighting on Flat Maps), only while a switch is on if you like. It points where the player faces and turns smoothly; walls stop it too. The **Flashlight** plugin command turns it on or off for the playthrough, or back to the setting. Lights show only where the map is dark (ambient darkness, night).
 
 ### Layers, wind, lightning and the camera on flat maps

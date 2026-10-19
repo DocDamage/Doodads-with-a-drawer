@@ -122,6 +122,8 @@ Graphics.frameCount = 60;
 E.frames(ss, 1);
 const zs = Array.from(gmesh.geometry.getBuffer('aVertexPosition').data);
 assert.ok(Math.max(...zs.filter((v, i) => i % 3 === 2)) <= top0 + 1e-6, 'buffer updated');
+assert.ok(sprite._docsPose && Math.abs(sprite._docsPose.time - 1) < 0.1 && sprite._docsPose.data === null, 'the GPU way records the moment drawn');
+assert.ok(ws.doodadFlatBox(doodad).rect.h < upright * 0.75, 'and the editor box follows it');
 assert.ok(/aJoints/.test(M.gpuVertex) && /uJoints\[32\]/.test(M.gpuVertex) && /uCamF/.test(M.gpuVertex), 'skin and camera in the shader');
 // Picking a model drawn the GPU way: projected on the CPU when clicked.
 const g = sprite._docsModelGpu.screen;

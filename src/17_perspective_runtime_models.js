@@ -394,6 +394,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const gpu = obj._docsModelGpu = obj._docsModelGpu || { meshes: [], scene: new PIXI.Container(), rt: null, quad: null };
         // The pose's matrices (the skin is posed in the shader); morphs are added here when their weights move.
         const mats = animation ? G.matrices(entry, animation, time) : (entry._docsRest = entry._docsRest || G.matrices(entry, null, 0));
+        // The moment drawn (the editor's box follows it; its points are worked out only if asked for).
+        obj._docsPose = animation ? { time, entry, animation, data: null } : null;
         const bounds = this.docsModelBounds(obj, entry, animation, time);
         // Where it lands on screen: the box round its pose, projected, is the picture's size.
         const r = (yaw * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
@@ -528,7 +530,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const key = animation.name + '@' + time;
         let b = cache.get(key);
         if (!b) {
-            const posed = obj._docsPose && obj._docsPose.animation === animation && obj._docsPose.time === time ? obj._docsPose.data : DocsDoodads.Gltf.pose(entry, animation, time);
+            const posed = obj._docsPose && obj._docsPose.animation === animation && obj._docsPose.time === time && obj._docsPose.data ? obj._docsPose.data : DocsDoodads.Gltf.pose(entry, animation, time);
             b = DocsDoodads.Gltf.boundsOf(posed.positions) || { min: entry.min, max: entry.max };
             if (cache.size > 120) cache.clear();
             cache.set(key, b);

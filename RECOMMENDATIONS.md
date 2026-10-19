@@ -72,7 +72,7 @@ Done since the last update: model live reload, the 3D See-Through silhouette, st
 | # | What | Why | Size |
 |---|---|---|---|
 | B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps). Check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
-| D | **Models: what's still open.** **Done:** morph targets, normal maps, light per pixel, a selection box that follows the pose, and drawing on the GPU (World > 3D Models, off by default). Left: real games to show whether the GPU way should become the default. | Checked on the stand-in engine and by compiling the shaders on a real GPU (WebGL 1 and 2). | M |
+| D | **Models: what's still open.** **Done:** morph targets, normal maps, light per pixel, a selection box that follows the pose, and drawing on the GPU (World > 3D Models, off by default). Left: real games to show whether the GPU way should become the default. | Checked on the stand-in engine, by compiling the shaders on WebGL 1 and 2, and in an MZ playtest (morphs, normal maps, skins on the GPU; [QA record](docs/QA_2026-10-19.md)). | M |
 | E | **Editor feedback from new users.** The new look was checked by its makers, not by someone opening the editor for the first time. Watch a new user place, paint and save, and fix where they get stuck. | The aim was "very easy to use"; only a fresh pair of eyes can say. | S |
 
 ---
