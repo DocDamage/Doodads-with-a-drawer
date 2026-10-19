@@ -117,7 +117,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         let g = pool[index];
         if (!use) {
             if (sprite.mask) sprite.mask = null;
-            if (g) { g.clear(); g.visible = false; }
+            if (g) { g.clear(); g._docsOutline = null; g.visible = false; }
             return false;
         }
         const pts = O.outlineFor(light, Math.max(40, Math.min(360, Number(world.rays) || 160)));
@@ -126,13 +126,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             g = pool[index] = new PIXI.Graphics();
             this._docsLightScene.addChild(g);
         }
-        const ox = $gameMap.displayX() * $gameMap.tileWidth(), oy = $gameMap.displayY() * $gameMap.tileHeight();
-        const screen = new Array(pts.length);
-        for (let i = 0; i < pts.length; i += 2) { screen[i] = pts[i] - ox; screen[i + 1] = pts[i + 1] - oy; }
-        g.clear();
-        g.beginFill(0xffffff, 1);
-        g.drawPolygon(screen);
-        g.endFill();
+        // The outline is drawn once in map pixels (outlines are cached, so the same one comes back while
+        // the light stays); each frame only the graphics moves with the map.
+        if (g._docsOutline !== pts) {
+            g._docsOutline = pts;
+            g.clear();
+            g.beginFill(0xffffff, 1);
+            g.drawPolygon(pts);
+            g.endFill();
+        }
+        g.x = -$gameMap.displayX() * $gameMap.tileWidth();
+        g.y = -$gameMap.displayY() * $gameMap.tileHeight();
         g.visible = true;
         if (sprite.mask !== g) sprite.mask = g;
         return true;

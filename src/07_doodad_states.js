@@ -47,12 +47,15 @@ DocsDoodads.States = {
         if (editing && this._preview && this._preview.has(d)) return Math.min(list.length - 1, this._preview.get(d));
         const saved = this.find(d, DocsDoodads.WorldState.savedState(d, mapId));
         if (saved >= 0) return saved;
-        const s = Object.assign({}, this.defaults, d.states);
-        if (s.by === 'switch' && Number(s.switchId) > 0) {
-            return typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(Number(s.switchId)) ? 1 : 0;
+        // Read with the defaults in place (this runs for every stateful doodad every frame).
+        const s = d.states, by = s.by !== undefined ? s.by : this.defaults.by;
+        const switchId = Number(s.switchId !== undefined ? s.switchId : this.defaults.switchId);
+        const variableId = Number(s.variableId !== undefined ? s.variableId : this.defaults.variableId);
+        if (by === 'switch' && switchId > 0) {
+            return typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(switchId) ? 1 : 0;
         }
-        if (s.by === 'variable' && Number(s.variableId) > 0) {
-            const v = typeof $gameVariables !== 'undefined' && $gameVariables ? Math.floor(Number($gameVariables.value(Number(s.variableId))) || 0) : 0;
+        if (by === 'variable' && variableId > 0) {
+            const v = typeof $gameVariables !== 'undefined' && $gameVariables ? Math.floor(Number($gameVariables.value(variableId)) || 0) : 0;
             return Math.max(0, Math.min(list.length - 1, v));
         }
         return 0;
@@ -143,7 +146,13 @@ DocsDoodads.WorldState = {
         return String(nameOrDoodad || '').trim();
     },
 
+    // Nothing saved yet (the usual case): skip building the key. These run per doodad per frame.
+    anySaved() {
+        return typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsWorldState ? true : false;
+    },
+
     savedState(d, mapId) {
+        if (!this.anySaved()) return undefined;
         const id = this.idOf(d);
         if (!id) return undefined;
         const v = this.store(false).states[this.key(mapId, id)];
@@ -151,6 +160,7 @@ DocsDoodads.WorldState = {
     },
 
     savedLight(d, mapId) {
+        if (!this.anySaved()) return undefined;
         const id = this.idOf(d);
         if (!id) return undefined;
         const v = this.store(false).lights[this.key(mapId, id)];

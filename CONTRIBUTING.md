@@ -2,7 +2,7 @@
 
 1. Create a branch from `main`.
 2. Edit the plugin in `src/`, never `Docs-Doodads.js` directly (see below), then run `npm run build`.
-3. Add a focused regression under `scratch/test_*.js` before changing plugin behavior. Drawing code (spritesets, sprites, the 3D view) can be tested on the stand-in engine in `scratch/engine/fake_engine.js`; see `scratch/test_engine_map.js`.
+3. Add a focused regression under `scratch/test_*.js` before changing plugin behavior. Drawing code (spritesets, sprites, the 3D view) can be tested on the stand-in engine in `scratch/engine/fake_engine.js`; see `scratch/test_engine_map.js`. For work done every frame, run `node scratch/bench_frames.js` (a 3,000-doodad map on the stand-in engine, ms a frame in 2D and 3D; `--counts` counts the per-frame calls) before and after; it is not a test, since the numbers depend on the machine.
 4. Run `npm run verify` (it also checks that `Docs-Doodads.js` matches `src/`) and `npm run coverage`. `npm test` runs the regression suites on their own.
 5. Do not commit copyrighted RPG Maker assets, commercial game data, caches, recovery files, or credentials.
 6. Describe any manual RPG Maker MZ validation performed in the pull request.

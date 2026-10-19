@@ -2096,10 +2096,32 @@ DocsDoodads.Appearance = {
         try { return Boolean(fn()); } catch (error) { return true; }
     },
 
+    // parseSwitches for the per-frame checks: kept per list in play (the editor changes lists in place).
+    _switchCache: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+    _switchText: new Map(),
+    switchesOf(input) {
+        if (!input || (input.length === 0)) return [];
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return this.parseSwitches(input);
+        if (typeof input === 'string') {
+            let parsed = this._switchText.get(input);
+            if (!parsed) {
+                if (this._switchText.size >= 500) this._switchText.clear();
+                this._switchText.set(input, parsed = this.parseSwitches(input));
+            }
+            return parsed;
+        }
+        if (!this._switchCache || typeof input !== 'object') return this.parseSwitches(input);
+        const c = this._switchCache.get(input);
+        if (c && c.length === input.length) return c.parsed;
+        const parsed = this.parseSwitches(input);
+        this._switchCache.set(input, { length: input.length, parsed });
+        return parsed;
+    },
+
     isVisible(d, ctx = {}) {
         if (ctx.editing) return true;
         const switchValue = ctx.switchValue || (id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false));
-        for (const [id, value] of this.parseSwitches(d.switch)) {
+        for (const [id, value] of this.switchesOf(d.switch)) {
             if (Boolean(switchValue(id)) !== value) return false;
         }
         if (Array.isArray(d.seasons) && d.seasons.length > 0) {
@@ -2111,7 +2133,7 @@ DocsDoodads.Appearance = {
 
     // Only conditional doodads need a per-frame visibility check.
     isConditional(d) {
-        return this.parseSwitches(d.switch).length > 0 || Boolean(String(d.condition || '').trim())
+        return this.switchesOf(d.switch).length > 0 || Boolean(d.condition && String(d.condition).trim())
             || (Array.isArray(d.seasons) && d.seasons.length > 0);
     },
 
@@ -2123,6 +2145,19 @@ DocsDoodads.Appearance = {
     signature(d) {
         const m = d.motion && d.motion.type === 'shimmer' ? 'shimmer' + (d.motion.amount || 0) : '';
         return [d.r, d.g, d.b, d.grey, d.hue, d.blur, d.contrast, d.sepia, d.bright, d.blend, m].join('|');
+    },
+
+    // signature's fields, compared with what `last` holds (and copied into it when they differ), so a
+    // sprite checks its filters every frame without building a string. True when nothing changed.
+    sameLook(d, last) {
+        const shimmer = d.motion && d.motion.type === 'shimmer';
+        const amount = shimmer ? (d.motion.amount || 0) : 0;
+        if (last.length === 12 && last[0] === d.r && last[1] === d.g && last[2] === d.b && last[3] === d.grey && last[4] === d.hue
+            && last[5] === d.blur && last[6] === d.contrast && last[7] === d.sepia && last[8] === d.bright && last[9] === d.blend
+            && last[10] === shimmer && last[11] === amount) return true;
+        last.length = 0;
+        last.push(d.r, d.g, d.b, d.grey, d.hue, d.blur, d.contrast, d.sepia, d.bright, d.blend, shimmer, amount);
+        return false;
     }
 };
 
@@ -2288,12 +2323,25 @@ DocsDoodads.Lighting = {
 
     // display: the map's scroll in pixels ({ x, y }) or a map-to-screen function, so lights land in screen space.
     // ctx ({ darkness, threshold, step }) switches "after dark" lamps; without it every light shows (editor previews).
+    // A doodad's light with the defaults filled in, kept per light object in play (the editor changes
+    // lights in place, so it merges afresh there).
+    _lightCache: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+    lightOf(d) {
+        const light = d && d.light;
+        if (!light) return Object.assign({}, this.lightDefaults);
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        if (editing || !this._lightCache) return Object.assign({}, this.lightDefaults, light);
+        let l = this._lightCache.get(light);
+        if (!l) this._lightCache.set(light, l = Object.assign({}, this.lightDefaults, light));
+        return l;
+    },
+
     collect(doodads, display = { x: 0, y: 0 }, ctx) {
         const toScreen = typeof display === 'function' ? display : (x, y) => ({ x: x - display.x, y: y - display.y });
         const out = [];
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
-            const l = Object.assign({}, this.lightDefaults, d.light);
+            const l = this.lightOf(d);
             // A state or an event can put the light out (it fades like an "after dark" lamp in game).
             const on = DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true;
             if (!on && !ctx) continue;
@@ -2649,12 +2697,15 @@ DocsDoodads.States = {
         if (editing && this._preview && this._preview.has(d)) return Math.min(list.length - 1, this._preview.get(d));
         const saved = this.find(d, DocsDoodads.WorldState.savedState(d, mapId));
         if (saved >= 0) return saved;
-        const s = Object.assign({}, this.defaults, d.states);
-        if (s.by === 'switch' && Number(s.switchId) > 0) {
-            return typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(Number(s.switchId)) ? 1 : 0;
+        // Read with the defaults in place (this runs for every stateful doodad every frame).
+        const s = d.states, by = s.by !== undefined ? s.by : this.defaults.by;
+        const switchId = Number(s.switchId !== undefined ? s.switchId : this.defaults.switchId);
+        const variableId = Number(s.variableId !== undefined ? s.variableId : this.defaults.variableId);
+        if (by === 'switch' && switchId > 0) {
+            return typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(switchId) ? 1 : 0;
         }
-        if (s.by === 'variable' && Number(s.variableId) > 0) {
-            const v = typeof $gameVariables !== 'undefined' && $gameVariables ? Math.floor(Number($gameVariables.value(Number(s.variableId))) || 0) : 0;
+        if (by === 'variable' && variableId > 0) {
+            const v = typeof $gameVariables !== 'undefined' && $gameVariables ? Math.floor(Number($gameVariables.value(variableId)) || 0) : 0;
             return Math.max(0, Math.min(list.length - 1, v));
         }
         return 0;
@@ -2745,7 +2796,13 @@ DocsDoodads.WorldState = {
         return String(nameOrDoodad || '').trim();
     },
 
+    // Nothing saved yet (the usual case): skip building the key. These run per doodad per frame.
+    anySaved() {
+        return typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsWorldState ? true : false;
+    },
+
     savedState(d, mapId) {
+        if (!this.anySaved()) return undefined;
         const id = this.idOf(d);
         if (!id) return undefined;
         const v = this.store(false).states[this.key(mapId, id)];
@@ -2753,6 +2810,7 @@ DocsDoodads.WorldState = {
     },
 
     savedLight(d, mapId) {
+        if (!this.anySaved()) return undefined;
         const id = this.idOf(d);
         if (!id) return undefined;
         const v = this.store(false).lights[this.key(mapId, id)];
@@ -3323,6 +3381,8 @@ DocsDoodads.api = {
                 d.y = tiles ? py + ts.h : py;
             }
         }
+        // Collision keeps bodies by tile for a frame; the next step sees where they went.
+        if (list.length && DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
         return list.length;
     },
 
@@ -3345,6 +3405,7 @@ DocsDoodads.api = {
             }
             Object.assign(d, next);
         }
+        if (DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
         this.refresh();
         return list.length;
     },
@@ -4128,20 +4189,33 @@ DocsDoodads.Atmosphere = {
         return ws && ws.mounted && ws[field] !== null && ws[field] !== undefined ? ws[field] : null;
     },
 
+    // env() for the per-frame readers: one object, refreshed on each read, so thousands of doodads
+    // asking for the season every frame allocate nothing. Never handed out.
+    sharedEnv(withClock) {
+        const env = this._sharedEnv || (this._sharedEnv = {
+            variable: id => (typeof $gameVariables !== 'undefined' && $gameVariables && id > 0 ? $gameVariables.value(id) : 0),
+            clock: null, system: 0
+        });
+        const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        env.clock = withClock ? this.clock() : null;
+        env.system = system ? system._docsSeason || 0 : 0;
+        return env;
+    },
+
     minutes() {
         const preview = this.editorPreview('previewMinutes');
         if (preview !== null) return preview;
-        return DocsDoodads.TimeOfDay.minutesNow(DocsDoodads.World.settings(), this.env());
+        return DocsDoodads.TimeOfDay.minutesNow(DocsDoodads.World.settings(), this.sharedEnv(true));
     },
 
     season() {
         const preview = this.editorPreview('previewSeason');
         if (preview !== null) return preview;
-        return DocsDoodads.Seasons.current(DocsDoodads.World.settings().seasons, this.env());
+        return DocsDoodads.Seasons.current(DocsDoodads.World.settings().seasons, this.sharedEnv(false));
     },
 
     sun() {
-        return DocsDoodads.Sun.current(DocsDoodads.World.settings(), this.minutes(), this.env().variable);
+        return DocsDoodads.Sun.current(DocsDoodads.World.settings(), this.minutes(), this.sharedEnv(false).variable);
     },
 
     // "Set Feature" plugin command switches effects off for this save without touching the project.
@@ -4350,6 +4424,27 @@ DocsDoodads.PostFX = {
         return this.isActive(look) ? look : null;
     },
 
+    // resolveLook for the map each frame: kept while its inputs stay (the world's and map's settings, a
+    // Set Look fade, the clock to a quarter minute, the region weights), so a still scene resolves once.
+    // The editor changes looks in place, so it resolves afresh there. The result is shared: never change it.
+    resolveLookCached(inputs = {}) {
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const { world, mapSettings, runtime, minutes, regionWeights } = inputs;
+        const quarter = minutes === undefined || minutes === null ? minutes : Math.round(Number(minutes) * 4) / 4;
+        const c = this._resolved;
+        const sameWeights = (a, b) => {
+            if (a === b) return true;
+            if (!a || !b) return false;
+            const ka = Object.keys(a), kb = Object.keys(b);
+            return ka.length === kb.length && ka.every(k => a[k] === b[k]);
+        };
+        if (!editing && c && c.world === world && c.mapSettings === mapSettings && c.runtime === runtime && c.minutes === quarter
+            && sameWeights(c.weights, regionWeights)) return c.look;
+        const look = this.resolveLook(inputs);
+        this._resolved = editing ? null : { world, mapSettings, runtime, minutes: quarter, weights: regionWeights ? Object.assign({}, regionWeights) : regionWeights, look };
+        return look;
+    },
+
     // The player's Options choice (0 high .. 3 off) can lower the project's quality, never raise it.
     effectiveQuality(project, playerOption) {
         const levels = ['high', 'medium', 'low', 'off'];
@@ -4376,9 +4471,13 @@ DocsDoodads.PostFX = {
     // Grade-pass uniforms; disabled effects use their neutral values.
     uniforms(look, anim, time) {
         look = look || this.defaultLook();
+        // The params by effect and key, indexed once (this ran ~25 linear finds a frame).
+        if (!this._paramIndex) {
+            this._paramIndex = new Map();
+            for (const effect of this.effects) for (const p of effect.params) this._paramIndex.set(effect.id + '.' + p.key, p);
+        }
         const v = (id, key) => {
-            const effect = this.effects.find(e => e.id === id);
-            const p = effect.params.find(q => q.key === key);
+            const p = this._paramIndex.get(id + '.' + key);
             return look[id].enabled || p.neutral === undefined ? look[id][key] : p.neutral;
         };
         const ch = c => DocsDoodads.Lighting.channels(c);
@@ -4880,6 +4979,8 @@ DocsDoodads.Particles = {
     step(state, dt, emitting) {
         const c = state.config;
         state.time += dt;
+        // The world's wind pushes every emitter (pixels a second, a second); the same for every particle.
+        const push = (c.wind + DocsDoodads.Wind.current().x * 40) * dt;
         for (let i = state.particles.length - 1; i >= 0; i--) {
             const p = state.particles[i];
             p.age += dt;
@@ -4887,8 +4988,7 @@ DocsDoodads.Particles = {
                 state.particles.splice(i, 1);
                 continue;
             }
-            // The world's wind pushes every emitter (pixels a second, a second).
-            p.vx += (c.wind + DocsDoodads.Wind.current().x * 40) * dt;
+            p.vx += push;
             p.vy += c.gravity * dt;
             if (c.drag > 0) {
                 const k = Math.max(0, 1 - c.drag * dt);
@@ -5535,8 +5635,23 @@ DocsDoodads.Layers = {
         return !this.find(d, mapSettings).hidden;
     },
 
+    // Every doodad asks each frame: the layers by id, built once a frame for the map's settings (the
+    // editor changes a layer's flags in place, so the table never outlives the frame or an edit).
+    byId(mapSettings) {
+        const frame = DocsDoodads.frameCount ? DocsDoodads.frameCount() : 0;
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const c = this._table;
+        if (c && !editing && frame !== 0 && c.settings === mapSettings && c.frame === frame) return c;
+        const list = this.list(mapSettings);
+        const ids = new Map();
+        for (const l of list) if (!ids.has(l.id)) ids.set(l.id, l);
+        this._table = { settings: mapSettings, frame, ids, first: list[0] };
+        return this._table;
+    },
+
     visibleInGame(d, mapSettings) {
-        return !this.find(d, mapSettings).gameHidden;
+        const t = this.byId(mapSettings);
+        return !(t.ids.get(this.of(d)) || t.first).gameHidden;
     },
 
     isLocked(d, mapSettings) {
@@ -9588,6 +9703,17 @@ if (typeof PIXI !== 'undefined') {
         const layerSettings = DocsDoodads.Lighting.mapSettings(typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0);
         if (!(editing ? DocsDoodads.Layers.visibleInEditor(d, layerSettings) : DocsDoodads.Layers.visibleInGame(d, layerSettings))) visible = false;
         this.visible = visible;
+        // Off the screen it isn't drawn and its see-through, filters and shadow wait; `visible` keeps its
+        // meaning (lights, reflections and collision read it), so culling uses `renderable`.
+        const culled = visible && this.docsCulled(editing);
+        this._docsCulled = culled;
+        this.renderable = !culled;
+        if (culled) {
+            this._seeAlpha = 1;
+            this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim * this._transitionAlpha;
+            if (this._shadowSprite) this._shadowSprite.renderable = false;
+            return;
+        }
         this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim * this._transitionAlpha * this.updateSeeThrough(editing);
 
         this.refreshAppearance();
@@ -9596,6 +9722,27 @@ if (typeof PIXI !== 'undefined') {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
         }
         this.updateShadow();
+        if (this._shadowSprite) this._shadowSprite.renderable = true;
+    };
+
+    // Off-screen culling in play: true when the drawn rectangle, with room around it for a shadow, filters
+    // and sway (a tile and its own size), is off the screen. A zoom that shows more than the screen widens
+    // it. In 3D the billboards decide by the camera (a doodad off the 3D picture last frame is culled); the
+    // editor shows everything.
+    Sprite_DocsDoodad.prototype.docsCulled = function(editing) {
+        const d = this._data;
+        if (editing || !d || d.posMode !== 1 || typeof Graphics === 'undefined') return false;
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.active()) {
+            return this._docs3dOut === true && DocsDoodads.frameCount() - (this._docs3dOutFrame || 0) <= 1;
+        }
+        const zoom = typeof $gameScreen !== 'undefined' && $gameScreen && $gameScreen.zoomScale ? Number($gameScreen.zoomScale()) || 1 : 1;
+        const w = (d.frameW || (this.texture ? this.texture.frame.width : 48)) * Math.abs(this.scale.x);
+        const h = (d.frameH || (this.texture ? this.texture.frame.height : 48)) * Math.abs(this.scale.y);
+        const left = this.x - this.anchor.x * w, top = this.y - this.anchor.y * h;
+        const pad = 48 + Math.max(w, h);
+        const wide = zoom < 1 ? (1 / zoom - 1) / 2 : 0;
+        const W = Graphics.width, H = Graphics.height;
+        return left + w < -pad - W * wide || top + h < -pad - H * wide || left > W + pad + W * wide || top > H + pad + H * wide;
     };
 
     // Screen rectangle of the drawn frame.
@@ -9654,9 +9801,8 @@ if (typeof PIXI !== 'undefined') {
     // Rebuilds the filter stack only when tint, hue, blur, blend or shimmer settings change.
     Sprite_DocsDoodad.prototype.refreshAppearance = function() {
         const d = this._data;
-        const sig = DocsDoodads.Appearance.signature(d);
-        if (sig === this._appearanceSig) return;
-        this._appearanceSig = sig;
+        if (!this._appearanceSig) this._appearanceSig = [];
+        if (DocsDoodads.Appearance.sameLook(d, this._appearanceSig)) return;
         this.blendMode = DocsDoodads.Appearance.blendMode(d);
         const filters = [];
         try {
@@ -9920,39 +10066,49 @@ if (typeof Spriteset_Map !== 'undefined') {
             layer._docsRipple.uniforms.amount = Math.max(0, Math.min(1, Number(settings.ripple) || 0));
         }
 
-        const sources = [];
+        // The records are kept from frame to frame and refilled, so reflections allocate nothing.
+        const records = layer._docsRecords = layer._docsRecords || [];
+        let count = 0;
+        const add = (texture, x, y, sx, sy, anchorX, anchorY, alpha, rotation, tint) => {
+            const r = records[count] || (records[count] = {});
+            count++;
+            r.texture = texture; r.x = x; r.y = y; r.sx = sx; r.sy = sy; r.anchorX = anchorX; r.anchorY = anchorY;
+            r.alpha = alpha; r.rotation = rotation; r.tint = tint;
+        };
+        const byOrder = (a, b) => a._docsOrder - b._docsOrder;
         for (const sprite of this._characterSprites || []) {
             const ch = sprite._character;
             if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
             if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
             const jump = (typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0) + DocsDoodads.Traversal.liftOf(ch);
-            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, anchorY: sprite.anchor.y, alpha: sprite.opacity / 255, rotation: 0 };
-            // Gear layers reflect too, behind and in front of the body.
-            const gear = (sprite._docsVisualSprites || []).filter(l => l.visible);
+            const x = sprite.x, y = sprite.y + jump * 2, sy = sprite.scale.y, alpha = sprite.opacity / 255;
+            // Gear layers reflect too, behind and in front of the body (one sort, in drawing order).
+            const gear = sprite._docsVisualSprites && sprite._docsVisualSprites.length ? sprite._docsVisualSprites.filter(l => l.visible) : null;
+            if (gear && gear.length > 1) gear.sort(byOrder);
             const layer = l => {
                 const texture = sprite.docsVisualTexture(l);
-                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint, anchorY: l.anchor.y }));
+                if (texture) add(texture, x, y, l.scale.x, sy, 0.5, l.anchor.y, alpha, 0, l.tint);
             };
-            gear.filter(l => l._docsZ < 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
-            sources.push(Object.assign({}, at, { texture: sprite._docsFrameTexture, sx: sprite.scale.x }));
-            gear.filter(l => l._docsZ >= 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
+            if (gear) for (const l of gear) if (l._docsZ < 0) layer(l);
+            add(sprite._docsFrameTexture, x, y, sprite.scale.x, sy, 0.5, sprite.anchor.y, alpha, 0, undefined);
+            if (gear) for (const l of gear) if (l._docsZ >= 0) layer(l);
         }
         for (const sprite of this._docsDoodadSprites || []) {
             const d = sprite._data;
             if (!sprite.visible || !sprite.texture || !sprite.texture.valid || !DocsDoodads.Reflection.appliesTo(d, settings)) continue;
             const h = sprite.texture.frame.height * Math.abs(sprite.scale.y);
-            sources.push({ texture: sprite.texture, x: sprite.x, y: sprite.y + h * (1 - sprite.anchor.y), sx: sprite.scale.x, sy: Math.abs(sprite.scale.y),
-                anchorX: sprite.anchor.x, alpha: sprite.alpha, rotation: -sprite.rotation });
+            add(sprite.texture, sprite.x, sprite.y + h * (1 - sprite.anchor.y), sprite.scale.x, Math.abs(sprite.scale.y), sprite.anchor.x, undefined, sprite.alpha, -sprite.rotation, undefined);
         }
+        for (let i = count; i < records.length; i++) records[i].texture = null;
         const pool = layer._docsPool;
-        while (pool.length < sources.length) {
+        while (pool.length < count) {
             const s = new PIXI.Sprite(PIXI.Texture.EMPTY);
             layer.addChild(s);
             pool.push(s);
         }
         const opacity = Math.max(0, Math.min(1, Number(settings.opacity) || 0));
         pool.forEach((s, i) => {
-            const src = sources[i];
+            const src = i < count ? records[i] : null;
             s.visible = Boolean(src);
             if (!src) return;
             s.texture = src.texture;
@@ -10092,20 +10248,32 @@ if (typeof Spriteset_Map !== 'undefined') {
 
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const visibleData = (this._docsDoodadSprites || []).filter(s => s.visible).map(s => s._data);
+        // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.
+        const visibleData = [];
+        for (const sprite of this._docsDoodadSprites || []) {
+            const d = sprite.visible ? sprite._data : null;
+            if (d && d.light && d.light.enabled) visibleData.push(d);
+        }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
             { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
         // In 3D the ground is lit around the lamp's base: the height offset would land the pool behind it.
         if (this._docs3d) {
-            for (const l of lights) l.y -= Number(Object.assign({}, Lighting.lightDefaults, l.doodad && l.doodad.light).offsetY) || 0;
+            for (const l of lights) l.y -= Number(Lighting.lightOf(l.doodad).offsetY) || 0;
         }
         if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
         this.docsSpritePool(this._docsGlowSprites, this._docsGlowLayer, glowing.length);
+        // A light that can't reach the picture (the screen, or the 3D view's) isn't drawn; it stays in the
+        // list for the 3D view's tint (lightAt).
+        const size0 = this._docs3dSize;
+        const reachW = size0 ? size0.width : typeof Graphics !== 'undefined' ? Graphics.width : 816;
+        const reachH = size0 ? size0.height : typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const off = l => l.x + l.radius < 0 || l.y + l.radius < 0 || l.x - l.radius > reachW || l.y - l.radius > reachH;
         glowing.forEach((l, i) => {
             const s = this._docsGlowSprites[i];
+            if (off(l)) { s.visible = false; return; }
             s.x = l.x; s.y = l.y;
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
@@ -10135,6 +10303,13 @@ if (typeof Spriteset_Map !== 'undefined') {
         this.docsSpritePool(this._docsLightSprites, this._docsLightScene, lights.length);
         lights.forEach((l, i) => {
             const s = this._docsLightSprites[i];
+            if (off(l)) {
+                s.visible = false;
+                const g = this._docsLightMasks && this._docsLightMasks[i];
+                if (g) g.visible = false;
+                if (s.mask) s.mask = null;
+                return;
+            }
             s.x = l.x; s.y = l.y;
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
@@ -10143,7 +10318,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (this.docsMaskLight) this.docsMaskLight(s, l, i);
         });
         // Masks left over from lights that went out.
-        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i].visible = false; }
+        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i]._docsOutline = null; this._docsLightMasks[i].visible = false; }
         renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
@@ -10340,7 +10515,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
         const safe = DocsDoodads.safeFrame(frame, bitmap.width, bitmap.height);
         this._docsFrame = frame;
         this._docsFrameBase = base;
-        this._docsFrameTexture = new PIXI.Texture(base, new PIXI.Rectangle(safe.x, safe.y, safe.w, safe.h));
+        this._docsFrameTexture = DocsDoodads.frameTexture(base, safe.x, safe.y, safe.w, safe.h);
     };
 
     Sprite_Character.prototype.updateDocsShadow = function(settings, tags) {
@@ -10408,24 +10583,13 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
             const part = new PIXI.Sprite(PIXI.Texture.EMPTY);
             part.anchor.set(0.5, 1);
             part.tint = 0x000000;
-            part._docsFrames = new Map();
             shadow.addChild(part);
             parts.push(part);
         }
         gear.forEach((sp, i) => {
             const part = parts[i], r = sp._docsRect, base = sp.bitmap.baseTexture || sp.bitmap._baseTexture;
-            const frameKey = r.x + ',' + r.y + ',' + r.w + ',' + r.h;
-            if (part._docsBase !== base) {
-                part._docsBase = base;
-                part._docsFrames.clear();
-            }
-            let texture = part._docsFrames.get(frameKey);
-            if (!texture) {
-                texture = new PIXI.Texture(base, new PIXI.Rectangle(r.x, r.y, r.w, r.h));
-                if (part._docsFrames.size > 32) part._docsFrames.clear();
-                part._docsFrames.set(frameKey, texture);
-            }
-            part.texture = texture;
+            const texture = DocsDoodads.frameTexture(base, r.x, r.y, r.w, r.h);
+            if (part.texture !== texture) part.texture = texture;
             part.anchor.set(0.5, sp.anchor.y);
             // The shadow already has the body's scale; a mirrored layer (8-direction sheets) flips.
             part.scale.set(Math.sign(sp.scale.x || 1) * Math.sign(this.scale.x || 1), 1);
@@ -10595,7 +10759,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const runtime = P.runtimeLook();
         // Region fades move once a frame, on the map (a battle keeps the map's).
         const live = P.liveInputs(typeof Spriteset_Map !== 'undefined' && this instanceof Spriteset_Map);
-        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
+        let look = hidden ? null : P.resolveLookCached({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
         let anim = P.Animations.sample(P._anims, DocsDoodads.frameCount());
         if (this._docsExportLook !== undefined) {
             look = this._docsExportLook;
@@ -10612,7 +10776,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const ours = [];
         if (f) {
             if (passes.includes('bloom')) {
-                const bloom = P.normalizeLook(look).bloom;
+                const bloom = look ? look.bloom : P.defaultLook().bloom;
                 const parts = f.bloom._docsParts;
                 parts.extract.uniforms.uThreshold = bloom.enabled ? bloom.threshold : 0.7;
                 parts.combine.uniforms.uIntensity = (bloom.enabled ? bloom.intensity : 0) + (anim ? anim.bloom : 0);
@@ -10631,8 +10795,16 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
                 }
             }
             if (passes.includes('grade')) {
-                const u = P.uniforms(look, anim, DocsDoodads.frameCount() / 60);
-                for (const key of Object.keys(u)) f.grade.uniforms[key] = u[key];
+                // A look that stays (resolveLookCached hands back the same one) keeps its uniforms; only
+                // animated grain's time moves.
+                const time = DocsDoodads.frameCount() / 60;
+                if (anim || !look || look !== f._gradeLook) {
+                    const u = P.uniforms(look, anim, time);
+                    for (const key of Object.keys(u)) f.grade.uniforms[key] = u[key];
+                    f._gradeLook = anim ? null : look;
+                } else if (look.grain.animated) {
+                    f.grade.uniforms.uTime = time;
+                }
                 ours.push(f.grade);
             }
         }
@@ -10790,6 +10962,22 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
 DocsDoodads.sharedTexture = function(canvas) {
     const texture = PIXI.Texture.from(canvas);
     texture.destroy = function() {};
+    return texture;
+};
+
+// A frame of a picture as a texture, made once per (picture, rectangle) and shared: characters change
+// frame several times a second and each change used to make a texture that was never let go. A texture
+// MZ destroyed with its scene (it destroys every sprite's texture on leaving) is made again.
+DocsDoodads.frameTexture = function(base, x, y, w, h) {
+    const cache = this._frameTextures || (this._frameTextures = new WeakMap());
+    let byKey = cache.get(base);
+    if (!byKey) cache.set(base, byKey = new Map());
+    const key = x + ',' + y + ',' + w + ',' + h;
+    let texture = byKey.get(key);
+    if (texture && texture.baseTexture === base) return texture;
+    if (byKey.size >= 512) byKey.clear();
+    texture = new PIXI.Texture(base, new PIXI.Rectangle(x, y, w, h));
+    byKey.set(key, texture);
     return texture;
 };
 
@@ -10997,6 +11185,16 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
     $.Sprite_DocsDoodad_updatePlacement = Sprite_DocsDoodad.prototype.updatePlacement;
     Sprite_DocsDoodad.prototype.updatePlacement = function() {
         $.Sprite_DocsDoodad_updatePlacement.call(this);
+        // Off the screen (culled), bending and effects wait and aren't drawn.
+        if (this._docsCulled) {
+            for (const key of ['_docsEmitter', '_docsVfx', '_docsLeaves']) if (this[key]) this[key].renderable = false;
+            this._docsFxCulled = true;
+            return;
+        }
+        if (this._docsFxCulled) {
+            this._docsFxCulled = false;
+            for (const key of ['_docsEmitter', '_docsVfx', '_docsLeaves']) if (this[key]) this[key].renderable = true;
+        }
         this.updateDocsReact();
         this.updateDocsParticles();
     };
@@ -11689,8 +11887,18 @@ DocsDoodads.Ambience = {
         const layers = DocsDoodads.World.settings().ambience.layers || [];
         if (!layers.length || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) { this.stopAll(); return; }
         const SS = DocsDoodads.SpatialSound, f = DocsDoodads.PlayerZoom.focus();
-        const q = this.query();
         const px = $gamePlayer.x, py = $gamePlayer.y;
+        // What is around depends only on the player's tile, the map and the layers: scanning up to 1,681
+        // tiles a layer is done again when one of those changes, not every 6 frames.
+        const doodads = DocsDoodads.doodads() || [];
+        const at = this._coverAt;
+        if (!at || at.mapId !== $gameMap.mapId() || at.x !== px || at.y !== py || at.layers !== layers || at.data !== (typeof $dataMap !== 'undefined' && $dataMap ? $dataMap.data : null)
+            || at.doodads !== doodads || at.count !== doodads.length) {
+            const q = this.query();
+            this._coverAt = { mapId: $gameMap.mapId(), x: px, y: py, layers, data: typeof $dataMap !== 'undefined' && $dataMap ? $dataMap.data : null, doodads, count: doodads.length,
+                cover: layers.map(layer => (layer && String(layer.sound || '').trim() ? SS.coverage(layer, px, py, q, q.tw, q.th) : null)) };
+        }
+        const cover = this._coverAt.cover;
         // Wind is stronger up high (terrain height under the player).
         const grid = DocsDoodads.Terrain.grid ? DocsDoodads.Terrain.grid() : null;
         const high = grid && grid.max > 0 ? Math.max(0, Math.min(1, DocsDoodads.Terrain.tileHeight(grid, px, py) / grid.max)) : 0;
@@ -11699,7 +11907,7 @@ DocsDoodads.Ambience = {
             let state = this._playing.get(i);
             if (state && state.name !== name) { this.stop(i); state = null; }
             if (!name) return;
-            const c = SS.coverage(layer, px, py, q, q.tw, q.th);
+            const c = cover[i] || { coverage: 0, pan: 0 };
             const quiet = layer.quiet === undefined || layer.quiet === '' ? 0.4 : Number(layer.quiet);
             const height = layer.kind === 'open' && grid ? 0.5 + 0.5 * high : 1;
             const volume = Math.min(100, (Number(layer.volume) || 60) * c.coverage * SS.closeness(quiet, f) * height);
@@ -12086,8 +12294,16 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.updateDocsLayers2d = function(flat) {
         const L = DocsDoodads.MapLayers;
-        const list = flat && typeof $gameMap !== 'undefined' && $gameMap ? L.list(DocsDoodads.Lighting.mapSettings($gameMap.mapId())) : [];
-        const key = JSON.stringify(list);
+        const mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        const raw = mapSettings && Array.isArray(mapSettings.layers2d) ? mapSettings.layers2d : null;
+        // In play the layers only change by being replaced: the list is read again when the settings' array
+        // changes. The editor changes them in place, so there it compares the whole list every frame.
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const seen = this._docsLayersFor;
+        const changed = editing || !seen || seen.raw !== raw || seen.length !== (raw ? raw.length : 0);
+        if (changed) this._docsLayersFor = { raw, length: raw ? raw.length : 0 };
+        const list = changed && raw ? L.list(mapSettings) : [];
+        const key = changed ? JSON.stringify(list) : this._docsLayersKey;
         if (key !== this._docsLayersKey) {
             this.docsDestroyLayers2d();
             this._docsLayersKey = key;
@@ -12346,7 +12562,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         let g = pool[index];
         if (!use) {
             if (sprite.mask) sprite.mask = null;
-            if (g) { g.clear(); g.visible = false; }
+            if (g) { g.clear(); g._docsOutline = null; g.visible = false; }
             return false;
         }
         const pts = O.outlineFor(light, Math.max(40, Math.min(360, Number(world.rays) || 160)));
@@ -12355,13 +12571,17 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             g = pool[index] = new PIXI.Graphics();
             this._docsLightScene.addChild(g);
         }
-        const ox = $gameMap.displayX() * $gameMap.tileWidth(), oy = $gameMap.displayY() * $gameMap.tileHeight();
-        const screen = new Array(pts.length);
-        for (let i = 0; i < pts.length; i += 2) { screen[i] = pts[i] - ox; screen[i + 1] = pts[i + 1] - oy; }
-        g.clear();
-        g.beginFill(0xffffff, 1);
-        g.drawPolygon(screen);
-        g.endFill();
+        // The outline is drawn once in map pixels (outlines are cached, so the same one comes back while
+        // the light stays); each frame only the graphics moves with the map.
+        if (g._docsOutline !== pts) {
+            g._docsOutline = pts;
+            g.clear();
+            g.beginFill(0xffffff, 1);
+            g.drawPolygon(pts);
+            g.endFill();
+        }
+        g.x = -$gameMap.displayX() * $gameMap.tileWidth();
+        g.y = -$gameMap.displayY() * $gameMap.tileHeight();
         g.visible = true;
         if (sprite.mask !== g) sprite.mask = g;
         return true;
@@ -12407,7 +12627,60 @@ DocsDoodads.VisualEquip.contextFor = function(actor, extraNotes) {
 
 DocsDoodads.VisualEquip.layersForActor = function(actor, extraNotes) {
     if (!actor) return extraNotes && extraNotes.length ? this.resolve({ extraNotes }, this.env()) : [];
-    return this.resolve(this.contextFor(actor, extraNotes), this.env());
+    // Every character asks every frame; the layers are worked out again only when what they are made
+    // from changes (inputsOf), or a switch or variable a colour rule reads. The editor can change the
+    // database's notes, so it works them out every time.
+    const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    if (editing) return this.resolve(this.contextFor(actor, extraNotes), this.env());
+    const memo = this._actorMemo || (this._actorMemo = typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+    const inputs = this.inputsOf(actor, extraNotes);
+    const hit = memo ? memo.get(actor) : null;
+    if (hit && hit.inputs.length === inputs.length && hit.inputs.every((v, i) => v === inputs[i]) && this.sameDynamic(hit.dynamic)) return hit.layers;
+    const ctx = this.contextFor(actor, extraNotes);
+    const layers = this.resolve(ctx, this.env());
+    if (memo) memo.set(actor, { inputs, layers, dynamic: this.dynamicOf(ctx) });
+    return layers;
+};
+
+// What an actor's layers are made from, as a list compared item by item: the settings, the Aseprite
+// sheets, the actor's and class's data, equipment and states by id, plugin-command changes (replaced,
+// never changed in place) and an event's text.
+DocsDoodads.VisualEquip.inputsOf = function(actor, extraNotes) {
+    const out = [DocsDoodads.World.settings(), DocsDoodads.AsepriteVisuals.version,
+        typeof actor.actor === 'function' ? actor.actor() : null, typeof actor.currentClass === 'function' ? actor.currentClass() : null];
+    if (Array.isArray(actor._equips)) for (const item of actor._equips) out.push(item ? item._dataClass + ':' + item._itemId : '');
+    else if (typeof actor.equips === 'function') for (const e of actor.equips()) out.push(e);
+    out.push('|');
+    if (Array.isArray(actor._states)) for (const id of actor._states) out.push(id);
+    else if (typeof actor.states === 'function') for (const st of actor.states()) out.push(st);
+    const v = actor._docsVisual || null;
+    out.push('|', v, v && v.notes, v && v.notes ? v.notes.length : 0, v && v.colors, v && v.alias);
+    for (const n of extraNotes || []) out.push(n);
+    return out;
+};
+
+// The switches and variables the colour rules read, with their values now.
+DocsDoodads.VisualEquip.dynamicOf = function(ctx) {
+    const notes = [ctx.actorNote].concat(ctx.equipNotes || [], ctx.extraNotes || []);
+    const out = [];
+    const env = this.env();
+    for (const text of notes) {
+        for (const rule of this.parseNote(text).colors) {
+            if (rule.switchId) out.push('s', rule.switchId, Boolean(env.switch(rule.switchId)));
+            if (rule.variableId) out.push('v', rule.variableId, Number(env.variable(rule.variableId)) || 0);
+        }
+    }
+    return out;
+};
+
+DocsDoodads.VisualEquip.sameDynamic = function(list) {
+    if (!list || !list.length) return true;
+    const env = this.env();
+    for (let i = 0; i < list.length; i += 3) {
+        const now = list[i] === 's' ? Boolean(env.switch(list[i + 1])) : Number(env.variable(list[i + 1])) || 0;
+        if (now !== list[i + 2]) return false;
+    }
+    return true;
 };
 
 // An event's note and the comments on its current page.
@@ -12422,8 +12695,15 @@ DocsDoodads.VisualEquip.eventText = function(ev) {
         if (cmd && (cmd.code === 108 || cmd.code === 408) && cmd.parameters) lines.push(String(cmd.parameters[0] || ''));
     }
     const text = lines.join('\n');
-    if (cache) cache.set(ev, { page: ev._pageIndex, text });
+    if (cache) cache.set(ev, { page: ev._pageIndex, text, visual: /<\s*visual/i.test(text) });
     return text;
+};
+
+// Whether an event's text has any <visual> tag (read with eventText, kept with it).
+DocsDoodads.VisualEquip.eventHasVisual = function(ev) {
+    const text = this.eventText(ev);
+    const hit = this._eventText ? this._eventText.get(ev) : null;
+    return hit ? hit.visual : /<\s*visual/i.test(text);
 };
 
 // Gear shows while the character uses the actor's own image, so a transformation hides it.
@@ -12442,8 +12722,8 @@ DocsDoodads.VisualEquip.layersForCharacter = function(ch) {
     if (typeof Game_Event !== 'undefined' && ch instanceof Game_Event && s.events) {
         // A page without an image (a hidden or removed NPC) shows no gear either.
         if (!ch.event() || !ch.characterName()) return [];
+        if (!this.eventHasVisual(ch)) return [];
         const text = this.eventText(ch);
-        if (!/<\s*visual/i.test(text)) return [];
         const note = this.parseNote(text);
         const actor = note.actorId && typeof $gameActors !== 'undefined' ? $gameActors.actor(note.actorId) : null;
         return this.layersForActor(actor, [text]);
@@ -12488,11 +12768,15 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
 
     Sprite_Character.prototype.updateDocsVisual = function() {
         const ch = this._character;
-        const layers = ch && this.parent && !(ch.tileId() > 0) ? VE.layersForCharacter(ch) : [];
-        const sig = VE.signature(layers);
-        if (sig !== this._docsVisualSig) {
-            this._docsVisualSig = sig;
-            this.rebuildDocsVisual(layers);
+        const layers = ch && this.parent && !(ch.tileId() > 0) ? VE.layersForCharacter(ch) : null;
+        // The same list as last frame (layersForActor keeps it while nothing changed) needs no signature.
+        if (layers !== this._docsVisualLayers || !layers) {
+            this._docsVisualLayers = layers;
+            const sig = VE.signature(layers || []);
+            if (sig !== this._docsVisualSig) {
+                this._docsVisualSig = sig;
+                this.rebuildDocsVisual(layers || []);
+            }
         }
         if (this._docsVisualSprites && this._docsVisualSprites.length) this.updateDocsVisualSprites();
     };
@@ -13230,6 +13514,23 @@ DocsDoodads.Perspective.active = function() {
     return s;
 };
 
+// A copy of a texture inset by half a texel, for drawing billboards (drawDocsItem). Kept per texture and
+// moved with it when its frame changes (an animated doodad), so drawing makes no texture a frame.
+DocsDoodads.Perspective.insetTexture = function(tex) {
+    const cache = this._insets || (this._insets = new WeakMap());
+    const f = tex.frame;
+    let c = cache.get(tex);
+    if (c && c.texture.baseTexture !== tex.baseTexture) c = null;
+    if (!c) {
+        c = { x: f.x, y: f.y, w: f.width, h: f.height, texture: new PIXI.Texture(tex.baseTexture, new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1)) };
+        cache.set(tex, c);
+    } else if (c.x !== f.x || c.y !== f.y || c.w !== f.width || c.h !== f.height) {
+        c.x = f.x; c.y = f.y; c.w = f.width; c.h = f.height;
+        c.texture.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
+    }
+    return c.texture;
+};
+
 // The camera used for the last frame drawn (null when the map is flat).
 DocsDoodads.Perspective.liveCamera = function() {
     return this.active() ? this._cam || null : null;
@@ -13366,17 +13667,21 @@ DocsDoodads.Perspective.hexToRgb = function(hex) {
 DocsDoodads.Perspective.lightAt = function(info, x, y) {
     if (!info || !info.base) return null;
     let r = info.base[0], g = info.base[1], b = info.base[2];
-    for (const l of info.lights || []) {
-        const dist = Math.hypot(l.x - x, l.y - y) / Math.max(1, l.radius);
+    const lights = info.lights || [];
+    // Asked for every billboard: lights out of reach are passed over by a box test before the root.
+    for (let i = 0; i < lights.length; i++) {
+        const l = lights[i];
+        const reach = Math.max(1, l.radius), dx = l.x - x, dy = l.y - y;
+        if (dx >= reach || dx <= -reach || dy >= reach || dy <= -reach) continue;
+        const dist = Math.sqrt(dx * dx + dy * dy) / reach;
         if (dist >= 1) continue;
         const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
         const color = l.color >>> 0;
         const k = fall * (l.intensity || 0) / 255;
         r += ((color >> 16) & 255) * k; g += ((color >> 8) & 255) * k; b += (color & 255) * k;
     }
-    const rgb = [r, g, b];
     const to = v => Math.max(0, Math.min(255, Math.round(v * 255)));
-    return (to(rgb[0]) << 16) | (to(rgb[1]) << 8) | to(rgb[2]);
+    return (to(r) << 16) | (to(g) << 8) | to(b);
 };
 
 DocsDoodads.Perspective.multiplyTint = function(a, b) {
@@ -13427,27 +13732,11 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         if (!obj || obj._destroyed || !obj.parent || !obj.visible) return;
         const temp = this._temp;
         const wt = this.worldTransform;
-        const tinted = [];
-        // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or
-        // the next frame of a sheet), and MZ bitmaps filter smoothly. A half-texel inset while drawing keeps them inside.
-        const inset = [];
-        const shrink = o => {
-            const tex = o && o instanceof PIXI.Sprite ? o.texture : null;
-            if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
-                && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
-                const f = tex.frame;
-                inset.push([tex, f.x, f.y, f.width, f.height]);
-                tex.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
-            }
-            for (const child of (o && o.children) || []) shrink(child);
-        };
-        const tint = (o, color) => {
-            if (o && o.tint !== undefined && o instanceof PIXI.Sprite) {
-                tinted.push([o, o.tint]);
-                o.tint = DocsDoodads.Perspective.multiplyTint(o.tint, color);
-            }
-            for (const child of (o && o.children) || []) tint(child, color);
-        };
+        // Kept between items and frames: what was tinted or inset, to put back after drawing.
+        const tinted = this._docsTinted || (this._docsTinted = []);
+        const inset = this._docsInset || (this._docsInset = []);
+        tinted.length = 0;
+        inset.length = 0;
         const m = it.matrix;
         const world = temp.transform.worldTransform;
         if (m) world.set(wt.a * m.a + wt.c * m.b, wt.b * m.a + wt.d * m.b, wt.a * m.c + wt.c * m.d, wt.b * m.c + wt.d * m.d,
@@ -13458,16 +13747,47 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         const parent = obj.parent;
         obj.parent = temp;
         obj.updateTransform();
-        if (!plain && it.tint !== null && it.tint !== undefined) tint(obj, it.tint);
-        if (m) shrink(obj);
+        if (!plain && it.tint !== null && it.tint !== undefined) this.docsTintTree(obj, it.tint, tinted);
+        if (m) this.docsInsetTree(obj, inset);
         obj.render(renderer);
-        // The batch reads tints and texture coordinates when it flushes: draw before restoring them.
+        // The batch reads tints and textures when it flushes: draw before putting them back.
         if ((tinted.length || inset.length) && renderer.batch) renderer.batch.flush();
-        for (const [o, old] of tinted) o.tint = old;
-        for (const [tex, x, y, w, h] of inset) tex.frame = new PIXI.Rectangle(x, y, w, h);
+        for (let i = 0; i < tinted.length; i += 2) tinted[i].tint = tinted[i + 1];
+        for (let i = 0; i < inset.length; i += 2) inset[i].texture = inset[i + 1];
+        tinted.length = 0;
+        inset.length = 0;
         obj.parent = parent;
         // Recompute against the real parent next frame, even if transform ids happen to match.
         obj.transform._parentID = -1;
+    };
+
+    // Tints a sprite and its children by the light (pairs of sprite, old tint into `out`).
+    Sprite_DocsBillboards.prototype.docsTintTree = function(o, color, out) {
+        if (!o) return;
+        if (o.tint !== undefined && o instanceof PIXI.Sprite) {
+            out.push(o, o.tint);
+            o.tint = DocsDoodads.Perspective.multiplyTint(o.tint, color);
+        }
+        const children = o.children;
+        if (children) for (let i = 0; i < children.length; i++) this.docsTintTree(children[i], color, out);
+    };
+
+    // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or the next
+    // frame of a sheet), and MZ bitmaps filter smoothly. While drawing, each sprite shows a copy of its texture
+    // inset by half a texel (pairs of sprite, own texture into `out`). The copies are kept per texture.
+    Sprite_DocsBillboards.prototype.docsInsetTree = function(o, out) {
+        if (!o) return;
+        const tex = o instanceof PIXI.Sprite ? o.texture : null;
+        if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
+            && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
+            const inset = DocsDoodads.Perspective.insetTexture(tex);
+            if (inset) {
+                out.push(o, tex);
+                o.texture = inset;
+            }
+        }
+        const children = o.children;
+        if (children) for (let i = 0; i < children.length; i++) this.docsInsetTree(children[i], out);
     };
 
     // The player (and their gear) hidden behind something, drawn again on top as one tinted outline:
@@ -13763,9 +14083,32 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 ? DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, halfWidth)
                 : DocsDoodads.Terrain.footHeightPxAtFlat(pivot.x, pivot.y, halfWidth);
             const m = P.scaleAbout(P.billboardMatrix(cam, pivot), pivot, this.docsBillboardScale(obj, s));
-            if (!m) continue;
+            // Off the 3D picture (behind the camera, its foot with room for its own size outside the view, or
+            // lost in the fog): not listed nor drawn, and its doodad's shadow and effects wait next frame
+            // (Sprite_DocsDoodad.docsCulled). Models can be larger than their sprite, so they are always listed.
+            const frame = DocsDoodads.frameCount();
+            if (!m) {
+                obj._docs3dOut = true;
+                obj._docs3dOutFrame = frame;
+                continue;
+            }
+            if (!(obj._data && obj._data.model)) {
+                const footX = m.a * pivot.x + m.c * pivot.y + m.tx, footY = m.b * pivot.x + m.d * pivot.y + m.ty;
+                const base = obj._docsBillboardOwner || obj;
+                const size = Math.max(halfWidth * 2, base instanceof PIXI.Sprite ? Math.abs(base.height) : $gameMap.tileHeight());
+                const reach = Math.hypot(m.a, m.b) * size + 64;
+                const out = footX < -reach || footX > W + reach || footY < -reach || footY > H + reach;
+                obj._docs3dOut = out;
+                obj._docs3dOutFrame = frame;
+                if (out) continue;
+            }
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
-            if (fog >= 1) continue;
+            if (fog >= 1) {
+                obj._docs3dOut = true;
+                obj._docs3dOutFrame = frame;
+                continue;
+            }
+            if (obj.renderable === false && obj._docsCulled !== undefined) obj.renderable = true;
             // A doodad with a 3D model is drawn as the model.
             if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
                 const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);
@@ -13839,7 +14182,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.updateDocsFlatSkyVideo = function() {
         // The map's settings, with any Set Sky Video change.
         const P3 = DocsDoodads.Perspective;
-        const settings = P3.withOverride((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective, $gameMap._docsCamera || null);
+        const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
+        const camera = $gameMap._docsCamera || null;
+        // Most flat maps have no sky video and none playing: nothing to merge.
+        if (!(mine && mine.skyVideo) && !(camera && camera.skyVideo) && !this._docsSkyVideoPath && !this._docsFlatSkyVideo) return;
+        const settings = P3.withOverride(mine, camera);
         const on = !this._docs3d && settings.skyVideo && settings.skyVideoFlat;
         if (!on) {
             if (this._docsFlatSkyVideo) this._docsFlatSkyVideo.visible = false;
@@ -24002,17 +24349,74 @@ DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-    const tileBox = this.tileBox(tx, ty, tw, th);
+    const here = this.grid(doodads, tw, th).tiles.get(this.tileKey(tx, ty));
+    if (!here) return false;
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
-    for (const dData of doodads) {
-        if (vehicles && !(dData && dData.collision && dData.collision.vehicles)) continue;
-        const colBody = this.bodyOf(dData);
-        if (!colBody) continue;
-        // The box test is cheap; switches and conditions are only checked for doodads on this tile.
-        if (!DocsDoodads.judge(colBody, tileBox)) continue;
+    // The grid holds the doodads whose bodies cover this tile; switches and conditions are checked here.
+    for (const dData of here) {
+        if (vehicles && !(dData.collision && dData.collision.vehicles)) continue;
         if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {}) && DocsDoodads.States.blocks(dData)) return true;
     }
     return false;
+};
+
+DocsDoodads.Collision.tileKey = function(tx, ty) {
+    return (ty + 2) * 1048576 + (tx + 2);
+};
+
+// A doodad's body, kept while the fields it is made from stay (bodyOf builds a new one each call).
+DocsDoodads.Collision._bodies = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+DocsDoodads.Collision.cachedBody = function(d) {
+    if (!this._bodies || !d || typeof d !== 'object') return { body: this.bodyOf(d), changed: true };
+    const col = d.collision;
+    const c = this._bodies.get(d);
+    if (c && c.col === col && c.preset === (col && col.preset) && c.shape === (col && col.shape) && c.x === d.x && c.y === d.y
+        && c.fw === d.frameW && c.fh === d.frameH && c.sx === d.scaleX && c.sy === d.scaleY && c.ax === d.anchorX && c.ay === d.anchorY) {
+        return { body: c.body, changed: false };
+    }
+    const body = this.bodyOf(d);
+    this._bodies.set(d, { col, preset: col && col.preset, shape: col && col.shape, x: d.x, y: d.y, fw: d.frameW, fh: d.frameH,
+        sx: d.scaleX, sy: d.scaleY, ax: d.anchorX, ay: d.anchorY, body });
+    return { body, changed: true };
+};
+
+// The map's doodads by the tiles their bodies block (the tilesUnder test), so a character's step looks at
+// the few doodads on that tile instead of every one. Checked at most once a frame in play: it is built
+// again when the list, a doodad's body or the tile size changes. The editor (which changes shapes in
+// place) and frame 0 check on every call; invalidate() makes the next call check.
+DocsDoodads.Collision.grid = function(doodads, tw, th) {
+    const frame = DocsDoodads.frameCount ? DocsDoodads.frameCount() : 0;
+    const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    let g = this._grid;
+    const same = g && g.doodads === doodads && g.length === doodads.length && g.tw === tw && g.th === th;
+    if (same && !editing && frame !== 0 && g.frame === frame && !this._dirty) return g;
+    this._dirty = false;
+    let changed = !same || editing;
+    const bodies = new Array(doodads.length);
+    for (let i = 0; i < doodads.length; i++) {
+        const r = this.cachedBody(doodads[i]);
+        bodies[i] = r.body;
+        if (r.changed) changed = true;
+    }
+    if (!changed) {
+        g.frame = frame;
+        return g;
+    }
+    const tiles = new Map();
+    for (let i = 0; i < doodads.length; i++) {
+        if (!bodies[i]) continue;
+        for (const t of this.tilesUnder(bodies[i], tw, th)) {
+            const key = this.tileKey(t.x, t.y);
+            const list = tiles.get(key);
+            if (list) list.push(doodads[i]); else tiles.set(key, [doodads[i]]);
+        }
+    }
+    g = this._grid = { doodads, length: doodads.length, tw, th, frame, tiles };
+    return g;
+};
+
+DocsDoodads.Collision.invalidate = function() {
+    this._dirty = true;
 };
 
 if (typeof Game_CharacterBase !== 'undefined') {

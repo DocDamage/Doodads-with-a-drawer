@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Faster maps with many doodads. Doodads off the screen (or off the 3D view) are not drawn, and their shadows, filters and effects wait; their lights still shine. On a 200 × 200 map with 3,000 doodads and 375 lights this took Show Speed from 23 to 60 frames a second on the flat map (12,000 draw calls a frame to 150) and from 14 to 60 in 3D (24,000 to 248). Per doodad and frame, the game no longer rebuilds the layer list, the season, the filter signature or a light's settings; a character's step checks the doodads on that tile instead of all of them; light masks are traced once and moved with the map; post-processing, visual equipment and the ambience around the player are worked out again only when what they depend on changes; characters' frames no longer make a new texture each time (they were never let go).
 - Memao creator: the export stands characters on the tile's bottom (every frame 6 pixels lower, as MZ's own characters; on at first, a sheet that would lose pixels stays as it was and is named), and a pack with more than one prop of a kind gets a row in Tools to choose it.
 - MZ creator: a part offers every colour slot its walking and battler pictures use, not only its face's (108 parts gain one, such as a cloak's second colour).
 - Character creators: Export recipe... and Import recipe... (under Load) keep one character in a file of its own anywhere on the computer; a recipe from another creator says which to switch to.

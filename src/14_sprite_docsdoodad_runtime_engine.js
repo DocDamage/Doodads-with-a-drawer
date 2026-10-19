@@ -306,6 +306,17 @@ if (typeof PIXI !== 'undefined') {
         const layerSettings = DocsDoodads.Lighting.mapSettings(typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0);
         if (!(editing ? DocsDoodads.Layers.visibleInEditor(d, layerSettings) : DocsDoodads.Layers.visibleInGame(d, layerSettings))) visible = false;
         this.visible = visible;
+        // Off the screen it isn't drawn and its see-through, filters and shadow wait; `visible` keeps its
+        // meaning (lights, reflections and collision read it), so culling uses `renderable`.
+        const culled = visible && this.docsCulled(editing);
+        this._docsCulled = culled;
+        this.renderable = !culled;
+        if (culled) {
+            this._seeAlpha = 1;
+            this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim * this._transitionAlpha;
+            if (this._shadowSprite) this._shadowSprite.renderable = false;
+            return;
+        }
         this.alpha = (d.opacity !== undefined ? d.opacity : 1) * motion.alphaMul * dim * this._transitionAlpha * this.updateSeeThrough(editing);
 
         this.refreshAppearance();
@@ -314,6 +325,27 @@ if (typeof PIXI !== 'undefined') {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
         }
         this.updateShadow();
+        if (this._shadowSprite) this._shadowSprite.renderable = true;
+    };
+
+    // Off-screen culling in play: true when the drawn rectangle, with room around it for a shadow, filters
+    // and sway (a tile and its own size), is off the screen. A zoom that shows more than the screen widens
+    // it. In 3D the billboards decide by the camera (a doodad off the 3D picture last frame is culled); the
+    // editor shows everything.
+    Sprite_DocsDoodad.prototype.docsCulled = function(editing) {
+        const d = this._data;
+        if (editing || !d || d.posMode !== 1 || typeof Graphics === 'undefined') return false;
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.active()) {
+            return this._docs3dOut === true && DocsDoodads.frameCount() - (this._docs3dOutFrame || 0) <= 1;
+        }
+        const zoom = typeof $gameScreen !== 'undefined' && $gameScreen && $gameScreen.zoomScale ? Number($gameScreen.zoomScale()) || 1 : 1;
+        const w = (d.frameW || (this.texture ? this.texture.frame.width : 48)) * Math.abs(this.scale.x);
+        const h = (d.frameH || (this.texture ? this.texture.frame.height : 48)) * Math.abs(this.scale.y);
+        const left = this.x - this.anchor.x * w, top = this.y - this.anchor.y * h;
+        const pad = 48 + Math.max(w, h);
+        const wide = zoom < 1 ? (1 / zoom - 1) / 2 : 0;
+        const W = Graphics.width, H = Graphics.height;
+        return left + w < -pad - W * wide || top + h < -pad - H * wide || left > W + pad + W * wide || top > H + pad + H * wide;
     };
 
     // Screen rectangle of the drawn frame.
@@ -372,9 +404,8 @@ if (typeof PIXI !== 'undefined') {
     // Rebuilds the filter stack only when tint, hue, blur, blend or shimmer settings change.
     Sprite_DocsDoodad.prototype.refreshAppearance = function() {
         const d = this._data;
-        const sig = DocsDoodads.Appearance.signature(d);
-        if (sig === this._appearanceSig) return;
-        this._appearanceSig = sig;
+        if (!this._appearanceSig) this._appearanceSig = [];
+        if (DocsDoodads.Appearance.sameLook(d, this._appearanceSig)) return;
         this.blendMode = DocsDoodads.Appearance.blendMode(d);
         const filters = [];
         try {

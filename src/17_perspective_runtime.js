@@ -25,6 +25,23 @@ DocsDoodads.Perspective.active = function() {
     return s;
 };
 
+// A copy of a texture inset by half a texel, for drawing billboards (drawDocsItem). Kept per texture and
+// moved with it when its frame changes (an animated doodad), so drawing makes no texture a frame.
+DocsDoodads.Perspective.insetTexture = function(tex) {
+    const cache = this._insets || (this._insets = new WeakMap());
+    const f = tex.frame;
+    let c = cache.get(tex);
+    if (c && c.texture.baseTexture !== tex.baseTexture) c = null;
+    if (!c) {
+        c = { x: f.x, y: f.y, w: f.width, h: f.height, texture: new PIXI.Texture(tex.baseTexture, new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1)) };
+        cache.set(tex, c);
+    } else if (c.x !== f.x || c.y !== f.y || c.w !== f.width || c.h !== f.height) {
+        c.x = f.x; c.y = f.y; c.w = f.width; c.h = f.height;
+        c.texture.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
+    }
+    return c.texture;
+};
+
 // The camera used for the last frame drawn (null when the map is flat).
 DocsDoodads.Perspective.liveCamera = function() {
     return this.active() ? this._cam || null : null;
@@ -161,17 +178,21 @@ DocsDoodads.Perspective.hexToRgb = function(hex) {
 DocsDoodads.Perspective.lightAt = function(info, x, y) {
     if (!info || !info.base) return null;
     let r = info.base[0], g = info.base[1], b = info.base[2];
-    for (const l of info.lights || []) {
-        const dist = Math.hypot(l.x - x, l.y - y) / Math.max(1, l.radius);
+    const lights = info.lights || [];
+    // Asked for every billboard: lights out of reach are passed over by a box test before the root.
+    for (let i = 0; i < lights.length; i++) {
+        const l = lights[i];
+        const reach = Math.max(1, l.radius), dx = l.x - x, dy = l.y - y;
+        if (dx >= reach || dx <= -reach || dy >= reach || dy <= -reach) continue;
+        const dist = Math.sqrt(dx * dx + dy * dy) / reach;
         if (dist >= 1) continue;
         const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
         const color = l.color >>> 0;
         const k = fall * (l.intensity || 0) / 255;
         r += ((color >> 16) & 255) * k; g += ((color >> 8) & 255) * k; b += (color & 255) * k;
     }
-    const rgb = [r, g, b];
     const to = v => Math.max(0, Math.min(255, Math.round(v * 255)));
-    return (to(rgb[0]) << 16) | (to(rgb[1]) << 8) | to(rgb[2]);
+    return (to(r) << 16) | (to(g) << 8) | to(b);
 };
 
 DocsDoodads.Perspective.multiplyTint = function(a, b) {
@@ -222,27 +243,11 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         if (!obj || obj._destroyed || !obj.parent || !obj.visible) return;
         const temp = this._temp;
         const wt = this.worldTransform;
-        const tinted = [];
-        // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or
-        // the next frame of a sheet), and MZ bitmaps filter smoothly. A half-texel inset while drawing keeps them inside.
-        const inset = [];
-        const shrink = o => {
-            const tex = o && o instanceof PIXI.Sprite ? o.texture : null;
-            if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
-                && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
-                const f = tex.frame;
-                inset.push([tex, f.x, f.y, f.width, f.height]);
-                tex.frame = new PIXI.Rectangle(f.x + 0.5, f.y + 0.5, f.width - 1, f.height - 1);
-            }
-            for (const child of (o && o.children) || []) shrink(child);
-        };
-        const tint = (o, color) => {
-            if (o && o.tint !== undefined && o instanceof PIXI.Sprite) {
-                tinted.push([o, o.tint]);
-                o.tint = DocsDoodads.Perspective.multiplyTint(o.tint, color);
-            }
-            for (const child of (o && o.children) || []) tint(child, color);
-        };
+        // Kept between items and frames: what was tinted or inset, to put back after drawing.
+        const tinted = this._docsTinted || (this._docsTinted = []);
+        const inset = this._docsInset || (this._docsInset = []);
+        tinted.length = 0;
+        inset.length = 0;
         const m = it.matrix;
         const world = temp.transform.worldTransform;
         if (m) world.set(wt.a * m.a + wt.c * m.b, wt.b * m.a + wt.d * m.b, wt.a * m.c + wt.c * m.d, wt.b * m.c + wt.d * m.d,
@@ -253,16 +258,47 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         const parent = obj.parent;
         obj.parent = temp;
         obj.updateTransform();
-        if (!plain && it.tint !== null && it.tint !== undefined) tint(obj, it.tint);
-        if (m) shrink(obj);
+        if (!plain && it.tint !== null && it.tint !== undefined) this.docsTintTree(obj, it.tint, tinted);
+        if (m) this.docsInsetTree(obj, inset);
         obj.render(renderer);
-        // The batch reads tints and texture coordinates when it flushes: draw before restoring them.
+        // The batch reads tints and textures when it flushes: draw before putting them back.
         if ((tinted.length || inset.length) && renderer.batch) renderer.batch.flush();
-        for (const [o, old] of tinted) o.tint = old;
-        for (const [tex, x, y, w, h] of inset) tex.frame = new PIXI.Rectangle(x, y, w, h);
+        for (let i = 0; i < tinted.length; i += 2) tinted[i].tint = tinted[i + 1];
+        for (let i = 0; i < inset.length; i += 2) inset[i].texture = inset[i + 1];
+        tinted.length = 0;
+        inset.length = 0;
         obj.parent = parent;
         // Recompute against the real parent next frame, even if transform ids happen to match.
         obj.transform._parentID = -1;
+    };
+
+    // Tints a sprite and its children by the light (pairs of sprite, old tint into `out`).
+    Sprite_DocsBillboards.prototype.docsTintTree = function(o, color, out) {
+        if (!o) return;
+        if (o.tint !== undefined && o instanceof PIXI.Sprite) {
+            out.push(o, o.tint);
+            o.tint = DocsDoodads.Perspective.multiplyTint(o.tint, color);
+        }
+        const children = o.children;
+        if (children) for (let i = 0; i < children.length; i++) this.docsTintTree(children[i], color, out);
+    };
+
+    // Scaled and leaning sprites can sample a texel past their frame (the next tile in an atlas or the next
+    // frame of a sheet), and MZ bitmaps filter smoothly. While drawing, each sprite shows a copy of its texture
+    // inset by half a texel (pairs of sprite, own texture into `out`). The copies are kept per texture.
+    Sprite_DocsBillboards.prototype.docsInsetTree = function(o, out) {
+        if (!o) return;
+        const tex = o instanceof PIXI.Sprite ? o.texture : null;
+        if (tex && tex.valid && !tex.rotate && tex.baseTexture && tex.frame.width > 1 && tex.frame.height > 1
+            && (tex.frame.width < tex.baseTexture.width || tex.frame.height < tex.baseTexture.height)) {
+            const inset = DocsDoodads.Perspective.insetTexture(tex);
+            if (inset) {
+                out.push(o, tex);
+                o.texture = inset;
+            }
+        }
+        const children = o.children;
+        if (children) for (let i = 0; i < children.length; i++) this.docsInsetTree(children[i], out);
     };
 
     // The player (and their gear) hidden behind something, drawn again on top as one tinted outline:
@@ -558,9 +594,32 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 ? DocsDoodads.Terrain.doodadHeightPxAtFlat(pivot.x, pivot.y, halfWidth)
                 : DocsDoodads.Terrain.footHeightPxAtFlat(pivot.x, pivot.y, halfWidth);
             const m = P.scaleAbout(P.billboardMatrix(cam, pivot), pivot, this.docsBillboardScale(obj, s));
-            if (!m) continue;
+            // Off the 3D picture (behind the camera, its foot with room for its own size outside the view, or
+            // lost in the fog): not listed nor drawn, and its doodad's shadow and effects wait next frame
+            // (Sprite_DocsDoodad.docsCulled). Models can be larger than their sprite, so they are always listed.
+            const frame = DocsDoodads.frameCount();
+            if (!m) {
+                obj._docs3dOut = true;
+                obj._docs3dOutFrame = frame;
+                continue;
+            }
+            if (!(obj._data && obj._data.model)) {
+                const footX = m.a * pivot.x + m.c * pivot.y + m.tx, footY = m.b * pivot.x + m.d * pivot.y + m.ty;
+                const base = obj._docsBillboardOwner || obj;
+                const size = Math.max(halfWidth * 2, base instanceof PIXI.Sprite ? Math.abs(base.height) : $gameMap.tileHeight());
+                const reach = Math.hypot(m.a, m.b) * size + 64;
+                const out = footX < -reach || footX > W + reach || footY < -reach || footY > H + reach;
+                obj._docs3dOut = out;
+                obj._docs3dOutFrame = frame;
+                if (out) continue;
+            }
             const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
-            if (fog >= 1) continue;
+            if (fog >= 1) {
+                obj._docs3dOut = true;
+                obj._docs3dOutFrame = frame;
+                continue;
+            }
+            if (obj.renderable === false && obj._docsCulled !== undefined) obj.renderable = true;
             // A doodad with a 3D model is drawn as the model.
             if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
                 const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);
@@ -634,7 +693,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.updateDocsFlatSkyVideo = function() {
         // The map's settings, with any Set Sky Video change.
         const P3 = DocsDoodads.Perspective;
-        const settings = P3.withOverride((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective, $gameMap._docsCamera || null);
+        const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
+        const camera = $gameMap._docsCamera || null;
+        // Most flat maps have no sky video and none playing: nothing to merge.
+        if (!(mine && mine.skyVideo) && !(camera && camera.skyVideo) && !this._docsSkyVideoPath && !this._docsFlatSkyVideo) return;
+        const settings = P3.withOverride(mine, camera);
         const on = !this._docs3d && settings.skyVideo && settings.skyVideoFlat;
         if (!on) {
             if (this._docsFlatSkyVideo) this._docsFlatSkyVideo.visible = false;

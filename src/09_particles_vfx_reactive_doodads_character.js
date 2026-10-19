@@ -95,6 +95,8 @@ DocsDoodads.Particles = {
     step(state, dt, emitting) {
         const c = state.config;
         state.time += dt;
+        // The world's wind pushes every emitter (pixels a second, a second); the same for every particle.
+        const push = (c.wind + DocsDoodads.Wind.current().x * 40) * dt;
         for (let i = state.particles.length - 1; i >= 0; i--) {
             const p = state.particles[i];
             p.age += dt;
@@ -102,8 +104,7 @@ DocsDoodads.Particles = {
                 state.particles.splice(i, 1);
                 continue;
             }
-            // The world's wind pushes every emitter (pixels a second, a second).
-            p.vx += (c.wind + DocsDoodads.Wind.current().x * 40) * dt;
+            p.vx += push;
             p.vy += c.gravity * dt;
             if (c.drag > 0) {
                 const k = Math.max(0, 1 - c.drag * dt);

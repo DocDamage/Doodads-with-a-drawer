@@ -154,6 +154,8 @@ DocsDoodads.api = {
                 d.y = tiles ? py + ts.h : py;
             }
         }
+        // Collision keeps bodies by tile for a frame; the next step sees where they went.
+        if (list.length && DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
         return list.length;
     },
 
@@ -176,6 +178,7 @@ DocsDoodads.api = {
             }
             Object.assign(d, next);
         }
+        if (DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
         this.refresh();
         return list.length;
     },

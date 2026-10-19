@@ -180,6 +180,27 @@ DocsDoodads.PostFX = {
         return this.isActive(look) ? look : null;
     },
 
+    // resolveLook for the map each frame: kept while its inputs stay (the world's and map's settings, a
+    // Set Look fade, the clock to a quarter minute, the region weights), so a still scene resolves once.
+    // The editor changes looks in place, so it resolves afresh there. The result is shared: never change it.
+    resolveLookCached(inputs = {}) {
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const { world, mapSettings, runtime, minutes, regionWeights } = inputs;
+        const quarter = minutes === undefined || minutes === null ? minutes : Math.round(Number(minutes) * 4) / 4;
+        const c = this._resolved;
+        const sameWeights = (a, b) => {
+            if (a === b) return true;
+            if (!a || !b) return false;
+            const ka = Object.keys(a), kb = Object.keys(b);
+            return ka.length === kb.length && ka.every(k => a[k] === b[k]);
+        };
+        if (!editing && c && c.world === world && c.mapSettings === mapSettings && c.runtime === runtime && c.minutes === quarter
+            && sameWeights(c.weights, regionWeights)) return c.look;
+        const look = this.resolveLook(inputs);
+        this._resolved = editing ? null : { world, mapSettings, runtime, minutes: quarter, weights: regionWeights ? Object.assign({}, regionWeights) : regionWeights, look };
+        return look;
+    },
+
     // The player's Options choice (0 high .. 3 off) can lower the project's quality, never raise it.
     effectiveQuality(project, playerOption) {
         const levels = ['high', 'medium', 'low', 'off'];
@@ -206,9 +227,13 @@ DocsDoodads.PostFX = {
     // Grade-pass uniforms; disabled effects use their neutral values.
     uniforms(look, anim, time) {
         look = look || this.defaultLook();
+        // The params by effect and key, indexed once (this ran ~25 linear finds a frame).
+        if (!this._paramIndex) {
+            this._paramIndex = new Map();
+            for (const effect of this.effects) for (const p of effect.params) this._paramIndex.set(effect.id + '.' + p.key, p);
+        }
         const v = (id, key) => {
-            const effect = this.effects.find(e => e.id === id);
-            const p = effect.params.find(q => q.key === key);
+            const p = this._paramIndex.get(id + '.' + key);
             return look[id].enabled || p.neutral === undefined ? look[id][key] : p.neutral;
         };
         const ch = c => DocsDoodads.Lighting.channels(c);
