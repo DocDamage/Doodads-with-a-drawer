@@ -68,6 +68,84 @@ DocsDoodads.LpcExport = {
         return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i));
     },
 
+    // ---- Character Actions ----
+
+    // The animations offered as action sheets, with the speed they look right at (frames a second).
+    actions: [['slash', 12], ['thrust', 12], ['spellcast', 10], ['shoot', 14], ['hurt', 8], ['jump', 10], ['sit', 4], ['emote', 6], ['climb', 8], ['combat', 3], ['1h_backslash', 14], ['1h_halfslash', 12]],
+
+    actionName(name, anim) {
+        const n = this.cleanName(name) || 'Character';
+        return '$' + n + '_' + anim.replace(/^1h_/, '') + '[f' + (DocsDoodads.LpcCompose.animations[anim] || { frames: 1 }).frames + ']';
+    },
+
+    // An action sheet: every frame, four MZ rows. Animations drawn in one row (hurt, climb) use it for all four.
+    actionSheet(sheet, anim) {
+        const meta = DocsDoodads.LpcCompose.animations[anim] || {};
+        if (meta.rows !== 1) return this.allFrames(sheet);
+        const F = this.frame, n = this.frames(sheet);
+        const out = this.blank(n * F, 4 * F);
+        for (let row = 0; row < 4; row++) this.blit(out, sheet, 0, 0, 0, row * F, n * F, F);
+        return out;
+    },
+
+    // ---- The side-view battler ----
+
+    // MZ's 18 battle motions in order (each 3 frames; motion i is at column group floor(i / 6), row i % 6),
+    // and the library animation drawn for each, facing left unless given. frames: which three, or spread
+    // evenly over the animation when not given.
+    svMotions: [
+        { motion: 'walk', anim: 'walk', frames: [1, 0, 5] },
+        { motion: 'wait', anim: 'idle', frames: [0, 1, 0] },
+        { motion: 'chant', anim: 'spellcast', frames: [1, 2, 1] },
+        { motion: 'guard', anim: 'combat', frames: [0, 1, 0] },
+        { motion: 'damage', anim: 'hurt', frames: [0, 1, 2] },
+        { motion: 'evade', anim: 'jump', frames: [0, 1, 0] },
+        { motion: 'thrust', anim: 'thrust' },
+        { motion: 'swing', anim: 'slash' },
+        { motion: 'missile', anim: 'shoot' },
+        { motion: 'skill', anim: '1h_halfslash' },
+        { motion: 'spell', anim: 'spellcast' },
+        { motion: 'item', anim: 'emote' },
+        { motion: 'escape', anim: 'run', dir: 'right' },
+        { motion: 'victory', anim: 'jump', frames: [1, 2, 3] },
+        { motion: 'dying', anim: 'hurt', frames: [2, 3, 2] },
+        { motion: 'abnormal', anim: 'hurt', frames: [1, 2, 1] },
+        { motion: 'sleep', anim: 'hurt', frames: [5, 5, 5] },
+        { motion: 'dead', anim: 'hurt', frames: [5, 5, 5] }
+    ],
+    // When a character's parts have no picture for an animation, the motion uses another.
+    svFallback: { idle: 'walk', combat: 'idle', spellcast: 'idle', hurt: 'walk', jump: 'walk', thrust: 'walk', slash: 'walk', shoot: 'walk', '1h_halfslash': 'slash', emote: 'idle', run: 'walk' },
+
+    // The library animations a battler needs.
+    svAnimations() {
+        return [...new Set(this.svMotions.map(m => m.anim))];
+    },
+
+    // Three frames spread over an animation of n frames.
+    spread(n) {
+        return [0, 1, 2].map(k => Math.min(n - 1, Math.floor((k + 0.5) * n / 3)));
+    },
+
+    // sheets: { anim: composed sheet or null }. Returns the 576 x 384 battler and which motions fell back.
+    svSheet(sheets) {
+        const F = this.frame, dirs = DocsDoodads.LpcCompose.directions;
+        const out = this.blank(9 * F, 6 * F);
+        const fellBack = [];
+        this.svMotions.forEach((m, i) => {
+            let anim = m.anim, frames = m.frames, guard = 0;
+            while (!sheets[anim] && this.svFallback[anim] && guard++ < 4) { anim = this.svFallback[anim]; frames = null; }
+            const sheet = sheets[anim];
+            if (!sheet) return;
+            if (anim !== m.anim) fellBack.push(m.motion);
+            const n = this.frames(sheet);
+            const meta = DocsDoodads.LpcCompose.animations[anim] || {};
+            const row = meta.rows === 1 ? 0 : dirs.indexOf(m.dir || 'left');
+            const cols = (frames || this.spread(n)).map(f => Math.min(n - 1, f));
+            cols.forEach((f, k) => this.blit(out, sheet, f * F, row * F, (Math.floor(i / 6) * 3 + k) * F, (i % 6) * F, F, F));
+        });
+        return { sheet: out, fellBack };
+    },
+
     // ---- The face ----
 
     // Where the head is in the down-facing standing frame: from the top of the hair (or head) 32 pixels

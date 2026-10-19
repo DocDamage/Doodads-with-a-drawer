@@ -250,6 +250,7 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Save a character, change it, Load it back; delete it. Turn "Only art safe to encrypt" on and load a character using unsafe art: the parts not offered are named.
 - [ ] Credits lists the artists of the character on screen.
 - [ ] Export a named character with all three ticked; pick the sheets for an actor in MZ's database and play: the smooth walker's feet keep pace with the ground when walking and dashing, it breathes when still, it runs when dashing, and the face shows in Show Text. Export again: it asks before replacing.
+- [ ] Export a battler and the actions; set the actor's battler and turn on side view: every motion (attack, guard, magic, item, damage, victory, dead, escape) shows the character. Play Character Action with `$Name_slash[f6]` at 12 fps on the player.
 
 ## Scale and compatibility
 

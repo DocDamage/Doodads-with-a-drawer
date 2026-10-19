@@ -70,6 +70,9 @@ DocsDoodads.LpcCompose = {
                 if (part.layers.some(l => !l.custom)) warnings.push(`${part.name} has nothing for the ${body} body.`);
                 continue;
             }
+            // Some layers of a part (a blade behind the body) exist for fewer animations: say so only when
+            // none of them has a picture.
+            let found = 0, missing = false;
             for (const layer of folders) {
                 let folder = layer.paths[body];
                 let unresolved = '';
@@ -81,14 +84,18 @@ DocsDoodads.LpcCompose = {
                 if (unresolved) { warnings.push(`${part.name} needs a ${unresolved} it knows.`); continue; }
                 const base = folder.replace(/\/*$/, '/');
                 const name = layer.custom ? '' : this.fileOf(animation);
+                // Without a variant (an old recipe), a part sold in fixed colours shows its first.
+                const variant = pick.variant || (part.variants && part.variants[0]) || '';
                 const candidates = layer.custom
-                    ? [pick.variant ? base + pick.variant + '.png' : null]
-                    : [base + name + '.png', pick.variant ? base + name + '/' + pick.variant + '.png' : null];
+                    ? [variant ? base + variant + '.png' : null]
+                    : [base + name + '.png', variant ? base + name + '/' + variant + '.png' : null];
                 const file = candidates.find(f => f && exists(f));
-                if (!file) { warnings.push(`${part.name} has no ${animation} picture for the ${body} body.`); continue; }
+                if (!file) { missing = true; continue; }
+                found++;
                 layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick });
                 used.push({ part, folder: base });
             }
+            if (missing && !found) warnings.push(`${part.name} has no ${animation} picture for the ${body} body.`);
         }
         layers.sort((a, b) => a.z - b.z || a.priority - b.priority || a.order - b.order);
         return { body, animation, layers, used, warnings };

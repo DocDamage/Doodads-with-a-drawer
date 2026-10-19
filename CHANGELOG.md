@@ -3,6 +3,7 @@
 ## Unreleased — 2.0.0-alpha.1
 
 - A Playful theme (More > Look): cream cards, teal and coral, yellow for what is picked, rounder corners and pill buttons. Filled buttons keep white text at 4.5:1 or better.
+- The Character Creator also exports a side-view battler (MZ's 18 motions) and action sheets for Play Character Action (slash, thrust, spellcast, shoot, hurt, and more on request).
 - Export to RPG Maker from the Character Creator: a classic `$Name` walker, a smooth `$Name[f9][w2]` walker with `_idle` and `_run` sheets and their animation set, and a face in `img/faces` (other faces kept), with credits recorded and CREDITS_LPC.txt rewritten; Try on the player.
 - `[wN]` in a sheet name (with `[fN]`): frame 0 stands and the others walk, one cycle every N tiles at any speed.
 - Run sheets no longer flash back to the walk for a frame between tiles.
