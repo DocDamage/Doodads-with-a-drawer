@@ -239,6 +239,17 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Make a recovery/metadata JSON file invalid and confirm fallback is safe and visible.
 - [ ] Make the data directory temporarily read-only and confirm save failure leaves the workspace dirty.
 
+## Characters (LPC library and creator)
+
+- [ ] More > Characters: choose the library folder (Choose...), Scan the Library, and check the part count and version. A folder inside the project shows the warning.
+- [ ] Try it: Shuffle a few times and turn the character; with Less motion on it stands still.
+- [ ] Open the Creator in MZ's own window size (816 x 624): one card at a time with the Body & face / Outfit switch, nothing overlapping. Make the window big: both cards and the stage side by side.
+- [ ] Change every row with the mouse, the keyboard (arrows, Shift+arrows, Q/E, Tab, X/Y, Esc) and a gamepad (d-pad, A, LB/RB, Back, X/Y, Start, B). Arrow keys must not move the map behind.
+- [ ] Pick colours from the palette; right-click a swatch for the colour before.
+- [ ] Each animation chip plays; a part without that animation is named under the stage.
+- [ ] Save a character, change it, Load it back; delete it. Turn "Only art safe to encrypt" on and load a character using unsafe art: the parts not offered are named.
+- [ ] Credits lists the artists of the character on screen.
+
 ## Scale and compatibility
 
 - [ ] Browse a project with at least 10,000 indexed assets and watch memory while scrolling repeatedly.

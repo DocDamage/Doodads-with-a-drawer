@@ -297,6 +297,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <button class="dd-btn" id="dd-lpc-turn-right" type="button" aria-label="Turn right" title="Turn right">${U.icon('right', 1)}</button>
                 <div class="dd-lpc-try-side">
                     <button class="dd-btn dd-btn-primary" id="dd-lpc-shuffle" type="button" title="Another random character from the library">${U.icon('sparkle', 1)} Shuffle</button>
+                    <button class="dd-btn dd-btn-good" id="dd-lpc-creator" type="button" title="Make a character from the library">${U.icon('person', 1)} Open the Creator</button>
                     <span class="dd-lpc-note" id="dd-lpc-try-note">${this._lpcPreview && this._lpcPreview.recipe ? escapeHtml(this.lpcRecipeText(this._lpcPreview.recipe)) : ''}</span>
                 </div>
             </div>` : ''}
@@ -332,6 +333,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (safe) safe.onchange = e => { this.setLpcSafeOnly(Boolean(e.target.checked)); this.refreshLpcCard(); };
         on('dd-lpc-credits-write', () => { this.writeLpcCreditsText(); this.refreshLpcCard(); });
         on('dd-lpc-shuffle', () => { this.shuffleLpcPreview(); this.refreshLpcCard(); });
+        on('dd-lpc-creator', () => this.openCreator());
         on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
         on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
         if (document.getElementById('dd-lpc-preview')) {
