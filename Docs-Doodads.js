@@ -5710,6 +5710,9 @@ DocsDoodads.Shortcuts = {
         { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
         { id: 'find', label: 'Search the Item Bag', group: 'Panels', keys: 'F' },
         { id: 'shortcuts', label: 'Keyboard Shortcuts (this list)', group: 'Panels', keys: 'Shift+/' },
+        { id: 'nextPanel', label: 'Go to the next panel (top bar, Item Bag, map, Details)', group: 'Panels', keys: 'F6' },
+        { id: 'prevPanel', label: 'Go to the panel before', group: 'Panels', keys: 'Shift+F6' },
+        { id: 'itemKeys', label: 'In the Item Bag: arrows move between items, Enter picks one', group: 'Panels', keys: 'Arrow keys, Enter', fixed: true },
         { id: 'grid', label: 'Show or hide the grid', group: 'View', keys: 'G' },
         { id: 'collision', label: 'Show or hide collision', group: 'View', keys: '' },
         { id: 'sounds', label: 'Show or hide sounds', group: 'View', keys: '' },
@@ -21349,6 +21352,141 @@ DocsDoodads.UiFonts = {
 };
 
 //==========================================================
+// SECTION 24f: THE EDITOR'S LANGUAGE
+//==========================================================
+// The editor is written in English. A translation is a file in data/DocsDoodadsLanguages/<code>.json:
+// { "language": "Deutsch", "strings": { "Save everything": "Alles speichern", "Placed {n} doodad(s)": "..." } }
+// keyed by the English words. Words with {name} in them match any value there and carry it over. When a
+// language other than English is picked (More > Look), the editor's panels, cards, tooltips and messages
+// are shown in it; anything not translated stays English. npm run strings writes languages/template.json
+// with every English string found in the editor's parts, for a translator to fill in.
+DocsDoodads.I18n = {
+    folder: 'data/DocsDoodadsLanguages',
+    lang: 'en',
+    name: 'English',
+    exact: {},
+    patterns: [],
+    attributes: ['title', 'placeholder', 'aria-label', 'data-dd-tip'],
+
+    // [{ code, name }]: English and every language file in the folder.
+    available() {
+        const out = [{ code: 'en', name: 'English' }];
+        const FS = DocsDoodads.FS;
+        try {
+            if (!FS.fs || !FS.existsSync(this.folder)) return out;
+            for (const file of FS.fs.readdirSync(this.folder).filter(f => /^[\w-]+\.json$/i.test(f)).sort()) {
+                const code = file.replace(/\.json$/i, '');
+                if (code === 'en') continue;
+                const data = FS.readJson(FS.path.join(this.folder, file));
+                out.push({ code, name: (data && data.language) || code });
+            }
+        } catch (e) {}
+        return out;
+    },
+
+    // Takes a table ({ language, strings }); English words with {name} become patterns.
+    use(code, table) {
+        this.lang = code || 'en';
+        this.name = (table && table.language) || (this.lang === 'en' ? 'English' : this.lang);
+        this.exact = {};
+        this.patterns = [];
+        const strings = table && table.strings && typeof table.strings === 'object' ? table.strings : {};
+        for (const key of Object.keys(strings)) {
+            const value = strings[key];
+            if (typeof value !== 'string' || !value.trim()) continue;
+            if (/\{\w+\}/.test(key)) {
+                const names = [];
+                const source = key.split(/(\{\w+\})/).map(part => {
+                    const m = /^\{(\w+)\}$/.exec(part);
+                    if (m) { names.push(m[1]); return '(.+?)'; }
+                    return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                }).join('');
+                this.patterns.push({ re: new RegExp('^' + source + '$'), names, value });
+            } else {
+                this.exact[key] = value;
+            }
+        }
+        return this.lang;
+    },
+
+    // Reads data/DocsDoodadsLanguages/<code>.json; 'en' (or a file that can't be read) is English.
+    load(code) {
+        if (!code || code === 'en') return this.use('en', null);
+        const FS = DocsDoodads.FS;
+        const table = FS.readJson(FS.path ? FS.path.join(this.folder, code + '.json') : this.folder + '/' + code + '.json');
+        return table ? this.use(code, table) : this.use('en', null);
+    },
+
+    active() {
+        return this.lang !== 'en' && (Object.keys(this.exact).length > 0 || this.patterns.length > 0);
+    },
+
+    // The words in the editor's language, with {name} values filled in from vars.
+    t(text, vars) {
+        let s = String(text === undefined || text === null ? '' : text);
+        if (this.active()) {
+            const key = s.trim();
+            if (this.exact[key] !== undefined) s = s.replace(key, this.exact[key]);
+            else {
+                for (const p of this.patterns) {
+                    const m = p.re.exec(key);
+                    if (!m) continue;
+                    let out = p.value;
+                    p.names.forEach((n, i) => { out = out.split('{' + n + '}').join(m[i + 1]); });
+                    s = s.replace(key, out);
+                    break;
+                }
+            }
+        }
+        if (vars) for (const k of Object.keys(vars)) s = s.split('{' + k + '}').join(String(vars[k]));
+        return s;
+    },
+
+    // Translates the text and the tooltip-like attributes under a node. Already-translated words don't
+    // match English keys, so running it again changes nothing.
+    translateTree(root) {
+        if (!this.active() || !root) return 0;
+        let n = 0;
+        const walk = node => {
+            if (!node) return;
+            if (node.nodeType === 3) {
+                const text = node.nodeValue || '';
+                if (text.trim()) {
+                    const next = this.t(text);
+                    if (next !== text) { node.nodeValue = next; n++; }
+                }
+                return;
+            }
+            if (node.nodeType === 1) {
+                const tag = String(node.tagName || '').toUpperCase();
+                if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'CANVAS') return;
+                // What someone typed is theirs.
+                if ((tag === 'INPUT' || tag === 'TEXTAREA') && node.type !== 'button' && node.type !== 'submit') {
+                    this.translateAttributes(node) && n++;
+                    return;
+                }
+                if (this.translateAttributes(node)) n++;
+            }
+            const kids = node.childNodes || [];
+            for (let i = 0; i < kids.length; i++) walk(kids[i]);
+        };
+        walk(root);
+        return n;
+    },
+
+    translateAttributes(el) {
+        if (!el.getAttribute) return false;
+        let changed = false;
+        for (const a of this.attributes) {
+            const v = el.getAttribute(a);
+            if (!v) continue;
+            const next = this.t(v);
+            if (next !== v) { el.setAttribute(a, next); changed = true; }
+        }
+        return changed;
+    }
+};
+//==========================================================
 // SECTION 24b: DocsDoodads.UiIcons (WORKSPACE PIXEL ICONS)
 //==========================================================
 // Built from art/ui_icons.png by scripts/icons.js: edit the picture, then run npm run icons.
@@ -22448,6 +22586,7 @@ DocsDoodads.Workspace = {
         this._vfxPanel = null;
         this._postFxPanel = null;
         if (this.stopShortcutCapture) this.stopShortcutCapture();
+        if (this.stopLabelWatch) this.stopLabelWatch();
         this.previewRegionLook = 0;
         this._roomDrag = null;
         this.stopVfxPreview();
@@ -22833,17 +22972,39 @@ DocsDoodads.Workspace = {
         this.placeHint();
     },
 
-    // The hint bubble sits over the map, between the bag and the details panel.
+    // Where each panel is docked (44_workspace_docking.js moves them): left, right or bottom.
+    dock: { drawer: 'left', inspector: 'right', bottomHeight: 260 },
+
+    // The part of the window the map shows in, between the panels: { left, right, bottom, lift }, where
+    // lift is how far a panel docked at the bottom raises things that sit at the map's bottom edge.
+    mapArea() {
+        const room = this.roomSize();
+        const rect = id => {
+            const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+            return el && el.getBoundingClientRect && !(el.style && el.style.display === 'none') ? el.getBoundingClientRect() : null;
+        };
+        let left = 8, right = room.w - 8, bottom = room.h;
+        for (const [id, which] of [['dd-drawer-panel', 'drawer'], ['dd-inspector-panel', 'inspector']]) {
+            const r = rect(id);
+            if (!r || !(r.width || r.right)) continue;
+            const side = (this.dock && this.dock[which]) || (which === 'drawer' ? 'left' : 'right');
+            if (side === 'left') left = Math.max(left, r.right + 8);
+            else if (side === 'right') right = Math.min(right, r.left - 8);
+            else bottom = Math.min(bottom, r.top);
+        }
+        return { left, right, bottom, lift: Math.max(0, room.h - bottom) };
+    },
+
+    // The hint bubble sits over the map, between the panels.
     placeHint() {
         const hint = document.getElementById('dd-hint');
         if (!hint || !hint.style) return;
-        const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
-        const room = this.roomSize().w;
-        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
-        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
-        const width = Math.max(140, right - left);
-        hint.style.left = Math.round(left + width / 2) + 'px';
+        const area = this.mapArea();
+        const width = Math.max(140, area.right - area.left);
+        hint.style.left = Math.round(area.left + width / 2) + 'px';
         hint.style.maxWidth = Math.round(width) + 'px';
+        const raised = hint.classList && hint.classList.contains && hint.classList.contains('dd-hint-raised');
+        hint.style.bottom = area.lift ? Math.round(area.lift + (raised ? 42 : 10)) + 'px' : '';
         this.placeReadouts();
     },
 
@@ -31088,6 +31249,300 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25s: DOCKING THE ITEM BAG AND DETAILS
+//==========================================================
+// The Item Bag and Details can sit on the left, the right or along the bottom. Drag a panel by its title
+// to a side of the window (drop zones show), or use More > Look. The edge facing the map resizes it; a
+// panel at the bottom changes height. Where they are is remembered per layout (on this computer).
+DocsDoodads.Ui.css += `
+#dd-dock-zones { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10070; pointer-events: none; }
+#dd-dock-zones .dd-dock-zone { position: absolute; border: 3px dashed var(--dd-primary); border-radius: 14px; background: var(--dd-primary-soft); opacity: 0.45; display: flex; align-items: center; justify-content: center; font-family: var(--dd-font); font-weight: 900; color: var(--dd-primary); }
+#dd-dock-zones .dd-dock-zone.dd-hot { opacity: 0.95; }
+.dd-dock-row { display: grid; grid-template-columns: 70px 1fr 1fr 1fr; gap: 4px; align-items: center; font-size: 11px; }
+.dd-dock-row .dd-btn { padding: 3px 4px; font-size: 11px; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    dockSides: ['left', 'right', 'bottom'],
+    _sideWidth: { drawer: 250, inspector: 270 },
+
+    panelEl(which) {
+        return typeof document !== 'undefined' ? document.getElementById(which === 'drawer' ? 'dd-drawer-panel' : 'dd-inspector-panel') : null;
+    },
+
+    // ---- Where they are, per layout ----
+    dockDefaults() {
+        return { drawer: 'left', inspector: 'right', bottomHeight: 260 };
+    },
+
+    loadDock(layoutName) {
+        const U = DocsDoodads.Ui;
+        const saved = (U.prefs().docks || {})[layoutName];
+        const fromLayout = DocsDoodads.Layout && DocsDoodads.Layout.get ? (DocsDoodads.Layout.get(layoutName) || {}).dock : null;
+        const d = Object.assign(this.dockDefaults(), fromLayout || {}, saved || {});
+        this.dock = {
+            drawer: this.dockSides.includes(d.drawer) ? d.drawer : 'left',
+            inspector: this.dockSides.includes(d.inspector) ? d.inspector : 'right',
+            bottomHeight: Math.max(120, Math.min(900, Number(d.bottomHeight) || 260))
+        };
+        this._dockLoaded = true;
+        return this.dock;
+    },
+
+    saveDock() {
+        const U = DocsDoodads.Ui;
+        const docks = Object.assign({}, U.prefs().docks || {});
+        docks[(DocsDoodads.Layout && DocsDoodads.Layout.current) || 'Mapping'] = Object.assign({}, this.dock);
+        U.setPref('docks', docks);
+    },
+
+    setDock(which, side) {
+        if (!['drawer', 'inspector'].includes(which) || !this.dockSides.includes(side)) return false;
+        if (!this._dockLoaded) this.loadDock((DocsDoodads.Layout && DocsDoodads.Layout.current) || 'Mapping');
+        this.dock = Object.assign({}, this.dock, { [which]: side });
+        this.saveDock();
+        this.layoutPanels();
+        if (which === 'drawer' && this.updateVirtualGrid) this.updateVirtualGrid(true);
+        if (typeof document !== 'undefined' && document.getElementById('dd-look-card')) this.showLookCard();
+        return true;
+    },
+
+    // ---- Placing them ----
+    applyDockPositions(top) {
+        if (!this._dockLoaded) this.loadDock((DocsDoodads.Layout && DocsDoodads.Layout.current) || 'Mapping');
+        const room = this.roomSize();
+        const d = this.dock;
+        const both = ['drawer', 'inspector'];
+        const atBottom = both.filter(w => d[w] === 'bottom');
+        const bh = Math.round(Math.max(120, Math.min(room.h - top - 140, d.bottomHeight)));
+        const sideBottom = atBottom.length ? bh + 16 : 8;
+        for (const which of both) {
+            const el = this.panelEl(which);
+            if (!el || !el.style) continue;
+            const side = d[which];
+            const st = el.style;
+            const folded = this.isFolded && this.isFolded(which);
+            if (side !== 'bottom') {
+                const w = parseInt(st.width, 10);
+                if (w > 0 && el._ddDockSide !== 'bottom') this._sideWidth[which] = w;
+            }
+            el._ddDockSide = side;
+            if (side === 'bottom') {
+                st.top = '';
+                st.bottom = '8px';
+                st.height = (folded ? 44 : bh) + 'px';
+                if (atBottom.length === 2) {
+                    const half = Math.floor((room.w - 24) / 2);
+                    st.width = half + 'px';
+                    st.left = which === 'drawer' ? '8px' : '';
+                    st.right = which === 'drawer' ? '' : '8px';
+                } else {
+                    st.left = '8px';
+                    st.right = '8px';
+                    st.width = 'auto';
+                }
+            } else {
+                st.width = (this._sideWidth[which] || (which === 'drawer' ? 250 : 270)) + 'px';
+                st.left = side === 'left' ? '8px' : '';
+                st.right = side === 'right' ? '8px' : '';
+                st.height = '';
+                // Two panels on one side share it, one above the other.
+                const other = which === 'drawer' ? 'inspector' : 'drawer';
+                if (d[other] === side) {
+                    const avail = room.h - top - sideBottom;
+                    const firstHalf = Math.floor(avail / 2) - 4;
+                    if (which === 'drawer') { st.top = top + 'px'; st.bottom = ''; st.height = firstHalf + 'px'; }
+                    else { st.top = (top + firstHalf + 8) + 'px'; st.bottom = sideBottom + 'px'; }
+                } else {
+                    st.top = top + 'px';
+                    st.bottom = sideBottom + 'px';
+                }
+            }
+            this.placeDockResizer(which, side);
+        }
+    },
+
+    // The edge facing the map: drag it to resize.
+    placeDockResizer(which, side) {
+        const el = typeof document !== 'undefined' ? document.getElementById(which === 'drawer' ? 'dd-drawer-resizer' : 'dd-inspector-resizer') : null;
+        if (!el || !el.style) return;
+        const st = el.style;
+        if (side === 'bottom') {
+            Object.assign(st, { top: '0', left: '0', right: '', width: '100%', height: '6px', cursor: 'ns-resize' });
+        } else {
+            Object.assign(st, { top: '0', width: '6px', height: '100%', cursor: 'ew-resize', left: side === 'right' ? '0' : '', right: side === 'left' ? '0' : '' });
+        }
+        el.onmousedown = e => this.beginDockResize(which, e);
+    },
+
+    beginDockResize(which, e) {
+        if (e && e.preventDefault) e.preventDefault();
+        const panel = this.panelEl(which);
+        if (!panel) return false;
+        const side = this.dock[which];
+        const scale = this.uiScaleNow();
+        const start = { x: e.clientX, y: e.clientY, w: parseInt(panel.style.width, 10) || this._sideWidth[which], h: this.dock.bottomHeight };
+        const move = ev => this.dockResizeTo(which, side, start, ev, scale);
+        const up = () => {
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            this.saveDock();
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+        return true;
+    },
+
+    dockResizeTo(which, side, start, ev, scale = 1) {
+        const panel = this.panelEl(which);
+        if (!panel) return;
+        if (side === 'bottom') {
+            this.dock.bottomHeight = Math.round(Math.max(120, Math.min(900, start.h - (ev.clientY - start.y) / scale)));
+        } else {
+            const dx = (ev.clientX - start.x) / scale;
+            const max = which === 'drawer' ? 800 : 600;
+            const w = Math.round(Math.max(200, Math.min(max, start.w + (side === 'left' ? dx : -dx))));
+            panel.style.width = w + 'px';
+            this._sideWidth[which] = w;
+        }
+        this.layoutPanels();
+        if (which === 'drawer' && this.updateVirtualGrid) this.updateVirtualGrid(true);
+    },
+
+    // ---- Dragging a panel by its title to dock it ----
+    dockZoneAt(x, y) {
+        const room = this.roomSize();
+        const s = this.uiScaleNow();
+        const ux = x / s, uy = y / s;
+        if (uy > room.h * 0.72) return 'bottom';
+        if (ux < room.w * 0.22) return 'left';
+        if (ux > room.w * 0.78) return 'right';
+        return null;
+    },
+
+    beginDockDrag(which, e) {
+        const target = e && e.target;
+        if (target && target.closest && target.closest('button, input, select, textarea, a')) return false;
+        const start = { x: e.clientX, y: e.clientY };
+        let shown = false, zone = null;
+        const move = ev => {
+            if (!shown && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 12) return;
+            if (!shown) { this.showDockZones(); shown = true; }
+            zone = this.dockZoneAt(ev.clientX, ev.clientY);
+            this.highlightDockZone(zone);
+        };
+        const up = () => {
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            this.hideDockZones();
+            if (shown && zone) {
+                this.setDock(which, zone);
+                this.showToast(`${which === 'drawer' ? 'Item Bag' : 'Details'}: ${zone === 'bottom' ? 'along the bottom' : 'on the ' + zone}.`, 'info');
+            }
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+        return true;
+    },
+
+    showDockZones() {
+        if (typeof document === 'undefined') return;
+        this.hideDockZones();
+        const box = document.createElement('div');
+        box.id = 'dd-dock-zones';
+        const s = this.uiScaleNow(), room = this.roomSize();
+        const W = room.w * s, H = room.h * s;
+        const zone = (name, css, label) => `<div class="dd-dock-zone" data-zone="${name}" style="${css}">${label}</div>`;
+        box.innerHTML = zone('left', `left: 8px; top: 90px; width: ${Math.round(W * 0.2)}px; bottom: ${Math.round(H * 0.3)}px;`, 'Left') +
+            zone('right', `right: 8px; top: 90px; width: ${Math.round(W * 0.2)}px; bottom: ${Math.round(H * 0.3)}px;`, 'Right') +
+            zone('bottom', `left: 8px; right: 8px; bottom: 8px; height: ${Math.round(H * 0.26)}px;`, 'Bottom');
+        document.body.appendChild(box);
+    },
+
+    highlightDockZone(name) {
+        const box = typeof document !== 'undefined' ? document.getElementById('dd-dock-zones') : null;
+        if (!box || !box.querySelectorAll) return;
+        for (const z of box.querySelectorAll('.dd-dock-zone')) if (z.classList) z.classList.toggle('dd-hot', z.getAttribute('data-zone') === name);
+    },
+
+    hideDockZones() {
+        const box = typeof document !== 'undefined' ? document.getElementById('dd-dock-zones') : null;
+        if (box && box.parentNode) box.parentNode.removeChild(box);
+    },
+
+    bindDockDrag() {
+        for (const [which, head] of [['drawer', 'dd-drawer-head'], ['inspector', 'dd-inspector-head']]) {
+            const el = typeof document !== 'undefined' ? document.getElementById(head) : null;
+            if (!el) continue;
+            el.style.cursor = 'grab';
+            el.onmousedown = e => { if (e.button === 0) this.beginDockDrag(which, e); };
+        }
+    },
+
+    dockRowsHtml() {
+        const row = (which, label) => `<div class="dd-dock-row"><span>${label}</span>${this.dockSides.map(side =>
+            `<button class="dd-btn${this.dock[which] === side ? ' dd-btn-primary' : ''}" type="button" id="dd-dock-${which}-${side}" aria-pressed="${this.dock[which] === side}">${side === 'bottom' ? 'Bottom' : side === 'left' ? 'Left' : 'Right'}</button>`).join('')}</div>`;
+        return `<div class="dd-label" style="margin: 2px 0 0;">Panels</div>${row('drawer', 'Item Bag')}${row('inspector', 'Details')}
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Or drag a panel by its title to a side. Kept for each layout.</div>`;
+    }
+});
+
+// layoutPanels places the panels where they are docked; Look shows the dock buttons; layouts carry the dock.
+(function() {
+    const W = DocsDoodads.Workspace;
+    const baseLayout = W.layoutPanels;
+    W.layoutPanels = function() {
+        baseLayout.call(this);
+        const toolbar = typeof document !== 'undefined' ? document.getElementById('dd-toolbar') : null;
+        if (!toolbar) return;
+        const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
+        this.applyDockPositions(top);
+        // The panel heads are new each time the editor opens: bind their drag again then.
+        const head = typeof document !== 'undefined' ? document.getElementById('dd-drawer-head') : null;
+        if (head !== this._dockHead) { this.bindDockDrag(); this._dockHead = head; }
+        this.placeHint();
+    };
+    const baseLook = W.showLookCard;
+    W.showLookCard = function() {
+        const card = baseLook.call(this);
+        if (card && typeof card.innerHTML === 'string' && !card.innerHTML.includes('dd-dock-row')) {
+            card.innerHTML += this.dockRowsHtml();
+            for (const which of ['drawer', 'inspector']) {
+                for (const side of this.dockSides) {
+                    const b = document.getElementById(`dd-dock-${which}-${side}`);
+                    if (b) b.onclick = () => this.setDock(which, side);
+                }
+            }
+            const close = document.getElementById('dd-look-close');
+            if (close) close.onclick = () => this.closeLookCard();
+            for (const [id, key] of [['dd-look-scale', 'uiScale'], ['dd-look-theme', 'theme'], ['dd-look-colors', 'mapColors']]) {
+                const el = document.getElementById(id);
+                if (el) el.onchange = e => this.setLook(key, e.target.value);
+            }
+        }
+        return card;
+    };
+    const L = DocsDoodads.Layout;
+    if (L) {
+        const baseApply = L.apply;
+        L.apply = function(name) {
+            const out = baseApply.call(this, name);
+            if (W.mounted) { W.loadDock(name); W.layoutPanels(); }
+            return out;
+        };
+        const baseSave = L.saveCurrentAs;
+        L.saveCurrentAs = function(name) {
+            const ok = baseSave.call(this, name);
+            if (ok && this.custom[String(name).trim()]) {
+                this.custom[String(name).trim()].dock = Object.assign({}, W.dock);
+                DocsDoodads.FS.atomicWriteJson(this.filePath, this.custom);
+                W.saveDock();
+            }
+            return ok;
+        };
+    }
+})();
+//==========================================================
 // SECTION 25c: WORKSPACE ITEM BAG EXTRAS (SORTING, SEARCH CHIPS, HOVER CARD, EMPTY TABS)
 //==========================================================
 // Sorting the bag, the search's terms as removable chips with named saved searches beside them, a card
@@ -31368,6 +31823,56 @@ Object.assign(DocsDoodads.Workspace, {
         return true;
     }
 });
+//==========================================================
+// SECTION 25u: THE EDITOR'S LANGUAGE (LOOK CARD)
+//==========================================================
+// More > Look > Editor language: English, or any translation in data/DocsDoodadsLanguages (DocsDoodads.I18n).
+Object.assign(DocsDoodads.Ui, {
+    // The language picked in Look (on this computer).
+    applyLanguage() {
+        const code = this.prefs().language || 'en';
+        if (DocsDoodads.I18n.lang !== code) DocsDoodads.I18n.load(code);
+        return DocsDoodads.I18n.lang;
+    }
+});
+
+Object.assign(DocsDoodads.Workspace, {
+    setLanguage(code) {
+        const U = DocsDoodads.Ui, I = DocsDoodads.I18n;
+        const list = I.available();
+        const pick = list.some(l => l.code === code) ? code : 'en';
+        U.setPref('language', pick);
+        I.load(pick);
+        if (typeof document !== 'undefined' && document.body) I.translateTree(document.body);
+        // English words come back only when a part is drawn again.
+        if (this.mounted) this.showToast(pick === 'en' ? 'English: close and open the editor again to see every part in English.' : `${I.name}: parts not translated yet stay English.`, 'info');
+        return pick;
+    }
+});
+
+(function() {
+    const W = DocsDoodads.Workspace;
+    const baseLook = W.showLookCard;
+    W.showLookCard = function() {
+        const card = baseLook.call(this);
+        if (card && typeof card.innerHTML === 'string' && !card.innerHTML.includes('dd-look-language')) {
+            const I = DocsDoodads.I18n;
+            const langs = I.available();
+            const label = document.createElement('label');
+            label.innerHTML = `Editor language<select id="dd-look-language">${langs.map(l => `<option value="${escapeHtml(l.code)}"${l.code === I.lang ? ' selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}</select>` +
+                (langs.length === 1 ? '<span style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Only English so far. A translation goes in data/DocsDoodadsLanguages (see the guide).</span>' : '');
+            if (card.appendChild) card.appendChild(label);
+            const select = document.getElementById('dd-look-language') || (label.querySelector ? label.querySelector('select') : null);
+            if (select) select.onchange = e => this.setLanguage(e.target.value);
+        }
+        return card;
+    };
+    const baseLayout = W.layoutPanels;
+    W.layoutPanels = function() {
+        DocsDoodads.Ui.applyLanguage();
+        baseLayout.call(this);
+    };
+})();
 //==========================================================
 // SECTION 25d: WORKSPACE LOOK (SIZE, THEME, MAP COLOURS) AND DETAILS MEMORY
 //==========================================================
@@ -32295,8 +32800,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (stop) stop.onclick = () => { this.stopListening(); if (this.placementTool === 'listen') this.setPlacementTool(null); };
         const s = this.uiScaleNow ? this.uiScaleNow() : 1;
         const room = this.roomSize ? this.roomSize() : { w: 816 };
-        const inspector = document.getElementById('dd-inspector-panel');
-        const right = inspector && inspector.getBoundingClientRect ? inspector.getBoundingClientRect().left - 8 : room.w - 8;
+        const right = this.mapArea ? this.mapArea().right : room.w - 8;
         // Above the speed readout when that shows (both sit at the bottom right of the map).
         const perf = document.getElementById('dd-perf');
         const below = perf && perf.offsetHeight ? 42 + perf.offsetHeight + 8 : 44;
@@ -32411,8 +32915,7 @@ Object.assign(DocsDoodads.Workspace, {
             row('doodads', 'Doodads', stats.doodads) + row('lit', 'Lights', stats.lit) +
             Object.values(warn).map(w => `<span class="dd-perf-note">${escapeHtml(w)}</span>`).join('');
         const room = this.roomSize ? this.roomSize().w : 816;
-        const inspector = document.getElementById('dd-inspector-panel');
-        const right = inspector && inspector.getBoundingClientRect ? inspector.getBoundingClientRect().left - 8 : room - 8;
+        const right = this.mapArea ? this.mapArea().right : room - 8;
         el.style.right = Math.round(room - right) + 'px';
         return stats;
     },
@@ -32960,8 +33463,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (!el || !el.style) return;
         const rect = id => { const n = document.getElementById(id); return n && n.getBoundingClientRect && n.style && n.style.display !== 'none' ? n.getBoundingClientRect() : null; };
         const room = this.roomSize ? this.roomSize() : { w: 816, h: 624 };
-        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
-        const mapLeft = drawer ? drawer.right + 8 : 8, mapRight = inspector ? inspector.left - 8 : room.w - 8;
+        const area = this.mapArea ? this.mapArea() : { left: 8, right: room.w - 8 };
+        const mapLeft = area.left, mapRight = area.right;
         let left, top;
         if (at === 'map') {
             left = (mapLeft + mapRight) / 2 - 130;
@@ -33764,12 +34267,14 @@ Object.assign(DocsDoodads.Workspace, {
         const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
         const room = this.roomSize ? this.roomSize().w : ((typeof window !== 'undefined' && window.innerWidth) || 816);
         const scale = this.uiScaleNow ? this.uiScaleNow() : 1;
-        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel'), toolbar = rect('dd-toolbar');
-        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
+        const toolbar = rect('dd-toolbar');
+        const area = this.mapArea ? this.mapArea() : { left: 8, right: room - 8, lift: 0 };
+        const left = area.left, right = area.right;
         const bar = document.getElementById('dd-statusbar');
         if (bar && bar.style) {
             bar.style.left = Math.round(left) + 'px';
             bar.style.width = Math.round(Math.max(120, right - left)) + 'px';
+            bar.style.bottom = area.lift ? Math.round(area.lift + 8) + 'px' : '';
         }
         // The map tabs sit just under the top bar; the key and pills go under them.
         const tabs = document.getElementById('dd-map-tabs');
@@ -34342,6 +34847,192 @@ DocsDoodads.Workspace.toolHooks.room = {
     }
 };
 //==========================================================
+// SECTION 25t: ACCESSIBILITY (SCREEN READERS, KEYBOARD, FOCUS, LESS MOTION)
+//==========================================================
+// Screen readers get names for the panels and for every control (icon buttons take their tooltip, fields
+// their placeholder), messages are read out as they come, and the Item Bag is a list the arrow keys move
+// through (Enter picks). F6 goes from panel to panel. A visible ring shows where the keyboard is. Less
+// motion (More > Look, or the system's reduced-motion setting) stops the editor's animations.
+DocsDoodads.Ui.css += `
+#dd-workspace :focus-visible, .dd-glass :focus-visible, .dd-card:focus-visible { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+.dd-card:focus { box-shadow: 0 0 0 3px var(--dd-primary-soft); }
+@media (prefers-reduced-motion: reduce) {
+    #dd-workspace *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
+}
+:root.dd-less-motion #dd-workspace *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
+`;
+
+Object.assign(DocsDoodads.Ui, {
+    // Less motion: chosen in Look, or asked for by the system.
+    lessMotion() {
+        if (this.prefs().lessMotion === true) return true;
+        try { return Boolean(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; }
+    },
+
+    applyMotion() {
+        const root = typeof document !== 'undefined' ? document.documentElement : null;
+        if (root && root.classList) root.classList.toggle('dd-less-motion', this.prefs().lessMotion === true);
+    },
+
+    // The words a screen reader says for a control that has none of its own.
+    accessibleName(el) {
+        if (!el || !el.getAttribute) return '';
+        const own = el.getAttribute('aria-label') || el.getAttribute('aria-labelledby');
+        if (own) return own;
+        const text = String(el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return text;
+        const title = el.getAttribute('title') || el.getAttribute('data-dd-tip') || el.getAttribute('placeholder') || '';
+        return this.splitTip ? this.splitTip(title)[0] : title;
+    },
+
+    // Names, roles and live regions for everything under root. Safe to run again.
+    labelTree(root) {
+        if (!root || typeof root.querySelectorAll !== 'function') return 0;
+        let named = 0;
+        const roles = { 'dd-toolbar': ['toolbar', 'Tools'], 'dd-drawer-panel': ['region', 'Item Bag'], 'dd-inspector-panel': ['region', 'Details'],
+            'dd-more-menu': ['menu', 'More'], 'dd-statusbar': ['status', 'Status'] };
+        for (const id of Object.keys(roles)) {
+            const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+            if (el && el.setAttribute && !el.getAttribute('role')) { el.setAttribute('role', roles[id][0]); el.setAttribute('aria-label', roles[id][1]); }
+        }
+        const hint = typeof document !== 'undefined' ? document.getElementById('dd-hint') : null;
+        if (hint && hint.setAttribute && !hint.getAttribute('aria-live')) { hint.setAttribute('role', 'status'); hint.setAttribute('aria-live', 'polite'); }
+        for (const el of Array.from(root.querySelectorAll('button, input, select, textarea, [role="button"]'))) {
+            if (!el.getAttribute || el.getAttribute('aria-label')) continue;
+            const hasText = String(el.textContent || '').trim() && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
+            // A field inside its own label is already named.
+            const labelled = el.id && root.querySelector && root.querySelector(`label[for="${el.id}"]`);
+            const wrapped = el.closest && el.closest('label');
+            if (hasText || labelled || wrapped) continue;
+            const name = this.accessibleName(el);
+            if (name) { el.setAttribute('aria-label', name); named++; }
+        }
+        return named;
+    }
+});
+
+Object.assign(DocsDoodads.Workspace, {
+    // The places F6 goes between, in order: the top bar, the Item Bag's search, the map, Details.
+    focusPlaces() {
+        const byId = id => (typeof document !== 'undefined' ? document.getElementById(id) : null);
+        return [byId('dd-select-btn'), byId('dd-search-input'), DocsDoodads.Compat.getCanvas(), byId('dd-inspector-panel')].filter(Boolean);
+    },
+
+    focusNextPanel(back) {
+        if (typeof document === 'undefined') return false;
+        const places = this.focusPlaces();
+        if (!places.length) return false;
+        const active = document.activeElement;
+        let i = places.findIndex(p => p === active || (p.contains && active && p.contains(active)));
+        i = i < 0 ? 0 : (i + (back ? places.length - 1 : 1)) % places.length;
+        const target = places[i];
+        if (target.getAttribute && target.getAttribute('tabindex') === null && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(target.tagName)) target.setAttribute('tabindex', '-1');
+        if (target.focus) target.focus();
+        return true;
+    },
+
+    // Arrow keys in the Item Bag: next or previous card, a row up or down; Enter or Space picks it.
+    cardKey(card, e) {
+        const grid = card.parentNode;
+        if (!grid) return false;
+        const cards = Array.from(grid.children || grid.childNodes || []).filter(c => c.classList && c.classList.contains('dd-card'));
+        const i = cards.indexOf(card);
+        if (i < 0) return false;
+        if (e.key === 'Enter' || e.key === ' ') { if (card.onclick) card.onclick(e); if (e.preventDefault) e.preventDefault(); return true; }
+        const top = c => (c.getBoundingClientRect ? c.getBoundingClientRect().top : 0);
+        const perRow = Math.max(1, cards.filter(c => Math.abs(top(c) - top(cards[0])) < 2).length);
+        const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: perRow, ArrowUp: -perRow, Home: -i, End: cards.length - 1 - i }[e.key];
+        if (step === undefined) return false;
+        const next = cards[Math.max(0, Math.min(cards.length - 1, i + step))];
+        if (next && next.focus) next.focus();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
+    },
+
+    // Names (and, in another language, words) for everything shown; a watcher does the same for what
+    // appears later: cards as the bag scrolls, Details, the cards and questions opened on the page.
+    labelWorkspace() {
+        const root = this.container || (typeof document !== 'undefined' ? document.body : null);
+        DocsDoodads.Ui.labelTree(root);
+        const I = DocsDoodads.I18n;
+        if (typeof document !== 'undefined' && document.body) I.translateTree(document.body);
+        const watch = typeof document !== 'undefined' ? document.body : null;
+        if (watch && typeof MutationObserver !== 'undefined' && !this._accessWatch) {
+            let pending = null, added = [];
+            this._accessWatch = new MutationObserver(list => {
+                for (const m of list) for (const node of Array.from(m.addedNodes || [])) added.push(node);
+                if (pending) return;
+                pending = setTimeout(() => {
+                    pending = null;
+                    const nodes = added;
+                    added = [];
+                    for (const node of nodes) if (node.isConnected !== false) I.translateTree(node);
+                    DocsDoodads.Ui.labelTree(this.container || document.body);
+                }, 60);
+            });
+            this._accessWatch.observe(watch, { childList: true, subtree: true });
+        }
+    },
+
+    stopLabelWatch() {
+        if (this._accessWatch) { this._accessWatch.disconnect(); this._accessWatch = null; }
+    }
+});
+
+(function() {
+    const W = DocsDoodads.Workspace;
+    // Item Bag cards: in the tab order, named, picked with Enter.
+    const baseCard = W.createCardElement;
+    W.createCardElement = function(asset, cardHeight) {
+        const card = baseCard.call(this, asset, cardHeight);
+        if (card && card.setAttribute) {
+            card.setAttribute('tabindex', '0');
+            card.setAttribute('role', 'option');
+            card.setAttribute('aria-label', String(asset.fileName || asset.path || 'Item') + (asset.type === 'prefab' ? ' (prefab)' : ''));
+            card.setAttribute('aria-selected', String(this.selectedAsset === asset));
+            if (card.addEventListener) card.addEventListener('keydown', e => this.cardKey(card, e));
+        }
+        return card;
+    };
+    // Messages are read out.
+    const baseToast = W.showToast;
+    W.showToast = function(msg, kind, opts) {
+        const out = baseToast.call(this, msg, kind, opts);
+        const toast = typeof document !== 'undefined' ? document.getElementById('dd-toast') : null;
+        if (toast && toast.setAttribute) { toast.setAttribute('role', kind === 'error' ? 'alert' : 'status'); toast.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite'); }
+        return out;
+    };
+    // Look: a Less motion switch.
+    const baseLook = W.showLookCard;
+    W.showLookCard = function() {
+        const card = baseLook.call(this);
+        if (card && typeof card.innerHTML === 'string' && !card.innerHTML.includes('dd-look-motion')) {
+            const U = DocsDoodads.Ui;
+            const label = document.createElement('label');
+            label.style.cssText = 'flex-direction: row; align-items: center; gap: 6px;';
+            label.innerHTML = `<input type="checkbox" id="dd-look-motion" ${U.prefs().lessMotion === true ? 'checked' : ''} /> Less motion (no animations)`;
+            if (card.appendChild) card.appendChild(label);
+            const box = document.getElementById('dd-look-motion') || (label.querySelector ? label.querySelector('input') : null);
+            if (box) box.onchange = e => { U.setPref('lessMotion', Boolean(e.target.checked)); U.applyMotion(); };
+        }
+        return card;
+    };
+    // Animated thumbnails wait while motion is turned down.
+    const baseThumb = W.attachThumbAnimation;
+    W.attachThumbAnimation = function(card, imgEl, asset) {
+        if (DocsDoodads.Ui.lessMotion()) return;
+        return baseThumb.call(this, card, imgEl, asset);
+    };
+    // After the panels are placed, everything is named; the watcher stops with the editor.
+    const baseLayout = W.layoutPanels;
+    W.layoutPanels = function() {
+        baseLayout.call(this);
+        DocsDoodads.Ui.applyMotion();
+        this.labelWorkspace();
+    };
+})();
+//==========================================================
 // SECTION 25g: WORKSPACE SELECTION EDITING (NUMBER SCRUBBING, HANDLES)
 //==========================================================
 // Numbers in Details change by dragging their label left and right, and step with the arrow keys
@@ -34606,6 +35297,8 @@ Object.assign(DocsDoodads.Workspace, {
             details: () => this.toggleInspector(),
             find: () => this.focusSearch(),
             shortcuts: () => this.showShortcutsCard(),
+            nextPanel: () => this.focusNextPanel(false),
+            prevPanel: () => this.focusNextPanel(true),
             grid: () => this.toggleGrid(),
             collision: () => this.toggleCollisionOverlay(),
             sounds: () => this.toggleSoundOverlay(),

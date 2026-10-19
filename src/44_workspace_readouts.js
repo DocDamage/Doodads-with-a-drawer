@@ -293,12 +293,14 @@ Object.assign(DocsDoodads.Workspace, {
         const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
         const room = this.roomSize ? this.roomSize().w : ((typeof window !== 'undefined' && window.innerWidth) || 816);
         const scale = this.uiScaleNow ? this.uiScaleNow() : 1;
-        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel'), toolbar = rect('dd-toolbar');
-        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
+        const toolbar = rect('dd-toolbar');
+        const area = this.mapArea ? this.mapArea() : { left: 8, right: room - 8, lift: 0 };
+        const left = area.left, right = area.right;
         const bar = document.getElementById('dd-statusbar');
         if (bar && bar.style) {
             bar.style.left = Math.round(left) + 'px';
             bar.style.width = Math.round(Math.max(120, right - left)) + 'px';
+            bar.style.bottom = area.lift ? Math.round(area.lift + 8) + 'px' : '';
         }
         // The map tabs sit just under the top bar; the key and pills go under them.
         const tabs = document.getElementById('dd-map-tabs');

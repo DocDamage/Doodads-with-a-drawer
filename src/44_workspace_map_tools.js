@@ -264,8 +264,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (stop) stop.onclick = () => { this.stopListening(); if (this.placementTool === 'listen') this.setPlacementTool(null); };
         const s = this.uiScaleNow ? this.uiScaleNow() : 1;
         const room = this.roomSize ? this.roomSize() : { w: 816 };
-        const inspector = document.getElementById('dd-inspector-panel');
-        const right = inspector && inspector.getBoundingClientRect ? inspector.getBoundingClientRect().left - 8 : room.w - 8;
+        const right = this.mapArea ? this.mapArea().right : room.w - 8;
         // Above the speed readout when that shows (both sit at the bottom right of the map).
         const perf = document.getElementById('dd-perf');
         const below = perf && perf.offsetHeight ? 42 + perf.offsetHeight + 8 : 44;
@@ -380,8 +379,7 @@ Object.assign(DocsDoodads.Workspace, {
             row('doodads', 'Doodads', stats.doodads) + row('lit', 'Lights', stats.lit) +
             Object.values(warn).map(w => `<span class="dd-perf-note">${escapeHtml(w)}</span>`).join('');
         const room = this.roomSize ? this.roomSize().w : 816;
-        const inspector = document.getElementById('dd-inspector-panel');
-        const right = inspector && inspector.getBoundingClientRect ? inspector.getBoundingClientRect().left - 8 : room - 8;
+        const right = this.mapArea ? this.mapArea().right : room - 8;
         el.style.right = Math.round(room - right) + 'px';
         return stats;
     },
