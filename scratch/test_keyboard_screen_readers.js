@@ -103,6 +103,9 @@ assert.ok(ring(':root:not(.dd-mouse-focus) .dd-glass :focus', 'outline'), 'anyth
 assert.ok(ring(':root:not(.dd-mouse-focus) #dd-asset-workspace-root :focus', 'outline'), 'the workspace outline names the real root');
 assert.ok(ring(':root:not(.dd-mouse-focus) #dd-creator button:focus', 'outline'), 'the character creator\'s buttons too');
 assert.ok(kept.some(r => r.list.includes('#dd-context-menu .dd-btn:focus') && /background/.test(r.body)), 'the focused menu item is lit');
+// Every rule naming the editor names its real root (#dd-workspace was never on the page).
+assert.ok(!rules.some(r => r.list.some(s => /#dd-workspace(?![-\w])/.test(s))), 'no rule names #dd-workspace');
+assert.ok(rules.some(r => r.list.includes(':root.dd-less-motion #dd-asset-workspace-root *') && /animation:\s*none/.test(r.body)), 'Less motion stops the whole editor');
 // The one unconditional .dd-btn:focus rule only turns the browser outline off; it sets no box-shadow.
 const plain = kept.filter(r => r.list.includes('.dd-btn:focus'));
 assert.ok(plain.length === 1 && !/box-shadow/.test(plain[0].body));

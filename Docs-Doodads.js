@@ -41318,9 +41318,9 @@ DocsDoodads.Ui.css += `
 #dd-context-menu .dd-btn.dd-danger:focus { background: var(--dd-danger-soft); }
 .dd-card:focus { box-shadow: 0 0 0 3px var(--dd-primary-soft); }
 @media (prefers-reduced-motion: reduce) {
-    #dd-workspace *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
+    #dd-asset-workspace-root *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
 }
-:root.dd-less-motion #dd-workspace *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
+:root.dd-less-motion #dd-asset-workspace-root *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
 `;
 
 Object.assign(DocsDoodads.Ui, {
