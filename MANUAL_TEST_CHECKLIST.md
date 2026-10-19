@@ -85,6 +85,9 @@ Test these on an exterior map and on a looping world map.
 - [ ] Looks by time: add a time look (Golden Hour, 17:00 to 19:30, fade 60) and scrub the clock bar from 15:00 to 21:00: it eases in, holds, eases out. Turn Looks by time of day off for an interior map: it stays plain.
 - [ ] Looks by region: paint region 5, give it Underwater (fade 1 s), walk on and off it in play: it fades in and out; a map's own region 5 look wins over the game-wide one; transfer onto region 5 and it is already in. The eye button previews it while editing.
 - [ ] Close the editor with Screen Looks and File Check open; both close too.
+- [ ] Layers on a flat map: a far mountain layer (follow 0.2) behind the tiles and fog banks over the map; walk and watch them move at different speeds; screen blend on fog; a layer that doesn't repeat.
+- [ ] Wind 0.6 with leaves on: swaying trees lean, smoke drifts, leaves blow; Set Weather Effect storm: windier, lightning flashes, thunder after; Set Wind to 0.
+- [ ] Camera easing 0.6 and look-ahead 2: walking feels smooth; a room painted region 5 listed in Camera bounds keeps the view inside; 2D Camera Path with wait, then back; 2D Camera Follow an event, then the player.
 - [ ] Minimap on a flat map (World > Minimap) with fog of war: walk around, save, reload: what was seen is still seen; Show World Map shows only that; Explored Map reveal all and forget; Show / Hide Minimap.
 - [ ] Rooms: save a house (walls, a table, a region, a lamp doodad, a door event) and place it on another map; the tiles show at once, the door works after saving, undo removes it all.
 - [ ] Packs: make a pack with a prefab holding another prefab and a biome; bring it into a second project: the art appears in the Item Bag with its slices, the prefabs place, a different file of mine is kept (then replaced with a backup).

@@ -72,6 +72,9 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Set 3D View | mode | 3D on, off, or the map's setting. |
 | Set Sky Video | video, mode, speed | A different sky video for this visit (`none` for none, blank for the map's own). |
 | Set Zoom | level, duration, wait | Zooms in on the player (1 = normal); nearby sounds come forward. |
+| Set Wind | strength, direction, duration | Flat maps: wind for swaying doodads, particles, fog and leaves (0-1, or `world`). |
+| 2D Camera Path | points, frames, ease, then, wait | Flat maps: glide the camera through tiles (`10,5; 20,8`), then back or stay. |
+| 2D Camera Follow | target, eventId | Flat maps: the camera follows the player, this event or another event. |
 | Set Traversal | ability, state | Jump, glide, swim, dive, fly, climb or ice on, off or as in the World settings, for this game. |
 | Traversal Action | action | The player jumps, takes off, lands or dives (if allowed). |
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |

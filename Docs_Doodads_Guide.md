@@ -262,6 +262,11 @@ Moving characters blur along their direction, more when dashing; transfers and j
 ### Appear and Disappear
 Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**, **Dissolve** or **Crumble** in and out over a set number of frames, instead of blinking.
 
+### Layers, wind, lightning and the camera on flat maps
+- **Background and Overlay Layers** (the map's settings, flat maps): any number of pictures from `img/parallaxes`, each **behind the tiles** (above MZ's own parallax) or **over the map** (over characters, under weather and pictures). Each has how much it **follows the camera** (0 = fixed to the screen, 1 = moves with the map, in between = far away), its own **scroll** across and down, **zoom**, **opacity**, **blend** (normal, add, multiply, screen) and whether it **repeats** across and down. **Fog Banks** adds soft fog drawn by the game (`#fog` as the picture) that **drifts with the wind**. Layers draw in the order listed (↑ moves one further back). The 3D view has its own sky and fog, so layers show on flat maps only.
+- **World → Weather on Flat Maps**: **Wind** (0 calm to 1 gale), its direction and **gusts**; rain and storms make it windier. The wind leans doodads that **Sway**, pushes particles (smoke, leaves, sparks) and fog layers, and can blow **leaves** across the screen (with their colour). **Lightning in storms** flashes the screen about every few seconds in a full storm (rarer in weaker ones), and the **thunder** comes after: soon for near strikes, up to the delay set for far ones. **Set Wind** changes the wind during play, easing over some frames.
+- **World → Camera on Flat Maps**: the camera can **ease after the player** instead of keeping them exactly centred, and **look ahead** of where they walk. In the map's **Camera (flat map)** settings, list region numbers: while the player stands on one of them, the view stays inside the area that region covers (a room, a corridor). **2D Camera Path** glides the camera through tiles for a cutscene (waiting for it, if asked), then back to the player or staying put; **2D Camera Follow** follows this event, another event, or the player again.
+
 ### Turning effects off during play
 **Set Atmosphere Effect** switches character shadows, motion blur, water reflections or see-through on or off for the current playthrough.
 

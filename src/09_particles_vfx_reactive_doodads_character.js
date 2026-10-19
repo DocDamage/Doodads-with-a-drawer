@@ -102,7 +102,8 @@ DocsDoodads.Particles = {
                 state.particles.splice(i, 1);
                 continue;
             }
-            p.vx += c.wind * dt;
+            // The world's wind pushes every emitter (pixels a second, a second).
+            p.vx += (c.wind + DocsDoodads.Wind.current().x * 40) * dt;
             p.vy += c.gravity * dt;
             if (c.drag > 0) {
                 const k = Math.max(0, 1 - c.drag * dt);
