@@ -121,6 +121,18 @@ DocsDoodads.VisualEquip = {
         return out.sort((a, b) => a.z - b.z);
     },
 
+    // The sheet a layer draws while the body plays another of its sheets ($Hero_idle[f2], $Hero_run[f8], an
+    // action like $Hero_slash[f6]): the layer's name with the same ending and tags (Hat_idle[f2]), or ''
+    // when the body is on its own sheet. The runtime uses it only when that file is there.
+    stateSheetFor(layerImage, bodyName, currentSheet) {
+        if (!layerImage || !bodyName || !currentSheet || currentSheet === bodyName) return '';
+        const C = DocsDoodads.CharacterAnim;
+        const body = C.parseName(bodyName).base, now = C.parseName(currentSheet).base;
+        if (now === body || !now.startsWith(body)) return '';
+        const tags = (String(currentSheet).match(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]/gi) || []).join('');
+        return C.parseName(layerImage).base + now.slice(body.length) + tags;
+    },
+
     signature(layers) {
         return DocsDoodads.AsepriteVisuals.version + '/' + (layers || []).map(l => [l.image, l.z, l.up, l.index, l.sv, l.hue, l.tint].join(':')).join('|');
     },

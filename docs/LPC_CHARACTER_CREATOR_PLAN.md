@@ -521,7 +521,40 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
     sheets with bigger frames.
   - Visual Equipment parts (phase 6).
 
-## 17. Open questions for the owner
+## 17. Phase 6 (done, 2026-10-19)
+
+The parts are ordinary Visual Equipment layers, so they work with everything from before: weapon and armour
+notetags, part slots (the last item naming a part replaces earlier ones), `hide`, colours, battler `sv` layers,
+the try-on preview and the equip screen.
+
+- **Export option, "Outfit as Visual Equipment parts":**
+  - The character's own sheets get the body card only: body, head, face, hair and add-ons.
+  - Each outfit piece gets part sheets in the same ticked layouts: smooth or classic walker, idle, run, the ticked
+    actions, and an `sv` battler.
+  - They are named `$LPC <slot> <part> <colour> <body>`, plus ` behind` for layers under the body (library z below
+    10). The colour is left out when a variant just repeats the part's name.
+- **Notetags:** one `<visual: image, z, part <slot>, sv image>` line per piece.
+  - z is the library's `zPos` − 10, so the library's order is kept and below 0 is behind the body.
+  - Both pieces share the slot's part, so an item with the same part replaces both.
+  - The notetag can be copied, or put on a weapon, armour or actor. That writes `data/Weapons.json`,
+    `Armors.json` or `Actors.json` in MZ's layout after a timestamped backup, replaces an earlier LPC line for the
+    same part, and updates the running game's database.
+- **Runtime, `VisualEquip.stateSheetFor`:** while the body shows another of its own sheets (`_idle`, `_run`, or an
+  action), each layer uses its sheet with the same ending and tags if it exists and has loaded. The idle and run
+  variants load when the layers are built. This works for any gear art, not only LPC.
+- **Checked in MZ:**
+  - Two shirts went on two armours, the trousers and shoes on the actor, and the dagger on the Short Sword.
+  - Swapping armour swapped the shirt.
+  - Standing still, every layer with an idle sheet used it.
+  - During the slash action, every layer used its `_slash` sheet.
+  - The side-view battler wore all the layers in order.
+  - No errors.
+- **Left for later:**
+  - parts for other body types in one export (`{alias}`);
+  - `hide` rules, such as a hood hiding long hair;
+  - an Item Bag People tab entry.
+
+## 18. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting

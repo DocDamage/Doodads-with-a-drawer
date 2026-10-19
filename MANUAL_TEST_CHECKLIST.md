@@ -251,6 +251,7 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Credits lists the artists of the character on screen.
 - [ ] Export a named character with all three ticked; pick the sheets for an actor in MZ's database and play: the smooth walker's feet keep pace with the ground when walking and dashing, it breathes when still, it runs when dashing, and the face shows in Show Text. Export again: it asks before replacing.
 - [ ] Export a battler and the actions; set the actor's battler and turn on side view: every motion (attack, guard, magic, item, damage, victory, dead, escape) shows the character. Play Character Action with `$Name_slash[f6]` at 12 fps on the player.
+- [ ] Export with **Outfit as Visual Equipment parts**; put the shirt on two armours in different colours, the trousers on the actor, the weapon on a weapon. In play: changing armour changes the shirt, standing still the gear breathes with the body, dashing it runs, Play Character Action with the slash sheet swings the gear too, and the side-view battler wears it all. Reopen the project in MZ's editor and check the notes are there.
 
 ## Scale and compatibility
 

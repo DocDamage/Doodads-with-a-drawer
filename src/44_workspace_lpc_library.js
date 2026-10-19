@@ -167,12 +167,17 @@ Object.assign(DocsDoodads.Workspace, {
         return this._lpcCache;
     },
 
-    // recipe -> { sheet, warnings, used } for one animation, or null without an index.
-    composeLpc(recipe, animation = 'walk') {
+    // recipe -> { sheet, warnings, used } for one animation, or null without an index. keep(layer): only
+    // some layers (the pieces of a Visual Equipment part in front of or behind the body).
+    composeLpc(recipe, animation = 'walk', keep) {
         const C = DocsDoodads.LpcCompose, FS = DocsDoodads.FS;
         const index = this.lpcIndex();
         if (!index || !FS.fs) return null;
         const resolved = C.resolve(index, recipe, animation, file => FS.existsSync(this.lpcSheetPath(file, index)));
+        if (keep) {
+            resolved.layers = resolved.layers.filter(keep);
+            resolved.used = resolved.layers.map(l => ({ part: l.part, folder: l.folder }));
+        }
         const out = C.compose(resolved, index, file => this.lpcLoadImage(file), this.lpcCache());
         return { sheet: out.sheet, warnings: out.warnings, used: resolved.used };
     },

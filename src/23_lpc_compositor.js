@@ -92,7 +92,7 @@ DocsDoodads.LpcCompose = {
                 const file = candidates.find(f => f && exists(f));
                 if (!file) { missing = true; continue; }
                 found++;
-                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick });
+                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick, folder: base });
                 used.push({ part, folder: base });
             }
             if (missing && !found) warnings.push(`${part.name} has no ${animation} picture for the ${body} body.`);

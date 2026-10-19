@@ -394,6 +394,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
                 <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(anim.replace(/^1h_/, ''))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
+                ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
                 <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
@@ -401,6 +402,16 @@ Object.assign(DocsDoodads.Workspace, {
                     ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
                 </div>
                 ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}</div>` : ''}
+                ${done && done.parts && done.parts.length ? `<div style="margin-top: 8px; max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">${done.parts.map((p, i) => `
+                    <div style="background: #f6efe0; border-radius: 12px; padding: 6px 8px;">
+                        <b>${escapeHtml(p.label)}: ${escapeHtml(p.name)}</b>
+                        <pre id="dd-cr-tag-${i}" style="margin: 4px 0; white-space: pre-wrap; word-break: break-all; font-size: 10px; background: #fffaf0; border-radius: 8px; padding: 4px 6px;">${escapeHtml(p.notetag)}</pre>
+                        <div style="display: flex; gap: 4px; align-items: center;">
+                            <button type="button" class="dd-cr-anim" id="dd-cr-tag-copy-${i}">Copy</button>
+                            <select id="dd-cr-tag-item-${i}" style="flex: 1; min-width: 0; font-size: 11px;"><option value="">Put it on...</option>${this.lpcEquipItems().map(it => `<option value="${it.kind}${it.id}">${(this.lpcItemKinds[it.kind] || [])[2] || ''} ${it.id}: ${escapeHtml(it.name)}${it.kind === 'h' ? ' (always worn)' : ''}</option>`).join('')}</select>
+                            <button type="button" class="dd-cr-anim" id="dd-cr-tag-add-${i}">Add</button>
+                        </div>
+                    </div>`).join('')}</div>` : ''}
             </div>`;
         }
         if (pop.kind === 'credits') {
@@ -452,7 +463,19 @@ Object.assign(DocsDoodads.Workspace, {
                 o.actions = DocsDoodads.LpcExport.actions.map(a => a[0]).filter(a => list.has(a));
                 this.renderCreator();
             }));
-            for (const key of ['classic', 'smooth', 'face', 'battler']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            ((c.exported && c.exported.parts) || []).forEach((p, i) => {
+                on('dd-cr-tag-copy-' + i, () => {
+                    try { if (typeof nw !== 'undefined' && nw.Clipboard) nw.Clipboard.get().set(p.notetag, 'text'); else if (navigator.clipboard) navigator.clipboard.writeText(p.notetag); } catch (e) {}
+                    this.showToast('Copied the notetag for ' + p.name + '.', 'success');
+                });
+                on('dd-cr-tag-add-' + i, () => {
+                    const sel = document.getElementById('dd-cr-tag-item-' + i);
+                    const v = sel ? String(sel.value || '') : '';
+                    if (!v) { this.showToast('Pick the weapon or armour to put it on.', 'info'); return; }
+                    this.addLpcNotetag(v[0], parseInt(v.slice(1), 10), p.notetag, p.slot);
+                });
+            });
+            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
