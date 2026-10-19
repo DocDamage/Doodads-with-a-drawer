@@ -668,7 +668,9 @@
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
             sound: DocsDoodads.SpatialSound.emitterDefaults,
             react: DocsDoodads.React.defaults,
-            model: { path: '', scale: 1, yaw: 0, animation: '', speed: 1 }
+            model: { path: '', scale: 1, yaw: 0, animation: '', speed: 1 },
+            states: DocsDoodads.States.defaults,
+            touch: DocsDoodads.Touch.defaults
         };
     },
 
@@ -734,6 +736,19 @@
         }
         if (key === 'model.path' && !String(value || '').trim()) {
             delete d.model;
+            return;
+        }
+        if (key === 'name') {
+            const name = String(value || '').trim();
+            if (name) d.name = name; else delete d.name;
+            return;
+        }
+        // Nothing to run and no state to step to: the doodad isn't touchable.
+        if (key.indexOf('touch.') === 0) {
+            const next = Object.assign({}, this.propertyDefaults().touch, d.touch || {});
+            next[key.slice(6)] = value;
+            if (!(Number(next.commonEventId) > 0) && !next.nextState) delete d.touch;
+            else d.touch = next;
             return;
         }
         if (key === 'layer' && (!value || value === 'main')) {
@@ -913,6 +928,18 @@
                 { key: 'switchText', label: 'Switches (e.g. 5:on, 6:off)', type: 'text' },
                 { key: 'condition', label: 'Condition (JavaScript, e.g. $gameVariables.value(3) > 2)', type: 'text' }
             ] },
+            { title: 'States', fields: [
+                { key: 'name', label: 'Name (events find it by this; doodads may share one)', type: 'text' },
+                { key: 'states.by', label: 'Switched by (what events set wins until cleared)', type: 'select', options: D.States.byOptions },
+                number('states.switchId', 'Switch (for "A switch")'),
+                number('states.variableId', 'Variable (for "A variable")'),
+                number('states.fade', 'Crossfade (frames, 0 = at once)')
+            ], html: items => this.statesListHtml(items), bind: items => this.bindStatesList(items) },
+            { title: 'Touch', fields: [
+                { key: 'touch.commonEventId', label: 'Common event to run', type: 'select', options: this.commonEventOptions() },
+                { key: 'touch.trigger', label: 'Runs on', type: 'select', options: D.Touch.triggers },
+                { key: 'touch.nextState', label: 'Also go to its next state (a door that opens and closes)', type: 'checkbox' }
+            ] },
             { title: 'Particles', fields: [
                 { key: 'particles.preset', label: 'Emitter', type: 'select', options: [{ value: 'none', label: 'None' }].concat(D.Particles.presets.map(p => ({ value: p.id, label: p.label }))) },
                 range('particles.rateScale', 'Amount (x preset rate)', 0, 5, 0.1),
@@ -1006,7 +1033,7 @@
             return `
                 <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
                     <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${section.title}</summary>
-                    <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}</div>
+                    <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px;">${fields}${section.html ? section.html(items) : ''}</div>
                 </details>`;
         }).join('');
     },
@@ -1049,6 +1076,7 @@
                     };
                 }
             });
+            if (section.bind) section.bind(items);
         });
     },
 

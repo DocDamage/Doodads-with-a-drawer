@@ -318,9 +318,12 @@ DocsDoodads.Lighting = {
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
             const l = Object.assign({}, this.lightDefaults, d.light);
+            // A state or an event can put the light out (it fades like an "after dark" lamp in game).
+            const on = DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true;
+            if (!on && !ctx) continue;
             let level = 1;
             if (ctx) {
-                const target = this.lampTarget(l, ctx.darkness, ctx.threshold);
+                const target = on ? this.lampTarget(l, ctx.darkness, ctx.threshold) : 0;
                 const levels = this._lampLevels;
                 level = levels && levels.has(d) ? levels.get(d) : target;
                 const step = ctx.step > 0 ? ctx.step : 1;

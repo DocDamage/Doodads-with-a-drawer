@@ -315,7 +315,7 @@ Object.assign(DocsDoodads.Workspace, {
             legend.style.top = top + 'px';
         }
         // These two are on the page, outside the (possibly zoomed) workspace: window pixels.
-        for (const id of ['dd-progress-stack', 'dd-toast-history']) {
+        for (const id of ['dd-progress-stack', 'dd-toast-history', 'dd-problems']) {
             const el = document.getElementById(id);
             if (el && el.style) {
                 el.style.right = Math.round((room - right) * scale) + 'px';

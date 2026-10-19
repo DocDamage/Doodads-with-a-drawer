@@ -76,12 +76,18 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Traversal Action | action | The player jumps, takes off, lands or dives (if allowed). |
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
+| Set Doodad State | name, state, mapId | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. |
+| Set Doodad Light | name, light, mapId | Named doodads' lights on, off or back to their own; saved. |
+| Store Doodad State | name, variableId | A named doodad's state number (-1: none here) into a variable. |
 
 ## Script calls
 
 | Script | Use |
 | :--- | :--- |
 | `DocsDoodads.Terrain.heightOf($gamePlayer) >= 2` | Conditional Branch on the ground height under the player (or `this.character(0)`). |
+| `DocsDoodads.WorldState.is('Front Door', 'Open')` | Conditional Branch on a named doodad's state. `state(name)` gives its state's name, `light(name)` whether its light is on. |
+| `DocsDoodads.api.find('Street Lamp')` | Doodads by Name (or `{ art, near: { x, y, radius } }`); also `place`, `move`, `set`, `remove`, `setState`, `setLight`, `setTime`, `setSeason`, `ambient`, and `on('touch', fn)`. See the Guide, section 15. |
+| `DocsDoodads.WorldState.touched().name` | In a doodad's touch common event: which doodad was touched (`name`, `state`, `mapId`). |
 
 ## Player keys
 

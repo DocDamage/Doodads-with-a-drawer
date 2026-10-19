@@ -21,6 +21,10 @@ The plugin still ships as one file, `Docs-Doodads.js`, which users copy into `js
 - `44_workspace_capture.js`: the Capture card (picture and orbit GIF, written with `DocsDoodads.Gif` in `11_editor_tools.js`) and the quick menu.
 - `44_workspace_item_bag.js`: Item Bag sorting, search chips and saved searches, the hover card and empty tabs.
 - `44_workspace_map_tools.js`: the clock bar, Show Sounds and the Listen tool, and the Show Speed readout.
+- `44_workspace_map_check.js`: the Problems panel and Check Reach (the flood itself is `DocsDoodads.MapCheck` in `11_editor_tools.js`).
+- `07_public_api.js`: `DocsDoodads.api` for other plugins and scripts; `DocsDoodads.DataFiles` (one file or one per map, fixed key order) is in `04_data_load_save_legacy_vs_translation.js`.
+- `44_workspace_regions.js`: the Regions tool (painting into `$dataMap` and the staged map, legend, overlay). Per-map undo is `Undo.park` / `Undo.unpark` in `32_undo.js`, called from `Persistence.onMapChanging`.
+- `44_workspace_states.js`: the States list in Details (the runtime, world state and touch hooks are in `07_doodad_states.js`).
 - `44_workspace_navigation.js`: palette ranking and typed values, map tabs, and the Item Bag's folder view.
 - `44_workspace_selection_edit.js`: number scrubbing in Details and the resize and turn handles.
 - `44_workspace_onboarding.js`: tool tours, the sample pictures (`DocsDoodads.SampleArt`) and items, and What's New (`DocsDoodads.WhatsNew`: change its `id` and items for a release, and it shows once to people updating).

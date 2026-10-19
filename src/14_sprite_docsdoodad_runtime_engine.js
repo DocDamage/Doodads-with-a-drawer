@@ -79,6 +79,9 @@ if (typeof PIXI !== 'undefined') {
                 bmp = ImageManager.loadTileset(tileset.tilesetNames[bit[1]]);
             }
         } else if (bit[0] === 3) {
+            // A state with its own art (an open door, a broken pot) shows that picture instead.
+            this._stateArt = DocsDoodads.States.art(this._data);
+            this._stateArtKey = this._stateArt ? this._stateArt.path : '';
             const path = this.seasonPath();
             this._loadedPath = path;
             const packed = path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
@@ -102,13 +105,14 @@ if (typeof PIXI !== 'undefined') {
     Sprite_DocsDoodad.prototype.seasonPath = function() {
         const bit = this._data && this._data.bit;
         if (!bit || bit[0] !== 3) return null;
+        const source = this._stateArt ? this._stateArt.path : bit[1];
         const season = DocsDoodads.Atmosphere.season();
         const sets = DocsDoodads.World.settings().seasons.sets;
-        if (this._seasonKey !== season || this._seasonSets !== sets || this._seasonSource !== bit[1]) {
+        if (this._seasonKey !== season || this._seasonSets !== sets || this._seasonSource !== source) {
             this._seasonKey = season;
             this._seasonSets = sets;
-            this._seasonSource = bit[1];
-            this._seasonResolved = DocsDoodads.Seasons.resolve(bit[1], season, sets);
+            this._seasonSource = source;
+            this._seasonResolved = DocsDoodads.Seasons.resolve(source, season, sets);
         }
         return this._seasonResolved;
     };
@@ -118,16 +122,81 @@ if (typeof PIXI !== 'undefined') {
         this._bmp = bmp;
         // Doodad Scaling Mode: smooth (MZ's default) or pixelated.
         if (bmp.smooth !== doodadScaleMode) bmp.smooth = doodadScaleMode;
-        const fw = this._data.frameW || bmp.width;
-        const fh = this._data.frameH || bmp.height;
-        const fx = this._regionOrigin ? this._regionOrigin.x : (this._data.frameX || 0);
-        const fy = this._regionOrigin ? this._regionOrigin.y : (this._data.frameY || 0);
+        const base = this.frameBase(bmp);
+        const fw = base.w, fh = base.h, fx = base.x, fy = base.y;
         // A packed region may have been clipped to a smaller image; never read into its neighbours.
         const limitW = this._regionSize ? fx + Math.min(fw, this._regionSize.w) : bmp.width;
         const limitH = this._regionSize ? fy + Math.min(fh, this._regionSize.h) : bmp.height;
         const frame = DocsDoodads.safeFrame({ x: fx, y: fy, w: fw, h: fh }, Math.min(bmp.width, limitW), Math.min(bmp.height, limitH));
         this.texture = new PIXI.Texture(bmp._baseTexture, new PIXI.Rectangle(frame.x, frame.y, frame.w, frame.h));
         if (this._shadowSprite) this._shadowSprite.texture = this.texture;
+    };
+
+    // The first frame's rectangle in the picture: a state's own art is split evenly by the frame counts.
+    Sprite_DocsDoodad.prototype.frameBase = function(bmp) {
+        const d = this._data;
+        if (this._stateArt) {
+            const w = this._stateArt.w || bmp.width, h = this._stateArt.h || bmp.height;
+            return { x: 0, y: 0, w: Math.max(1, Math.floor(w / Math.max(1, d.xFrame || 1))), h: Math.max(1, Math.floor(h / Math.max(1, d.yFrame || 1))) };
+        }
+        return {
+            x: this._regionOrigin ? this._regionOrigin.x : (d.frameX || 0),
+            y: this._regionOrigin ? this._regionOrigin.y : (d.frameY || 0),
+            w: d.frameW || bmp.width,
+            h: d.frameH || bmp.height
+        };
+    };
+
+    // A change of state: the old picture fades out over the new one, then the new art loads.
+    Sprite_DocsDoodad.prototype.updateState = function() {
+        const d = this._data;
+        const States = DocsDoodads.States;
+        const index = States.has(d) ? States.index(d) : 0;
+        if (this._stateIndex === undefined) {
+            this._stateIndex = index;
+            return;
+        }
+        if (index === this._stateIndex) return;
+        this._stateIndex = index;
+        const art = States.art(d);
+        if ((art ? art.path : '') === (this._stateArtKey || '')) return;
+        this.beginStateFade(States.fadeFrames(d));
+        this.loadTexture();
+    };
+
+    Sprite_DocsDoodad.prototype.beginStateFade = function(frames) {
+        this.endStateFade();
+        if (!(frames > 0) || !this._bmp || !this._bmp._baseTexture || !this.texture || !this.texture.frame) return;
+        try {
+            const old = new PIXI.Sprite(new PIXI.Texture(this._bmp._baseTexture, this.texture.frame.clone()));
+            old.anchor.x = this.anchor.x;
+            old.anchor.y = this.anchor.y;
+            this.addChild(old);
+            this._stateFade = { sprite: old, left: frames, total: frames };
+        } catch (error) {
+            this._stateFade = null;
+        }
+    };
+
+    Sprite_DocsDoodad.prototype.updateStateFade = function() {
+        const f = this._stateFade;
+        if (!f) return;
+        f.left--;
+        if (f.left <= 0) {
+            this.endStateFade();
+            return;
+        }
+        f.sprite.anchor.x = this.anchor.x;
+        f.sprite.anchor.y = this.anchor.y;
+        f.sprite.alpha = f.left / f.total;
+    };
+
+    Sprite_DocsDoodad.prototype.endStateFade = function() {
+        const f = this._stateFade;
+        this._stateFade = null;
+        if (!f || !f.sprite) return;
+        if (f.sprite.parent) f.sprite.parent.removeChild(f.sprite);
+        f.sprite.destroy();
     };
 
     // Called by the tilemap (which updates its children) and by Spriteset_Map; runs once per frame.
@@ -138,6 +207,10 @@ if (typeof PIXI !== 'undefined') {
         this._lastUpdateFrame = frame;
         const d = this._data;
         if (d.rotateSpeed) this._spin += d.rotateSpeed * Math.PI / 180;
+        if (d.states || this._stateIndex !== undefined) {
+            this.updateState();
+            this.updateStateFade();
+        }
         if (d.xFrame > 1 || d.yFrame > 1) {
             const A = DocsDoodads.FrameAnim;
             // "Once" waits for its switch; the steps count from when it turned on.
@@ -396,10 +469,8 @@ if (typeof PIXI !== 'undefined') {
         const xF = this._data.xFrame || 1;
         const col = this._currentFrame % xF;
         const row = Math.floor(this._currentFrame / xF);
-        const fw = this._data.frameW || this._bmp.width;
-        const fh = this._data.frameH || this._bmp.height;
-        const startX = this._regionOrigin ? this._regionOrigin.x : (this._data.frameX || 0);
-        const startY = this._regionOrigin ? this._regionOrigin.y : (this._data.frameY || 0);
+        const base = this.frameBase(this._bmp);
+        const fw = base.w, fh = base.h, startX = base.x, startY = base.y;
         // In a packed sheet the frames stay inside this doodad's region (as setupBitmap does).
         const limitW = this._regionSize ? Math.min(this._bmp.width, startX + this._regionSize.w) : this._bmp.width;
         const limitH = this._regionSize ? Math.min(this._bmp.height, startY + this._regionSize.h) : this._bmp.height;

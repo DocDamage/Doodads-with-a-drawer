@@ -476,3 +476,56 @@ DocsDoodads.Gif = {
         return Uint8Array.from(out);
     }
 };
+
+// Map checks that need no game objects: which tiles can be walked to from a start, and whether a map
+// can ever get dark (so its lamps show).
+DocsDoodads.MapCheck = {
+    dirs: [[2, 0, 1], [4, -1, 0], [6, 1, 0], [8, 0, -1]],
+
+    // map: { width, height, loopX, loopY, canStep(x, y, dir) } (canStep: may a character walk from
+    // (x, y) one tile towards dir). Returns { seen: Uint8Array (1 = reachable), count }.
+    reach(start, map) {
+        const w = map.width, h = map.height;
+        const seen = new Uint8Array(w * h);
+        if (!start || start.x < 0 || start.y < 0 || start.x >= w || start.y >= h) return { seen, count: 0 };
+        const queue = [start.x + start.y * w];
+        seen[queue[0]] = 1;
+        let count = 1;
+        for (let q = 0; q < queue.length; q++) {
+            const x = queue[q] % w, y = Math.floor(queue[q] / w);
+            for (const [dir, dx, dy] of this.dirs) {
+                let nx = x + dx, ny = y + dy;
+                if (map.loopX) nx = (nx + w) % w;
+                if (map.loopY) ny = (ny + h) % h;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const k = nx + ny * w;
+                if (seen[k] || !map.canStep(x, y, dir)) continue;
+                seen[k] = 1;
+                count++;
+                queue.push(k);
+            }
+        }
+        return { seen, count };
+    },
+
+    // Whether a tile, or one beside it, was reached (enough to talk to an event or open a chest).
+    nearReached(seen, w, h, x, y, loop) {
+        const at = (tx, ty) => {
+            if (loop && loop.x) tx = (tx + w) % w;
+            if (loop && loop.y) ty = (ty + h) % h;
+            return tx >= 0 && ty >= 0 && tx < w && ty < h && seen[tx + ty * w] === 1;
+        };
+        return at(x, y) || at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1);
+    },
+
+    // A map is dark at some point: its own darkness, or a day-and-night clock with a dark hour that
+    // applies to it. (The Set Ambient Light plugin command can still darken any map.)
+    canBeDark(mapSettings, world) {
+        const ambient = (mapSettings && mapSettings.ambient) || {};
+        if (Number(ambient.darkness) > 0) return true;
+        const time = world && world.time;
+        if (!time || !time.source || time.source === 'off') return false;
+        if (!DocsDoodads.TimeOfDay.appliesToMap(mapSettings)) return false;
+        return (time.keyframes || []).some(k => Number(k && k.darkness) >= 0.05);
+    }
+};

@@ -41,7 +41,9 @@ DocsDoodads.World = {
             dive: { enabled: false, sound: 'Dive', switchId: 0 },
             fly: { enabled: false, altitude: 48, speed: 1, sound: 'Up1', landSound: 'Down1', encounters: false, switchId: 0, noRegion: 0 },
             climb: { enabled: false, regions: '', tags: '', speed: -1, switchId: 0 },
-            ice: { enabled: false, regions: '', tags: '', speed: 1, switchId: 0 }
+            ice: { enabled: false, regions: '', tags: '', speed: 1, switchId: 0 },
+            // Gamepad buttons (-1 = none) and on-screen buttons ('touch': on touch screens, 'always', 'never').
+            controls: { padJump: 7, padFly: 6, buttons: 'touch', size: 72 }
         },
         biomes: { list: [] },
         dress: { rules: [] },

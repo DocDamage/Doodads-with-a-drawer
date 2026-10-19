@@ -361,10 +361,25 @@
         this.showToast(`Going to map ${mapId}...`);
     },
 
+    // After a map change: this map's steps are back (or were let go because MZ changed the map).
+    reportStepsBack() {
+        const back = DocsDoodads.Persistence._stepsBack;
+        DocsDoodads.Persistence._stepsBack = null;
+        this.updateUndoButtons();
+        if (this._undoHistoryOpen) this.renderUndoHistory();
+        if (!back) return;
+        if (back.dropped) this.showToast('This map changed in MZ, so its earlier steps can no longer be undone.', 'info');
+        else if (back.steps > 0) this.showToast(`${back.steps} step${back.steps === 1 ? '' : 's'} on this map can be undone again.`, 'info');
+    },
+
     onMapLoaded() {
         if (!this.mounted) return;
         this.updateCollisionLegend();
+        this.applyStagedRegions();
+        this.reportStepsBack();
         this.rememberMap(this.currentMapId());
+        this.finishPendingGoTo();
+        if (this._problemsOpen) this.renderProblems();
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
@@ -459,7 +474,7 @@
                 const name = source.slice(9);
                 entries.push({ path: `data/${name}.json`, data: sources.database[name], indent: 0 });
             } else if (source === 'doodads') {
-                entries.push({ path: 'data/' + dataFileName, data: sources.doodads, indent: saveMode ? 0 : 2 });
+                entries.push(...DocsDoodads.DataFiles.entriesFor(sources.doodads));
             } else if (source === 'prefabs') {
                 entries.push({ path: DocsDoodads.Prefabs.filePath, data: { version: 1, prefabs: sources.prefabs }, indent: 2 });
             }

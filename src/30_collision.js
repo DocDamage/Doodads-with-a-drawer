@@ -94,7 +94,8 @@ DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
 };
 
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
-// Doodads hidden by their switch, condition, season or a layer hidden in game never block.
+// Doodads hidden by their switch, condition, season or a layer hidden in game never block, nor do
+// doodads in a state without collision (an open door).
 DocsDoodads.Collision.blocksTile = function(tx, ty) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
@@ -106,7 +107,7 @@ DocsDoodads.Collision.blocksTile = function(tx, ty) {
         if (!colBody) continue;
         // The box test is cheap; switches and conditions are only checked for doodads on this tile.
         if (!DocsDoodads.judge(colBody, tileBox)) continue;
-        if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {})) return true;
+        if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {}) && DocsDoodads.States.blocks(dData)) return true;
     }
     return false;
 };

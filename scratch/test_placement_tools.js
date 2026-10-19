@@ -266,7 +266,7 @@ Persistence.dirtyMap = true;
 Undo.execute({ apply() {}, revert() {} });
 Persistence.onMapChanging(1, 2);
 currentMapId = 2;
-assert.strictEqual(Undo.undoStack.length + Undo.redoStack.length, 0, "undo history ends at a map change (its commands target the old map)");
+assert.strictEqual(Undo.undoStack.length + Undo.redoStack.length, 0, "map 2 starts with no steps (map 1's wait for it)");
 assert.strictEqual($gameMap._stagedMapData, null, "map 2 starts without map 1's staged edits");
 assert.ok(Persistence.stagedMaps[1], "map 1's edits are kept aside");
 assert.strictEqual(DocsDoodads.Persistence.stagedFor(2).events[1].name, 'Original', "staging map 2 loads map 2");
