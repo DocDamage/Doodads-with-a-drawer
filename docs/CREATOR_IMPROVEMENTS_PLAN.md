@@ -1,6 +1,6 @@
 # Improvements Plan: the Character Creators and the Rest of the App
 
-**Status:** accepted 2026-10-19. Nothing built yet.
+**Status:** accepted 2026-10-19. Part B phase B1 (§8, the game bugs) is done, played in MZ in `docs/QA_2026-10-19.md`.
 
 **Goal:** two reviews on one day, written up as one plan. **Part A** makes the three character creators (LPC,
 Memao and MZ: `docs/LPC_CHARACTER_CREATOR_PLAN.md`, `docs/MEMAO_CHARACTER_CREATOR_PLAN.md`,
