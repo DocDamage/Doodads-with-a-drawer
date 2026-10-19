@@ -398,7 +398,54 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
   - `watering` and the tool animations;
   - an "only this part" view, for Visual Equipment (phase 6).
 
-## 14. Open questions for the owner
+## 14. Phase 3 (done, 2026-10-19)
+
+- **`src/23_lpc_slots.js` (`DocsDoodads.LpcSlots`, pure):**
+  - **The cards:** Body has the tabs Body, Face, Hair and Extras; Outfit has Head, Body, Legs and Gear.
+  - **Slots:** each is one kind of part (`type_name`s), and may be required (the skin and head) or a body add-on.
+  - **Options:** a slot offers the parts with a walk for the body, safe ones when asked, sorted by name.
+  - **◀ ▶ and "None":** stepping goes through the options, with "None" first unless the slot is required.
+  - **Colours:** material ramps, or variants for fixed-colour parts. A part's first channel is not offered when
+    it follows the skin, so a head offers only its eye colour.
+  - **Swatches** show a ramp's middle colour, or a colour guessed from a variant's name.
+  - **Changing the body** keeps what fits, and finds a new head when the old one doesn't.
+  - **`toRecipe`** honours Show body and Body add-ons.
+  - **Dice** for the body card or the outfit card, using only parts that need no others.
+  - **Saved characters** go in `data/DocsDoodadsCharacters.json`, by name.
+- **`src/44_workspace_lpc_creator.js`, the window, as in the mockup:**
+  - a title pill, the library line, the encrypt-safe chip, and a close button;
+  - the two cards with tab pills and `Label ◀ value ▶ swatch` rows, and a yellow cursor row;
+  - **the stage:** a name field, dice, the character 4× on teal with a shadow, turning, 13 animation chips, the
+    toggles, and the parts without the current animation named under it;
+  - **the bottom bar:** Load (the saved list), Save, Credits (artists, and how many are not safe to encrypt), and
+    Export (off until phase 4);
+  - **the palette:** a grid of every colour when a swatch is clicked; right-click goes back one colour.
+- **Small windows:** in MZ's own 816 × 624, one card shows at a time (a Body & face / Outfit switch) beside a
+  smaller stage. Both cards show from 1120 px wide.
+- **Keyboard:**
+  - ↑ ↓ rows, ← → values, Shift+← → colours;
+  - Q/E tabs, Tab the other card, X/Y dice, `,` and `.` turn;
+  - Ctrl+S saves, Esc closes (a popover first).
+
+  Every other key stops at the creator, so the map behind doesn't act, but dialogs and the name field still get
+  their keys.
+- **Gamepad (standard mapping):**
+  - the d-pad or stick moves, repeating when held;
+  - A changes the colour, B closes, X/Y are the dice;
+  - LB/RB change tabs, LT/RT turn, Back is the other card, Start saves.
+- **Sounds:** the project's own cursor, OK, cancel and save sounds (they follow More > Sounds).
+- **Entry points:** Characters > Open the Creator, and "Character Creator (LPC)" in Find a Tool.
+- **Checked in MZ:**
+  - It opens in about 45 ms.
+  - Clicking, the palette, save and load, credits, a simulated gamepad and every animation all worked.
+  - Arrow keys don't scroll the map.
+  - Both layouts were captured.
+- **Left for later:**
+  - a picture grid of every option (thumbnails), and the palette version (ULPC or LPC Revised);
+  - parts that need other parts (hat trims, shield patterns, sleeves): 176 parts aren't in a slot yet, and 15 in a slot need another part first;
+  - the Item Bag People tab entry, which waits for exports.
+
+## 15. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting

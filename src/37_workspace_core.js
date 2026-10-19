@@ -177,6 +177,7 @@ DocsDoodads.Workspace = {
         this.closeCaptureCard();
         this.closeProblems();
         if (typeof this.closeLpcCard === 'function') this.closeLpcCard();
+        if (typeof this.closeCreator === 'function') this.closeCreator();
         clearTimeout(this._hoverShow);
         this.hideHoverCard(true);
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
