@@ -18,7 +18,12 @@ The plugin still ships as one file, `Docs-Doodads.js`, which users copy into `js
 - `36_ui_theme.js`, `36_ui_theme_dialogs.js`, `36_ui_icons.js`, `36_ui_fonts.js`: the editor's look (theme CSS and the `DocsDoodads.Ui` helpers), its question cards (`Ui.confirm`, `prompt`, `form`, `choose`, `alert`, each a promise; never the browser's `prompt`, `confirm` or `alert`), progress pills (`Ui.progress(label, { onCancel, delay })` for anything slow) and tooltips (`36_ui_theme_feedback.js`; a control's `title` becomes its tooltip, with a trailing `(Ctrl+S)` shown as a key), its pixel icons and its font. The icons and font parts are generated: edit `art/ui_icons.png` (or the grids in `scripts/icon_art.js`) and run `npm run icons`; put fonts in `art/fonts` (listed in `fonts.json`) and run `npm run fonts`. Don't edit the generated parts by hand.
 - `37`–`44`: the editor workspace UI, in parts (core and top bar, inspector, map panel, 3D panels, visual equipment and screen looks, asset and map tools, undo history and prefabs, canvas input).
 - `36_ui_theme_look.js` and `44_workspace_look.js`: editor size, themes and map colours (draw overlays with `DocsDoodads.Ui.mapColor(name)`, never a fixed colour, so the colour-blind palette applies), the Look card and Details memory. New theme colours go in `:root` and in each theme block.
+- `44_workspace_capture.js`: the Capture card (picture and orbit GIF, written with `DocsDoodads.Gif` in `11_editor_tools.js`) and the quick menu.
 - `44_workspace_item_bag.js`: Item Bag sorting, search chips and saved searches, the hover card and empty tabs.
+- `44_workspace_map_tools.js`: the clock bar, Show Sounds and the Listen tool, and the Show Speed readout.
+- `44_workspace_navigation.js`: palette ranking and typed values, map tabs, and the Item Bag's folder view.
+- `44_workspace_selection_edit.js`: number scrubbing in Details and the resize and turn handles.
+- `44_workspace_onboarding.js`: tool tours, the sample pictures (`DocsDoodads.SampleArt`) and items, and What's New (`DocsDoodads.WhatsNew`: change its `id` and items for a release, and it shows once to people updating).
 - `44_workspace_readouts.js`: the collision overlay, the drag readout and the status bar (added to `DocsDoodads.Workspace` with `Object.assign`, the way a new part extends an object an earlier part closed).
 - `45_scene_map_integration_key_bindings.js`: scene hooks, key bindings and the end of the plugin function.
 

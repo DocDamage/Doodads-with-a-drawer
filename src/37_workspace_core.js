@@ -94,6 +94,7 @@ DocsDoodads.Workspace = {
     toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
 
     setPlacementTool(tool) {
+        if (this._tour && this._tour.tool !== tool) this.endTour();
         this.placementTool = tool || null;
         for (const [name, id] of Object.entries(this.toolButtons)) {
             const btn = document.getElementById(id);
@@ -106,7 +107,9 @@ DocsDoodads.Workspace = {
             if (this.placementTool === name) this.placePopover(pop, this.toolButtons[name]);
         }
         this.showMoreMenu(false);
+        if (this.placementTool !== 'listen' && this._listenProbe) this.stopListening();
         DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
+        if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
@@ -117,7 +120,9 @@ DocsDoodads.Workspace = {
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
+        this.showSounds = DocsDoodads.Ui.prefs().soundOverlay === true;
         DocsDoodads.Ui.applyLook();
+        this.bagView = DocsDoodads.Ui.prefs().bagView === 'folders' ? 'folders' : 'grid';
         const sort = DocsDoodads.Ui.prefs().bagSort;
         this.bagSort = this.bagSorts.some(s => s.value === sort) ? sort : 'search';
         DocsDoodads.Persistence.captureSession();
@@ -134,6 +139,7 @@ DocsDoodads.Workspace = {
         }
         this.updateCollisionLegend();
         DocsDoodads.Ui.installTooltips();
+        if (DocsDoodads.Ui.prefs().perfOverlay === true) this.startPerf();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
         this.showRecoveryNotices();
@@ -159,6 +165,9 @@ DocsDoodads.Workspace = {
         DocsDoodads.Ui.removeTooltips();
         this.closeToastHistory();
         this.closeLookCard();
+        this.closeMapTools();
+        this.endTour();
+        this.closeCaptureCard();
         clearTimeout(this._hoverShow);
         this.hideHoverCard(true);
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
@@ -428,6 +437,10 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
+                    <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
+                    <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
+                    <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
                     <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
                 </div>
                 <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
@@ -468,10 +481,10 @@ DocsDoodads.Workspace = {
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800; white-space: nowrap;" id="dd-asset-count">0 items</span>
+                <button class="dd-btn" id="dd-bag-view" type="button" style="padding: 2px 6px;" title="${this.bagView === 'folders' ? 'Show the items as cards' : 'Show the items in their folders'}">${U.icon('folder', 1)}</button>
                 <select id="dd-bag-sort" title="Order of the items">${this.bagSorts.map(s => `<option value="${s.value}"${s.value === this.bagSort ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}</select>
-                <div style="display: flex; align-items: center; gap: 4px;" title="Card size">
-                    ${U.icon('picture', 1)}
-                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 60px;" />
+                <div style="display: flex; align-items: center; flex: none;" title="Card size">
+                    <input type="range" id="dd-thumb-zoom" min="48" max="160" value="${defaultThumbnailSize}" style="width: 54px;" />
                 </div>
             </div>
             <div id="dd-cards-container" style="flex: 1; overflow-y: auto; padding: 2px 2px 8px; position: relative; margin: 0 -4px 0 0;">
@@ -517,6 +530,7 @@ DocsDoodads.Workspace = {
         this.inspectorEl = inspector;
         this.applyScale();
         this.buildStatusBar();
+        this.rememberMap(this.currentMapId());
 
         this.bindEvents();
         this.updateSaveState();
@@ -530,6 +544,7 @@ DocsDoodads.Workspace = {
         this.refreshDrawerCards();
         this.refreshInspector();
         if (!prefs.welcomed) this.showWelcome();
+        else this.maybeShowWhatsNew();
     },
 
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
@@ -630,16 +645,29 @@ DocsDoodads.Workspace = {
                 <li><span class="dd-num">2</span>${U.icon('select', 2)}<span><b>Click the map</b> to put it there. Drag things to move them; right-click for more.</span></li>
                 <li><span class="dd-num">3</span>${U.icon('save', 2)}<span>Press <b>Save</b>, then <b>Done</b> to play.</span></li>
             </ol>
-            <div style="color: var(--dd-muted); font-size: 11px; margin-bottom: 12px;">Stuck? The bubble at the bottom always says what to do next.</div>
+            <div style="color: var(--dd-muted); font-size: 11px; margin-bottom: 10px;">Stuck? The bubble at the bottom always says what to do next.</div>
+            <div class="dd-welcome-more">
+                <button class="dd-btn" id="dd-welcome-samples" type="button" title="Draws a few pictures into img/doodads/samples and adds two prefabs and a biome to try">${U.icon('box', 1)} Add Sample Items</button>
+                <button class="dd-btn" id="dd-welcome-tours" type="button">${U.icon('help', 1)} Replay Tool Tours</button>
+                <button class="dd-btn" id="dd-welcome-new" type="button">${U.icon('sparkle', 1)} What's New</button>
+            </div>
             <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
         `;
         (this.container || document.body).appendChild(card);
         const ok = document.getElementById('dd-welcome-ok');
-        if (ok) ok.onclick = () => {
+        const dismiss = () => {
+            // Someone just welcomed has nothing "new" to catch up on.
+            if (!U.prefs().welcomed) U.setPref('whatsNewSeen', DocsDoodads.WhatsNew.id);
             U.setPref('welcomed', true);
-            U.sound('ok');
             if (card.parentNode) card.parentNode.removeChild(card);
         };
+        if (ok) ok.onclick = () => { U.sound('ok'); dismiss(); };
+        const samples = document.getElementById('dd-welcome-samples');
+        if (samples) samples.onclick = () => { dismiss(); this.addSampleContent(); };
+        const tours = document.getElementById('dd-welcome-tours');
+        if (tours) tours.onclick = () => { dismiss(); this.replayTours(); };
+        const whatsNew = document.getElementById('dd-welcome-new');
+        if (whatsNew) whatsNew.onclick = () => { dismiss(); this.showWhatsNew(); };
     },
 
     refreshLayoutSelector() {
@@ -808,6 +836,8 @@ DocsDoodads.Workspace = {
         };
         const sortSel = document.getElementById('dd-bag-sort');
         if (sortSel) sortSel.onchange = e => this.setBagSort(e.target.value);
+        const viewBtn = document.getElementById('dd-bag-view');
+        if (viewBtn) viewBtn.onclick = () => this.setBagView(this.bagView === 'folders' ? 'grid' : 'folders');
         this.refreshSearchChips();
 
         this.refreshCollectionPicker();
@@ -861,6 +891,10 @@ DocsDoodads.Workspace = {
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
+        on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
+        on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
+        on('dd-listen-btn', () => { this.setPlacementTool('listen'); });
+        on('dd-perf-btn', () => { this.togglePerfOverlay(); this.showMoreMenu(false); });
         on('dd-help-btn', () => { this.showMoreMenu(false); this.showWelcome(); });
         on('dd-drawer-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('drawer', !this.isFolded('drawer')); });
         on('dd-inspector-fold', e => { if (e && e.stopPropagation) e.stopPropagation(); U.sound('cursor'); this.foldPanel('inspector', !this.isFolded('inspector')); });
@@ -1024,6 +1058,18 @@ DocsDoodads.Workspace = {
 
         const assets = this.filteredAssets || [];
         const totalCount = assets.length;
+        viewport.style.position = this.bagView === 'folders' && totalCount > 0 ? 'relative' : 'absolute';
+        if (this.bagView === 'folders' && totalCount > 0) {
+            // The folder tree is not windowed: folders start closed, and an open folder shows its items.
+            sizer.style.height = 'auto';
+            viewport.style.transform = '';
+            viewport.style.gridTemplateColumns = '1fr';
+            viewport.style.display = 'block';
+            this._gridRange = null;
+            this.renderFolderTree(viewport, assets, this.thumbSize || defaultThumbnailSize);
+            return;
+        }
+        viewport.style.display = 'grid';
         if (totalCount === 0) {
             sizer.style.height = '0px';
             viewport.style.transform = '';

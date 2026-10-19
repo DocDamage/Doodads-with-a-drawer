@@ -364,6 +364,7 @@
     onMapLoaded() {
         if (!this.mounted) return;
         this.updateCollisionLegend();
+        this.rememberMap(this.currentMapId());
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];

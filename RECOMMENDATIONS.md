@@ -15,7 +15,7 @@ Status as of 18 October 2026 (after PR #40). Every item on the 17 October list i
 | 1.3 | 3D quality presets. | **Done.** Effects Quality scales the 3D view (view distance and fog, weather, wakes, hill detail). |
 | 1.4 | Deployed-build test. | **Done**, both with `npm run deploy` and with MZ's own Deployment dialog (encrypted, same key: every file identical except `System.json`). 3D, terrain, weather, standing tiles, models, the minimap and visual equipment work; the editor is unavailable and nothing is written. MZ's "Exclude unused files" leaves out `img/doodads`; the game now carries on without the missing art instead of stopping. |
 | 1.5 | MV compatibility check, or narrow the claim. | **Done: the claim is narrowed to MZ.** MV was not available to test. |
-| 1.6 | Raise test coverage from 65% to 75%. | **Done: 82%** (99 suites). Drawing code runs on a stand-in engine in Node (`scratch/engine/fake_engine.js`); the coverage gate is now 72%. |
+| 1.6 | Raise test coverage from 65% to 75%. | **Done: 82%** (104 suites). Drawing code runs on a stand-in engine in Node (`scratch/engine/fake_engine.js`); the coverage gate is now 72%. |
 | 1.7 | Audit: dead code, unfinished wiring, leaks. | **Done** (PR #37). The MV layer, SAT engine and other dead paths are gone; half-wired features (collections, Clear Cache, Move to Layer, event position and trigger, grid snap, search terms) are finished; leaks and bugs found are fixed. |
 | 1.8 | An editor that's easy to pick up. | **Done** (PRs #38–#39). A bright, rounded, game-like look with named tools, Item Bag and Details panels that fold away, a hint bubble, a welcome card, pixel icons and its own font. |
 
@@ -101,10 +101,10 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.1.14 | **Prefab overrides.** Let a copy change a few named settings (a lamp's colour, a sign's switch) without leaving the prefab, and allow a prefab inside a prefab. | M |
 | 6.1.15 | **Saved searches.** **Done.** Search terms as removable chips, and named saved searches as chips (kept with the library) and in the palette. | S |
 | 6.1.16 | **Richer hover card.** **Done.** Size, frame count, default depth, times placed and where-used count, with Details, Cut Up and Where Used. | S |
-| 6.1.17 | **Clock scrubber.** A time-of-day slider in the map panel that previews lamps, shadows, the 3D sky and seasons while editing, with Play to run the clock fast. | S |
+| 6.1.17 | **Clock scrubber.** **Done.** A time and season preview at the top of the map panel, with ▶ to run the day fast and Now. | S |
 | 6.1.18 | **Looks by time and region.** Blend post-processing looks by the clock (a warm dusk grade) or by region (a cold crypt), beyond the game-wide and per-map looks. | M |
-| 6.1.19 | **Sound shown on the map.** Draw the radius of each sound source, region sound and ambience layer, and a "listen here" probe that plays what the player would hear at a tile. | S |
-| 6.1.20 | **Performance overlay.** An in-editor readout of frames per second, draw calls, texture memory and lit doodads, with a warning when a map passes a budget. QA so far needed DevTools for this. | S |
+| 6.1.19 | **Sound shown on the map.** **Done.** Show Sounds draws each source's reach and region-sound tiles; Listen plays and lists what a tile hears, with the ambience radius around it. | S |
+| 6.1.20 | **Performance overlay.** **Done.** Show Speed: frames a second, draw calls (counted by wrapping WebGL only while shown), pictures loaded, doodads and lights, with budget warnings. | S |
 
 ### 6.2 Additions
 
@@ -112,7 +112,7 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 |---|---|---|
 | 6.2.1 | **Doodad states.** Named variants of a doodad (lit and unlit, open and closed, whole and broken) switched by a switch or variable, with a crossfade, so one placement serves a whole quest. | M |
 | 6.2.2 | **Touchable doodads.** An `interact` setting that runs a common event when the player touches or clicks a doodad, without turning it into an event. | M |
-| 6.2.3 | **Doodad animation controls.** For multi-frame art: speed and start offset per doodad, ping-pong, play once when a switch turns on, and a frame picker for a still. | S |
+| 6.2.3 | **Doodad animation controls.** **Done.** Frames across and down, speed, start frame, and loop, back and forth, once on a switch, or hold a frame, in a Details section. | S |
 | 6.2.4 | **Tile painting.** Paint MZ tiles, including autotiles, in the editor during a playtest, so a map can be finished without going back to the MZ editor. | L |
 | 6.2.5 | **Region and terrain-tag painting.** A region brush with a legend, since dressing, biomes, sounds, climbing, no-fly zones and terrain height all key off regions. | M |
 | 6.2.6 | **Parallax and fog layers.** Several scrolling background and overlay layers per map, each with speed, zoom, loop and blend, for 2D maps. | M |
@@ -127,7 +127,7 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.2.15 | **Editor translation.** One string table for the editor, with Japanese first; the UI has no language layer today. | M |
 | 6.2.16 | **Gamepad and touch for traversal.** Map jump, fly and dive to gamepad buttons and to on-screen buttons on touch devices. | M |
 | 6.2.17 | **World state in saves.** A small API for doodad states and lights per save file (the lamp smashed, the door left open) that events can read and write. | M |
-| 6.2.18 | **Capture tool.** Save a PNG of the current view or a short orbit GIF in 3D from the editor, for store pages and READMEs. | S |
+| 6.2.18 | **Capture tool.** **Done.** A PNG of the view (no editor outlines) and a looping 3D orbit GIF (its own GIF writer), into `screenshots`. | S |
 | 6.2.19 | **Git-friendly data.** Stable key order in the JSON files, and an option to keep one doodad file per map to shrink diffs and merge conflicts. | M |
 | 6.2.20 | **Public API.** A documented `DocsDoodads.api` for other plugins and scripts: query, place, move and set the state of doodads, lights and the clock. | M |
 
@@ -139,19 +139,19 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.3.2 | **Accessibility.** Labels for screen readers (one `aria` attribute today), keyboard navigation through the Item Bag and Details, a visible focus order, and respect for reduced-motion. | M |
 | 6.3.3 | **UI scale and themes.** **Done.** 100/125/150% (CSS zoom on the workspace, with window sizes converted) and Dark and High contrast themes on the `--dd-` tokens; in More > Look and the palette. | S |
 | 6.3.4 | **Colour-blind-safe colours.** **Done.** An Okabe-Ito map palette for selection, guides, mirror, paths, Old Saves, brushes, collision and blocked tiles, with a key; tested under simulated deuteranopia, protanopia and tritanopia. | S |
-| 6.3.5 | **Mixed values.** With several doodads picked, Details shows "—" where values differ and lets one edit set them all; numbers scrub by dragging and step with arrows. | S |
-| 6.3.6 | **Per-tool tours.** A short dismissible walkthrough the first time each tool is used, replayable from How to Use, building on the hint bubble. | S |
+| 6.3.5 | **Mixed values.** **Done.** — where picked doodads differ (half-ticked boxes, a mixed choice), one edit sets all, a Placement section for several; number labels scrub and arrows step. | S |
+| 6.3.6 | **Per-tool tours.** **Done.** A two- or three-step tour the first time each tool is picked, placed by what it explains; off for good or replayed from How to Use. | S |
 | 6.3.7 | **Status bar.** **Done.** Cursor tile and pixel, map name and id, selection count, active layer, zoom, an unsaved marker and the time of the last save. | S |
 | 6.3.8 | **Save feedback.** **Done.** An orange dot on Save while there are unsaved changes, and "Saved" for a moment after a save. | S |
 | 6.3.9 | **Docking.** Drag the Item Bag and Details to either side or the bottom, with resizable splitters, remembered per layout. | M |
-| 6.3.10 | **Map tabs.** Recently opened maps as tabs along the top for one-click switching, with the unsaved marker per tab. | S |
-| 6.3.11 | **Folder view.** A collapsible folder tree of `img/doodads` as an alternative to the flat search results. | S |
-| 6.3.12 | **Handles.** Scale and rotate handles on the selection box, with Shift to keep proportions and snapping to 15 degrees. | S |
-| 6.3.13 | **Quick menu.** A right-click radial or compact menu on the canvas with the eight most-used actions, learned from use. | S |
+| 6.3.10 | **Map tabs.** **Done.** Recently opened maps (up to 8) as tabs under the top bar, with an unsaved dot per map (changes are now tracked per map). | S |
+| 6.3.11 | **Folder view.** **Done.** A folder tree of the bag's items (single-folder chains joined), remembered open folders, search and tabs still applying. | S |
+| 6.3.12 | **Handles.** **Done.** Corner handles resize around the foot (Shift keeps proportions) and a knob turns (Shift snaps to 15°), for one picked doodad on a flat map. | S |
+| 6.3.13 | **Quick menu.** **Done.** Right-click menus learn the most-used actions and show up to eight as a row at the top of longer menus. | S |
 | 6.3.14 | **Toast history.** **Done.** More > Messages keeps the last 60 messages; deleting, erasing, clearing dressing and Replace Art show Undo on their message. | S |
 | 6.3.15 | **Clear destructive confirmations.** **Done.** Deleting a layer that has doodads, a collection, a layout or a prefab, replacing sheets, restoring a backup and saving over MZ's changes each say what will happen, with a red button. | S |
 | 6.3.16 | **Empty states.** **Done.** Each empty tab (and a search with no results) says what goes there, with a button. | S |
-| 6.3.17 | **Palette upgrades.** Fuzzy matching, recent commands first, the shortcut shown, and commands that take a value ("time 18:00", "go to Map003"). | S |
+| 6.3.17 | **Palette upgrades.** **Done.** Any word order, recent commands first, shortcuts as key caps, and typed values (`time 18:30`, `go to map 3`, `season winter`, `size 125`). | S |
 | 6.3.18 | **Details memory.** **Done.** Each section's open or closed state is remembered, and ☆ pins sections to the top. | S |
 | 6.3.19 | **Progress pills.** **Done.** Indexing, packing, Auto-Slice and import show a non-blocking pill with a bar and Cancel at the map's top right. | S |
-| 6.3.20 | **Sample content and What's New.** A welcome card button that adds a few sample prefabs and a biome to try, and a version-aware card listing what changed after an update. | S |
+| 6.3.20 | **Sample content and What's New.** **Done.** Add Sample Items draws four pictures and adds two prefabs and a biome (once); What's New shows once after an update. | S |

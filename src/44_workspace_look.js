@@ -96,7 +96,9 @@ Object.assign(DocsDoodads.Workspace, {
     // ---- Details memory: open sections stay open, pinned ones go to the top ----
     refreshInspector() {
         this.renderInspector();
-        this.applyDetailsMemory(typeof document !== 'undefined' ? document.getElementById('dd-inspector-content') : null);
+        const content = typeof document !== 'undefined' ? document.getElementById('dd-inspector-content') : null;
+        this.applyDetailsMemory(content);
+        if (this.attachNumberScrubbing) this.attachNumberScrubbing(content);
     },
 
     detailsKey(summary) {

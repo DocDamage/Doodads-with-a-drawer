@@ -83,6 +83,8 @@
     // Extra editor overlay drawing: smart guides and the path being drawn (screen space).
     drawEditorOverlayExtras(g) {
         this.drawCollisionOverlay(g);
+        this.drawSoundOverlay(g);
+        this.drawTransformHandles(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
             const T = DocsDoodads.Terrain, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -553,6 +555,11 @@
                 return;
             }
 
+            if (this.placementTool === 'listen') {
+                this.listenHere(coords.tileX, coords.tileY);
+                return;
+            }
+
             // 3. Stamp Tool
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 const snapCoords = e.altKey ? coords : this.snapToTile(coords);
@@ -591,6 +598,10 @@
                 this.biomePaintAt(e.clientX, e.clientY);
                 return;
             }
+            if (!this.placementTool && e.button === 0) {
+                const handle = this.handleAt(this.clientToCanvas(e.clientX, e.clientY));
+                if (handle && this.beginHandleDrag(handle, this.clientToCanvas(e.clientX, e.clientY))) return;
+            }
             if (!this.placementTool && e.button === 0 && !e.shiftKey && !e.altKey) {
                 const point = this.clientToMapCoords(e.clientX, e.clientY);
                 if (this.beginDoodadDrag(point)) {
@@ -618,6 +629,19 @@
                 return;
             }
             this.trackCursor(e.clientX, e.clientY, e.target);
+            if (this._handleDrag) {
+                if (e.buttons === 0) { if (this.endHandleDrag()) this._suppressNextClick = true; return; }
+                this.updateHandleDrag(this.clientToCanvas(e.clientX, e.clientY), e.shiftKey);
+                this.showHandleReadout(e.clientX, e.clientY);
+                return;
+            }
+            // A resize or turn cursor over the handles.
+            if (!this.placementTool && !this._drag) {
+                const canvas = DocsDoodads.Compat.getCanvas();
+                const over = this.handleAt(this.clientToCanvas(e.clientX, e.clientY));
+                if (canvas && canvas.style) canvas.style.cursor = !over ? '' : over.kind === 'rotate' ? 'grab'
+                    : (over.corner === 'nw' || over.corner === 'se' ? 'nwse-resize' : 'nesw-resize');
+            }
             if (this._drag) {
                 // The mouse-up was missed (e.g. focus left the window): finish where the drag last was.
                 if (e.buttons === 0) {
@@ -680,6 +704,12 @@
         this._onCanvasMouseUp = (e) => {
             if (this._camDrag) {
                 this.endCameraDrag();
+                return;
+            }
+            if (this._handleDrag) {
+                // The click that follows must not pick something else.
+                this.endHandleDrag();
+                this._suppressNextClick = true;
                 return;
             }
             if (this._drag) {
@@ -1288,6 +1318,29 @@
         menu.className = 'dd-glass';
         menu.style.cssText = 'position: fixed; z-index: 10050; display: flex; flex-direction: column; gap: 1px;';
         DocsDoodads.Ui.sound('cursor');
+        const run = item => {
+            this.closeContextMenu();
+            this.noteMenuUse(item.label);
+            if (item.onClick) item.onClick();
+        };
+        // The actions used most, as a row of buttons at the top.
+        const quick = this.quickMenuItems(items);
+        if (quick.length) {
+            const rowEl = document.createElement('div');
+            rowEl.className = 'dd-quick-row';
+            quick.forEach(item => {
+                const b = document.createElement('button');
+                b.className = 'dd-btn' + (item.danger ? ' dd-danger' : '');
+                b.title = item.label;
+                b.innerHTML = `${item.iconName ? DocsDoodads.Ui.icon(item.iconName, 1) : `<span>${escapeHtml(item.icon || '•')}</span>`}<span>${escapeHtml(this.menuKey(item.label).replace(/#/g, '').replace(/\.\.\.$/, '').trim())}</span>`;
+                b.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); run(item); };
+                rowEl.appendChild(b);
+            });
+            menu.appendChild(rowEl);
+            const sep = document.createElement('div');
+            sep.className = 'dd-menu-sep';
+            menu.appendChild(sep);
+        }
         items.forEach(item => {
             if (item.separator) {
                 const sep = document.createElement('div');
@@ -1303,8 +1356,7 @@
             row.innerHTML = `${icon}<span>${escapeHtml(item.label)}</span>`;
             row.onclick = (e) => {
                 e.stopPropagation();
-                this.closeContextMenu();
-                if (item.onClick) item.onClick();
+                run(item);
             };
             menu.appendChild(row);
         });

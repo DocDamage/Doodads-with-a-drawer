@@ -2,6 +2,20 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Doodads drawn as a strip of frames have an Animation section in Details: frames across and down (the picture is split evenly), speed, a start frame, and how to play: loop, back and forth, once when a switch turns on (and again each time it does), or hold one frame.
+- Capture (More, or the palette) saves a picture of the map as it is on screen, without the editor's outlines, or a looping GIF of the 3D camera turning once round the view (12, 24 or 36 frames, 320 to 640 pixels wide; with a progress pill and Cancel), into the project's `screenshots` folder.
+- The right-click menu learns which actions are used most and, in longer menus, offers up to eight of them as a row of buttons at the top.
+- The first time each tool is picked (Stamp, Scatter, Paint, Path, Hills, Grab, Listen), a short tour of two or three steps points at its options and the map; "No more tours" turns them off, and How to Use replays them.
+- How to Use can add sample items to try: four small pictures drawn into `img/doodads/samples` (bush, flowers, rock, lamp post), the Sample Garden and Sample Lamp Post prefabs, and a Sample Meadow biome (added once; pictures already there are kept).
+- After an update, a What's New card lists what changed, once (also in How to Use and the palette).
+- With several doodads picked, Details shows "—" where their values differ (a half-ticked box, a "mixed" choice) and one edit sets them all; a Placement section sets their X, Y, Z-order, turn and size. Number boxes in Details change by dragging their label left and right and step with the arrow keys (Shift for ten steps).
+- A picked doodad has handles: drag a corner to resize it around its foot (Shift keeps its proportions) or the knob above it to turn it (Shift snaps to 15 degrees), with a readout beside the cursor; each drag is one undo step.
+- The command palette (Ctrl+K) matches words in any order, lists recently used commands first (marked Recent), shows shortcuts as key caps, and takes values typed straight in: "time 18:30" or "6pm", "go to map 3", "season winter", "size 125".
+- Map tabs under the top bar list the maps opened recently (up to 8): a click goes there, × takes one out, and a dot marks maps with unsaved changes.
+- The Item Bag has a folder view (the folder button beside the item count): the items in a tree of their folders, opened folders remembered, with the search and tabs still applying.
+- A clock at the top of the map panel previews any time of day and season while editing (lamps, shadows, the 3D sky and season art follow it); ▶ runs the day fast and Now goes back to the game's own time.
+- Show Sounds (More) draws how far each sound source reaches and shades tiles with a region sound. The Listen tool (More, or the palette) plays what the player would hear standing on a clicked tile, sound sources, region sound and ambience together at their volumes, lists them, and draws how far each ambience layer listens.
+- Show Speed (More) shows frames a second, draw calls a frame, the pictures loaded, doodads and lights on the map, and says when a map goes over a typical budget (with what to try).
 - More > Look sets the editor's size (100, 125 or 150%), a light, dark or high-contrast theme, and the map colours: standard, or colour-blind safe (the Okabe-Ito colours) for selection, guides, the mirror line, paths, Old Saves, the Scatter and Hills brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer; also in the palette. The theme's surface colours are now all theme tokens.
 - Details remembers which sections were open, and a ☆ on each section pins it to the top (in the order pinned).
 - Long jobs show a progress pill with a bar and Cancel at the top right of the map, without blocking the editor: finding art when the editor opens (only when it takes a moment), packing map art (Cancel writes nothing), Auto-Slice on big sheets, and bringing in files (the import card now closes and the import carries on in its pill).

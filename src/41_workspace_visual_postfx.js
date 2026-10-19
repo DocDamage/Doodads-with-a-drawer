@@ -988,6 +988,7 @@
         const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
         content.innerHTML = `
             <div style="color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Nothing is picked, so this is the map's own settings. (Map ${mapId})</div>
+            ${this.renderClockBar()}
             <input type="search" id="dd-map-search" placeholder="Find a setting (fog, shadow, snow...)" value="${escapeHtml(this._mapSearch || '')}"
                 style="width: 100%; box-sizing: border-box; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px 6px; border-radius: 4px; font-size: 11px; margin-bottom: 6px;" />
             <div id="dd-map-search-none" style="display: none; font-size: 11px; color: var(--dd-faint); margin-bottom: 6px;">No settings match.</div>
@@ -1052,6 +1053,7 @@
         document.getElementById('dd-map-daynight').onchange = (e) => this.setMapSetting('dayNight', e.target.value === 'auto' ? undefined : e.target.value);
         document.getElementById('dd-map-reflections').onchange = (e) => this.setMapSetting('reflections', e.target.checked ? undefined : false);
         document.getElementById('dd-map-charshadows').onchange = (e) => this.setMapSetting('characterShadows', e.target.checked ? undefined : false);
+        this.bindClockBar();
         this.bindPerspectivePanel();
         this.bindTerrainPanel();
         this.bindMapSoundPanel(mapSettings);

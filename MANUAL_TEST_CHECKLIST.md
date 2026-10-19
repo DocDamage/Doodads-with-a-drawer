@@ -22,6 +22,8 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 - [ ] Drag a character and create a genuine event from at least NPC, Door, Chest, and Transfer templates.
 - [ ] Assign no collision, full bounds, bottom third, trunk, wall, and a custom collision rectangle.
 - [ ] Exercise selection, marquee, copy/paste, duplicate, nudge, align, distribute, group, lock, hide, and Z-order.
+- [ ] Handles on a picked doodad: resize from each corner (Shift keeps proportions), turn with the knob (Shift snaps to 15°), a flipped doodad stays flipped, undo each; no handles in 3D or with several picked.
+- [ ] Pick doodads with different opacity, light and blend: Details shows —, a half-ticked box and — mixed —; leaving them alone changes nothing; one edit sets all. Drag a number label and use the arrows.
 - [ ] Ctrl+A, Select Same Art, Select Everything on a layer and Invert Selection pick only reachable doodads; right-clicking one of several picked keeps them picked.
 - [ ] Paste in Place (Ctrl+Shift+V) on the same map and on another map lands at the copied position.
 - [ ] Replace Art for the picked doodads, for this map and for every map: pictures change, positions and lights stay, Undo brings them back, locked doodads are skipped.
@@ -122,6 +124,18 @@ Test these on an exterior map and on a looping world map.
 - [ ] Details is titled with what is picked (a doodad, an event, several things, the map).
 - [ ] Sounds on and off in More; the editor's own font shows (rounded letters), and Japanese text in names falls back cleanly.
 - [ ] Each layout (Mapping, Events, Characters, Tiles, Compact) leaves the map in view.
+- [ ] Animation: a 4-frame strip set to 4 across loops; back and forth; once on a switch (flip it from an event); hold frame 2; speed 0 holds still. Packed maps keep frames inside their region.
+- [ ] Capture a picture (no outlines in it) and a 3D orbit GIF; open the GIF: it loops round the map and the camera is back where it was. Remove `screenshots/` from a test project afterwards.
+- [ ] Use the same right-click actions a few times: they show as a row at the top of long menus.
+- [ ] Pick each tool for the first time: its tour shows next to its options or the map; picking another tool closes it; "No more tours" and Replay Tool Tours work.
+- [ ] Add Sample Items in a disposable project: four pictures, two prefabs and a biome appear; adding again adds nothing; place the garden and paint the meadow. Remove `img/doodads/samples` and `data/DocsDoodadsPrefabs.json` afterwards if the project should stay clean.
+- [ ] What's New shows once after an update and not for a first-time user.
+- [ ] Palette: "grid toggle" finds Toggle Grid; a command used twice shows under Recent; "time 6pm", "go to map 3", "season winter" and "size 125" work.
+- [ ] Map tabs: open three maps; tabs appear, the current one marked; edit one and switch: its tab keeps a dot until Save; × removes a tab.
+- [ ] Folder view: switch, open nested folders, search narrows the tree, reopen the editor and folders stay open; switch back to cards.
+- [ ] Clock: on a map with day and night, drag the time and see lamps, shadows and (3D) the sky follow; pick a season and see season art; ▶ runs the day; Now goes back.
+- [ ] Show Sounds on a map with sound doodads and region sounds; Listen beside them, in a region and by water with an ambience layer: the right sounds play at sensible volumes, the list matches, Stop and Esc end it.
+- [ ] Show Speed on a heavy 3D map: numbers update, red past the budgets; turning it off leaves nothing behind.
 - [ ] Look: 125% and 150% fill the window, popovers open under their buttons, the bag and Details resize with the mouse; Dark and High contrast are readable everywhere (bag, Details, cards, dialogs, pills, Messages); Colour-blind safe changes guides, brushes and collision colours, and the key matches.
 - [ ] Details: open and close sections, change selection and come back: they stay as left; pin two sections and they lead in pin order; unpin.
 - [ ] Tooltips appear after a short rest with the shortcut in a key cap; clicking or typing hides them; no browser tooltip shows as well.

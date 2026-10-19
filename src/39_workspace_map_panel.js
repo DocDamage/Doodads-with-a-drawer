@@ -708,11 +708,11 @@
     paletteCommands() {
         const D = DocsDoodads;
         const out = [];
-        const add = (label, run, group) => out.push({ label, run, group: group || 'Command' });
-        add('Save', () => D.Persistence.saveAll());
-        add('Undo', () => D.Undo.undo());
-        add('Redo', () => D.Undo.redo());
-        add('Toggle Grid', () => this.toggleGrid());
+        const add = (label, run, group, keys) => out.push({ label, run, group: group || 'Command', keys });
+        add('Save', () => D.Persistence.saveAll(), null, 'Ctrl+S');
+        add('Undo', () => D.Undo.undo(), null, 'Ctrl+Z');
+        add('Redo', () => D.Undo.redo(), null, 'Ctrl+Y');
+        add('Toggle Grid', () => this.toggleGrid(), null, 'G');
         add('Show / Hide Collision', () => this.toggleCollisionOverlay());
         for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');
         add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
@@ -730,6 +730,17 @@
         add('Clear Map Dressing', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
         add('Messages (read them again)', () => this.showToastHistory());
         add('Look: size, theme, map colours', () => this.showLookCard());
+        add('How to Use (welcome card)', () => this.showWelcome());
+        add('Replay Tool Tours', () => this.replayTours());
+        add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());
+        add("What's New", () => this.showWhatsNew());
+        add('Capture: picture of the view (PNG)', () => this.capturePicture());
+        add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());
+        add('Clock: run the day fast', () => this.playClock(), 'Clock');
+        add('Clock: back to the game\'s time', () => { this.stopClock(); this.previewMinutes = null; this.previewSeason = null; this.updateClockBar(true); }, 'Clock');
+        add('Show / Hide Sounds', () => this.toggleSoundOverlay());
+        add('Listen Here (click a tile)', () => this.setPlacementTool('listen'));
+        add('Show / Hide Speed (performance)', () => this.togglePerfOverlay());
         for (const s of D.Ui.scales) add(`Editor size ${Math.round(s * 100)}%`, () => this.setLook('uiScale', s), 'Look');
         for (const t of D.Ui.themes) add('Theme: ' + t.label, () => this.setLook('theme', t.value), 'Look');
         add('Map colours: colour-blind safe', () => this.setLook('mapColors', 'safe'), 'Look');
@@ -768,7 +779,7 @@
         panel.className = 'dd-glass';
         panel.style.cssText = 'position: fixed; top: 90px; left: 50%; transform: translateX(-50%); width: 520px; max-width: calc(100vw - 32px); padding: 10px; z-index: 10050; display: flex; flex-direction: column; gap: 6px;';
         panel.innerHTML = `
-            <input type="text" id="dd-palette-input" placeholder="Type a command, map or asset..." style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-primary); padding: 8px; border-radius: 6px; font-size: 13px;" />
+            <input type="text" id="dd-palette-input" placeholder="Type a command, map or asset... (or: time 18:30, go to map 3)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-primary); padding: 8px; border-radius: 6px; font-size: 13px;" />
             <div id="dd-palette-list" style="max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 1px;"></div>`;
         document.body.appendChild(panel);
         const input = document.getElementById('dd-palette-input');
@@ -776,12 +787,16 @@
         let results = [], index = 0;
         const close = () => { if (panel.parentNode) panel.parentNode.removeChild(panel); };
         const draw = () => {
-            results = DocsDoodads.CommandPalette.rank(input.value, commands, 50);
+            results = this.paletteResults(input.value, commands, 50);
             index = Math.min(index, Math.max(0, results.length - 1));
-            listEl.innerHTML = results.map((c, i) => `
-                <div class="dd-palette-row" data-i="${i}" style="display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
-                    <span>${escapeHtml(c.label)}</span><span style="color: var(--dd-faint); font-size: 10px;">${escapeHtml(c.group)}</span>
-                </div>`).join('') || '<div style="font-size: 12px; color: var(--dd-faint); padding: 6px;">No matches</div>';
+            listEl.innerHTML = results.map((c, i) => {
+                const parts = this.paletteRowParts(c);
+                return `
+                <div class="dd-palette-row" data-i="${i}" style="display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
+                    <span style="flex: 1; min-width: 0;">${escapeHtml(parts.name)}</span>${parts.keys ? `<kbd>${escapeHtml(parts.keys)}</kbd>` : ''}
+                    <span style="color: var(--dd-faint); font-size: 10px;">${c.recent ? 'Recent · ' : ''}${escapeHtml(c.group)}</span>
+                </div>`;
+            }).join('') || '<div style="font-size: 12px; color: var(--dd-faint); padding: 6px;">No matches</div>';
             listEl.querySelectorAll('.dd-palette-row').forEach(row => {
                 row.onmousedown = e => { e.preventDefault(); run(parseInt(row.dataset.i, 10)); };
             });
@@ -790,6 +805,8 @@
             const c = results[i];
             close();
             if (c) {
+                // Typed values (a time, a map) are made fresh each time; named commands are remembered.
+                if (commands.some(x => x.label === c.label)) this.rememberCommand(c.label);
                 try { c.run(); } catch (error) { this.showToast(error.message || String(error), 'error'); }
             }
         };

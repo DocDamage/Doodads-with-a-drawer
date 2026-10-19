@@ -663,6 +663,7 @@
             shadow: DocsDoodads.Shadow.defaults,
             light: DocsDoodads.Lighting.lightDefaults,
             motion: { type: 'none', amount: 0.5, speed: 1 },
+            anim: { mode: 'loop', offset: 0, switchId: 0, frame: 0 },
             transition: DocsDoodads.Transition.defaults,
             particles: { preset: 'none', rateScale: 1, layer: 'above', offsetX: 0, offsetY: 0 },
             sound: DocsDoodads.SpatialSound.emitterDefaults,
@@ -680,6 +681,8 @@
         if (key === 'switchText') return DocsDoodads.Appearance.formatSwitches(d.switch);
         if (key === 'depth') return DocsDoodads.Depth.resolve(d);
         if (key === 'layer') return DocsDoodads.Layers.of(d);
+        // Size: how big, whichever way it is flipped (the larger side when stretched).
+        if (key === 'scale') return Math.round(Math.max(Math.abs(d.scaleX !== undefined ? d.scaleX : 1), Math.abs(d.scaleY !== undefined ? d.scaleY : 1)) * 100) / 100;
         if (key.indexOf('seasonIn.') === 0) return Array.isArray(d.seasons) && d.seasons.includes(Number(key.slice(9)));
         if (d[key] === undefined && this.propertyFallbacks[key] !== undefined) return this.propertyFallbacks[key];
         const dot = key.indexOf('.');
@@ -699,6 +702,21 @@
         }
         if (key === 'switchText') {
             d.switch = DocsDoodads.Appearance.parseSwitchText(value);
+            return;
+        }
+        // Frames across or down: the picture's whole width (or height) is split into that many frames.
+        if (key === 'xFrame' || key === 'yFrame') {
+            const side = key === 'xFrame' ? 'frameW' : 'frameH';
+            const n = Math.max(1, Math.min(64, Math.round(Number(value) || 1)));
+            const full = (Number(d[side]) || 48) * Math.max(1, Number(d[key]) || 1);
+            d[key] = n;
+            d[side] = Math.max(1, Math.round(full / n));
+            return;
+        }
+        if (key === 'scale') {
+            const size = Math.max(0.05, Math.min(20, Number(value) || 1));
+            d.scaleX = size * ((d.scaleX !== undefined ? d.scaleX : 1) < 0 ? -1 : 1);
+            d.scaleY = size * ((d.scaleY !== undefined ? d.scaleY : 1) < 0 ? -1 : 1);
             return;
         }
         // "None" removes the emitter or attached effect rather than storing an empty one.
@@ -855,6 +873,15 @@
                 { key: 'flipX', label: 'Flip horizontally', type: 'checkbox' },
                 { key: 'flipY', label: 'Flip vertically', type: 'checkbox' }
             ] },
+            { title: 'Animation', fields: [
+                number('xFrame', 'Frames across (in the picture)'),
+                number('yFrame', 'Frames down'),
+                number('frameUpdate', 'Speed: game frames per picture (0 = still)'),
+                { key: 'anim.mode', label: 'Play', type: 'select', options: D.FrameAnim.modes },
+                number('anim.offset', 'Start at frame (0 = first)'),
+                number('anim.switchId', 'Once: when this switch turns on (0 = at once)'),
+                number('anim.frame', 'Hold: frame to show')
+            ] },
             { title: 'Motion', fields: [
                 { key: 'motion.type', label: 'Type', type: 'select', options: D.Motion.types },
                 range('motion.amount', 'Amount', 0, 1, 0.05),
@@ -926,36 +953,55 @@
         ];
     },
 
-    fieldHtml(id, f, value) {
+    // mixed: the picked doodads differ here. The field shows "—" (an empty box, a "mixed" choice, a
+    // half-ticked box) and an edit sets them all.
+    fieldHtml(id, f, value, mixed) {
         const inputStyle = 'width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px; border-radius: 3px; font-size: 11px;';
-        const label = `<label for="${id}" style="font-size: 10px; color: var(--dd-muted);">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: var(--dd-text);">${escapeHtml(String(value))}</span>` : ''}</label>`;
+        const shown = mixed ? '—' : String(value);
+        const label = `<label for="${id}" style="font-size: 10px; color: var(--dd-muted);">${escapeHtml(f.label)}${f.type === 'range' ? `: <span id="${id}-val" style="color: var(--dd-text);">${escapeHtml(shown)}</span>` : ''}${mixed && (f.type === 'color' || f.type === 'checkbox') ? ' (mixed)' : ''}</label>`;
         if (f.type === 'checkbox') {
-            return `<label style="font-size: 11px; color: var(--dd-text); display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value ? 'checked' : ''} /> ${escapeHtml(f.label)}</label>`;
+            return `<label style="font-size: 11px; color: var(--dd-text); display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="${id}" ${value && !mixed ? 'checked' : ''}${mixed ? ' data-mixed="1"' : ''} /> ${escapeHtml(f.label)}${mixed ? ' (mixed)' : ''}</label>`;
         }
         if (f.type === 'select') {
-            const options = f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
+            const options = (mixed ? '<option value="__mixed" selected>— mixed —</option>' : '') +
+                f.options.map(o => `<option value="${escapeHtml(String(o.value))}" ${!mixed && String(o.value) === String(value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
             return `<div>${label}<select id="${id}" style="${inputStyle}">${options}</select></div>`;
         }
         if (f.type === 'range') {
-            return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}" style="width: 100%;" /></div>`;
+            return `<div>${label}<input type="range" id="${id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${escapeHtml(String(value))}"${mixed ? ' data-mixed="1"' : ''} style="width: 100%;" /></div>`;
         }
         if (f.type === 'color') {
             return `<div>${label}<input type="color" id="${id}" value="${escapeHtml(String(value))}" style="width: 100%; height: 22px; background: var(--dd-field); border: 1px solid var(--dd-line);" /></div>`;
         }
         const type = f.type === 'number' ? 'number' : 'text';
-        return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(value === undefined || value === null ? '' : value))}" style="${inputStyle}" /></div>`;
+        const text = mixed || value === undefined || value === null ? '' : value;
+        return `<div>${label}<input type="${type}" id="${id}" ${f.step ? `step="${f.step}"` : ''} value="${escapeHtml(String(text))}"${mixed ? ' placeholder="—" data-mixed="1"' : ''} style="${inputStyle}" /></div>`;
+    },
+
+    // Where several picked doodads stand and how big they are, for Details with more than one picked.
+    placementSection() {
+        const number = (key, label, step = 1) => ({ key, label, type: 'number', step });
+        return { title: 'Placement', fields: [number('x', 'X (pixels)'), number('y', 'Y (pixels)'), number('z', 'Z-order'),
+            number('rotation', 'Turn (degrees)'), number('scale', 'Size (1 = as drawn)', 0.05)] };
+    },
+
+    // The value the picked doodads share, or { mixed: true } with the first one's.
+    sharedValue(items, key) {
+        const values = items.map(d => this.getDoodadProperty(d, key));
+        const first = JSON.stringify(values[0]);
+        return { value: values[0], mixed: values.some(v => JSON.stringify(v) !== first) };
     },
 
     // The sections are built once per render and bound from the same list.
     renderEffectSections(items) {
         const first = items[0];
         this._openEffectSections = this._openEffectSections || {};
-        this._effectSections = this.effectSections();
+        this._effectSections = (items.length > 1 ? [this.placementSection()] : []).concat(this.effectSections());
         return this._effectSections.map((section, si) => {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;
-                const value = this.getDoodadProperty(first, f.key);
-                return this.fieldHtml(id, f, value);
+                const shared = items.length > 1 ? this.sharedValue(items, f.key) : { value: this.getDoodadProperty(first, f.key), mixed: false };
+                return this.fieldHtml(id, f, shared.value, shared.mixed);
             }).join('');
             return `
                 <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
@@ -974,6 +1020,8 @@
             section.fields.forEach((f, fi) => {
                 const input = document.getElementById(`dd-fx-${si}-${fi}`);
                 if (!input) return;
+                const mixed = input.getAttribute && input.getAttribute('data-mixed') === '1';
+                if (mixed && f.type === 'checkbox') input.indeterminate = true;
                 const read = () => {
                     if (f.type === 'checkbox') return Boolean(input.checked);
                     if (f.type === 'range' || f.type === 'number') return parseFloat(input.value) || 0;
@@ -991,7 +1039,14 @@
                     };
                     input.onpointerup = input.onblur = () => setTimeout(() => this.commitPropertyPreview(), 0);
                 } else {
-                    input.onchange = () => this.setDoodadProperty(items, f.key, read());
+                    input.onchange = () => {
+                        // Leaving a mixed field as it was ("—" or the mixed choice) changes nothing.
+                        if (f.type === 'select' && input.value === '__mixed') return;
+                        if (mixed && (f.type === 'number' || f.type === 'text') && String(input.value) === '') return;
+                        if (f.type === 'number' && String(input.value).trim() === '') return;
+                        this.setDoodadProperty(items, f.key, read());
+                        if (f.key === 'x' || f.key === 'y' || f.key === 'z' || f.key === 'scale' || f.key === 'rotation') this.refreshSpriteset(true);
+                    };
                 }
             });
         });
