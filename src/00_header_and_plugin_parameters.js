@@ -239,6 +239,14 @@
  * @default false
  * @desc Format style when saving DocsDoodads.json.
  *
+ * @param splitByMap
+ * @text Doodad Files
+ * @type boolean
+ * @on One file per map
+ * @off One file
+ * @default false
+ * @desc One file per map (data/DocsDoodads/) keeps diffs and merges small when the project is in Git.
+ *
  * @param defaultLayout
  * @text Default Workspace Layout
  * @type select
@@ -1188,6 +1196,64 @@
  * @text Event ID
  * @type number
  * @default 0
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 1
+ *
+ * @command setDoodadState
+ * @text Set Doodad State
+ * @desc Puts named doodads in one of their states (saved with the game). Wins over their switch or variable until cleared.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @desc The Name given in Details. Every doodad with this name on the map follows.
+ * @default
+ *
+ * @arg state
+ * @text State
+ * @desc A state's name or number (0 = as placed), "next" for the next one, or blank to follow its switch or variable again.
+ * @default next
+ *
+ * @arg mapId
+ * @text Map
+ * @type number
+ * @desc 0 for this map.
+ * @default 0
+ *
+ * @command setDoodadLight
+ * @text Set Doodad Light
+ * @desc Turns named doodads' lights on or off (saved with the game), or back to their own setting.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @default
+ *
+ * @arg light
+ * @text Light
+ * @type select
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @option Its own setting
+ * @value default
+ * @default off
+ *
+ * @arg mapId
+ * @text Map
+ * @type number
+ * @desc 0 for this map.
+ * @default 0
+ *
+ * @command storeDoodadState
+ * @text Store Doodad State
+ * @desc Stores the number of a named doodad's state on this map (0 = as placed; -1 when there is none) in a variable.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @default
  *
  * @arg variableId
  * @text Variable

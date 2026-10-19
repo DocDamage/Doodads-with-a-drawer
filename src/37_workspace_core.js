@@ -111,6 +111,7 @@ DocsDoodads.Workspace = {
         DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
         if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);
         if (this.placementTool === 'biome') this.refreshBiomeToolPicker();
+        if (this.placementTool === 'region' && this.renderRegionLegend) this.renderRegionLegend();
         if (this.placementTool !== 'path') {
             this.pathPoints = [];
             this._pathHover = null;
@@ -168,6 +169,7 @@ DocsDoodads.Workspace = {
         this.closeMapTools();
         this.endTour();
         this.closeCaptureCard();
+        this.closeProblems();
         clearTimeout(this._hoverShow);
         this.hideHoverCard(true);
         if (this._assetScanToken) this._assetScanToken.cancelled = true;
@@ -327,6 +329,7 @@ DocsDoodads.Workspace = {
             ${tool('dd-biome-btn', 'biome', 'Paint', 'Paint: drag to paint a mix of plants (biomes)')}
             ${tool('dd-path-btn', 'path', 'Path', 'Path: lay the picked item along a line you click out')}
             ${tool('dd-terrain-btn', 'terrain', 'Hills', 'Hills: raise and lower the ground (3D view)')}
+            ${tool('dd-region-btn', 'grid', 'Regions', 'Regions: paint region numbers on tiles (and see terrain tags)')}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
             ${tool('dd-eyedropper-btn', 'picker', 'Grab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)')}
             <div class="dd-sep"></div>
@@ -390,6 +393,16 @@ DocsDoodads.Workspace = {
                     <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step. The numbers are each tile's height; the hills show in the 3D view.</div>
                 </div>
             </div>
+            <div id="dd-region-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('grid', 1)} Regions</div>
+                <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
+                    <label>Region to paint (0 rubs out)<input type="number" id="dd-region-id" min="0" max="255" step="1" value="1" style="width: 100%;" /></label>
+                    <div>Size ([ and ]): <b id="dd-region-rad-val" style="color: var(--dd-text);">1</b> tiles across<input type="range" id="dd-region-rad" min="0" max="6" step="1" value="0" style="width: 100%;" /></div>
+                    <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-region-tags" /> Show terrain tags (set in MZ's Tilesets)</label>
+                    <div id="dd-region-legend"></div>
+                    <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step and is saved with the map. Alt+click picks up a tile's region.</div>
+                </div>
+            </div>
             <div id="dd-sym-popover" class="dd-glass dd-pop" style="display: none;">
                 <div class="dd-pop-title">${U.icon('mirror', 1)} Mirror</div>
                 <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--dd-muted);">
@@ -438,6 +451,7 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
+                    <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
                     <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
@@ -892,6 +906,7 @@ DocsDoodads.Workspace = {
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
+        on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
         on('dd-listen-btn', () => { this.setPlacementTool('listen'); });
         on('dd-perf-btn', () => { this.togglePerfOverlay(); this.showMoreMenu(false); });

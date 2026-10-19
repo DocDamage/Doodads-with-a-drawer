@@ -569,7 +569,7 @@
     historyBackups() {
         const FS = DocsDoodads.FS;
         const mapFile = DocsDoodads.Persistence.mapFilePath ? DocsDoodads.Persistence.mapFilePath(this.currentMapId()) : null;
-        const doodadFile = 'data/' + dataFileName;
+        const doodadFile = DocsDoodads.DataFiles.pathForMap(this.currentMapId());
         const tag = (list, kind) => list.map(b => Object.assign({}, b, { kind }));
         return tag(FS.listBackups(doodadFile), 'doodads').concat(mapFile ? tag(FS.listBackups(mapFile), 'map') : [])
             .sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -584,7 +584,9 @@
             const current = staged ? staged.events : (window.$dataMap ? window.$dataMap.events : []);
             return { kind: 'map', mapId, backup, events: DocsDoodads.History.diffEvents(current, data.events || []) };
         }
-        return { kind: 'doodads', mapId, backup, doodads: DocsDoodads.History.diffDoodads(DocsDoodads.doodads(mapId), Array.isArray(data[mapId]) ? data[mapId] : []) };
+        // A map's own doodad file is the list itself.
+        const saved = Array.isArray(data) ? data : Array.isArray(data[mapId]) ? data[mapId] : [];
+        return { kind: 'doodads', mapId, backup, doodads: DocsDoodads.History.diffDoodads(DocsDoodads.doodads(mapId), saved) };
     },
 
     // item.kind: added / removed / changed (doodads), addedEvent / removedEvent / changedEvent.
@@ -735,6 +737,9 @@
         add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
+        add('Problems (check the map)', () => this.showProblems());
+        add('Check Reach from the player', () => this.checkReach());
+        add('Check Reach from a tile...', () => this.setPlacementTool('reach'));
         add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());
         add('Clock: run the day fast', () => this.playClock(), 'Clock');
         add('Clock: back to the game\'s time', () => { this.stopClock(); this.previewMinutes = null; this.previewSeason = null; this.updateClockBar(true); }, 'Clock');
@@ -751,6 +756,7 @@
         add('Tool: Paint (biomes)', () => this.setPlacementTool('biome'));
         add('Tool: Path', () => this.setPlacementTool('path'));
         add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'));
+        add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'));
         add('Tool: Select', () => this.setPlacementTool(null));
         add('Select All (Ctrl+A)', () => this.selectAllDoodads());
         add('Invert Selection', () => this.invertSelection());
@@ -908,6 +914,7 @@
         on('dd-terrain-amount', 'oninput', e => { this.terrainBrush.amount = parseFloat(e.target.value) || 0.5; const v = byId('dd-terrain-amount-val'); if (v) v.textContent = e.target.value; });
         on('dd-terrain-radius', 'oninput', e => { this.terrainBrush.radius = parseInt(e.target.value, 10) || 0; const v = byId('dd-terrain-radius-val'); if (v) v.textContent = e.target.value; });
         on('dd-terrain-value', 'onchange', e => { this.terrainBrush.value = parseFloat(e.target.value) || 0; });
+        this.bindRegionTool();
         const symPop = byId('dd-sym-popover');
         on('dd-sym-btn', 'onclick', () => {
             if (!symPop) return;

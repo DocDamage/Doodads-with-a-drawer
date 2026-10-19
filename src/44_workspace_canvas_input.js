@@ -84,6 +84,8 @@
     drawEditorOverlayExtras(g) {
         this.drawCollisionOverlay(g);
         this.drawSoundOverlay(g);
+        this.drawReachOverlay(g);
+        this.drawRegionOverlay(g);
         this.drawTransformHandles(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
@@ -559,6 +561,11 @@
                 this.listenHere(coords.tileX, coords.tileY);
                 return;
             }
+            if (this.placementTool === 'reach') {
+                this.setPlacementTool(null);
+                this.checkReach({ x: coords.tileX, y: coords.tileY });
+                return;
+            }
 
             // 3. Stamp Tool
             if (this.placementTool === 'stamp' && this.selectedAsset) {
@@ -589,6 +596,14 @@
                 this.isBrushActive = true;
                 this.currentBrushBatch = [];
                 this.beginTerrainStroke(e.clientX, e.clientY);
+                return;
+            }
+            if (this.placementTool === 'region' && e.button === 0) {
+                if (e.altKey) {
+                    this.pickRegionAt(e.clientX, e.clientY);
+                    return;
+                }
+                if (this.beginRegionStroke(e.clientX, e.clientY)) this.isBrushActive = true;
                 return;
             }
             if (this.placementTool === 'biome' && e.button === 0) {
@@ -662,6 +677,10 @@
                 return;
             }
             if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
+            if (this.placementTool === 'region') {
+                this.trackRegionHover(e);
+                if (this.isBrushActive && this._regionStroke) this.regionPaintAt(e.clientX, e.clientY);
+            }
             if (this.placementTool === 'brush') this._brushHover = this.clientToMapCoords(e.clientX, e.clientY);
             if (this.placementTool === 'stamp' && this.selectedAsset) {
                 this.showGhost(this.selectedAsset, e.clientX, e.clientY, e.altKey);
@@ -721,6 +740,7 @@
                 this.isBrushActive = false;
                 if (this._scatterErase) this.endScatterErase();
                 if (this._terrainStroke) this.endTerrainStroke();
+                if (this._regionStroke) this.endRegionStroke();
                 if (this.currentBrushBatch.length > 0) {
                     const batch = [...this.currentBrushBatch];
                     const cmd = {
@@ -1639,7 +1659,9 @@
         const mapFile = `data/Map${String($gameMap ? $gameMap.mapId() : 0).padStart(3, '0')}.json`;
         const targets = [
             { label: 'Current Map', path: mapFile },
-            { label: 'Doodads', path: 'data/' + dataFileName },
+            DocsDoodads.DataFiles.split
+                ? { label: 'Doodads (this map)', path: DocsDoodads.DataFiles.mapPath($gameMap ? $gameMap.mapId() : 0) }
+                : { label: 'Doodads', path: DocsDoodads.DataFiles.mainPath() },
             { label: 'Asset Library', path: DocsDoodads.AssetIndex.libraryPath }
         ];
         const modal = document.createElement('div');
@@ -1704,8 +1726,8 @@
             if (targetPath === DocsDoodads.AssetIndex.libraryPath) {
                 DocsDoodads.AssetIndex.init();
                 this.refreshDrawerCards();
-            } else if (targetPath === 'data/' + dataFileName) {
-                window.$dataDocsDoodads = DocsDoodads.FS.readJson(targetPath) || {};
+            } else if (targetPath === DocsDoodads.DataFiles.mainPath() || DocsDoodads.DataFiles.mapIdOfPath(targetPath) > 0) {
+                window.$dataDocsDoodads = DocsDoodads.DataFiles.readAll() || {};
                 DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
                 this.refreshSpriteset();
             } else if (targetPath === mapFile && window.$gameMap) {

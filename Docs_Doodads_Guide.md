@@ -51,6 +51,7 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Editor Toggle Key** (`editKey`) | Combo | `F10` | Key to open/close the workspace: any key (`F6`, `` ` ``, `E`, or a KeyboardEvent code such as `Numpad0`), or a chord such as `Ctrl+F10` or `Ctrl+Shift+E`. A key that types, like a letter, does nothing while a text field has focus. |
 | **Editor Enabled** (`editorMode`) | Boolean | `true` | Enables in-game asset workspace during playtest. |
 | **Doodads Data File Name** (`dataFileName`) | Text | `DocsDoodads` | JSON filename in `data/` (without `.json`). |
+| **Doodad Files** (`splitByMap`) | Boolean | `false` | One file per map: the settings stay in the data file, and each map's doodads go in `data/DocsDoodads/DocsDoodads-Map003.json` (smaller diffs in Git). |
 | **Texture Scaling Mode** (`doodadScaleMode`) | Boolean | `true` | `true` for Smooth / Linear, `false` for Pixelated / Nearest. |
 | **Default Workspace Layout** (`defaultLayout`) | Select | `Mapping` | Startup layout preset (`Mapping`, `Events`, `Characters`, `Tiles`, `Compact`). |
 | **Default Thumbnail Size** (`defaultThumbnailSize`) | Number | `96` | Initial card size in pixels (32 to 256). |
@@ -69,7 +70,7 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 ### The editor at a glance
 Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**. From the card (More > How to Use) you can also **Add Sample Items** (four small pictures in `img/doodads/samples`, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), **Replay Tool Tours**, and read **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
 
-- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
+- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Regions** (region numbers), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
 - With unsaved changes, **Done**, the toggle key, closing the Playtest window and **F5** ask first: **Save**, **Don't Save** (the doodads and events go back to how they were last saved) or **Keep Editing**.
 - Questions (names, "are you sure?") come up in a card: **Enter** answers with the main button and **Esc** cancels. Anything that can't easily be taken back has a red button.
 - A tool's options open in a card under its button while it is on. **Esc** goes back to Select.
@@ -83,6 +84,8 @@ Press **F10** in a playtest. The first time, a short welcome card shows the thre
 - **Command palette** (Ctrl+K or More > Find a Tool): words can come in any order; recently used commands come first; shortcuts show as key caps. Type a value to act on it straight away: `time 18:30` (or `6pm`) previews that time, `go to map 3` goes there, `season winter` previews a season, `size 125` sets the editor size.
 - **Map tabs** (under the top bar, once you have opened two maps): click one to go there, × to take it out; a dot marks a map with unsaved changes.
 - **Folder view** (the folder button beside the item count): the Item Bag's items in a tree of their folders; the search and tabs still narrow it.
+- **Problems** (More): pictures (a state's own art too), common events and sounds missing from the project, doodads outside the map, lamps on maps that never get dark, events nobody can step on or that sit under a doodad's collision; for this map or every map. **Go To** shows each one; **Fix** (where there is a safe fix) replaces the art, removes the sound or moves the doodad inside.
+- **Check Reach** (in Problems, or the palette): shades every tile the player can walk to from where they stand (or **From a Tile...**), past walls, doodad collision and characters, and lists the doors, chests and transfers out of reach. "Only a character stands in the way" means a character blocks the only path; it may move during play.
 - **Capture** (More): **Save a Picture of the View** writes a PNG of the map as it is on screen (no editor outlines); **Orbit GIF (3D)** turns the 3D camera once round and saves a looping GIF (pick 12, 24 or 36 frames and a width). Both go into the project's `screenshots` folder.
 - **Right-click menus** remember what you use: once a few actions repeat, longer menus open with a row of your most-used actions on top.
 - **Look** (More): the editor's **size** (100, 125 or 150%), its **theme** (Light, Dark or High contrast) and the **map colours**: Standard, or **Colour-blind safe** (colours that stay apart for red-green and blue-yellow colour blindness) for the selection, guides, mirror line, paths, Old Saves, brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer.
@@ -147,7 +150,7 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Drag & Drop**: Drag any asset or slice from the Item Bag directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
 - **Snapping**: Snaps to the map's tiles by default (or the Grid Snap Width / Height parameters). **Hold Alt** while dragging or dropping for free pixel-perfect placement.
 - **Stamp Mode**: Click the **Stamp** tool in the top bar to click-to-place repeated props (grass, barrels, trees) across the map. Press **Escape** or right-click to exit.
-- **Scatter & Settings**: Click the **Scatter** tool to paint scattered props. Its card lets you tune **Size**, **How many**, **Space between**, and under **Variety** the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls). A circle on the map shows the brush; **right-drag** erases the picked item inside it (one undo step a stroke; locked doodads and ones on hidden or locked layers stay). **[** and **]** make the brush smaller or bigger (Paint and Hills too).
+- **Scatter & Settings**: Click the **Scatter** tool to paint scattered props. Its card lets you tune **Size**, **How many**, **Space between**, and under **Variety** the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls). A circle on the map shows the brush; **right-drag** erases the picked item inside it (one undo step a stroke; locked doodads and ones on hidden or locked layers stay). **[** and **]** make the brush smaller or bigger (Paint, Hills and Regions too).
 - **Path Tool**: Click **Path**, then click points on the map (tile-snapped; hold **Alt** for free points). Double-click or press **Enter** to place the selected asset evenly along the line; **Backspace** removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate **End** and **Corner** pieces from the Item Bag for fences, walls, and rows of lamps.
 - **Prefabs**: Select doodads and click **Save Prefab** in Details. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the **Prefabs** tab by dragging, with **Stamp**, or **Place at Player**. Copies are grouped. Edit one copy and click **Update Prefab**, then **Sync Copies** to rebuild every copy on every map from the master. **Detach** unlinks a copy.
 - **Grab**: Hold **Alt and click** any placed doodad or MZ event on the map (or use the **Grab** tool) to find and pick that asset or event template in the Item Bag.
@@ -167,6 +170,8 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Shift + Click / Shift + Marquee**: Add or toggle doodads in the active multi-selection.
 - **Handles**: a picked doodad (one, on a flat map) shows corner handles and a knob above it. Drag a corner to resize it around its foot (it stays standing where it was); **Shift** keeps its proportions. Drag the knob to turn it; **Shift** snaps to 15 degrees. Each drag is one undo step.
 - **Animation** (Details, for a doodad drawn as a strip of frames): frames across and down (the picture is split evenly), speed (game frames per picture; 0 holds still), the frame to start on, and Play: Loop, Back and forth, Once (when its switch turns on; again each time it turns on) or Hold one frame.
+- **States** (Details): give the doodad a **Name** (events find it by this; doodads with the same name follow together), then **+ Add State**. State 0 is the doodad as placed; each other state can show another picture (**Use Picked Art** takes the one picked in the Item Bag) and can turn the doodad's **Light** and **Collision** off. **Switched by**: Events only, a switch (off shows state 0, on shows state 1) or a variable (its value picks the state). **Crossfade** is how many frames the old picture takes to fade. **Preview** shows a state on the map while editing (nothing is saved).
+- **Touch** (Details): a **common event to run** when the player presses Action facing the doodad (or clicks it), or, with **Runs on: Walking into it**, bumps into it or steps onto it. **Also go to its next state** makes a door that opens and closes with no event at all. Inside the common event, `DocsDoodads.WorldState.touched()` says which doodad it was (`name`, `state`).
 - **Several picked**: Details shows "—" where the picked doodads differ (a half-ticked box, a "— mixed —" choice); changing a field sets it on all of them. **Placement** sets their X, Y, Z-order, turn and size.
 - **Number boxes** in Details: drag the label left or right to change the number (Shift for bigger steps), or use the arrow keys.
 - **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
@@ -203,6 +208,8 @@ Select a placed doodad (or several) and open Details' collapsible sections. Ever
 - **Visibility**: show only while switches are set (`5:on, 6:off`) and/or while a JavaScript condition is true. The editor always shows conditional doodads, faded when their condition is false.
 
 **Map lighting**: with nothing selected, Details shows the map's settings. Set **Ambient Darkness** and colour, optionally only while a switch is ON (a night switch), and toggle **Preview lighting while editing**. During play, the plugin commands **Set Ambient Light** (darkness %, colour, fade frames) and **Reset Ambient Light** fade between moods.
+
+**Doodad states and lights in saves**: **Set Doodad State** (a Name, then a state's name or number, `next`, or blank to follow its switch or variable again; on this map or another), **Set Doodad Light** (on, off, or its own setting) and **Store Doodad State** (its number into a variable) are kept with the save file, so the lamp the player smashed stays smashed. A saved state wins over the doodad's switch or variable. In a Conditional Branch script: `DocsDoodads.WorldState.is('Front Door', 'Open')`.
 
 ---
 
@@ -351,6 +358,7 @@ Open **Traversal** in the map panel (*All maps*) to give the player more ways to
 - **Fly** (F key; again to land): over everything but the map's edge and *No flying over region*, above tree tops, with a shadow below, and drawn up off the ground in 3D. No events trigger from the air, battles only if *Random battles while flying* is on, and the party lands only where it could stand.
 - **Climb:** chosen regions or terrain tags climb like ladders, past terrain-height blocking.
 - **Ice:** chosen regions or terrain tags slide the player on until something stops them.
+- **Gamepad and touch:** jump (and dive) and fly (and land) also go on gamepad buttons MZ leaves free on the map: the right and left triggers unless you pick others (or None). On touch screens (or always, or never) round **Jump** and **Fly** buttons show in the bottom right while the player can move; they read **Dive**, **Surface** or **Land** when that is what they would do, and a tap on them never walks the player there.
 
 ---
 
@@ -439,6 +447,11 @@ The map panel has many sections. Type in **Search settings** at its top (for exa
 
 ### Undo history
 The **Steps** button next to Undo and Redo lists the undo steps by name (Place doodad, Move doodads, Terrain height, Dress map...), oldest first, with the current point highlighted. Click a step to go back to just after it, or forward again to a greyed-out step; *(Start)* undoes everything. Making a new change after going back drops the greyed-out steps, as Undo does. The list holds the last 300 steps.
+
+Each map keeps its own steps. Going to another map parks this map's steps; coming back brings them back, with a toast saying how many (Undo and Steps work there again). If the map file was changed in MZ meanwhile, its steps are let go instead. The last ten maps you left keep their steps; **Discard** clears them all.
+
+### Regions
+The **Regions** tool paints MZ region numbers onto the map's tiles, the ones dressing rules, biomes, region sounds, footsteps, ambience, climbing, ice, no-fly zones and terrain height read. Pick the number (0 rubs regions out) and the size (1 to 13 tiles across, **[** and **]**), then drag on the map; each stroke is one undo step and is saved into the map file with your other map edits. **Alt+click** a tile to pick up its region. While the tool is out, each painted tile shows its region's colour and number. The card's legend lists the regions on this map, how many tiles each covers and what the project uses it for; click one to paint with it. **Show terrain tags** marks tiles that have a terrain tag (T1, T2...). Terrain tags belong to the tileset in MZ's database, so they are shown here but changed in MZ.
 
 ### Command palette (Ctrl+K)
 Type a few letters of anything and press Enter:
@@ -671,6 +684,25 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 - **Save Event as Template**: Click **💾 Save as Event Template** in Details (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/DocsDoodadsEventTemplates.json` for reuse across any map in your project.
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 
+### Scripts and other plugins (`DocsDoodads.api`)
+
+Everything works on the map the player is on unless a map ID is given. Doodads are found by the **Name** given in Details (any case), or by a query object.
+
+| Call | Does |
+| :--- | :--- |
+| `find(query)`, `get(query)` | Doodads matching a Name, or `{ name, uid, art: 'Rock', near: { x, y, radius }, where: d => ... }` (`near` in tiles). `get` returns the first or `null`. |
+| `doodads(mapId)`, `tileOf(query)` | A map's doodads; the tile a doodad stands on. |
+| `place({ art, x, y, name, ... })` | Places a doodad (tiles; `tiles: false` for pixels) with any doodad fields (`light`, `states`, `touch`...). Returns it. |
+| `move(query, x, y, { relative, tiles })`, `set(query, fields)`, `remove(query)` | Moves, changes (`art` for a new picture) or removes doodads. |
+| `state(name)`, `setState(name, state)`, `stateNames(name)` | States, as Set Doodad State (kept in the save). |
+| `light(name)`, `setLight(name, true / false / null)` | Lights, as Set Doodad Light (kept in the save). |
+| `time()`, `setTime(h, m)`, `addTime(h, m)` | The time of day in minutes (`null` with the clock off). |
+| `season()`, `seasonName()`, `setSeason(n or name)` | The season. |
+| `ambient(darkness, color, frames)`, `ambient(null)` | Fades the ambient light (0 to 1), or back to the map's own. |
+| `on('touch' / 'state' / 'light', fn)` | Calls `fn` with `{ doodad }`, `{ name, state }` or `{ name, on }` (and `mapId`); returns a function that stops it. |
+
+Doodads placed, moved, changed or removed through the API change the game's copy of the map only: they last until the game is closed or reloaded and are never written to the project or to save files. States and lights are kept in the save file.
+
 ---
 
 ## 16. Direct Physical Collision System
@@ -770,8 +802,8 @@ Editing real map data in playtest mode requires rigorous file protection:
 3. **Atomic Writes**: Data is serialized to `<filename>.tmp` and validated before performing an atomic filesystem rename, eliminating half-written corrupt files.
 4. **Corrupt JSON Auto-Recovery**: If any project file is corrupted (e.g., due to an abrupt power cut), `DocsDoodads.FS` automatically identifies and restores the latest valid backup snapshot.
 5. **Autosave Crash Recovery**: A background heartbeat writes current session staging data to `data/DocsDoodadsRecovery.json` every 60 seconds. If playtest is closed unexpectedly, the workspace offers to resume your unsaved changes upon restart. Closing the window on purpose asks to save first; choosing **Don't Save** there also removes the snapshot, so it isn't offered again.
-6. **Transactional Multi-File Save**: Map, doodad, and asset-library changes are staged and validated together. If a later file cannot commit, earlier files are restored and the workspace remains dirty so the save can be retried.
-7. **Manual Backup Restore**: Open **More → Info → Restore Project Backup…**, select the current map, doodad data, or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
+6. **Transactional Multi-File Save**: Map, doodad, and asset-library changes are staged and validated together. Doodad data is written with its keys in a fixed order, so the same data always gives the same file (small diffs in Git); with **Doodad Files: One file per map**, each map's doodads are their own file. If a later file cannot commit, earlier files are restored and the workspace remains dirty so the save can be retried.
+7. **Manual Backup Restore**: Open **More → Info → Restore Project Backup…**, select the current map, doodad data (this map's file with **Doodad Files: One file per map**), or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
 
 ---
 
@@ -795,7 +827,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **Shift + Click / Drag**| Marquee multi-select or toggle doodad selection | Map Canvas |
 | **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map Canvas |
 | **Alt (Hold on Drag)**| Free pixel placement (bypasses 48px tile snap) | Map Canvas |
-| **[** / **]** | Smaller / bigger brush (Scatter, Paint, Hills) | Workspace |
+| **[** / **]** | Smaller / bigger brush (Scatter, Paint, Hills, Regions) | Workspace |
 | **Right-drag** | Erase the picked item inside the brush | Scatter |
 | **G** | Toggle 48px Tile Grid visual overlay | Workspace |
 | **H** | Fold or open the Details panel | Workspace |

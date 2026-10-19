@@ -643,7 +643,11 @@
                 number('traversal.fly.switchId', 'Flying needs switch'),
                 number('traversal.jump.noRegion', 'No jumping into region'),
                 number('traversal.swim.noRegion', 'No swimming in region'),
-                number('traversal.fly.noRegion', 'No flying over region')
+                number('traversal.fly.noRegion', 'No flying over region'),
+                select('traversal.controls.padJump', 'Gamepad: jump (and dive) button', D.Traversal.padButtons),
+                select('traversal.controls.padFly', 'Gamepad: fly and land button', D.Traversal.padButtons),
+                select('traversal.controls.buttons', 'On-screen Jump and Fly buttons', D.Traversal.buttonModes),
+                range('traversal.controls.size', 'On-screen button size (pixels)', 48, 120, 4)
             ] },
             { title: 'Motion Blur', fields: [
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),

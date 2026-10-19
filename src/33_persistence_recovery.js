@@ -37,10 +37,21 @@ DocsDoodads.Persistence = {
         const mapFile = this.mapFilePath(gameMap.mapId());
         // Unsaved event edits keep the snapshot they were made against: Save must still notice MZ's changes.
         if (this.dirtyMap && this.sessionSnapshots[mapFile]) return;
-        // A staged copy with no changes is dropped; it is read again, fresh, when it is next needed.
+        // A staged copy with no changes is dropped; it is read again, fresh, when it is next needed. While
+        // steps can still be undone it is kept (they point into it), unless the file changed on disk:
+        // then those steps go with it.
         if (!this.dirtyMap && gameMap._stagedMapData) {
-            gameMap._stagedMapData = null;
-            delete gameMap._stagedMapDataId;
+            const snap = this.sessionSnapshots[mapFile], now = DocsDoodads.FS.stat(mapFile);
+            const same = Boolean(snap && now && snap.mtimeMs === now.mtimeMs && snap.size === now.size);
+            const Undo = DocsDoodads.Undo;
+            if (!(same && Undo.hasHistory())) {
+                if (Undo.hasHistory()) {
+                    Undo.undoStack = [];
+                    Undo.redoStack = [];
+                }
+                gameMap._stagedMapData = null;
+                delete gameMap._stagedMapDataId;
+            }
         }
         this.sessionSnapshots[mapFile] = DocsDoodads.FS.stat(mapFile);
     },
@@ -74,13 +85,17 @@ DocsDoodads.Persistence = {
     onMapChanging(fromId, toId) {
         const gameMap = window.$gameMap;
         if (!gameMap || fromId === toId) return;
-        // Undo commands capture the map they were made on; they must not run against another map.
-        DocsDoodads.Undo.clear();
+        // Steps belong to the map they were made on: they wait while the editor is elsewhere, with the
+        // map data they changed, and come back with the map.
+        const Undo = DocsDoodads.Undo;
+        const owner = gameMap._stagedMapData && gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : fromId;
+        Undo.park(fromId, gameMap._stagedMapData && owner === fromId ? gameMap._stagedMapData : null, DocsDoodads.FS.stat(this.mapFilePath(fromId)));
         if (gameMap._stagedMapData) {
-            const owner = gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : fromId;
             if (this.dirtyMap) this.stagedMaps[owner] = gameMap._stagedMapData;
         }
-        gameMap._stagedMapData = this.stagedMaps[toId] || null;
+        const back = Undo.unpark(toId, DocsDoodads.FS.stat(this.mapFilePath(toId)));
+        this._stepsBack = back;
+        gameMap._stagedMapData = this.stagedMaps[toId] || back.staged || null;
         if (gameMap._stagedMapData) {
             gameMap._stagedMapDataId = toId;
             delete this.stagedMaps[toId];
@@ -124,10 +139,9 @@ DocsDoodads.Persistence = {
             return false;
         }
 
-        const doodadFile = 'data/' + dataFileName;
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
-        const entries = mapEntries.concat([
-            { path: doodadFile, data: window.$dataDocsDoodads || {}, indent: saveMode ? 0 : 2 },
+        const doodadEntries = DocsDoodads.DataFiles.entriesFor(window.$dataDocsDoodads || {});
+        const entries = mapEntries.concat(doodadEntries, [
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 2 }
         ]);
 
@@ -148,6 +162,7 @@ DocsDoodads.Persistence = {
 
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
         this.stagedMaps = {};
+        DocsDoodads.DataFiles.removeStale(doodadEntries);
 
         this.lastSavedAt = Date.now();
         this.dirtyMap = false;
@@ -173,7 +188,7 @@ DocsDoodads.Persistence = {
     // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped
     // (events moved on this map go back to their saved tiles), and the crash snapshot is removed.
     discardUnsaved() {
-        const data = DocsDoodads.FS.readJson('data/' + dataFileName);
+        const data = DocsDoodads.DataFiles.readAll();
         window.$dataDocsDoodads = data || {};
         DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
         if (DocsDoodads.World && DocsDoodads.World.invalidate) DocsDoodads.World.invalidate();

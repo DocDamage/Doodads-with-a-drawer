@@ -66,6 +66,7 @@ const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
 const pluginVersion = 2.0;
 const doodadScaleMode = parseBooleanParameter(parameters.doodadScaleMode, true);
 const saveMode = parseBooleanParameter(parameters.saveMode, false);
+const splitByMap = parseBooleanParameter(parameters.splitByMap, false);
 const gridSnapShow = parseBooleanParameter(parameters.gridSnapShow, false);
 // 0 (or blank): snap to the map's tiles.
 const gridSnapWidth = Math.round(parseNumberParameter(parameters.gridSnapWidth, 0, 0, 960));

@@ -15,7 +15,7 @@ Status as of 18 October 2026 (after PR #40). Every item on the 17 October list i
 | 1.3 | 3D quality presets. | **Done.** Effects Quality scales the 3D view (view distance and fog, weather, wakes, hill detail). |
 | 1.4 | Deployed-build test. | **Done**, both with `npm run deploy` and with MZ's own Deployment dialog (encrypted, same key: every file identical except `System.json`). 3D, terrain, weather, standing tiles, models, the minimap and visual equipment work; the editor is unavailable and nothing is written. MZ's "Exclude unused files" leaves out `img/doodads`; the game now carries on without the missing art instead of stopping. |
 | 1.5 | MV compatibility check, or narrow the claim. | **Done: the claim is narrowed to MZ.** MV was not available to test. |
-| 1.6 | Raise test coverage from 65% to 75%. | **Done: 82%** (104 suites). Drawing code runs on a stand-in engine in Node (`scratch/engine/fake_engine.js`); the coverage gate is now 72%. |
+| 1.6 | Raise test coverage from 65% to 75%. | **Done: 82%** (108 suites). Drawing code runs on a stand-in engine in Node (`scratch/engine/fake_engine.js`); the coverage gate is now 72%. |
 | 1.7 | Audit: dead code, unfinished wiring, leaks. | **Done** (PR #37). The MV layer, SAT engine and other dead paths are gone; half-wired features (collections, Clear Cache, Move to Layer, event position and trigger, grid snap, search terms) are finished; leaks and bugs found are fixed. |
 | 1.8 | An editor that's easy to pick up. | **Done** (PRs #38–#39). A bright, rounded, game-like look with named tools, Item Bag and Details panels that fold away, a hint bubble, a welcome card, pixel icons and its own font. |
 
@@ -94,7 +94,7 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.1.7 | **Replace Art.** **Done.** The picked doodads, or every doodad showing a picture on this map or every map, get a new picture; position, depth, motion, lights and collision stay. From the canvas menu, the palette and the Item Bag (beside Where Used). | S |
 | 6.1.8 | **Paste in Place.** **Done.** Ctrl+Shift+V or the canvas menu pastes at the copied coordinates on this map or another. | S |
 | 6.1.9 | **Collision overlay.** **Done.** Show Collision draws every doodad's box by preset, shades tiles blocked by doodads (red) and by the map (grey), with a key. | S |
-| 6.1.10 | **Undo per map.** Keep each map's undo history when switching with Go to Map, so returning to a map restores its Steps panel. | M |
+| 6.1.10 | **Undo per map.** **Done.** Each map's steps wait while the editor is elsewhere and come back with the map (unless MZ changed it meanwhile); the last ten maps keep theirs. | M |
 | 6.1.11 | **Drag readout.** **Done.** Position, tile and size beside the cursor while dragging; smart guides also snap base lines and, with nothing near, tile lines. | S |
 | 6.1.12 | **Scatter eraser.** **Done.** Right-drag with Scatter removes the picked item's doodads under the brush, inside a circle drawn on the map, one undo step a stroke. | S |
 | 6.1.13 | **Hills brush feel.** **Done.** Hard and soft edges, `[` and `]` for brush size (Scatter and Paint too), and height numbers on the tiles under the brush. | S |
@@ -110,26 +110,26 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 
 | # | Suggestion | Size |
 |---|---|---|
-| 6.2.1 | **Doodad states.** Named variants of a doodad (lit and unlit, open and closed, whole and broken) switched by a switch or variable, with a crossfade, so one placement serves a whole quest. | M |
-| 6.2.2 | **Touchable doodads.** An `interact` setting that runs a common event when the player touches or clicks a doodad, without turning it into an event. | M |
+| 6.2.1 | **Doodad states.** **Done.** Named states with their own art, light and collision, picked by a switch, a variable or events, with a crossfade and a Preview in Details. | M |
+| 6.2.2 | **Touchable doodads.** **Done.** A common event on Action (or a click) or on walking into it, and an optional step to the next state, without an event. | M |
 | 6.2.3 | **Doodad animation controls.** **Done.** Frames across and down, speed, start frame, and loop, back and forth, once on a switch, or hold a frame, in a Details section. | S |
 | 6.2.4 | **Tile painting.** Paint MZ tiles, including autotiles, in the editor during a playtest, so a map can be finished without going back to the MZ editor. | L |
-| 6.2.5 | **Region and terrain-tag painting.** A region brush with a legend, since dressing, biomes, sounds, climbing, no-fly zones and terrain height all key off regions. | M |
+| 6.2.5 | **Region and terrain-tag painting.** **Done.** A Regions tool with a legend (tiles per region and what uses it), Alt+click pick and one undo step a stroke, saved with the map. Terrain tags belong to MZ's tileset, so they are shown, not painted. | M |
 | 6.2.6 | **Parallax and fog layers.** Several scrolling background and overlay layers per map, each with speed, zoom, loop and blend, for 2D maps. | M |
 | 6.2.7 | **2D weather extras.** Wind that drives sway and leaf fall, drifting fog banks, lightning flashes with a delayed thunder sound during storms. | M |
 | 6.2.8 | **Directional light.** Cones and spot lights with a direction, a flashlight on the player, light presets (torch, neon, candle) and 2D occlusion so walls cast dark edges. | L |
 | 6.2.9 | **2D camera tools.** Follow smoothing, camera bounds per region, and a camera path plugin command for cutscenes, matching Set Camera in 3D. | M |
 | 6.2.10 | **Doodad packs.** Export a bundle of art, prefabs, collections, biomes and dressing rules as one file and import it into another project; nothing like it exists today. | M |
 | 6.2.11 | **Room stamps.** Save a rectangle of map (tiles, doodads, events) as a stamp and place it elsewhere or on another map. | M |
-| 6.2.12 | **Reachability check.** From a start tile, shade what the player can reach and flag unreachable doors, chests and transfers. | M |
+| 6.2.12 | **Reachability check.** **Done.** Check Reach shades what the player can walk to (walls, doodad collision, characters) and lists doors, chests and transfers out of reach, saying when only a character blocks. | M |
 | 6.2.13 | **2D minimap and explored map.** The minimap exists only for 3D maps; add it for flat maps, with an optional fog of war that saves. | M |
-| 6.2.14 | **Problems panel.** Missing art, doodads off the map, lamps on maps with no darkness, events on blocked tiles, sounds pointing at missing files, in one list with Fix and Go To. | M |
+| 6.2.14 | **Problems panel.** **Done.** Missing pictures and sounds, doodads off the map, lamps on maps that never get dark, events nobody can step on or under collision; this map or every map; Fix and Go To. | M |
 | 6.2.15 | **Editor translation.** One string table for the editor, with Japanese first; the UI has no language layer today. | M |
-| 6.2.16 | **Gamepad and touch for traversal.** Map jump, fly and dive to gamepad buttons and to on-screen buttons on touch devices. | M |
-| 6.2.17 | **World state in saves.** A small API for doodad states and lights per save file (the lamp smashed, the door left open) that events can read and write. | M |
+| 6.2.16 | **Gamepad and touch for traversal.** **Done.** Jump and fly on free gamepad buttons (triggers by default, picked in World > Traversal), and on-screen Jump/Dive and Fly/Land buttons on touch screens. | M |
+| 6.2.17 | **World state in saves.** **Done.** Set Doodad State, Set Doodad Light and Store Doodad State, and `DocsDoodads.WorldState` for scripts, by the doodad's Name; kept in the save. | M |
 | 6.2.18 | **Capture tool.** **Done.** A PNG of the view (no editor outlines) and a looping 3D orbit GIF (its own GIF writer), into `screenshots`. | S |
-| 6.2.19 | **Git-friendly data.** Stable key order in the JSON files, and an option to keep one doodad file per map to shrink diffs and merge conflicts. | M |
-| 6.2.20 | **Public API.** A documented `DocsDoodads.api` for other plugins and scripts: query, place, move and set the state of doodads, lights and the clock. | M |
+| 6.2.19 | **Git-friendly data.** **Done.** Keys saved in a fixed order, and a Doodad Files parameter for one file per map under `data/DocsDoodads/` (loaded in game, backed up, emptied maps removed). | M |
+| 6.2.20 | **Public API.** **Done.** `DocsDoodads.api`: find, place, move, set and remove doodads; states, lights, clock, season and ambient; touch, state and light events. | M |
 
 ### 6.3 UI and UX
 

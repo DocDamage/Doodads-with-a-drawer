@@ -4,7 +4,7 @@
 // Ways for the player to get around (World panel > Traversal). Each ability is on when its setting is on,
 // its switch (if any) is on, and Set Traversal hasn't turned it off for this game; Set Traversal can also
 // turn on one that's off in the settings (the player learns to swim). Keys: C jumps (and dives in deep
-// water), F takes off and lands.
+// water), F takes off and lands; gamepad buttons and on-screen buttons (touch screens) do the same.
 DocsDoodads.Traversal = {
     abilities: ['jump', 'glide', 'swim', 'dive', 'fly', 'climb', 'ice'],
 
@@ -221,11 +221,84 @@ DocsDoodads.Traversal = {
         return $gamePlayer._docsFlying ? this.land() : this.takeOff();
     },
 
+    // ---- Gamepad and on-screen buttons ----
+    // Buttons MZ leaves free on the map (the triggers, stick presses and Back).
+    padButtons: [
+        { value: -1, label: 'None' }, { value: 7, label: 'Right trigger (RT / R2)' }, { value: 6, label: 'Left trigger (LT / L2)' },
+        { value: 10, label: 'Left stick press' }, { value: 11, label: 'Right stick press' }, { value: 8, label: 'Back / Select' }
+    ],
+
+    buttonModes: [
+        { value: 'touch', label: 'On touch screens' }, { value: 'always', label: 'Always' }, { value: 'never', label: 'Never' }
+    ],
+
+    controls() {
+        return Object.assign({ padJump: 7, padFly: 6, buttons: 'touch', size: 72 }, this.settings().controls);
+    },
+
+    // Puts jump and fly on the chosen gamepad buttons, giving back whatever a button did before.
+    syncPad() {
+        if (typeof Input === 'undefined' || !Input.gamepadMapper) return;
+        const c = this.controls();
+        const want = {};
+        const jump = Number(c.padJump), fly = Number(c.padFly);
+        if (jump >= 0) want[jump] = 'docsJump';
+        if (fly >= 0 && fly !== jump) want[fly] = 'docsFly';
+        const sig = JSON.stringify(want);
+        if (sig === this._padSig) return;
+        this._padSig = sig;
+        const mine = this._padMine = this._padMine || {};
+        for (const b of Object.keys(mine)) {
+            if (want[b] !== undefined) continue;
+            if (mine[b] === undefined) delete Input.gamepadMapper[b];
+            else Input.gamepadMapper[b] = mine[b];
+            delete mine[b];
+        }
+        for (const [b, action] of Object.entries(want)) {
+            if (!Object.prototype.hasOwnProperty.call(mine, b)) mine[b] = Input.gamepadMapper[b];
+            Input.gamepadMapper[b] = action;
+        }
+    },
+
+    isTouchScreen() {
+        if (typeof Utils !== 'undefined' && Utils.isMobileDevice && Utils.isMobileDevice()) return true;
+        return typeof navigator !== 'undefined' && Number(navigator.maxTouchPoints) > 0;
+    },
+
+    showButtons() {
+        const mode = this.controls().buttons;
+        if (mode === 'never') return false;
+        if (mode === 'always') return true;
+        return this.isTouchScreen();
+    },
+
+    // The on-screen buttons that would do something now: [{ id: 'jump' | 'fly', label }].
+    buttonActions() {
+        const p = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        if (!p) return [];
+        const out = [];
+        const flying = Boolean(p._docsFlying);
+        const ms = DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {};
+        const swimming = this.isSwimming(p);
+        const canDive = this.can('dive') && ((swimming && Number(ms.diveMap) > 0) || Number(ms.surfaceMap) > 0);
+        if (!flying && canDive) out.push({ id: 'jump', label: swimming ? 'Dive' : 'Surface' });
+        else if (!flying && !swimming && this.can('jump')) out.push({ id: 'jump', label: 'Jump' });
+        if (this.can('fly') || flying) out.push({ id: 'fly', label: flying ? 'Land' : 'Fly' });
+        return out;
+    },
+
+    pressButton(id) {
+        if (typeof $gamePlayer === 'undefined' || !$gamePlayer || !$gamePlayer.canMove()) return false;
+        if ($gameMap.isEventRunning() || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return false;
+        return id === 'jump' ? this.jump() : id === 'fly' ? this.toggleFly() : false;
+    },
+
     // Each frame on the map: the keys, the climb or descent, and flight ending if it's no longer allowed.
     update() {
         const p = $gamePlayer;
         if (!p) return;
         const s = this.settings();
+        this.syncPad();
         const busy = (typeof $gameMessage !== 'undefined' && $gameMessage.isBusy()) || $gameMap.isEventRunning() || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
         if (!busy && typeof Input !== 'undefined' && p.canMove()) {
             if (Input.isTriggered('docsJump')) this.jump();
@@ -384,11 +457,99 @@ DocsDoodads.Traversal.sheetExists = function(name) {
     return false;
 };
 
+// An on-screen Jump or Fly button (for touch screens): a round button that acts when tapped.
+DocsDoodads.TravelButton = null;
+if (typeof Sprite_Clickable !== 'undefined' && typeof Bitmap !== 'undefined') {
+    DocsDoodads.TravelButton = class extends Sprite_Clickable {
+        constructor(id) {
+            super();
+            this._docsId = id;
+            this._docsLabel = '';
+            this._docsSize = 0;
+            this.visible = false;
+        }
+
+        setup(label, size) {
+            if (label === this._docsLabel && size === this._docsSize) return;
+            this._docsLabel = label;
+            this._docsSize = size;
+            const bmp = new Bitmap(size, size);
+            bmp.drawCircle(size / 2, size / 2, size / 2 - 1, 'rgba(0, 0, 0, 0.55)');
+            bmp.drawCircle(size / 2, size / 2, size / 2 - 4, 'rgba(255, 255, 255, 0.18)');
+            bmp.fontSize = Math.round(size * 0.26);
+            bmp.drawText(label, 0, 0, size, size, 'center');
+            this.bitmap = bmp;
+        }
+
+        // A hidden button is never touched.
+        isBeingTouched() {
+            return this.visible && super.isBeingTouched();
+        }
+
+        onClick() {
+            DocsDoodads.Traversal.pressButton(this._docsId);
+        }
+
+        update() {
+            super.update();
+            this.opacity = this._pressed ? 255 : 210;
+        }
+    };
+}
+
 if (typeof Scene_Map !== 'undefined') {
     $.Scene_Map_update_traversal = Scene_Map.prototype.update;
     Scene_Map.prototype.update = function() {
         $.Scene_Map_update_traversal.call(this);
         if (this.isActive && this.isActive() && typeof $gamePlayer !== 'undefined' && $gamePlayer) DocsDoodads.Traversal.update();
+        this.updateDocsTravelButtons();
+    };
+
+    $.Scene_Map_createDisplayObjects_traversal = Scene_Map.prototype.createDisplayObjects;
+    Scene_Map.prototype.createDisplayObjects = function() {
+        $.Scene_Map_createDisplayObjects_traversal.call(this);
+        this.createDocsTravelButtons();
+    };
+
+    Scene_Map.prototype.createDocsTravelButtons = function() {
+        this._docsTravelButtons = [];
+        const Button = DocsDoodads.TravelButton;
+        if (!Button) return;
+        for (const id of ['jump', 'fly']) {
+            const b = new Button(id);
+            this._docsTravelButtons.push(b);
+            this.addChild(b);
+        }
+    };
+
+    // Bottom right, Jump nearest the corner; hidden while a message, an event or the editor is up.
+    Scene_Map.prototype.updateDocsTravelButtons = function() {
+        const buttons = this._docsTravelButtons;
+        if (!buttons || buttons.length === 0) return;
+        const X = DocsDoodads.Traversal;
+        const busy = typeof $gamePlayer === 'undefined' || !$gamePlayer || !$gamePlayer.canMove() || $gameMap.isEventRunning() ||
+            Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) || (typeof $gameMessage !== 'undefined' && $gameMessage.isBusy());
+        const actions = !busy && X.showButtons() ? X.buttonActions() : [];
+        const size = Math.max(48, Math.min(120, Number(X.controls().size) || 72));
+        const w = typeof Graphics !== 'undefined' ? Graphics.boxWidth || Graphics.width : 816;
+        const h = typeof Graphics !== 'undefined' ? Graphics.boxHeight || Graphics.height : 624;
+        let slot = 0;
+        for (const b of buttons) {
+            const a = actions.find(x => x.id === b._docsId);
+            b.visible = Boolean(a);
+            if (!a) continue;
+            b.setup(a.label, size);
+            b.x = w - size - 16 - slot * (size + 12);
+            b.y = h - size - 16;
+            slot++;
+        }
+    };
+
+    // Taps on the buttons never walk the player there.
+    $.Scene_Map_isAnyButtonPressed_traversal = Scene_Map.prototype.isAnyButtonPressed;
+    Scene_Map.prototype.isAnyButtonPressed = function() {
+        const mine = (this._docsTravelButtons || []).some(b => b.visible && (b.isPressed() || b.isBeingTouched()));
+        return mine || Boolean($.Scene_Map_isAnyButtonPressed_traversal && $.Scene_Map_isAnyButtonPressed_traversal.call(this));
     };
 }
 

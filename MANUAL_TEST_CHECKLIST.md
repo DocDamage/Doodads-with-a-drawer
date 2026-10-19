@@ -124,6 +124,17 @@ Test these on an exterior map and on a looping world map.
 - [ ] Details is titled with what is picked (a doodad, an event, several things, the map).
 - [ ] Sounds on and off in More; the editor's own font shows (rounded letters), and Japanese text in names falls back cleanly.
 - [ ] Each layout (Mapping, Events, Characters, Tiles, Compact) leaves the map in view.
+- [ ] Undo per map: make steps on a map, Go to Map elsewhere and back: the toast says the steps are back, Undo works; change the map in MZ while away: its steps are let go.
+- [ ] Regions: paint, rub out, Alt+click pick, [ and ]; the legend shows counts and uses; leave and come back before saving: the regions are still there; Save, reload in MZ: the regions are in the map; Show terrain tags.
+- [ ] `DocsDoodads.api.place({ art: 'img/doodads/...', x, y })` from the console draws a doodad at once; `move`, `set` with new art, `remove`; save in the editor: the placed doodad is not written.
+- [ ] Traversal with a gamepad: the right trigger jumps, the left flies and lands; pick other buttons in World > Traversal and the old ones go back.
+- [ ] On-screen buttons set to Always: Jump and Fly show bottom right, hide during messages; a tap flies without walking the player; Land when flying.
+- [ ] Doodad Files: One file per map: save; `data/DocsDoodads/` has one file per map with doodads; the game loads them (deployed too); empty a map and save: its file goes; back to one file: the folder empties.
+- [ ] States: name a door, add an Open state with other art and no collision; Preview shows it; in game Set Doodad State "Open" crossfades it and the player walks through; save, load: still open; blank state follows its switch again.
+- [ ] A lamp with a Lit and an Unlit state (light off) at night; Set Doodad Light off and on; a variable-driven state.
+- [ ] Touch: a common event on Action facing the doodad and on a click; Walking into it runs once per bump; Also go to its next state opens and closes a door; `DocsDoodads.WorldState.touched()` inside the event.
+- [ ] Problems: delete a doodad's picture file, move a doodad off the map, give a lamp a light on a bright map, point a sound at a missing file; each is listed; Fix and Go To work (Go To on another map too); Every map scope.
+- [ ] Check Reach on an exterior map: walkable tiles shaded; a door behind a wall listed; a gate blocked by a guard says a character is in the way; From a Tile works.
 - [ ] Animation: a 4-frame strip set to 4 across loops; back and forth; once on a switch (flip it from an event); hold frame 2; speed 0 holds still. Packed maps keep frames inside their region.
 - [ ] Capture a picture (no outlines in it) and a 3D orbit GIF; open the GIF: it loops round the map and the camera is back where it was. Remove `screenshots/` from a test project afterwards.
 - [ ] Use the same right-click actions a few times: they show as a row at the top of long menus.
