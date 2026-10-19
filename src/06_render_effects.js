@@ -177,12 +177,14 @@ DocsDoodads.Motion = {
     },
 
     // seed (usually the doodad's x + y) staggers the phase so neighbouring props don't move in lockstep.
-    sample(m, time, seed) {
+    // wind (-1 to 1, DocsDoodads.Wind) leans swaying props with it and makes them sway harder.
+    sample(m, time, seed, wind) {
         const out = { skewX: 0, offsetY: 0, alphaMul: 1, scaleMul: 1 };
         if (!m || m.type === 'none' || !m.type) return out;
         const phase = m.phase !== null && m.phase !== undefined ? m.phase : (Number(seed) || 0) * 0.013;
         const wave = Math.sin(Math.PI * 2 * m.speed * 0.5 * time + phase);
-        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12;
+        const w = Number(wind) || 0;
+        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12 * (1 + 0.8 * Math.abs(w)) + w * m.amount * 0.1;
         else if (m.type === 'bob') out.offsetY = wave * m.amount * 6;
         else if (m.type === 'pulse') out.scaleMul = 1 + wave * m.amount * 0.06;
         else if (m.type === 'flicker') out.alphaMul = 1 - m.amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);

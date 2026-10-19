@@ -1260,6 +1260,89 @@
  * @type variable
  * @default 1
  *
+ * @command setWind
+ * @text Set Wind
+ * @desc Changes the wind on flat maps (swaying doodads, particles, fog layers, blowing leaves) for this playthrough.
+ *
+ * @arg strength
+ * @text Strength
+ * @desc 0 (calm) to 1 (gale), or "world" to go back to World > Weather.
+ * @default 0.5
+ *
+ * @arg direction
+ * @text Direction
+ * @type select
+ * @option As it is
+ * @value same
+ * @option To the left
+ * @value left
+ * @option To the right
+ * @value right
+ * @default same
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @default 60
+ *
+ * @command cameraPath2d
+ * @text 2D Camera Path
+ * @desc On flat maps: glides the camera through tiles (the middle of the screen) for a cutscene, then back to the player or staying.
+ *
+ * @arg points
+ * @text Points (tiles)
+ * @desc x,y pairs, separated by ; for example: 10,5; 20,8
+ * @default
+ *
+ * @arg frames
+ * @text Frames per leg
+ * @type number
+ * @min 1
+ * @default 90
+ *
+ * @arg ease
+ * @text Easing
+ * @type select
+ * @option Smooth (ease in and out)
+ * @value smooth
+ * @option Even speed
+ * @value linear
+ * @default smooth
+ *
+ * @arg then
+ * @text Then
+ * @type select
+ * @option Back to where it started (then follows the player)
+ * @value return
+ * @option Stay at the last point (until 2D Camera Follow)
+ * @value stay
+ * @default return
+ *
+ * @arg wait
+ * @text Wait for it
+ * @type boolean
+ * @default true
+ *
+ * @command cameraFollow2d
+ * @text 2D Camera Follow
+ * @desc On flat maps: the camera follows the player (and stops a held path), this event, or another event.
+ *
+ * @arg target
+ * @text Follow
+ * @type select
+ * @option The player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @default 0
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.

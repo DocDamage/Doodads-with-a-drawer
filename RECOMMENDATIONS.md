@@ -115,10 +115,10 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.2.3 | **Doodad animation controls.** **Done.** Frames across and down, speed, start frame, and loop, back and forth, once on a switch, or hold a frame, in a Details section. | S |
 | 6.2.4 | **Tile painting.** Paint MZ tiles, including autotiles, in the editor during a playtest, so a map can be finished without going back to the MZ editor. | L |
 | 6.2.5 | **Region and terrain-tag painting.** **Done.** A Regions tool with a legend (tiles per region and what uses it), Alt+click pick and one undo step a stroke, saved with the map. Terrain tags belong to MZ's tileset, so they are shown, not painted. | M |
-| 6.2.6 | **Parallax and fog layers.** Several scrolling background and overlay layers per map, each with speed, zoom, loop and blend, for 2D maps. | M |
-| 6.2.7 | **2D weather extras.** Wind that drives sway and leaf fall, drifting fog banks, lightning flashes with a delayed thunder sound during storms. | M |
+| 6.2.6 | **Parallax and fog layers.** **Done.** Background and Overlay Layers per flat map: follow, scroll, zoom, opacity, blend and repeat for each, and game-drawn fog banks that drift with the wind. | M |
+| 6.2.7 | **2D weather extras.** **Done.** Wind (with gusts, from storms, Set Wind) leaning sway, pushing particles and fog and blowing leaves; lightning in storms with delayed thunder. | M |
 | 6.2.8 | **Directional light.** Cones and spot lights with a direction, a flashlight on the player, light presets (torch, neon, candle) and 2D occlusion so walls cast dark edges. | L |
-| 6.2.9 | **2D camera tools.** Follow smoothing, camera bounds per region, and a camera path plugin command for cutscenes, matching Set Camera in 3D. | M |
+| 6.2.9 | **2D camera tools.** **Done.** Easing and look-ahead, region bounds, 2D Camera Follow and 2D Camera Path (waits, comes back or stays). | M |
 | 6.2.10 | **Doodad packs.** **Done.** More > Packs: prefabs (with inner prefabs), rooms, biomes, rules and collections with their files and Item Bag entries in one .ddpack; importing keeps or backs up differing files and renames clashing ids. | M |
 | 6.2.11 | **Room stamps.** **Done.** More > Rooms: drag to save tiles (six layers), doodads and events; click to place on any map, one undo step. | M |
 | 6.2.12 | **Reachability check.** **Done.** Check Reach shades what the player can walk to (walls, doodad collision, characters) and lists doors, chests and transfers out of reach, saying when only a character blocks. | M |

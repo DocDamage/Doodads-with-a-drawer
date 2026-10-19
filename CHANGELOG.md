@@ -2,6 +2,9 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Background and overlay layers on flat maps (the map's settings): pictures behind the tiles or over the map, each following the camera by its own amount, scrolling, zooming, repeating and blending, plus soft fog banks drawn by the game that drift with the wind.
+- Weather on flat maps (World): wind that leans swaying doodads, pushes particles and fog and blows leaves across the screen (stronger in rain and storms, with gusts; Set Wind changes it), and lightning in storms with thunder after the flash, sooner for near strikes.
+- The camera on flat maps can ease after the player and look ahead, stay inside a region's area while the player is in it (a room), follow an event (2D Camera Follow), and glide along a path for cutscenes (2D Camera Path), then come back or stay. With none of these, MZ's own scrolling is unchanged.
 - The corner minimap works on flat maps too (World > Minimap, or each map's own choice), with an optional fog of war: the minimap and the world map show only what the player has been near, kept per map in the save. Show / Hide Minimap and Explored Map plugin commands; a size setting.
 - Room stamps (More > Rooms): drag over the map to save its tiles on every layer, the doodads standing in it and its events as a room, and place it on any map with a click, as one undo step. Empty upper layers keep the map's tiles; parts off the map are left off; events get new ids.
 - Doodad packs (More > Packs): prefabs (with the prefabs inside), rooms, biomes, dressing rules and collections, with the files they use and their Item Bag entries, as one .ddpack file to bring into another project. Bringing one in shows what differs, keeps your files unless told otherwise (backing them up), renames clashing ids and never writes outside the project's art and sound folders.

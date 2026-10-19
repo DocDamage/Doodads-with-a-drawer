@@ -50,7 +50,14 @@ DocsDoodads.World = {
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
         destination: {},
         // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
-        minimap: { flat: false, fog: false, radius: 6, size: 140 }
+        minimap: { flat: false, fog: false, radius: 6, size: 140 },
+        // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
+        camera2d: { smooth: 0, lookAhead: 0 },
+        // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
+        weather2d: {
+            wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
+            lightning: { enabled: false, every: 12, flash: 170, sound: 'Thunder9', volume: 90, delay: 2 }
+        }
     },
 
     _cache: null,

@@ -1260,6 +1260,89 @@
  * @type variable
  * @default 1
  *
+ * @command setWind
+ * @text Set Wind
+ * @desc Changes the wind on flat maps (swaying doodads, particles, fog layers, blowing leaves) for this playthrough.
+ *
+ * @arg strength
+ * @text Strength
+ * @desc 0 (calm) to 1 (gale), or "world" to go back to World > Weather.
+ * @default 0.5
+ *
+ * @arg direction
+ * @text Direction
+ * @type select
+ * @option As it is
+ * @value same
+ * @option To the left
+ * @value left
+ * @option To the right
+ * @value right
+ * @default same
+ *
+ * @arg duration
+ * @text Duration (frames)
+ * @type number
+ * @default 60
+ *
+ * @command cameraPath2d
+ * @text 2D Camera Path
+ * @desc On flat maps: glides the camera through tiles (the middle of the screen) for a cutscene, then back to the player or staying.
+ *
+ * @arg points
+ * @text Points (tiles)
+ * @desc x,y pairs, separated by ; for example: 10,5; 20,8
+ * @default
+ *
+ * @arg frames
+ * @text Frames per leg
+ * @type number
+ * @min 1
+ * @default 90
+ *
+ * @arg ease
+ * @text Easing
+ * @type select
+ * @option Smooth (ease in and out)
+ * @value smooth
+ * @option Even speed
+ * @value linear
+ * @default smooth
+ *
+ * @arg then
+ * @text Then
+ * @type select
+ * @option Back to where it started (then follows the player)
+ * @value return
+ * @option Stay at the last point (until 2D Camera Follow)
+ * @value stay
+ * @default return
+ *
+ * @arg wait
+ * @text Wait for it
+ * @type boolean
+ * @default true
+ *
+ * @command cameraFollow2d
+ * @text 2D Camera Follow
+ * @desc On flat maps: the camera follows the player (and stops a held path), this event, or another event.
+ *
+ * @arg target
+ * @text Follow
+ * @type select
+ * @option The player
+ * @value player
+ * @option This event
+ * @value this
+ * @option Event by ID
+ * @value event
+ * @default player
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @default 0
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
@@ -2001,12 +2084,14 @@ DocsDoodads.Motion = {
     },
 
     // seed (usually the doodad's x + y) staggers the phase so neighbouring props don't move in lockstep.
-    sample(m, time, seed) {
+    // wind (-1 to 1, DocsDoodads.Wind) leans swaying props with it and makes them sway harder.
+    sample(m, time, seed, wind) {
         const out = { skewX: 0, offsetY: 0, alphaMul: 1, scaleMul: 1 };
         if (!m || m.type === 'none' || !m.type) return out;
         const phase = m.phase !== null && m.phase !== undefined ? m.phase : (Number(seed) || 0) * 0.013;
         const wave = Math.sin(Math.PI * 2 * m.speed * 0.5 * time + phase);
-        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12;
+        const w = Number(wind) || 0;
+        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12 * (1 + 0.8 * Math.abs(w)) + w * m.amount * 0.1;
         else if (m.type === 'bob') out.offsetY = wave * m.amount * 6;
         else if (m.type === 'pulse') out.scaleMul = 1 + wave * m.amount * 0.06;
         else if (m.type === 'flicker') out.alphaMul = 1 - m.amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);
@@ -2235,6 +2320,85 @@ DocsDoodads.FrameAnim = {
             }
             default: return (offset + steps) % total;
         }
+    }
+};
+//==========================================================
+// SECTION 5B3: 2D CAMERA (FOLLOW SMOOTHING, REGION BOUNDS, PATHS)
+//==========================================================
+// On flat maps: the camera can ease after the player instead of snapping (World > Camera), stay inside a
+// region's area while the player is in it (mapSettings.cameraBounds = [region numbers]: a room, a corridor
+// that shouldn't show what is past its walls), follow an event, and glide along a path for a cutscene
+// (2D Camera Path). Positions are the tile at the middle of the screen. The 3D view has Set Camera.
+DocsDoodads.Camera2D = {
+    defaults: { smooth: 0, lookAhead: 0 },
+    eases: [{ value: 'smooth', label: 'Smooth (ease in and out)' }, { value: 'linear', label: 'Even speed' }],
+
+    settings() {
+        return Object.assign({}, this.defaults, DocsDoodads.World.settings().camera2d || {});
+    },
+
+    // "10,5; 20,8 | 3,4" -> [{ x: 10, y: 5 }, { x: 20, y: 8 }, { x: 3, y: 4 }]
+    parsePoints(text) {
+        return String(text || '').split(/[;|\n]+/).map(p => p.trim()).filter(Boolean).map(p => {
+            const [x, y] = p.split(/[\s,]+/).map(Number);
+            return isFinite(x) && isFinite(y) ? { x, y } : null;
+        }).filter(Boolean);
+    },
+
+    ease(t, kind) {
+        const c = Math.max(0, Math.min(1, t));
+        return kind === 'linear' ? c : c * c * (3 - 2 * c);
+    },
+
+    // Where a path is after some frames: { x, y, done }. path: { points (from the start), frames (a leg) }.
+    pathAt(path, frame) {
+        const pts = path.points || [];
+        if (pts.length === 0) return { x: 0, y: 0, done: true };
+        const leg = Math.max(1, Number(path.frames) || 60);
+        const i = Math.floor(frame / leg);
+        if (i >= pts.length - 1) return Object.assign({}, pts[pts.length - 1], { done: true });
+        const t = this.ease((frame - i * leg) / leg, path.ease);
+        return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * t, y: pts[i].y + (pts[i + 1].y - pts[i].y) * t, done: false };
+    },
+
+    pathFrames(path) {
+        return Math.max(0, ((path.points || []).length - 1) * Math.max(1, Number(path.frames) || 60));
+    },
+
+    // The tiles with a region: { x0, y0, x1, y1 } (inclusive), or null. MZ keeps regions in layer 5.
+    regionBox(data, w, h, region) {
+        const r = Number(region) || 0;
+        if (!data || r <= 0) return null;
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        const start = 5 * w * h;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if ((Number(data[start + y * w + x]) || 0) !== r) continue;
+                if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+        }
+        return x1 < 0 ? null : { x0, y0, x1, y1 };
+    },
+
+    // A display position (top-left tile) kept so the screen (sw x sh tiles) stays inside the box; a box
+    // smaller than the screen is centred.
+    clamp(box, x, y, sw, sh) {
+        const axis = (v, lo, hi, size) => {
+            const span = hi - lo + 1;
+            if (span <= size) return lo - (size - span) / 2;
+            return Math.max(lo, Math.min(hi + 1 - size, v));
+        };
+        return { x: axis(x, box.x0, box.x1, sw), y: axis(y, box.y0, box.y1, sh) };
+    },
+
+    // One frame of easing toward the wanted display position. smooth 0 = there at once, 0.95 = very slow.
+    // Looping maps go the short way round.
+    step(from, to, smooth, loopW, loopH) {
+        const k = 1 - Math.max(0, Math.min(0.97, Number(smooth) || 0));
+        const short = (d, size) => (size ? ((d % size) + size * 1.5) % size - size / 2 : d);
+        const dx = short(to.x - from.x, loopW), dy = short(to.y - from.y, loopH);
+        const snap = v => (Math.abs(v) < 0.002 ? 0 : v);
+        return { dx: snap(dx * k), dy: snap(dy * k) };
     }
 };
 //==========================================================
@@ -2633,6 +2797,148 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 5B2: MAP LAYERS (2D), WIND, LIGHTNING
+//==========================================================
+// Flat maps can have several picture layers behind the tiles (backgrounds) or over them (fog, clouds,
+// light shafts), each scrolling on its own: mapSettings.layers2d = [{ image, place, follow, scrollX,
+// scrollY, zoom, opacity, blend, loopX, loopY, wind }]. image is a file in img/parallaxes (no extension), or
+// '#fog' for soft fog banks drawn by the game. Wind (World > Weather) leans swaying doodads, pushes
+// particles and fog, and blows leaves across the screen; storms can flash lightning with thunder after.
+DocsDoodads.MapLayers = {
+    blends: [{ value: 'normal', label: 'Normal' }, { value: 'add', label: 'Add (glow)' }, { value: 'multiply', label: 'Multiply (shade)' }, { value: 'screen', label: 'Screen (light)' }],
+    places: [{ value: 'back', label: 'Behind the tiles' }, { value: 'front', label: 'Over the map' }],
+    defaults: { image: '', place: 'back', follow: 0.5, scrollX: 0, scrollY: 0, zoom: 1, opacity: 1, blend: 'normal', loopX: true, loopY: true, wind: false },
+
+    normalize(layer) {
+        const l = Object.assign({}, this.defaults, layer || {});
+        const num = (v, min, max, def) => { const n = Number(v); return isFinite(n) ? Math.max(min, Math.min(max, n)) : def; };
+        return {
+            image: String(l.image || '').replace(/\\/g, '/').replace(/^img\/parallaxes\//i, '').replace(/\.(png|webp)$/i, ''),
+            place: l.place === 'front' ? 'front' : 'back',
+            follow: num(l.follow, -2, 2, 0.5),
+            scrollX: num(l.scrollX, -64, 64, 0),
+            scrollY: num(l.scrollY, -64, 64, 0),
+            zoom: num(l.zoom, 0.1, 8, 1),
+            opacity: num(l.opacity, 0, 1, 1),
+            blend: this.blends.some(b => b.value === l.blend) ? l.blend : 'normal',
+            loopX: l.loopX !== false,
+            loopY: l.loopY !== false,
+            wind: Boolean(l.wind)
+        };
+    },
+
+    list(mapSettings) {
+        const raw = mapSettings && Array.isArray(mapSettings.layers2d) ? mapSettings.layers2d : [];
+        return raw.map(l => this.normalize(l)).filter(l => l.image);
+    },
+
+    // Where a layer's picture starts (in its own pixels, before zoom), for a TilingSprite's origin or a
+    // plain sprite's position. display: the map's display position in pixels; drift: pixels scrolled so far.
+    origin(layer, displayPx, drift) {
+        const z = layer.zoom || 1;
+        return { x: (displayPx.x * layer.follow + drift.x) / z, y: (displayPx.y * layer.follow + drift.y) / z };
+    },
+
+    // MZ's blend modes (PIXI): normal 0, add 1, multiply 2, screen 3.
+    blendMode(name) {
+        return { normal: 0, add: 1, multiply: 2, screen: 3 }[name] || 0;
+    },
+
+    // A soft, tileable fog texture: blobs drawn wrapping round the edges, so it repeats without seams.
+    fogBlobs(size, count, seed) {
+        let s = (Number(seed) || 1) >>> 0;
+        const rand = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+        const out = [];
+        for (let i = 0; i < count; i++) {
+            out.push({ x: rand() * size, y: rand() * size, r: size * (0.08 + rand() * 0.18), a: 0.25 + rand() * 0.35 });
+        }
+        return out;
+    }
+};
+
+DocsDoodads.Wind = {
+    defaults: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
+
+    settings() {
+        const w = (DocsDoodads.World.settings().weather2d || {}).wind || {};
+        return Object.assign({}, this.defaults, w);
+    },
+
+    // The wind now, -1 (hard left) to 1 (hard right), with gusts: the world setting, raised by rain and
+    // storms (fromWeather), or what Set Wind changed it to. time in seconds.
+    now(time, weather) {
+        const s = this.settings();
+        const sys = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsWind : null;
+        let strength = Math.max(0, Math.min(1, Number(s.strength) || 0));
+        let dir = Number(s.direction) < 0 ? -1 : 1;
+        if (sys) {
+            const t = sys.frames > 0 ? Math.min(1, sys.elapsed / sys.frames) : 1;
+            strength = sys.from + (sys.to - sys.from) * t;
+            if (sys.direction) dir = sys.direction;
+        }
+        if (s.fromWeather && weather && weather.type && weather.type !== 'none') {
+            const power = Math.max(0, Math.min(9, Number(weather.power) || 0)) / 9;
+            const add = weather.type === 'storm' ? 0.6 : weather.type === 'rain' ? 0.25 : 0.15;
+            strength = Math.min(1, strength + add * power);
+        }
+        const gust = strength > 0 ? 1 + (Number(s.gusts) || 0) * (DocsDoodads.Motion.noise((Number(time) || 0) * 0.35) - 0.5) * 1.6 : 1;
+        return { x: dir * strength * Math.max(0, gust), strength };
+    },
+
+    // Set Wind: to a strength over some frames (and maybe a new direction); 'world' goes back.
+    set(strength, frames, direction) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
+        if (strength === 'world') { $gameSystem._docsWind = null; return null; }
+        const current = this.now(0, null).strength;
+        $gameSystem._docsWind = { from: current, to: Math.max(0, Math.min(1, Number(strength) || 0)), frames: Math.max(0, Number(frames) || 0), elapsed: 0,
+            direction: direction === 'left' ? -1 : direction === 'right' ? 1 : 0 };
+        return $gameSystem._docsWind;
+    },
+
+    // The wind this frame (worked out once a frame for every sprite and emitter).
+    current() {
+        const frame = typeof DocsDoodads.frameCount === 'function' ? DocsDoodads.frameCount() : 0;
+        if (this._frame === frame && this._value) return this._value;
+        const screen = typeof $gameScreen !== 'undefined' && $gameScreen ? $gameScreen : null;
+        let weather = null;
+        try { weather = screen && screen.weatherType ? { type: screen.weatherType(), power: screen.weatherPower() } : null; } catch (e) {}
+        try { this._value = this.now(frame / 60, weather); } catch (e) { this._value = { x: 0, strength: 0 }; }
+        this._frame = frame;
+        return this._value;
+    },
+
+    tick() {
+        const sys = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsWind : null;
+        if (sys && sys.elapsed < sys.frames) sys.elapsed++;
+    }
+};
+
+DocsDoodads.Lightning = {
+    defaults: { enabled: false, every: 12, flash: 170, sound: 'Thunder9', volume: 90, delay: 2 },
+
+    settings() {
+        return Object.assign({}, this.defaults, (DocsDoodads.World.settings().weather2d || {}).lightning || {});
+    },
+
+    // The frames until the next strike: around "every" seconds, rarer in weaker storms. rand: 0-1.
+    nextIn(s, power, rand) {
+        const p = Math.max(1, Math.min(9, Number(power) || 1)) / 9;
+        const mean = Math.max(1, Number(s.every) || 12) * 60 / (0.4 + p);
+        return Math.round(mean * (0.4 + (Number(rand) || 0) * 1.2));
+    },
+
+    // A strike: how bright, and when the thunder is heard (frames; nearer strikes are brighter and sooner).
+    strike(s, rand) {
+        const near = Number(rand) || 0;
+        return {
+            flash: Math.round(Math.max(0, Math.min(255, Number(s.flash) || 0)) * (0.55 + 0.45 * near)),
+            thunderIn: Math.round((1 - near) * Math.max(0, Number(s.delay) || 0) * 60),
+            volume: Math.round(Math.max(0, Math.min(100, Number(s.volume) || 0)) * (0.6 + 0.4 * near)),
+            pan: Math.round(((Number(rand) * 7919) % 1 - 0.5) * 80)
+        };
+    }
+};
+//==========================================================
 // SECTION 7b: PUBLIC API
 //==========================================================
 // DocsDoodads.api: one documented way for other plugins and scripts to find, place, move and change
@@ -2929,7 +3235,14 @@ DocsDoodads.World = {
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
         destination: {},
         // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
-        minimap: { flat: false, fog: false, radius: 6, size: 140 }
+        minimap: { flat: false, fog: false, radius: 6, size: 140 },
+        // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
+        camera2d: { smooth: 0, lookAhead: 0 },
+        // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
+        weather2d: {
+            wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
+            lightning: { enabled: false, every: 12, flash: 170, sound: 'Thunder9', volume: 90, delay: 2 }
+        }
     },
 
     _cache: null,
@@ -4322,7 +4635,8 @@ DocsDoodads.Particles = {
                 state.particles.splice(i, 1);
                 continue;
             }
-            p.vx += c.wind * dt;
+            // The world's wind pushes every emitter (pixels a second, a second).
+            p.vx += (c.wind + DocsDoodads.Wind.current().x * 40) * dt;
             p.vy += c.gravity * dt;
             if (c.drag > 0) {
                 const k = Math.max(0, 1 - c.drag * dt);
@@ -8770,7 +9084,7 @@ if (typeof PIXI !== 'undefined') {
             this._motionSource = d.motion;
             this._motion = DocsDoodads.Motion.normalize(d.motion);
         }
-        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0));
+        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0), DocsDoodads.Wind.current().x);
         const pos = this.screenPosition();
         const sx = d.scaleX !== undefined ? d.scaleX : 1;
         const sy = d.scaleY !== undefined ? d.scaleY : 1;
@@ -11191,6 +11505,189 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 }
 
 //==========================================================
+// SECTION 15B: FLAT-MAP LAYERS, BLOWING LEAVES AND LIGHTNING (RUNTIME)
+//==========================================================
+// The map's picture layers (DocsDoodads.MapLayers): backgrounds go just above MZ's parallax, overlays
+// just above the tilemap (over characters, under weather and pictures). Leaves blow across the screen
+// in a strong wind, and storms flash lightning with thunder after. Flat maps only: the 3D view has its
+// own sky, fog and weather.
+DocsDoodads.MapLayers.fogBitmap = function() {
+    if (this._fog && this._fog.width) return this._fog;
+    const size = 512;
+    const bitmap = new Bitmap(size, size);
+    const ctx = bitmap.context;
+    if (ctx && ctx.createRadialGradient) {
+        for (const b of this.fogBlobs(size, 26, 7)) {
+            // Each blob drawn nine times, shifted by the picture's size, so the edges join up when it repeats.
+            for (const dx of [-size, 0, size]) {
+                for (const dy of [-size, 0, size]) {
+                    const g = ctx.createRadialGradient(b.x + dx, b.y + dy, 0, b.x + dx, b.y + dy, b.r);
+                    g.addColorStop(0, `rgba(255,255,255,${b.a})`);
+                    g.addColorStop(1, 'rgba(255,255,255,0)');
+                    ctx.fillStyle = g;
+                    ctx.fillRect(b.x + dx - b.r, b.y + dy - b.r, b.r * 2, b.r * 2);
+                }
+            }
+        }
+        if (bitmap._baseTexture && bitmap._baseTexture.update) bitmap._baseTexture.update();
+    }
+    this._fog = bitmap;
+    return bitmap;
+};
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    $.Spriteset_Map_update_layers2d = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        $.Spriteset_Map_update_layers2d.call(this);
+        DocsDoodads.Wind.tick();
+        const flat = !DocsDoodads.Perspective.active();
+        this.updateDocsLayers2d(flat);
+        this.updateDocsLeaves(flat);
+        this.updateDocsLightning();
+    };
+
+    Spriteset_Map.prototype.updateDocsLayers2d = function(flat) {
+        const L = DocsDoodads.MapLayers;
+        const list = flat && typeof $gameMap !== 'undefined' && $gameMap ? L.list(DocsDoodads.Lighting.mapSettings($gameMap.mapId())) : [];
+        const key = JSON.stringify(list);
+        if (key !== this._docsLayersKey) {
+            this.docsDestroyLayers2d();
+            this._docsLayersKey = key;
+            this._docsLayers2d = list.map(layer => {
+                const bitmap = layer.image === '#fog' ? L.fogBitmap() : ImageManager.loadParallax(layer.image);
+                const sprite = layer.loopX || layer.loopY ? new TilingSprite(bitmap) : new Sprite(bitmap);
+                sprite._docsLayer = layer;
+                sprite._docsDrift = { x: 0, y: 0 };
+                sprite.blendMode = L.blendMode(layer.blend);
+                sprite.opacity = Math.round(layer.opacity * 255);
+                sprite.scale.x = sprite.scale.y = layer.zoom;
+                if (sprite.move && sprite.origin) sprite.move(0, 0, Math.ceil(Graphics.width / layer.zoom) + 1, Math.ceil(Graphics.height / layer.zoom) + 1);
+                this.docsPlaceLayer2d(sprite, layer.place);
+                return sprite;
+            });
+        }
+        if (!this._docsLayers2d || !this._docsLayers2d.length) return;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const display = { x: $gameMap.displayX() * tw, y: $gameMap.displayY() * th };
+        const wind = DocsDoodads.Wind.current().x;
+        for (const sprite of this._docsLayers2d) {
+            const layer = sprite._docsLayer;
+            sprite._docsDrift.x += layer.scrollX + (layer.wind ? wind * 1.5 : 0);
+            sprite._docsDrift.y += layer.scrollY;
+            const o = L.origin(layer, display, sprite._docsDrift);
+            if (sprite.origin) {
+                // A repeating layer: the picture slides under a screen-sized window.
+                sprite.origin.x = layer.loopX ? o.x : 0;
+                sprite.origin.y = layer.loopY ? o.y : 0;
+                sprite.x = layer.loopX ? 0 : -o.x * layer.zoom;
+                sprite.y = layer.loopY ? 0 : -o.y * layer.zoom;
+            } else {
+                sprite.x = -o.x * layer.zoom;
+                sprite.y = -o.y * layer.zoom;
+            }
+        }
+    };
+
+    // Backgrounds just above MZ's parallax; overlays just above the tilemap.
+    Spriteset_Map.prototype.docsPlaceLayer2d = function(sprite, place) {
+        const parent = this._baseSprite;
+        if (!parent) return;
+        const anchor = place === 'front' ? this._tilemap : this._parallax;
+        // After the layers already placed there, so they stack in the order listed.
+        const fronts = parent.children.filter(s => s._docsLayer && s._docsLayer.place === place).length;
+        const at = anchor && anchor.parent === parent ? parent.children.indexOf(anchor) + 1 + fronts : parent.children.length;
+        parent.addChildAt(sprite, Math.min(at, parent.children.length));
+    };
+
+    Spriteset_Map.prototype.docsDestroyLayers2d = function() {
+        for (const sprite of this._docsLayers2d || []) {
+            if (sprite.parent) sprite.parent.removeChild(sprite);
+            // The fog picture is shared; parallax pictures belong to MZ's image cache.
+            if (sprite.destroy) sprite.destroy({ children: true, texture: false, baseTexture: false });
+        }
+        this._docsLayers2d = [];
+        this._docsLayersKey = null;
+    };
+
+    // Leaves blowing across the screen while the wind is strong (World > Weather > Leaves).
+    Spriteset_Map.prototype.updateDocsLeaves = function(flat) {
+        const W = DocsDoodads.Wind;
+        const s = W.settings();
+        const wind = W.current();
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        const want = flat && s.leaves && !editing ? Math.round(Math.max(0, wind.strength - 0.2) * 40) : 0;
+        let box = this._docsLeaves;
+        if (!want && !box) return;
+        if (!box) {
+            box = this._docsLeaves = new PIXI.Container();
+            box._docsLeaves = [];
+            const at = this._weather && this._weather.parent === this ? this.children.indexOf(this._weather) : this.children.length;
+            this.addChildAt(box, at);
+        }
+        const color = parseInt(String(s.leafColor || '#c27c2c').replace('#', ''), 16) || 0xc27c2c;
+        while (box._docsLeaves.length < want) {
+            const leaf = new PIXI.Graphics();
+            leaf.beginFill(color, 0.9).drawEllipse(0, 0, 4, 2).endFill();
+            leaf.x = Math.random() * Graphics.width;
+            leaf.y = Math.random() * Graphics.height;
+            leaf._docsSpin = (Math.random() - 0.5) * 0.3;
+            leaf._docsFall = 0.4 + Math.random() * 0.8;
+            box.addChild(leaf);
+            box._docsLeaves.push(leaf);
+        }
+        while (box._docsLeaves.length > want) {
+            const leaf = box._docsLeaves.pop();
+            box.removeChild(leaf);
+            leaf.destroy();
+        }
+        const t = DocsDoodads.frameCount() / 60;
+        for (const leaf of box._docsLeaves) {
+            leaf.x += wind.x * 6 + Math.sin(t * 2 + leaf._docsFall * 9) * 0.6;
+            leaf.y += leaf._docsFall + Math.cos(t * 3 + leaf._docsSpin * 20) * 0.4;
+            leaf.rotation += leaf._docsSpin;
+            const w = Graphics.width, h = Graphics.height;
+            if (leaf.x < -10) leaf.x += w + 20; else if (leaf.x > w + 10) leaf.x -= w + 20;
+            if (leaf.y > h + 10) leaf.y -= h + 20;
+        }
+        if (!want && box._docsLeaves.length === 0) {
+            this.removeChild(box);
+            box.destroy({ children: true });
+            this._docsLeaves = null;
+        }
+    };
+
+    // Lightning in storms (World > Weather > Lightning): a flash, then thunder a moment later.
+    Spriteset_Map.prototype.updateDocsLightning = function() {
+        const L = DocsDoodads.Lightning;
+        const s = L.settings();
+        const screen = typeof $gameScreen !== 'undefined' ? $gameScreen : null;
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        const storm = screen && screen.weatherType && screen.weatherType() === 'storm';
+        const bolt = this._docsBolt = this._docsBolt || { wait: 0, thunder: [] };
+        for (let i = bolt.thunder.length - 1; i >= 0; i--) {
+            const th = bolt.thunder[i];
+            if (--th.in > 0) continue;
+            bolt.thunder.splice(i, 1);
+            if (s.sound && typeof AudioManager !== 'undefined') AudioManager.playSe({ name: s.sound, volume: th.volume, pitch: 90 + Math.round(Math.random() * 20), pan: th.pan });
+        }
+        if (!s.enabled || !storm || editing) { bolt.wait = 0; return; }
+        if (bolt.wait <= 0) { bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random()); return; }
+        if (--bolt.wait > 0) return;
+        const strike = L.strike(s, Math.random());
+        if (screen.startFlash) screen.startFlash([255, 255, 255, strike.flash], 12);
+        bolt.thunder.push({ in: Math.max(1, strike.thunderIn), volume: strike.volume, pan: strike.pan });
+        bolt.strikes = (bolt.strikes || 0) + 1;
+        bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random());
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'setWind', args => {
+        const strength = String(args.strength || '').trim().toLowerCase() === 'world' ? 'world' : Number(args.strength);
+        DocsDoodads.Wind.set(strength, Number(args.duration) || 0, String(args.direction || 'same'));
+    });
+}
+//==========================================================
 // SECTION 7H: VISUAL EQUIPMENT & MAP DESTINATION RUNTIME
 //==========================================================
 DocsDoodads.VisualEquip.settings = function() {
@@ -11836,6 +12333,116 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 
+//==========================================================
+// SECTION 23C: 2D CAMERA (RUNTIME AND PLUGIN COMMANDS)
+//==========================================================
+// Game_Player.updateScroll does the camera on flat maps. With no smoothing, no region bounds, no path
+// and no follow target, MZ's own scrolling runs unchanged.
+DocsDoodads.Camera2D.state = function() {
+    const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+    return map ? (map._docsCam2d = map._docsCam2d || { path: null, follow: 0 }) : null;
+};
+
+// The region box the camera keeps to, for where the target stands (cached per map data and region).
+DocsDoodads.Camera2D.boundsFor = function(x, y) {
+    if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    const list = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).cameraBounds;
+    if (!Array.isArray(list) || !list.length) return null;
+    const region = $gameMap.regionId(Math.round(x), Math.round(y));
+    if (!list.map(Number).includes(region)) return null;
+    const cache = this._boxes = this._boxes && this._boxes.data === $dataMap.data ? this._boxes : { data: $dataMap.data };
+    if (!(region in cache)) cache[region] = this.regionBox($dataMap.data, $dataMap.width, $dataMap.height, region);
+    return cache[region];
+};
+
+DocsDoodads.Camera2D.isBusy = function() {
+    const s = this.state();
+    if (!s) return false;
+    const c = this.settings();
+    return Boolean(s.path || s.follow || Number(c.smooth) > 0 || ((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).cameraBounds || []).length);
+};
+
+if (typeof Game_Player !== 'undefined') {
+    $.Game_Player_updateScroll_cam2d = Game_Player.prototype.updateScroll;
+    Game_Player.prototype.updateScroll = function(lastScrolledX, lastScrolledY) {
+        const C = DocsDoodads.Camera2D;
+        if (DocsDoodads.Perspective.active() || !C.isBusy() || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) {
+            return $.Game_Player_updateScroll_cam2d.call(this, lastScrolledX, lastScrolledY);
+        }
+        const s = C.state();
+        const cfg = C.settings();
+        const sw = $gameMap.screenTileX(), sh = $gameMap.screenTileY();
+        let cx, cy, smooth = cfg.smooth;
+        if (s.path) {
+            const at = C.pathAt(s.path, ++s.path.frame);
+            cx = at.x; cy = at.y; smooth = 0;
+            if (at.done) {
+                const then = s.path.then;
+                s.path = null;
+                if (then === 'stay') s.hold = { x: cx, y: cy };
+            }
+        } else if (s.hold) {
+            cx = s.hold.x; cy = s.hold.y; smooth = 0;
+        } else {
+            const target = s.follow > 0 ? $gameMap.event(s.follow) : this;
+            const who = target || this;
+            cx = who._realX;
+            cy = who._realY;
+            // Looking a little ahead of where the player faces.
+            const ahead = Number(cfg.lookAhead) || 0;
+            if (ahead && who === this && this.isMoving()) {
+                const d = this.direction();
+                cx += d === 6 ? ahead : d === 4 ? -ahead : 0;
+                cy += d === 2 ? ahead : d === 8 ? -ahead : 0;
+            }
+        }
+        let want = { x: cx - (sw - 1) / 2, y: cy - (sh - 1) / 2 };
+        const box = s.path || s.hold ? null : C.boundsFor(cx, cy);
+        if (box) want = C.clamp(box, want.x, want.y, sw, sh);
+        const move = C.step({ x: $gameMap.displayX(), y: $gameMap.displayY() }, want, smooth,
+            $gameMap.isLoopHorizontal() ? $gameMap.width() : 0, $gameMap.isLoopVertical() ? $gameMap.height() : 0);
+        if (move.dx > 0) $gameMap.scrollRight(move.dx); else if (move.dx < 0) $gameMap.scrollLeft(-move.dx);
+        if (move.dy > 0) $gameMap.scrollDown(move.dy); else if (move.dy < 0) $gameMap.scrollUp(-move.dy);
+    };
+}
+
+if (typeof Game_Map !== 'undefined') {
+    // A new map starts with the camera on the player again.
+    $.Game_Map_setup_cam2d = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        $.Game_Map_setup_cam2d.call(this, mapId);
+        this._docsCam2d = null;
+    };
+}
+
+DocsDoodads.Camera2D.startPath = function(args) {
+    const s = this.state();
+    if (!s || typeof $gameMap === 'undefined') return 0;
+    const sw = $gameMap.screenTileX(), sh = $gameMap.screenTileY();
+    const here = { x: $gameMap.displayX() + (sw - 1) / 2, y: $gameMap.displayY() + (sh - 1) / 2 };
+    const points = [here].concat(this.parsePoints(args.points));
+    if (points.length < 2) return 0;
+    s.hold = null;
+    const then = String(args.then || 'return');
+    s.path = { points: then === 'return' ? points.concat([here]) : points, frames: Math.max(1, Number(args.frames) || 60), ease: String(args.ease || 'smooth'), frame: 0, then };
+    // Coming back to the player: the last leg returns to where the camera was, then follows again.
+    return this.pathFrames(s.path);
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'cameraPath2d', function(args) {
+        const frames = DocsDoodads.Camera2D.startPath(args);
+        if (frames && String(args.wait) !== 'false' && this && typeof this.wait === 'function') this.wait(frames);
+    });
+    PluginManager.registerCommand(pluginName, 'cameraFollow2d', function(args) {
+        const s = DocsDoodads.Camera2D.state();
+        if (!s) return;
+        const target = String(args.target || 'player');
+        s.hold = null;
+        s.path = null;
+        s.follow = target === 'event' ? Math.max(0, Number(args.eventId) || 0) : target === 'this' && this && this._eventId ? this._eventId : 0;
+    });
+}
 //==========================================================
 // SECTION 7I: PERSPECTIVE (3D) RUNTIME
 //==========================================================
@@ -26400,6 +27007,24 @@ DocsDoodads.Workspace = {
                 check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
+            ] },
+            { title: 'Camera on Flat Maps', fields: [
+                range('camera2d.smooth', "Camera eases after the player (0 = MZ's own)", 0, 0.95, 0.05),
+                range('camera2d.lookAhead', 'Looks ahead of the walking player (tiles)', 0, 4, 0.5)
+            ] },
+            { title: 'Weather on Flat Maps', fields: [
+                range('weather2d.wind.strength', 'Wind (0 calm, 1 gale): leans swaying doodads, pushes particles and fog layers', 0, 1, 0.05),
+                select('weather2d.wind.direction', 'Wind blows', [{ value: 1, label: 'To the right' }, { value: -1, label: 'To the left' }]),
+                range('weather2d.wind.gusts', 'Gusts', 0, 1, 0.05),
+                check('weather2d.wind.fromWeather', 'Rain and storms make it windier'),
+                check('weather2d.wind.leaves', 'Leaves blow across the screen in a strong wind'),
+                { key: 'weather2d.wind.leafColor', label: 'Leaf colour', type: 'color' },
+                check('weather2d.lightning.enabled', 'Lightning in storms (Set Weather Effect: Storm)'),
+                range('weather2d.lightning.every', 'About every (seconds, in a full storm)', 2, 60, 1),
+                range('weather2d.lightning.flash', 'Flash brightness', 40, 255, 5),
+                { key: 'weather2d.lightning.sound', label: 'Thunder sound (audio/se, blank for none)', type: 'text' },
+                range('weather2d.lightning.volume', 'Thunder volume', 0, 100, 5),
+                range('weather2d.lightning.delay', 'Thunder up to (seconds after the flash, for far strikes)', 0, 6, 0.5)
             ] }
         ].concat(this.extraWorldSections || []);
     },
@@ -31267,6 +31892,141 @@ Object.assign(DocsDoodads.Workspace, {
         if (scope) scope.onchange = () => { this._problemScope = scope.value === 'all' ? 'all' : 'map'; this.renderProblems(); };
         this.placeReadouts();
         return panel;
+    }
+});
+//==========================================================
+// SECTION 25r: BACKGROUND AND OVERLAY LAYERS (MAP SETTINGS)
+//==========================================================
+// The map's picture layers for flat maps (DocsDoodads.MapLayers): a row each with its picture (from
+// img/parallaxes, or fog banks), where it goes, how it follows the camera, scrolls, zooms, repeats and
+// blends. The map shows changes straight away.
+Object.assign(DocsDoodads.Workspace, {
+    mapLayers2d() {
+        const list = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).layers2d;
+        return Array.isArray(list) ? JSON.parse(JSON.stringify(list)) : [];
+    },
+
+    setMapLayers2d(list) {
+        this.setMapSetting('layers2d', list.length ? list.map(l => DocsDoodads.MapLayers.normalize(l)) : undefined);
+    },
+
+    addMapLayer2d(image) {
+        const list = this.mapLayers2d();
+        const fog = image === '#fog';
+        list.push(DocsDoodads.MapLayers.normalize(fog
+            ? { image: '#fog', place: 'front', follow: 1, scrollX: 0.3, zoom: 2, opacity: 0.45, blend: 'screen', wind: true }
+            : { image: image || '', place: 'back' }));
+        this.setMapLayers2d(list);
+        return list.length - 1;
+    },
+
+    // The pictures in img/parallaxes the Item Bag knows, for the picture box's suggestions.
+    parallaxNames() {
+        const list = (DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.list) || [];
+        return list.map(a => String(a.path || '').replace(/\\/g, '/')).filter(p => /^img\/parallaxes\//i.test(p))
+            .map(p => p.replace(/^img\/parallaxes\//i, '').replace(/\.(png|webp)$/i, '')).sort();
+    }
+});
+
+DocsDoodads.Workspace.mapSections.push({
+    render() {
+        const L = DocsDoodads.MapLayers;
+        const layers = this.mapLayers2d().map(l => L.normalize(l));
+        const option = (value, label, current) => `<option value="${escapeHtml(String(value))}"${String(value) === String(current) ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        const num = (id, value, step, title) => `<input type="number" id="${id}" value="${value}" step="${step}" title="${escapeHtml(title)}" style="width: 100%;" />`;
+        const rows = layers.map((l, i) => `
+            <div style="border: 1px solid var(--dd-line-soft); border-radius: 8px; padding: 5px; display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; gap: 4px; align-items: center;">
+                    <input type="text" id="dd-ml-${i}-image" list="dd-ml-pictures" value="${escapeHtml(l.image)}" placeholder="img/parallaxes picture, or #fog" title="Picture (img/parallaxes), or #fog for fog banks" style="flex: 1; min-width: 0;" />
+                    <button class="dd-btn" id="dd-ml-${i}-up" type="button" title="Draw it earlier (further back)" style="padding: 2px 6px;"${i === 0 ? ' disabled' : ''}>↑</button>
+                    <button class="dd-btn" id="dd-ml-${i}-del" type="button" title="Remove this layer" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('trash', 1)}</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Where<select id="dd-ml-${i}-place" style="width: 100%;">${L.places.map(p => option(p.value, p.label, l.place)).join('')}</select></div>
+                    <div>Blend<select id="dd-ml-${i}-blend" style="width: 100%;">${L.blends.map(b => option(b.value, b.label, l.blend)).join('')}</select></div>
+                    <div>Follows the camera${num(`dd-ml-${i}-follow`, l.follow, 0.05, '0 = fixed to the screen, 1 = moves with the map, 0.5 = halfway (far away)')}</div>
+                    <div>Zoom${num(`dd-ml-${i}-zoom`, l.zoom, 0.1, 'How big the picture is drawn')}</div>
+                    <div>Scrolls across (px/frame)${num(`dd-ml-${i}-scrollX`, l.scrollX, 0.1, 'Moves on its own; negative is left')}</div>
+                    <div>Scrolls down (px/frame)${num(`dd-ml-${i}-scrollY`, l.scrollY, 0.1, 'Moves on its own; negative is up')}</div>
+                    <div>Opacity${num(`dd-ml-${i}-opacity`, l.opacity, 0.05, '0 to 1')}</div>
+                    <div style="display: flex; flex-direction: column; gap: 2px; justify-content: flex-end;">
+                        <label style="display: flex; gap: 4px; align-items: center;"><input type="checkbox" id="dd-ml-${i}-loopX" ${l.loopX ? 'checked' : ''} /> Repeat across</label>
+                        <label style="display: flex; gap: 4px; align-items: center;"><input type="checkbox" id="dd-ml-${i}-loopY" ${l.loopY ? 'checked' : ''} /> Repeat down</label>
+                        <label style="display: flex; gap: 4px; align-items: center;" title="World > Weather on Flat Maps"><input type="checkbox" id="dd-ml-${i}-wind" ${l.wind ? 'checked' : ''} /> Drifts with the wind</label>
+                    </div>
+                </div>
+            </div>`).join('');
+        return `
+            <details id="dd-ml-sec" ${this._openMapLayers ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Background and Overlay Layers (flat map)</summary>
+                <datalist id="dd-ml-pictures">${['#fog'].concat(this.parallaxNames()).map(n => `<option value="${escapeHtml(n)}"></option>`).join('')}</datalist>
+                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                    ${rows || '<div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">No layers. Add distant mountains behind the tiles, or clouds and fog over them; each scrolls on its own.</div>'}
+                    <div style="display: flex; gap: 4px;">
+                        <button class="dd-btn" id="dd-ml-add" type="button">${DocsDoodads.Ui.icon('plus', 1)} Add a Layer</button>
+                        <button class="dd-btn" id="dd-ml-add-fog" type="button" title="Soft fog banks drifting over the map">${DocsDoodads.Ui.icon('plus', 1)} Fog Banks</button>
+                    </div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const byId = id => document.getElementById(id);
+        const details = byId('dd-ml-sec');
+        if (details) details.ontoggle = () => { this._openMapLayers = details.open; };
+        const again = () => { this._openMapLayers = true; this.refreshInspector(); };
+        const add = byId('dd-ml-add');
+        if (add) add.onclick = () => {
+            const names = this.parallaxNames();
+            this.addMapLayer2d(names[0] || '');
+            again();
+        };
+        const fog = byId('dd-ml-add-fog');
+        if (fog) fog.onclick = () => { this.addMapLayer2d('#fog'); again(); };
+        this.mapLayers2d().forEach((l, i) => {
+            const change = (field, value) => { const list = this.mapLayers2d(); list[i] = Object.assign({}, list[i], { [field]: value }); this.setMapLayers2d(list); };
+            for (const field of ['image', 'place', 'blend']) {
+                const input = byId(`dd-ml-${i}-${field}`);
+                if (input) input.onchange = e => change(field, e.target.value);
+            }
+            for (const field of ['follow', 'zoom', 'scrollX', 'scrollY', 'opacity']) {
+                const input = byId(`dd-ml-${i}-${field}`);
+                if (input) input.onchange = e => { if (String(e.target.value).trim() !== '') change(field, Number(e.target.value)); };
+            }
+            for (const field of ['loopX', 'loopY', 'wind']) {
+                const input = byId(`dd-ml-${i}-${field}`);
+                if (input) input.onchange = e => change(field, Boolean(e.target.checked));
+            }
+            const up = byId(`dd-ml-${i}-up`);
+            if (up) up.onclick = () => { const list = this.mapLayers2d(); if (i > 0) { [list[i - 1], list[i]] = [list[i], list[i - 1]]; this.setMapLayers2d(list); } again(); };
+            const del = byId(`dd-ml-${i}-del`);
+            if (del) del.onclick = () => { const list = this.mapLayers2d(); list.splice(i, 1); this.setMapLayers2d(list); again(); };
+        });
+    }
+});
+
+// The map's camera bounds: while the player stands on one of these regions, the camera stays inside the
+// area that region covers (flat maps; World > Camera on Flat Maps has the easing).
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const list = mapSettings && Array.isArray(mapSettings.cameraBounds) ? mapSettings.cameraBounds : [];
+        return `
+            <details id="dd-cam2d-sec" ${this._openCam2d ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Camera (flat map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Keep the camera inside these regions' areas (numbers, e.g. 5, 7)
+                        <input type="text" id="dd-cam2d-regions" value="${escapeHtml(list.join(', '))}" style="width: 100%;" /></div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Paint a room or corridor with a region (Regions tool) and list it here: while the player is on it, the view stops at its edges. The 2D Camera Path and 2D Camera Follow commands move it in cutscenes.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-cam2d-sec');
+        if (details) details.ontoggle = () => { this._openCam2d = details.open; };
+        const input = document.getElementById('dd-cam2d-regions');
+        if (input) input.onchange = e => {
+            const ids = String(e.target.value || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0 && n < 256);
+            this.setMapSetting('cameraBounds', ids.length ? Array.from(new Set(ids)) : undefined);
+        };
     }
 });
 //==========================================================

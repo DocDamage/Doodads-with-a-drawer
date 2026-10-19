@@ -34,6 +34,8 @@ The plugin still ships as one file, `Docs-Doodads.js`, which users copy into `js
 - `31_room_stamps.js` and `44_workspace_rooms.js`: room stamps (`DocsDoodads.Rooms`, `data/DocsDoodadsRooms.json`) and the Rooms card and tool.
 - `22_doodad_packs.js` and `44_workspace_packs.js`: doodad packs (`DocsDoodads.Packs`: gather, build, plan, prepare; the card does the disk work).
 - New placement tools register `DocsDoodads.Workspace.toolHooks[name] = { click, down, move, up, overlay }` instead of adding branches to the canvas input part, and extra map settings push `{ render, bind }` onto `Workspace.mapSections`.
+- `07_map_layers_weather.js` and `15_spriteset_map_layers_weather.js`: flat-map picture layers (`DocsDoodads.MapLayers`), wind (`DocsDoodads.Wind.current()`, read by sway and particles) and lightning, and their sprites; `44_workspace_map_layers.js` is their map settings and the camera bounds.
+- `07_camera_2d.js` and `17_camera_2d_runtime.js`: the flat-map camera (`DocsDoodads.Camera2D`), which takes over `Game_Player.updateScroll` only when easing, bounds, a path or a follow target is set.
 - `08_post_processing_blends.js` and `44_workspace_postfx_blends.js`: looks by time of day and by region (`DocsDoodads.PostFX.Blends`, mixed in by `resolveLook` when given `minutes` and `regionWeights`), and their rows in the Screen Looks card.
 - `44_workspace_readouts.js`: the collision overlay, the drag readout and the status bar (added to `DocsDoodads.Workspace` with `Object.assign`, the way a new part extends an object an earlier part closed).
 - `45_scene_map_integration_key_bindings.js`: scene hooks, key bindings and the end of the plugin function.

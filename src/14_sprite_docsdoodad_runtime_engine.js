@@ -247,7 +247,7 @@ if (typeof PIXI !== 'undefined') {
             this._motionSource = d.motion;
             this._motion = DocsDoodads.Motion.normalize(d.motion);
         }
-        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0));
+        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0), DocsDoodads.Wind.current().x);
         const pos = this.screenPosition();
         const sx = d.scaleX !== undefined ? d.scaleX : 1;
         const sy = d.scaleY !== undefined ? d.scaleY : 1;

@@ -662,6 +662,24 @@
                 check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
+            ] },
+            { title: 'Camera on Flat Maps', fields: [
+                range('camera2d.smooth', "Camera eases after the player (0 = MZ's own)", 0, 0.95, 0.05),
+                range('camera2d.lookAhead', 'Looks ahead of the walking player (tiles)', 0, 4, 0.5)
+            ] },
+            { title: 'Weather on Flat Maps', fields: [
+                range('weather2d.wind.strength', 'Wind (0 calm, 1 gale): leans swaying doodads, pushes particles and fog layers', 0, 1, 0.05),
+                select('weather2d.wind.direction', 'Wind blows', [{ value: 1, label: 'To the right' }, { value: -1, label: 'To the left' }]),
+                range('weather2d.wind.gusts', 'Gusts', 0, 1, 0.05),
+                check('weather2d.wind.fromWeather', 'Rain and storms make it windier'),
+                check('weather2d.wind.leaves', 'Leaves blow across the screen in a strong wind'),
+                { key: 'weather2d.wind.leafColor', label: 'Leaf colour', type: 'color' },
+                check('weather2d.lightning.enabled', 'Lightning in storms (Set Weather Effect: Storm)'),
+                range('weather2d.lightning.every', 'About every (seconds, in a full storm)', 2, 60, 1),
+                range('weather2d.lightning.flash', 'Flash brightness', 40, 255, 5),
+                { key: 'weather2d.lightning.sound', label: 'Thunder sound (audio/se, blank for none)', type: 'text' },
+                range('weather2d.lightning.volume', 'Thunder volume', 0, 100, 5),
+                range('weather2d.lightning.delay', 'Thunder up to (seconds after the flash, for far strikes)', 0, 6, 0.5)
             ] }
         ].concat(this.extraWorldSections || []);
     },
