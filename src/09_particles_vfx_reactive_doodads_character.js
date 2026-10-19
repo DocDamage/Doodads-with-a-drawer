@@ -347,6 +347,16 @@ DocsDoodads.CharacterAnim = {
         return n > 0 ? n : 0;
     },
 
+    // How tall the figure is in a side-view battler's cells, when they are bigger than it (0 otherwise): the
+    // battler's [hN] tag, or the project's table (characterAnim.svBody, written by the Character Creator for
+    // a battler grown to fit a big weapon). Battle animations aim at the figure.
+    svBodyFor(battlerName, table) {
+        const tag = String(battlerName || '').match(/\[h(\d+)\]/i);
+        if (tag) return parseInt(tag[1], 10);
+        const n = table ? Number(table[String(battlerName || '')]) : 0;
+        return n > 0 ? n : 0;
+    },
+
     // The anchor that stands a frame of height h with `below` pixels under the feet on its feet.
     footAnchor(h, below) {
         return below > 0 && h > below ? 1 - below / h : 1;

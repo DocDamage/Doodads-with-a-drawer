@@ -621,8 +621,13 @@ frames as custom animations instead, so before this a character holding one swun
   (192 × 128 for a big swing, so the sheet is 1728 × 768).
   - Each motion stands at the bottom middle of its cell, so the body keeps its size and place.
   - MZ splits a battler evenly into 9 × 6 cells and stands it on the bottom, so this works without the plugin.
-  - The cost: MZ centres battle animations on half the cell's height, so they show about 32 pixels higher on this
-    battler.
+  - **Battle animations:** MZ aims them by the battler sprite's height (half of it for centred ones, all of it
+    for head ones and MV-style ones), and that height was the cell's. Centred animations would have shown about
+    32 pixels too high. The export now writes the figure's height (64) for a grown battler into
+    `characterAnim.svBody` (`{ "Knight": 64 }`), or a battler name can carry `[hN]`. `Sprite_Actor.updateFrame`
+    then gives the battler that height, which is all MZ uses a battler's size for. Every kind of placement lands
+    where it would on a 64-pixel battler, including the plugin's 3D one. The entry goes when the battler is
+    exported again without big art.
 - **Export result:** `oversize: [{ file, w, h, below }]` (the battler also lists its motions). The creator's
   popover says "Bigger frames for the weapon art: $Knight_slash[f6] 192 x 192 (64 below the feet), the battler
   192 x 128."
@@ -664,8 +669,8 @@ frames as custom animations instead, so before this a character holding one swun
     plugin;
   - ~~oversize art in Visual Equipment parts~~: done;
   - ~~the return swing as its own action~~: done (`slash_reverse`);
-  - battle animations on a grown battler show a little high. MZ centres them on the cell, and a fix would mean
-    patching `Sprite_Animation`.
+  - ~~battle animations on a grown battler show a little high~~: done (`characterAnim.svBody`, `[hN]`). In MZ,
+    a centred animation aimed 32 pixels above the feet on both the 192 × 128 Knight battler and a 64-pixel one.
 
 ## 19. Open questions for the owner
 

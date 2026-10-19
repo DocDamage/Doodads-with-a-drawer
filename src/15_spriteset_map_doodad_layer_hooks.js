@@ -1415,6 +1415,23 @@ DocsDoodads.CharacterAnim.feet = function() {
     return DocsDoodads.World.settings().characterAnim.feet || {};
 };
 
+DocsDoodads.CharacterAnim.svBodies = function() {
+    return DocsDoodads.World.settings().characterAnim.svBody || {};
+};
+
+// A side-view battler whose cells are bigger than the figure in them (grown to fit a big weapon) takes the
+// figure's height, which is all MZ uses a battler's size for: battle animations (centre, head, and the
+// MV-style ones) then play where they would on a battler of the figure's own size.
+if (typeof Sprite_Actor !== 'undefined') {
+    $.Sprite_Actor_updateFrame_body = Sprite_Actor.prototype.updateFrame;
+    Sprite_Actor.prototype.updateFrame = function() {
+        $.Sprite_Actor_updateFrame_body.call(this);
+        const C = DocsDoodads.CharacterAnim;
+        const body = this._battlerName ? C.svBodyFor(this._battlerName, C.svBodies()) : 0;
+        if (body > 0 && this._frame && this._frame.height > body) this.setFrame(0, 0, this._frame.width, body);
+    };
+}
+
 // Loads idle and run sheets for characters on the map before they are needed, so switching never blinks.
 DocsDoodads.CharacterAnim.preload = function() {
     if (typeof ImageManager === 'undefined' || typeof $gameMap === 'undefined' || !$gameMap) return;
