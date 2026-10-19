@@ -139,6 +139,13 @@ DocsDoodads.Ui = {
 .dd-tool b { font-weight: 800; font-size: 10px; }
 .dd-tool.dd-wide { width: 62px; }
 @media (max-width: 900px) { #dd-toolbar .dd-brand span { display: none; } .dd-tool { width: 46px; } .dd-tool.dd-wide { width: 52px; } }
+/* Save: an orange dot while something isn't saved, a tick-green flash once it is. */
+#dd-save-btn { position: relative; }
+#dd-save-btn.dd-unsaved::after {
+    content: ''; position: absolute; top: 3px; right: 4px; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--dd-warn); border: 2px solid #ffffff; animation: dd-pop 0.22s ease;
+}
+#dd-save-btn.dd-just-saved { animation: dd-pop 0.3s ease; filter: brightness(1.08); }
 
 /* Pop-up option cards (brush settings, path, mirror, More). */
 .dd-pop { position: absolute; z-index: 10015; width: 270px; padding: 12px 14px; animation: dd-rise 0.18s ease; }

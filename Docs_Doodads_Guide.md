@@ -48,7 +48,7 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| **Editor Toggle Key** (`editKey`) | Select | `F10` | Key to open/close the workspace (`F1`, `F6`-`F10`). |
+| **Editor Toggle Key** (`editKey`) | Combo | `F10` | Key to open/close the workspace: any key (`F6`, `` ` ``, `E`, or a KeyboardEvent code such as `Numpad0`), or a chord such as `Ctrl+F10` or `Ctrl+Shift+E`. A key that types, like a letter, does nothing while a text field has focus. |
 | **Editor Enabled** (`editorMode`) | Boolean | `true` | Enables in-game asset workspace during playtest. |
 | **Doodads Data File Name** (`dataFileName`) | Text | `DocsDoodads` | JSON filename in `data/` (without `.json`). |
 | **Texture Scaling Mode** (`doodadScaleMode`) | Boolean | `true` | `true` for Smooth / Linear, `false` for Pixelated / Nearest. |
@@ -69,7 +69,9 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 ### The editor at a glance
 Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**.
 
-- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), **More**, **Save** and **Done** (closes the editor).
+- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
+- With unsaved changes, **Done**, the toggle key, closing the Playtest window and **F5** ask first: **Save**, **Don't Save** (the doodads and events go back to how they were last saved) or **Keep Editing**.
+- Questions (names, "are you sure?") come up in a card: **Enter** answers with the main button and **Esc** cancels. Anything that can't easily be taken back has a red button.
 - A tool's options open in a card under its button while it is on. **Esc** goes back to Select.
 - **More** holds the rest: **Cut Up Sheet** (the slicer), **Screen Looks** (post-processing and map image export), **Effects Maker** (VFX), **Old Saves** (save history), **File Check** (duplicates and unused files), **Info** (numbers, cache and backups), **Show Grid**, **Sounds** on/off, **Find a Tool** (Ctrl+K), **How to Use** (the welcome card again) and the panel layouts.
 - **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
@@ -127,7 +129,7 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Drag & Drop**: Drag any asset or slice from the Item Bag directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
 - **Snapping**: Snaps to the map's tiles by default (or the Grid Snap Width / Height parameters). **Hold Alt** while dragging or dropping for free pixel-perfect placement.
 - **Stamp Mode**: Click the **Stamp** tool in the top bar to click-to-place repeated props (grass, barrels, trees) across the map. Press **Escape** or right-click to exit.
-- **Scatter & Settings**: Click the **Scatter** tool to paint scattered props. Its card lets you tune **Size**, **How many**, **Space between**, and under **Variety** the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls).
+- **Scatter & Settings**: Click the **Scatter** tool to paint scattered props. Its card lets you tune **Size**, **How many**, **Space between**, and under **Variety** the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen **regions** or **terrain tags** and can **skip impassable tiles** (water, walls). A circle on the map shows the brush; **right-drag** erases the picked item inside it (one undo step a stroke; locked doodads and ones on hidden or locked layers stay). **[** and **]** make the brush smaller or bigger (Paint and Hills too).
 - **Path Tool**: Click **Path**, then click points on the map (tile-snapped; hold **Alt** for free points). Double-click or press **Enter** to place the selected asset evenly along the line; **Backspace** removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate **End** and **Corner** pieces from the Item Bag for fences, walls, and rows of lamps.
 - **Prefabs**: Select doodads and click **Save Prefab** in Details. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the **Prefabs** tab by dragging, with **Stamp**, or **Place at Player**. Copies are grouped. Edit one copy and click **Update Prefab**, then **Sync Copies** to rebuild every copy on every map from the master. **Detach** unlinks a copy.
 - **Grab**: Hold **Alt and click** any placed doodad or MZ event on the map (or use the **Grab** tool) to find and pick that asset or event template in the Item Bag.
@@ -136,9 +138,11 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Click**: Select a placed doodad or genuine MZ Event on the map.
 - **Drag to Move**: Press on a doodad and drag. Pink **smart guides** snap its edges and centre to nearby doodads; orange guides show equal spacing between neighbours. Hold **Alt** to move freely or **Shift** to snap to the tile grid. A drag is one undo step.
 - **Right-Click Canvas Context Menu**:
-  - *On Doodad*: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Delete (Del).
+  - *On Doodad*: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Move to Layer, Select Same Art, Select Everything on its layer, Replace Art..., Delete (Del). Right-clicking one of several picked doodads keeps them all picked.
   - *On MZ Event*: Save as Event Template..., Duplicate Event, Delete Event.
-  - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Stamp Asset Here.
+  - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Stamp Asset Here.
+- **Select All, Same Art, Layer, Invert**: these pick only what Select can reach (not doodads hidden in the editor or on hidden or locked layers). Same Art matches the picture however its path is written.
+- **Replace Art**: a new picture for the picked doodads, or for every doodad showing the same picture on this map or on every map. Type or choose the picture (the last one picked in the Item Bag is suggested); position, size, depth, motion, lights and collision stay, the frame size follows the new picture, and locked doodads are left alone. It is one undo step. An Item Bag picture's right-click menu has **Replace Art on Maps...**, which pairs with **Where Used**.
 - **Marquee Drag Box**: Click and drag on empty map space with the pointer tool to draw a blue selection box. All enclosed doodads are selected at once!
 - **Shift + Click / Shift + Marquee**: Add or toggle doodads in the active multi-selection.
 - **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
@@ -539,7 +543,7 @@ When the view distance is shortened, the fog is pulled in by the same amount, so
 
 ### Terrain height
 Mountains, hills and cliffs can rise out of the ground. Open **Terrain Height (this map)** in the map panel and tick **Raise the ground**. Heights are in tiles and come from four places. The higher one in this list wins:
-1. **The Hills tool** (top bar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map. Before you paint, the tiles under the brush are shown on the ground (over hills in 3D), stronger towards the centre, in the mode's colour.
+1. **The Hills tool** (top bar). Raise, lower, flatten (to where the stroke started), set an exact height, or erase back to automatic. It has a strength and a radius, and each stroke is one undo step. Painting turns Terrain Height on for the map. Before you paint, the tiles under the brush are shown on the ground (over hills in 3D), stronger towards the centre, in the mode's colour, each with its height as a number. **Edge** is **Soft** (gentle slopes, less towards the rim) or **Hard** (the whole circle changes the same, for plateaus and steps). **[** and **]** change the size.
 2. **Regions:** for example, region 5 is 2 tiles high.
 3. **Terrain tags (1–7):** for example, tag 3 is 1 tile high.
 4. **Automatic,** on world tilesets: mountain tiles (impassable ground) rise to the **Mountain height** (1 tile by default), and forests (where airships can't land) to the **Forest height**.
@@ -697,7 +701,7 @@ Drag images or audio files directly from Windows Explorer (Desktop, Downloads, a
 
 The **Maps** section of the map panel (shown when nothing is selected):
 - **Go to Map** moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and **Save** writes every map you changed to its own file.
-- **Copy / Paste across maps**: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy.
+- **Copy / Paste across maps**: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy, and **Paste in Place** (Ctrl+Shift+V) keeps the position there too.
 - **Copy to Map / Move to Map** (Details): send the selection to any map in one undoable step.
 - **Neighbouring maps**: link maps north/south/east/west. **Mirror Edge Doodads** copies doodads hanging over an edge onto the neighbouring map as locked mirrors, so a tree on a border shows on both sides. Running it again replaces the old mirrors.
 - **World View** draws the map and its linked neighbours to scale with their doodads; edge-crossing doodads are orange. Click a map to go there.
@@ -741,7 +745,7 @@ Editing real map data in playtest mode requires rigorous file protection:
    Retains the last 10 backups by default (configurable).
 3. **Atomic Writes**: Data is serialized to `<filename>.tmp` and validated before performing an atomic filesystem rename, eliminating half-written corrupt files.
 4. **Corrupt JSON Auto-Recovery**: If any project file is corrupted (e.g., due to an abrupt power cut), `DocsDoodads.FS` automatically identifies and restores the latest valid backup snapshot.
-5. **Autosave Crash Recovery**: A background heartbeat writes current session staging data to `data/DocsDoodadsRecovery.json` every 60 seconds. If playtest is closed unexpectedly, the workspace offers to resume your unsaved changes upon restart.
+5. **Autosave Crash Recovery**: A background heartbeat writes current session staging data to `data/DocsDoodadsRecovery.json` every 60 seconds. If playtest is closed unexpectedly, the workspace offers to resume your unsaved changes upon restart. Closing the window on purpose asks to save first; choosing **Don't Save** there also removes the snapshot, so it isn't offered again.
 6. **Transactional Multi-File Save**: Map, doodad, and asset-library changes are staged and validated together. If a later file cannot commit, earlier files are restored and the workspace remains dirty so the save can be retried.
 7. **Manual Backup Restore**: Open **More → Info → Restore Project Backup…**, select the current map, doodad data, or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
 
@@ -758,6 +762,8 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **Ctrl + D** | Duplicate selected doodad(s) (+16px offset) | Workspace |
 | **Ctrl + C** | Copy selected doodad(s) to clipboard | Workspace |
 | **Ctrl + V** | Paste copied doodad(s) | Workspace |
+| **Ctrl + Shift + V** | Paste in Place (at the copied position) | Workspace |
+| **Ctrl + A** | Select all doodads Select can reach | Workspace |
 | **Ctrl + K** | Command palette: tools, panels, maps, assets, looks | Workspace |
 | **Delete** | Delete selected doodad(s) | Workspace |
 | **Arrow Keys** | Nudge selected doodad(s) by 1 pixel | Workspace |
@@ -765,6 +771,8 @@ Editing real map data in playtest mode requires rigorous file protection:
 | **Shift + Click / Drag**| Marquee multi-select or toggle doodad selection | Map Canvas |
 | **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map Canvas |
 | **Alt (Hold on Drag)**| Free pixel placement (bypasses 48px tile snap) | Map Canvas |
+| **[** / **]** | Smaller / bigger brush (Scatter, Paint, Hills) | Workspace |
+| **Right-drag** | Erase the picked item inside the brush | Scatter |
 | **G** | Toggle 48px Tile Grid visual overlay | Workspace |
 | **H** | Fold or open the Details panel | Workspace |
 | **F** | Find: type in the Item Bag's search box | Workspace |
@@ -782,7 +790,7 @@ Editing real map data in playtest mode requires rigorous file protection:
 ### Q: Why isn't the editor opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).
 - Verify in **Plugin Manager** that `Docs-Doodads` is turned **ON** and `Editor Enabled` is set to `true`.
-- Check if another plugin intercepts `F10`; you can change the `editKey` parameter to `F6`, `F7`, `F8`, or `F9`.
+- Check if another plugin intercepts `F10`; you can change the `editKey` parameter to another key or a chord such as `Ctrl+F10`.
 
 ### Q: Can I safely deploy my game to players?
 - **Yes.** In deployed builds (`test: false`), all editor UI, DOM elements, filesystem listeners, and slicer modals are stripped from execution. Placed doodads, effects, lights and collision render normally. If you packed map art, pack again after changing source images; a pack built before a change keeps the old art.

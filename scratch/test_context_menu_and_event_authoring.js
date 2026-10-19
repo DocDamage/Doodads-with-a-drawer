@@ -39,8 +39,6 @@ global.document = {
     },
     getElementById() { return null; }
 };
-global.prompt = (msg, def) => def;
-global.confirm = () => true;
 global.Utils = {
     isNwjs: () => true,
     isOptionValid: (opt) => opt === 'test'

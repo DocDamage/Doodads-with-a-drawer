@@ -261,7 +261,7 @@
     },
 
     // ---- Terrain brush ----
-    terrainBrush: { mode: 'raise', amount: 0.5, radius: 1, value: 1 },
+    terrainBrush: { mode: 'raise', amount: 0.5, radius: 1, value: 1, falloff: 'soft' },
 
     // The tile under the mouse while the Terrain tool is out, for the brush preview (null off the map).
     trackTerrainHover(e) {

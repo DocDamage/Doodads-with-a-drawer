@@ -55,6 +55,8 @@
 
     selectAsset(asset) {
         this.selectedAsset = asset;
+        // Remembered after doodads are picked: Replace Art suggests it.
+        if (asset && asset.type !== 'prefab') this.lastAsset = asset;
         this.selectedDoodad = null;
         this.selectedDoodads = [];
         this.selectedEvent = null;
@@ -187,14 +189,7 @@
                 </div>
             `;
 
-            document.getElementById('dd-ev-save-template-btn').onclick = () => {
-                const name = prompt("Enter a name for this new Event Template:", ev.name || ("Template_" + evId));
-                if (name && name.trim()) {
-                    const cat = prompt("Category (Interaction, Mechanics, Atmosphere, Custom):", "Custom") || "Custom";
-                    DocsDoodads.EventTemplates.saveCustomTemplate(name.trim(), ev, cat.trim());
-                    this.showToast(`Saved template "${name.trim()}"!`);
-                }
-            };
+            document.getElementById('dd-ev-save-template-btn').onclick = () => this.saveEventAsTemplate(ev, ev.name || ("Template_" + evId));
             const evNumber = (id, apply) => {
                 const input = document.getElementById(id);
                 if (input) input.onchange = () => {
@@ -646,6 +641,22 @@
     },
 
     // ---- Undoable doodad property editing (inspector sections, tools) ----
+    // Asks for a name and a category, then keeps the event as a template for Place as Event.
+    async saveEventAsTemplate(eventObj, suggestedName) {
+        const values = await DocsDoodads.Ui.form({
+            title: 'Save as event template', text: 'Placed events can start from this one.', ok: 'Save Template', icon: 'person',
+            fields: [
+                { key: 'name', label: 'Name', value: suggestedName },
+                { key: 'category', label: 'Category', value: 'Custom', choices: ['Interaction', 'Mechanics', 'Atmosphere', 'Custom'] }
+            ]
+        });
+        const name = values ? values.name.trim() : '';
+        if (!name) return null;
+        const key = DocsDoodads.EventTemplates.saveCustomTemplate(name, eventObj, values.category.trim() || 'Custom');
+        this.showToast(`Saved template "${name}"!`);
+        return key;
+    },
+
     propertyDefaults() {
         return {
             shadow: DocsDoodads.Shadow.defaults,

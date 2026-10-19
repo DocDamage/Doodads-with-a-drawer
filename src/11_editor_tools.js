@@ -2,6 +2,59 @@
 // SECTION 5G: EDITOR TOOLS (LAYERS, SYMMETRY, BIOMES, DRESSING, HISTORY, PALETTE, THUMBNAILS)
 //==========================================================
 // Layers are per map (map settings). A doodad's "layer" names one; no layer means Main.
+// The editor toggle key: a key, or a chord such as Ctrl+F10. Names are KeyboardEvent codes ("F10",
+// "Backquote", "KeyE"); a single letter or digit ("E", "1") and a few symbols ("`") are accepted too.
+DocsDoodads.KeyChord = {
+    symbols: { '`': 'Backquote', '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash',
+        ';': 'Semicolon', "'": 'Quote', ',': 'Comma', '.': 'Period', '/': 'Slash', ' ': 'Space', 'Esc': 'Escape' },
+
+    // "Ctrl+Shift+F10" -> { code: 'F10', ctrl: true, shift: true, alt: false }. Unreadable text gives F10.
+    parse(text) {
+        const parts = String(text || '').split('+').map(p => p.trim());
+        // A trailing "+" was the plus key itself ("Ctrl++").
+        if (parts.length > 1 && parts[parts.length - 1] === '' && parts[parts.length - 2] === '') parts.splice(-2, 2, 'Equal');
+        const chord = { code: '', ctrl: false, shift: false, alt: false };
+        for (const part of parts.filter(Boolean)) {
+            const lower = part.toLowerCase();
+            if (lower === 'ctrl' || lower === 'control' || lower === 'cmd') chord.ctrl = true;
+            else if (lower === 'shift') chord.shift = true;
+            else if (lower === 'alt' || lower === 'option') chord.alt = true;
+            else chord.code = this.codeFor(part);
+        }
+        if (!chord.code) return { code: 'F10', ctrl: false, shift: false, alt: false };
+        return chord;
+    },
+
+    codeFor(name) {
+        if (this.symbols[name]) return this.symbols[name];
+        if (/^[a-z]$/i.test(name)) return 'Key' + name.toUpperCase();
+        if (/^[0-9]$/.test(name)) return 'Digit' + name;
+        if (/^f([1-9]|1[0-9]|2[0-4])$/i.test(name)) return 'F' + name.slice(1);
+        if (/^key[a-z]$/i.test(name)) return 'Key' + name.slice(3).toUpperCase();
+        if (/^digit[0-9]$/i.test(name)) return 'Digit' + name.slice(5);
+        return name;
+    },
+
+    matches(chord, e) {
+        return Boolean(chord && e) && e.code === chord.code && Boolean(e.ctrlKey || e.metaKey) === chord.ctrl &&
+            Boolean(e.shiftKey) === chord.shift && Boolean(e.altKey) === chord.alt;
+    },
+
+    // A key that types (a letter, a digit, a symbol) with no Ctrl or Alt would fire while typing in a field.
+    types(chord) {
+        return Boolean(chord) && !chord.ctrl && !chord.alt && !/^(F\d+|Escape|Pause|ScrollLock|Insert|Home|End|PageUp|PageDown)$/.test(chord.code);
+    },
+
+    // For buttons and hints: "Ctrl+F10", "E", "`".
+    label(chord) {
+        if (!chord) return '';
+        const symbol = Object.keys(this.symbols).find(k => this.symbols[k] === chord.code && k.length === 1 && k !== ' ');
+        const key = /^Key[A-Z]$/.test(chord.code) ? chord.code.slice(3) : /^Digit\d$/.test(chord.code) ? chord.code.slice(5)
+            : symbol || chord.code;
+        return [chord.ctrl ? 'Ctrl' : '', chord.alt ? 'Alt' : '', chord.shift ? 'Shift' : '', key].filter(Boolean).join('+');
+    }
+};
+
 DocsDoodads.Layers = {
     main: { id: 'main', name: 'Main', hidden: false, locked: false, gameHidden: false },
 

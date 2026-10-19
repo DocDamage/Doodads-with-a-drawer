@@ -3,8 +3,14 @@
 //==========================================================
 DocsDoodads.Persistence = {
     sessionSnapshots: {},
-    dirtyMap: false,
-    dirtyDoodads: false,
+    // Unsaved event edits (dirtyMap) and doodad or setting edits (dirtyDoodads). Setting either updates
+    // the Save button's unsaved dot.
+    _dirtyMap: false,
+    _dirtyDoodads: false,
+    get dirtyMap() { return this._dirtyMap; },
+    set dirtyMap(value) { this._dirtyMap = Boolean(value); this.changed(); },
+    get dirtyDoodads() { return this._dirtyDoodads; },
+    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); this.changed(); },
     // Unsaved event edits for maps other than the current one, keyed by map id.
     stagedMaps: {},
 
@@ -136,7 +142,46 @@ DocsDoodads.Persistence = {
         this.clearRecovery();
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
+        if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateSaveState(true);
         return true;
+    },
+
+    hasUnsavedWork() {
+        return this._dirtyMap || this._dirtyDoodads;
+    },
+
+    changed() {
+        const W = DocsDoodads.Workspace;
+        if (W && W.mounted && W.updateSaveState) W.updateSaveState();
+    },
+
+    // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped
+    // (events moved on this map go back to their saved tiles), and the crash snapshot is removed.
+    discardUnsaved() {
+        const data = DocsDoodads.FS.readJson('data/' + dataFileName);
+        window.$dataDocsDoodads = data || {};
+        DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
+        if (DocsDoodads.World && DocsDoodads.World.invalidate) DocsDoodads.World.invalidate();
+        const gameMap = window.$gameMap;
+        if (gameMap && this._dirtyMap) {
+            const saved = DocsDoodads.FS.readJson(this.mapFilePath(gameMap.mapId()));
+            if (saved && saved.events && typeof gameMap.events === 'function') {
+                for (const ge of gameMap.events()) {
+                    const ev = ge && saved.events[ge.eventId()];
+                    if (ev && (ge.x !== ev.x || ge.y !== ev.y)) ge.locate(ev.x, ev.y);
+                }
+            }
+        }
+        if (gameMap) {
+            gameMap._stagedMapData = null;
+            delete gameMap._stagedMapDataId;
+        }
+        this.stagedMaps = {};
+        DocsDoodads.Undo.clear();
+        this.dirtyMap = false;
+        this.dirtyDoodads = false;
+        this.captureSession();
+        this.clearRecovery();
     },
 
     // Snapshots written during this Playtest run are its own autosaves, not crash leftovers.

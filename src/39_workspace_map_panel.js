@@ -169,7 +169,13 @@
             on(`dd-layer-lock-${i}`, e => this.setLayerFlag(l.id, 'locked', e.target.checked));
             on(`dd-layer-game-${i}`, e => this.setLayerFlag(l.id, 'gameHidden', !e.target.checked));
             const del = byId(`dd-layer-del-${i}`);
-            if (del) del.onclick = () => { this.deleteLayer(l.id); this.refreshInspector(); };
+            if (del) del.onclick = async () => {
+                const count = DocsDoodads.doodads(this.currentMapId()).filter(d => d && d.layer === l.id).length;
+                if (count && !(await DocsDoodads.Ui.confirm(`The layer "${l.name}" will be deleted. Its ${count} doodad(s) stay on the map and move to Main.`,
+                    { title: 'Delete layer?', ok: 'Delete Layer', danger: true }))) return;
+                this.deleteLayer(l.id);
+                this.refreshInspector();
+            };
         });
         const add = byId('dd-layer-add');
         if (add) add.onclick = () => { this.activeLayer = this.addLayer(); this._openLayers = true; this.refreshInspector(); };
@@ -723,10 +729,18 @@
         add('Tool: Path', () => this.setPlacementTool('path'));
         add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'));
         add('Tool: Select', () => this.setPlacementTool(null));
+        add('Select All (Ctrl+A)', () => this.selectAllDoodads());
+        add('Invert Selection', () => this.invertSelection());
+        add('Select Same Art as Picked', () => this.selectSameArt());
+        add('Paste in Place (Ctrl+Shift+V)', () => this.pasteCopied(true));
+        add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
         for (const v of D.Vfx.library().concat(D.Vfx.builtIns)) add('Play Effect: ' + v.name, () => this.previewVfx(v.id), 'VFX');
-        for (const l of D.Layers.list(D.Lighting.mapSettings(this.currentMapId()))) add('Layer: ' + l.name, () => { this.activeLayer = l.id; this.showToast(`New doodads go on ${l.name}.`); }, 'Layer');
+        for (const l of D.Layers.list(D.Lighting.mapSettings(this.currentMapId()))) {
+            add('Layer: ' + l.name, () => { this.activeLayer = l.id; this.showToast(`New doodads go on ${l.name}.`); }, 'Layer');
+            add('Select Layer: ' + l.name, () => this.selectLayer(l.id), 'Layer');
+        }
         for (const m of this.mapEntries()) add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
         const assets = D.AssetIndex && D.AssetIndex.list ? D.AssetIndex.list : [];
         for (const a of assets) add('Item: ' + a.fileName, () => this.selectAsset(a), 'Asset');
@@ -855,10 +869,13 @@
             this.setPlacementTool(this.placementTool === 'terrain' ? null : 'terrain');
             const mode = byId('dd-terrain-mode');
             if (mode) mode.innerHTML = DocsDoodads.Terrain.brushModes.map(m => `<option value="${m.value}" ${m.value === this.terrainBrush.mode ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('');
+            const falloff = byId('dd-terrain-falloff');
+            if (falloff) falloff.innerHTML = DocsDoodads.Terrain.brushFalloffs.map(f => `<option value="${f.value}" ${f.value === this.terrainBrush.falloff ? 'selected' : ''}>${escapeHtml(f.label)}</option>`).join('');
             if (!this.placementTool) this.showToast('Terrain brush off');
             else this.showToast(DocsDoodads.Perspective.active() ? 'Terrain brush: drag on the map' : 'Terrain brush: turn on 3D View (map panel) to see heights', 'info');
         });
         on('dd-terrain-mode', 'onchange', e => { this.terrainBrush.mode = e.target.value; });
+        on('dd-terrain-falloff', 'onchange', e => { this.terrainBrush.falloff = e.target.value === 'hard' ? 'hard' : 'soft'; });
         on('dd-terrain-amount', 'oninput', e => { this.terrainBrush.amount = parseFloat(e.target.value) || 0.5; const v = byId('dd-terrain-amount-val'); if (v) v.textContent = e.target.value; });
         on('dd-terrain-radius', 'oninput', e => { this.terrainBrush.radius = parseInt(e.target.value, 10) || 0; const v = byId('dd-terrain-radius-val'); if (v) v.textContent = e.target.value; });
         on('dd-terrain-value', 'onchange', e => { this.terrainBrush.value = parseFloat(e.target.value) || 0; });
@@ -1130,10 +1147,10 @@
         on('dd-vfx-pick', 'onchange', e => { this.vfxSelected = e.target.value; this._openVfxLayer = null; this.refreshVfxBuilder(); });
         on('dd-vfx-new', 'onclick', () => { this.vfxSelected = this.newVfx('New Effect'); this.refreshVfxBuilder(); });
         on('dd-vfx-dup', 'onclick', () => { const copy = this.duplicateVfx(id); if (copy) this.vfxSelected = copy; this.refreshVfxBuilder(); });
-        on('dd-vfx-rename', 'onclick', () => {
+        on('dd-vfx-rename', 'onclick', async () => {
             const current = DocsDoodads.Vfx.find(id, this.vfxLibraryRaw());
-            const name = prompt('Effect name:', current ? current.name : '');
-            if (name) { this.renameVfx(id, name); this.refreshVfxBuilder(); }
+            const name = await DocsDoodads.Ui.prompt('A new name for this effect:', current ? current.name : '', { title: 'Rename effect', ok: 'Rename', icon: 'sparkle' });
+            if (name && name.trim()) { this.renameVfx(id, name.trim()); this.refreshVfxBuilder(); }
         });
         on('dd-vfx-delete', 'onclick', () => { if (this.deleteVfx(id)) { this.vfxSelected = ''; this.refreshVfxBuilder(); } });
         on('dd-vfx-duration', 'onchange', e => { this.setVfxField(id, 'duration', parseFloat(e.target.value) || 1); changed(); });
