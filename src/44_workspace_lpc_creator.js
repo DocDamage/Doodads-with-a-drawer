@@ -350,7 +350,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <button type="button" class="dd-cr-btn" id="dd-cr-credits">Credits · ${artists} artist${artists === 1 ? '' : 's'}${unsafe ? ' · ' + unsafe + ' not safe to encrypt' : ''}</button>
                 <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Shift colour · Q/E tabs · X/Y dice</div>
                 ${narrow ? '<div class="dd-cr-grow"></div>' : ''}
-                <button type="button" class="dd-cr-export" id="dd-cr-export" disabled title="Making MZ sheets from a character comes in the next version">Export to RPG Maker</button>
+                <button type="button" class="dd-cr-export" id="dd-cr-export" title="Make MZ character sheets and a face from this character">Export to RPG Maker</button>
             </div>
             ${c.pop ? this.creatorPopHtml() : ''}
         </div>`;
@@ -377,6 +377,28 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-cr-list">${saved.length ? saved.map((s, i) => `<div class="dd-cr-item"><span>${escapeHtml(s.name)}</span>
                     <button type="button" id="dd-cr-load-${i}">Load</button><button type="button" id="dd-cr-del-${i}" aria-label="Delete ${escapeHtml(s.name)}">Delete</button></div>`).join('')
                     : '<div style="color: #7a6b8f;">None saved yet. Save keeps the character in data/DocsDoodadsCharacters.json.</div>'}</div>
+            </div>`;
+        }
+        if (pop.kind === 'export') {
+            const o = c.exportOptions || (c.exportOptions = this.lpcExportDefaults());
+            const N = DocsDoodads.LpcExport.names(c.name);
+            const files = this.lpcExportFiles(c.name, o);
+            const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
+            const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
+            const done = c.exported;
+            return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
+                <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(DocsDoodads.LpcExport.cleanName(c.name) || 'your character')} to RPG Maker</div>
+                ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
+                ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
+                ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
+                ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
+                ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
+                <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button type="button" class="dd-cr-export" id="dd-cr-ex-go" style="font-size: 15px; padding: 8px 20px;"${!c.name.trim() || !files.length ? ' disabled' : ''}>Export ${files.length} file${files.length === 1 ? '' : 's'}</button>
+                    ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
+                </div>
+                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}</div>` : ''}
             </div>`;
         }
         if (pop.kind === 'credits') {
@@ -419,6 +441,14 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-save', () => this.creatorSave());
         on('dd-cr-load', () => { c.pop = c.pop && c.pop.kind === 'load' ? null : { kind: 'load' }; this.renderCreator(); });
         on('dd-cr-credits', () => { c.pop = c.pop && c.pop.kind === 'credits' ? null : { kind: 'credits' }; this.renderCreator(); });
+        on('dd-cr-export', () => { c.pop = c.pop && c.pop.kind === 'export' ? null : { kind: 'export' }; c.exported = null; this.renderCreator(); });
+        if (c.pop && c.pop.kind === 'export') {
+            const o = c.exportOptions;
+            for (const key of ['classic', 'smooth', 'face']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
+            on('dd-cr-ex-go', () => this.creatorExport());
+            on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
+        }
         if (c.pop && c.pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
             const row = c.pop.row;
@@ -464,6 +494,18 @@ Object.assign(DocsDoodads.Workspace, {
         const y = target ? Math.max(10, Math.min(target.bottom - origin.top + 6, (box ? box.clientHeight : 740) - 320)) : 120;
         c.pop = c.pop && c.pop.kind === 'palette' && c.pop.row === rowKey ? null : { kind: 'palette', row: rowKey, x: Math.round(x), y: Math.round(y) };
         this.renderCreator();
+    },
+
+    // Export, asking first when it would replace pictures already in the project.
+    async creatorExport() {
+        const c = this._creator, FS = DocsDoodads.FS;
+        const o = c.exportOptions || this.lpcExportDefaults();
+        const existing = this.lpcExportFiles(c.name, o).filter(f => FS.existsSync(f));
+        if (existing.length && !await DocsDoodads.Ui.confirm(`Replace ${existing.length} picture${existing.length === 1 ? '' : 's'} already in the project?\n${existing.join('\n')}`, { title: 'Export again', ok: 'Replace' })) return null;
+        const result = this.exportLpcCharacter(c.state, Object.assign({ name: c.name, addons: c.addons }, o));
+        if (result) { c.exported = result; DocsDoodads.Ui.sound('save'); }
+        if (this.creatorOpen()) this.renderCreator();
+        return result;
     },
 
     // ---- Saved characters ----

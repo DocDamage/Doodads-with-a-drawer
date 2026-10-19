@@ -1455,6 +1455,19 @@ if (typeof Game_CharacterBase !== 'undefined') {
         const frames = walkFrames(this);
         return frames === 3 ? $.Game_CharacterBase_pattern.call(this) : ((this._pattern % frames) + frames) % frames;
     };
+    // [wN] sheets: the walk skips the standing frame and keeps pace with the distance walked.
+    const walkTiles = ch => C.parseName(ch.characterName ? ch.characterName() : '').walkTiles;
+    $.Game_CharacterBase_updatePattern = Game_CharacterBase.prototype.updatePattern;
+    Game_CharacterBase.prototype.updatePattern = function() {
+        if (!walkTiles(this) || (!this.hasStepAnime() && this._stopCount > 0)) return $.Game_CharacterBase_updatePattern.call(this);
+        this._pattern = C.walkStep(this._pattern, walkFrames(this));
+    };
+    $.Game_CharacterBase_animationWait = Game_CharacterBase.prototype.animationWait;
+    Game_CharacterBase.prototype.animationWait = function() {
+        const tiles = walkTiles(this);
+        const wait = tiles && this.isMoving() ? C.paceWait(walkFrames(this), tiles, this.distancePerFrame()) : 0;
+        return wait || $.Game_CharacterBase_animationWait.call(this);
+    };
     $.Game_CharacterBase_resetPattern = Game_CharacterBase.prototype.resetPattern;
     Game_CharacterBase.prototype.resetPattern = function() {
         if (walkFrames(this) === 3) $.Game_CharacterBase_resetPattern.call(this);
