@@ -143,39 +143,49 @@ if (typeof Spriteset_Map !== 'undefined') {
             layer._docsRipple.uniforms.amount = Math.max(0, Math.min(1, Number(settings.ripple) || 0));
         }
 
-        const sources = [];
+        // The records are kept from frame to frame and refilled, so reflections allocate nothing.
+        const records = layer._docsRecords = layer._docsRecords || [];
+        let count = 0;
+        const add = (texture, x, y, sx, sy, anchorX, anchorY, alpha, rotation, tint) => {
+            const r = records[count] || (records[count] = {});
+            count++;
+            r.texture = texture; r.x = x; r.y = y; r.sx = sx; r.sy = sy; r.anchorX = anchorX; r.anchorY = anchorY;
+            r.alpha = alpha; r.rotation = rotation; r.tint = tint;
+        };
+        const byOrder = (a, b) => a._docsOrder - b._docsOrder;
         for (const sprite of this._characterSprites || []) {
             const ch = sprite._character;
             if (!sprite.visible || !sprite._docsFrameTexture || !ch) continue;
             if (DocsDoodads.CharacterTags.forCharacter(ch).reflect === false) continue;
             const jump = (typeof ch.jumpHeight === 'function' ? ch.jumpHeight() : 0) + DocsDoodads.Traversal.liftOf(ch);
-            const at = { x: sprite.x, y: sprite.y + jump * 2, sy: sprite.scale.y, anchorX: 0.5, anchorY: sprite.anchor.y, alpha: sprite.opacity / 255, rotation: 0 };
-            // Gear layers reflect too, behind and in front of the body.
-            const gear = (sprite._docsVisualSprites || []).filter(l => l.visible);
+            const x = sprite.x, y = sprite.y + jump * 2, sy = sprite.scale.y, alpha = sprite.opacity / 255;
+            // Gear layers reflect too, behind and in front of the body (one sort, in drawing order).
+            const gear = sprite._docsVisualSprites && sprite._docsVisualSprites.length ? sprite._docsVisualSprites.filter(l => l.visible) : null;
+            if (gear && gear.length > 1) gear.sort(byOrder);
             const layer = l => {
                 const texture = sprite.docsVisualTexture(l);
-                if (texture) sources.push(Object.assign({}, at, { texture, sx: l.scale.x, tint: l.tint, anchorY: l.anchor.y }));
+                if (texture) add(texture, x, y, l.scale.x, sy, 0.5, l.anchor.y, alpha, 0, l.tint);
             };
-            gear.filter(l => l._docsZ < 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
-            sources.push(Object.assign({}, at, { texture: sprite._docsFrameTexture, sx: sprite.scale.x }));
-            gear.filter(l => l._docsZ >= 0).sort((a, b) => a._docsOrder - b._docsOrder).forEach(layer);
+            if (gear) for (const l of gear) if (l._docsZ < 0) layer(l);
+            add(sprite._docsFrameTexture, x, y, sprite.scale.x, sy, 0.5, sprite.anchor.y, alpha, 0, undefined);
+            if (gear) for (const l of gear) if (l._docsZ >= 0) layer(l);
         }
         for (const sprite of this._docsDoodadSprites || []) {
             const d = sprite._data;
             if (!sprite.visible || !sprite.texture || !sprite.texture.valid || !DocsDoodads.Reflection.appliesTo(d, settings)) continue;
             const h = sprite.texture.frame.height * Math.abs(sprite.scale.y);
-            sources.push({ texture: sprite.texture, x: sprite.x, y: sprite.y + h * (1 - sprite.anchor.y), sx: sprite.scale.x, sy: Math.abs(sprite.scale.y),
-                anchorX: sprite.anchor.x, alpha: sprite.alpha, rotation: -sprite.rotation });
+            add(sprite.texture, sprite.x, sprite.y + h * (1 - sprite.anchor.y), sprite.scale.x, Math.abs(sprite.scale.y), sprite.anchor.x, undefined, sprite.alpha, -sprite.rotation, undefined);
         }
+        for (let i = count; i < records.length; i++) records[i].texture = null;
         const pool = layer._docsPool;
-        while (pool.length < sources.length) {
+        while (pool.length < count) {
             const s = new PIXI.Sprite(PIXI.Texture.EMPTY);
             layer.addChild(s);
             pool.push(s);
         }
         const opacity = Math.max(0, Math.min(1, Number(settings.opacity) || 0));
         pool.forEach((s, i) => {
-            const src = sources[i];
+            const src = i < count ? records[i] : null;
             s.visible = Boolean(src);
             if (!src) return;
             s.texture = src.texture;
@@ -315,20 +325,32 @@ if (typeof Spriteset_Map !== 'undefined') {
 
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
-        const visibleData = (this._docsDoodadSprites || []).filter(s => s.visible).map(s => s._data);
+        // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.
+        const visibleData = [];
+        for (const sprite of this._docsDoodadSprites || []) {
+            const d = sprite.visible ? sprite._data : null;
+            if (d && d.light && d.light.enabled) visibleData.push(d);
+        }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
             { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
         // In 3D the ground is lit around the lamp's base: the height offset would land the pool behind it.
         if (this._docs3d) {
-            for (const l of lights) l.y -= Number(Object.assign({}, Lighting.lightDefaults, l.doodad && l.doodad.light).offsetY) || 0;
+            for (const l of lights) l.y -= Number(Lighting.lightOf(l.doodad).offsetY) || 0;
         }
         if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
         this.docsSpritePool(this._docsGlowSprites, this._docsGlowLayer, glowing.length);
+        // A light that can't reach the picture (the screen, or the 3D view's) isn't drawn; it stays in the
+        // list for the 3D view's tint (lightAt).
+        const size0 = this._docs3dSize;
+        const reachW = size0 ? size0.width : typeof Graphics !== 'undefined' ? Graphics.width : 816;
+        const reachH = size0 ? size0.height : typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const off = l => l.x + l.radius < 0 || l.y + l.radius < 0 || l.x - l.radius > reachW || l.y - l.radius > reachH;
         glowing.forEach((l, i) => {
             const s = this._docsGlowSprites[i];
+            if (off(l)) { s.visible = false; return; }
             s.x = l.x; s.y = l.y;
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
@@ -358,6 +380,13 @@ if (typeof Spriteset_Map !== 'undefined') {
         this.docsSpritePool(this._docsLightSprites, this._docsLightScene, lights.length);
         lights.forEach((l, i) => {
             const s = this._docsLightSprites[i];
+            if (off(l)) {
+                s.visible = false;
+                const g = this._docsLightMasks && this._docsLightMasks[i];
+                if (g) g.visible = false;
+                if (s.mask) s.mask = null;
+                return;
+            }
             s.x = l.x; s.y = l.y;
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
@@ -366,7 +395,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (this.docsMaskLight) this.docsMaskLight(s, l, i);
         });
         // Masks left over from lights that went out.
-        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i].visible = false; }
+        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i]._docsOutline = null; this._docsLightMasks[i].visible = false; }
         renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
@@ -563,7 +592,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
         const safe = DocsDoodads.safeFrame(frame, bitmap.width, bitmap.height);
         this._docsFrame = frame;
         this._docsFrameBase = base;
-        this._docsFrameTexture = new PIXI.Texture(base, new PIXI.Rectangle(safe.x, safe.y, safe.w, safe.h));
+        this._docsFrameTexture = DocsDoodads.frameTexture(base, safe.x, safe.y, safe.w, safe.h);
     };
 
     Sprite_Character.prototype.updateDocsShadow = function(settings, tags) {
@@ -631,24 +660,13 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
             const part = new PIXI.Sprite(PIXI.Texture.EMPTY);
             part.anchor.set(0.5, 1);
             part.tint = 0x000000;
-            part._docsFrames = new Map();
             shadow.addChild(part);
             parts.push(part);
         }
         gear.forEach((sp, i) => {
             const part = parts[i], r = sp._docsRect, base = sp.bitmap.baseTexture || sp.bitmap._baseTexture;
-            const frameKey = r.x + ',' + r.y + ',' + r.w + ',' + r.h;
-            if (part._docsBase !== base) {
-                part._docsBase = base;
-                part._docsFrames.clear();
-            }
-            let texture = part._docsFrames.get(frameKey);
-            if (!texture) {
-                texture = new PIXI.Texture(base, new PIXI.Rectangle(r.x, r.y, r.w, r.h));
-                if (part._docsFrames.size > 32) part._docsFrames.clear();
-                part._docsFrames.set(frameKey, texture);
-            }
-            part.texture = texture;
+            const texture = DocsDoodads.frameTexture(base, r.x, r.y, r.w, r.h);
+            if (part.texture !== texture) part.texture = texture;
             part.anchor.set(0.5, sp.anchor.y);
             // The shadow already has the body's scale; a mirrored layer (8-direction sheets) flips.
             part.scale.set(Math.sign(sp.scale.x || 1) * Math.sign(this.scale.x || 1), 1);
@@ -818,7 +836,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const runtime = P.runtimeLook();
         // Region fades move once a frame, on the map (a battle keeps the map's).
         const live = P.liveInputs(typeof Spriteset_Map !== 'undefined' && this instanceof Spriteset_Map);
-        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
+        let look = hidden ? null : P.resolveLookCached({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
         let anim = P.Animations.sample(P._anims, DocsDoodads.frameCount());
         if (this._docsExportLook !== undefined) {
             look = this._docsExportLook;
@@ -835,7 +853,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const ours = [];
         if (f) {
             if (passes.includes('bloom')) {
-                const bloom = P.normalizeLook(look).bloom;
+                const bloom = look ? look.bloom : P.defaultLook().bloom;
                 const parts = f.bloom._docsParts;
                 parts.extract.uniforms.uThreshold = bloom.enabled ? bloom.threshold : 0.7;
                 parts.combine.uniforms.uIntensity = (bloom.enabled ? bloom.intensity : 0) + (anim ? anim.bloom : 0);
@@ -854,8 +872,16 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
                 }
             }
             if (passes.includes('grade')) {
-                const u = P.uniforms(look, anim, DocsDoodads.frameCount() / 60);
-                for (const key of Object.keys(u)) f.grade.uniforms[key] = u[key];
+                // A look that stays (resolveLookCached hands back the same one) keeps its uniforms; only
+                // animated grain's time moves.
+                const time = DocsDoodads.frameCount() / 60;
+                if (anim || !look || look !== f._gradeLook) {
+                    const u = P.uniforms(look, anim, time);
+                    for (const key of Object.keys(u)) f.grade.uniforms[key] = u[key];
+                    f._gradeLook = anim ? null : look;
+                } else if (look.grain.animated) {
+                    f.grade.uniforms.uTime = time;
+                }
                 ours.push(f.grade);
             }
         }
@@ -1013,6 +1039,22 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
 DocsDoodads.sharedTexture = function(canvas) {
     const texture = PIXI.Texture.from(canvas);
     texture.destroy = function() {};
+    return texture;
+};
+
+// A frame of a picture as a texture, made once per (picture, rectangle) and shared: characters change
+// frame several times a second and each change used to make a texture that was never let go. A texture
+// MZ destroyed with its scene (it destroys every sprite's texture on leaving) is made again.
+DocsDoodads.frameTexture = function(base, x, y, w, h) {
+    const cache = this._frameTextures || (this._frameTextures = new WeakMap());
+    let byKey = cache.get(base);
+    if (!byKey) cache.set(base, byKey = new Map());
+    const key = x + ',' + y + ',' + w + ',' + h;
+    let texture = byKey.get(key);
+    if (texture && texture.baseTexture === base) return texture;
+    if (byKey.size >= 512) byKey.clear();
+    texture = new PIXI.Texture(base, new PIXI.Rectangle(x, y, w, h));
+    byKey.set(key, texture);
     return texture;
 };
 
@@ -1220,6 +1262,16 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
     $.Sprite_DocsDoodad_updatePlacement = Sprite_DocsDoodad.prototype.updatePlacement;
     Sprite_DocsDoodad.prototype.updatePlacement = function() {
         $.Sprite_DocsDoodad_updatePlacement.call(this);
+        // Off the screen (culled), bending and effects wait and aren't drawn.
+        if (this._docsCulled) {
+            for (const key of ['_docsEmitter', '_docsVfx', '_docsLeaves']) if (this[key]) this[key].renderable = false;
+            this._docsFxCulled = true;
+            return;
+        }
+        if (this._docsFxCulled) {
+            this._docsFxCulled = false;
+            for (const key of ['_docsEmitter', '_docsVfx', '_docsLeaves']) if (this[key]) this[key].renderable = true;
+        }
         this.updateDocsReact();
         this.updateDocsParticles();
     };
@@ -1912,8 +1964,18 @@ DocsDoodads.Ambience = {
         const layers = DocsDoodads.World.settings().ambience.layers || [];
         if (!layers.length || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) { this.stopAll(); return; }
         const SS = DocsDoodads.SpatialSound, f = DocsDoodads.PlayerZoom.focus();
-        const q = this.query();
         const px = $gamePlayer.x, py = $gamePlayer.y;
+        // What is around depends only on the player's tile, the map and the layers: scanning up to 1,681
+        // tiles a layer is done again when one of those changes, not every 6 frames.
+        const doodads = DocsDoodads.doodads() || [];
+        const at = this._coverAt;
+        if (!at || at.mapId !== $gameMap.mapId() || at.x !== px || at.y !== py || at.layers !== layers || at.data !== (typeof $dataMap !== 'undefined' && $dataMap ? $dataMap.data : null)
+            || at.doodads !== doodads || at.count !== doodads.length) {
+            const q = this.query();
+            this._coverAt = { mapId: $gameMap.mapId(), x: px, y: py, layers, data: typeof $dataMap !== 'undefined' && $dataMap ? $dataMap.data : null, doodads, count: doodads.length,
+                cover: layers.map(layer => (layer && String(layer.sound || '').trim() ? SS.coverage(layer, px, py, q, q.tw, q.th) : null)) };
+        }
+        const cover = this._coverAt.cover;
         // Wind is stronger up high (terrain height under the player).
         const grid = DocsDoodads.Terrain.grid ? DocsDoodads.Terrain.grid() : null;
         const high = grid && grid.max > 0 ? Math.max(0, Math.min(1, DocsDoodads.Terrain.tileHeight(grid, px, py) / grid.max)) : 0;
@@ -1922,7 +1984,7 @@ DocsDoodads.Ambience = {
             let state = this._playing.get(i);
             if (state && state.name !== name) { this.stop(i); state = null; }
             if (!name) return;
-            const c = SS.coverage(layer, px, py, q, q.tw, q.th);
+            const c = cover[i] || { coverage: 0, pan: 0 };
             const quiet = layer.quiet === undefined || layer.quiet === '' ? 0.4 : Number(layer.quiet);
             const height = layer.kind === 'open' && grid ? 0.5 + 0.5 * high : 1;
             const volume = Math.min(100, (Number(layer.volume) || 60) * c.coverage * SS.closeness(quiet, f) * height);

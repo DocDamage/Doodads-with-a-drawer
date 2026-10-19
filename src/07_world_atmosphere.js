@@ -702,20 +702,33 @@ DocsDoodads.Atmosphere = {
         return ws && ws.mounted && ws[field] !== null && ws[field] !== undefined ? ws[field] : null;
     },
 
+    // env() for the per-frame readers: one object, refreshed on each read, so thousands of doodads
+    // asking for the season every frame allocate nothing. Never handed out.
+    sharedEnv(withClock) {
+        const env = this._sharedEnv || (this._sharedEnv = {
+            variable: id => (typeof $gameVariables !== 'undefined' && $gameVariables && id > 0 ? $gameVariables.value(id) : 0),
+            clock: null, system: 0
+        });
+        const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        env.clock = withClock ? this.clock() : null;
+        env.system = system ? system._docsSeason || 0 : 0;
+        return env;
+    },
+
     minutes() {
         const preview = this.editorPreview('previewMinutes');
         if (preview !== null) return preview;
-        return DocsDoodads.TimeOfDay.minutesNow(DocsDoodads.World.settings(), this.env());
+        return DocsDoodads.TimeOfDay.minutesNow(DocsDoodads.World.settings(), this.sharedEnv(true));
     },
 
     season() {
         const preview = this.editorPreview('previewSeason');
         if (preview !== null) return preview;
-        return DocsDoodads.Seasons.current(DocsDoodads.World.settings().seasons, this.env());
+        return DocsDoodads.Seasons.current(DocsDoodads.World.settings().seasons, this.sharedEnv(false));
     },
 
     sun() {
-        return DocsDoodads.Sun.current(DocsDoodads.World.settings(), this.minutes(), this.env().variable);
+        return DocsDoodads.Sun.current(DocsDoodads.World.settings(), this.minutes(), this.sharedEnv(false).variable);
     },
 
     // "Set Feature" plugin command switches effects off for this save without touching the project.

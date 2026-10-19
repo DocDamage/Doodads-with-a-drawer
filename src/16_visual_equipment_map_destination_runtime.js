@@ -30,7 +30,60 @@ DocsDoodads.VisualEquip.contextFor = function(actor, extraNotes) {
 
 DocsDoodads.VisualEquip.layersForActor = function(actor, extraNotes) {
     if (!actor) return extraNotes && extraNotes.length ? this.resolve({ extraNotes }, this.env()) : [];
-    return this.resolve(this.contextFor(actor, extraNotes), this.env());
+    // Every character asks every frame; the layers are worked out again only when what they are made
+    // from changes (inputsOf), or a switch or variable a colour rule reads. The editor can change the
+    // database's notes, so it works them out every time.
+    const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    if (editing) return this.resolve(this.contextFor(actor, extraNotes), this.env());
+    const memo = this._actorMemo || (this._actorMemo = typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+    const inputs = this.inputsOf(actor, extraNotes);
+    const hit = memo ? memo.get(actor) : null;
+    if (hit && hit.inputs.length === inputs.length && hit.inputs.every((v, i) => v === inputs[i]) && this.sameDynamic(hit.dynamic)) return hit.layers;
+    const ctx = this.contextFor(actor, extraNotes);
+    const layers = this.resolve(ctx, this.env());
+    if (memo) memo.set(actor, { inputs, layers, dynamic: this.dynamicOf(ctx) });
+    return layers;
+};
+
+// What an actor's layers are made from, as a list compared item by item: the settings, the Aseprite
+// sheets, the actor's and class's data, equipment and states by id, plugin-command changes (replaced,
+// never changed in place) and an event's text.
+DocsDoodads.VisualEquip.inputsOf = function(actor, extraNotes) {
+    const out = [DocsDoodads.World.settings(), DocsDoodads.AsepriteVisuals.version,
+        typeof actor.actor === 'function' ? actor.actor() : null, typeof actor.currentClass === 'function' ? actor.currentClass() : null];
+    if (Array.isArray(actor._equips)) for (const item of actor._equips) out.push(item ? item._dataClass + ':' + item._itemId : '');
+    else if (typeof actor.equips === 'function') for (const e of actor.equips()) out.push(e);
+    out.push('|');
+    if (Array.isArray(actor._states)) for (const id of actor._states) out.push(id);
+    else if (typeof actor.states === 'function') for (const st of actor.states()) out.push(st);
+    const v = actor._docsVisual || null;
+    out.push('|', v, v && v.notes, v && v.notes ? v.notes.length : 0, v && v.colors, v && v.alias);
+    for (const n of extraNotes || []) out.push(n);
+    return out;
+};
+
+// The switches and variables the colour rules read, with their values now.
+DocsDoodads.VisualEquip.dynamicOf = function(ctx) {
+    const notes = [ctx.actorNote].concat(ctx.equipNotes || [], ctx.extraNotes || []);
+    const out = [];
+    const env = this.env();
+    for (const text of notes) {
+        for (const rule of this.parseNote(text).colors) {
+            if (rule.switchId) out.push('s', rule.switchId, Boolean(env.switch(rule.switchId)));
+            if (rule.variableId) out.push('v', rule.variableId, Number(env.variable(rule.variableId)) || 0);
+        }
+    }
+    return out;
+};
+
+DocsDoodads.VisualEquip.sameDynamic = function(list) {
+    if (!list || !list.length) return true;
+    const env = this.env();
+    for (let i = 0; i < list.length; i += 3) {
+        const now = list[i] === 's' ? Boolean(env.switch(list[i + 1])) : Number(env.variable(list[i + 1])) || 0;
+        if (now !== list[i + 2]) return false;
+    }
+    return true;
 };
 
 // An event's note and the comments on its current page.
@@ -45,8 +98,15 @@ DocsDoodads.VisualEquip.eventText = function(ev) {
         if (cmd && (cmd.code === 108 || cmd.code === 408) && cmd.parameters) lines.push(String(cmd.parameters[0] || ''));
     }
     const text = lines.join('\n');
-    if (cache) cache.set(ev, { page: ev._pageIndex, text });
+    if (cache) cache.set(ev, { page: ev._pageIndex, text, visual: /<\s*visual/i.test(text) });
     return text;
+};
+
+// Whether an event's text has any <visual> tag (read with eventText, kept with it).
+DocsDoodads.VisualEquip.eventHasVisual = function(ev) {
+    const text = this.eventText(ev);
+    const hit = this._eventText ? this._eventText.get(ev) : null;
+    return hit ? hit.visual : /<\s*visual/i.test(text);
 };
 
 // Gear shows while the character uses the actor's own image, so a transformation hides it.
@@ -65,8 +125,8 @@ DocsDoodads.VisualEquip.layersForCharacter = function(ch) {
     if (typeof Game_Event !== 'undefined' && ch instanceof Game_Event && s.events) {
         // A page without an image (a hidden or removed NPC) shows no gear either.
         if (!ch.event() || !ch.characterName()) return [];
+        if (!this.eventHasVisual(ch)) return [];
         const text = this.eventText(ch);
-        if (!/<\s*visual/i.test(text)) return [];
         const note = this.parseNote(text);
         const actor = note.actorId && typeof $gameActors !== 'undefined' ? $gameActors.actor(note.actorId) : null;
         return this.layersForActor(actor, [text]);
@@ -111,11 +171,15 @@ if (typeof Sprite_Character !== 'undefined' && typeof Sprite !== 'undefined') {
 
     Sprite_Character.prototype.updateDocsVisual = function() {
         const ch = this._character;
-        const layers = ch && this.parent && !(ch.tileId() > 0) ? VE.layersForCharacter(ch) : [];
-        const sig = VE.signature(layers);
-        if (sig !== this._docsVisualSig) {
-            this._docsVisualSig = sig;
-            this.rebuildDocsVisual(layers);
+        const layers = ch && this.parent && !(ch.tileId() > 0) ? VE.layersForCharacter(ch) : null;
+        // The same list as last frame (layersForActor keeps it while nothing changed) needs no signature.
+        if (layers !== this._docsVisualLayers || !layers) {
+            this._docsVisualLayers = layers;
+            const sig = VE.signature(layers || []);
+            if (sig !== this._docsVisualSig) {
+                this._docsVisualSig = sig;
+                this.rebuildDocsVisual(layers || []);
+            }
         }
         if (this._docsVisualSprites && this._docsVisualSprites.length) this.updateDocsVisualSprites();
     };

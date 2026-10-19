@@ -101,17 +101,74 @@ DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-    const tileBox = this.tileBox(tx, ty, tw, th);
+    const here = this.grid(doodads, tw, th).tiles.get(this.tileKey(tx, ty));
+    if (!here) return false;
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
-    for (const dData of doodads) {
-        if (vehicles && !(dData && dData.collision && dData.collision.vehicles)) continue;
-        const colBody = this.bodyOf(dData);
-        if (!colBody) continue;
-        // The box test is cheap; switches and conditions are only checked for doodads on this tile.
-        if (!DocsDoodads.judge(colBody, tileBox)) continue;
+    // The grid holds the doodads whose bodies cover this tile; switches and conditions are checked here.
+    for (const dData of here) {
+        if (vehicles && !(dData.collision && dData.collision.vehicles)) continue;
         if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {}) && DocsDoodads.States.blocks(dData)) return true;
     }
     return false;
+};
+
+DocsDoodads.Collision.tileKey = function(tx, ty) {
+    return (ty + 2) * 1048576 + (tx + 2);
+};
+
+// A doodad's body, kept while the fields it is made from stay (bodyOf builds a new one each call).
+DocsDoodads.Collision._bodies = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+DocsDoodads.Collision.cachedBody = function(d) {
+    if (!this._bodies || !d || typeof d !== 'object') return { body: this.bodyOf(d), changed: true };
+    const col = d.collision;
+    const c = this._bodies.get(d);
+    if (c && c.col === col && c.preset === (col && col.preset) && c.shape === (col && col.shape) && c.x === d.x && c.y === d.y
+        && c.fw === d.frameW && c.fh === d.frameH && c.sx === d.scaleX && c.sy === d.scaleY && c.ax === d.anchorX && c.ay === d.anchorY) {
+        return { body: c.body, changed: false };
+    }
+    const body = this.bodyOf(d);
+    this._bodies.set(d, { col, preset: col && col.preset, shape: col && col.shape, x: d.x, y: d.y, fw: d.frameW, fh: d.frameH,
+        sx: d.scaleX, sy: d.scaleY, ax: d.anchorX, ay: d.anchorY, body });
+    return { body, changed: true };
+};
+
+// The map's doodads by the tiles their bodies block (the tilesUnder test), so a character's step looks at
+// the few doodads on that tile instead of every one. Checked at most once a frame in play: it is built
+// again when the list, a doodad's body or the tile size changes. The editor (which changes shapes in
+// place) and frame 0 check on every call; invalidate() makes the next call check.
+DocsDoodads.Collision.grid = function(doodads, tw, th) {
+    const frame = DocsDoodads.frameCount ? DocsDoodads.frameCount() : 0;
+    const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+    let g = this._grid;
+    const same = g && g.doodads === doodads && g.length === doodads.length && g.tw === tw && g.th === th;
+    if (same && !editing && frame !== 0 && g.frame === frame && !this._dirty) return g;
+    this._dirty = false;
+    let changed = !same || editing;
+    const bodies = new Array(doodads.length);
+    for (let i = 0; i < doodads.length; i++) {
+        const r = this.cachedBody(doodads[i]);
+        bodies[i] = r.body;
+        if (r.changed) changed = true;
+    }
+    if (!changed) {
+        g.frame = frame;
+        return g;
+    }
+    const tiles = new Map();
+    for (let i = 0; i < doodads.length; i++) {
+        if (!bodies[i]) continue;
+        for (const t of this.tilesUnder(bodies[i], tw, th)) {
+            const key = this.tileKey(t.x, t.y);
+            const list = tiles.get(key);
+            if (list) list.push(doodads[i]); else tiles.set(key, [doodads[i]]);
+        }
+    }
+    g = this._grid = { doodads, length: doodads.length, tw, th, frame, tiles };
+    return g;
+};
+
+DocsDoodads.Collision.invalidate = function() {
+    this._dirty = true;
 };
 
 if (typeof Game_CharacterBase !== 'undefined') {

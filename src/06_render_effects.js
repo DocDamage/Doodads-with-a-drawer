@@ -122,10 +122,32 @@ DocsDoodads.Appearance = {
         try { return Boolean(fn()); } catch (error) { return true; }
     },
 
+    // parseSwitches for the per-frame checks: kept per list in play (the editor changes lists in place).
+    _switchCache: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+    _switchText: new Map(),
+    switchesOf(input) {
+        if (!input || (input.length === 0)) return [];
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return this.parseSwitches(input);
+        if (typeof input === 'string') {
+            let parsed = this._switchText.get(input);
+            if (!parsed) {
+                if (this._switchText.size >= 500) this._switchText.clear();
+                this._switchText.set(input, parsed = this.parseSwitches(input));
+            }
+            return parsed;
+        }
+        if (!this._switchCache || typeof input !== 'object') return this.parseSwitches(input);
+        const c = this._switchCache.get(input);
+        if (c && c.length === input.length) return c.parsed;
+        const parsed = this.parseSwitches(input);
+        this._switchCache.set(input, { length: input.length, parsed });
+        return parsed;
+    },
+
     isVisible(d, ctx = {}) {
         if (ctx.editing) return true;
         const switchValue = ctx.switchValue || (id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false));
-        for (const [id, value] of this.parseSwitches(d.switch)) {
+        for (const [id, value] of this.switchesOf(d.switch)) {
             if (Boolean(switchValue(id)) !== value) return false;
         }
         if (Array.isArray(d.seasons) && d.seasons.length > 0) {
@@ -137,7 +159,7 @@ DocsDoodads.Appearance = {
 
     // Only conditional doodads need a per-frame visibility check.
     isConditional(d) {
-        return this.parseSwitches(d.switch).length > 0 || Boolean(String(d.condition || '').trim())
+        return this.switchesOf(d.switch).length > 0 || Boolean(d.condition && String(d.condition).trim())
             || (Array.isArray(d.seasons) && d.seasons.length > 0);
     },
 
@@ -149,6 +171,19 @@ DocsDoodads.Appearance = {
     signature(d) {
         const m = d.motion && d.motion.type === 'shimmer' ? 'shimmer' + (d.motion.amount || 0) : '';
         return [d.r, d.g, d.b, d.grey, d.hue, d.blur, d.contrast, d.sepia, d.bright, d.blend, m].join('|');
+    },
+
+    // signature's fields, compared with what `last` holds (and copied into it when they differ), so a
+    // sprite checks its filters every frame without building a string. True when nothing changed.
+    sameLook(d, last) {
+        const shimmer = d.motion && d.motion.type === 'shimmer';
+        const amount = shimmer ? (d.motion.amount || 0) : 0;
+        if (last.length === 12 && last[0] === d.r && last[1] === d.g && last[2] === d.b && last[3] === d.grey && last[4] === d.hue
+            && last[5] === d.blur && last[6] === d.contrast && last[7] === d.sepia && last[8] === d.bright && last[9] === d.blend
+            && last[10] === shimmer && last[11] === amount) return true;
+        last.length = 0;
+        last.push(d.r, d.g, d.b, d.grey, d.hue, d.blur, d.contrast, d.sepia, d.bright, d.blend, shimmer, amount);
+        return false;
     }
 };
 
@@ -314,12 +349,25 @@ DocsDoodads.Lighting = {
 
     // display: the map's scroll in pixels ({ x, y }) or a map-to-screen function, so lights land in screen space.
     // ctx ({ darkness, threshold, step }) switches "after dark" lamps; without it every light shows (editor previews).
+    // A doodad's light with the defaults filled in, kept per light object in play (the editor changes
+    // lights in place, so it merges afresh there).
+    _lightCache: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+    lightOf(d) {
+        const light = d && d.light;
+        if (!light) return Object.assign({}, this.lightDefaults);
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        if (editing || !this._lightCache) return Object.assign({}, this.lightDefaults, light);
+        let l = this._lightCache.get(light);
+        if (!l) this._lightCache.set(light, l = Object.assign({}, this.lightDefaults, light));
+        return l;
+    },
+
     collect(doodads, display = { x: 0, y: 0 }, ctx) {
         const toScreen = typeof display === 'function' ? display : (x, y) => ({ x: x - display.x, y: y - display.y });
         const out = [];
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
-            const l = Object.assign({}, this.lightDefaults, d.light);
+            const l = this.lightOf(d);
             // A state or an event can put the light out (it fades like an "after dark" lamp in game).
             const on = DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true;
             if (!on && !ctx) continue;

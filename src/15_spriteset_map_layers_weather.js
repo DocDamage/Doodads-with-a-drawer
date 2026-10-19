@@ -42,8 +42,16 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.updateDocsLayers2d = function(flat) {
         const L = DocsDoodads.MapLayers;
-        const list = flat && typeof $gameMap !== 'undefined' && $gameMap ? L.list(DocsDoodads.Lighting.mapSettings($gameMap.mapId())) : [];
-        const key = JSON.stringify(list);
+        const mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        const raw = mapSettings && Array.isArray(mapSettings.layers2d) ? mapSettings.layers2d : null;
+        // In play the layers only change by being replaced: the list is read again when the settings' array
+        // changes. The editor changes them in place, so there it compares the whole list every frame.
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const seen = this._docsLayersFor;
+        const changed = editing || !seen || seen.raw !== raw || seen.length !== (raw ? raw.length : 0);
+        if (changed) this._docsLayersFor = { raw, length: raw ? raw.length : 0 };
+        const list = changed && raw ? L.list(mapSettings) : [];
+        const key = changed ? JSON.stringify(list) : this._docsLayersKey;
         if (key !== this._docsLayersKey) {
             this.docsDestroyLayers2d();
             this._docsLayersKey = key;
