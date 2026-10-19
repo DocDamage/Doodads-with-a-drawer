@@ -2,6 +2,8 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- A Playful theme (More > Look): cream cards, teal and coral, yellow for what is picked, rounder corners and pill buttons. Filled buttons keep white text at 4.5:1 or better.
+- LPC character creator, phase 0: a plan (docs/LPC_CHARACTER_CREATOR_PLAN.md) and a throwaway spike, `node scripts/lpc_spike.js <library> <project> [Name]`, that indexes a local copy of the Universal LPC generator's library, recolours and stacks the parts of one character, and writes a `$Name.png` walker, a `$Name[f9].png` walker and the credits of the files used. No LPC code, data or art ships with the plugin.
 - 3D models: morph targets (shape keys) and their animations, normal maps, light per pixel (sharp highlights on flat faces), a selection box that follows the pose, and, in World > 3D Models, drawing on the graphics card (skins posed, placed and projected in the shader, each model drawn with a depth buffer), falling back to the CPU on round worlds, big skins or a card that refuses the shader. The shaders compile on WebGL 1 and 2.
 - Tiles (top bar): paint MZ's own tiles in a playtest from the map's tileset (A1 to E, blocks of B to E tiles), with autotiles joining up as in MZ's editor (shapes checked against MZ's tables), automatic or chosen layers, an eraser, Alt+click to pick up, one undo step a stroke, saved into the map file.
 - Shaped lights: cones that point a way, light presets (torch, candle, campfire, lantern, neon, crystal, spotlight, moonbeam, window glow), walls that stop light on flat maps (impassable tiles and listed regions cast shadows), and a flashlight the player carries that turns to face, with a Flashlight plugin command.

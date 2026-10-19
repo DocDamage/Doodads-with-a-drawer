@@ -280,7 +280,61 @@ useful in games.
 - **Frame choice for the 3-frame walker:** two LPC frames out of eight can look stiff. Offer the `[f9]` sheet as
   the recommended default when Doc's Doodads is present.
 
-## 11. Open questions for the owner
+## 11. Phase 0 findings (2026-10-19)
+
+The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on the DocDamage fork at commit
+`b2c85f9` (5 Aug 2026), then checked in MZ 1.10.0 (QA project copy).
+
+- **Format:**
+  - 657 part definitions: all have `name`, `layer_1`, `credits` and `type_name`, and none were skipped.
+  - The fields seen, besides layers:
+    - `animations`, `recolors` (424 parts), `variants` (233);
+    - `priority`, `match_body_color`;
+    - `tags` and `required_tags` (what a part needs, such as a kimono's sleeves trim);
+    - `replace_in_path` with `${head}` templates (faces per head);
+    - `custom_animation` layers (the wheelchair);
+    - `aliases`, `preview_*`, `path`.
+  - Indexing everything takes about 50 ms.
+- **Images:** a layer's images are at `<path><anim>.png` (recoloured), or at `<path><anim>/<variant>.png` (fixed
+  colours). Some file names differ from the animation names:
+  - `combat` is `combat_idle`;
+  - `1h_slash` is `slash`;
+  - `1h_backslash` is `backslash`;
+  - `1h_halfslash` is `halfslash`.
+
+  The images are palette PNGs at 4 or 8 bits, or RGBA.
+- **Recolouring is exact:**
+  - The art is drawn in each material's base ramp. The material's `meta_<material>.json` names the base: body
+    "light", hair "orange", cloth "white".
+  - A recolour swaps those six colours for the chosen ramp's colours, so no tolerance was needed.
+  - Parts with two colours (for example a head with skin and eyes) list `color_1`, `color_2` and so on, and an
+    explicit `source` ramp when there is no base.
+  - `match_body_color` parts take the body's skin ramp.
+- **Licences:**
+  - A credit block's `licenses` are alternatives: any one of them may be used.
+  - Judge safety **per file used**, by the credit block whose `file` is the longest prefix of the image folder,
+    not per part. Body Color lists blocks for every body type, and some of those offer no OGA-BY, but the male
+    body's block does.
+  - All six files of the test character are safe to encrypt (OGA-BY or CC0).
+- **Compositing:** 6 layers for one walk sheet (576×256) took about 40 ms in Node, without caching. Sorting by
+  `zPos` and then `priority` stacked them correctly.
+- **In MZ:**
+  - `$Spike[f9].png` (all 9 walk frames, rows reordered to down, left, right, up) and `$Spike.png` (3 frames:
+    LPC 1, 0 and 5, picked as the widest strides) both load at 64×64 a frame and draw correctly. Characters stand
+    a third taller than a 48-pixel tile, and that looks right.
+  - **Problem 1:** Doc's Doodads plays an `[fN]` sheet at MZ's normal pace, one frame per 15 game frames at speed 4.
+    Over 10 tiles the legs went through one and a half cycles of 9 frames, so the character seems to slide.
+    LPC's cycle should fit about two tiles.
+  - **Problem 2:** the cycle also passes through frame 0, the standing pose, which shows as a hitch.
+
+  For phase 4, we need a walk pace per sheet, plus a way to leave the standing frame out of the cycle. Two
+  candidates:
+  - a `[w2]`-style "tiles per cycle" tag;
+  - deriving it when the sheet is known to be LPC (a `_lpc` name or an entry in the index).
+
+  Existing `[fN]` sheets must keep today's pace.
+
+## 12. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** start with the encrypt-safe switch **on** (fewer parts, deploy-safe), or **off**
