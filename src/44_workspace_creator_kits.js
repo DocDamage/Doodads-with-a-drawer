@@ -103,6 +103,7 @@ DocsDoodads.CreatorKits = {
         exportNote: () => 'Sheets made from the Memao assets may go into your games, but not be shared on their own. The character is saved under its name to change and export again.',
         missingNote: 'the asset folder changed',
         exportDefaults: ws => ws.memaoExportDefaults(),
+        exportExtraTicks: () => [['stand', "Stand on the tile's bottom", "Every frame 6 pixels lower, so the feet are where MZ's own characters stand. A sheet whose frames reach their bottom is left as it was (the export says which)."]],
         exportFiles: (ws, name, o) => ws.creatorFileEntries(ws.memaoExportFiles(name, o), name, o, DocsDoodads.MemaoExport),
         exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)

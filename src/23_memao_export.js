@@ -57,6 +57,26 @@ DocsDoodads.MemaoExport = {
         return Math.floor(sheet.width / this.frame);
     },
 
+    // Memao's figures stand with their feet at y 40 of the 48 frame; MZ's own characters at y 46. Every frame
+    // moved down px: { sheet, cropped } where cropped counts the frames that have something in their bottom px
+    // rows (a shadow, a long cape), which would leave the frame: then the sheet is given back as it was.
+    standOffset: 6,
+
+    shiftDown(sheet, px = this.standOffset) {
+        const F = this.frame, cols = Math.floor(sheet.width / F), rows = Math.floor(sheet.height / F);
+        let cropped = 0;
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+            let hit = false;
+            for (let y = F - px; y < F && !hit; y++) for (let x = 0; x < F && !hit; x++) if (sheet.data[((r * F + y) * sheet.width + c * F + x) * 4 + 3]) hit = true;
+            if (hit) cropped++;
+        }
+        if (cropped || !px) return { sheet, cropped };
+        const out = this.blank(sheet.width, sheet.height);
+        for (let r = 0; r < rows; r++) this.blit(out, sheet, 0, r * F, 0, r * F + px, sheet.width, F - px);
+        out.frame = sheet.frame;
+        return { sheet: out, cropped: 0 };
+    },
+
     // A sheet in MZ's row order with the given columns: [{ sheet, frame }] or frame numbers of one sheet.
     // sides: an animation drawn facing left and right only (paint), whose down row shows left and up shows right.
     mzSheet(sheet, columns, sides) {

@@ -246,7 +246,9 @@ Object.assign(DocsDoodads.Workspace, {
         const S = this.creatorSlots(), c = this._creator;
         const card = S.cards.find(x => x.key === cardKey);
         const tab = card.tabs[c.tabs[cardKey]];
-        const rows = tab.slots.map(s => Object.assign({ card: cardKey }, s));
+        // A kit can leave a row out (Memao's prop rows when the pack has one prop of that kind).
+        const index = S.shown ? this.creatorIndex() : null;
+        const rows = tab.slots.filter(s => !S.shown || S.shown(index, s, c.state.body)).map(s => Object.assign({ card: cardKey }, s));
         if (cardKey === 'body' && tab.key === 'body') rows.unshift({ key: '_body', label: 'Body type', card: 'body', special: true });
         return rows;
     },
@@ -662,6 +664,7 @@ Object.assign(DocsDoodads.Workspace, {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="left: 22px; bottom: 70px;">
                 <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">Saved characters</div>
+                <div class="dd-cr-list" style="flex-direction: row; min-width: 0; margin-bottom: 6px;"><button type="button" id="dd-cr-recipe-out" title="This character in a file of its own, to keep anywhere or give to someone">Export recipe...</button><button type="button" id="dd-cr-recipe-in" title="A character from a recipe file (made by this creator)">Import recipe...</button></div>
                 <div class="dd-cr-list">${saved.length ? saved.map((s, i) => `<div class="dd-cr-item"><span>${escapeHtml(s.name)}</span>
                     <button type="button" id="dd-cr-load-${i}">Load</button><button type="button" id="dd-cr-del-${i}" aria-label="Delete ${escapeHtml(s.name)}">Delete</button></div>`).join('')
                     : '<div style="color: #7a6b8f;">None saved yet. Save keeps the character in data/DocsDoodadsCharacters.json.</div>'}</div>
@@ -685,6 +688,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${E.actions.length ? `<div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>` : ''}
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in the slot picked below (the other faces in the sheet are kept).`)}
                 ${o.face ? this.creatorFaceSlotsHtml(c.name, o.faceSlot || 0) : ''}
+                ${(K.exportExtraTicks ? K.exportExtraTicks() : []).map(([key, label, note]) => tick('dd-cr-ex-' + key, o[key], label, note)).join('')}
                 ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
                 <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">${K.exportNote()}</div>
@@ -771,7 +775,7 @@ Object.assign(DocsDoodads.Workspace, {
                     this.addLpcNotetag(v[0], parseInt(v.slice(1), 10), p.notetag, p.slot);
                 });
             });
-            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage', 'stand']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             for (let slot = 0; slot < 8; slot++) on('dd-cr-ex-slot-' + slot, () => { o.faceSlot = slot; this.renderCreator(); this.creatorSay(`Face slot ${slot + 1}`); });
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
@@ -784,6 +788,8 @@ Object.assign(DocsDoodads.Workspace, {
         }
         if (c.pop && c.pop.kind === 'grid') this.bindCreatorGrid();
         if (c.pop && c.pop.kind === 'load') {
+            on('dd-cr-recipe-out', () => this.creatorPickRecipeOut());
+            on('dd-cr-recipe-in', () => this.creatorPickRecipeIn());
             const saved = S.validSaved(this.readCreatorSaved()).characters;
             saved.forEach((s, i) => {
                 on('dd-cr-load-' + i, () => this.creatorLoad(s.name));

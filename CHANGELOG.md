@@ -2,6 +2,9 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Memao creator: the export stands characters on the tile's bottom (every frame 6 pixels lower, as MZ's own characters; on at first, a sheet that would lose pixels stays as it was and is named), and a pack with more than one prop of a kind gets a row in Tools to choose it.
+- MZ creator: a part offers every colour slot its walking and battler pictures use, not only its face's (108 parts gain one, such as a cloak's second colour).
+- Character creators: Export recipe... and Import recipe... (under Load) keep one character in a file of its own anywhere on the computer; a recipe from another creator says which to switch to.
 - Character creators: a list beside the window's title switches between the libraries scanned (MZ, LPC, Memao), keeping the name and each library's character. The palette has two entries, Characters (the card) and Character Creator... (the one used last), in place of four. The Characters card has a group per library that stays folded or open as left. The export picks the face slot from the face sheet's eight faces as they are now. Under High contrast the window is black on white with 3-pixel borders.
 - Character creators: a padlock on each row (or L) keeps it through the dice (an MZ part with its colours). The body dice keep the body type and give a new face and hair (the LPC ones only ever gave male or female, losing a chosen teen, child, muscular or pregnant body); Shift+X also rolls the type, among those the library has and the locked parts fit. Ctrl+Z goes back a step, the last 20. On a gamepad: hold X for a new type, Y with a direction locks, Back with B undoes (X, Y and Back alone now act when let go).
 - Memao creator: long hair, side hair and eyebrows take the hair's colour, shown by a chain in place of their swatch; click it (or K) for a colour of their own, and again to link back.

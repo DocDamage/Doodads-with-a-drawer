@@ -111,8 +111,10 @@ DocsDoodads.MemaoCompose = {
             // Its frames at another depth (Hair D for Hair B...), from the same file number.
             for (const [follower, leader] of Object.entries(M.pairs)) if (leader === part.folder) add(follower, num, pick.colour, part, order++);
         }
-        // Props show in their own animations only (their other frames are empty).
+        // Props show in their own animations only (their other frames are empty): the one picked, else the first.
+        const picked = new Set(layers.map(l => l.folder));
         for (const folder of M.props) {
+            if (picked.has(folder)) continue;
             const part = (index.parts || []).filter(p => p.folder === folder).sort((a, b) => a.order - b.order)[0];
             if (part) add(folder, M.fileFor(part, arm), '', part, order++);
         }
