@@ -2,6 +2,9 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Docking: drag the Item Bag or Details by its title to the left, right or bottom (or choose in More > Look); edges facing the map resize them, two panels can share a side or the bottom, and where they are is remembered per layout (Save Layout keeps it too). The status bar, hint and readouts follow the map's area.
+- Accessibility: names for every control and panel for screen readers, messages read out, the Item Bag as a list the arrow keys move through (Enter picks), F6 and Shift+F6 between panels, a visible focus ring, and Less motion (More > Look, or the system's reduced-motion setting).
+- A language layer for the editor: translations in data/DocsDoodadsLanguages/<code>.json, keyed by the English words (with {name} for values), picked in More > Look; untranslated words stay English. `npm run strings` writes a template of every English string. Only English ships.
 - Background and overlay layers on flat maps (the map's settings): pictures behind the tiles or over the map, each following the camera by its own amount, scrolling, zooming, repeating and blending, plus soft fog banks drawn by the game that drift with the wind.
 - Weather on flat maps (World): wind that leans swaying doodads, pushes particles and fog and blows leaves across the screen (stronger in rain and storms, with gusts; Set Wind changes it), and lightning in storms with thunder after the flash, sooner for near strikes.
 - The camera on flat maps can ease after the player and look ahead, stay inside a region's area while the player is in it (a room), follow an event (2D Camera Follow), and glide along a path for cutscenes (2D Camera Path), then come back or stay. With none of these, MZ's own scrolling is unchanged.

@@ -804,7 +804,16 @@ Switch panel layout presets in **More → Panel sizes**:
 - **Tiles Preset**: Visual grid layout for decorative tiles.
 - **Compact Preset**: Minimal UI footprint for small laptop screens.
 - **Draggable Splitters**: Click and drag the vertical divider between the Item Bag and the map, or Details and the map to resize panels in real time (200px to 800px), or fold them away with their arrow buttons.
-- **Save Custom Layouts**: Click **+** beside the layout list in More to save your current panel dimensions and thumbnail zoom as a named preset in `data/DocsDoodadsLayouts.json`.
+- **Save Custom Layouts**: Click **+** beside the layout list in More to save your current panel dimensions, where the panels are docked and the thumbnail zoom as a named preset in `data/DocsDoodadsLayouts.json`.
+- **Docking**: drag the Item Bag or Details by its title to the left, the right or the bottom of the window (the drop zones light up), or pick **Left**, **Right** or **Bottom** for each in **More → Look**. A panel along the bottom resizes from its top edge; two panels on one side share it, one above the other; two along the bottom sit side by side. The map's status bar, hint and readouts move out of the way. Where the panels are is remembered for each layout on this computer.
+
+### Accessibility
+- Every control has a name for screen readers (icon buttons say their tooltip, fields their placeholder), the panels are named regions, and messages and the hint are read out as they come.
+- **The keyboard**: Tab and Shift+Tab move through the controls with a visible ring; **F6** (Shift+F6 back) goes from the top bar to the Item Bag's search, the map and Details; in the Item Bag the **arrow keys** move between items (Home and End too) and **Enter** or Space picks one. Details sections open with Enter on their title.
+- **Less motion** (More → Look), or the system's reduced-motion setting, stops the editor's animations and the moving thumbnails.
+
+### Editor language
+The editor is in English. **More → Look → Editor language** lists any translations in `data/DocsDoodadsLanguages`: a file `<code>.json` (for example `de.json`) with `"language"` (its own name) and `"strings"`, the English words with their translations. Words that hold values use `{name}` (`"Placed {n} doodad(s)"`), and the translation keeps it. Anything not translated stays English. `npm run strings` writes `languages/template.json` with every English string the editor shows, for a translator to fill in. Switching back to English shows every part in English after the editor is opened again.
 
 ---
 
@@ -848,6 +857,9 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | **H** | Fold or open Details | Panels |
 | **F** | Search the Item Bag | Panels |
 | **Shift** + **/** | Keyboard Shortcuts (this list) | Panels |
+| **F6** | Go to the next panel (top bar, Item Bag, map, Details) | Panels |
+| **Shift** + **F6** | Go to the panel before | Panels |
+| **Arrow keys, Enter** | In the Item Bag: arrows move between items, Enter picks one *(fixed)* | Panels |
 | **G** | Show or hide the grid | View |
 | *(no key)* | Show or hide collision | View |
 | *(no key)* | Show or hide sounds | View |

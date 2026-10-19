@@ -230,8 +230,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (!el || !el.style) return;
         const rect = id => { const n = document.getElementById(id); return n && n.getBoundingClientRect && n.style && n.style.display !== 'none' ? n.getBoundingClientRect() : null; };
         const room = this.roomSize ? this.roomSize() : { w: 816, h: 624 };
-        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
-        const mapLeft = drawer ? drawer.right + 8 : 8, mapRight = inspector ? inspector.left - 8 : room.w - 8;
+        const area = this.mapArea ? this.mapArea() : { left: 8, right: room.w - 8 };
+        const mapLeft = area.left, mapRight = area.right;
         let left, top;
         if (at === 'map') {
             left = (mapLeft + mapRight) / 2 - 130;

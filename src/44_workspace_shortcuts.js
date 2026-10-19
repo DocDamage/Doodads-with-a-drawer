@@ -37,6 +37,8 @@ Object.assign(DocsDoodads.Workspace, {
             details: () => this.toggleInspector(),
             find: () => this.focusSearch(),
             shortcuts: () => this.showShortcutsCard(),
+            nextPanel: () => this.focusNextPanel(false),
+            prevPanel: () => this.focusNextPanel(true),
             grid: () => this.toggleGrid(),
             collision: () => this.toggleCollisionOverlay(),
             sounds: () => this.toggleSoundOverlay(),

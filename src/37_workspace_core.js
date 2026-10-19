@@ -205,6 +205,7 @@ DocsDoodads.Workspace = {
         this._vfxPanel = null;
         this._postFxPanel = null;
         if (this.stopShortcutCapture) this.stopShortcutCapture();
+        if (this.stopLabelWatch) this.stopLabelWatch();
         this.previewRegionLook = 0;
         this._roomDrag = null;
         this.stopVfxPreview();
@@ -590,17 +591,39 @@ DocsDoodads.Workspace = {
         this.placeHint();
     },
 
-    // The hint bubble sits over the map, between the bag and the details panel.
+    // Where each panel is docked (44_workspace_docking.js moves them): left, right or bottom.
+    dock: { drawer: 'left', inspector: 'right', bottomHeight: 260 },
+
+    // The part of the window the map shows in, between the panels: { left, right, bottom, lift }, where
+    // lift is how far a panel docked at the bottom raises things that sit at the map's bottom edge.
+    mapArea() {
+        const room = this.roomSize();
+        const rect = id => {
+            const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
+            return el && el.getBoundingClientRect && !(el.style && el.style.display === 'none') ? el.getBoundingClientRect() : null;
+        };
+        let left = 8, right = room.w - 8, bottom = room.h;
+        for (const [id, which] of [['dd-drawer-panel', 'drawer'], ['dd-inspector-panel', 'inspector']]) {
+            const r = rect(id);
+            if (!r || !(r.width || r.right)) continue;
+            const side = (this.dock && this.dock[which]) || (which === 'drawer' ? 'left' : 'right');
+            if (side === 'left') left = Math.max(left, r.right + 8);
+            else if (side === 'right') right = Math.min(right, r.left - 8);
+            else bottom = Math.min(bottom, r.top);
+        }
+        return { left, right, bottom, lift: Math.max(0, room.h - bottom) };
+    },
+
+    // The hint bubble sits over the map, between the panels.
     placeHint() {
         const hint = document.getElementById('dd-hint');
         if (!hint || !hint.style) return;
-        const rect = id => { const el = document.getElementById(id); return el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; };
-        const room = this.roomSize().w;
-        const drawer = rect('dd-drawer-panel'), inspector = rect('dd-inspector-panel');
-        const left = drawer ? drawer.right + 8 : 8, right = inspector ? inspector.left - 8 : room - 8;
-        const width = Math.max(140, right - left);
-        hint.style.left = Math.round(left + width / 2) + 'px';
+        const area = this.mapArea();
+        const width = Math.max(140, area.right - area.left);
+        hint.style.left = Math.round(area.left + width / 2) + 'px';
         hint.style.maxWidth = Math.round(width) + 'px';
+        const raised = hint.classList && hint.classList.contains && hint.classList.contains('dd-hint-raised');
+        hint.style.bottom = area.lift ? Math.round(area.lift + (raised ? 42 : 10)) + 'px' : '';
         this.placeReadouts();
     },
 

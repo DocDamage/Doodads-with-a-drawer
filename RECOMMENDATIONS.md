@@ -124,7 +124,7 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.2.12 | **Reachability check.** **Done.** Check Reach shades what the player can walk to (walls, doodad collision, characters) and lists doors, chests and transfers out of reach, saying when only a character blocks. | M |
 | 6.2.13 | **2D minimap and explored map.** **Done.** World > Minimap for flat maps (each map can choose), fog of war on the minimap and world map kept in the save, Show / Hide Minimap and Explored Map commands. | M |
 | 6.2.14 | **Problems panel.** **Done.** Missing pictures and sounds, doodads off the map, lamps on maps that never get dark, events nobody can step on or under collision; this map or every map; Fix and Go To. | M |
-| 6.2.15 | **Editor translation.** One string table for the editor, with Japanese first; the UI has no language layer today. | M |
+| 6.2.15 | **Editor translation.** **Done (the layer).** `DocsDoodads.I18n`: tables in data/DocsDoodadsLanguages keyed by the English words, with {name} patterns, applied to every panel, card and message; `npm run strings` writes the template. No Japanese table yet: it needs a translator. | M |
 | 6.2.16 | **Gamepad and touch for traversal.** **Done.** Jump and fly on free gamepad buttons (triggers by default, picked in World > Traversal), and on-screen Jump/Dive and Fly/Land buttons on touch screens. | M |
 | 6.2.17 | **World state in saves.** **Done.** Set Doodad State, Set Doodad Light and Store Doodad State, and `DocsDoodads.WorldState` for scripts, by the doodad's Name; kept in the save. | M |
 | 6.2.18 | **Capture tool.** **Done.** A PNG of the view (no editor outlines) and a looping 3D orbit GIF (its own GIF writer), into `screenshots`. | S |
@@ -136,14 +136,14 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | # | Suggestion | Size |
 |---|---|---|
 | 6.3.1 | **Tooltips.** **Done.** A delayed, themed tooltip with the shortcut in a key cap on every editor control with a title (taken over from the browser's); icon-only buttons keep an aria-label. | S |
-| 6.3.2 | **Accessibility.** Labels for screen readers (one `aria` attribute today), keyboard navigation through the Item Bag and Details, a visible focus order, and respect for reduced-motion. | M |
+| 6.3.2 | **Accessibility.** **Done.** Names and roles for controls and panels, live messages, arrow keys in the Item Bag, F6 between panels, focus rings, Less motion and the reduced-motion setting. | M |
 | 6.3.3 | **UI scale and themes.** **Done.** 100/125/150% (CSS zoom on the workspace, with window sizes converted) and Dark and High contrast themes on the `--dd-` tokens; in More > Look and the palette. | S |
 | 6.3.4 | **Colour-blind-safe colours.** **Done.** An Okabe-Ito map palette for selection, guides, mirror, paths, Old Saves, brushes, collision and blocked tiles, with a key; tested under simulated deuteranopia, protanopia and tritanopia. | S |
 | 6.3.5 | **Mixed values.** **Done.** — where picked doodads differ (half-ticked boxes, a mixed choice), one edit sets all, a Placement section for several; number labels scrub and arrows step. | S |
 | 6.3.6 | **Per-tool tours.** **Done.** A two- or three-step tour the first time each tool is picked, placed by what it explains; off for good or replayed from How to Use. | S |
 | 6.3.7 | **Status bar.** **Done.** Cursor tile and pixel, map name and id, selection count, active layer, zoom, an unsaved marker and the time of the last save. | S |
 | 6.3.8 | **Save feedback.** **Done.** An orange dot on Save while there are unsaved changes, and "Saved" for a moment after a save. | S |
-| 6.3.9 | **Docking.** Drag the Item Bag and Details to either side or the bottom, with resizable splitters, remembered per layout. | M |
+| 6.3.9 | **Docking.** **Done.** Drag by the title (or More > Look) to left, right or bottom; resizable edges; shared sides; remembered per layout. | M |
 | 6.3.10 | **Map tabs.** **Done.** Recently opened maps (up to 8) as tabs under the top bar, with an unsaved dot per map (changes are now tracked per map). | S |
 | 6.3.11 | **Folder view.** **Done.** A folder tree of the bag's items (single-folder chains joined), remembered open folders, search and tabs still applying. | S |
 | 6.3.12 | **Handles.** **Done.** Corner handles resize around the foot (Shift keeps proportions) and a knob turns (Shift snaps to 15°), for one picked doodad on a flat map. | S |
