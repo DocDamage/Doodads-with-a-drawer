@@ -332,8 +332,17 @@ if (typeof PIXI !== 'undefined') {
         if (this._shimmerFilter) {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
         }
+        // Far away in 3D (the map's "Plain beyond"): drawn without its shadow, and its effects wait.
+        if (this.docsFar()) {
+            if (this._shadowSprite) this._shadowSprite.renderable = false;
+            return;
+        }
         this.updateShadow();
         if (this._shadowSprite) this._shadowSprite.renderable = true;
+    };
+
+    Sprite_DocsDoodad.prototype.docsFar = function() {
+        return this._docsFar3d === true && Boolean(DocsDoodads.Perspective && DocsDoodads.Perspective.active());
     };
 
     // Off-screen culling in play: true when the drawn rectangle, with room around it for a shadow, filters

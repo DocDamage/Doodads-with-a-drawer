@@ -24,7 +24,7 @@ DocsDoodads.Camera2D.isBusy = function() {
     const s = this.state();
     if (!s) return false;
     const c = this.settings();
-    return Boolean(s.path || s.follow || Number(c.smooth) > 0 || ((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).cameraBounds || []).length);
+    return Boolean(s.path || s.follow || s.free === 'event' || Number(c.smooth) > 0 || ((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).cameraBounds || []).length);
 };
 
 if (typeof Game_Player !== 'undefined') {
@@ -128,7 +128,32 @@ DocsDoodads.Camera2D.startPath = function(args) {
     return this.pathFrames(s.path);
 };
 
+// Zoom to a point on a flat map (a tile, or a character), with MZ's own screen zoom: { x, y } are screen
+// pixels of the point, scale 1 goes back. The zoom stays until zoomed back (the player's own zoom, World >
+// Zoom, takes over again only once it is back at 1).
+DocsDoodads.Camera2D.zoomTo = function(point, scale, frames) {
+    if (typeof $gameScreen === 'undefined' || !$gameScreen || !point) return false;
+    $gameScreen.startZoom(point.x, point.y, Math.max(0.25, Math.min(8, Number(scale) || 1)), Math.max(1, Math.round(Number(frames) || 1)));
+    return true;
+};
+
+// The screen point of a tile's centre, or of a character's middle.
+DocsDoodads.Camera2D.pointOf = function(target) {
+    if (typeof $gameMap === 'undefined' || !$gameMap || !target) return null;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    if (typeof target.screenX === 'function') return { x: target.screenX(), y: target.screenY() - th / 2 };
+    return { x: ($gameMap.adjustX(Number(target.x) || 0) + 0.5) * tw, y: ($gameMap.adjustY(Number(target.y) || 0) + 0.5) * th };
+};
+
 if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    // Zoom to Point: the screen zooms in on a tile or a character (scale 1 goes back), over frames.
+    PluginManager.registerCommand(pluginName, 'zoomToPoint', function(args) {
+        const C = DocsDoodads.Camera2D;
+        const target = String(args.target || 'tile');
+        const who = target === 'tile' ? { x: Number(args.x) || 0, y: Number(args.y) || 0 } : DocsDoodads.characterFor(this, target, args.eventId);
+        const frames = Math.max(1, Number(args.frames) || 60);
+        if (C.zoomTo(C.pointOf(who), Number(args.scale) || 1, frames) && String(args.wait) === 'true' && this && typeof this.wait === 'function') this.wait(frames);
+    });
     PluginManager.registerCommand(pluginName, 'cameraPath2d', function(args) {
         const frames = DocsDoodads.Camera2D.startPath(args);
         if (frames && String(args.wait) !== 'false' && this && typeof this.wait === 'function') this.wait(frames);

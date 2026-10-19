@@ -264,7 +264,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 obj._docs3dOutFrame = frame;
                 if (out) continue;
             }
-            const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
+            const far = Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y);
+            const fog = P.fogAt(far, fogRange[0], fogRange[1]);
+            // Distance detail: far doodads are drawn plain (Sprite_DocsDoodad.docsFar).
+            obj._docsFar3d = s.lodTiles > 0 && far > s.lodTiles * tw;
             if (fog >= 1) {
                 obj._docs3dOut = true;
                 obj._docs3dOutFrame = frame;

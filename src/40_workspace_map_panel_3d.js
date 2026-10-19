@@ -38,6 +38,7 @@
             number('viewTiles', 'View distance (tiles of ground drawn)'),
             number('fogStart', 'Fog starts (tiles past the camera\'s target)', 0.5),
             number('fogEnd', 'Fog ends (tiles)', 0.5),
+            number('lodTiles', 'Plain beyond (tiles: no shadows or effects; 0 = never)', 1),
             check('fogUseColor', 'Fog is a colour (otherwise distant ground fades into the sky)'),
             { key: 'fogColor', label: 'Fog colour', type: 'color' },
             { key: 'skyColor', label: 'Sky colour (maps without a parallax)', type: 'color' },

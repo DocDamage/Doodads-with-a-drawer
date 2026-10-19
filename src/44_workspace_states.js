@@ -41,6 +41,7 @@ Object.assign(DocsDoodads.Workspace, {
         const seOptions = chosen => option('', 'None', chosen || '') + seNames.map(n => option(n, n, chosen)).join('')
             + (chosen && !seNames.includes(chosen) ? option(chosen, chosen, chosen) : '');
         const vfxList = DocsDoodads.Vfx.library().concat(DocsDoodads.Vfx.builtIns);
+        const shapeOptions = chosen => option('', 'Its own', chosen || '') + Object.keys(DocsDoodads.Collision.presets).filter(k => k !== 'custom').map(k => option(k, k, chosen)).join('');
         const vfxOptions = chosen => option('', 'None', chosen || '') + vfxList.map(v => option(v.id, v.name, chosen)).join('');
         const rows = list.map((st, i) => `
             <div class="dd-state-row${preview === i ? ' dd-previewing' : ''}" data-state="${i}">
@@ -60,6 +61,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-state-opts">
                     <label title="A sound effect when it goes into this state">Sound <select id="dd-state-sound-${i}">${seOptions(st.sound)}</select></label>
                     <label title="An effect from the Effects Maker when it goes into this state">Effect <select id="dd-state-vfx-${i}">${vfxOptions(st.vfx)}</select></label>
+                    <label title="The collision shape in this state (an open gate keeps only its posts)">Shape <select id="dd-state-collisionPreset-${i}">${shapeOptions(st.collisionPreset)}</select></label>
                     <label title="Seconds before it goes back to the state it was in (0 = it stays)">Back after <input type="number" min="0" step="0.5" id="dd-state-revert-${i}" value="${Number(st.revert) || 0}" style="width: 52px;" /> s</label>
                 </div>
             </div>`).join('');
@@ -112,7 +114,7 @@ Object.assign(DocsDoodads.Workspace, {
             else if (field === 'art') {
                 if (value) Object.assign(list[index], { path: value.path, w: value.w || 0, h: value.h || 0 });
                 else { delete list[index].path; delete list[index].w; delete list[index].h; }
-            } else if (field === 'sound' || field === 'vfx') {
+            } else if (field === 'sound' || field === 'vfx' || field === 'collisionPreset') {
                 const v = String(value || '').trim();
                 if (v) list[index][field] = v; else delete list[index][field];
             } else if (field === 'revert') {
@@ -160,7 +162,7 @@ Object.assign(DocsDoodads.Workspace, {
             if (art) art.onclick = () => { const a = this.pickedStateArt(); if (a) this.setStateField(d, i, 'art', a); };
             const own = el(`dd-state-own-${i}`);
             if (own) own.onclick = () => this.setStateField(d, i, 'art', null);
-            for (const field of ['sound', 'vfx', 'revert']) {
+            for (const field of ['sound', 'vfx', 'revert', 'collisionPreset']) {
                 const input = el(`dd-state-${field}-${i}`);
                 if (input) input.onchange = () => this.setStateField(d, i, field, input.value);
             }

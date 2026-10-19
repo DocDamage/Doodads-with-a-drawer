@@ -38,6 +38,21 @@ DocsDoodads.Traversal = {
         return typeof $gamePlayer !== 'undefined' && (ch === $gamePlayer || (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower));
     },
 
+    // An event's own way of getting around, from <docs swim> or <docs fly> (or <docs fly: 32>, its height in
+    // pixels) in its note or a comment on its current page: { swim, fly, altitude }.
+    eventKind(ch) {
+        if (!ch || typeof Game_Event === 'undefined' || !(ch instanceof Game_Event) || !ch.event()) return null;
+        const VE = DocsDoodads.VisualEquip;
+        const text = VE && VE.eventText ? VE.eventText(ch) : String((ch.event() || {}).note || '');
+        const c = this._eventKinds = this._eventKinds || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        const hit = c ? c.get(ch) : null;
+        if (hit && hit.text === text) return hit.kind;
+        const fly = /<\s*docs\s+fly(?:\s*:\s*(\d+))?\s*>/i.exec(text);
+        const kind = { swim: /<\s*docs\s+swim\s*>/i.test(text), fly: Boolean(fly), altitude: fly ? (Number(fly[1]) || 48) : 0 };
+        if (c) c.set(ch, { text, kind });
+        return kind;
+    },
+
     inRegionOrTag(x, y, s) {
         const regions = this.ids(s && s.regions), tags = this.ids(s && s.tags);
         return (regions.length && regions.includes($gameMap.regionId(x, y))) || (tags.length && tags.includes($gameMap.terrainTag(x, y)));
@@ -68,7 +83,11 @@ DocsDoodads.Traversal = {
 
     // ---- State of the party ----
     isSwimming(ch) {
-        if (!ch || !this.isPartyMember(ch) || this.isFlying(ch)) return false;
+        if (ch && !this.isPartyMember(ch)) {
+            const k = this.eventKind(ch);
+            return Boolean(k && k.swim && !k.fly && this.isDeepWater(ch.x, ch.y));
+        }
+        if (!ch || this.isFlying(ch)) return false;
         if ($gamePlayer.isInVehicle && $gamePlayer.isInVehicle()) return false;
         return this.isDeepWater(ch.x, ch.y);
     },
@@ -79,11 +98,38 @@ DocsDoodads.Traversal = {
 
     // How far up a character is drawn by flying (its shadow and reflection stay on the ground).
     liftOf(ch) {
-        return this.isPartyMember(ch) ? this.altitude() : 0;
+        if (this.isPartyMember(ch)) return this.altitude();
+        const k = this.eventKind(ch);
+        return k && k.fly ? k.altitude : 0;
     },
 
     isFlying(ch) {
-        return Boolean(ch && this.isPartyMember(ch) && $gamePlayer._docsFlying);
+        if (ch && !this.isPartyMember(ch)) {
+            const k = this.eventKind(ch);
+            return Boolean(k && k.fly);
+        }
+        return Boolean(ch && $gamePlayer._docsFlying);
+    },
+
+    // An event that swims or flies may go where its kind takes it (the map's own passability having said no).
+    eventPassable(ch, x, y, d) {
+        const k = this.eventKind(ch);
+        if (!k || (!k.swim && !k.fly)) return false;
+        const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
+        if (!$gameMap.isValid(x2, y2)) return false;
+        if (k.fly) return !this.blockedBy('fly', x2, y2);
+        const here = this.isWater(x, y), there = this.isWater(x2, y2);
+        if (there && !this.blockedBy('swim', x2, y2)) return true;
+        return here && !there && $gameMap.isPassable(x2, y2, this.reverse(d));
+    },
+
+    // Take-off, landing and diving: a common event (World > Traversal) and a script event ("takeOff",
+    // "land", "dive").
+    hook(name) {
+        const s = this.settings();
+        const id = Number(name === 'dive' ? s.dive.commonEvent : name === 'land' ? s.fly.landEvent : s.fly.takeOffEvent) || 0;
+        if (id > 0 && typeof $gameTemp !== 'undefined' && $gameTemp && $gameTemp.reserveCommonEvent) $gameTemp.reserveCommonEvent(id);
+        if (DocsDoodads.api) DocsDoodads.api.emit(name, { mapId: typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0 });
     },
 
     // Characters that terrain steps (drops, hops, blocking) don't apply to: flying, or on a climb.
@@ -205,6 +251,7 @@ DocsDoodads.Traversal = {
             return false;
         }
         this.playSe(this.settings().dive.sound);
+        this.hook('dive');
         // The other map may be smaller: the player is kept inside it on arrival.
         p._docsKeepInside = true;
         p.reserveTransfer(to, p.x, p.y, p.direction(), 0);
@@ -216,12 +263,17 @@ DocsDoodads.Traversal = {
         if (!this.can('fly') || p._docsFlying || p.isMoving() || p.isJumping() || (p.isInVehicle && p.isInVehicle())) return false;
         p._docsFlying = true;
         this.playSe(this.settings().fly.sound);
+        this.hook('takeOff');
         return true;
     },
 
-    // Lands where the player could stand (and not on an event or in deep water without swimming).
+    // Lands where the player could stand (and not on an event or in deep water without swimming), and not
+    // on ground higher than Fly > Land up to (tiles of terrain height; 0 = any).
     canLandHere() {
         const p = $gamePlayer, x = p.x, y = p.y;
+        const most = Number(this.settings().fly.landMaxHeight) || 0;
+        const T = DocsDoodads.Terrain, grid = most > 0 && T.grid ? T.grid() : null;
+        if (grid && T.tileHeight(grid, x, y) > most + 1e-9) return false;
         const walk = [2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
         if (!walk && !(this.isWater(x, y) && this.can('swim'))) return false;
         if ($gameMap.eventsXyNt(x, y).some(e => e.isNormalPriority())) return false;
@@ -237,7 +289,19 @@ DocsDoodads.Traversal = {
         }
         p._docsFlying = false;
         this.playSe(this.settings().fly.landSound);
+        this.hook('land');
         return true;
+    },
+
+    // A traversal jump for any character (Set Movement Route > Script: this.docsJump()): over gaps up to Jump >
+    // Distance, landing where it may, with the jump's sound. Returns the jump made ({ dx, dy }).
+    jumpFor(ch) {
+        if (!ch || ch.isJumping()) return { dx: 0, dy: 0 };
+        const j = this.plan(ch);
+        ch.jump(j.dx, j.dy);
+        this.wrapAfterJump([ch]);
+        this.playSe(this.settings().jump.sound);
+        return j;
     },
 
     toggleFly() {
@@ -429,14 +493,14 @@ if (typeof Game_CharacterBase !== 'undefined') {
     $.Game_CharacterBase_screenY_traversal = Game_CharacterBase.prototype.screenY;
     Game_CharacterBase.prototype.screenY = function() {
         const y = $.Game_CharacterBase_screenY_traversal.call(this);
-        return X().isPartyMember(this) ? y - X().altitude() : y;
+        return y - X().liftOf(this);
     };
 
     // In the air, above tree tops and roofs (☆ tiles), as MZ's airship flies.
     $.Game_CharacterBase_screenZ_traversal = Game_CharacterBase.prototype.screenZ;
     Game_CharacterBase.prototype.screenZ = function() {
         const z = $.Game_CharacterBase_screenZ_traversal.call(this);
-        return X().isPartyMember(this) && X().altitude() > 0 ? Math.max(z, 5) : z;
+        return X().liftOf(this) > 0 ? Math.max(z, 5) : z;
     };
 
     // Climbable tiles act as ladders (the party faces up on them).
@@ -450,7 +514,7 @@ if (typeof Game_CharacterBase !== 'undefined') {
     Game_CharacterBase.prototype.refreshBushDepth = function() {
         $.Game_CharacterBase_refreshBushDepth_traversal.call(this);
         // Nothing to wade through in the air.
-        if (X().isPartyMember(this) && X().altitude() > 0) this._bushDepth = 0;
+        if (X().liftOf(this) > 0) this._bushDepth = 0;
         else if (X().isSwimming(this) && !this.isJumping()) this._bushDepth = Math.max(this._bushDepth, Number(X().settings().swim.sink) || 0);
     };
     $.Game_CharacterBase_increaseSteps_traversal = Game_CharacterBase.prototype.increaseSteps;
@@ -466,6 +530,22 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (!name || !X().isPartyMember(this) || !X().isSwimming(this)) return name;
         const suffix = String(X().settings().swim.suffix || '');
         return suffix && X().sheetExists(name + suffix) ? name + suffix : name;
+    };
+}
+
+if (typeof Game_Event !== 'undefined') {
+    // Events tagged <docs swim> or <docs fly> go where their kind takes them.
+    $.Game_Event_isMapPassable_traversal = Game_Event.prototype.isMapPassable;
+    Game_Event.prototype.isMapPassable = function(x, y, d) {
+        const X = DocsDoodads.Traversal, k = X.eventKind(this);
+        if (k && k.fly) return X.eventPassable(this, x, y, d);
+        return $.Game_Event_isMapPassable_traversal.call(this, x, y, d) || Boolean(k && k.swim && X.eventPassable(this, x, y, d));
+    };
+}
+if (typeof Game_Character !== 'undefined') {
+    // In a move route's Script: this.docsJump() jumps the way the character faces, as the player's Jump does.
+    Game_Character.prototype.docsJump = function() {
+        return DocsDoodads.Traversal.jumpFor(this);
     };
 }
 

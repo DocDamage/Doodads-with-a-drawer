@@ -6,7 +6,15 @@
 // with occlusion on, the light only reaches tiles a ray from it can get to (World > Lighting picks what
 // counts as a wall: tiles nobody can walk on, and any regions listed). The player can carry a
 // flashlight that points where they face (World > Lighting, the Flashlight command).
-Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '' });
+Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '', switchId: 0, condition: '' });
+
+// A light on only while its switch is on and its condition (JavaScript) is true; the editor shows it anyway.
+DocsDoodads.Lighting.lightWanted = function(l) {
+    if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return true;
+    const sw = Number(l.switchId) || 0;
+    if (sw > 0 && !(typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(sw))) return false;
+    return !l.condition || DocsDoodads.Appearance.conditionPasses(l.condition);
+};
 
 DocsDoodads.LightPresets = {
     list: [

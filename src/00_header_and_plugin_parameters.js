@@ -1411,6 +1411,56 @@
  * @type boolean
  * @default true
  *
+ * @command zoomToPoint
+ * @text Zoom to Point
+ * @desc On a flat map, the screen zooms in on a tile or a character (scale 1 goes back), over frames.
+ *
+ * @arg target
+ * @text On
+ * @type select
+ * @option A tile
+ * @value tile
+ * @option The player
+ * @value player
+ * @option This event
+ * @value this
+ * @option An event
+ * @value event
+ * @default tile
+ *
+ * @arg x
+ * @text Tile X
+ * @type number
+ * @default 0
+ *
+ * @arg y
+ * @text Tile Y
+ * @type number
+ * @default 0
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @default 0
+ *
+ * @arg scale
+ * @text Scale
+ * @type number
+ * @decimals 2
+ * @min 0.25
+ * @default 2
+ *
+ * @arg frames
+ * @text Frames
+ * @type number
+ * @min 1
+ * @default 60
+ *
+ * @arg wait
+ * @text Wait
+ * @type boolean
+ * @default false
+ *
  * @command cameraFollow2d
  * @text 2D Camera Follow
  * @desc On flat maps: the camera follows the player (and stops a held path), this event, another event, or nothing (stays put for Scroll Map).

@@ -86,6 +86,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
 | Set Doodad State | name, state, mapId, wait | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. Wait: until the crossfade ends. |
+| Zoom to Point | target, x, y, eventId, scale, frames, wait | The flat screen zooms in on a tile or a character; scale 1 goes back. |
 | Play Doodad Animation | name, from, to, hold, wait | Named doodads play their strip of frames once, now; `animationEnd` when done. |
 | Set Doodad Light | name, light, mapId | Named doodads' lights on, off or back to their own; saved. |
 | Store Doodad State | name, variableId, mapId | A named doodad's state number (-1: none there) into a variable. |

@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { deploy, encryptBytes, decryptBytes, parseArgs } = require('../scripts/deploy.js');
+const { deploy, restore, encryptBytes, decryptBytes, parseArgs } = require('../scripts/deploy.js');
 
 console.log('=== Testing the deploy script ===');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-deploy-'));
@@ -67,12 +67,26 @@ try {
     assert.strictEqual(plain.key, null);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(out, 'package.json'), 'utf8'))['chromium-args'], '--force-color-profile=srgb', '--devtools keeps them');
     assert.ok(fs.existsSync(path.join(out, 'img', 'doodads', 'Tree.png')), 'replaced, not encrypted');
-    assert.deepStrictEqual(parseArgs(['a', 'b', '--key', 'k', '--no-encrypt', '--devtools']), { encrypt: false, key: 'k', runtime: null, devtools: true, project: 'a', out: 'b' });
+    assert.deepStrictEqual(parseArgs(['a', 'b', '--key', 'k', '--no-encrypt', '--devtools']), { encrypt: false, key: 'k', runtime: null, devtools: true, project: 'a', out: 'b', restore: false });
+    assert.strictEqual(parseArgs(['--restore', 'a', 'b']).restore, true);
     assert.throws(() => parseArgs(['a']), /Usage/);
     assert.throws(() => deploy({ project, out: path.join(project, 'deploy'), runtime, encrypt: true, key: 'k' }), /outside the project/);
     assert.throws(() => deploy({ project: root, out, runtime, encrypt: true, key: 'k' }), /not an MZ project/);
     assert.throws(() => deploy({ project, out, runtime: path.join(root, 'nothing'), encrypt: true, key: 'k' }), /runtime/);
     console.log('✓ unencrypted builds, arguments and refusals');
+
+    // --restore: an MZ deployment that left out the plugin's pictures gets them back, encrypted with its key.
+    const built = deploy({ project, out, runtime, encrypt: true, key: 'k' });
+    fs.unlinkSync(path.join(out, 'img', 'doodads', 'Tree.png_'));
+    assert.throws(() => restore({ project, out }), /DocsDoodadsRequired/, 'no list yet: says how to make it');
+    fs.writeFileSync(path.join(project, 'data', 'DocsDoodadsRequired.json'), JSON.stringify({ files: ['img/doodads/Tree.png', 'img/doodads/Gone.png', '../evil.png'] }));
+    const back = restore({ project, out });
+    assert.deepStrictEqual(back.restored, ['img/doodads/Tree.png']);
+    assert.deepStrictEqual(back.missing, ['img/doodads/Gone.png'], 'a file the project lacks is named');
+    assert.ok(decryptBytes(fs.readFileSync(path.join(out, 'img', 'doodads', 'Tree.png_')), built.key).equals(png), 'encrypted with the key of the build');
+    assert.deepStrictEqual(restore({ project, out }).restored, [], 'already there: left alone');
+    fs.unlinkSync(path.join(project, 'data', 'DocsDoodadsRequired.json'));
+    console.log('✓ --restore puts back what a deployment left out, encrypted');
 } finally {
     fs.rmSync(root, { recursive: true, force: true });
 }

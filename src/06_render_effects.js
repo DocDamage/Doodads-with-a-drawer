@@ -368,8 +368,9 @@ DocsDoodads.Lighting = {
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
             const l = this.lightOf(d);
-            // A state or an event can put the light out (it fades like an "after dark" lamp in game).
-            const on = DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true;
+            // A state or an event can put the light out (it fades like an "after dark" lamp in game), and so can
+            // its own switch or condition.
+            const on = (DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true) && (!this.lightWanted || this.lightWanted(l));
             if (!on && !ctx) continue;
             let level = 1;
             if (ctx) {

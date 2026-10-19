@@ -3,6 +3,11 @@
 // without opening the editor:
 //
 //   npm run deploy -- <project folder> <output folder> [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]
+//   npm run deploy -- --restore <project folder> <MZ's deployed folder>
+//
+// --restore: after MZ's own Deployment with "Exclude unused files", copies back the files the plugin draws
+// that MZ couldn't see (data/DocsDoodadsRequired.json, written by the editor on each save), encrypted
+// with the build's key when the build is encrypted. Files already there are left alone.
 //
 //  - The NW.js runtime from MZ's nwjs-win folder, with nw.exe named Game.exe.
 //  - The game's files, without save/ and the .rmmzproject file; package.json's chromium-args get
@@ -31,10 +36,11 @@ const DEFAULT_RUNTIMES = [
 const RUNTIME_SKIP = new Set(['chromedriver.exe', 'nwjc.exe', 'payload.exe', 'nacl_irt_x86_64.nexe', 'pnacl']);
 
 function parseArgs(argv) {
-    const options = { encrypt: true, key: 'docs-doodads', runtime: null, devtools: false, project: null, out: null };
+    const options = { encrypt: true, key: 'docs-doodads', runtime: null, devtools: false, project: null, out: null, restore: false };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
-        if (a === '--no-encrypt') options.encrypt = false;
+        if (a === '--restore') options.restore = true;
+        else if (a === '--no-encrypt') options.encrypt = false;
         else if (a === '--key') options.key = argv[++i];
         else if (a === '--runtime') options.runtime = argv[++i];
         else if (a === '--devtools') options.devtools = true;
@@ -127,11 +133,44 @@ function deploy(options) {
     return result;
 }
 
-module.exports = { deploy, encryptBytes, decryptBytes, parseArgs, HEADER };
+// Puts back the files a deployment left out (see --restore above). Returns { restored: [paths], missing: [paths] }.
+function restore(options) {
+    const project = path.resolve(options.project);
+    let out = path.resolve(options.out);
+    // A browser or phone build keeps the game in www/.
+    if (!fs.existsSync(path.join(out, 'data', 'System.json')) && fs.existsSync(path.join(out, 'www', 'data', 'System.json'))) out = path.join(out, 'www');
+    if (!fs.existsSync(path.join(out, 'data', 'System.json'))) throw new Error(`${out} is not a deployed MZ game (no data/System.json).`);
+    const listPath = path.join(project, 'data', 'DocsDoodadsRequired.json');
+    if (!fs.existsSync(listPath)) throw new Error('No data/DocsDoodadsRequired.json in the project: save once in the editor (F10, then Save) to write it.');
+    const files = (JSON.parse(fs.readFileSync(listPath, 'utf8')).files || []).map(String);
+    const sys = JSON.parse(fs.readFileSync(path.join(out, 'data', 'System.json'), 'utf8'));
+    const result = { out, restored: [], missing: [] };
+    for (const rel of files) {
+        if (rel.split('/').includes('..')) continue;
+        const from = path.join(project, rel);
+        const image = /^img\/.*\.png$/i.test(rel), audio = /^audio\/.*\.(ogg|m4a)$/i.test(rel);
+        const encrypt = (image && sys.hasEncryptedImages) || (audio && sys.hasEncryptedAudio);
+        const to = path.join(out, rel) + (encrypt ? '_' : '');
+        if (fs.existsSync(to)) continue;
+        if (!fs.existsSync(from)) { result.missing.push(rel); continue; }
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.writeFileSync(to, encrypt ? encryptBytes(fs.readFileSync(from), sys.encryptionKey) : fs.readFileSync(from));
+        result.restored.push(rel);
+    }
+    return result;
+}
+
+module.exports = { deploy, restore, encryptBytes, decryptBytes, parseArgs, HEADER };
 
 if (require.main === module) {
     try {
-        const r = deploy(parseArgs(process.argv.slice(2)));
+        const options = parseArgs(process.argv.slice(2));
+        if (options.restore) {
+            const r = restore(options);
+            console.log(`Put back ${r.restored.length} file(s) in ${r.out}${r.missing.length ? `; not in the project: ${r.missing.join(', ')}` : ''}.`);
+            return;
+        }
+        const r = deploy(options);
         console.log(`Deployed to ${r.out}${r.key ? `: ${r.images} images and ${r.sounds} sounds encrypted` : ' (not encrypted)'}. Run Game.exe there.`);
     } catch (error) {
         console.error(error.message);

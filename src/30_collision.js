@@ -62,10 +62,21 @@ DocsDoodads.Collision = {
     }
 };
 
+// The collision shape a doodad's current state asks for (a state's own preset: an open gate keeps only
+// its posts), or '' to use the doodad's own.
+DocsDoodads.Collision.statePreset = function(dData) {
+    if (!dData || !dData.states || !DocsDoodads.States.has(dData)) return '';
+    const st = DocsDoodads.States.current(dData);
+    return st && st.collisionPreset && this.presets[st.collisionPreset] !== undefined ? String(st.collisionPreset) : '';
+};
+
 // A doodad's collision body in map pixels ({ x, y, w, h }), or null when it has none.
 DocsDoodads.Collision.bodyOf = function(dData) {
-    if (!dData || !dData.collision || dData.collision.preset === "none") return null;
-    const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
+    if (!dData) return null;
+    const byState = DocsDoodads.Collision.statePreset(dData);
+    if (!byState && (!dData.collision || dData.collision.preset === "none")) return null;
+    const shape = byState ? DocsDoodads.Collision.getPresetShape(byState)
+        : dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
     if (!shape) return null;
     const dw = (dData.frameW || 48) * (dData.scaleX || 1);
     const dh = (dData.frameH || 48) * (dData.scaleY || 1);
@@ -93,11 +104,37 @@ DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
     return out;
 };
 
+// Who a doodad's collision stops (collision.who): everyone, only the party, or only events; and the
+// one way it can be crossed (collision.oneWay: 'down', 'up', 'left', 'right'; a ledge to jump down).
+DocsDoodads.Collision.whoOptions = [
+    { value: 'all', label: 'Everyone' }, { value: 'player', label: 'Only the player and followers' }, { value: 'events', label: 'Only events' }
+];
+DocsDoodads.Collision.oneWayOptions = [
+    { value: '', label: 'Both ways' }, { value: 'down', label: 'Only going down' }, { value: 'up', label: 'Only going up' },
+    { value: 'left', label: 'Only going left' }, { value: 'right', label: 'Only going right' }
+];
+DocsDoodads.Collision.oneWayDirs = { down: 2, left: 4, right: 6, up: 8 };
+
+// Whether this doodad stops this mover going direction d (a mover of null is anyone, d of 0 any way).
+DocsDoodads.Collision.stops = function(dData, mover, d) {
+    const col = dData.collision || {};
+    const who = col.who || 'all';
+    if (who !== 'all' && mover) {
+        const party = DocsDoodads.Traversal && DocsDoodads.Traversal.isPartyMember ? DocsDoodads.Traversal.isPartyMember(mover) : false;
+        const isEvent = typeof Game_Event !== 'undefined' && mover instanceof Game_Event;
+        if (who === 'player' && !party) return false;
+        if (who === 'events' && !isEvent) return false;
+    }
+    if (col.oneWay && d && this.oneWayDirs[col.oneWay] === d) return false;
+    return true;
+};
+
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
 // Doodads hidden by their switch, condition, season or a layer hidden in game never block, nor do
 // doodads in a state without collision (an open door).
-// vehicles: only doodads set to block boats and ships (collision.vehicles) count.
-DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
+// vehicles: only doodads set to block boats and ships (collision.vehicles) count. mover and d (the
+// character and its direction, when known) apply who it stops and its one way.
+DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles, mover, d) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -107,6 +144,7 @@ DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
     // The grid holds the doodads whose bodies cover this tile; switches and conditions are checked here.
     for (const dData of here) {
         if (vehicles && !(dData.collision && dData.collision.vehicles)) continue;
+        if ((mover || d) && dData.collision && !this.stops(dData, mover, d)) continue;
         if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {}) && DocsDoodads.States.blocks(dData)) return true;
     }
     return false;
@@ -122,13 +160,14 @@ DocsDoodads.Collision.cachedBody = function(d) {
     if (!this._bodies || !d || typeof d !== 'object') return { body: this.bodyOf(d), changed: true };
     const col = d.collision;
     const c = this._bodies.get(d);
+    const sp = d.states ? this.statePreset(d) : '';
     if (c && c.col === col && c.preset === (col && col.preset) && c.shape === (col && col.shape) && c.x === d.x && c.y === d.y
-        && c.fw === d.frameW && c.fh === d.frameH && c.sx === d.scaleX && c.sy === d.scaleY && c.ax === d.anchorX && c.ay === d.anchorY) {
+        && c.fw === d.frameW && c.fh === d.frameH && c.sx === d.scaleX && c.sy === d.scaleY && c.ax === d.anchorX && c.ay === d.anchorY && c.sp === sp) {
         return { body: c.body, changed: false };
     }
     const body = this.bodyOf(d);
     this._bodies.set(d, { col, preset: col && col.preset, shape: col && col.shape, x: d.x, y: d.y, fw: d.frameW, fh: d.frameH,
-        sx: d.scaleX, sy: d.scaleY, ax: d.anchorX, ay: d.anchorY, body });
+        sx: d.scaleX, sy: d.scaleY, ax: d.anchorX, ay: d.anchorY, sp, body });
     return { body, changed: true };
 };
 
@@ -182,7 +221,7 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
         // Boats and ships sail past doodads over water unless a doodad is set to block them (a pier).
         const sailing = (this.isInBoat && this.isInBoat()) || (this.isInShip && this.isInShip());
-        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing);
+        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing, this, d);
     };
 }
 

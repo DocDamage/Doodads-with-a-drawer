@@ -176,6 +176,8 @@ DocsDoodads.Persistence = {
         this.dirtyMap = false;
         this.dirtyDoodads = false;
         this.clearRecovery();
+        // The files MZ's "Exclude unused files" can't see (22_required_assets.js); a failure doesn't stop the save.
+        try { if (DocsDoodads.RequiredAssets) DocsDoodads.RequiredAssets.write(); } catch (e) { DocsDoodads.Core.log('Required assets list not written.', e); }
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateSaveState(true);

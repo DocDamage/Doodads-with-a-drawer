@@ -370,6 +370,14 @@
                     </select>
                     <button class="dd-btn" id="dd-prop-trace-col" style="width: 100%; margin-top: 4px;" title="Fit the collision to the solid base of the image">Trace from Art</button>
                     <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 4px;" title="Boats and ships sail past doodads unless this is ticked (a pier, a rock in the sea)"><input type="checkbox" id="dd-prop-col-vehicles" ${d.collision && d.collision.vehicles ? 'checked' : ''} /> Blocks boats and ships</label>
+                    <label style="display: block; font-size: 11px; margin: 6px 0 3px;">Stops:</label>
+                    <select id="dd-prop-col-who" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
+                        ${DocsDoodads.Collision.whoOptions.map(o => `<option value="${o.value}"${((d.collision && d.collision.who) || 'all') === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
+                    </select>
+                    <label style="display: block; font-size: 11px; margin: 6px 0 3px;" title="A ledge: walk off it going down, but not back up">Can be crossed:</label>
+                    <select id="dd-prop-col-oneway" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
+                        ${DocsDoodads.Collision.oneWayOptions.map(o => `<option value="${o.value}"${((d.collision && d.collision.oneWay) || '') === o.value ? ' selected' : ''}>${o.value ? o.label : 'Never (it blocks both ways)'}</option>`).join('')}
+                    </select>
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
@@ -436,9 +444,12 @@
                 const val = e.target.value;
                 const colEditor = document.getElementById('dd-custom-col-editor');
                 this.editDoodads([d], o => {
-                    const vehicles = o.collision && o.collision.vehicles;
+                    // Who it stops, its one way and boats are kept when the shape changes.
+                    const keep = o.collision || {};
                     o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null };
-                    if (vehicles) o.collision.vehicles = true;
+                    if (keep.vehicles) o.collision.vehicles = true;
+                    if (keep.who && keep.who !== 'all') o.collision.who = keep.who;
+                    if (keep.oneWay) o.collision.oneWay = keep.oneWay;
                 }, 'set_collision');
                 if (colEditor) colEditor.style.display = val === 'custom' ? 'block' : 'none';
                 if (val === 'custom') renderColPreview();
@@ -453,6 +464,17 @@
                     else delete o.collision.vehicles;
                 }, 'set_collision');
             };
+
+            const colField = (id, key, empty) => {
+                const el = document.getElementById(id);
+                if (el) el.onchange = e => this.editDoodads([d], o => {
+                    o.collision = Object.assign({ preset: 'none', shape: null }, o.collision);
+                    if (!e.target.value || e.target.value === empty) delete o.collision[key];
+                    else o.collision[key] = e.target.value;
+                }, 'set_collision');
+            };
+            colField('dd-prop-col-who', 'who', 'all');
+            colField('dd-prop-col-oneway', 'oneWay', '');
 
             const updateCustomCol = () => {
                 const cx = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-x').value) || 0));
@@ -951,7 +973,9 @@
                 range('light.flicker', 'Flicker', 0, 1, 0.05),
                 range('light.glow', 'Daylight glow', 0, 1, 0.05),
                 number('light.offsetX', 'Offset X'),
-                number('light.offsetY', 'Offset Y')
+                number('light.offsetY', 'Offset Y'),
+                number('light.switchId', 'Only while this switch is on (0 = always)'),
+                { key: 'light.condition', label: 'Only while (JavaScript, e.g. $gameVariables.value(4) > 0)', type: 'text' }
             ] },
             { title: 'Visibility', fields: [
                 { key: 'switchText', label: 'Switches (e.g. 5:on, 6:off)', type: 'text' },

@@ -1208,7 +1208,9 @@ DocsDoodads.Destination = {
     ],
     defaults: {
         style: 'default', color: '#ffffff', opacity: 120, blend: 'add', scale: 1, pulse: 'mz', spin: 0, bob: 0,
-        layer: 'above', image: '', fps: 8, animationId: 0, vfx: '', pathDots: false, dotColor: '#ffffff', dotSpacing: 1
+        layer: 'above', image: '', fps: 8, animationId: 0, vfx: '', pathDots: false, dotColor: '#ffffff', dotSpacing: 1,
+        // A tile the player can't stand on (a wall, deep water, a doodad's collision) shows a cross in this colour.
+        unreachable: true, unreachableColor: '#ff5a5a'
     },
 
     normalize(s) {
@@ -1236,15 +1238,20 @@ DocsDoodads.Destination = {
             vfx: String(s.vfx || ''),
             pathDots: s.pathDots === true,
             dotColor: color(s.dotColor, d.dotColor),
-            dotSpacing: Math.max(1, Math.floor(num(s.dotSpacing, d.dotSpacing, 1, 8)))
+            dotSpacing: Math.max(1, Math.floor(num(s.dotSpacing, d.dotSpacing, 1, 8))),
+            unreachable: s.unreachable !== false,
+            unreachableColor: color(s.unreachableColor, d.unreachableColor)
         };
     },
 
-    // The project's marker with mid-game changes from the plugin command on top.
-    merge(project, override) {
+    // The project's marker, then the map's own look (its map settings), then mid-game changes from the
+    // plugin command on top.
+    merge(project, override, map) {
         const out = Object.assign({}, project || {});
-        for (const key of Object.keys(override || {})) {
-            if (override[key] !== undefined && override[key] !== null) out[key] = override[key];
+        for (const layer of [map, override]) {
+            for (const key of Object.keys(layer || {})) {
+                if (layer[key] !== undefined && layer[key] !== null && layer[key] !== '') out[key] = layer[key];
+            }
         }
         return this.normalize(out);
     },

@@ -462,12 +462,67 @@ DocsDoodads.World.defaults.destination = Object.assign({}, DocsDoodads.Destinati
 DocsDoodads.Destination.current = function() {
     const project = DocsDoodads.World.settings().destination;
     const over = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsDestination || null : null;
+    const ms = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+    const map = ms && ms.destination ? ms.destination : null;
     const c = this._current;
-    if (c && c.project === project && c.over === over) return c.value;
-    const value = this.merge(project, over);
-    this._current = { project, over, value };
+    if (c && c.project === project && c.over === over && c.map === map) return c.value;
+    const value = this.merge(project, over, map);
+    this._current = { project, over, map, value };
     return value;
 };
+
+// Whether the player could stand on a tile: walkable (or water they swim, or anywhere when flying) and
+// not under a doodad's collision. A touchable doodad there counts as reachable: the player walks up to it.
+DocsDoodads.Destination.standable = function(x, y) {
+    if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.isValid(x, y)) return false;
+    if (this.touchTargetAt(x, y)) return true;
+    const T = DocsDoodads.Traversal;
+    const flying = T && T.isFlying && T.isFlying($gamePlayer);
+    if (flying) return true;
+    const walk = [2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+    const swim = T && T.can && T.can('swim') && T.isWater(x, y);
+    if (!walk && !swim) return false;
+    return !DocsDoodads.Collision.blocksTile(x, y, false, $gamePlayer);
+};
+
+// The touchable doodad showing on a tile, or null.
+DocsDoodads.Destination.touchTargetAt = function(x, y) {
+    const doodads = DocsDoodads.doodads();
+    if (!doodads || !doodads.length) return null;
+    const settings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+    const visible = d => DocsDoodads.Layers.visibleInGame(d, settings) && DocsDoodads.Appearance.isVisible(d, {});
+    return DocsDoodads.Touch.at(x, y, doodads, $gameMap.tileWidth(), $gameMap.tileHeight(), visible)[0] || null;
+};
+
+// Clicking a touchable doodad: the player walks up to it, faces it and touches it.
+if (typeof Game_Temp !== 'undefined') {
+    $.Game_Temp_setDestination_touch = Game_Temp.prototype.setDestination;
+    Game_Temp.prototype.setDestination = function(x, y) {
+        $.Game_Temp_setDestination_touch.call(this, x, y);
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        this._docsTouchTarget = !editing && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Destination.touchTargetAt(x, y) : null;
+    };
+}
+if (typeof Game_Map !== 'undefined') {
+    // A step of Game_Map.update (DocsDoodads.mapSteps): next to the clicked doodad, the player touches it.
+    Game_Map.prototype.updateDocsTouchTarget = function(sceneActive) {
+        const d = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsTouchTarget : null;
+        if (!d || sceneActive === false || typeof $gamePlayer === 'undefined' || $gamePlayer.isMoving() || this.isEventRunning()) return;
+        const tiles = DocsDoodads.Touch.tilesOf(d, this.tileWidth(), this.tileHeight());
+        const px = $gamePlayer.x, py = $gamePlayer.y;
+        const next = tiles.find(t => this.distance(px, py, t.x, t.y) === 1);
+        if (next) {
+            const dx = this.deltaX(next.x, px), dy = this.deltaY(next.y, py);
+            $gamePlayer.setDirection(dx > 0 ? 6 : dx < 0 ? 4 : dy > 0 ? 2 : 8);
+            $gameTemp._docsTouchTarget = null;
+            $gameTemp.clearDestination();
+            DocsDoodads.Touch.tryAt(next.x, next.y, 'action');
+        } else if (!$gameTemp.isDestinationValid()) {
+            // It stopped short (no way through): let it go.
+            $gameTemp._docsTouchTarget = null;
+        }
+    };
+}
 
 if (typeof Sprite_Destination !== 'undefined') {
     const D = DocsDoodads.Destination;
@@ -487,7 +542,16 @@ if (typeof Sprite_Destination !== 'undefined') {
     $.Sprite_Destination_update = Sprite_Destination.prototype.update;
     Sprite_Destination.prototype.update = function() {
         $.Sprite_Destination_update.call(this);
-        const s = D.current();
+        let s = D.current();
+        // A tile the player can't stand on: a cross in the unreachable colour (worked out once per tile).
+        if (s.unreachable && $gameTemp.isDestinationValid()) {
+            const at = $gameTemp.destinationX() + ',' + $gameTemp.destinationY();
+            if (this._docsReachKey !== at) {
+                this._docsReachKey = at;
+                this._docsUnreachable = !D.standable($gameTemp.destinationX(), $gameTemp.destinationY());
+            }
+            if (this._docsUnreachable) s = Object.assign({}, s, { style: 'cross', color: s.unreachableColor, pathDots: false });
+        }
         this.updateDocsStyle(s);
         this.z = D.zFor(s.layer);
         if (!$gameTemp.isDestinationValid()) {

@@ -53,14 +53,60 @@ DocsDoodads.Occlusion.wallsFor = function() {
     return this._walls;
 };
 
+// What else stops light this frame (World > Lighting): tiles under doodads with collision, and events with
+// <block light> in their note or a page comment. { key, tiles: Set of "x,y" } (key changes when they move).
+DocsDoodads.Occlusion.blockers = function() {
+    const s = this.settings();
+    if (!s.blockDoodads && !s.blockEvents) return null;
+    const frame = DocsDoodads.frameCount();
+    if (this._blockers && this._blockers.frame === frame && frame !== 0) return this._blockers;
+    const tiles = new Set();
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    if (s.blockDoodads) {
+        const doodads = DocsDoodads.doodads() || [];
+        const ms = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+        const grid = doodads.length ? DocsDoodads.Collision.grid(doodads, tw, th) : null;
+        if (grid) {
+            for (const [key, list] of grid.tiles) {
+                if (!list.some(d => DocsDoodads.Layers.visibleInGame(d, ms) && DocsDoodads.Appearance.isVisible(d, {}) && DocsDoodads.States.blocks(d))) continue;
+                tiles.add(((key % 1048576) - 2) + ',' + (Math.floor(key / 1048576) - 2));
+            }
+        }
+    }
+    if (s.blockEvents) {
+        for (const ev of $gameMap.events()) {
+            if (!ev || ev._erased || !this.blocksLight(ev)) continue;
+            tiles.add(ev.x + ',' + ev.y);
+        }
+    }
+    const key = Array.from(tiles).sort().join(';');
+    this._blockers = { frame, key, tiles };
+    return this._blockers;
+};
+
+// An event marked <block light> (its note, or a comment on its current page), while it shows something.
+DocsDoodads.Occlusion.blocksLight = function(ev) {
+    if (!ev.characterName() && !(ev.tileId() > 0)) return false;
+    const text = DocsDoodads.VisualEquip && DocsDoodads.VisualEquip.eventText ? DocsDoodads.VisualEquip.eventText(ev) : ((ev.event() || {}).note || '');
+    return /<\s*block\s+light\s*>/i.test(text);
+};
+
 DocsDoodads.Occlusion.outlineFor = function(light, rays) {
     const walls = this.wallsFor();
     if (!walls) return null;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    // Doors that open, doodads that move: outlines are traced again when what stops light changes.
+    const blockers = this.blockers();
+    const blockKey = blockers ? blockers.key : '';
+    if (walls.blockKey !== blockKey) {
+        walls.blockKey = blockKey;
+        walls.outlines.clear();
+    }
     const key = [Math.round(light.mapX), Math.round(light.mapY), Math.round(light.radius), light.shape, Math.round(light.angle), Math.round(light.spread), rays].join('|');
     let pts = walls.outlines.get(key);
     if (!pts) {
-        const isWall = (x, y) => x < 0 || y < 0 || x >= walls.w || y >= walls.h ? false : walls.grid[y * walls.w + x] === 1;
+        const isWall = (x, y) => x < 0 || y < 0 || x >= walls.w || y >= walls.h ? false
+            : walls.grid[y * walls.w + x] === 1 || Boolean(blockers && blockers.tiles.has(x + ',' + y));
         pts = this.visibility(light.mapX, light.mapY, light.radius, isWall, tw, th,
             light.shape === 'cone' ? { rays, angle: light.angle, spread: light.spread } : { rays });
         // Moving lights (the flashlight) make new outlines every few steps; old ones are let go.
