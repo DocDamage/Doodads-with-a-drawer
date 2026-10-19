@@ -6234,13 +6234,26 @@ DocsDoodads.Shortcuts = {
     match(e) {
         if (!e) return null;
         const mods = this.modifiers(e);
-        const rows = this.list.filter(s => !s.fixed).map(s => ({ id: s.id, chord: this.chordOf(s.id) })).filter(r => r.chord);
+        const rows = this.compiled();
         for (const code of [this.codeFromKey(e.key), e.code]) {
             if (!code) continue;
             const hit = rows.find(r => this.same(r.chord, Object.assign({ code }, mods)));
             if (hit) return hit.id;
         }
         return null;
+    },
+
+    // The rebindable rows with their chords, worked out again only when the saved keys change (every key
+    // press asks; each row used to read and parse the saved preferences).
+    compiled() {
+        let raw;
+        try { raw = typeof localStorage !== 'undefined' && DocsDoodads.Ui ? localStorage.getItem(DocsDoodads.Ui.prefsKey) : undefined; } catch (err) { raw = undefined; }
+        const c = this._compiled;
+        if (c && raw !== undefined && c.raw === raw) return c.rows;
+        const rows = this.list.filter(s => !s.fixed).map(s => ({ id: s.id, chord: this.chordOf(s.id) })).filter(r => r.chord);
+        // Without saved preferences to compare (no localStorage), nothing is kept.
+        this._compiled = raw === undefined ? null : { raw, rows };
+        return rows;
     },
 
     // Keys a text field leaves to the editor (Ctrl+S right after typing in Details): chords with Ctrl or Alt,
@@ -6293,6 +6306,7 @@ DocsDoodads.Shortcuts = {
         if ((chord && def && this.same(chord, def)) || (!chord && !def)) delete own[id];
         else own[id] = text;
         DocsDoodads.Ui.setPref(this.prefKey, own);
+        this._compiled = null;
         return true;
     },
 
@@ -6300,10 +6314,12 @@ DocsDoodads.Shortcuts = {
         const own = Object.assign({}, this.overrides());
         delete own[id];
         DocsDoodads.Ui.setPref(this.prefKey, own);
+        this._compiled = null;
     },
 
     resetAll() {
         DocsDoodads.Ui.setPref(this.prefKey, {});
+        this._compiled = null;
     },
 
     // The guide's table, from the defaults (npm run shortcuts writes it into Docs_Doodads_Guide.md).
@@ -17394,6 +17410,40 @@ DocsDoodads.FS = {
         }
     },
 
+    // atomicWriteJson without blocking: the text is written to the temporary file in the background, then
+    // renamed in place at once (unless stillWanted() now says no; the temporary file goes). Resolves to
+    // whether it was written; never rejects. Without fs.promises it writes as atomicWriteJson does.
+    atomicWriteJsonAsync(filePath, data, indent = 0, stillWanted = null) {
+        const promises = this.fs && this.fs.promises;
+        if (!promises || !this.path) return Promise.resolve(this.atomicWriteJson(filePath, data, indent));
+        let jsonStr;
+        try {
+            jsonStr = indent ? JSON.stringify(data, null, indent) : JSON.stringify(data);
+            if (typeof jsonStr !== 'string') throw new Error('nothing to write');
+        } catch (e) {
+            console.error("[DocsDoodads.FS] Validation failed for atomic JSON write:", e);
+            return Promise.resolve(false);
+        }
+        const tmpPath = filePath + '.tmp';
+        const dropTmp = () => { try { if (this.existsSync(tmpPath)) this.fs.unlinkSync(tmpPath); } catch (cleanupError) {} };
+        try {
+            const dir = this.path.dirname(filePath);
+            if (!this.existsSync(dir)) this.mkdirp(dir);
+        } catch (e) {
+            return Promise.resolve(false);
+        }
+        return promises.writeFile(tmpPath, jsonStr, 'utf8').then(() => {
+            if (stillWanted && !stillWanted()) { dropTmp(); return false; }
+            // Synchronous, so nothing can run between the check above and the rename.
+            this.fs.renameSync(tmpPath, filePath);
+            return true;
+        }).catch(e => {
+            console.error(`[DocsDoodads.FS] Could not write ${filePath}:`, e);
+            dropTmp();
+            return false;
+        });
+    },
+
     // Text or bytes written whole or not at all: a temporary file beside the target, then a rename. Throws
     // (with the temporary file removed) when it can't write.
     atomicWriteFile(filePath, data, encoding) {
@@ -17470,6 +17520,56 @@ DocsDoodads.FS = {
         return backups.sort((a, b) => b.mtimeMs - a.mtimeMs);
     },
 
+    // An entry's text as atomicWriteManyJson writes it ({ data, indent }, indent 2 when not given).
+    jsonOf(entry) {
+        const indent = entry.indent === undefined ? 2 : entry.indent;
+        return indent ? JSON.stringify(entry.data, null, indent) : JSON.stringify(entry.data);
+    },
+
+    // Before a save: a timestamped backup of each file whose text is about to change (a file written the
+    // same as it is gets none), then one look at the backups folder to keep the newest of each. Fills in
+    // entry.json so the write doesn't make the text again. Returns the backups made; throws when one fails.
+    backupChanged(entries, backupDirectory = 'data/docs_doodads_cache/backups') {
+        if (!this.fs || !this.path) return [];
+        const made = [], names = new Set();
+        for (const entry of entries) {
+            entry.json = this.jsonOf(entry);
+            if (!this.existsSync(entry.path)) continue;
+            let now = null;
+            try { now = this.fs.readFileSync(entry.path, 'utf8'); } catch (e) { now = null; }
+            if (now === entry.json) continue;
+            if (!this.existsSync(backupDirectory)) this.mkdirp(backupDirectory);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const baseName = this.path.basename(entry.path);
+            let backupPath = this.path.join(backupDirectory, `${baseName}.${stamp}.bak`);
+            for (let suffix = 1; this.existsSync(backupPath); suffix++) backupPath = this.path.join(backupDirectory, `${baseName}.${stamp}.${suffix}.bak`);
+            this.fs.copyFileSync(entry.path, backupPath);
+            made.push(backupPath);
+            names.add(baseName);
+        }
+        if (names.size) this.pruneBackupsFor(backupDirectory, names, backupRetentionCount);
+        return made;
+    },
+
+    // pruneBackups for several files at once, reading the folder once.
+    pruneBackupsFor(dir, prefixes, maxCount) {
+        if (!this.fs || !this.path || !this.existsSync(dir)) return;
+        let all;
+        try { all = this.fs.readdirSync(dir); } catch (e) { return; }
+        for (const prefix of prefixes) {
+            for (const [ending, keep] of [['.bak', maxCount], ['.unreadable', 3]]) {
+                const files = all.filter(f => f.startsWith(prefix + '.') && f.endsWith(ending))
+                    .map(f => { try { return { name: f, time: this.fs.statSync(this.path.join(dir, f)).mtimeMs }; } catch (e) { return null; } })
+                    .filter(Boolean)
+                    .sort((a, b) => b.time - a.time);
+                while (files.length > keep) {
+                    const toRemove = files.pop();
+                    try { this.fs.unlinkSync(this.path.join(dir, toRemove.name)); } catch (e) {}
+                }
+            }
+        }
+    },
+
     atomicWriteManyJson(entries, options = {}) {
         const result = { ok: false, committed: [], error: null, rolledBack: false };
         if (!this.fs || !this.path || !Array.isArray(entries) || entries.length === 0) {
@@ -17490,8 +17590,7 @@ DocsDoodads.FS = {
                 if (seenTargets.has(targetKey)) throw new Error(`Duplicate transaction target: ${entry.path}`);
                 seenTargets.add(targetKey);
 
-                const indent = entry.indent === undefined ? 2 : entry.indent;
-                const json = indent ? JSON.stringify(entry.data, null, indent) : JSON.stringify(entry.data);
+                const json = typeof entry.json === 'string' ? entry.json : this.jsonOf(entry);
                 if (typeof json !== 'string') throw new Error(`Entry ${index} has nothing to write.`);
                 this.ensureDir(this.path.dirname(targetPath));
                 const temporary = `${targetPath}.ddtxn-${transactionId}-${index}.tmp`;
@@ -17853,9 +17952,36 @@ DocsDoodads.AssetIndex = {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
-            if (DocsDoodads.FS.atomicWriteJson(target, this.data) && target === this.libraryPath) this.noteLoaded();
+            if (DocsDoodads.FS.atomicWriteJson(target, this.data, 0) && target === this.libraryPath) this.noteLoaded();
         }
         return result;
+    },
+
+    // Files just written (an import, a pack) join the library without walking every folder again:
+    // paths are the project's (img/... or audio/...), or absolute inside it. Returns how many were indexed.
+    async indexPaths(paths, options = {}) {
+        const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
+        if (!fs || !path || !fs.promises) return 0;
+        const root = path.resolve('.');
+        const prefixes = this.roots.map(r => String(r).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '').toLowerCase() + '/');
+        let indexed = 0;
+        for (const p of paths || []) {
+            const absolute = path.resolve(root, String(p));
+            const assetPath = path.relative(root, absolute).replace(/\\/g, '/');
+            if (!this.isSupportedAssetFile(assetPath) || !prefixes.some(x => assetPath.toLowerCase().startsWith(x))) continue;
+            try {
+                const stat = await fs.promises.stat(absolute);
+                if (!stat.isFile()) continue;
+                this.indexFile(absolute, path.basename(absolute), path.extname(absolute).toLowerCase(), assetPath, stat);
+                indexed++;
+            } catch (error) {}
+        }
+        if (indexed) {
+            this.data.generatedAt = Date.now();
+            this.rebuildList();
+            if (options.save !== false) this.save();
+        }
+        return indexed;
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
@@ -17970,9 +18096,11 @@ DocsDoodads.AssetIndex = {
         return 'doodad';
     },
 
+    // Written compact (it can be large); tags, favourites, collections, collision and placement changes
+    // wait a moment (saveSoon) and are written by flushUsage on Save, on closing the editor and the game.
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
-        const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+        const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data, 0);
         if (ok) this.noteLoaded();
         return ok;
     },
@@ -17990,13 +18118,13 @@ DocsDoodads.AssetIndex = {
         if (!asset) return;
         const raw = Array.isArray(input) ? input : String(input || '').split(',');
         asset.tags = [...new Set(raw.map(t => String(t).trim().toLowerCase().replace(/\s+/g, ' ')).filter(Boolean))];
-        this.save();
+        this.saveSoon();
     },
 
     toggleFavorite(assetId) {
         if (this.data.assets[assetId]) {
             this.data.assets[assetId].favorite = !this.data.assets[assetId].favorite;
-            this.save();
+            this.saveSoon();
         }
     },
 
@@ -18010,7 +18138,8 @@ DocsDoodads.AssetIndex = {
         this.saveSoon();
     },
 
-    // A usage write still waiting happens now (before the library is saved or replaced).
+    // A write still waiting (usage, tags, favourites...) happens now: before the library is saved or
+    // replaced, on Save, and when the editor or the game closes.
     flushUsage() {
         if (!this._usageTimer) return;
         clearTimeout(this._usageTimer);
@@ -18022,7 +18151,7 @@ DocsDoodads.AssetIndex = {
         this.data.collections = this.data.collections || {};
         if (!this.data.collections[name]) {
             this.data.collections[name] = [];
-            this.save();
+            this.saveSoon();
         }
     },
 
@@ -18034,7 +18163,7 @@ DocsDoodads.AssetIndex = {
                     a.collections = a.collections.filter(c => c !== name);
                 }
             }
-            this.save();
+            this.saveSoon();
         }
     },
 
@@ -18048,7 +18177,7 @@ DocsDoodads.AssetIndex = {
                 if (!this.data.collections[name].includes(assetId)) {
                     this.data.collections[name].push(assetId);
                 }
-                this.save();
+                this.saveSoon();
             }
         }
     },
@@ -18061,7 +18190,7 @@ DocsDoodads.AssetIndex = {
         if (this.data.collections && this.data.collections[name]) {
             this.data.collections[name] = this.data.collections[name].filter(id => id !== assetId);
         }
-        this.save();
+        this.saveSoon();
     },
 
     getCollections() {
@@ -18081,7 +18210,7 @@ DocsDoodads.AssetIndex = {
         const list = this.savedSearches().filter(s => s.name !== name);
         list.push({ name, query });
         this.data.savedSearches = list;
-        this.save();
+        this.saveSoon();
         return true;
     },
 
@@ -18090,7 +18219,7 @@ DocsDoodads.AssetIndex = {
         const next = list.filter(s => s.name !== name);
         if (next.length === list.length) return false;
         this.data.savedSearches = next;
-        this.save();
+        this.saveSoon();
         return true;
     }
 };
@@ -22047,8 +22176,11 @@ DocsDoodads.Search = {
 //==========================================================
 DocsDoodads.Thumbnail = {
     cache: {},
-    cacheOrder: [],
+    // Least recently used first (a Map keeps insertion order; a touch moves a key to the end).
+    cacheOrder: new Map(),
+    // At least this many; a bigger Item Bag keeps one per item, up to cacheCeiling (capacity()).
     maxCacheSize: 500,
+    cacheCeiling: 3000,
     sizeBuckets: [64, 96, 128, 192],
     queue: [],
     busy: false,
@@ -22059,6 +22191,14 @@ DocsDoodads.Thumbnail = {
     // Keys whose image would not load: not retried until the file changes or the cache is cleared.
     failed: new Set(),
     diskDir: 'data/docs_doodads_cache/thumbnails',
+
+    // How many pictures the memory cache keeps: enough for the whole Item Bag (up to the ceiling), so
+    // scrolling back over a big bag doesn't read every card from disk again.
+    capacity() {
+        const list = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.list;
+        const count = Array.isArray(list) ? list.length : 0;
+        return Math.max(this.maxCacheSize, Math.min(this.cacheCeiling, count));
+    },
 
     getBucketSize(size) {
         let best = this.sizeBuckets[0];
@@ -22093,9 +22233,8 @@ DocsDoodads.Thumbnail = {
         // 1. In-memory LRU Cache check
         if (this.cache[key]) {
             // Touch key for LRU
-            const idx = this.cacheOrder.indexOf(key);
-            if (idx >= 0) this.cacheOrder.splice(idx, 1);
-            this.cacheOrder.push(key);
+            this.cacheOrder.delete(key);
+            this.cacheOrder.set(key, true);
             callback(this.cache[key]);
             return;
         }
@@ -22109,21 +22248,7 @@ DocsDoodads.Thumbnail = {
             return;
         }
 
-        // 2. Disk Cache check
-        if (cacheEnabled && DocsDoodads.FS.existsSync) {
-            const diskFile = this.getDiskPath(key);
-            if (DocsDoodads.FS.existsSync(diskFile)) {
-                try {
-                    const cachedData = DocsDoodads.FS.readFileSync(diskFile, 'utf8');
-                    if (cachedData && cachedData.startsWith('data:image')) {
-                        this.setCache(key, cachedData);
-                        callback(cachedData);
-                        return;
-                    }
-                } catch(e) {}
-            }
-        }
-
+        // 2. The disk cache is read in the queue (in the background), then the picture is made if needed.
         this.pending[key] = [callback];
         this.queue.push({ asset, bucket, key });
         this.processQueue();
@@ -22131,24 +22256,27 @@ DocsDoodads.Thumbnail = {
 
     setCache(key, dataUrl) {
         if (this.cache[key] !== undefined) {
-            const idx = this.cacheOrder.indexOf(key);
-            if (idx >= 0) this.cacheOrder.splice(idx, 1);
-        } else if (this.cacheOrder.length >= this.maxCacheSize) {
-            const oldest = this.cacheOrder.shift();
-            delete this.cache[oldest];
+            this.cacheOrder.delete(key);
+        } else {
+            const max = this.capacity();
+            while (this.cacheOrder.size >= max) {
+                const oldest = this.cacheOrder.keys().next().value;
+                this.cacheOrder.delete(oldest);
+                delete this.cache[oldest];
+            }
         }
         this.cache[key] = dataUrl;
-        this.cacheOrder.push(key);
+        this.cacheOrder.set(key, true);
     },
 
     // Drops every cached size of one asset (memory and disk) so it is regenerated.
     invalidate(assetId) {
         const prefix = assetId + '_';
-        this.cacheOrder = this.cacheOrder.filter(key => {
-            if (!key.startsWith(prefix)) return true;
+        for (const key of [...this.cacheOrder.keys()]) {
+            if (!key.startsWith(prefix)) continue;
+            this.cacheOrder.delete(key);
             delete this.cache[key];
-            return false;
-        });
+        }
         for (const key of [...this.failed]) if (key.startsWith(prefix)) this.failed.delete(key);
         const dir = this.diskDir;
         const safePrefix = this.safeKey(prefix);
@@ -22181,7 +22309,7 @@ DocsDoodads.Thumbnail = {
 
     clearCache() {
         this.cache = {};
-        this.cacheOrder = [];
+        this.cacheOrder = new Map();
         this.queue = [];
         this.pending = {};
         this.failed.clear();
@@ -22209,7 +22337,7 @@ DocsDoodads.Thumbnail = {
             const job = this.queue.shift();
             this.active++;
             let finished = false;
-            this.generate(job.asset, job.bucket, (dataUrl) => {
+            const done = (dataUrl, fromDisk) => {
                 if (finished) return;
                 finished = true;
                 this.active--;
@@ -22218,16 +22346,12 @@ DocsDoodads.Thumbnail = {
                 if (dataUrl) this.setCache(job.key, dataUrl);
                 else this.failed.add(job.key);
                 for (const callback of waiting) callback(dataUrl);
-
-                // Write to disk cache
-                if (cacheEnabled && DocsDoodads.FS.fs && dataUrl) {
-                    const diskFile = this.getDiskPath(job.key);
-                    try {
-                        if (!DocsDoodads.FS.existsSync(this.diskDir)) DocsDoodads.FS.mkdirp(this.diskDir);
-                        DocsDoodads.FS.writeFileSync(diskFile, dataUrl, 'utf8');
-                    } catch(e) {}
-                }
+                if (!fromDisk) this.writeDisk(job.key, dataUrl);
                 this.processQueue();
+            };
+            this.readDisk(job.key).then(cached => {
+                if (cached) done(cached, true);
+                else this.generate(job.asset, job.bucket, dataUrl => done(dataUrl, false));
             });
         }
 
@@ -22239,6 +22363,39 @@ DocsDoodads.Thumbnail = {
                 setTimeout(() => this.processQueue(), 16);
             }
         }
+    },
+
+    // The disk copy of a picture (a data URL), read without blocking; '' when there is none.
+    readDisk(key) {
+        const fs = DocsDoodads.FS.fs;
+        if (!cacheEnabled || !fs) return Promise.resolve('');
+        const diskFile = this.getDiskPath(key);
+        const ok = text => (text && text.startsWith('data:image') ? text : '');
+        if (!DocsDoodads.FS.existsSync(diskFile)) return Promise.resolve('');
+        if (!fs.promises) {
+            try { return Promise.resolve(DocsDoodads.FS.existsSync(diskFile) ? ok(fs.readFileSync(diskFile, 'utf8')) : ''); } catch (e) { return Promise.resolve(''); }
+        }
+        return fs.promises.readFile(diskFile, 'utf8').then(ok, () => '');
+    },
+
+    writeDisk(key, dataUrl) {
+        const fs = DocsDoodads.FS.fs;
+        if (!cacheEnabled || !fs || !dataUrl) return;
+        const diskFile = this.getDiskPath(key);
+        try {
+            if (!DocsDoodads.FS.existsSync(this.diskDir)) DocsDoodads.FS.mkdirp(this.diskDir);
+            if (fs.promises) {
+                const write = fs.promises.writeFile(diskFile, dataUrl, 'utf8').catch(() => {});
+                this._writes.add(write);
+                write.then(() => this._writes.delete(write));
+            } else fs.writeFileSync(diskFile, dataUrl, 'utf8');
+        } catch (e) {}
+    },
+
+    // Resolves once the disk copies being written are on disk.
+    _writes: new Set(),
+    flushed() {
+        return Promise.all([...this._writes]);
     },
 
     generate(asset, size, onComplete) {
@@ -25530,9 +25687,15 @@ DocsDoodads.Persistence = {
     _dirtyMap: false,
     _dirtyDoodads: false,
     get dirtyMap() { return this._dirtyMap; },
-    set dirtyMap(value) { this._dirtyMap = Boolean(value); if (value) this.touch(); this.changed(); },
+    set dirtyMap(value) { this._dirtyMap = Boolean(value); if (value) { this.changeCount++; this.touch(); } this.changed(); },
     get dirtyDoodads() { return this._dirtyDoodads; },
-    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); if (value) this.touch(); this.changed(); },
+    set dirtyDoodads(value) { this._dirtyDoodads = Boolean(value); if (value) { this.changeCount++; this.touch(); } this.changed(); },
+    // Counts edits (every step marks the work unsaved again), so the crash snapshot is only written when
+    // something changed since the last one.
+    changeCount: 0,
+    _recoveryWritten: -1,
+    _recoveryEpoch: 0,
+    _recoveryWriting: false,
     // The maps changed since the last save (for the map tabs' dots).
     touchedMaps: new Set(),
 
@@ -25656,6 +25819,7 @@ DocsDoodads.Persistence = {
 
     saveAll(force = false) {
         if (!window.$gameMap) return false;
+        if (DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         if (!force && this.checkConflict()) {
             DocsDoodads.Workspace.showConflictModal();
             return false;
@@ -25664,11 +25828,12 @@ DocsDoodads.Persistence = {
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
         const doodadEntries = DocsDoodads.DataFiles.entriesFor(window.$dataDocsDoodads || {});
         const entries = mapEntries.concat(doodadEntries, [
-            { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 2 }
+            { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
         ]);
 
         try {
-            for (const entry of entries) DocsDoodads.FS.createTimestampedBackup(entry.path);
+            // Only files whose text changes get a backup (and the backups folder is read once).
+            DocsDoodads.FS.backupChanged(entries);
         } catch (error) {
             DocsDoodads.Core.log('Backup creation failed; save cancelled.', error);
             DocsDoodads.Workspace.showToast(`Save cancelled: backup failed (${error.message || error}).`);
@@ -25753,7 +25918,36 @@ DocsDoodads.Persistence = {
         this.answeredRecovery = recovery ? recovery.timestamp : null;
     },
 
+    // The crash snapshot of everything unsaved, written (without blocking the editor) when there is
+    // unsaved work that changed since the last snapshot. Returns the write's promise, or null when skipped.
+    writeRecovery() {
+        if (this._recoveryWriting || this.changeCount === this._recoveryWritten) return null;
+        const gameMap = typeof window !== 'undefined' ? window.$gameMap : null;
+        if (!gameMap || !(this.dirtyMap || this.dirtyDoodads)) return null;
+        const data = window.$dataDocsDoodads || {};
+        const snapshot = {
+            timestamp: Date.now(),
+            mapId: gameMap.mapId(),
+            doodads: DocsDoodads.doodads(),
+            // Every map's doodads (Move / Copy to Map, mirrored edges and prefab syncs reach other
+            // maps) and the event edits parked for maps other than this one.
+            allDoodads: Object.fromEntries(Object.entries(data).filter(([key, list]) => /^\d+$/.test(key) && Array.isArray(list))),
+            stagedMaps: this.stagedMaps,
+            mapSettings: data.mapSettings,
+            world: data.world,
+            stagedMap: gameMap._stagedMapData
+        };
+        const count = this.changeCount, epoch = this._recoveryEpoch;
+        this._recoveryWriting = true;
+        // A save (clearRecovery) while this is being written wins: the snapshot is not put in place.
+        return DocsDoodads.FS.atomicWriteJsonAsync('data/DocsDoodadsRecovery.json', snapshot, 0, () => this._recoveryEpoch === epoch)
+            .then(ok => { if (ok) this._recoveryWritten = count; return ok; })
+            .finally(() => { this._recoveryWriting = false; });
+    },
+
     clearRecovery() {
+        this._recoveryEpoch++;
+        this._recoveryWritten = -1;
         const recoveryPath = 'data/DocsDoodadsRecovery.json';
         for (const filePath of [recoveryPath, DocsDoodads.Legacy.pathFor(recoveryPath)]) {
             if (DocsDoodads.FS.fs && DocsDoodads.FS.fs.existsSync(filePath)) {
@@ -26026,16 +26220,30 @@ DocsDoodads.Import = {
         return `Import failed${result.rolledBack ? ' and was rolled back' : ''}: ${reason}`;
     },
 
+    // Same size, then the bytes a piece at a time, stopping at the first difference (two large files of
+    // the same size that differ early are not read whole).
     filesEqual(firstPath, secondPath) {
         const fs = DocsDoodads.FS.fs;
         if (!fs) return false;
+        let a = null, b = null;
         try {
             const firstStat = fs.statSync(firstPath);
             const secondStat = fs.statSync(secondPath);
             if (firstStat.size !== secondStat.size) return false;
-            return fs.readFileSync(firstPath).equals(fs.readFileSync(secondPath));
+            a = fs.openSync(firstPath, 'r');
+            b = fs.openSync(secondPath, 'r');
+            const size = 65536, one = Buffer.alloc(size), two = Buffer.alloc(size);
+            for (let at = 0; at < firstStat.size; at += size) {
+                const n = fs.readSync(a, one, 0, size, at);
+                const m = fs.readSync(b, two, 0, size, at);
+                if (n !== m || !one.subarray(0, n).equals(two.subarray(0, m))) return false;
+                if (n === 0) break;
+            }
+            return true;
         } catch (error) {
             return false;
+        } finally {
+            for (const fd of [a, b]) if (fd !== null) { try { fs.closeSync(fd); } catch (e) {} }
         }
     },
 
@@ -26052,7 +26260,8 @@ DocsDoodads.Import = {
             return plan;
         }
 
-        const collected = this.collectFiles(sourcePaths);
+        // The Add Files card has already walked the dropped folders; its list is used as it is.
+        const collected = options.collected || this.collectFiles(sourcePaths);
         plan.errors.push(...collected.errors);
         const reserved = new Map();
         const reservedKey = destination => process.platform === 'win32' ? destination.toLowerCase() : destination;
@@ -27622,6 +27831,7 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        if (DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         this.stopStatusBar();
         DocsDoodads.Ui.removeTooltips();
         this.closeToastHistory();
@@ -29432,14 +29642,14 @@ DocsDoodads.Workspace = {
         colSel.onchange = (e) => {
             const shape = e.target.value === 'custom' ? (a.collision.shape || { x: 0.2, y: 0.6, w: 0.6, h: 0.4 }) : null;
             a.collision = { preset: e.target.value, shape };
-            DocsDoodads.AssetIndex.save();
+            DocsDoodads.AssetIndex.saveSoon();
         };
         document.getElementById('dd-asset-trace-col').onclick = () => this.traceAssetCollision(a);
         const depthSel = document.getElementById('dd-asset-depth');
         depthSel.value = DocsDoodads.Depth.modes.includes(a.placement.depth) ? a.placement.depth : DocsDoodads.Depth.suggestFor(a);
         depthSel.onchange = (e) => {
             a.placement.depth = e.target.value;
-            DocsDoodads.AssetIndex.save();
+            DocsDoodads.AssetIndex.saveSoon();
         };
 
         document.getElementById('dd-fav-toggle').onclick = () => {
@@ -30369,10 +30579,32 @@ DocsDoodads.Workspace = {
             </div>` : ''}`;
     },
 
+    // The doodad pictures offered by the biome and dress fields: the list is empty until one of them is
+    // focused, and its options are built once per change of the library (the panel redraws often).
     doodadFilesDatalist() {
-        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data ? Object.values(DocsDoodads.AssetIndex.data.assets || {}) : [];
+        return '<datalist id="dd-doodad-files"></datalist>';
+    },
+
+    doodadFilesOptions() {
+        const AI = DocsDoodads.AssetIndex;
+        const data = AI && AI.data ? AI.data : null;
+        const key = data ? (data.generatedAt || 0) + '|' + (AI.list || []).length : '';
+        const c = this._doodadFilesOptions;
+        if (c && c.data === data && c.key === key) return c.html;
+        const assets = data ? Object.values(data.assets || {}) : [];
         const paths = assets.filter(a => a && /\.png$/i.test(a.path || '') && !/^img\/(characters|faces|system|titles|battlebacks|sv_|enemies)/i.test(a.path)).map(a => a.path).slice(0, 3000);
-        return `<datalist id="dd-doodad-files">${paths.map(p => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>`;
+        const html = paths.map(p => `<option value="${escapeHtml(p)}"></option>`).join('');
+        this._doodadFilesOptions = { data, key, html };
+        return html;
+    },
+
+    bindDoodadFilesDatalist(root) {
+        if (!root || !root.querySelectorAll) return;
+        const fill = () => {
+            const list = document.getElementById('dd-doodad-files');
+            if (list && !list.firstChild) list.innerHTML = this.doodadFilesOptions();
+        };
+        for (const input of root.querySelectorAll('input[list="dd-doodad-files"]')) input.addEventListener('focus', fill);
     },
 
     bindBiomeEditor() {
@@ -32706,6 +32938,7 @@ DocsDoodads.Workspace = {
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}
             ${this.doodadFilesDatalist()}`;
+        this.bindDoodadFilesDatalist(content);
 
         const search = document.getElementById('dd-map-search');
         if (search && content.querySelectorAll) {
@@ -32804,7 +33037,7 @@ DocsDoodads.Workspace = {
                 return null;
             }
             asset.collision = { preset: 'custom', shape };
-            DocsDoodads.AssetIndex.save();
+            DocsDoodads.AssetIndex.saveSoon();
             this.showToast(`Collision traced for ${asset.fileName}; new placements will use it.`);
             this.refreshInspector();
             return shape;
@@ -33210,9 +33443,44 @@ DocsDoodads.Workspace = {
         };
     },
 
+    // A map or database file for the usage index: read again only when it changed on disk (a save, or
+    // MZ's editor), not after every step. Shared and read-only: renames use loadUsageSources.
+    readUsageFile(filePath) {
+        const FS = DocsDoodads.FS;
+        const cache = this._usageFiles || (this._usageFiles = new Map());
+        const st = FS.stat(filePath);
+        const c = cache.get(filePath);
+        if (c && st && c.mtimeMs === st.mtimeMs && c.size === st.size) return c.data;
+        const data = FS.readJson(filePath);
+        if (st) cache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, data }); else cache.delete(filePath);
+        return data;
+    },
+
+    // Where every file is used: the maps' and database's part is kept while their files stay as they were
+    // (a stat each), and the doodads' and prefabs' part (in memory, changed by every step) is added fresh.
     refreshUsageIndex() {
-        DocsDoodads.Usage.lastIndex = DocsDoodads.Usage.buildIndex(this.loadUsageSources());
-        return DocsDoodads.Usage.lastIndex;
+        const U = DocsDoodads.Usage;
+        const mapInfos = this.readUsageFile('data/MapInfos.json') || (window.$dataMapInfos || []);
+        const maps = {};
+        for (const info of mapInfos) {
+            if (!info) continue;
+            const map = this.readUsageFile(DocsDoodads.Persistence.mapFilePath(info.id));
+            if (map) maps[info.id] = map;
+        }
+        const database = {};
+        for (const name of this.databaseFiles) database[name] = this.readUsageFile(`data/${name}.json`);
+        const files = [mapInfos].concat(Object.values(maps), Object.values(database));
+        const disk = this._usageDisk;
+        const same = disk && disk.files.length === files.length && disk.files.every((x, i) => x === files[i]);
+        if (!same) this._usageDisk = { files, index: U.buildIndex({ mapInfos, maps, database }) };
+        const mine = U.buildIndex({ mapInfos, doodads: window.$dataDocsDoodads || {}, prefabs: DocsDoodads.Prefabs.ensureLoaded() });
+        const index = new Map();
+        for (const [key, refs] of this._usageDisk.index) index.set(key, refs.slice());
+        for (const [key, refs] of mine) {
+            if (index.has(key)) index.get(key).push(...refs); else index.set(key, refs);
+        }
+        U.lastIndex = index;
+        return index;
     },
 
     assetUsage(asset) {
@@ -33501,7 +33769,14 @@ DocsDoodads.Workspace = {
 
     renderPackingPanel() {
         const manifest = DocsDoodads.Packer.forMap(this.currentMapId());
-        const stale = manifest ? DocsDoodads.Packer.staleSources(manifest, p => { const st = DocsDoodads.FS.stat(p); return st ? st.mtimeMs : 0; }) : [];
+        // The panel redraws on every step; each packed file is looked at again after a few seconds, not each time.
+        const seen = this._packStale;
+        let stale = [];
+        if (manifest && seen && seen.manifest === manifest && Date.now() - seen.at < 5000) stale = seen.stale;
+        else if (manifest) {
+            stale = DocsDoodads.Packer.staleSources(manifest, p => { const st = DocsDoodads.FS.stat(p); return st ? st.mtimeMs : 0; });
+            this._packStale = { manifest, at: Date.now(), stale };
+        }
         const status = manifest
             ? `${Object.keys(manifest.frames).length} region(s) in ${manifest.sheets.length} sheet(s), built ${new Date(manifest.builtAt).toLocaleString()}.`
             : 'Not packed. Deployed games load each image separately.';
@@ -35686,7 +35961,7 @@ DocsDoodads.Workspace = {
             closeM();
             if (DocsDoodads.AssetIndex.data.assets[payload.assetId]) {
                 DocsDoodads.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'event';
-                DocsDoodads.AssetIndex.save();
+                DocsDoodads.AssetIndex.saveSoon();
             }
             this.commitPlacement(payload, snapCoords, 'event');
         };
@@ -35694,7 +35969,7 @@ DocsDoodads.Workspace = {
             closeM();
             if (DocsDoodads.AssetIndex.data.assets[payload.assetId]) {
                 DocsDoodads.AssetIndex.data.assets[payload.assetId].placement.defaultMode = 'doodad';
-                DocsDoodads.AssetIndex.save();
+                DocsDoodads.AssetIndex.saveSoon();
             }
             this.commitPlacement(payload, snapCoords, 'doodad');
         };
@@ -35977,7 +36252,8 @@ DocsDoodads.Workspace = {
         });
         if (!result.ok) return result;
 
-        await DocsDoodads.AssetIndex.scanAsync({ loadCache: false });
+        // Only the files just written are indexed, not every folder walked again.
+        await DocsDoodads.AssetIndex.indexPaths(result.imported);
         this.refreshDrawerCards();
 
         if (options.autoSlice) {
@@ -36079,7 +36355,7 @@ DocsDoodads.Workspace = {
         // The import runs on in a progress pill (with Cancel), so the editor stays usable meanwhile.
         confirmButton.onclick = async () => {
             const token = { cancelled: false };
-            const options = { destination: destination.value, collisionPolicy: collision.value, autoSlice: Boolean(autoSlice.checked) };
+            const options = { destination: destination.value, collisionPolicy: collision.value, autoSlice: Boolean(autoSlice.checked), collected };
             close();
             const pill = DocsDoodads.Ui.progress('Bringing in files', { onCancel: () => { token.cancelled = true; } });
             pill.update(0, sourcePaths.length);
@@ -42046,7 +42322,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
         if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
         // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
-        if (written.length && D.AssetIndex.scanAsync) await D.AssetIndex.scanAsync({ loadCache: false });
+        if (written.length && D.AssetIndex.indexPaths) await D.AssetIndex.indexPaths(written, { save: false });
         let entries = 0;
         for (const p of written) {
             const entry = D.AssetIndex.data.assets[p.toLowerCase()];
@@ -44418,6 +44694,8 @@ DocsDoodads.leaveGuard = {
 
     // proceed() closes or reloads. Returns true when it ran (or will once answered).
     request(action, proceed) {
+        // Library changes still waiting to be written go now, whatever is answered.
+        if (DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Persistence.hasUnsavedWork()) {
             proceed();
             return true;
@@ -44458,22 +44736,7 @@ if (typeof SceneManager !== 'undefined' && typeof SceneManager.reloadGame === 'f
 // Auto-recovery heartbeat
 if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     const recoveryTimer = setInterval(() => {
-        if (editorMode && DocsDoodads.Compat.isTest() && window.$gameMap && (DocsDoodads.Persistence.dirtyMap || DocsDoodads.Persistence.dirtyDoodads)) {
-            const data = window.$dataDocsDoodads || {};
-            const recoveryData = {
-                timestamp: Date.now(),
-                mapId: $gameMap.mapId(),
-                doodads: DocsDoodads.doodads(),
-                // Every map's doodads (Move / Copy to Map, mirrored edges and prefab syncs reach other
-                // maps) and the event edits parked for maps other than this one.
-                allDoodads: Object.fromEntries(Object.entries(data).filter(([key, list]) => /^\d+$/.test(key) && Array.isArray(list))),
-                stagedMaps: DocsDoodads.Persistence.stagedMaps,
-                mapSettings: data.mapSettings,
-                world: data.world,
-                stagedMap: $gameMap._stagedMapData
-            };
-            DocsDoodads.FS.atomicWriteJson('data/DocsDoodadsRecovery.json', recoveryData);
-        }
+        if (editorMode && DocsDoodads.Compat.isTest()) DocsDoodads.Persistence.writeRecovery();
     }, autosaveRecoveryInterval * 1000);
     if (recoveryTimer && typeof recoveryTimer.unref === 'function') {
         recoveryTimer.unref();

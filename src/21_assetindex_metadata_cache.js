@@ -196,9 +196,36 @@ DocsDoodads.AssetIndex = {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
-            if (DocsDoodads.FS.atomicWriteJson(target, this.data) && target === this.libraryPath) this.noteLoaded();
+            if (DocsDoodads.FS.atomicWriteJson(target, this.data, 0) && target === this.libraryPath) this.noteLoaded();
         }
         return result;
+    },
+
+    // Files just written (an import, a pack) join the library without walking every folder again:
+    // paths are the project's (img/... or audio/...), or absolute inside it. Returns how many were indexed.
+    async indexPaths(paths, options = {}) {
+        const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
+        if (!fs || !path || !fs.promises) return 0;
+        const root = path.resolve('.');
+        const prefixes = this.roots.map(r => String(r).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '').toLowerCase() + '/');
+        let indexed = 0;
+        for (const p of paths || []) {
+            const absolute = path.resolve(root, String(p));
+            const assetPath = path.relative(root, absolute).replace(/\\/g, '/');
+            if (!this.isSupportedAssetFile(assetPath) || !prefixes.some(x => assetPath.toLowerCase().startsWith(x))) continue;
+            try {
+                const stat = await fs.promises.stat(absolute);
+                if (!stat.isFile()) continue;
+                this.indexFile(absolute, path.basename(absolute), path.extname(absolute).toLowerCase(), assetPath, stat);
+                indexed++;
+            } catch (error) {}
+        }
+        if (indexed) {
+            this.data.generatedAt = Date.now();
+            this.rebuildList();
+            if (options.save !== false) this.save();
+        }
+        return indexed;
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
@@ -313,9 +340,11 @@ DocsDoodads.AssetIndex = {
         return 'doodad';
     },
 
+    // Written compact (it can be large); tags, favourites, collections, collision and placement changes
+    // wait a moment (saveSoon) and are written by flushUsage on Save, on closing the editor and the game.
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
-        const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data);
+        const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data, 0);
         if (ok) this.noteLoaded();
         return ok;
     },
@@ -333,13 +362,13 @@ DocsDoodads.AssetIndex = {
         if (!asset) return;
         const raw = Array.isArray(input) ? input : String(input || '').split(',');
         asset.tags = [...new Set(raw.map(t => String(t).trim().toLowerCase().replace(/\s+/g, ' ')).filter(Boolean))];
-        this.save();
+        this.saveSoon();
     },
 
     toggleFavorite(assetId) {
         if (this.data.assets[assetId]) {
             this.data.assets[assetId].favorite = !this.data.assets[assetId].favorite;
-            this.save();
+            this.saveSoon();
         }
     },
 
@@ -353,7 +382,8 @@ DocsDoodads.AssetIndex = {
         this.saveSoon();
     },
 
-    // A usage write still waiting happens now (before the library is saved or replaced).
+    // A write still waiting (usage, tags, favourites...) happens now: before the library is saved or
+    // replaced, on Save, and when the editor or the game closes.
     flushUsage() {
         if (!this._usageTimer) return;
         clearTimeout(this._usageTimer);
@@ -365,7 +395,7 @@ DocsDoodads.AssetIndex = {
         this.data.collections = this.data.collections || {};
         if (!this.data.collections[name]) {
             this.data.collections[name] = [];
-            this.save();
+            this.saveSoon();
         }
     },
 
@@ -377,7 +407,7 @@ DocsDoodads.AssetIndex = {
                     a.collections = a.collections.filter(c => c !== name);
                 }
             }
-            this.save();
+            this.saveSoon();
         }
     },
 
@@ -391,7 +421,7 @@ DocsDoodads.AssetIndex = {
                 if (!this.data.collections[name].includes(assetId)) {
                     this.data.collections[name].push(assetId);
                 }
-                this.save();
+                this.saveSoon();
             }
         }
     },
@@ -404,7 +434,7 @@ DocsDoodads.AssetIndex = {
         if (this.data.collections && this.data.collections[name]) {
             this.data.collections[name] = this.data.collections[name].filter(id => id !== assetId);
         }
-        this.save();
+        this.saveSoon();
     },
 
     getCollections() {
@@ -424,7 +454,7 @@ DocsDoodads.AssetIndex = {
         const list = this.savedSearches().filter(s => s.name !== name);
         list.push({ name, query });
         this.data.savedSearches = list;
-        this.save();
+        this.saveSoon();
         return true;
     },
 
@@ -433,7 +463,7 @@ DocsDoodads.AssetIndex = {
         const next = list.filter(s => s.name !== name);
         if (next.length === list.length) return false;
         this.data.savedSearches = next;
-        this.save();
+        this.saveSoon();
         return true;
     }
 };

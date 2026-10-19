@@ -83,6 +83,40 @@ DocsDoodads.FS = {
         }
     },
 
+    // atomicWriteJson without blocking: the text is written to the temporary file in the background, then
+    // renamed in place at once (unless stillWanted() now says no; the temporary file goes). Resolves to
+    // whether it was written; never rejects. Without fs.promises it writes as atomicWriteJson does.
+    atomicWriteJsonAsync(filePath, data, indent = 0, stillWanted = null) {
+        const promises = this.fs && this.fs.promises;
+        if (!promises || !this.path) return Promise.resolve(this.atomicWriteJson(filePath, data, indent));
+        let jsonStr;
+        try {
+            jsonStr = indent ? JSON.stringify(data, null, indent) : JSON.stringify(data);
+            if (typeof jsonStr !== 'string') throw new Error('nothing to write');
+        } catch (e) {
+            console.error("[DocsDoodads.FS] Validation failed for atomic JSON write:", e);
+            return Promise.resolve(false);
+        }
+        const tmpPath = filePath + '.tmp';
+        const dropTmp = () => { try { if (this.existsSync(tmpPath)) this.fs.unlinkSync(tmpPath); } catch (cleanupError) {} };
+        try {
+            const dir = this.path.dirname(filePath);
+            if (!this.existsSync(dir)) this.mkdirp(dir);
+        } catch (e) {
+            return Promise.resolve(false);
+        }
+        return promises.writeFile(tmpPath, jsonStr, 'utf8').then(() => {
+            if (stillWanted && !stillWanted()) { dropTmp(); return false; }
+            // Synchronous, so nothing can run between the check above and the rename.
+            this.fs.renameSync(tmpPath, filePath);
+            return true;
+        }).catch(e => {
+            console.error(`[DocsDoodads.FS] Could not write ${filePath}:`, e);
+            dropTmp();
+            return false;
+        });
+    },
+
     // Text or bytes written whole or not at all: a temporary file beside the target, then a rename. Throws
     // (with the temporary file removed) when it can't write.
     atomicWriteFile(filePath, data, encoding) {
@@ -159,6 +193,56 @@ DocsDoodads.FS = {
         return backups.sort((a, b) => b.mtimeMs - a.mtimeMs);
     },
 
+    // An entry's text as atomicWriteManyJson writes it ({ data, indent }, indent 2 when not given).
+    jsonOf(entry) {
+        const indent = entry.indent === undefined ? 2 : entry.indent;
+        return indent ? JSON.stringify(entry.data, null, indent) : JSON.stringify(entry.data);
+    },
+
+    // Before a save: a timestamped backup of each file whose text is about to change (a file written the
+    // same as it is gets none), then one look at the backups folder to keep the newest of each. Fills in
+    // entry.json so the write doesn't make the text again. Returns the backups made; throws when one fails.
+    backupChanged(entries, backupDirectory = 'data/docs_doodads_cache/backups') {
+        if (!this.fs || !this.path) return [];
+        const made = [], names = new Set();
+        for (const entry of entries) {
+            entry.json = this.jsonOf(entry);
+            if (!this.existsSync(entry.path)) continue;
+            let now = null;
+            try { now = this.fs.readFileSync(entry.path, 'utf8'); } catch (e) { now = null; }
+            if (now === entry.json) continue;
+            if (!this.existsSync(backupDirectory)) this.mkdirp(backupDirectory);
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const baseName = this.path.basename(entry.path);
+            let backupPath = this.path.join(backupDirectory, `${baseName}.${stamp}.bak`);
+            for (let suffix = 1; this.existsSync(backupPath); suffix++) backupPath = this.path.join(backupDirectory, `${baseName}.${stamp}.${suffix}.bak`);
+            this.fs.copyFileSync(entry.path, backupPath);
+            made.push(backupPath);
+            names.add(baseName);
+        }
+        if (names.size) this.pruneBackupsFor(backupDirectory, names, backupRetentionCount);
+        return made;
+    },
+
+    // pruneBackups for several files at once, reading the folder once.
+    pruneBackupsFor(dir, prefixes, maxCount) {
+        if (!this.fs || !this.path || !this.existsSync(dir)) return;
+        let all;
+        try { all = this.fs.readdirSync(dir); } catch (e) { return; }
+        for (const prefix of prefixes) {
+            for (const [ending, keep] of [['.bak', maxCount], ['.unreadable', 3]]) {
+                const files = all.filter(f => f.startsWith(prefix + '.') && f.endsWith(ending))
+                    .map(f => { try { return { name: f, time: this.fs.statSync(this.path.join(dir, f)).mtimeMs }; } catch (e) { return null; } })
+                    .filter(Boolean)
+                    .sort((a, b) => b.time - a.time);
+                while (files.length > keep) {
+                    const toRemove = files.pop();
+                    try { this.fs.unlinkSync(this.path.join(dir, toRemove.name)); } catch (e) {}
+                }
+            }
+        }
+    },
+
     atomicWriteManyJson(entries, options = {}) {
         const result = { ok: false, committed: [], error: null, rolledBack: false };
         if (!this.fs || !this.path || !Array.isArray(entries) || entries.length === 0) {
@@ -179,8 +263,7 @@ DocsDoodads.FS = {
                 if (seenTargets.has(targetKey)) throw new Error(`Duplicate transaction target: ${entry.path}`);
                 seenTargets.add(targetKey);
 
-                const indent = entry.indent === undefined ? 2 : entry.indent;
-                const json = indent ? JSON.stringify(entry.data, null, indent) : JSON.stringify(entry.data);
+                const json = typeof entry.json === 'string' ? entry.json : this.jsonOf(entry);
                 if (typeof json !== 'string') throw new Error(`Entry ${index} has nothing to write.`);
                 this.ensureDir(this.path.dirname(targetPath));
                 const temporary = `${targetPath}.ddtxn-${transactionId}-${index}.tmp`;

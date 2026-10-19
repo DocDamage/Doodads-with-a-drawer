@@ -53,7 +53,7 @@
                 return null;
             }
             asset.collision = { preset: 'custom', shape };
-            DocsDoodads.AssetIndex.save();
+            DocsDoodads.AssetIndex.saveSoon();
             this.showToast(`Collision traced for ${asset.fileName}; new placements will use it.`);
             this.refreshInspector();
             return shape;
@@ -459,9 +459,44 @@
         };
     },
 
+    // A map or database file for the usage index: read again only when it changed on disk (a save, or
+    // MZ's editor), not after every step. Shared and read-only: renames use loadUsageSources.
+    readUsageFile(filePath) {
+        const FS = DocsDoodads.FS;
+        const cache = this._usageFiles || (this._usageFiles = new Map());
+        const st = FS.stat(filePath);
+        const c = cache.get(filePath);
+        if (c && st && c.mtimeMs === st.mtimeMs && c.size === st.size) return c.data;
+        const data = FS.readJson(filePath);
+        if (st) cache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, data }); else cache.delete(filePath);
+        return data;
+    },
+
+    // Where every file is used: the maps' and database's part is kept while their files stay as they were
+    // (a stat each), and the doodads' and prefabs' part (in memory, changed by every step) is added fresh.
     refreshUsageIndex() {
-        DocsDoodads.Usage.lastIndex = DocsDoodads.Usage.buildIndex(this.loadUsageSources());
-        return DocsDoodads.Usage.lastIndex;
+        const U = DocsDoodads.Usage;
+        const mapInfos = this.readUsageFile('data/MapInfos.json') || (window.$dataMapInfos || []);
+        const maps = {};
+        for (const info of mapInfos) {
+            if (!info) continue;
+            const map = this.readUsageFile(DocsDoodads.Persistence.mapFilePath(info.id));
+            if (map) maps[info.id] = map;
+        }
+        const database = {};
+        for (const name of this.databaseFiles) database[name] = this.readUsageFile(`data/${name}.json`);
+        const files = [mapInfos].concat(Object.values(maps), Object.values(database));
+        const disk = this._usageDisk;
+        const same = disk && disk.files.length === files.length && disk.files.every((x, i) => x === files[i]);
+        if (!same) this._usageDisk = { files, index: U.buildIndex({ mapInfos, maps, database }) };
+        const mine = U.buildIndex({ mapInfos, doodads: window.$dataDocsDoodads || {}, prefabs: DocsDoodads.Prefabs.ensureLoaded() });
+        const index = new Map();
+        for (const [key, refs] of this._usageDisk.index) index.set(key, refs.slice());
+        for (const [key, refs] of mine) {
+            if (index.has(key)) index.get(key).push(...refs); else index.set(key, refs);
+        }
+        U.lastIndex = index;
+        return index;
     },
 
     assetUsage(asset) {
@@ -750,7 +785,14 @@
 
     renderPackingPanel() {
         const manifest = DocsDoodads.Packer.forMap(this.currentMapId());
-        const stale = manifest ? DocsDoodads.Packer.staleSources(manifest, p => { const st = DocsDoodads.FS.stat(p); return st ? st.mtimeMs : 0; }) : [];
+        // The panel redraws on every step; each packed file is looked at again after a few seconds, not each time.
+        const seen = this._packStale;
+        let stale = [];
+        if (manifest && seen && seen.manifest === manifest && Date.now() - seen.at < 5000) stale = seen.stale;
+        else if (manifest) {
+            stale = DocsDoodads.Packer.staleSources(manifest, p => { const st = DocsDoodads.FS.stat(p); return st ? st.mtimeMs : 0; });
+            this._packStale = { manifest, at: Date.now(), stale };
+        }
         const status = manifest
             ? `${Object.keys(manifest.frames).length} region(s) in ${manifest.sheets.length} sheet(s), built ${new Date(manifest.builtAt).toLocaleString()}.`
             : 'Not packed. Deployed games load each image separately.';

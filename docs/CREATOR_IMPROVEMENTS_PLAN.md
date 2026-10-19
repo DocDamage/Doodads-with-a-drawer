@@ -3,8 +3,8 @@
 **Status:** accepted 2026-10-19. Part A is done: phases 1 (§2.1, the fixes), 2 (the grid picker), 3 (locks, undo, the
 dice and the body type, linked hair; the rest of §2.2), 4 (the switcher, the card's groups, face slots, High contrast;
 §2.3) and 5 (Memao on the tile and its props, MZ slots from the mask, recipes; §2.4). So are Part B phases B1 (§8, the
-game bugs), B2 (§9.1 and §9.2, the editor's data safety and behaviour), B3 (§9.3, keyboard and screen readers) and B4
-(§10.1, per-frame performance, measured on a 3,000-doodad map). All are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
+game bugs), B2 (§9.1 and §9.2, the editor's data safety and behaviour), B3 (§9.3, keyboard and screen readers), B4
+(§10.1, per-frame performance, measured on a 3,000-doodad map) and B5 (§10.2, editor performance). All are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
 `[` / `]` and the next colour channel `C` (§2.1 gave `]` to both), and a mask colour snaps only to a slot its part uses
 (the real masks put some within reach of other parts' keys). In phase 2 the pad opens the grid with the right stick, not
 A, which stays the colour; in the grid A picks as planned. In phase 3 Memao's linked rows are marked `link: 'hair'` (not
@@ -14,7 +14,8 @@ not its top; Memao's pack has one prop of each kind (its `_000` files are the em
 for a pack with more. In B4 `States.index` is made cheap rather than called once per update; in 3D a doodad's
 shadow and effects follow the camera's culling a frame late (the billboards decide after the doodads update); and a
 light, a picture layer list or a switch list changed in place by a script (not through the API or the editor, which
-replace them) is seen once it is replaced.
+replace them) is seen once it is replaced. In B5 the usage index reads map and database files synchronously, but
+only those that changed on disk (a stat each), rather than reading them in the background.
 
 **Goal:** two reviews on one day, written up as one plan. **Part A** makes the three character creators (LPC,
 Memao and MZ: `docs/LPC_CHARACTER_CREATOR_PLAN.md`, `docs/MEMAO_CHARACTER_CREATOR_PLAN.md`,

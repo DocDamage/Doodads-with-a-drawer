@@ -129,13 +129,26 @@ DocsDoodads.Shortcuts = {
     match(e) {
         if (!e) return null;
         const mods = this.modifiers(e);
-        const rows = this.list.filter(s => !s.fixed).map(s => ({ id: s.id, chord: this.chordOf(s.id) })).filter(r => r.chord);
+        const rows = this.compiled();
         for (const code of [this.codeFromKey(e.key), e.code]) {
             if (!code) continue;
             const hit = rows.find(r => this.same(r.chord, Object.assign({ code }, mods)));
             if (hit) return hit.id;
         }
         return null;
+    },
+
+    // The rebindable rows with their chords, worked out again only when the saved keys change (every key
+    // press asks; each row used to read and parse the saved preferences).
+    compiled() {
+        let raw;
+        try { raw = typeof localStorage !== 'undefined' && DocsDoodads.Ui ? localStorage.getItem(DocsDoodads.Ui.prefsKey) : undefined; } catch (err) { raw = undefined; }
+        const c = this._compiled;
+        if (c && raw !== undefined && c.raw === raw) return c.rows;
+        const rows = this.list.filter(s => !s.fixed).map(s => ({ id: s.id, chord: this.chordOf(s.id) })).filter(r => r.chord);
+        // Without saved preferences to compare (no localStorage), nothing is kept.
+        this._compiled = raw === undefined ? null : { raw, rows };
+        return rows;
     },
 
     // Keys a text field leaves to the editor (Ctrl+S right after typing in Details): chords with Ctrl or Alt,
@@ -188,6 +201,7 @@ DocsDoodads.Shortcuts = {
         if ((chord && def && this.same(chord, def)) || (!chord && !def)) delete own[id];
         else own[id] = text;
         DocsDoodads.Ui.setPref(this.prefKey, own);
+        this._compiled = null;
         return true;
     },
 
@@ -195,10 +209,12 @@ DocsDoodads.Shortcuts = {
         const own = Object.assign({}, this.overrides());
         delete own[id];
         DocsDoodads.Ui.setPref(this.prefKey, own);
+        this._compiled = null;
     },
 
     resetAll() {
         DocsDoodads.Ui.setPref(this.prefKey, {});
+        this._compiled = null;
     },
 
     // The guide's table, from the defaults (npm run shortcuts writes it into Docs_Doodads_Guide.md).
