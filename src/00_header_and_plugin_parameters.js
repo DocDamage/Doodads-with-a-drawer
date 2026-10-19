@@ -1343,6 +1343,21 @@
  * @type number
  * @default 0
  *
+ * @command flashlight
+ * @text Flashlight
+ * @desc The player's flashlight (World > Lighting) on or off for this playthrough, or back to its setting.
+ *
+ * @arg state
+ * @text Flashlight
+ * @type select
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @option As World > Lighting
+ * @value world
+ * @default on
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.

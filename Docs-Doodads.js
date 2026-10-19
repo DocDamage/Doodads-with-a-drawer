@@ -1343,6 +1343,21 @@
  * @type number
  * @default 0
  *
+ * @command flashlight
+ * @text Flashlight
+ * @desc The player's flashlight (World > Lighting) on or off for this playthrough, or back to its setting.
+ *
+ * @arg state
+ * @text Flashlight
+ * @type select
+ * @option On
+ * @value on
+ * @option Off
+ * @value off
+ * @option As World > Lighting
+ * @value world
+ * @default on
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
@@ -2245,6 +2260,14 @@ DocsDoodads.Lighting = {
                 doodad: d,
                 x: at.x + (Number(l.offsetX) || 0),
                 y: at.y + (Number(l.offsetY) || 0),
+                // Where it is on the map (walls stop light there), its shape and which way it points.
+                mapX: (Number(d.x) || 0) + (Number(l.offsetX) || 0),
+                mapY: (Number(d.y) || 0) + (Number(l.offsetY) || 0),
+                screenFixed: d.posMode === 0,
+                shape: l.shape === 'cone' ? 'cone' : 'round',
+                angle: ((Number(l.angle) || 0) % 360 + 360) % 360,
+                spread: Math.max(5, Math.min(180, Number(l.spread) || 60)),
+                occlude: l.occlude,
                 radius: Math.max(8, Number(l.radius) || 144),
                 color: this.parseColor(l.color, 0xffd27f),
                 intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level,
@@ -2320,6 +2343,130 @@ DocsDoodads.FrameAnim = {
             }
             default: return (offset + steps) % total;
         }
+    }
+};
+//==========================================================
+// SECTION 5A2: SHAPED LIGHTS, PRESETS, WALL SHADOWS, FLASHLIGHT
+//==========================================================
+// A doodad's light can be a cone (shape 'cone', angle: the way it points in degrees, 0 = right, 90 =
+// down; spread: how wide), start from a preset (torch, candle, neon...), and on flat maps stop at walls:
+// with occlusion on, the light only reaches tiles a ray from it can get to (World > Lighting picks what
+// counts as a wall: tiles nobody can walk on, and any regions listed). The player can carry a
+// flashlight that points where they face (World > Lighting, the Flashlight command).
+Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '' });
+
+DocsDoodads.LightPresets = {
+    list: [
+        { id: 'torch', label: 'Torch', light: { color: '#ff9a3c', radius: 170, intensity: 0.9, flicker: 0.35, glow: 0.35, shape: 'round' } },
+        { id: 'candle', label: 'Candle', light: { color: '#ffd27f', radius: 84, intensity: 0.8, flicker: 0.25, glow: 0.4, shape: 'round' } },
+        { id: 'campfire', label: 'Campfire', light: { color: '#ff7a2a', radius: 230, intensity: 0.95, flicker: 0.45, glow: 0.45, shape: 'round' } },
+        { id: 'lantern', label: 'Lantern', light: { color: '#ffe2a8', radius: 150, intensity: 0.85, flicker: 0.08, glow: 0.3, shape: 'round' } },
+        { id: 'neonPink', label: 'Neon (pink)', light: { color: '#ff4fd8', radius: 130, intensity: 0.75, flicker: 0, glow: 0.7, shape: 'round' } },
+        { id: 'neonBlue', label: 'Neon (blue)', light: { color: '#38d6ff', radius: 130, intensity: 0.75, flicker: 0, glow: 0.7, shape: 'round' } },
+        { id: 'crystal', label: 'Crystal', light: { color: '#9ef0ff', radius: 110, intensity: 0.7, flicker: 0.05, glow: 0.55, shape: 'round' } },
+        { id: 'spotlight', label: 'Spotlight (cone)', light: { color: '#fff6e0', radius: 300, intensity: 0.95, flicker: 0, glow: 0.1, shape: 'cone', spread: 40 } },
+        { id: 'moonbeam', label: 'Moonbeam (cone)', light: { color: '#b8c8ff', radius: 260, intensity: 0.6, flicker: 0, glow: 0.05, shape: 'cone', spread: 30, angle: 100 } },
+        { id: 'window', label: 'Window glow', light: { color: '#ffd9a0', radius: 120, intensity: 0.7, flicker: 0, glow: 0.2, shape: 'cone', spread: 80, angle: 90, when: 'dark' } }
+    ],
+
+    get(id) {
+        return this.list.find(p => p.id === id) || null;
+    },
+
+    // A light with a preset's colour, size, flicker and shape (its position and on/off stay).
+    apply(light, id) {
+        const p = this.get(id);
+        const base = Object.assign({}, light || {});
+        if (!p) { base.preset = ''; return base; }
+        return Object.assign(base, JSON.parse(JSON.stringify(p.light)), { preset: id });
+    }
+};
+
+DocsDoodads.Occlusion = {
+    defaults: { occlusion: false, wallRegions: '', rays: 160 },
+
+    settings() {
+        return Object.assign({}, this.defaults, DocsDoodads.World.settings().lighting2d || {});
+    },
+
+    // Whether a light stops at walls: its own choice, or the world's.
+    appliesTo(light, world) {
+        if (light.occlude === true || light.occlude === 'on') return true;
+        if (light.occlude === false || light.occlude === 'off') return false;
+        return Boolean(world && world.occlusion);
+    },
+
+    regions(text) {
+        return new Set(String(text || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0));
+    },
+
+    // The outline a light reaches, in map pixels: [cx, cy, x1, y1, x2, y2, ...] (a fan from the light).
+    // isWall(tx, ty) says whether a tile stops light. A cone (angle and spread in degrees) only casts rays
+    // across its width. The tile the light stands in never blocks it (a lamp on a wall).
+    visibility(cx, cy, radius, isWall, tw, th, opts = {}) {
+        const rays = Math.max(8, Math.min(720, Math.round(Number(opts.rays) || 160)));
+        const cone = opts.spread !== undefined && opts.spread < 360;
+        const spread = cone ? Math.max(1, Math.min(359, Number(opts.spread))) * Math.PI / 180 : Math.PI * 2;
+        const start = cone ? (Number(opts.angle) || 0) * Math.PI / 180 - spread / 2 : 0;
+        const n = cone ? Math.max(4, Math.round(rays * spread / (Math.PI * 2))) : rays;
+        const sx = Math.floor(cx / tw), sy = Math.floor(cy / th);
+        const pts = [cx, cy];
+        for (let i = 0; i <= n; i++) {
+            if (!cone && i === n) break;
+            const a = start + spread * (i / n);
+            const dx = Math.cos(a), dy = Math.sin(a);
+            const d = this.cast(cx, cy, dx, dy, radius, isWall, tw, th, sx, sy);
+            pts.push(cx + dx * d, cy + dy * d);
+        }
+        if (!cone) pts.push(pts[2], pts[3]);
+        return pts;
+    },
+
+    // How far a ray gets before a wall tile (or the radius): stepping tile edge to tile edge.
+    cast(x, y, dx, dy, radius, isWall, tw, th, sx, sy) {
+        let tx = Math.floor(x / tw), ty = Math.floor(y / th);
+        const stepX = dx > 0 ? 1 : -1, stepY = dy > 0 ? 1 : -1;
+        const nextX = (dx > 0 ? (tx + 1) * tw : tx * tw) - x, nextY = (dy > 0 ? (ty + 1) * th : ty * th) - y;
+        let tMaxX = dx !== 0 ? nextX / dx : Infinity, tMaxY = dy !== 0 ? nextY / dy : Infinity;
+        const tDX = dx !== 0 ? Math.abs(tw / dx) : Infinity, tDY = dy !== 0 ? Math.abs(th / dy) : Infinity;
+        let t = 0;
+        for (let guard = 0; guard < 400; guard++) {
+            if (tMaxX < tMaxY) { t = tMaxX; tMaxX += tDX; tx += stepX; } else { t = tMaxY; tMaxY += tDY; ty += stepY; }
+            if (t >= radius) return radius;
+            if ((tx !== sx || ty !== sy) && isWall(tx, ty)) return t;
+        }
+        return radius;
+    }
+};
+
+DocsDoodads.Flashlight = {
+    defaults: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true },
+
+    settings() {
+        return Object.assign({}, this.defaults, (DocsDoodads.World.settings().lighting2d || {}).flashlight || {});
+    },
+
+    // On when World > Lighting turns it on (and its switch is on, if it has one), unless the Flashlight
+    // command turned it off; the command can also turn it on for this playthrough.
+    isOn(switchValue) {
+        const s = this.settings();
+        const sys = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsFlashlight : undefined;
+        if (sys === false) return false;
+        if (sys === true) return true;
+        if (!s.enabled) return false;
+        return !(Number(s.switchId) > 0) || Boolean(switchValue && switchValue(Number(s.switchId)));
+    },
+
+    // Degrees for MZ's directions (2 down, 4 left, 6 right, 8 up).
+    angleFor(direction) {
+        return { 2: 90, 4: 180, 6: 0, 8: 270 }[direction] !== undefined ? { 2: 90, 4: 180, 6: 0, 8: 270 }[direction] : 90;
+    },
+
+    // Turns smoothly toward where the player faces (degrees a frame).
+    turn(current, target, step = 18) {
+        let d = ((target - current + 540) % 360) - 180;
+        if (Math.abs(d) <= step) return target;
+        return (current + Math.sign(d) * step + 360) % 360;
     }
 };
 //==========================================================
@@ -3238,6 +3385,9 @@ DocsDoodads.World = {
         minimap: { flat: false, fog: false, radius: 6, size: 140 },
         // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
         camera2d: { smooth: 0, lookAhead: 0 },
+        // Flat-map lighting (06_render_lights_directional.js): walls that stop light, and the player's flashlight.
+        lighting2d: { occlusion: false, wallRegions: '', rays: 160,
+            flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
             wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
@@ -9645,6 +9795,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (this._docs3d) {
             for (const l of lights) l.y -= Number(Object.assign({}, Lighting.lightDefaults, l.doodad && l.doodad.light).offsetY) || 0;
         }
+        if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
@@ -9655,6 +9806,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
             s.alpha = l.glow * l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+            if (this.docsShapeLight) this.docsShapeLight(s, l);
         });
 
         const renderer = DocsDoodads.Compat.getRenderer();
@@ -9683,7 +9835,11 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
             s.alpha = l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+            if (this.docsShapeLight) this.docsShapeLight(s, l);
+            if (this.docsMaskLight) this.docsMaskLight(s, l, i);
         });
+        // Masks left over from lights that went out.
+        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i].visible = false; }
         renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
@@ -11688,6 +11844,151 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'setWind', args => {
         const strength = String(args.strength || '').trim().toLowerCase() === 'world' ? 'world' : Number(args.strength);
         DocsDoodads.Wind.set(strength, Number(args.duration) || 0, String(args.direction || 'same'));
+    });
+}
+//==========================================================
+// SECTION 15C: CONE LIGHTS, THE FLASHLIGHT AND WALL SHADOWS (RUNTIME)
+//==========================================================
+// updateDocsLighting asks these for the flashlight (docsAddFlashlight), each light's picture
+// (docsShapeLight: a soft disc, or a cone pointing its way) and, on flat maps, a mask of where walls let
+// it reach (docsMaskLight, from DocsDoodads.Occlusion; outlines are kept while nothing moves).
+DocsDoodads.Lighting.coneTexture = function(spread) {
+    const key = Math.max(5, Math.min(180, Math.round((Number(spread) || 60) / 5) * 5));
+    const cache = this._cones = this._cones || {};
+    if (cache[key]) return cache[key];
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (ctx && ctx.createRadialGradient) {
+        const half = key * Math.PI / 360;
+        const g = ctx.createRadialGradient(0, size / 2, 0, 0, size / 2, size);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.5)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(0, size / 2);
+        ctx.arc(0, size / 2, size, -half, half);
+        ctx.closePath();
+        ctx.fill();
+    }
+    cache[key] = DocsDoodads.sharedTexture ? DocsDoodads.sharedTexture(canvas) : null;
+    return cache[key];
+};
+
+// Tiles that stop light on the current map (cached while the map's tiles and the wall regions stay).
+DocsDoodads.Occlusion.wallsFor = function() {
+    if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+    const s = this.settings();
+    const c = this._walls;
+    if (c && c.data === $dataMap.data && c.regions === s.wallRegions && c.mapId === $gameMap.mapId()) return c;
+    const w = $gameMap.width(), h = $gameMap.height();
+    const regions = this.regions(s.wallRegions);
+    const grid = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const blocked = ![2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+            grid[y * w + x] = blocked || regions.has($gameMap.regionId(x, y)) ? 1 : 0;
+        }
+    }
+    this._walls = { data: $dataMap.data, regions: s.wallRegions, mapId: $gameMap.mapId(), w, h, grid, outlines: new Map() };
+    return this._walls;
+};
+
+DocsDoodads.Occlusion.outlineFor = function(light, rays) {
+    const walls = this.wallsFor();
+    if (!walls) return null;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const key = [Math.round(light.mapX), Math.round(light.mapY), Math.round(light.radius), light.shape, Math.round(light.angle), Math.round(light.spread), rays].join('|');
+    let pts = walls.outlines.get(key);
+    if (!pts) {
+        const isWall = (x, y) => x < 0 || y < 0 || x >= walls.w || y >= walls.h ? false : walls.grid[y * walls.w + x] === 1;
+        pts = this.visibility(light.mapX, light.mapY, light.radius, isWall, tw, th,
+            light.shape === 'cone' ? { rays, angle: light.angle, spread: light.spread } : { rays });
+        // Moving lights (the flashlight) make new outlines every few steps; old ones are let go.
+        if (walls.outlines.size > 400) walls.outlines.clear();
+        walls.outlines.set(key, pts);
+    }
+    return pts;
+};
+
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    Spriteset_Map.prototype.docsAddFlashlight = function(lights) {
+        const F = DocsDoodads.Flashlight;
+        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+        if (this._docs3d || typeof $gamePlayer === 'undefined' || !$gamePlayer || !F.isOn(switchValue)) return lights;
+        if ($gamePlayer.isTransparent && $gamePlayer.isTransparent()) return lights;
+        const s = F.settings();
+        const target = F.angleFor($gamePlayer.direction());
+        this._docsFlashAngle = this._docsFlashAngle === undefined ? target : F.turn(this._docsFlashAngle, target);
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        lights.push({
+            doodad: null, flashlight: true,
+            x: $gamePlayer.screenX(), y: $gamePlayer.screenY() - th / 2,
+            mapX: ($gamePlayer._realX + 0.5) * tw, mapY: ($gamePlayer._realY + 0.5) * th,
+            radius: Math.max(16, Number(s.radius) || 280), color: DocsDoodads.Lighting.parseColor(s.color, 0xfff2cc),
+            intensity: Math.max(0, Math.min(1, Number(s.intensity) || 0.9)), flicker: 0, glow: 0.05, seed: 0,
+            shape: 'cone', angle: this._docsFlashAngle, spread: Math.max(5, Math.min(180, Number(s.spread) || 50)),
+            occlude: s.occlude ? 'on' : 'off'
+        });
+        return lights;
+    };
+
+    // The disc, or a cone from its tip pointing the light's way.
+    Spriteset_Map.prototype.docsShapeLight = function(sprite, light) {
+        if (light.shape === 'cone') {
+            const tex = DocsDoodads.Lighting.coneTexture(light.spread);
+            if (tex && sprite.texture !== tex) sprite.texture = tex;
+            sprite.anchor.set(0, 0.5);
+            sprite.scale.set(light.radius / 256);
+            sprite.rotation = light.angle * Math.PI / 180;
+        } else {
+            const tex = this.docsLightTexture();
+            if (sprite.texture !== tex) sprite.texture = tex;
+            sprite.anchor.set(0.5, 0.5);
+            sprite.rotation = 0;
+        }
+    };
+
+    // On flat maps, a light that walls stop only shows inside the outline it can reach.
+    Spriteset_Map.prototype.docsMaskLight = function(sprite, light, index) {
+        const O = DocsDoodads.Occlusion;
+        const pool = this._docsLightMasks = this._docsLightMasks || [];
+        const world = O.settings();
+        const use = !this._docs3d && !light.screenFixed && O.appliesTo(light, world);
+        let g = pool[index];
+        if (!use) {
+            if (sprite.mask) sprite.mask = null;
+            if (g) { g.clear(); g.visible = false; }
+            return false;
+        }
+        const pts = O.outlineFor(light, Math.max(40, Math.min(360, Number(world.rays) || 160)));
+        if (!pts) return false;
+        if (!g) {
+            g = pool[index] = new PIXI.Graphics();
+            this._docsLightScene.addChild(g);
+        }
+        const ox = $gameMap.displayX() * $gameMap.tileWidth(), oy = $gameMap.displayY() * $gameMap.tileHeight();
+        const screen = new Array(pts.length);
+        for (let i = 0; i < pts.length; i += 2) { screen[i] = pts[i] - ox; screen[i + 1] = pts[i + 1] - oy; }
+        g.clear();
+        g.beginFill(0xffffff, 1);
+        g.drawPolygon(screen);
+        g.endFill();
+        g.visible = true;
+        if (sprite.mask !== g) sprite.mask = g;
+        return true;
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'flashlight', args => {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return;
+        const state = String(args.state || 'on');
+        $gameSystem._docsFlashlight = state === 'on' ? true : state === 'off' ? false : undefined;
     });
 }
 //==========================================================
@@ -24455,6 +24756,11 @@ DocsDoodads.Workspace = {
             delete d.model;
             return;
         }
+        // A light preset sets several of the light's settings at once.
+        if (key === 'light.preset') {
+            d.light = DocsDoodads.LightPresets.apply(Object.assign({}, this.propertyDefaults().light, d.light || {}), value);
+            return;
+        }
         if (key === 'name') {
             const name = String(value || '').trim();
             if (name) d.name = name; else delete d.name;
@@ -24632,7 +24938,12 @@ DocsDoodads.Workspace = {
             ] },
             { title: 'Light', fields: [
                 { key: 'light.enabled', label: 'Emit light', type: 'checkbox' },
+                { key: 'light.preset', label: 'Preset (sets the colour, size and flicker)', type: 'select', options: [{ value: '', label: '(your own)' }].concat(D.LightPresets.list.map(p => ({ value: p.id, label: p.label }))) },
                 { key: 'light.when', label: 'When', type: 'select', options: D.Lighting.whenOptions },
+                { key: 'light.shape', label: 'Shape', type: 'select', options: [{ value: 'round', label: 'Round (all around)' }, { value: 'cone', label: 'Cone (points one way)' }] },
+                range('light.angle', 'Points (degrees: 0 right, 90 down, 180 left, 270 up)', 0, 359, 5),
+                range('light.spread', 'Cone width (degrees)', 5, 180, 5),
+                { key: 'light.occlude', label: 'Walls stop it (flat maps)', type: 'select', options: [{ value: 'world', label: 'As World > Lighting' }, { value: 'on', label: 'Yes' }, { value: 'off', label: 'No' }] },
                 { key: 'light.color', label: 'Color', type: 'color' },
                 range('light.radius', 'Radius', 16, 600, 4),
                 range('light.intensity', 'Intensity', 0, 1, 0.05),
@@ -27168,6 +27479,18 @@ DocsDoodads.Workspace = {
                 check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
+            ] },
+            { title: 'Lighting on Flat Maps', fields: [
+                check('lighting2d.occlusion', 'Walls stop light (tiles nobody can walk on cast shadows)'),
+                { key: 'lighting2d.wallRegions', label: 'Also walls: regions (e.g. 9, 10)', type: 'text' },
+                range('lighting2d.rays', 'Shadow detail (rays per light)', 40, 360, 20),
+                check('lighting2d.flashlight.enabled', 'The player carries a flashlight (it points where they face)'),
+                number('lighting2d.flashlight.switchId', 'Only while switch # is ON (0 = always)'),
+                range('lighting2d.flashlight.radius', 'Flashlight reach', 60, 800, 10),
+                range('lighting2d.flashlight.spread', 'Flashlight width (degrees)', 10, 120, 5),
+                { key: 'lighting2d.flashlight.color', label: 'Flashlight colour', type: 'color' },
+                range('lighting2d.flashlight.intensity', 'Flashlight brightness', 0.1, 1, 0.05),
+                check('lighting2d.flashlight.occlude', 'Walls stop the flashlight')
             ] },
             { title: 'Camera on Flat Maps', fields: [
                 range('camera2d.smooth', "Camera eases after the player (0 = MZ's own)", 0, 0.95, 0.05),

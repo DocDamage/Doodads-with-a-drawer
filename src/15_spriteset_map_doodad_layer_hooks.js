@@ -321,6 +321,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (this._docs3d) {
             for (const l of lights) l.y -= Number(Object.assign({}, Lighting.lightDefaults, l.doodad && l.doodad.light).offsetY) || 0;
         }
+        if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
 
         const glowing = lights.filter(l => l.glow > 0);
@@ -331,6 +332,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
             s.alpha = l.glow * l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+            if (this.docsShapeLight) this.docsShapeLight(s, l);
         });
 
         const renderer = DocsDoodads.Compat.getRenderer();
@@ -359,7 +361,11 @@ if (typeof Spriteset_Map !== 'undefined') {
             s.scale.set((l.radius * 2) / 128);
             s.tint = l.color;
             s.alpha = l.intensity * Lighting.flicker(time, l.seed, l.flicker);
+            if (this.docsShapeLight) this.docsShapeLight(s, l);
+            if (this.docsMaskLight) this.docsMaskLight(s, l, i);
         });
+        // Masks left over from lights that went out.
+        for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i].visible = false; }
         renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
