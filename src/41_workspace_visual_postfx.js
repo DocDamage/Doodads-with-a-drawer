@@ -663,6 +663,9 @@
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] },
+            { title: '3D Models', fields: [
+                check('models3d.gpu', 'Draw models on the graphics card (faster for big or moving models; new: turn it off if a model looks wrong)')
+            ] },
             { title: 'Lighting on Flat Maps', fields: [
                 check('lighting2d.occlusion', 'Walls stop light (tiles nobody can walk on cast shadows)'),
                 { key: 'lighting2d.wallRegions', label: 'Also walls: regions (e.g. 9, 10)', type: 'text' },

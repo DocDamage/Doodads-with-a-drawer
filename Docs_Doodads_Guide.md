@@ -650,11 +650,11 @@ Models are lit by the sun or moon, fade with the fog, take the lighting tint whe
 
 - **Animation:** a model's glTF animations play on their own. **Animation to play** takes a name or number (blank plays the first, `none` plays none), and **Animation speed** speeds it up or slows it down (0 holds the first pose). Translation, rotation and scale, with linear, step and cubic-spline easing, are read.
 - **Skinned models** (characters, creatures) are posed from their joints, up to four weights a vertex.
-- **Materials:** base colours and textures (embedded or next to the model), vertex colours, metal and roughness (a highlight towards the sun), glow (emissive), cut-out (MASK) and see-through (BLEND) alpha, unlit (`KHR_materials_unlit`), and single- or double-sided faces.
+- **Morph targets** (shape keys): a model's own weights, and animations of them (a face's expression, a squashing slime, a door bending), are read; they work with skins too.
+- **Materials:** base colours and textures (embedded or next to the model), vertex colours, metal and roughness, **normal maps** (with their strength; tangents are worked out from the UVs), glow (emissive), cut-out (MASK) and see-through (BLEND) alpha, unlit (`KHR_materials_unlit`), and single- or double-sided faces. Light is worked out **per pixel**, so a smooth surface shows a small, sharp highlight wherever it falls.
 - **Live reload:** while the editor is open, saving the model, its buffers or its textures in another program loads it again, and its doodads redraw.
-- **In the editor**, a model doodad is picked by the triangles drawn under the mouse, and its selection box is the model's size.
-
-Not read: morph targets (shape keys) and normal maps. Light is worked out per vertex, so a highlight on a flat face brightens the whole face. The selection box follows the rest pose, not the animation. Keep models small: they are posed and drawn on the CPU (a still view of a still model reuses the last frame); a few hundred triangles each is comfortable.
+- **In the editor**, a model doodad is picked by the triangles drawn under the mouse, and its selection box is the model's size as it is posed at that moment.
+- **Drawing on the graphics card** (World → 3D Models, off by default while it is new): skinned models are posed, placed and projected on the GPU and each model is drawn into its own picture with a depth buffer, so big and moving models cost much less. On a round world, for skins with more than 32 joints, or if the graphics card refuses the shader, models are drawn the usual way. With it off, models are posed and drawn on the CPU (a still view of a still model reuses the last frame); a few hundred triangles each is comfortable.
 
 ### Battles on 3D maps
 Tick **Battles show this map in 3D behind the fight** in the 3D View panel to use the map itself as the battle background: when a battle starts, the 3D view around the encounter is drawn again from a low camera looking the same way, without characters, pictures or the minimap, and replaces the battlebacks for that battle. Enemies and side-view actors are drawn over it as usual.

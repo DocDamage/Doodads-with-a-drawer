@@ -369,9 +369,18 @@ DocsDoodads.Gltf = {
                 for (const p of j.meshes[node.mesh].primitives) {
                     if (p.mode !== undefined && p.mode !== 4) continue;
                     if (p.attributes.POSITION === undefined) continue;
-                    const pos = this.accessor(doc, p.attributes.POSITION);
-                    const nor = p.attributes.NORMAL !== undefined ? this.accessor(doc, p.attributes.NORMAL) : null;
+                    const basePos = this.accessor(doc, p.attributes.POSITION);
+                    const baseNor = p.attributes.NORMAL !== undefined ? this.accessor(doc, p.attributes.NORMAL) : null;
                     const uv = p.attributes.TEXCOORD_0 !== undefined ? this.accessor(doc, p.attributes.TEXCOORD_0) : null;
+                    // Morph targets (shape keys): moves added to the points (and normals), by weight.
+                    const targets = (p.targets || []).map(t => ({
+                        positions: t.POSITION !== undefined ? this.accessor(doc, t.POSITION) : null,
+                        normals: t.NORMAL !== undefined ? this.accessor(doc, t.NORMAL) : null
+                    }));
+                    const meshWeights = (node.weights || j.meshes[node.mesh].weights || []).slice(0, targets.length);
+                    while (meshWeights.length < targets.length) meshWeights.push(0);
+                    const pos = this.morph(basePos, targets, meshWeights, 'positions');
+                    const nor = baseNor ? this.morph(baseNor, targets, meshWeights, 'normals') : null;
                     const count = pos.length / 3;
                     const positions = new Float32Array(count * 3), normals = new Float32Array(count * 3), uvs = new Float32Array(count * 2);
                     for (let v = 0; v < count; v++) {
@@ -422,6 +431,15 @@ DocsDoodads.Gltf = {
                         joints = Uint16Array.from(this.accessor(doc, p.attributes.JOINTS_0));
                         weights = Float32Array.from(this.accessor(doc, p.attributes.WEIGHTS_0));
                     }
+                    // A normal map (tangent space); tangents are worked out from the UVs where it is drawn.
+                    let normalImage = null, normalScale = 1;
+                    if (mat.normalTexture && j.textures && uv) {
+                        const tex = j.textures[mat.normalTexture.index];
+                        const img = tex && j.images[tex.source];
+                        if (img && img.bufferView !== undefined) normalImage = { bytes: this.viewBytes(doc, img.bufferView), mime: img.mimeType || 'image/png', source: tex.source };
+                        else if (img && img.uri) normalImage = { uri: img.uri, mime: img.mimeType || '', source: tex.source };
+                        normalScale = mat.normalTexture.scale !== undefined ? Number(mat.normalTexture.scale) : 1;
+                    }
                     const e = mat.emissiveFactor || [0, 0, 0];
                     const unlit = Boolean(mat.extensions && mat.extensions.KHR_materials_unlit);
                     prims.push({ positions, normals, uvs, indices, color: [this.toSrgb(f[0]), this.toSrgb(f[1]), this.toSrgb(f[2]), f[3]], image, nearest,
@@ -434,8 +452,10 @@ DocsDoodads.Gltf = {
                         alphaCutoff: mat.alphaCutoff !== undefined ? Number(mat.alphaCutoff) : 0.5,
                         unlit, colors,
                         // For posing: the part's own points, its node, and its skin.
-                        node: index, local: { positions: Float32Array.from(pos), normals: nor ? Float32Array.from(nor) : null }, mirrored,
-                        skin: joints ? node.skin : undefined, joints, weights });
+                        node: index, local: { positions: Float32Array.from(basePos), normals: baseNor ? Float32Array.from(baseNor) : null }, mirrored,
+                        skin: joints ? node.skin : undefined, joints, weights,
+                        morph: targets.length ? { targets, weights: meshWeights } : null,
+                        normalImage, normalScale });
                 }
             }
             for (const child of node.children || []) visit(child, m, index);
@@ -451,10 +471,13 @@ DocsDoodads.Gltf = {
             let duration = 0;
             for (const c of a.channels || []) {
                 const sampler = a.samplers[c.sampler];
-                if (!c.target || c.target.node === undefined || !['translation', 'rotation', 'scale'].includes(c.target.path)) continue;
+                if (!c.target || c.target.node === undefined || !['translation', 'rotation', 'scale', 'weights'].includes(c.target.path)) continue;
                 const times = this.accessor(doc, sampler.input), values = this.accessor(doc, sampler.output);
                 duration = Math.max(duration, times[times.length - 1] || 0);
-                channels.push({ node: c.target.node, path: c.target.path, times, values, interpolation: sampler.interpolation || 'LINEAR' });
+                const ch = { node: c.target.node, path: c.target.path, times, values, interpolation: sampler.interpolation || 'LINEAR' };
+                // Weights: one value per morph target at each key.
+                if (c.target.path === 'weights') ch.size = Math.max(1, Math.round(values.length / Math.max(1, times.length) / (ch.interpolation === 'CUBICSPLINE' ? 3 : 1)));
+                channels.push(ch);
             }
             return { name: a.name || 'Animation ' + (i + 1), duration, channels };
         }).filter(a => a.channels.length);
@@ -492,7 +515,7 @@ DocsDoodads.Gltf = {
 
     // One channel's value at time t (looping): translation/scale [x, y, z] or rotation [x, y, z, w].
     sample(ch, t) {
-        const times = ch.times, n = ch.path === 'rotation' ? 4 : 3, cubic = ch.interpolation === 'CUBICSPLINE';
+        const times = ch.times, n = ch.path === 'rotation' ? 4 : ch.path === 'weights' ? ch.size : 3, cubic = ch.interpolation === 'CUBICSPLINE';
         const stride = cubic ? n * 3 : n, at = (k, part) => ch.values.subarray ? Array.from(ch.values.subarray(k * stride + part * n, k * stride + part * n + n)) : [];
         const value = k => at(k, cubic ? 1 : 0);
         const last = times.length - 1;
@@ -517,22 +540,85 @@ DocsDoodads.Gltf = {
                 out = a.map((v, i) => v + (s * b[i] - v) * u);
             } else out = a.map((v, i) => v + (b[i] - v) * u);
         }
-        if (n === 4) { const len = Math.hypot(out[0], out[1], out[2], out[3]) || 1; out = out.map(v => v / len); }
+        if (n === 4 && ch.path === 'rotation') { const len = Math.hypot(out[0], out[1], out[2], out[3]) || 1; out = out.map(v => v / len); }
         return out;
     },
 
-    // The model's points and normals at time t (seconds, looping) of an animation (or the rest pose with
-    // null): { positions: [Float32Array per part], normals: [...] }.
-    pose(model, animation, t) {
+    // Points (or normals) with morph targets added by weight.
+    morph(base, targets, weights, key) {
+        if (!targets || !targets.length || !weights || !weights.some(w => w)) return base;
+        const out = Float64Array.from(base);
+        targets.forEach((t, i) => {
+            const delta = t[key], w = Number(weights[i]) || 0;
+            if (!delta || !w) return;
+            for (let k = 0; k < out.length; k++) out[k] += delta[k] * w;
+        });
+        return out;
+    },
+
+    // The smallest box round a pose's points: { min, max } (model units).
+    boundsOf(positionsList) {
+        const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+        for (const positions of positionsList || []) {
+            for (let v = 0; v < positions.length; v += 3) {
+                for (let k = 0; k < 3; k++) {
+                    const w = positions[v + k];
+                    if (w < min[k]) min[k] = w;
+                    if (w > max[k]) max[k] = w;
+                }
+            }
+        }
+        return min[0] === Infinity ? null : { min, max };
+    },
+
+    // Tangents (x, y, z, handedness) from points, normals and UVs, per vertex, for normal maps.
+    tangentsFor(positions, normals, uvs, indices) {
+        const n = positions.length / 3;
+        const tan = new Float64Array(n * 3), bit = new Float64Array(n * 3);
+        for (let t = 0; t + 2 < indices.length; t += 3) {
+            const a = indices[t], b = indices[t + 1], c = indices[t + 2];
+            const e1 = [0, 1, 2].map(k => positions[b * 3 + k] - positions[a * 3 + k]), e2 = [0, 1, 2].map(k => positions[c * 3 + k] - positions[a * 3 + k]);
+            const du1 = uvs[b * 2] - uvs[a * 2], dv1 = uvs[b * 2 + 1] - uvs[a * 2 + 1], du2 = uvs[c * 2] - uvs[a * 2], dv2 = uvs[c * 2 + 1] - uvs[a * 2 + 1];
+            const det = du1 * dv2 - du2 * dv1;
+            if (Math.abs(det) < 1e-12) continue;
+            const r = 1 / det;
+            for (const v of [a, b, c]) {
+                for (let k = 0; k < 3; k++) {
+                    tan[v * 3 + k] += (e1[k] * dv2 - e2[k] * dv1) * r;
+                    bit[v * 3 + k] += (e2[k] * du1 - e1[k] * du2) * r;
+                }
+            }
+        }
+        const out = new Float32Array(n * 4);
+        for (let v = 0; v < n; v++) {
+            const nx = normals[v * 3], ny = normals[v * 3 + 1], nz = normals[v * 3 + 2];
+            let tx = tan[v * 3], ty = tan[v * 3 + 1], tz = tan[v * 3 + 2];
+            // Made square to the normal (Gram-Schmidt); a vertex with no UV slope gets any square direction.
+            const d = tx * nx + ty * ny + tz * nz;
+            tx -= nx * d; ty -= ny * d; tz -= nz * d;
+            let len = Math.hypot(tx, ty, tz);
+            if (len < 1e-9) { tx = Math.abs(nx) < 0.9 ? 1 : 0; ty = Math.abs(nx) < 0.9 ? 0 : 1; tz = 0; const d2 = tx * nx + ty * ny; tx -= nx * d2; ty -= ny * d2; tz -= nz * d2; len = Math.hypot(tx, ty, tz) || 1; }
+            tx /= len; ty /= len; tz /= len;
+            const cx = ny * tz - nz * ty, cy = nz * tx - nx * tz, cz = nx * ty - ny * tx;
+            const w = cx * bit[v * 3] + cy * bit[v * 3 + 1] + cz * bit[v * 3 + 2] < 0 ? -1 : 1;
+            out[v * 4] = tx; out[v * 4 + 1] = ty; out[v * 4 + 2] = tz; out[v * 4 + 3] = w;
+        }
+        return out;
+    },
+
+
+    // The node and joint matrices (and morph weights) at time t of an animation, or the rest pose with
+    // null: { world: [mat4 per node], joints: [[mat4 per joint] per skin], weights: [per node or null] }.
+    matrices(model, animation, t) {
         const nodes = model.nodes;
-        const local = nodes.map(n => ({ translation: n.translation, rotation: n.rotation, scale: n.scale, matrix: n.matrix }));
+        const local = nodes.map(n => ({ translation: n.translation, rotation: n.rotation, scale: n.scale, matrix: n.matrix, weights: null }));
         if (animation && animation.duration > 0) {
             const time = ((t % animation.duration) + animation.duration) % animation.duration;
             for (const ch of animation.channels) {
                 const l = local[ch.node];
                 if (!l) continue;
                 l[ch.path] = this.sample(ch, time);
-                l.matrix = null;
+                if (ch.path !== 'weights') l.matrix = null;
             }
         }
         const world = new Array(nodes.length);
@@ -543,15 +629,32 @@ DocsDoodads.Gltf = {
             world[i] = nodes[i].parent >= 0 ? this.multiply(worldOf(nodes[i].parent), own) : own;
             return world[i];
         };
+        for (let i = 0; i < nodes.length; i++) worldOf(i);
+        const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+        const joints = (model.skins || []).map(skin => skin.joints.map((jn, k) => {
+            const ib = skin.inverseBind ? Array.from(skin.inverseBind.subarray(k * 16, k * 16 + 16)) : identity;
+            return this.multiply(worldOf(jn), ib);
+        }));
+        return { world, joints, weights: local.map(l => l.weights) };
+    },
+
+    // The model's points and normals at time t (seconds, looping) of an animation (or the rest pose with
+    // null): { positions: [Float32Array per part], normals: [...] }.
+    pose(model, animation, t) {
+        const nodes = model.nodes;
+        const m = this.matrices(model, animation, t);
+        const local = m.weights.map(w => ({ weights: w }));
+        const worldOf = i => m.world[i];
         const positions = [], normals = [];
         for (const p of model.primitives) {
-            const src = p.local.positions, nsrc = p.local.normals, count = src.length / 3;
+            // Morph targets first (in the part's own space), by the animation's weights or the model's.
+            const w = p.morph ? (local[p.node] && local[p.node].weights) || p.morph.weights : null;
+            const src = p.morph ? this.morph(p.local.positions, p.morph.targets, w, 'positions') : p.local.positions;
+            const nsrc = p.morph && p.local.normals ? this.morph(p.local.normals, p.morph.targets, w, 'normals') : p.local.normals;
+            const count = src.length / 3;
             const out = new Float32Array(count * 3), nout = new Float32Array(count * 3);
             const skin = p.skin !== undefined ? model.skins[p.skin] : null;
-            const jointMats = skin ? skin.joints.map((jn, k) => {
-                const ib = skin.inverseBind ? Array.from(skin.inverseBind.subarray(k * 16, k * 16 + 16)) : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-                return this.multiply(worldOf(jn), ib);
-            }) : null;
+            const jointMats = skin ? m.joints[p.skin] : null;
             const nodeMat = skin ? null : worldOf(p.node);
             for (let v = 0; v < count; v++) {
                 const x = src[v * 3], y = src[v * 3 + 1], z = src[v * 3 + 2];

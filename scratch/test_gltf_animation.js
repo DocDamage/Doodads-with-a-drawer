@@ -164,7 +164,7 @@ try {
     const sprite = ss._docsDoodadSprites[0];
     const mesh = sprite._docsModelMeshes[0];
     assert.ok(mesh && mesh._docsDrawn === 2, 'drawn as a model (both faces, double sided)');
-    assert.ok(mesh.geometry.getBuffer('aSpec') && mesh.geometry.getBuffer('aColor'), 'highlight and colour attributes');
+    assert.ok(mesh.geometry.getBuffer('aNormal') && mesh.geometry.getBuffer('aTangent') && mesh.geometry.getBuffer('aColor'), 'normal, tangent and colour attributes (light per pixel)');
     assert.deepStrictEqual([mesh.shader.uniforms.uMode, mesh.shader.uniforms.uMetal], [0, 0]);
     assert.ok(near(mesh.shader.uniforms.uEmissive[0], G.toSrgb(0.2)), 'the glow reaches the shader');
     const a = Array.from(mesh.geometry.getBuffer('aVertexPosition').data);
