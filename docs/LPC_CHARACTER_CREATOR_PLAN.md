@@ -483,7 +483,45 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
   - Visual Equipment part sheets (phase 6);
   - an Item Bag People entry.
 
-## 16. Open questions for the owner
+## 16. Phase 5 (done, 2026-10-19)
+
+- **Action sheets:** `$Name_<anim>[fN]`, every frame in MZ's four rows. One-row animations (hurt, climb) fill all
+  four rows. They are played with **Play Character Action**.
+  - Offered: slash, thrust, spellcast, shoot, hurt, jump, sit, emote, climb, combat, backslash and halfslash.
+  - Ticked by default: slash, thrust, spellcast, shoot and hurt.
+- **Side-view battler:** `img/sv_actors/Name.png`, 576 × 384. Motion `i` sits in column group `i / 6`, row
+  `i % 6`, facing left.
+  - walk → walk (1, 0, 5)
+  - wait → idle
+  - chant → spellcast
+  - guard → combat
+  - damage → hurt (0, 1, 2)
+  - evade → jump
+  - thrust, swing, missile → thrust, slash, shoot (three frames spread evenly)
+  - skill → halfslash
+  - spell → spellcast
+  - item → emote
+  - escape → run, facing right
+  - victory → jump (1, 2, 3)
+  - dying → hurt (2, 3, 2)
+  - abnormal → hurt (1, 2, 1)
+  - sleep and dead → the last hurt frame
+
+  When the parts lack an animation, the motion falls back (for example to walk or idle) and the export says so.
+- **Compositor fixes found by the playtest:**
+  - A part sold in fixed colours shows its first variant when a recipe names none.
+  - A part is reported missing an animation only when none of its layers has it. A dagger's "behind" layer
+    exists for fewer animations than its blade.
+- **Checked in MZ:**
+  - The export takes about 430 ms for 11 files.
+  - Play Character Action with `$Robin_slash[f6]` played frames 0–5 twice, then went back to the idle sheet.
+  - In a side-view battle, the 576 × 384 battler loaded and the swing motion played with the dagger.
+- **Left for later:**
+  - Oversize weapon art (`slash_oversize`, `thrust_oversize` and `*_128`: most swords, spears and polearms) needs
+    sheets with bigger frames.
+  - Visual Equipment parts (phase 6).
+
+## 17. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting

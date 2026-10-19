@@ -112,7 +112,7 @@ Object.assign(DocsDoodads.Workspace, {
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
-        return { files: written, warnings, names: N };
+        return { files: written, warnings: [...new Set(warnings)], names: N };
     },
 
     // The animation set for the smooth walker (replacing one for the same sheet).
