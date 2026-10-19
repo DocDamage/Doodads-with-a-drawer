@@ -18764,9 +18764,15 @@ DocsDoodads.LpcCompose = {
         }
     },
 
-    // A cache of recoloured layers: (file, colours) -> image, the oldest dropped past max.
-    newCache(max = 120) {
-        return { max, map: new Map(), hits: 0, misses: 0 };
+    // A cache of images (decoded files, or recoloured layers): key -> image, the least recently used dropped
+    // past max entries or past budget bytes (an image counts its RGBA bytes; other values, such as colour
+    // tables, count nothing). The newest entry is always kept.
+    newCache(max = 120, budget = Infinity) {
+        return { max, budget, bytes: 0, map: new Map(), hits: 0, misses: 0 };
+    },
+
+    sizeOf(value) {
+        return value && value.data && value.data.length ? value.data.length : 0;
     },
 
     cached(cache, key, make) {
@@ -18782,7 +18788,13 @@ DocsDoodads.LpcCompose = {
         const v = make();
         if (v) {
             cache.map.set(key, v);
-            while (cache.map.size > cache.max) cache.map.delete(cache.map.keys().next().value);
+            cache.bytes = (cache.bytes || 0) + this.sizeOf(v);
+            const budget = cache.budget === undefined ? Infinity : cache.budget;
+            while (cache.map.size > 1 && (cache.map.size > cache.max || cache.bytes > budget)) {
+                const oldest = cache.map.keys().next().value;
+                cache.bytes -= this.sizeOf(cache.map.get(oldest));
+                cache.map.delete(oldest);
+            }
         }
         return v;
     },
@@ -20766,7 +20778,7 @@ DocsDoodads.MzGenCompose = {
             for (const f of part.files[anim.view] || []) {
                 const r = rank(part.family, f.layer);
                 if (r < 0 || !exists(f.file)) continue;
-                layers.push({ file: f.file, mask: f.mask || '', slot: f.m || '', c: f.c || 0, rank: r, n, part, face: anim.view === 'Face' });
+                layers.push({ file: f.file, mask: f.mask || '', maskSlots: f.slots || null, slot: f.m || '', c: f.c || 0, rank: r, n, part, face: anim.view === 'Face' });
             }
         });
         // Back to front: the view's order; a face part's layers from the highest c (c1 on top).
@@ -20820,16 +20832,28 @@ DocsDoodads.MzGenCompose = {
         for (const [slot, name] of Object.entries(colours)) { const r = name && M.ramp(index, name); if (r) luts[slot] = C.cached(cache, 'lut|' + name, () => this.lut(r)); }
         let drawn = 0;
         for (const layer of resolved.layers) {
-            const used = layer.face ? (luts[layer.slot] ? layer.slot + '=' + colours[layer.slot] : '')
-                : Object.keys(luts).sort().map(s => s + '=' + colours[s]).join(',');
+            // The cache key names only the colours this layer can take: a face file its own slot; a walking or
+            // battler layer the slots its mask holds (from the index; every coloured slot for an older index).
+            // So a new skin colour doesn't redraw clothing with no skin in it.
+            const reach = layer.face ? [layer.slot] : layer.maskSlots;
+            const slots = Object.keys(luts).filter(s => !reach || reach.includes(s)).sort();
+            const used = slots.map(s => s + '=' + colours[s]).join(',');
             const image = C.cached(cache, layer.file + '|' + used, () => {
                 const raw = loadImage(layer.file);
                 if (!raw) return null;
+                // Nothing to recolour: the decoded file as it is (nothing draws into a cached image).
+                if (!slots.length) return raw;
                 const copy = C.copy(raw);
-                if (layer.face) return luts[layer.slot] ? this.recolour(copy, () => layer.slot, luts) : copy;
+                if (layer.face) return this.recolour(copy, () => layer.slot, luts);
                 const mask = layer.mask ? loadImage(layer.mask) : null;
-                if (!mask || mask.width !== raw.width || mask.height !== raw.height || !Object.keys(luts).length) return copy;
-                return this.recolour(copy, i => (mask.data[i + 3] ? M.slotOfKey((mask.data[i] << 16) | (mask.data[i + 1] << 8) | mask.data[i + 2]) : ''), luts);
+                if (!mask || mask.width !== raw.width || mask.height !== raw.height) return raw;
+                // A near colour the index didn't give this layer (one of another part's slots) stays as drawn.
+                const slotAt = i => {
+                    if (!mask.data[i + 3]) return '';
+                    const s = M.slotOfKey((mask.data[i] << 16) | (mask.data[i + 1] << 8) | mask.data[i + 2]);
+                    return !reach || reach.includes(s) ? s : '';
+                };
+                return this.recolour(copy, slotAt, luts);
             });
             if (!image) { warnings.push(`Could not read ${layer.file}.`); continue; }
             // Face parts may be 160 x 160: centred on the 144 face.
@@ -21036,11 +21060,33 @@ DocsDoodads.MzGen = {
             }
         }
         const parts = [...byKey.values()].sort((a, b) => (a.base < b.base ? -1 : a.base > b.base ? 1 : 0) || (a.family < b.family ? -1 : a.family > b.family ? 1 : 0) || a.num - b.num);
+        // Each mask is read once: the slots it holds (so a colour change only redraws the layers it reaches),
+        // and the colours that are no key: listed, so a stray pixel left as drawn can be found.
+        const offKeys = new Map(), snappedKeys = new Map();
+        const note = (map, rgb, part) => { const list = map.get(rgb) || []; if (!list.includes(part.name + ' (' + part.base + ')')) list.push(part.name + ' (' + part.base + ')'); map.set(rgb, list); };
         for (const part of parts) {
             for (const s of this.familySlots[part.family] || []) if (!part.slots.includes(s)) part.slots.push(s);
             part.slots.sort();
             part.name = this.label(part.family) + ' ' + part.num;
+            for (const view of ['TV', 'TVD', 'SV']) {
+                for (const entry of part.files[view]) {
+                    if (!entry.mask) continue;
+                    let mask = null;
+                    try { mask = DocsDoodads.LpcCompose.decodePng(fsLike.readFileSync(pathLib.join(root, entry.mask)), inflate); } catch (e) { mask = null; }
+                    if (!mask) continue;
+                    const seen = this.maskSlots(mask, part.slots);
+                    entry.slots = seen.slots;
+                    seen.unknown.forEach(rgb => note(offKeys, rgb, part));
+                    seen.snapped.forEach(rgb => note(snappedKeys, rgb, part));
+                }
+            }
         }
+        const some = list => list.slice(0, 3).join(', ') + (list.length > 3 ? ` and ${list.length - 3} more` : '');
+        for (const [rgb, list] of snappedKeys) {
+            const k = this.nearestKey(rgb);
+            warnings.push(`Mask colour ${this.hex(rgb)} is read as ${this.slots[this.keys[this.hex(k).slice(1)]][0]} (${this.hex(k)}) in ${some(list)}.`);
+        }
+        for (const [rgb, list] of offKeys) warnings.push(`Mask colour ${this.hex(rgb)} is no colour slot: those pixels keep their colour, in ${some(list)}.`);
         return { format: this.indexFormat, version: this.indexVersion, library: root, built: now || new Date().toISOString(), bases: this.bases.filter(b => parts.some(p => p.base === b)), ramps, parts, warnings };
     },
 
@@ -21058,9 +21104,75 @@ DocsDoodads.MzGen = {
         return { parts: index.parts.length, bases: index.bases || [], built: index.built || '', warnings: index.warnings || [] };
     },
 
-    // The slot a mask key colour stands for ('' when it is fixed).
+    // The slot a mask key colour stands for ('' when it is fixed). Called for every pixel of a layer, so the
+    // keys are a Map from the packed colour, and an off-key colour (MZ's masks have a few) takes the nearest key
+    // whose channels are each within snapDistance; farther ones stay fixed. Results are remembered.
+    snapDistance: 24,
+
     slotOfKey(rgb) {
-        return this.keys[(rgb & 0xffffff).toString(16).padStart(6, '0')] || '';
+        rgb &= 0xffffff;
+        const known = this.keyMap();
+        if (known.has(rgb)) return known.get(rgb);
+        const near = this._snapped || (this._snapped = new Map());
+        if (!near.has(rgb)) {
+            const k = this.nearestKey(rgb);
+            near.set(rgb, k === null ? '' : known.get(k));
+        }
+        return near.get(rgb);
+    },
+
+    keyMap() {
+        if (!this._keyMap) this._keyMap = new Map(Object.entries(this.keys).map(([hex, slot]) => [parseInt(hex, 16), slot]));
+        return this._keyMap;
+    },
+
+    // The known key nearest rgb (by distance in RGB) among those with every channel within snapDistance, or
+    // null. White and near-white mean fixed and never snap.
+    isWhite(rgb) {
+        return ((rgb >> 16) & 255) >= 0xf0 && ((rgb >> 8) & 255) >= 0xf0 && (rgb & 255) >= 0xf0;
+    },
+
+    nearestKey(rgb) {
+        const r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
+        if (this.isWhite(rgb)) return null;
+        let best = null, bestD = Infinity;
+        for (const key of this.keyMap().keys()) {
+            const dr = ((key >> 16) & 255) - r, dg = ((key >> 8) & 255) - g, db = (key & 255) - b;
+            if (Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db)) > this.snapDistance) continue;
+            const d = dr * dr + dg * dg + db * db;
+            if (d < bestD) { best = key; bestD = d; }
+        }
+        return best;
+    },
+
+    // A walking, damaged or battler mask's colour slots, and its colours that are neither a key, near one,
+    // nor white (left as drawn): { slots: [...], unknown: [rgb], snapped: [rgb] }. partSlots: the slots the
+    // part uses (its face files', its family's): a near colour only counts as a slot the part has or the mask
+    // holds exactly (a stray pixel in a coat must not take the tail's colour).
+    maskSlots(mask, partSlots) {
+        const known = this.keyMap(), d = mask.data;
+        const colours = new Set();
+        let last = -1;
+        for (let i = 0; i < d.length; i += 4) {
+            if (!d[i + 3]) continue;
+            const rgb = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+            if (rgb !== last) { colours.add(rgb); last = rgb; }
+        }
+        const allowed = new Set(partSlots || []);
+        for (const rgb of colours) if (known.has(rgb)) allowed.add(known.get(rgb));
+        const slots = new Set(), unknown = new Set(), snapped = new Set();
+        for (const rgb of colours) {
+            const slot = this.slotOfKey(rgb);
+            if (slot && (known.has(rgb) || !partSlots || allowed.has(slot))) {
+                slots.add(slot);
+                if (!known.has(rgb)) snapped.add(rgb);
+            } else if (!this.isWhite(rgb)) unknown.add(rgb);
+        }
+        return { slots: [...slots].sort(), unknown: [...unknown], snapped: [...snapped] };
+    },
+
+    hex(rgb) {
+        return '#' + (rgb & 0xffffff).toString(16).padStart(6, '0');
     },
 
     // ---- Colours ----
@@ -21286,6 +21398,16 @@ DocsDoodads.MzGenSlots = {
             else next.colours[s] = names[1 + Math.floor(rand() * (names.length - 1))] || '';
         }
         return next;
+    },
+
+    // For a part that is gone: the slot's part with the same number on this base, else the nearest number.
+    nearestPart(index, slot, body, oldId) {
+        const list = this.options(index, slot, body);
+        const m = /\/(\d+)$/.exec(String(oldId || ''));
+        if (!list.length) return null;
+        if (!m) return list[0];
+        const num = Number(m[1]);
+        return list.slice().sort((a, b) => Math.abs(a.num - num) - Math.abs(b.num - num) || a.num - b.num)[0];
     },
 
     missing(state, index) {
@@ -35916,6 +36038,7 @@ Object.assign(DocsDoodads.Workspace, {
 //              channels: channels, getColour, setColour)
 //   compose    the compositor's layout facts: frame, directions, animations, frameRect
 //   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport, MzGenExport)
+//   cacheMB    memory for the kit's images: half for the decoded files, half for the recoloured layers
 DocsDoodads.CreatorKits = {
     lpc: {
         id: 'lpc',
@@ -35923,6 +36046,7 @@ DocsDoodads.CreatorKits = {
         slots: DocsDoodads.LpcSlots,
         compose: DocsDoodads.LpcCompose,
         exporter: DocsDoodads.LpcExport,
+        cacheMB: 96,
         safeSwitch: true,
         addons: true,
         parts: true,
@@ -35941,15 +36065,18 @@ DocsDoodads.CreatorKits = {
             const s = DocsDoodads.Lpc.summary(index, safeOnly);
             return `LPC library · ${s.usable} parts${s.commit ? ' · version ' + escapeHtml(s.commit.slice(0, 7)) : ''}`;
         },
-        credits(ws, state, addons) {
-            const walk = ws.composeLpc(DocsDoodads.LpcSlots.toRecipe(state, { addons }), 'walk');
+        // From the stage's walk when it shows the whole character walking (walk: { used }); else the walk is drawn.
+        credits(ws, state, addons, walk) {
+            if (!walk) walk = ws.composeLpc(DocsDoodads.LpcSlots.toRecipe(state, { addons }), 'walk');
             return walk ? DocsDoodads.Lpc.creditsForLayers(walk.used) : [];
         },
         creditsNote: () => `These go into ${escapeHtml(DocsDoodads.Lpc.creditsText)} when the character is exported.`,
         exportNote: () => `Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.`,
         missingNote: 'the library changed, or they aren\'t safe to encrypt',
         exportDefaults: ws => ws.lpcExportDefaults(),
-        exportFiles: (ws, name, o) => ws.lpcExportFiles(name, o),
+        // { file, note, faceSlot } (44_workspace_lpc_creator.js creatorFileEntries), with the outfit's part sheets.
+        exportFiles: (ws, name, o, state) => ws.creatorFileEntries(ws.lpcExportFiles(name, o), name, o, DocsDoodads.LpcExport)
+            .concat(o.parts ? ws.exportLpcParts(state, o, null, null, { dryRun: true }) : []),
         exportRun: (ws, state, o) => ws.exportLpcCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
     },
@@ -35960,6 +36087,7 @@ DocsDoodads.CreatorKits = {
         slots: DocsDoodads.MemaoSlots,
         compose: DocsDoodads.MemaoCompose,
         exporter: DocsDoodads.MemaoExport,
+        cacheMB: 160,
         safeSwitch: false,
         addons: false,
         parts: false,
@@ -35987,7 +36115,7 @@ DocsDoodads.CreatorKits = {
         exportNote: () => 'Sheets made from the Memao assets may go into your games, but not be shared on their own. The character is saved under its name to change and export again.',
         missingNote: 'the asset folder changed',
         exportDefaults: ws => ws.memaoExportDefaults(),
-        exportFiles: (ws, name, o) => ws.memaoExportFiles(name, o),
+        exportFiles: (ws, name, o) => ws.creatorFileEntries(ws.memaoExportFiles(name, o), name, o, DocsDoodads.MemaoExport),
         exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
     },
@@ -35998,6 +36126,7 @@ DocsDoodads.CreatorKits = {
         slots: DocsDoodads.MzGenSlots,
         compose: DocsDoodads.MzGenCompose,
         exporter: DocsDoodads.MzGenExport,
+        cacheMB: 96,
         safeSwitch: false,
         addons: false,
         parts: false,
@@ -36036,7 +36165,7 @@ DocsDoodads.CreatorKits = {
             ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: MZ's 18 battle motions.`]
         ],
         exportDefaults: ws => ws.mzgenExportDefaults(),
-        exportFiles: (ws, name, o) => ws.mzgenExportFiles(name, o),
+        exportFiles: (ws, name, o) => ws.creatorFileEntries(ws.mzgenExportFiles(name, o), name, o, DocsDoodads.MzGenExport),
         exportRun: (ws, state, o) => ws.exportMzGenCharacter(state, o),
         tryOnPlayer: (ws, names) => ws.tryLpcOnPlayer(names, false)
     }
@@ -36874,9 +37003,10 @@ Object.assign(DocsDoodads.Workspace, {
 // (the mockup in docs/LPC_CHARACTER_CREATOR_PLAN.md). Body and face on the left, outfit on the right, each
 // in tabs of ◀ value ▶ pickers with a colour swatch; the character on a stage in the middle, turned and
 // played in any animation; dice for a new body or outfit; saved characters by name. Keyboard: ↑ ↓ pick a
-// row, ← → change it (Shift: its colour), Q / E change tab, Tab the other card, X / Y the dice, Esc closes.
-// A gamepad does the same: d-pad, A colour, LB / RB tabs, Back the other card, X / Y dice, Start saves, B
-// closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's. The same window builds
+// row, ← → change it (Shift: its colour), C the colour channel, Q / E change tab, [ ] the other card, X / Y
+// the dice, Esc closes; Tab moves the focus as in any dialog, and a live region says what changed. A
+// gamepad does the same: d-pad, A colour (held: the channel), LB / RB tabs, Back the other card, X / Y dice,
+// Start saves, B closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's. The same window builds
 // Memao characters (openCreator(state, 'memao')): what differs is in the kit (44_workspace_creator_kits.js).
 DocsDoodads.Ui.css += `
 #dd-creator { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; background: rgba(40, 30, 60, 0.45); }
@@ -36909,7 +37039,8 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-arrow { width: 32px; height: 32px; border: none; border-radius: 50%; background: #ffc93c; color: #5a3d00; font-weight: 900; font-size: 13px; box-shadow: 0 3px 0 #d9a21c; padding: 0; }
 #dd-creator .dd-cr-value { height: 32px; border-radius: 999px; background: #f6efe0; border: 2px solid #ead8b0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; padding: 0 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 #dd-creator .dd-cr-value span { overflow: hidden; text-overflow: ellipsis; }
-#dd-creator .dd-cr-swatch { width: 32px; height: 32px; border-radius: 11px; border: 3px solid #fffaf0; box-shadow: 0 0 0 2px #ead8b0; padding: 0; }
+#dd-creator .dd-cr-swatch { position: relative; width: 32px; height: 32px; border-radius: 11px; border: 3px solid #fffaf0; box-shadow: 0 0 0 2px #ead8b0; padding: 0; }
+#dd-creator .dd-cr-chn { position: absolute; right: -7px; bottom: -7px; min-width: 15px; height: 15px; border-radius: 999px; background: #3a2e4d; color: #fffaf0; font-size: 10px; font-weight: 900; line-height: 15px; text-align: center; }
 #dd-creator .dd-cr-stagecol { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 #dd-creator .dd-cr-stage { flex: 1; min-height: 0; background: #d9f4ef; border-radius: 30px; border: 3px solid #b9e8df; box-shadow: 0 8px 0 #a6dcd2; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
 #dd-creator .dd-cr-name { position: absolute; z-index: 1; top: 16px; left: 70px; right: 70px; text-align: center; border: none; background: transparent; font-family: inherit; font-weight: 900; font-size: 20px; color: #0f6f64; }
@@ -36981,6 +37112,28 @@ Object.assign(DocsDoodads.Workspace, {
         return this.creatorKit().index(this);
     },
 
+    // Each kit's images in two caches, within the kit's memory (cacheMB, half each): raw, the library's files
+    // as decoded (masks too), so a new colour doesn't read and inflate a file again; layers, the recoloured
+    // layers by file and colours. A rescan empties them.
+    creatorImageCaches(kitId) {
+        const C = DocsDoodads.LpcCompose, K = DocsDoodads.CreatorKits[kitId] || DocsDoodads.CreatorKits.lpc;
+        const all = this._creatorImageCaches || (this._creatorImageCaches = {});
+        if (!all[kitId]) {
+            const half = (K.cacheMB || 96) * 1024 * 1024 / 2;
+            all[kitId] = { raw: C.newCache(4000, half), layers: C.newCache(4000, half) };
+        }
+        return all[kitId];
+    },
+
+    resetCreatorImageCaches(kitId) {
+        if (this._creatorImageCaches) delete this._creatorImageCaches[kitId];
+    },
+
+    // A library file decoded once: load() reads it; null (unreadable) isn't kept.
+    creatorRawImage(kitId, file, load) {
+        return DocsDoodads.LpcCompose.cached(this.creatorImageCaches(kitId).raw, file, load);
+    },
+
     // The safe-to-encrypt switch (LPC only).
     creatorSafeOnly() {
         return this.creatorKit().safeSwitch ? this.lpcSafeOnly() : false;
@@ -37001,8 +37154,14 @@ Object.assign(DocsDoodads.Workspace, {
             tabs: { body: 0, outfit: 0 }, cursor: { card: 'body', row: 0 }, showBody: true, addons: true, shadow: true, pop: null
         };
         this.closeLpcCard();
+        this.creatorLiveRegion();
         this.renderCreator();
         this.startCreatorLoop();
+        // Made smaller or bigger, the window changes between one card and two at once.
+        if (!this._creatorResize && typeof window !== 'undefined' && window.addEventListener) {
+            this._creatorResize = () => { if (this._creator && this.creatorOpen() && this.creatorNarrow() !== Boolean(this._creator.narrow)) this.renderCreator(); };
+            window.addEventListener('resize', this._creatorResize);
+        }
         DocsDoodads.Ui.sound('ok');
         return this._creator;
     },
@@ -37013,6 +37172,10 @@ Object.assign(DocsDoodads.Workspace, {
         this.stopCreatorLoop();
         if (this._creatorKeys && typeof window !== 'undefined') window.removeEventListener('keydown', this._creatorKeys, true);
         this._creatorKeys = null;
+        if (this._creatorResize && typeof window !== 'undefined') window.removeEventListener('resize', this._creatorResize);
+        this._creatorResize = null;
+        if (this._creatorLive && this._creatorLive.parentNode) this._creatorLive.parentNode.removeChild(this._creatorLive);
+        this._creatorLive = null;
         if (this._creator) this._creator.open = false;
     },
 
@@ -37030,24 +37193,75 @@ Object.assign(DocsDoodads.Workspace, {
         return rows;
     },
 
-    // What a row shows: value, the swatch's channel and colour, whether it can change.
+    // What a row shows: value, the swatch's channel and colour, whether it can change. The swatch shows the
+    // row's current colour channel (c.channels[row], changed with C or a long press of the pad's A): MZ's
+    // colour slots, or LPC's second colour (eyes, trim).
     creatorRowView(row) {
         const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         if (row.key === '_body') {
             const label = (S.bodies.find(b => b[0] === c.state.body) || [c.state.body, c.state.body])[1];
-            return { value: label, channel: -1, off: false };
+            return { value: label, channel: -1, off: false, usable: [] };
         }
         const options = S.options(index, row, c.state.body, this.creatorSafeOnly());
         const pick = c.state.slots[row.key];
         const part = pick && index.parts.find(p => p.id === pick.id);
         const value = part ? part.name : (options.length ? 'None' : 'Nothing for this body');
-        let channel = -1;
         const channels = part && S.channels ? S.channels(index, part) : null;
-        if (channels) channel = channels.length ? 0 : -1;
-        else if (part) channel = S.colours(index, part, 0).length ? 0 : S.colours(index, part, 1).length ? 1 : -1;
+        const usable = !part ? [] : channels ? channels.map((_, i) => i) : [0, 1].filter(ch => S.colours(index, part, ch).length);
+        const chosen = c.channels && c.channels[row.key];
+        const channel = usable.includes(chosen) ? chosen : usable.length ? usable[0] : -1;
         const colourName = channel >= 0 ? this.creatorColourOf(row.key, channel) : '';
         const addonOff = row.addon && !c.addons;
-        return { value, part, channel, channels: channels || [], colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '', off: !options.length || addonOff, count: options.length };
+        const channelLabel = channel < 0 ? '' : channels && channels[channel] ? channels[channel].label : channel === 1 && row.colour2 ? row.colour2 : row.label;
+        return { value, part, channel, channels: channels || [], usable, channelLabel, colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '',
+            off: !options.length || addonOff, count: options.length, position: part ? options.findIndex(p => p.id === part.id) + 1 : 0 };
+    },
+
+    // What a screen reader hears for a row: "Hair: Emo Left, 12 of 40", "Body type: Female, 2 of 6".
+    creatorDescribe(rowKey) {
+        const S = this.creatorSlots(), c = this._creator;
+        if (rowKey === '_body') {
+            const at = S.bodies.findIndex(b => b[0] === c.state.body);
+            return `Body type: ${at >= 0 ? S.bodies[at][1] : c.state.body}, ${at + 1} of ${S.bodies.length}`;
+        }
+        const slot = S.slot(rowKey);
+        const v = this.creatorRowView(Object.assign({ key: rowKey }, slot));
+        return `${slot ? slot.label : rowKey}: ${v.value}` + (v.position ? `, ${v.position} of ${v.count}` : '');
+    },
+
+    // "Hair colour: auburn"; MZ's numbered colours as "colour 3 of 30", its own as "as drawn".
+    creatorDescribeColour(rowKey) {
+        const S = this.creatorSlots();
+        const v = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
+        if (v.channel < 0) return '';
+        let words = v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn';
+        if (/^\w+:\d+$/.test(v.colourName || '')) {
+            const list = S.colours(this.creatorIndex(), v.part, v.channel).filter(Boolean);
+            words = `colour ${list.indexOf(v.colourName) + 1} of ${list.length}`;
+        }
+        return `${v.channelLabel} colour: ${words}`;
+    },
+
+    // The live region beside the window (outside it, so rebuilding the window doesn't recreate it): what
+    // changed, read out by screen readers.
+    creatorLiveRegion() {
+        if (typeof document === 'undefined') return null;
+        if (!this._creatorLive) {
+            const live = document.createElement('div');
+            live.id = 'dd-cr-live';
+            if (live.setAttribute) { live.setAttribute('role', 'status'); live.setAttribute('aria-live', 'polite'); }
+            live.style.cssText = 'position: fixed; left: -10000px; top: 0; width: 1px; height: 1px; overflow: hidden;';
+            document.body.appendChild(live);
+            this._creatorLive = live;
+        }
+        return this._creatorLive;
+    },
+
+    creatorSay(text) {
+        const live = this.creatorLiveRegion();
+        if (!live || !text) return '';
+        live.textContent = String(text);
+        return live.textContent;
     },
 
     // A row's colour on one channel: the kit's (MZ's shared colour slots), or the pick's colour / colour2.
@@ -37060,12 +37274,15 @@ Object.assign(DocsDoodads.Workspace, {
 
     // ---- Changing the character ----
 
-    creatorChanged(sound = 'cursor') {
+    // say: what a screen reader hears about the change (the live region under the stage).
+    creatorChanged(sound = 'cursor', say) {
         const c = this._creator;
         if (!c) return;
         c.composed = null;
+        c.credits = null;
         DocsDoodads.Ui.sound(sound);
         this.renderCreator();
+        if (say) this.creatorSay(say);
     },
 
     creatorStep(rowKey, dir) {
@@ -37077,7 +37294,7 @@ Object.assign(DocsDoodads.Workspace, {
         } else {
             S.step(c.state, index, rowKey, dir, safe);
         }
-        this.creatorChanged();
+        this.creatorChanged('cursor', this.creatorDescribe(rowKey));
     },
 
     // name: set that colour (or, for the kit's colour slots, '' for as drawn); otherwise step through them.
@@ -37091,7 +37308,21 @@ Object.assign(DocsDoodads.Workspace, {
             if (S.setColour) S.setColour(c.state, index, rowKey, ch, name);
             else pick[ch === 1 ? 'colour2' : 'colour'] = name;
         } else S.stepColour(c.state, index, rowKey, dir, ch);
-        this.creatorChanged();
+        c.channels = Object.assign({}, c.channels, { [rowKey]: ch });
+        this.creatorChanged('cursor', this.creatorDescribeColour(rowKey));
+    },
+
+    // C (or a long press of the pad's A): the cursor row's swatch goes to its next colour channel.
+    creatorNextChannel(rowKey) {
+        const S = this.creatorSlots(), c = this._creator;
+        const view = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
+        if (view.usable.length < 2) return false;
+        const next = view.usable[(view.usable.indexOf(view.channel) + 1) % view.usable.length];
+        c.channels = Object.assign({}, c.channels, { [rowKey]: next });
+        DocsDoodads.Ui.sound('cursor');
+        this.renderCreator();
+        this.creatorSay(this.creatorDescribeColour(rowKey));
+        return true;
     },
 
     // "Show all parts": the safe-to-encrypt switch off, saying what that means and how to turn it back on.
@@ -37105,7 +37336,7 @@ Object.assign(DocsDoodads.Workspace, {
     creatorShuffle(card) {
         const S = this.creatorSlots(), c = this._creator;
         c.state = S.shuffle(c.state, this.creatorIndex(), card, Math.random, this.creatorSafeOnly());
-        this.creatorChanged('ok');
+        this.creatorChanged('ok', card === 'body' ? 'New body and face' : 'New outfit');
     },
 
     creatorRecipe() {
@@ -37123,11 +37354,16 @@ Object.assign(DocsDoodads.Workspace, {
         return c.composed;
     },
 
-    // The artists of the character as drawn now: [{ file, part, authors, licences, safeToEncrypt }].
+    // The artists of the character as drawn now: [{ file, part, authors, licences, safeToEncrypt }]. Worked out
+    // once per change (creatorChanged clears it), from the stage's walk when it shows the whole character.
     creatorCredits() {
         const c = this._creator;
         if (!c) return [];
-        return this.creatorKit().credits(this, c.state, c.addons);
+        if (!c.credits) {
+            const walk = c.composed && c.composed.anim === 'walk' && c.showBody && c.composed.used ? c.composed : null;
+            c.credits = this.creatorKit().credits(this, c.state, c.addons, walk);
+        }
+        return c.credits;
     },
 
     // ---- Drawing ----
@@ -37225,8 +37461,11 @@ Object.assign(DocsDoodads.Workspace, {
         }
         const summary = K.safeSwitch ? D.Lpc.summary(index, this.lpcSafeOnly()) : null;
         // A small window (MZ's own 816 x 624) shows one card at a time beside a smaller stage.
-        const narrow = typeof window !== 'undefined' && window.innerWidth ? window.innerWidth < 1120 : false;
+        const narrow = this.creatorNarrow();
         c.narrow = narrow;
+        // The window is rebuilt: the focus goes back to the control with the same id afterwards.
+        const active = document.activeElement;
+        const keepFocus = active && active.id && root.contains && root.contains(active) ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
         const rowHtml = row => {
             const v = this.creatorRowView(row);
             const here = c.cursor.card === row.card && this.creatorRows(row.card)[c.cursor.row] && this.creatorRows(row.card)[c.cursor.row].key === row.key;
@@ -37236,7 +37475,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <button type="button" class="dd-cr-arrow" id="${id}-prev" aria-label="Previous ${escapeHtml(row.label)}"${v.off ? ' disabled' : ''}>◀</button>
                 <div class="dd-cr-value" title="${escapeHtml(v.value + (v.count ? ' (' + v.count + ' to choose from)' : ''))}"><span>${escapeHtml(v.value)}</span></div>
                 <button type="button" class="dd-cr-arrow" id="${id}-next" aria-label="Next ${escapeHtml(row.label)}"${v.off ? ' disabled' : ''}>▶</button>
-                ${v.channel >= 0 ? `<button type="button" class="dd-cr-swatch" id="${id}-colour" style="background: ${escapeHtml(v.colour)};" aria-label="${escapeHtml((row.colour2 && v.channel === 1 ? row.colour2 : row.label) + ' colour: ' + v.colourName.replace(/_/g, ' '))}" title="${escapeHtml(v.colourName.replace(/_/g, ' '))} (click for all colours)"></button>` : '<span></span>'}
+                ${v.channel >= 0 ? `<button type="button" class="dd-cr-swatch" id="${id}-colour" style="background: ${escapeHtml(v.colour)};" aria-label="${escapeHtml(v.channelLabel + ' colour: ' + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))}" title="${escapeHtml((v.usable.length > 1 ? v.channelLabel + ': ' : '') + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))} (click for all colours${v.usable.length > 1 ? '; C for the next' : ''})">${v.usable.length > 1 ? `<span class="dd-cr-chn">${v.usable.indexOf(v.channel) + 1}</span>` : ''}</button>` : '<span></span>'}
             </div>`;
         };
         // Where the safe-to-encrypt switch hides parts from the tab in view, a line says so, with a way to see them.
@@ -37300,7 +37539,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <button type="button" class="dd-cr-btn" id="dd-cr-load">Load</button>
                 <button type="button" class="dd-cr-btn" id="dd-cr-save">Save</button>
                 <button type="button" class="dd-cr-btn" id="dd-cr-credits">Credits · ${artists} artist${artists === 1 ? '' : 's'}${unsafe ? ' · ' + unsafe + ' not safe to encrypt' : ''}</button>
-                <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Shift colour · Q/E tabs · X/Y dice</div>
+                <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Shift colour · C channel · Q/E tabs · [ ] side · X/Y dice</div>
                 ${narrow ? '<div class="dd-cr-grow"></div>' : ''}
                 <button type="button" class="dd-cr-export" id="dd-cr-export" title="Make MZ character sheets and a face from this character">Export to RPG Maker</button>
             </div>
@@ -37308,7 +37547,23 @@ Object.assign(DocsDoodads.Workspace, {
         </div>`;
         this.bindCreator();
         this.drawCreatorFrame();
+        if (keepFocus) {
+            const el = document.getElementById(keepFocus.id);
+            if (el && el.focus) {
+                el.focus();
+                if (typeof keepFocus.start === 'number' && typeof el.setSelectionRange === 'function') { try { el.setSelectionRange(keepFocus.start, keepFocus.end); } catch (e) {} }
+            }
+        }
+        // The cursor row stays in view (a long tab in a small window scrolls).
+        const rows = this.creatorRows(c.cursor.card), cursorRow = rows[Math.min(c.cursor.row, rows.length - 1)];
+        const rowEl = cursorRow ? document.getElementById('dd-cr-' + cursorRow.key + '-row') : null;
+        if (rowEl && typeof rowEl.scrollIntoView === 'function') rowEl.scrollIntoView({ block: 'nearest' });
         return root;
+    },
+
+    // MZ's own window (816 x 624) and others under 1120 wide show one card at a time.
+    creatorNarrow() {
+        return typeof window !== 'undefined' && window.innerWidth ? window.innerWidth < 1120 : false;
     },
 
     creatorPopHtml() {
@@ -37339,7 +37594,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (pop.kind === 'export') {
             const o = c.exportOptions || (c.exportOptions = K.exportDefaults(this));
             const N = E.names(c.name);
-            const files = K.exportFiles(this, c.name, o);
+            const files = K.exportFiles(this, c.name, o, c.state);
             const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
             const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="flex: none; width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
             const done = c.exported;
@@ -37404,7 +37659,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-dice-outfit', () => this.creatorShuffle('outfit'));
         on('dd-cr-turn-left', () => this.creatorTurn(-1));
         on('dd-cr-turn-right', () => this.creatorTurn(1));
-        K.animations(this).forEach(([key]) => on('dd-cr-anim-' + key, () => { c.anim = key; c.frame = 0; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); }));
+        K.animations(this).forEach(([key, label]) => on('dd-cr-anim-' + key, () => { c.anim = key; c.frame = 0; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); this.creatorSay(label); }));
         on('dd-cr-showbody', e => { c.showBody = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-addons', e => { c.addons = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-shadow', e => { c.shadow = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
@@ -37444,7 +37699,7 @@ Object.assign(DocsDoodads.Workspace, {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
             const row = c.pop.row, ch = c.pop.channel !== undefined ? c.pop.channel : view.channel;
             S.colours(this.creatorIndex(), view.part, ch).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = view.channels.length > 1 ? c.pop : null; this.creatorColour(row, 0, n, ch); }));
-            view.channels.forEach((x, i) => on('dd-cr-palch-' + i, () => { c.pop.channel = i; this.renderCreator(); }));
+            view.channels.forEach((x, i) => on('dd-cr-palch-' + i, () => { c.pop.channel = i; c.channels = Object.assign({}, c.channels, { [row]: i }); this.renderCreator(); }));
         }
         if (c.pop && c.pop.kind === 'load') {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
@@ -37467,6 +37722,8 @@ Object.assign(DocsDoodads.Workspace, {
         c.pop = null;
         DocsDoodads.Ui.sound('cursor');
         this.renderCreator();
+        const first = this.creatorRows(cardKey)[0];
+        this.creatorSay(`${tabs[c.tabs[cardKey]].label} tab` + (first ? '. ' + this.creatorDescribe(first.key) : ''));
     },
 
     creatorTurn(step) {
@@ -37475,6 +37732,7 @@ Object.assign(DocsDoodads.Workspace, {
         c.dir = order[(order.indexOf(c.dir) + step + 4) % 4];
         DocsDoodads.Ui.sound('cursor');
         this.renderCreator();
+        this.creatorSay('Facing ' + c.dir);
     },
 
     creatorOpenPalette(rowKey, e) {
@@ -37488,13 +37746,34 @@ Object.assign(DocsDoodads.Workspace, {
         this.renderCreator();
     },
 
-    // Export, asking first when it would replace pictures already in the project.
+    // The files an export writes (paths from the kit) as { file, note, faceSlot }: the face sheet holds eight
+    // faces and only the chosen one changes, which its note says.
+    creatorFileEntries(files, name, o, exporter) {
+        const N = exporter.names(name), face = 'img/faces/' + N.face + '.png', slot = Math.max(0, Math.min(7, o.faceSlot || 0));
+        return (files || []).map(file => (file === face && o.face
+            ? { file, faceSlot: slot, note: `face ${slot + 1} of 8 in ${N.face}.png; the others are kept` }
+            : { file, note: '' }));
+    },
+
+    // Whether a face sheet already has a face in that slot (a sheet of another size is replaced whole).
+    creatorFaceSlotTaken(file, slot) {
+        const E = DocsDoodads.LpcExport, F = E.faceSize;
+        const sheet = this.readLpcPng(file);
+        if (!sheet) return false;
+        if (sheet.width !== F * 4 || sheet.height !== F * 2) return true;
+        const x0 = (slot % 4) * F, y0 = Math.floor(slot / 4) * F;
+        for (let y = y0; y < y0 + F; y++) for (let x = x0; x < x0 + F; x++) if (sheet.data[(y * sheet.width + x) * 4 + 3]) return true;
+        return false;
+    },
+
+    // Export, asking first when it would replace pictures already in the project (a face only when its slot
+    // is taken).
     async creatorExport() {
         const c = this._creator, FS = DocsDoodads.FS;
         const K = this.creatorKit();
         const o = c.exportOptions || K.exportDefaults(this);
-        const existing = K.exportFiles(this, c.name, o).filter(f => FS.existsSync(f));
-        if (existing.length && !await DocsDoodads.Ui.confirm(`Replace ${existing.length} picture${existing.length === 1 ? '' : 's'} already in the project?\n${existing.join('\n')}`, { title: 'Export again', ok: 'Replace' })) return null;
+        const existing = K.exportFiles(this, c.name, o, c.state).filter(f => FS.existsSync(f.file) && (f.faceSlot === undefined || this.creatorFaceSlotTaken(f.file, f.faceSlot)));
+        if (existing.length && !await DocsDoodads.Ui.confirm(`Replace ${existing.length} picture${existing.length === 1 ? '' : 's'} already in the project?\n${existing.map(f => f.file + (f.note ? ` (${f.note})` : '')).join('\n')}`, { title: 'Export again', ok: 'Replace' })) return null;
         const result = K.exportRun(this, c.state, Object.assign({ name: c.name, addons: c.addons }, o));
         if (result) { c.exported = result; DocsDoodads.Ui.sound('save'); }
         if (this.creatorOpen()) this.renderCreator();
@@ -37529,13 +37808,33 @@ Object.assign(DocsDoodads.Workspace, {
         const S = this.creatorSlots(), c = this._creator;
         const state = S.load(this.readCreatorSaved(), name);
         if (!state) return false;
+        const gone = this.creatorDropStale(state);
         c.state = state;
         c.name = name;
         c.pop = null;
-        const gone = S.missing(state, this.creatorIndex(), this.creatorSafeOnly());
         if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${this.creatorKit().missingNote}.`, 'info');
-        this.creatorChanged('ok');
+        this.creatorChanged('ok', 'Loaded ' + name);
         return true;
+    },
+
+    // A loaded character's picks the library no longer offers are dropped (so a row doesn't show a part that
+    // isn't there), and a slot that must have a part takes the nearest: the kit's (MZ: the same number), or
+    // the body's first choice. Returns the slots that changed.
+    creatorDropStale(state) {
+        const S = this.creatorSlots(), index = this.creatorIndex(), safe = this.creatorSafeOnly();
+        const gone = S.missing(state, index, safe);
+        if (!gone.length) return gone;
+        const fresh = S.newState(index, state.body, safe);
+        for (const key of gone) {
+            const old = state.slots[key];
+            delete state.slots[key];
+            const slot = S.slot(key);
+            if (!slot || !slot.required) continue;
+            const near = S.nearestPart ? S.nearestPart(index, slot, state.body, old && old.id, safe) : null;
+            if (near) S.setPart(state, index, key, near);
+            else if (fresh.slots[key]) state.slots[key] = fresh.slots[key];
+        }
+        return gone;
     },
 
     async creatorDelete(name) {
@@ -37548,8 +37847,8 @@ Object.assign(DocsDoodads.Workspace, {
 
     // ---- Keyboard and gamepad ----
 
-    // One command from a key or a button: up, down, left, right, colourLeft, colourRight, tabPrev, tabNext,
-    // card, diceBody, diceOutfit, turnLeft, turnRight, save, close.
+    // One command from a key or a button: up, down, left, right, colourLeft, colourRight, channel, tabPrev,
+    // tabNext, card, diceBody, diceOutfit, turnLeft, turnRight, save, close.
     creatorCommand(cmd) {
         const c = this._creator;
         if (!c) return false;
@@ -37557,12 +37856,26 @@ Object.assign(DocsDoodads.Workspace, {
         const row = rows[Math.min(c.cursor.row, rows.length - 1)];
         if (c.pop && cmd !== 'close') c.pop = null;
         switch (cmd) {
-            case 'up': c.cursor.row = (c.cursor.row - 1 + rows.length) % rows.length; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); return true;
-            case 'down': c.cursor.row = (c.cursor.row + 1) % rows.length; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); return true;
+            case 'up': case 'down': {
+                c.cursor.row = (c.cursor.row + (cmd === 'up' ? -1 : 1) + rows.length) % rows.length;
+                DocsDoodads.Ui.sound('cursor');
+                this.renderCreator();
+                const now = rows[c.cursor.row];
+                if (now) this.creatorSay(this.creatorDescribe(now.key));
+                return true;
+            }
             case 'left': case 'right': if (row && !this.creatorRowView(row).off) this.creatorStep(row.key, cmd === 'left' ? -1 : 1); return true;
             case 'colourLeft': case 'colourRight': if (row && row.key !== '_body') this.creatorColour(row.key, cmd === 'colourLeft' ? -1 : 1); return true;
+            case 'channel': if (row && row.key !== '_body') this.creatorNextChannel(row.key); return true;
             case 'tabPrev': case 'tabNext': this.creatorTab(c.cursor.card, c.tabs[c.cursor.card] + (cmd === 'tabPrev' ? -1 : 1)); return true;
-            case 'card': c.cursor = { card: c.cursor.card === 'body' ? 'outfit' : 'body', row: 0 }; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); return true;
+            case 'card': {
+                c.cursor = { card: c.cursor.card === 'body' ? 'outfit' : 'body', row: 0 };
+                DocsDoodads.Ui.sound('cursor');
+                this.renderCreator();
+                const card = this.creatorSlots().cards.find(x => x.key === c.cursor.card);
+                this.creatorSay(card ? card.label : c.cursor.card);
+                return true;
+            }
             case 'diceBody': this.creatorShuffle('body'); return true;
             case 'diceOutfit': this.creatorShuffle('outfit'); return true;
             case 'turnLeft': this.creatorTurn(-1); return true;
@@ -37583,6 +37896,8 @@ Object.assign(DocsDoodads.Workspace, {
         let cmd = null;
         const k = e.key;
         if (k === 'Escape') cmd = 'close';
+        // Tab and Shift+Tab move the focus as in any dialog, round inside the window.
+        else if (k === 'Tab') { this.creatorTabKey(e); return; }
         else if (typing) return;
         else if (k === 'ArrowUp') cmd = 'up';
         else if (k === 'ArrowDown') cmd = 'down';
@@ -37590,7 +37905,8 @@ Object.assign(DocsDoodads.Workspace, {
         else if (k === 'ArrowRight') cmd = e.shiftKey ? 'colourRight' : 'right';
         else if (k === 'q' || k === 'Q') cmd = 'tabPrev';
         else if (k === 'e' || k === 'E') cmd = 'tabNext';
-        else if (k === 'Tab') cmd = 'card';
+        else if (k === '[' || k === ']' || k === '{' || k === '}') cmd = 'card';
+        else if ((k === 'c' || k === 'C') && !e.ctrlKey && !e.metaKey) cmd = 'channel';
         else if (k === 'x' || k === 'X') cmd = 'diceBody';
         else if (k === 'y' || k === 'Y') cmd = 'diceOutfit';
         else if (k === ',' || k === '<') cmd = 'turnLeft';
@@ -37603,7 +37919,30 @@ Object.assign(DocsDoodads.Workspace, {
         this.creatorCommand(cmd);
     },
 
-    // Standard gamepad buttons, pressed this time and not last time; the d-pad and left stick repeat.
+    // Tab inside the window: from the last control back to the first (Shift: the other way), and in from
+    // outside. The key stops at the window either way.
+    creatorTabKey(e) {
+        if (e.stopPropagation) e.stopPropagation();
+        const root = typeof document !== 'undefined' ? document.getElementById('dd-creator') : null;
+        if (!root || typeof root.querySelectorAll !== 'function') return false;
+        const list = Array.from(root.querySelectorAll('button, input, select, textarea, [tabindex]'))
+            .filter(el => !el.disabled && el.getAttribute && el.getAttribute('tabindex') !== '-1' && (el.offsetParent !== null || (el.getClientRects && el.getClientRects().length)));
+        if (!list.length) return false;
+        const active = document.activeElement, at = list.indexOf(active);
+        let next = null;
+        if (at < 0) next = e.shiftKey ? list[list.length - 1] : list[0];
+        else if (e.shiftKey && at === 0) next = list[list.length - 1];
+        else if (!e.shiftKey && at === list.length - 1) next = list[0];
+        if (!next) return false; // the browser moves it
+        if (e.preventDefault) e.preventDefault();
+        if (next.focus) next.focus();
+        return true;
+    },
+
+    // Standard gamepad buttons, pressed this time and not last time; the d-pad and left stick repeat. A: a
+    // short press is the next colour, held (padHold ms) the next colour channel.
+    padHold: 600,
+
     pollCreatorPad() {
         if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function' || (DocsDoodads.Ui.dialogOpen && DocsDoodads.Ui.dialogOpen())) return;
         let pad = null;
@@ -37613,11 +37952,19 @@ Object.assign(DocsDoodads.Workspace, {
         const axis = i => (pad.axes && pad.axes[i]) || 0;
         const held = {
             up: down(12) || axis(1) < -0.6, down: down(13) || axis(1) > 0.6, left: down(14) || axis(0) < -0.6, right: down(15) || axis(0) > 0.6,
-            colourRight: down(0), close: down(1), diceBody: down(2), diceOutfit: down(3), tabPrev: down(4), tabNext: down(5),
+            close: down(1), diceBody: down(2), diceOutfit: down(3), tabPrev: down(4), tabNext: down(5),
             turnLeft: down(6), turnRight: down(7), card: down(8), save: down(9)
         };
         const was = this._creatorPad || {};
         const now = Date.now();
+        const a = this._creatorPadA;
+        if (down(0)) {
+            if (!a) this._creatorPadA = { since: now, held: false };
+            else if (!a.held && now - a.since >= this.padHold) { a.held = true; this.creatorCommand('channel'); }
+        } else if (a) {
+            this._creatorPadA = null;
+            if (!a.held) this.creatorCommand('colourRight');
+        }
         const repeat = this._creatorPadRepeat || (this._creatorPadRepeat = {});
         this._creatorPad = held;
         for (const [cmd, on] of Object.entries(held)) {
@@ -37779,6 +38126,35 @@ Object.assign(DocsDoodads.Workspace, {
         return { files: written, warnings: [...new Set(warnings)], names: N, parts, oversize };
     },
 
+    // The part sheets exportLpcParts would write, by name only (nothing drawn): a piece in front of the body
+    // and one behind it where the part has layers there, each in the ticked layouts its animations allow.
+    lpcPartFiles(state, options) {
+        const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
+        const index = this.lpcIndex();
+        const out = [];
+        if (!index || !state) return out;
+        for (const slot of S.allSlots().filter(s => s.card === 'outfit')) {
+            const pick = state.slots[slot.key];
+            const part = pick && index.parts.find(p => p.id === pick.id);
+            if (!part) continue;
+            const has = anim => !part.animations.length || part.animations.includes(anim);
+            for (const behind of [false, true]) {
+                if (!part.layers.some(l => l.paths[state.body] && (behind ? l.z < E.bodyZ : l.z >= E.bodyZ))) continue;
+                const base = E.partBase(slot.label, part.name, pick.colour, state.body, behind), N = E.names(base);
+                const note = `outfit part: ${slot.label}${behind ? ' (behind)' : ''}`;
+                if (options.classic) out.push({ file: 'img/characters/' + N.classic + '.png', note });
+                if (options.smooth) {
+                    out.push({ file: 'img/characters/' + N.smooth + '.png', note });
+                    if (has('idle')) out.push({ file: 'img/characters/' + N.idle + '.png', note });
+                    if (has('run')) out.push({ file: 'img/characters/' + N.run + '.png', note });
+                }
+                for (const anim of options.actions || []) if (has(anim)) out.push({ file: 'img/characters/' + E.actionName(base, anim) + '.png', note });
+                if (options.battler) out.push({ file: 'img/sv_actors/' + N.face + '.png', note });
+            }
+        }
+        return out;
+    },
+
     // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the
     // pieces follow its walk, idle, run, actions and battler), with the notetag that puts it on an item.
     // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot. Oversize
@@ -37786,6 +38162,8 @@ Object.assign(DocsDoodads.Workspace, {
     // its own frame size); a return swing is played to follow the body's own slash. note: { big, action,
     // battler } to list sheets with bigger frames.
     exportLpcParts(state, options, record, warnings, note = {}) {
+        // A dry run: the files it would write, nothing drawn or written.
+        if (note.dryRun) return this.lpcPartFiles(state, options);
         const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
         const index = this.lpcIndex();
         const out = [];
@@ -37989,6 +38367,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!index) return null;
         if (!FS.atomicWriteJson(L.indexFile, index, 0)) { this.showToast('Could not save the library index.', 'error'); return null; }
         this._lpcIndex = index;
+        this.resetCreatorImageCaches('lpc');
         const s = L.summary(index, this.lpcSafeOnly());
         this.showToast(`Found ${s.parts} character parts (${s.safe} safe to encrypt)` + (s.skipped ? `; ${s.skipped} skipped` : '') + '.', 'success');
         return index;
@@ -38072,21 +38451,22 @@ Object.assign(DocsDoodads.Workspace, {
         return index && FS.path ? FS.path.join(index.library, 'spritesheets', file) : '';
     },
 
-    // A library image, decoded (or null). The recoloured layers are cached by the compositor.
+    // A library image, decoded once (or null). The recoloured layers are cached by the compositor.
     lpcLoadImage(file) {
-        const FS = DocsDoodads.FS;
-        try {
-            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-            if (!zlib || !FS.fs) return null;
-            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.lpcSheetPath(file)), data => zlib.inflateSync(data));
-        } catch (e) {
-            return null;
-        }
+        return this.creatorRawImage('lpc', file, () => {
+            const FS = DocsDoodads.FS;
+            try {
+                const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+                if (!zlib || !FS.fs) return null;
+                return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.lpcSheetPath(file)), data => zlib.inflateSync(data));
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     lpcCache() {
-        if (!this._lpcCache) this._lpcCache = DocsDoodads.LpcCompose.newCache(160);
-        return this._lpcCache;
+        return this.creatorImageCaches('lpc').layers;
     },
 
     // recipe -> { sheet, warnings, used, oversize } for one animation, or null without an index. keep(layer):
@@ -39246,7 +39626,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!index) return null;
         if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the Memao index.', 'error'); return null; }
         this._memaoIndex = index;
-        this._memaoCache = null;
+        this.resetCreatorImageCaches('memao');
         const s = M.summary(index);
         this.showToast(`Found ${s.parts} Memao parts in ${s.sets.length} set${s.sets.length === 1 ? '' : 's'}` + (s.warnings.length ? ` (${s.warnings.length} note${s.warnings.length === 1 ? '' : 's'})` : '') + '.', 'success');
         return index;
@@ -39266,19 +39646,20 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     memaoLoadImage(file) {
-        const FS = DocsDoodads.FS;
-        try {
-            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-            if (!zlib || !FS.fs) return null;
-            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.memaoSheetPath(file)), data => zlib.inflateSync(data));
-        } catch (e) {
-            return null;
-        }
+        return this.creatorRawImage('memao', file, () => {
+            const FS = DocsDoodads.FS;
+            try {
+                const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+                if (!zlib || !FS.fs) return null;
+                return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.memaoSheetPath(file)), data => zlib.inflateSync(data));
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     memaoCache() {
-        if (!this._memaoCache) this._memaoCache = DocsDoodads.LpcCompose.newCache(200);
-        return this._memaoCache;
+        return this.creatorImageCaches('memao').layers;
     },
 
     // recipe -> { sheet, warnings, used } for one animation, or null without an index.
@@ -39477,13 +39858,21 @@ Object.assign(DocsDoodads.Workspace, {
         return this.mzgenDetectFolder();
     },
 
-    mzgenDetectFolder() {
+    // The generator folder of the MZ running this playtest: beside a folder on the way up from its nw.exe
+    // (nwjs-win/nw.exe on Windows; deep inside RPG Maker MZ.app on macOS), at most six folders up.
+    mzgenDetectFolder(exe = typeof process !== 'undefined' && process.execPath ? process.execPath : '') {
         const FS = DocsDoodads.FS;
         try {
-            const exe = typeof process !== 'undefined' && process.execPath ? process.execPath : '';
             if (!exe || !FS.path || !FS.fs) return '';
-            const folder = FS.path.resolve(FS.path.dirname(exe), '..', 'generator');
-            return DocsDoodads.MzGen.isLibrary(FS.fs, FS.path, folder) ? folder : '';
+            let dir = FS.path.dirname(exe);
+            for (let up = 0; up <= 6; up++) {
+                const folder = FS.path.join(dir, 'generator');
+                if (DocsDoodads.MzGen.isLibrary(FS.fs, FS.path, folder)) return FS.path.resolve(folder);
+                const parent = FS.path.dirname(dir);
+                if (parent === dir) break;
+                dir = parent;
+            }
+            return '';
         } catch (e) {
             return '';
         }
@@ -39518,7 +39907,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!index) return null;
         if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the generator index.', 'error'); return null; }
         this._mzgenIndex = index;
-        this._mzgenCache = null;
+        this.resetCreatorImageCaches('mz');
         const s = M.summary(index);
         this.showToast(`Found ${s.parts} generator parts (${s.bases.join(', ')}).`, 'success');
         return index;
@@ -39537,19 +39926,20 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     mzgenLoadImage(file) {
-        const FS = DocsDoodads.FS;
-        try {
-            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-            if (!zlib || !FS.fs) return null;
-            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.mzgenSheetPath(file)), data => zlib.inflateSync(data));
-        } catch (e) {
-            return null;
-        }
+        return this.creatorRawImage('mz', file, () => {
+            const FS = DocsDoodads.FS;
+            try {
+                const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+                if (!zlib || !FS.fs) return null;
+                return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.mzgenSheetPath(file)), data => zlib.inflateSync(data));
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     mzgenCache() {
-        if (!this._mzgenCache) this._mzgenCache = DocsDoodads.LpcCompose.newCache(400);
-        return this._mzgenCache;
+        return this.creatorImageCaches('mz').layers;
     },
 
     // recipe -> { sheet, view, warnings, used } for one animation (walk, damage, face, sv_swing...), or null.

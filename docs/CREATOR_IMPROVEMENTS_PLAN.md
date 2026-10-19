@@ -1,7 +1,9 @@
 # Improvements Plan: the Character Creators and the Rest of the App
 
-**Status:** accepted 2026-10-19. Part B phases B1 (§8, the game bugs), B2 (§9.1 and §9.2, the editor's data safety and
-behaviour) and B3 (§9.3, keyboard and screen readers) are done, played in MZ in `docs/QA_2026-10-19.md`.
+**Status:** accepted 2026-10-19. Part A phase 1 (§2.1, the fixes) and Part B phases B1 (§8, the game bugs), B2 (§9.1
+and §9.2, the editor's data safety and behaviour) and B3 (§9.3, keyboard and screen readers) are done, played in MZ in
+`docs/QA_2026-10-19.md`. In phase 1 the card switch is `[` / `]` and the next colour channel `C` (§2.1 gave `]` to both),
+and a mask colour snaps only to a slot its part uses (the real masks put some within reach of other parts' keys).
 
 **Goal:** two reviews on one day, written up as one plan. **Part A** makes the three character creators (LPC,
 Memao and MZ: `docs/LPC_CHARACTER_CREATOR_PLAN.md`, `docs/MEMAO_CHARACTER_CREATOR_PLAN.md`,

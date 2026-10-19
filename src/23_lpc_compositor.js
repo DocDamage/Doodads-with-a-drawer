@@ -256,9 +256,15 @@ DocsDoodads.LpcCompose = {
         }
     },
 
-    // A cache of recoloured layers: (file, colours) -> image, the oldest dropped past max.
-    newCache(max = 120) {
-        return { max, map: new Map(), hits: 0, misses: 0 };
+    // A cache of images (decoded files, or recoloured layers): key -> image, the least recently used dropped
+    // past max entries or past budget bytes (an image counts its RGBA bytes; other values, such as colour
+    // tables, count nothing). The newest entry is always kept.
+    newCache(max = 120, budget = Infinity) {
+        return { max, budget, bytes: 0, map: new Map(), hits: 0, misses: 0 };
+    },
+
+    sizeOf(value) {
+        return value && value.data && value.data.length ? value.data.length : 0;
     },
 
     cached(cache, key, make) {
@@ -274,7 +280,13 @@ DocsDoodads.LpcCompose = {
         const v = make();
         if (v) {
             cache.map.set(key, v);
-            while (cache.map.size > cache.max) cache.map.delete(cache.map.keys().next().value);
+            cache.bytes = (cache.bytes || 0) + this.sizeOf(v);
+            const budget = cache.budget === undefined ? Infinity : cache.budget;
+            while (cache.map.size > 1 && (cache.map.size > cache.max || cache.bytes > budget)) {
+                const oldest = cache.map.keys().next().value;
+                cache.bytes -= this.sizeOf(cache.map.get(oldest));
+                cache.map.delete(oldest);
+            }
         }
         return v;
     },
