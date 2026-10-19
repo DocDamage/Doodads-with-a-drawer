@@ -9,6 +9,10 @@ DocsDoodads.World = {
     defaults: {
         time: {
             source: 'off', variableId: 0, minuteVariableId: 0, minutesPerSecond: 1, startHour: 8, lampThreshold: 0.3,
+            // The running clock outside the map (07_world_calendar.js): in battles, in menus, and minutes a
+            // battle takes; the calendar: variables for the day and weekday, the weekdays' names, named dates.
+            inBattle: false, inMenus: false, afterBattle: 0, dayVariableId: 0, weekdayVariableId: 0,
+            weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'], dates: [],
             keyframes: [
                 { hour: 4, darkness: 0.65, color: '#0c1030' },
                 { hour: 6, darkness: 0.3, color: '#ff8a50' },

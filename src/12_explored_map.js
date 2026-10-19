@@ -71,6 +71,15 @@ DocsDoodads.Explored = {
         return out;
     },
 
+    // Reveals every tile where test(x, y) is true (a region); returns how many were new.
+    revealWhere(mapId, w, h, test) {
+        const m = this.entry(mapId, w, h);
+        let n = 0;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (test(x, y) && this.mark(m, x, y)) n++;
+        if (n) { m.dirty = true; m.version++; }
+        return n;
+    },
+
     revealAll(mapId, w, h) {
         const m = this.entry(mapId, w, h);
         m.bytes.fill(255);

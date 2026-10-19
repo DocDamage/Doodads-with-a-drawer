@@ -25,7 +25,7 @@ console.log('✓ isTest() agrees with the write guard outside MZ.');
 
 // 2. One wrapper each, the steps in their listed order.
 assert.deepStrictEqual(D.spritesetSteps, ['updateDocsDoodadsFrame', 'updateDocsVfx', 'updateDocsWeather2d', 'updateDocsPerspective',
-    'updateDocsSkyVideoOnMap', 'updateDocsMinimap', 'updateDocsFlyShadow']);
+    'updateDocsSkyVideoOnMap', 'updateDocsMinimap', 'updateDocsFlyShadow', 'updateDocsTouchPrompt']);
 const ss = new Spriteset_Map();
 SceneManager._scene = { _spriteset: ss };
 const ran = [];

@@ -57,6 +57,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Reset Ambient Light | duration | Back to the map's own darkness. |
 | Set Time of Day | hour, minute, day (optional) | Jumps the day/night clock; the day stays unless given. |
 | Pass Time | hours, minutes | Moves the clock forward. |
+| Calendar | action, value, variable | Go to a day, move days on, or put the day, weekday or named date in a variable. |
 | Clock Control | action, speed | Pause, resume or change the clock's speed. |
 | Set Season | season | Changes the season. |
 | Set Atmosphere Effect | feature, enabled | Turns an effect on or off for this playthrough. |
@@ -84,11 +85,12 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Traversal Action | action | The player jumps, takes off, lands or dives (if allowed). |
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
-| Set Doodad State | name, state, mapId | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. |
+| Set Doodad State | name, state, mapId, wait | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. Wait: until the crossfade ends. |
+| Play Doodad Animation | name, from, to, hold, wait | Named doodads play their strip of frames once, now; `animationEnd` when done. |
 | Set Doodad Light | name, light, mapId | Named doodads' lights on, off or back to their own; saved. |
 | Store Doodad State | name, variableId, mapId | A named doodad's state number (-1: none there) into a variable. |
 | Show / Hide Minimap | show | The corner minimap off (cutscenes, dark caves) or back on; saved. |
-| Explored Map | action, radius, mapId | With fog of war: reveal a whole map, reveal around the player, or forget a map; saved. |
+| Explored Map | action, radius, region, variable, mapId | With fog of war: reveal a whole map, around the player or a region; how much is seen into a variable; or forget a map; saved. |
 
 ## Script calls
 

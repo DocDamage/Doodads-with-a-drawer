@@ -168,7 +168,9 @@ if (typeof PIXI !== 'undefined') {
             return;
         }
         if (index === this._stateIndex) return;
+        const from = this._stateIndex;
         this._stateIndex = index;
+        if (DocsDoodads.StateFx) DocsDoodads.StateFx.entered(d, from, index);
         const art = States.art(d);
         if ((art ? art.path : '') === (this._stateArtKey || '')) return;
         this.beginStateFade(States.fadeFrames(d));
@@ -222,7 +224,11 @@ if (typeof PIXI !== 'undefined') {
             this.updateState();
             this.updateStateFade();
         }
-        if (d.xFrame > 1 || d.yFrame > 1) {
+        // Play Doodad Animation (07_doodad_states_extras.js) runs the strip once, over its own mode.
+        const played = DocsDoodads.AnimPlay && (d.xFrame > 1 || d.yFrame > 1) ? DocsDoodads.AnimPlay.step(d) : null;
+        if (played !== null) {
+            if (played !== this._currentFrame || this._animShownFor !== this._bmp) this.showFrame(played);
+        } else if (d.xFrame > 1 || d.yFrame > 1) {
             const A = DocsDoodads.FrameAnim;
             // "Once" waits for its switch; the steps count from when it turned on.
             const switchId = Number(d.anim && d.anim.switchId) || 0;
@@ -283,7 +289,8 @@ if (typeof PIXI !== 'undefined') {
             // Conditional doodads stay editable but look faded while their condition is false.
             if (visible && DocsDoodads.Appearance.isConditional(d) && !DocsDoodads.Appearance.isVisible(d, {})) dim = 0.45;
         } else {
-            const shown = DocsDoodads.Appearance.isConditional(d) ? DocsDoodads.Appearance.isVisible(d, {}) : true;
+            // Leaving (api.remove with a transition) plays the transition out, then the doodad goes.
+            const shown = d._docsLeaving ? false : DocsDoodads.Appearance.isConditional(d) ? DocsDoodads.Appearance.isVisible(d, {}) : true;
             const type = d.transition && d.transition.type;
             if (type && type !== 'none') {
                 const frames = d.transition.frames !== undefined ? d.transition.frames : DocsDoodads.Transition.defaults.frames;
@@ -292,6 +299,7 @@ if (typeof PIXI !== 'undefined') {
                 this._transitionP = DocsDoodads.Transition.advance(this._transitionP, shown, frames);
                 fx = DocsDoodads.Transition.sample(type, this._transitionP);
                 visible = this._transitionP > 0;
+                if (d._docsLeaving && this._transitionP <= 0) this._docsLeft = true;
             } else {
                 this._transitionP = null;
                 visible = shown;

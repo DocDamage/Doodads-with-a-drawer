@@ -97,9 +97,13 @@ DocsDoodads.api = {
     },
 
     // spec: { art: 'img/doodads/Rock.png', x, y, tiles: true (x and y are tiles; false = pixels), name,
+    //         transition ('fade', 'pop', 'rise', 'dissolve' or 'crumble': it appears that way), frames (30),
     //         and any doodad field (light, states, touch, collision, scaleX...) }. Returns the doodad.
     place(spec) {
         spec = Object.assign({ tiles: true }, spec);
+        const appear = spec.transition && spec.transition !== 'none' ? { type: String(spec.transition), frames: Number(spec.frames) > 0 ? Number(spec.frames) : 30 } : null;
+        delete spec.transition;
+        delete spec.frames;
         const art = String(spec.art || spec.path || '');
         if (!art) return null;
         const mapId = this.mapId(spec.mapId);
@@ -112,13 +116,19 @@ DocsDoodads.api = {
         d.x = spec.tiles ? (Number(spec.x) || 0) * ts.w + ts.w / 2 : Number(spec.x) || 0;
         d.y = spec.tiles ? (Number(spec.y) || 0) * ts.h + ts.h : Number(spec.y) || 0;
         d.temp = true;
+        if (appear) d.transition = appear;
         if (!d.uid) d.uid = 'dd_api_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         this.sizeFor(d, art, spec.frameW, spec.frameH);
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
         data[mapId] = data[mapId] || [];
         data[mapId].push(d);
         const ss = this.spriteset();
-        if (ss && mapId === this.mapId() && ss.addDocsDoodadSprites) ss.addDocsDoodadSprites([d]);
+        if (ss && mapId === this.mapId() && ss.addDocsDoodadSprites) {
+            ss.addDocsDoodadSprites([d]);
+            // It starts hidden and comes in by its transition.
+            const sprite = appear ? (ss._docsDoodadSprites || []).find(s => s._data === d) : null;
+            if (sprite) sprite._transitionP = 0;
+        }
         return d;
     },
 
@@ -183,14 +193,33 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    remove(query, mapId) {
+    // opts: { transition ('fade', 'pop'...: it goes that way first), frames (30) }. Only the sprites of the
+    // doodads taken out go; the rest of the map is not built again.
+    remove(query, mapId, opts = {}) {
+        if (mapId && typeof mapId === 'object') { opts = mapId; mapId = undefined; }
         const m = this.mapId(query && typeof query === 'object' && query.mapId !== undefined ? query.mapId : mapId);
         const list = this.find(query, m);
         if (list.length === 0) return 0;
+        const ss = m === this.mapId() ? this.spriteset() : null;
+        if (ss && opts.transition && opts.transition !== 'none') {
+            for (const d of list) {
+                d.transition = { type: String(opts.transition), frames: Number(opts.frames) > 0 ? Number(opts.frames) : 30 };
+                d._docsLeaving = true;
+            }
+            return list.length;
+        }
+        this.takeOut(list, m);
+        return list.length;
+    },
+
+    // Out of the map's list and off the map (removeSomeDocsDoodads), with collision told.
+    takeOut(list, mapId) {
+        const m = this.mapId(mapId);
         const data = window.$dataDocsDoodads || {};
         if (Array.isArray(data[m])) data[m] = data[m].filter(d => !list.includes(d));
-        if (m === this.mapId()) this.refresh();
-        return list.length;
+        const ss = m === this.mapId() ? this.spriteset() : null;
+        if (ss && ss.removeSomeDocsDoodads) ss.removeSomeDocsDoodads(list);
+        if (DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
     },
 
     // ---- States and lights (kept in the save file) ----
@@ -214,6 +243,98 @@ DocsDoodads.api = {
     setLight(name, on, mapId) {
         return DocsDoodads.WorldState.setLight(name, on, mapId);
     },
+
+    // ---- What the plugin commands do, for scripts and other plugins ----
+    // A doodad acts as if the player touched it (its next state, its common event); once-only and
+    // cooldowns apply. resetTouch lets a once-only doodad run again.
+    touch(query, mapId) {
+        const d = this.get(query, mapId);
+        return d ? DocsDoodads.Touch.run(d, mapId) : false;
+    },
+
+    resetTouch(query, mapId) {
+        const list = this.find(query, mapId);
+        for (const d of list) DocsDoodads.Touch.reset(d, mapId);
+        return list.length;
+    },
+
+    // Plays the doodads' picture strips once (opts: from, to, hold); 'animationEnd' says when each is done.
+    playAnimation(query, opts = {}, mapId) {
+        const list = this.find(query, mapId);
+        for (const d of list) DocsDoodads.AnimPlay.play(d, Object.assign({}, opts, { mapId }));
+        return list.length;
+    },
+
+    // strength 0-1 (or 'world' for World > Weather's), over frames, direction 'left', 'right' or 'same'.
+    setWind(strength, frames = 0, direction = 'same') {
+        return DocsDoodads.Wind.set(strength === 'world' ? 'world' : Number(strength), Number(frames) || 0, String(direction || 'same'));
+    },
+
+    // true, false, or null for World > Lighting's own setting.
+    flashlight(on) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
+        $gameSystem._docsFlashlight = on === null || on === undefined ? undefined : Boolean(on);
+        return true;
+    },
+
+    // An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
+    traversal(ability, on) {
+        DocsDoodads.Traversal.setAbility(String(ability || ''), on === null || on === undefined ? null : Boolean(on));
+        return true;
+    },
+
+    // The player jumps, takes off, lands or dives ('jump', 'takeOff', 'land', 'dive'), as if they pressed the key.
+    traversalAction(action) {
+        const X = DocsDoodads.Traversal, a = String(action || '');
+        if (a === 'jump') return X.jump();
+        if (a === 'takeOff') return X.takeOff();
+        if (a === 'land') return X.land();
+        if (a === 'dive') return X.dive();
+        return false;
+    },
+
+    // An effect from the Effects Maker (or a built-in) at a tile ({ x, y }), or on a character or
+    // 'player' (it follows them).
+    playVfx(id, at = {}) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return null;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const spec = { id: String(id || '') };
+        const ch = at && typeof at.screenX === 'function' ? at : at === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        if (ch) { spec.follow = ch; spec.x = (ch._realX + 0.5) * tw; spec.y = (ch._realY + 0.5) * th; }
+        else { spec.x = ((Number(at.x) || 0) + 0.5) * tw; spec.y = ((Number(at.y) || 0) + 0.5) * th; }
+        return DocsDoodads.Vfx.play(spec);
+    },
+
+    // The explored map: 'all', 'around' (opts.radius), 'region' (opts.region), 'store' (opts.variableId)
+    // or 'forget'; explored() is how much of a map has been seen, 0-1.
+    reveal(action = 'all', opts = {}) {
+        return DocsDoodads.Minimap.exploredCommand(Object.assign({ action }, opts));
+    },
+
+    explored(mapId) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return 0;
+        const m = this.mapId(mapId);
+        const E = DocsDoodads.Explored;
+        if (m === $gameMap.mapId()) return E.fraction(m, $gameMap.width(), $gameMap.height());
+        const saved = (E.system() && E.system()._docsExplored && E.system()._docsExplored[m]) || E._maps[m];
+        return saved ? E.fraction(m, saved.w, saved.h) : 0;
+    },
+
+    // An atmosphere effect on or off for this playthrough (characterShadows, motionBlur, reflections,
+    // seeThrough, postfx).
+    feature(name, on) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
+        const off = $gameSystem._docsFeatureOff = $gameSystem._docsFeatureOff || {};
+        if (on === false) off[name] = true; else delete off[name];
+        return true;
+    },
+
+    // ---- The calendar (the running clock's days; World > Day and Night) ----
+    day() { return DocsDoodads.Calendar.day(); },
+    weekday() { return DocsDoodads.Calendar.weekday(); },
+    weekdayName(day) { return DocsDoodads.Calendar.weekdayName(day); },
+    dateName(day) { return DocsDoodads.Calendar.dateName(day); },
+    setDay(day) { return DocsDoodads.Calendar.setDay(day); },
 
     // ---- Clock, season and ambient light ----
     // The time of day in minutes (0-1439), or null when the clock is off.

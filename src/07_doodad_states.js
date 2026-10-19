@@ -420,8 +420,12 @@ if (typeof Game_Player !== 'undefined') {
 }
 
 if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
-    PluginManager.registerCommand(pluginName, 'setDoodadState', args => {
-        DocsDoodads.WorldState.setState(args.name, args.state, Number(args.mapId) || 0);
+    PluginManager.registerCommand(pluginName, 'setDoodadState', function(args) {
+        const mapId = Number(args.mapId) || 0;
+        const changed = DocsDoodads.WorldState.setState(args.name, args.state, mapId);
+        // Wait: the event goes on once the crossfade (and the art change) is over.
+        const d = DocsDoodads.WorldState.doodadsNamed(args.name, mapId)[0];
+        if (changed && d && String(args.wait) === 'true' && this && this.wait) this.wait(DocsDoodads.States.fadeFrames(d) + 1);
     });
     PluginManager.registerCommand(pluginName, 'setDoodadLight', args => {
         const v = String(args.light || 'default');

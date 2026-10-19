@@ -967,7 +967,10 @@
             { title: 'Touch', fields: [
                 { key: 'touch.commonEventId', label: 'Common event to run', type: 'select', options: this.commonEventOptions() },
                 { key: 'touch.trigger', label: 'Runs on', type: 'select', options: D.Touch.triggers },
-                { key: 'touch.nextState', label: 'Also go to its next state (a door that opens and closes)', type: 'checkbox' }
+                { key: 'touch.nextState', label: 'Also go to its next state (a door that opens and closes)', type: 'checkbox' },
+                { key: 'touch.once', label: 'Only once (a chest; the save remembers)', type: 'checkbox' },
+                number('touch.cooldown', 'Wait between touches (seconds)', 0.5),
+                { key: 'touch.prompt', label: 'Prompt over it when faced (e.g. Open, Read, !)', type: 'text' }
             ] },
             { title: 'Particles', fields: [
                 { key: 'particles.preset', label: 'Emitter', type: 'select', options: [{ value: 'none', label: 'None' }].concat(D.Particles.presets.map(p => ({ value: p.id, label: p.label }))) },
