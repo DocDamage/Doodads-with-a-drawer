@@ -9,7 +9,8 @@
 DocsDoodads.MemaoSlots = {
     bodies: [['average', 'Average'], ['dainty', 'Dainty'], ['broad', 'Broad']],
 
-    // card -> tabs -> slots. folder: the pack's folder; required: no "None"; follows: the slot whose colour it
+    // card -> tabs -> slots. folder: the pack's folder; required: no "None"; prop: a prop of its own animation, shown
+    // only when the pack has more than one (shown(index, slot, body)); follows: the slot whose colour it
     // takes ('body' for the skin); link: the slot whose colour it takes until it is given its own (ownColour).
     cards: [
         { key: 'body', label: 'Body', tabs: [
@@ -61,7 +62,12 @@ DocsDoodads.MemaoSlots = {
                 { key: 'fieldtool', label: 'Field tool', folder: 'StrikeA' },
                 { key: 'scythe', label: 'Scythe', folder: 'Reap' },
                 { key: 'seedbag', label: 'Seed bag', folder: 'Seed' },
-                { key: 'can', label: 'Watering can', folder: 'Water' }
+                { key: 'can', label: 'Watering can', folder: 'Water' },
+                // What the Eat, Drink, Read and Paint animations hold: None is the pack's first.
+                { key: 'propeat', label: 'Food (Eat)', folder: 'Eat', prop: true },
+                { key: 'propdrink', label: 'Drink', folder: 'Drink', prop: true },
+                { key: 'propread', label: 'Book (Read)', folder: 'Read', prop: true },
+                { key: 'proppaint', label: 'Easel (Paint)', folder: 'Paint', prop: true }
             ] }
         ] }
     ],
@@ -85,6 +91,11 @@ DocsDoodads.MemaoSlots = {
     // Every part is under one licence: nothing is hidden by the LPC's safe-to-encrypt switch.
     hiddenBySafeOnly() {
         return 0;
+    },
+
+    // Whether the creator shows a row: a prop row only when there is a choice of prop.
+    shown(index, slot, body) {
+        return !slot.prop || this.options(index, slot, body).length > 1;
     },
 
     slotOfPart(part) {

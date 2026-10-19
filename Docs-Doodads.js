@@ -18507,6 +18507,47 @@ DocsDoodads.Packs = {
     }
 };
 //==========================================================
+// SECTION 12N: CHARACTER RECIPES (ONE CHARACTER IN A FILE OF ITS OWN)
+//==========================================================
+// A character from any of the creators (LPC, Memao, MZ) as one small JSON file to keep anywhere on the computer
+// or give to someone else: which creator made it, its name, body type, parts and colours. Bringing it into the
+// creator of another library is refused, with what to do instead. Pure: reading and writing the file is the
+// window's (44_workspace_creator_history.js).
+DocsDoodads.CreatorRecipe = {
+    format: 'docs-doodads-character-recipe',
+    version: 1,
+    kitNames: { lpc: 'LPC', memao: 'Memao', mz: 'RPG Maker MZ' },
+
+    // { format, version, kit, name, body, slots, colours? } as text.
+    write(kit, name, state) {
+        const recipe = { format: this.format, version: this.version, kit, name: String(name || '').trim(), body: state.body, slots: JSON.parse(JSON.stringify(state.slots || {})) };
+        if (state.colours) recipe.colours = JSON.parse(JSON.stringify(state.colours));
+        return JSON.stringify(recipe, null, 2);
+    },
+
+    // The text of a recipe file, for the creator of kit -> { name, state }. Throws a message a person can act on.
+    read(text, kit) {
+        let recipe;
+        try { recipe = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a character recipe (it is not readable JSON).'); }
+        if (!recipe || recipe.format !== this.format) throw new Error('This file is not a character recipe.');
+        if (Number(recipe.version) > this.version) throw new Error('This recipe was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
+        if (recipe.kit !== kit) {
+            const theirs = this.kitNames[recipe.kit] || String(recipe.kit);
+            throw new Error(`This recipe is for the ${theirs} creator, not the ${this.kitNames[kit] || kit} one: switch to ${theirs} (the list beside the title) and bring it in there.`);
+        }
+        if (!recipe.body || !recipe.slots || typeof recipe.slots !== 'object') throw new Error('This recipe has no body or parts.');
+        // In the creator's own shape (MZ's state has its colour slots before the parts).
+        const slots = JSON.parse(JSON.stringify(recipe.slots));
+        const state = kit === 'mz' ? { body: String(recipe.body), colours: Object.assign({}, recipe.colours), slots } : { body: String(recipe.body), slots };
+        return { name: String(recipe.name || ''), state };
+    },
+
+    // A file name for the recipe: the character's name, safe on every system.
+    fileName(name) {
+        return (String(name || '').trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Character') + '.character.json';
+    }
+};
+//==========================================================
 // SECTION 12D: LPC COMPOSITOR (LAYERS, Z-ORDER, BODY TYPES, PALETTES, CACHE)
 //==========================================================
 // Stacks the LPC parts of one character into a sheet, written from the library's data format (no code of
@@ -19990,8 +20031,10 @@ DocsDoodads.MemaoCompose = {
             // Its frames at another depth (Hair D for Hair B...), from the same file number.
             for (const [follower, leader] of Object.entries(M.pairs)) if (leader === part.folder) add(follower, num, pick.colour, part, order++);
         }
-        // Props show in their own animations only (their other frames are empty).
+        // Props show in their own animations only (their other frames are empty): the one picked, else the first.
+        const picked = new Set(layers.map(l => l.folder));
         for (const folder of M.props) {
+            if (picked.has(folder)) continue;
             const part = (index.parts || []).filter(p => p.folder === folder).sort((a, b) => a.order - b.order)[0];
             if (part) add(folder, M.fileFor(part, arm), '', part, order++);
         }
@@ -20122,6 +20165,26 @@ DocsDoodads.MemaoExport = {
 
     frames(sheet) {
         return Math.floor(sheet.width / this.frame);
+    },
+
+    // Memao's figures stand with their feet at y 40 of the 48 frame; MZ's own characters at y 46. Every frame
+    // moved down px: { sheet, cropped } where cropped counts the frames that have something in their bottom px
+    // rows (a shadow, a long cape), which would leave the frame: then the sheet is given back as it was.
+    standOffset: 6,
+
+    shiftDown(sheet, px = this.standOffset) {
+        const F = this.frame, cols = Math.floor(sheet.width / F), rows = Math.floor(sheet.height / F);
+        let cropped = 0;
+        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+            let hit = false;
+            for (let y = F - px; y < F && !hit; y++) for (let x = 0; x < F && !hit; x++) if (sheet.data[((r * F + y) * sheet.width + c * F + x) * 4 + 3]) hit = true;
+            if (hit) cropped++;
+        }
+        if (cropped || !px) return { sheet, cropped };
+        const out = this.blank(sheet.width, sheet.height);
+        for (let r = 0; r < rows; r++) this.blit(out, sheet, 0, r * F, 0, r * F + px, sheet.width, F - px);
+        out.frame = sheet.frame;
+        return { sheet: out, cropped: 0 };
     },
 
     // A sheet in MZ's row order with the given columns: [{ sheet, frame }] or frame numbers of one sheet.
@@ -20456,7 +20519,8 @@ DocsDoodads.Memao = {
 DocsDoodads.MemaoSlots = {
     bodies: [['average', 'Average'], ['dainty', 'Dainty'], ['broad', 'Broad']],
 
-    // card -> tabs -> slots. folder: the pack's folder; required: no "None"; follows: the slot whose colour it
+    // card -> tabs -> slots. folder: the pack's folder; required: no "None"; prop: a prop of its own animation, shown
+    // only when the pack has more than one (shown(index, slot, body)); follows: the slot whose colour it
     // takes ('body' for the skin); link: the slot whose colour it takes until it is given its own (ownColour).
     cards: [
         { key: 'body', label: 'Body', tabs: [
@@ -20508,7 +20572,12 @@ DocsDoodads.MemaoSlots = {
                 { key: 'fieldtool', label: 'Field tool', folder: 'StrikeA' },
                 { key: 'scythe', label: 'Scythe', folder: 'Reap' },
                 { key: 'seedbag', label: 'Seed bag', folder: 'Seed' },
-                { key: 'can', label: 'Watering can', folder: 'Water' }
+                { key: 'can', label: 'Watering can', folder: 'Water' },
+                // What the Eat, Drink, Read and Paint animations hold: None is the pack's first.
+                { key: 'propeat', label: 'Food (Eat)', folder: 'Eat', prop: true },
+                { key: 'propdrink', label: 'Drink', folder: 'Drink', prop: true },
+                { key: 'propread', label: 'Book (Read)', folder: 'Read', prop: true },
+                { key: 'proppaint', label: 'Easel (Paint)', folder: 'Paint', prop: true }
             ] }
         ] }
     ],
@@ -20532,6 +20601,11 @@ DocsDoodads.MemaoSlots = {
     // Every part is under one licence: nothing is hidden by the LPC's safe-to-encrypt switch.
     hiddenBySafeOnly() {
         return 0;
+    },
+
+    // Whether the creator shows a row: a prop row only when there is a choice of prop.
+    shown(index, slot, body) {
+        return !slot.prop || this.options(index, slot, body).length > 1;
     },
 
     slotOfPart(part) {
@@ -21323,9 +21397,13 @@ DocsDoodads.MzGenSlots = {
 
     // ---- Colour slots ----
 
-    // A part's colour channels: [{ slot, label }] for the slots it uses.
+    // A part's colour channels: [{ slot, label }] for the slots it uses: its face files' and the ones its walking,
+    // damaged and battler masks hold (the index has them since the masks are read), in slot order.
     channels(index, part) {
-        return (part && part.slots || []).filter(s => DocsDoodads.MzGen.slots[s]).map(s => ({ slot: s, label: DocsDoodads.MzGen.slots[s][0] }));
+        if (!part) return [];
+        const all = new Set(part.slots || []);
+        for (const view of ['TV', 'TVD', 'SV']) for (const f of (part.files && part.files[view]) || []) for (const s of f.slots || []) all.add(s);
+        return [...all].filter(s => DocsDoodads.MzGen.slots[s]).sort().map(s => ({ slot: s, label: DocsDoodads.MzGen.slots[s][0] }));
     },
 
     colours(index, part, channel = 0) {
@@ -36399,6 +36477,7 @@ Object.assign(DocsDoodads.Workspace, {
 //             (the pad's X held) rolls a new one. Locks belong to the open window, not to saved characters.
 //   Links     Memao's long hair, side hair and eyebrows take the hair's colour until given their own (K, or the
 //             chain beside the swatch); the kit says which rows link (slots.linkOf, setLinked).
+//   Recipes   the character in a file of its own (Export recipe... and Import recipe... on the Load popover).
 Object.assign(DocsDoodads.Workspace, {
     historyMax: 20,
 
@@ -36484,6 +36563,63 @@ Object.assign(DocsDoodads.Workspace, {
         const kept = this.creatorLockedKeys(card).filter(k => k !== '_body').length;
         const what = card === 'body' ? (type ? 'New body type, face and hair' : 'New face and hair') : 'New outfit';
         this.creatorChanged('ok', what + (kept ? `; ${kept} locked kept` : ''));
+    },
+
+    // ---- Recipes: one character in a file of its own (23_creator_recipe.js), from the Load popover ----
+
+    creatorWriteRecipe(file) {
+        const c = this._creator, FS = DocsDoodads.FS;
+        try {
+            FS.fs.writeFileSync(file, DocsDoodads.CreatorRecipe.write(c.kit, c.name, c.state), 'utf8');
+        } catch (e) {
+            this.showToast('Could not write the recipe: ' + (e.message || e), 'error');
+            return false;
+        }
+        this.showToast(`Saved the recipe of ${c.name || 'the character'} in ${FS.path ? FS.path.basename(file) : file}.`, 'success');
+        return true;
+    },
+
+    // A recipe file into the open creator: one made by another library's creator is refused with what to do;
+    // parts the library no longer has are dropped (and named), as when loading.
+    creatorReadRecipe(file) {
+        const S = this.creatorSlots(), c = this._creator, FS = DocsDoodads.FS;
+        let got;
+        try {
+            got = DocsDoodads.CreatorRecipe.read(FS.fs.readFileSync(file, 'utf8'), c.kit);
+        } catch (e) {
+            this.showToast(e.message || String(e), 'error');
+            return false;
+        }
+        const gone = this.creatorDropStale(got.state);
+        this.creatorRemember();
+        c.state = got.state;
+        if (got.name) c.name = got.name;
+        c.pop = null;
+        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${this.creatorKit().missingNote}.`, 'info');
+        this.creatorChanged('ok', 'Brought in ' + (got.name || 'the character'));
+        return true;
+    },
+
+    // NW.js's own file dialogs: <input type="file" nwsaveas> to save, accept=".json" to open.
+    creatorPickRecipeOut() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        if (input.setAttribute) input.setAttribute('nwsaveas', DocsDoodads.CreatorRecipe.fileName(this._creator.name));
+        input.accept = '.json';
+        input.onchange = () => { const file = input.value || (input.files && input.files[0] && input.files[0].path); if (file) this.creatorWriteRecipe(file); };
+        if (typeof input.click === 'function') input.click();
+        return true;
+    },
+
+    creatorPickRecipeIn() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = () => { const file = (input.files && input.files[0] && input.files[0].path) || input.value; if (file) this.creatorReadRecipe(file); };
+        if (typeof input.click === 'function') input.click();
+        return true;
     },
 
     // ---- Linked colours ----
@@ -36604,6 +36740,7 @@ DocsDoodads.CreatorKits = {
         exportNote: () => 'Sheets made from the Memao assets may go into your games, but not be shared on their own. The character is saved under its name to change and export again.',
         missingNote: 'the asset folder changed',
         exportDefaults: ws => ws.memaoExportDefaults(),
+        exportExtraTicks: () => [['stand', "Stand on the tile's bottom", "Every frame 6 pixels lower, so the feet are where MZ's own characters stand. A sheet whose frames reach their bottom is left as it was (the export says which)."]],
         exportFiles: (ws, name, o) => ws.creatorFileEntries(ws.memaoExportFiles(name, o), name, o, DocsDoodads.MemaoExport),
         exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
@@ -37742,7 +37879,9 @@ Object.assign(DocsDoodads.Workspace, {
         const S = this.creatorSlots(), c = this._creator;
         const card = S.cards.find(x => x.key === cardKey);
         const tab = card.tabs[c.tabs[cardKey]];
-        const rows = tab.slots.map(s => Object.assign({ card: cardKey }, s));
+        // A kit can leave a row out (Memao's prop rows when the pack has one prop of that kind).
+        const index = S.shown ? this.creatorIndex() : null;
+        const rows = tab.slots.filter(s => !S.shown || S.shown(index, s, c.state.body)).map(s => Object.assign({ card: cardKey }, s));
         if (cardKey === 'body' && tab.key === 'body') rows.unshift({ key: '_body', label: 'Body type', card: 'body', special: true });
         return rows;
     },
@@ -38158,6 +38297,7 @@ Object.assign(DocsDoodads.Workspace, {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="left: 22px; bottom: 70px;">
                 <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">Saved characters</div>
+                <div class="dd-cr-list" style="flex-direction: row; min-width: 0; margin-bottom: 6px;"><button type="button" id="dd-cr-recipe-out" title="This character in a file of its own, to keep anywhere or give to someone">Export recipe...</button><button type="button" id="dd-cr-recipe-in" title="A character from a recipe file (made by this creator)">Import recipe...</button></div>
                 <div class="dd-cr-list">${saved.length ? saved.map((s, i) => `<div class="dd-cr-item"><span>${escapeHtml(s.name)}</span>
                     <button type="button" id="dd-cr-load-${i}">Load</button><button type="button" id="dd-cr-del-${i}" aria-label="Delete ${escapeHtml(s.name)}">Delete</button></div>`).join('')
                     : '<div style="color: #7a6b8f;">None saved yet. Save keeps the character in data/DocsDoodadsCharacters.json.</div>'}</div>
@@ -38181,6 +38321,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${E.actions.length ? `<div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>` : ''}
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in the slot picked below (the other faces in the sheet are kept).`)}
                 ${o.face ? this.creatorFaceSlotsHtml(c.name, o.faceSlot || 0) : ''}
+                ${(K.exportExtraTicks ? K.exportExtraTicks() : []).map(([key, label, note]) => tick('dd-cr-ex-' + key, o[key], label, note)).join('')}
                 ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
                 <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">${K.exportNote()}</div>
@@ -38267,7 +38408,7 @@ Object.assign(DocsDoodads.Workspace, {
                     this.addLpcNotetag(v[0], parseInt(v.slice(1), 10), p.notetag, p.slot);
                 });
             });
-            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
+            for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage', 'stand']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             for (let slot = 0; slot < 8; slot++) on('dd-cr-ex-slot-' + slot, () => { o.faceSlot = slot; this.renderCreator(); this.creatorSay(`Face slot ${slot + 1}`); });
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
@@ -38280,6 +38421,8 @@ Object.assign(DocsDoodads.Workspace, {
         }
         if (c.pop && c.pop.kind === 'grid') this.bindCreatorGrid();
         if (c.pop && c.pop.kind === 'load') {
+            on('dd-cr-recipe-out', () => this.creatorPickRecipeOut());
+            on('dd-cr-recipe-in', () => this.creatorPickRecipeIn());
             const saved = S.validSaved(this.readCreatorSaved()).characters;
             saved.forEach((s, i) => {
                 on('dd-cr-load-' + i, () => this.creatorLoad(s.name));
@@ -40353,7 +40496,7 @@ Object.assign(DocsDoodads.Workspace, {
     // ---- Export ----
 
     memaoExportDefaults() {
-        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, actions: ['slash', 'hurt', 'wave', 'pickup'] };
+        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, stand: true, actions: ['slash', 'hurt', 'wave', 'pickup'] };
     },
 
     memaoExportFiles(name, options) {
@@ -40382,7 +40525,20 @@ Object.assign(DocsDoodads.Workspace, {
             if (!(anim in sheets)) { const out = this.composeMemao(recipe, anim); sheets[anim] = out && out.sheet; if (out) warnings.push(...out.warnings.filter(w => !warnings.includes(w))); }
             return sheets[anim];
         };
-        const walk = sheetOf('walk'), idle = sheetOf('idle');
+        // Standing on the tile's bottom (options.stand): the character sheets 6 pixels lower; one whose frames
+        // reach their bottom stays as it was. The battler and the face are drawn their own way.
+        const stood = {};
+        const standing = anim => {
+            const sheet = sheetOf(anim);
+            if (!sheet || !options.stand) return sheet;
+            if (!(anim in stood)) {
+                const out = E.shiftDown(sheet);
+                if (out.cropped) warnings.push(`The ${anim} sheet is left where it was: ${out.cropped} frame${out.cropped === 1 ? ' reaches' : 's reach'} its bottom.`);
+                stood[anim] = out.sheet;
+            }
+            return stood[anim];
+        };
+        const walk = standing('walk'), idle = standing('idle');
         if (!walk) { this.showToast('Nothing to export: the character has no walk.', 'error'); return null; }
         const written = [];
         const write = (file, image) => { this.writeLpcPng(file, image); written.push(file); };
@@ -40391,7 +40547,7 @@ Object.assign(DocsDoodads.Workspace, {
             if (options.smooth) {
                 write('img/characters/' + N.smooth + '.png', E.smooth(walk, idle));
                 if (idle) write('img/characters/' + N.idle + '.png', E.allFrames(idle));
-                const run = sheetOf('run');
+                const run = standing('run');
                 if (run) write('img/characters/' + N.run + '.png', E.allFrames(run));
                 const set = E.animationSet(N);
                 const sets = (D.World.get('characterAnim.sets') || []).filter(s => s && s.character !== set.character);
@@ -40399,7 +40555,7 @@ Object.assign(DocsDoodads.Workspace, {
                 this.setWorldSetting('characterAnim.sets', sets);
             }
             for (const anim of options.actions || []) {
-                const sheet = sheetOf(anim);
+                const sheet = standing(anim);
                 if (!sheet) { warnings.push(`No ${anim} action: the pack has no ${anim}.`); continue; }
                 write('img/characters/' + E.actionName(name, anim) + '.png', E.actionSheet(sheet, anim));
             }

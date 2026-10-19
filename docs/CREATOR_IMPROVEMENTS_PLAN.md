@@ -1,13 +1,17 @@
 # Improvements Plan: the Character Creators and the Rest of the App
 
-**Status:** accepted 2026-10-19. Part A phases 1 (§2.1, the fixes), 2 (the grid picker), 3 (locks, undo, the dice and the
-body type, linked hair; the rest of §2.2) and 4 (the switcher, the card's groups, face slots, High contrast; §2.3) and
-Part B phases B1 (§8, the game bugs), B2 (§9.1 and §9.2, the editor's data safety and behaviour) and B3 (§9.3, keyboard
-and screen readers) are done, played in MZ in `docs/QA_2026-10-19.md`. In phase 1 the card switch is `[` / `]` and the next colour channel `C` (§2.1 gave `]` to both), and a mask colour snaps
-only to a slot its part uses (the real masks put some within reach of other parts' keys). In phase 2 the pad opens the
-grid with the right stick, not A, which stays the colour; in the grid A picks as planned. In phase 3 Memao's linked rows
-are marked `link: 'hair'` (not `follows`, which can't be unlinked), and with an MZ part locked the base doesn't change
-(MZ's parts belong to their base).
+**Status:** accepted 2026-10-19. Part A is done: phases 1 (§2.1, the fixes), 2 (the grid picker), 3 (locks, undo, the
+dice and the body type, linked hair; the rest of §2.2), 4 (the switcher, the card's groups, face slots, High contrast;
+§2.3) and 5 (Memao on the tile and its props, MZ slots from the mask, recipes; §2.4). So are Part B phases B1 (§8, the
+game bugs), B2 (§9.1 and §9.2, the editor's data safety and behaviour) and B3 (§9.3, keyboard and screen readers). All
+are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
+`[` / `]` and the next colour channel `C` (§2.1 gave `]` to both), and a mask colour snaps only to a slot its part uses
+(the real masks put some within reach of other parts' keys). In phase 2 the pad opens the grid with the right stick, not
+A, which stays the colour; in the grid A picks as planned. In phase 3 Memao's linked rows are marked `link: 'hair'` (not
+`follows`, which can't be unlinked), and with an MZ part locked the base doesn't change (MZ's parts belong to their
+base). In phase 5 the standing shift checks a frame's bottom rows (moving down, those are what would leave the frame),
+not its top; Memao's pack has one prop of each kind (its `_000` files are the empty "none"), so its prop rows show only
+for a pack with more.
 
 **Goal:** two reviews on one day, written up as one plan. **Part A** makes the three character creators (LPC,
 Memao and MZ: `docs/LPC_CHARACTER_CREATOR_PLAN.md`, `docs/MEMAO_CHARACTER_CREATOR_PLAN.md`,

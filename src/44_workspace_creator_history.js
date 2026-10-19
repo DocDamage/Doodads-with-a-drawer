@@ -9,6 +9,7 @@
 //             (the pad's X held) rolls a new one. Locks belong to the open window, not to saved characters.
 //   Links     Memao's long hair, side hair and eyebrows take the hair's colour until given their own (K, or the
 //             chain beside the swatch); the kit says which rows link (slots.linkOf, setLinked).
+//   Recipes   the character in a file of its own (Export recipe... and Import recipe... on the Load popover).
 Object.assign(DocsDoodads.Workspace, {
     historyMax: 20,
 
@@ -94,6 +95,63 @@ Object.assign(DocsDoodads.Workspace, {
         const kept = this.creatorLockedKeys(card).filter(k => k !== '_body').length;
         const what = card === 'body' ? (type ? 'New body type, face and hair' : 'New face and hair') : 'New outfit';
         this.creatorChanged('ok', what + (kept ? `; ${kept} locked kept` : ''));
+    },
+
+    // ---- Recipes: one character in a file of its own (23_creator_recipe.js), from the Load popover ----
+
+    creatorWriteRecipe(file) {
+        const c = this._creator, FS = DocsDoodads.FS;
+        try {
+            FS.fs.writeFileSync(file, DocsDoodads.CreatorRecipe.write(c.kit, c.name, c.state), 'utf8');
+        } catch (e) {
+            this.showToast('Could not write the recipe: ' + (e.message || e), 'error');
+            return false;
+        }
+        this.showToast(`Saved the recipe of ${c.name || 'the character'} in ${FS.path ? FS.path.basename(file) : file}.`, 'success');
+        return true;
+    },
+
+    // A recipe file into the open creator: one made by another library's creator is refused with what to do;
+    // parts the library no longer has are dropped (and named), as when loading.
+    creatorReadRecipe(file) {
+        const S = this.creatorSlots(), c = this._creator, FS = DocsDoodads.FS;
+        let got;
+        try {
+            got = DocsDoodads.CreatorRecipe.read(FS.fs.readFileSync(file, 'utf8'), c.kit);
+        } catch (e) {
+            this.showToast(e.message || String(e), 'error');
+            return false;
+        }
+        const gone = this.creatorDropStale(got.state);
+        this.creatorRemember();
+        c.state = got.state;
+        if (got.name) c.name = got.name;
+        c.pop = null;
+        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${this.creatorKit().missingNote}.`, 'info');
+        this.creatorChanged('ok', 'Brought in ' + (got.name || 'the character'));
+        return true;
+    },
+
+    // NW.js's own file dialogs: <input type="file" nwsaveas> to save, accept=".json" to open.
+    creatorPickRecipeOut() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        if (input.setAttribute) input.setAttribute('nwsaveas', DocsDoodads.CreatorRecipe.fileName(this._creator.name));
+        input.accept = '.json';
+        input.onchange = () => { const file = input.value || (input.files && input.files[0] && input.files[0].path); if (file) this.creatorWriteRecipe(file); };
+        if (typeof input.click === 'function') input.click();
+        return true;
+    },
+
+    creatorPickRecipeIn() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = () => { const file = (input.files && input.files[0] && input.files[0].path) || input.value; if (file) this.creatorReadRecipe(file); };
+        if (typeof input.click === 'function') input.click();
+        return true;
     },
 
     // ---- Linked colours ----

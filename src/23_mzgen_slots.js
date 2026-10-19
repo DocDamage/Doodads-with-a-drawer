@@ -71,9 +71,13 @@ DocsDoodads.MzGenSlots = {
 
     // ---- Colour slots ----
 
-    // A part's colour channels: [{ slot, label }] for the slots it uses.
+    // A part's colour channels: [{ slot, label }] for the slots it uses: its face files' and the ones its walking,
+    // damaged and battler masks hold (the index has them since the masks are read), in slot order.
     channels(index, part) {
-        return (part && part.slots || []).filter(s => DocsDoodads.MzGen.slots[s]).map(s => ({ slot: s, label: DocsDoodads.MzGen.slots[s][0] }));
+        if (!part) return [];
+        const all = new Set(part.slots || []);
+        for (const view of ['TV', 'TVD', 'SV']) for (const f of (part.files && part.files[view]) || []) for (const s of f.slots || []) all.add(s);
+        return [...all].filter(s => DocsDoodads.MzGen.slots[s]).sort().map(s => ({ slot: s, label: DocsDoodads.MzGen.slots[s][0] }));
     },
 
     colours(index, part, channel = 0) {

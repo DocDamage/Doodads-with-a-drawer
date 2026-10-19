@@ -96,7 +96,7 @@ Object.assign(DocsDoodads.Workspace, {
     // ---- Export ----
 
     memaoExportDefaults() {
-        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, actions: ['slash', 'hurt', 'wave', 'pickup'] };
+        return { classic: true, smooth: true, face: true, faceSlot: 0, battler: true, stand: true, actions: ['slash', 'hurt', 'wave', 'pickup'] };
     },
 
     memaoExportFiles(name, options) {
@@ -125,7 +125,20 @@ Object.assign(DocsDoodads.Workspace, {
             if (!(anim in sheets)) { const out = this.composeMemao(recipe, anim); sheets[anim] = out && out.sheet; if (out) warnings.push(...out.warnings.filter(w => !warnings.includes(w))); }
             return sheets[anim];
         };
-        const walk = sheetOf('walk'), idle = sheetOf('idle');
+        // Standing on the tile's bottom (options.stand): the character sheets 6 pixels lower; one whose frames
+        // reach their bottom stays as it was. The battler and the face are drawn their own way.
+        const stood = {};
+        const standing = anim => {
+            const sheet = sheetOf(anim);
+            if (!sheet || !options.stand) return sheet;
+            if (!(anim in stood)) {
+                const out = E.shiftDown(sheet);
+                if (out.cropped) warnings.push(`The ${anim} sheet is left where it was: ${out.cropped} frame${out.cropped === 1 ? ' reaches' : 's reach'} its bottom.`);
+                stood[anim] = out.sheet;
+            }
+            return stood[anim];
+        };
+        const walk = standing('walk'), idle = standing('idle');
         if (!walk) { this.showToast('Nothing to export: the character has no walk.', 'error'); return null; }
         const written = [];
         const write = (file, image) => { this.writeLpcPng(file, image); written.push(file); };
@@ -134,7 +147,7 @@ Object.assign(DocsDoodads.Workspace, {
             if (options.smooth) {
                 write('img/characters/' + N.smooth + '.png', E.smooth(walk, idle));
                 if (idle) write('img/characters/' + N.idle + '.png', E.allFrames(idle));
-                const run = sheetOf('run');
+                const run = standing('run');
                 if (run) write('img/characters/' + N.run + '.png', E.allFrames(run));
                 const set = E.animationSet(N);
                 const sets = (D.World.get('characterAnim.sets') || []).filter(s => s && s.character !== set.character);
@@ -142,7 +155,7 @@ Object.assign(DocsDoodads.Workspace, {
                 this.setWorldSetting('characterAnim.sets', sets);
             }
             for (const anim of options.actions || []) {
-                const sheet = sheetOf(anim);
+                const sheet = standing(anim);
                 if (!sheet) { warnings.push(`No ${anim} action: the pack has no ${anim}.`); continue; }
                 write('img/characters/' + E.actionName(name, anim) + '.png', E.actionSheet(sheet, anim));
             }
