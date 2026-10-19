@@ -1,6 +1,6 @@
 # Doc's Doodads: Recommendations
 
-Status as of 18 October 2026 (after PR #40). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. What's left is at the bottom.
+Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is at the bottom.
 
 **S** = an afternoon, **M** = a PR like terrain or water, **L** = several PRs.
 
@@ -67,12 +67,13 @@ Status as of 18 October 2026 (after PR #40). Every item on the 17 October list i
 
 ## What's left
 
-Done since the last update: model live reload, the 3D See-Through silhouette, standing tile and wall edge cases, the 3D camera following near map edges, floor decals under walls, the checklist findings, gear from Aseprite layers, animated and skinned models, a video sky, zoom and sound focus with ambience and footsteps, traversal (jump, glide, swim, dive, fly, climb, ice), the audit, the new editor look and font, `npm run deploy`, and deployed games carrying on when doodad art is missing. MV is no longer a goal: Doc's Doodads is for MZ.
+Done since the last update: the whole section 6 backlog (PRs #43–#52), morph targets, normal maps and GPU drawing for models, model live reload, the 3D See-Through silhouette, standing tile and wall edge cases, the 3D camera following near map edges, floor decals under walls, the checklist findings, gear from Aseprite layers, animated and skinned models, a video sky, zoom and sound focus with ambience and footsteps, traversal (jump, glide, swim, dive, fly, climb, ice), the audit, the new editor look and font, `npm run deploy`, and deployed games carrying on when doodad art is missing. MV is no longer a goal: Doc's Doodads is for MZ.
 
 | # | What | Why | Size |
 |---|---|---|---|
 | B | **A real lower-spec PC.** Slow machines were only simulated (4× CPU throttling). At High, a long view distance with terrain is heavy there (13–20 fps). Check that Medium is a good default suggestion. | Throttling doesn't model a weak GPU. | S |
-| D | **Models: what's still open.** **Done:** morph targets, normal maps, light per pixel, a selection box that follows the pose, and drawing on the GPU (World > 3D Models, off by default). Left: real games to show whether the GPU way should become the default. | Checked on the stand-in engine, by compiling the shaders on WebGL 1 and 2, and in an MZ playtest (morphs, normal maps, skins on the GPU; [QA record](docs/QA_2026-10-19.md)). | M |
+| D2 | **Models on the GPU by default?** Morph targets, normal maps, per-pixel light, a box that follows the pose and drawing on the GPU are done (D). The GPU way is off by default while it is new. | Real games with many moving models will show whether it should be on by default. | S |
+| T | **A Japanese table for the editor.** The language layer is done (6.2.15) and `npm run strings` writes the template; the Japanese words need a translator. | Left for a translator rather than written by machine. | M |
 | E | **Editor feedback from new users.** The new look was checked by its makers, not by someone opening the editor for the first time. Watch a new user place, paint and save, and fix where they get stuck. | The aim was "very easy to use"; only a fresh pair of eyes can say. | S |
 
 ---
