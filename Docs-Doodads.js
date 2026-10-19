@@ -5203,6 +5203,203 @@ DocsDoodads.MapCheck = {
     }
 };
 //==========================================================
+// SECTION 5G2: ONE SHORTCUT TABLE
+//==========================================================
+// Every editor key binding is a row here. The key handler, the Keyboard Shortcuts card (More), button
+// tooltips, the command palette and the guide's cheat sheet (npm run shortcuts) all read this table, so a
+// key changed here, or rebound by the user, changes everywhere at once. Rebinding is kept per computer.
+// fixed rows are listed but can't be rebound: they depend on what is under the cursor or on the tool.
+DocsDoodads.Shortcuts = {
+    prefKey: 'shortcuts',
+
+    list: [
+        { id: 'undo', label: 'Undo', group: 'Editing', keys: 'Ctrl+Z' },
+        { id: 'redo', label: 'Redo', group: 'Editing', keys: 'Ctrl+Y' },
+        { id: 'save', label: 'Save everything', group: 'Editing', keys: 'Ctrl+S' },
+        { id: 'duplicate', label: 'Duplicate the picked doodads', group: 'Editing', keys: 'Ctrl+D' },
+        { id: 'copy', label: 'Copy the picked doodads', group: 'Editing', keys: 'Ctrl+C' },
+        { id: 'paste', label: 'Paste beside the cursor', group: 'Editing', keys: 'Ctrl+V' },
+        { id: 'pasteInPlace', label: 'Paste in Place (where they were copied)', group: 'Editing', keys: 'Ctrl+Shift+V' },
+        { id: 'selectAll', label: 'Select All', group: 'Editing', keys: 'Ctrl+A' },
+        { id: 'delete', label: 'Delete the picked doodads or event', group: 'Editing', keys: 'Delete' },
+        { id: 'nudge', label: 'Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile', group: 'Editing', keys: 'Arrow keys', fixed: true },
+        { id: 'palette', label: 'Find a Tool (command palette)', group: 'Panels', keys: 'Ctrl+K' },
+        { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
+        { id: 'find', label: 'Search the Item Bag', group: 'Panels', keys: 'F' },
+        { id: 'shortcuts', label: 'Keyboard Shortcuts (this list)', group: 'Panels', keys: 'Shift+/' },
+        { id: 'grid', label: 'Show or hide the grid', group: 'View', keys: 'G' },
+        { id: 'collision', label: 'Show or hide collision', group: 'View', keys: '' },
+        { id: 'sounds', label: 'Show or hide sounds', group: 'View', keys: '' },
+        { id: 'speed', label: 'Show or hide speed', group: 'View', keys: '' },
+        { id: 'toolSelect', label: 'Select tool', group: 'Tools', keys: '' },
+        { id: 'toolStamp', label: 'Stamp tool', group: 'Tools', keys: '' },
+        { id: 'toolScatter', label: 'Scatter tool', group: 'Tools', keys: '' },
+        { id: 'toolPaint', label: 'Paint tool (biomes)', group: 'Tools', keys: '' },
+        { id: 'toolPath', label: 'Path tool', group: 'Tools', keys: '' },
+        { id: 'toolHills', label: 'Hills tool', group: 'Tools', keys: '' },
+        { id: 'toolRegions', label: 'Regions tool', group: 'Tools', keys: '' },
+        { id: 'toolGrab', label: 'Grab tool', group: 'Tools', keys: '' },
+        { id: 'brushSmaller', label: 'Smaller brush (Scatter, Paint, Hills, Regions)', group: 'Tools', keys: '[' },
+        { id: 'brushBigger', label: 'Bigger brush', group: 'Tools', keys: ']' },
+        { id: 'pathFinish', label: 'Place props along the path being drawn', group: 'Tools', keys: 'Enter', fixed: true },
+        { id: 'pathBack', label: 'Remove the last path point', group: 'Tools', keys: 'Backspace', fixed: true },
+        { id: 'cancel', label: 'Stop the tool, unpick, close pop-ups', group: 'Tools', keys: 'Escape', fixed: true }
+    ],
+
+    find(id) {
+        return this.list.find(s => s.id === id) || null;
+    },
+
+    groups() {
+        return this.list.map(s => s.group).filter((g, i, all) => all.indexOf(g) === i);
+    },
+
+    // The user's changes: { id: 'Ctrl+J' } or { id: '' } for no key.
+    overrides() {
+        const U = DocsDoodads.Ui;
+        const raw = U && typeof U.prefs === 'function' ? U.prefs()[this.prefKey] : null;
+        return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    },
+
+    keysOf(id) {
+        const s = this.find(id);
+        if (!s) return '';
+        if (s.fixed) return s.keys;
+        const own = this.overrides();
+        return Object.prototype.hasOwnProperty.call(own, id) && typeof own[id] === 'string' ? own[id] : s.keys;
+    },
+
+    isChanged(id) {
+        const s = this.find(id);
+        return Boolean(s && !s.fixed && this.keysOf(id) !== s.keys);
+    },
+
+    // KeyChord.parse reads unreadable text as F10; no key at all is no chord here.
+    parse(text) {
+        const t = String(text || '').trim();
+        return t ? DocsDoodads.KeyChord.parse(t) : null;
+    },
+
+    chordOf(id) {
+        const s = this.find(id);
+        return s && !s.fixed ? this.parse(this.keysOf(id)) : null;
+    },
+
+    // "Ctrl+Z", "G", or '' when the row has no key.
+    label(id) {
+        const s = this.find(id);
+        if (!s) return '';
+        if (s.fixed) return s.keys;
+        const chord = this.chordOf(id);
+        return chord ? DocsDoodads.KeyChord.label(chord) : '';
+    },
+
+    // A tooltip with its key at the end, the way the tooltip shows a key cap: "Undo (Ctrl+Z)".
+    tip(id, text) {
+        const keys = this.label(id);
+        return keys ? `${text} (${keys})` : text;
+    },
+
+    same(a, b) {
+        return Boolean(a && b) && a.code === b.code && a.ctrl === b.ctrl && a.shift === b.shift && a.alt === b.alt;
+    },
+
+    // The key a KeyboardEvent names, as a KeyboardEvent code, read from e.key so that letters follow the
+    // keyboard's layout (Ctrl+Z is the key marked Z on an AZERTY keyboard too). '' when e.key says nothing
+    // useful (a shifted symbol, a letter from another alphabet); e.code is tried then.
+    codeFromKey(key) {
+        const k = String(key || '');
+        if (k.length === 1) {
+            if (/^[a-z]$/i.test(k)) return 'Key' + k.toUpperCase();
+            if (/^[0-9]$/.test(k)) return 'Digit' + k;
+            return DocsDoodads.KeyChord.symbols[k] || '';
+        }
+        if (k === 'Esc') return 'Escape';
+        if (k === 'Del') return 'Delete';
+        return /^(F\d{1,2}|Delete|Backspace|Enter|Escape|Tab|Insert|Home|End|PageUp|PageDown|Pause|Arrow(Left|Right|Up|Down))$/.test(k) ? k : '';
+    },
+
+    modifiers(e) {
+        return { ctrl: Boolean(e.ctrlKey || e.metaKey), shift: Boolean(e.shiftKey), alt: Boolean(e.altKey) };
+    },
+
+    // The id of the rebindable row this key press is bound to, or null. The key's name is tried before
+    // its position, so a layout's own letters win over the key that sits where a QWERTY letter would.
+    match(e) {
+        if (!e) return null;
+        const mods = this.modifiers(e);
+        const rows = this.list.filter(s => !s.fixed).map(s => ({ id: s.id, chord: this.chordOf(s.id) })).filter(r => r.chord);
+        for (const code of [this.codeFromKey(e.key), e.code]) {
+            if (!code) continue;
+            const hit = rows.find(r => this.same(r.chord, Object.assign({ code }, mods)));
+            if (hit) return hit.id;
+        }
+        return null;
+    },
+
+    // A key press while changing a binding: the chord it makes, or null for a lone Ctrl, Shift or Alt.
+    chordFromEvent(e) {
+        if (!e || /^(Control|Shift|Alt|Meta|OS|AltGraph|CapsLock)$/.test(String(e.key || ''))) return null;
+        const code = this.codeFromKey(e.key) || e.code || '';
+        if (!code || /^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(code)) return null;
+        return Object.assign({ code }, this.modifiers(e));
+    },
+
+    // Why a chord can't be used for a row (it is taken by the editor key or by a fixed row), or ''.
+    reserved(chord) {
+        if (!chord) return '';
+        if (DocsDoodads.editChord && this.same(chord, DocsDoodads.editChord)) return 'opens and closes the editor (the Editor Key parameter)';
+        if (chord.code === 'Escape' && !chord.ctrl && !chord.alt) return 'stops tools and closes pop-ups';
+        if (/^Arrow/.test(chord.code) && !chord.ctrl && !chord.alt) return 'nudges the picked doodads';
+        return '';
+    },
+
+    // The other row that already uses this chord, or null.
+    conflict(id, chord) {
+        if (!chord) return null;
+        const other = this.list.find(s => !s.fixed && s.id !== id && this.same(this.chordOf(s.id), chord));
+        return other ? other.id : null;
+    },
+
+    // Bind a row to keys ('' for none). The caller has checked reserved() and conflict(); a row that ends up
+    // back on its own default is stored as no change.
+    set(id, keys) {
+        const s = this.find(id);
+        if (!s || s.fixed) return false;
+        const chord = this.parse(keys);
+        const text = chord ? DocsDoodads.KeyChord.label(chord) : '';
+        const own = Object.assign({}, this.overrides());
+        const def = this.parse(s.keys);
+        if ((chord && def && this.same(chord, def)) || (!chord && !def)) delete own[id];
+        else own[id] = text;
+        DocsDoodads.Ui.setPref(this.prefKey, own);
+        return true;
+    },
+
+    reset(id) {
+        const own = Object.assign({}, this.overrides());
+        delete own[id];
+        DocsDoodads.Ui.setPref(this.prefKey, own);
+    },
+
+    resetAll() {
+        DocsDoodads.Ui.setPref(this.prefKey, {});
+    },
+
+    // The guide's table, from the defaults (npm run shortcuts writes it into Docs_Doodads_Guide.md).
+    markdown() {
+        const cap = text => text.split('+').map(k => '**' + k + '**').join(' + ');
+        const rows = ['| Keys | What it does | Group |', '| :--- | :--- | :--- |',
+            '| **F10** (the Editor Key parameter) | Open or close the editor | Playtest |'];
+        for (const s of this.list) {
+            const keys = s.fixed ? cap(s.keys) : s.keys ? cap(DocsDoodads.KeyChord.label(this.parse(s.keys))) : '*(no key)*';
+            rows.push(`| ${keys} | ${s.label}${s.fixed ? ' *(fixed)*' : ''} | ${s.group} |`);
+        }
+        return rows.join('\n');
+    }
+};
+
+//==========================================================
 // SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
 //==========================================================
 // Gear drawn on characters. Notetags (weapons, armors, states, actors, classes, events):
@@ -20652,7 +20849,7 @@ DocsDoodads.Workspace = {
         const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
         if (btn.classList) btn.classList.toggle('dd-unsaved', unsaved);
         // The tooltip reads it from data-dd-tip once it has taken over the title.
-        const tip = unsaved ? 'Save everything: some changes are not saved yet (Ctrl+S)' : 'Save everything: everything is saved (Ctrl+S)';
+        const tip = DocsDoodads.Shortcuts.tip('save', unsaved ? 'Save everything: some changes are not saved yet' : 'Save everything: everything is saved');
         if (btn.getAttribute && btn.getAttribute('data-dd-tip')) btn.setAttribute('data-dd-tip', tip); else btn.title = tip;
         const label = btn.querySelector ? btn.querySelector('b') : null;
         clearTimeout(this._savedTimer);
@@ -20904,23 +21101,23 @@ DocsDoodads.Workspace = {
         toolbar.style.cssText = 'position: absolute; top: 8px; left: 8px; right: 8px;';
         toolbar.innerHTML = `
             <div class="dd-brand" title="Doc's Doodads v${pluginVersion}">${U.icon('leaf', 2)}<span>Doodads</span></div>
-            ${tool('dd-select-btn', 'select', 'Select', 'Select: click things on the map to change them, drag to move (Esc)')}
-            ${tool('dd-stamp-btn', 'stamp', 'Stamp', 'Stamp: click the map to place the picked item again and again')}
-            ${tool('dd-brush-btn', 'brush', 'Scatter', 'Scatter: drag over the map to sprinkle the picked item around')}
-            ${tool('dd-biome-btn', 'biome', 'Paint', 'Paint: drag to paint a mix of plants (biomes)')}
-            ${tool('dd-path-btn', 'path', 'Path', 'Path: lay the picked item along a line you click out')}
-            ${tool('dd-terrain-btn', 'terrain', 'Hills', 'Hills: raise and lower the ground (3D view)')}
-            ${tool('dd-region-btn', 'grid', 'Regions', 'Regions: paint region numbers on tiles (and see terrain tags)')}
+            ${tool('dd-select-btn', 'select', 'Select', this.shortcutTip('dd-select-btn'))}
+            ${tool('dd-stamp-btn', 'stamp', 'Stamp', this.shortcutTip('dd-stamp-btn'))}
+            ${tool('dd-brush-btn', 'brush', 'Scatter', this.shortcutTip('dd-brush-btn'))}
+            ${tool('dd-biome-btn', 'biome', 'Paint', this.shortcutTip('dd-biome-btn'))}
+            ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
+            ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
+            ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
-            ${tool('dd-eyedropper-btn', 'picker', 'Grab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)')}
+            ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
             <div class="dd-sep"></div>
-            ${tool('dd-undo-btn', 'undo', 'Undo', 'Undo (Ctrl+Z)')}
-            ${tool('dd-redo-btn', 'redo', 'Redo', 'Redo (Ctrl+Y)')}
+            ${tool('dd-undo-btn', 'undo', 'Undo', this.shortcutTip('dd-undo-btn'))}
+            ${tool('dd-redo-btn', 'redo', 'Redo', this.shortcutTip('dd-redo-btn'))}
             ${tool('dd-undo-list-btn', 'history', 'Steps', 'Every step you took: jump back to any of them')}
             <div class="dd-spacer"></div>
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
             ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
-            ${tool('dd-save-btn', 'save', 'Save', 'Save everything (Ctrl+S)', 'dd-btn-good')}
+            ${tool('dd-save-btn', 'save', 'Save', DocsDoodads.Shortcuts.tip('save', 'Save everything'), 'dd-btn-good')}
             ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
         wrap.appendChild(toolbar);
@@ -21025,12 +21222,13 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-history-btn" title="Compare with earlier saves and bring single things back">${U.icon('folder', 1)} Old Saves</button>
                     <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
                     <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
-                    <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-grid-btn" title="${escapeHtml(this.shortcutTip('dd-grid-btn'))}">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
                     <button class="dd-btn" id="dd-collision-btn" title="Show every doodad's collision and the tiles you can't walk on">${U.icon('lock', 1)} <span id="dd-collision-label">${this.showCollision ? 'Hide Collision' : 'Show Collision'}</span></button>
                     <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
-                    <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-palette-btn" title="${escapeHtml(this.shortcutTip('dd-palette-btn'))}">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
@@ -21486,6 +21684,7 @@ DocsDoodads.Workspace = {
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
+        on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
@@ -22288,7 +22487,7 @@ DocsDoodads.Workspace = {
                 ${this.renderSelectionTools([d])}
                 ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
+                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">${escapeHtml(DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'))}</button>
                     <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: var(--dd-danger-soft);">Delete</button>
                 </div>
             `;
@@ -23672,11 +23871,13 @@ DocsDoodads.Workspace = {
         const D = DocsDoodads;
         const out = [];
         const add = (label, run, group, keys) => out.push({ label, run, group: group || 'Command', keys });
-        add('Save', () => D.Persistence.saveAll(), null, 'Ctrl+S');
-        add('Undo', () => D.Undo.undo(), null, 'Ctrl+Z');
-        add('Redo', () => D.Undo.redo(), null, 'Ctrl+Y');
-        add('Toggle Grid', () => this.toggleGrid(), null, 'G');
-        add('Show / Hide Collision', () => this.toggleCollisionOverlay());
+        const K = id => D.Shortcuts.label(id) || undefined;
+        add('Save', () => D.Persistence.saveAll(), null, K('save'));
+        add('Undo', () => D.Undo.undo(), null, K('undo'));
+        add('Redo', () => D.Undo.redo(), null, K('redo'));
+        add('Keyboard Shortcuts (see and change keys)', () => this.showShortcutsCard(), null, K('shortcuts'));
+        add('Toggle Grid', () => this.toggleGrid(), null, K('grid'));
+        add('Show / Hide Collision', () => this.toggleCollisionOverlay(), null, K('collision'));
         for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');
         add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
         for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
@@ -23704,25 +23905,25 @@ DocsDoodads.Workspace = {
         add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());
         add('Clock: run the day fast', () => this.playClock(), 'Clock');
         add('Clock: back to the game\'s time', () => { this.stopClock(); this.previewMinutes = null; this.previewSeason = null; this.updateClockBar(true); }, 'Clock');
-        add('Show / Hide Sounds', () => this.toggleSoundOverlay());
+        add('Show / Hide Sounds', () => this.toggleSoundOverlay(), null, K('sounds'));
         add('Listen Here (click a tile)', () => this.setPlacementTool('listen'));
-        add('Show / Hide Speed (performance)', () => this.togglePerfOverlay());
+        add('Show / Hide Speed (performance)', () => this.togglePerfOverlay(), null, K('speed'));
         for (const s of D.Ui.scales) add(`Editor size ${Math.round(s * 100)}%`, () => this.setLook('uiScale', s), 'Look');
         for (const t of D.Ui.themes) add('Theme: ' + t.label, () => this.setLook('theme', t.value), 'Look');
         add('Map colours: colour-blind safe', () => this.setLook('mapColors', 'safe'), 'Look');
         add('Map colours: standard', () => this.setLook('mapColors', 'standard'), 'Look');
-        add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'));
-        add('Tool: Stamp', () => this.setPlacementTool('stamp'));
-        add('Tool: Scatter', () => this.setPlacementTool('brush'));
-        add('Tool: Paint (biomes)', () => this.setPlacementTool('biome'));
-        add('Tool: Path', () => this.setPlacementTool('path'));
-        add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'));
-        add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'));
-        add('Tool: Select', () => this.setPlacementTool(null));
-        add('Select All (Ctrl+A)', () => this.selectAllDoodads());
+        add('Tool: Grab (eyedropper)', () => this.setPlacementTool('eyedropper'), null, K('toolGrab'));
+        add('Tool: Stamp', () => this.setPlacementTool('stamp'), null, K('toolStamp'));
+        add('Tool: Scatter', () => this.setPlacementTool('brush'), null, K('toolScatter'));
+        add('Tool: Paint (biomes)', () => this.setPlacementTool('biome'), null, K('toolPaint'));
+        add('Tool: Path', () => this.setPlacementTool('path'), null, K('toolPath'));
+        add('Tool: Hills (terrain)', () => this.setPlacementTool('terrain'), null, K('toolHills'));
+        add('Tool: Regions (paint region numbers)', () => this.setPlacementTool('region'), null, K('toolRegions'));
+        add('Tool: Select', () => this.setPlacementTool(null), null, K('toolSelect'));
+        add('Select All', () => this.selectAllDoodads(), null, K('selectAll'));
         add('Invert Selection', () => this.invertSelection());
         add('Select Same Art as Picked', () => this.selectSameArt());
-        add('Paste in Place (Ctrl+Shift+V)', () => this.pasteCopied(true));
+        add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
@@ -27744,7 +27945,7 @@ DocsDoodads.Workspace = {
                 items.push({ label: 'Bring to Front', icon: '⏫', onClick: () => this.bringToFront([clickedDoodad]) });
                 items.push({ label: 'Send to Back', icon: '⏬', onClick: () => this.sendToBack([clickedDoodad]) });
                 items.push({ separator: true });
-                items.push({ label: 'Duplicate (Ctrl+D)', icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
+                items.push({ label: DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'), icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
                 items.push({ label: clickedDoodad.locked ? 'Unlock' : 'Lock', icon: clickedDoodad.locked ? '🔓' : '🔒', onClick: () => this.lockSelected(!clickedDoodad.locked) });
                 items.push({ label: 'Hide in Editor', icon: '👁️', onClick: () => this.hideSelected(true) });
                 const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
@@ -27785,10 +27986,10 @@ DocsDoodads.Workspace = {
             // Right-clicking empty map
             items.push({ label: this.gridSnapShow ? 'Hide Grid Overlay (G)' : 'Show Grid Overlay (G)', icon: '📐', onClick: () => this.toggleGrid() });
             if (this._clipboardDoodads && this._clipboardDoodads.length > 0) {
-                items.push({ label: `Paste ${this._clipboardDoodads.length} Doodad(s) (Ctrl+V)`, icon: '📑', onClick: () => this.pasteCopied() });
-                items.push({ label: 'Paste in Place (Ctrl+Shift+V)', icon: '📌', onClick: () => this.pasteCopied(true) });
+                items.push({ label: DocsDoodads.Shortcuts.tip('paste', `Paste ${this._clipboardDoodads.length} Doodad(s)`), icon: '📑', onClick: () => this.pasteCopied() });
+                items.push({ label: DocsDoodads.Shortcuts.tip('pasteInPlace', 'Paste in Place'), icon: '📌', onClick: () => this.pasteCopied(true) });
             }
-            items.push({ label: 'Select All (Ctrl+A)', icon: '⬚', onClick: () => this.selectAllDoodads() });
+            items.push({ label: DocsDoodads.Shortcuts.tip('selectAll', 'Select All'), icon: '⬚', onClick: () => this.selectAllDoodads() });
             if (this.selectionItems().length > 0) items.push({ label: 'Invert Selection', icon: '◪', onClick: () => this.invertSelection() });
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
@@ -31907,6 +32108,217 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25m: KEYBOARD SHORTCUTS CARD
+//==========================================================
+// More > Keyboard Shortcuts: every binding in DocsDoodads.Shortcuts, grouped, with each key as a button.
+// Click it and press the new keys (Esc keeps the old ones); a key already in use asks before it moves.
+// What the keys do is runShortcut, which the key handler (part 45) calls.
+DocsDoodads.Ui.css += `
+#dd-keys-card { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 110px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#dd-keys-card .dd-keys-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px; }
+#dd-keys-card .dd-keys-group { font-size: 11px; font-weight: 900; color: var(--dd-muted); margin: 8px 0 2px; }
+#dd-keys-card .dd-keys-row { display: flex; align-items: center; gap: 6px; font-size: 12px; min-height: 28px; }
+#dd-keys-card .dd-keys-row > span { flex: 1; min-width: 0; }
+#dd-keys-card .dd-keys-key { min-width: 92px; padding: 3px 8px; font-size: 11px; font-family: var(--dd-font); }
+#dd-keys-card .dd-keys-key.dd-keys-none { color: var(--dd-faint); font-weight: 700; }
+#dd-keys-card .dd-keys-key.dd-keys-wait { border-color: var(--dd-primary); color: var(--dd-primary); }
+#dd-keys-card .dd-keys-fixed { min-width: 92px; text-align: center; font-size: 11px; color: var(--dd-muted); }
+#dd-keys-card .dd-keys-mini { width: 24px; height: 24px; padding: 0; font-size: 12px; }
+#dd-keys-card .dd-keys-changed { color: var(--dd-primary); font-weight: 900; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // What each row does. Returns false when the key had nothing to do (so it is left alone).
+    runShortcut(id, e) {
+        const D = DocsDoodads;
+        const tool = name => () => { this.setPlacementTool(name); return true; };
+        const actions = {
+            undo: () => D.Undo.undo(),
+            redo: () => D.Undo.redo(),
+            save: () => D.Persistence.saveAll(),
+            duplicate: () => this.duplicateSelectedDoodad(),
+            copy: () => this.copySelected(),
+            paste: () => this.pasteCopied(false),
+            pasteInPlace: () => this.pasteCopied(true),
+            selectAll: () => this.selectAllDoodads(),
+            delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
+            palette: () => this.showCommandPalette(),
+            details: () => this.toggleInspector(),
+            find: () => this.focusSearch(),
+            shortcuts: () => this.showShortcutsCard(),
+            grid: () => this.toggleGrid(),
+            collision: () => this.toggleCollisionOverlay(),
+            sounds: () => this.toggleSoundOverlay(),
+            speed: () => this.togglePerfOverlay(),
+            toolSelect: tool(null),
+            toolStamp: tool('stamp'),
+            toolScatter: tool('brush'),
+            toolPaint: tool('biome'),
+            toolPath: tool('path'),
+            toolHills: tool('terrain'),
+            toolRegions: tool('region'),
+            toolGrab: tool('eyedropper'),
+            brushSmaller: () => this.resizeBrush(-1) || false,
+            brushBigger: () => this.resizeBrush(1) || false
+        };
+        const run = actions[id];
+        if (!run) return false;
+        const result = run();
+        if (result === false) return false;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        return true;
+    },
+
+    // Buttons built once at mount carry their key in the tooltip; after a change they are told again.
+    shortcutTips: {
+        'dd-undo-btn': ['undo', 'Undo'],
+        'dd-redo-btn': ['redo', 'Redo'],
+        'dd-palette-btn': ['palette', 'Type the name of any tool or setting'],
+        'dd-grid-btn': ['grid', 'Show the snapping grid'],
+        'dd-keys-btn': ['shortcuts', 'See and change the keyboard shortcuts'],
+        'dd-select-btn': ['toolSelect', 'Select: click things on the map to change them, drag to move'],
+        'dd-stamp-btn': ['toolStamp', 'Stamp: click the map to place the picked item again and again'],
+        'dd-brush-btn': ['toolScatter', 'Scatter: drag over the map to sprinkle the picked item around'],
+        'dd-biome-btn': ['toolPaint', 'Paint: drag to paint a mix of plants (biomes)'],
+        'dd-path-btn': ['toolPath', 'Path: lay the picked item along a line you click out'],
+        'dd-terrain-btn': ['toolHills', 'Hills: raise and lower the ground (3D view)'],
+        'dd-region-btn': ['toolRegions', 'Regions: paint region numbers on tiles (and see terrain tags)'],
+        'dd-eyedropper-btn': ['toolGrab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)']
+    },
+
+    shortcutTip(elementId) {
+        const row = this.shortcutTips[elementId];
+        if (!row) return '';
+        // Select has always shown Esc, which also gets back to it.
+        if (row[0] === 'toolSelect' && !DocsDoodads.Shortcuts.label('toolSelect')) return row[1] + ' (Esc)';
+        return DocsDoodads.Shortcuts.tip(row[0], row[1]);
+    },
+
+    refreshShortcutTips() {
+        if (typeof document === 'undefined') return;
+        for (const id of Object.keys(this.shortcutTips)) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const tip = this.shortcutTip(id);
+            // The tooltip reads data-dd-tip once it has taken over the title.
+            if (el.getAttribute && el.getAttribute('data-dd-tip')) el.setAttribute('data-dd-tip', tip); else el.title = tip;
+        }
+        if (this.updateSaveState) this.updateSaveState(false);
+    },
+
+    // ---- The card ----
+    showShortcutsCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, S = DocsDoodads.Shortcuts;
+        this.stopShortcutCapture();
+        let card = document.getElementById('dd-keys-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-keys-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const keyCap = id => {
+            const label = S.label(id);
+            return label ? escapeHtml(label) : 'No key';
+        };
+        const row = s => s.fixed
+            ? `<div class="dd-keys-row"><span>${escapeHtml(s.label)}</span><kbd class="dd-keys-fixed">${escapeHtml(s.keys)}</kbd><span style="flex: none; width: 54px;"></span></div>`
+            : `<div class="dd-keys-row"><span class="${S.isChanged(s.id) ? 'dd-keys-changed' : ''}">${escapeHtml(s.label)}</span>
+                <button class="dd-btn dd-keys-key${S.label(s.id) ? '' : ' dd-keys-none'}" type="button" data-keys="${s.id}" title="Click, then press the new keys (Esc keeps these)">${keyCap(s.id)}</button>
+                <button class="dd-btn dd-keys-mini" type="button" data-clear="${s.id}" title="No key"${S.label(s.id) ? '' : ' disabled'}>×</button>
+                <button class="dd-btn dd-keys-mini" type="button" data-reset="${s.id}" title="Back to ${escapeHtml(s.keys || 'no key')}"${S.isChanged(s.id) ? '' : ' disabled'}>↺</button></div>`;
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('gear', 1)} Keyboard Shortcuts</span>
+                <button class="dd-btn" id="dd-keys-reset-all" type="button" title="Put every key back the way it came"${Object.keys(S.overrides()).length ? '' : ' disabled'}>Reset All</button>
+                <button class="dd-btn dd-fold" id="dd-keys-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div class="dd-keys-list">
+                <div class="dd-keys-row"><span>Open or close the editor</span><kbd class="dd-keys-fixed">${escapeHtml(DocsDoodads.KeyChord.label(DocsDoodads.editChord))}</kbd><span style="flex: none; width: 54px;"></span></div>
+                ${S.groups().map(g => `<div class="dd-keys-group">${escapeHtml(g)}</div>${S.list.filter(s => s.group === g).map(row).join('')}`).join('')}
+            </div>
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Kept on this computer. The editor key is the Editor Key plugin parameter. Keys in grey depend on the tool or what is picked.</div>`;
+        const all = sel => Array.from(card.querySelectorAll(sel));
+        all('[data-keys]').forEach(b => { b.onclick = () => this.startShortcutCapture(b.dataset.keys, b); });
+        all('[data-clear]').forEach(b => { b.onclick = () => { S.set(b.dataset.clear, ''); this.afterShortcutChange(); }; });
+        all('[data-reset]').forEach(b => { b.onclick = () => this.bindShortcut(b.dataset.reset, S.find(b.dataset.reset).keys); });
+        const close = document.getElementById('dd-keys-close');
+        if (close) close.onclick = () => this.closeShortcutsCard();
+        const resetAll = document.getElementById('dd-keys-reset-all');
+        if (resetAll) resetAll.onclick = () => {
+            U.confirm('Put every keyboard shortcut back the way it came?', { title: 'Reset all keys', ok: 'Reset All' }).then(yes => {
+                if (!yes) return;
+                S.resetAll();
+                this.afterShortcutChange();
+            });
+        };
+        return card;
+    },
+
+    closeShortcutsCard() {
+        this.stopShortcutCapture();
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-keys-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+    },
+
+    afterShortcutChange() {
+        this.refreshShortcutTips();
+        if (typeof document !== 'undefined' && document.getElementById('dd-keys-card')) this.showShortcutsCard();
+    },
+
+    // Waiting for the new keys: the next key press goes here and nowhere else (not the editor, not the game).
+    startShortcutCapture(id, button) {
+        this.stopShortcutCapture();
+        if (button) {
+            button.textContent = 'Press keys...';
+            if (button.classList) button.classList.add('dd-keys-wait');
+        }
+        const onKey = e => {
+            const chord = DocsDoodads.Shortcuts.chordFromEvent(e);
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopPropagation) e.stopPropagation();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            if (!chord) return; // Ctrl, Shift or Alt on its own: wait for the rest
+            this.stopShortcutCapture();
+            if (chord.code === 'Escape' && !chord.ctrl && !chord.shift && !chord.alt) { this.showShortcutsCard(); return; }
+            this.bindShortcut(id, DocsDoodads.KeyChord.label(chord));
+        };
+        this._shortcutCapture = { id, onKey };
+        if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('keydown', onKey, true);
+    },
+
+    stopShortcutCapture() {
+        const c = this._shortcutCapture;
+        this._shortcutCapture = null;
+        if (c && typeof document !== 'undefined' && document.removeEventListener) document.removeEventListener('keydown', c.onKey, true);
+    },
+
+    capturingShortcut() {
+        return Boolean(this._shortcutCapture);
+    },
+
+    // Bind keys to a row: a reserved key is refused, a key in use asks first. Resolves true when bound.
+    bindShortcut(id, keys) {
+        const S = DocsDoodads.Shortcuts, U = DocsDoodads.Ui;
+        const chord = S.parse(keys);
+        const label = chord ? DocsDoodads.KeyChord.label(chord) : '';
+        const why = S.reserved(chord);
+        if (why) {
+            this.showToast(`${label} ${why}, so it can't be used here.`, 'error');
+            this.afterShortcutChange();
+            return Promise.resolve(false);
+        }
+        const other = S.conflict(id, chord);
+        const done = () => { S.set(id, keys); this.afterShortcutChange(); return true; };
+        if (!other) return Promise.resolve(done());
+        return U.confirm(`${label} is used by "${S.find(other).label}". Use it for "${S.find(id).label}" instead? "${S.find(other).label}" will have no key.`,
+            { title: 'Key in use', ok: 'Use It Here' }).then(yes => {
+            if (!yes) { this.afterShortcutChange(); return false; }
+            S.set(other, '');
+            return done();
+        });
+    }
+});
+//==========================================================
 // SECTION 25k: WORKSPACE DOODAD STATES AND TOUCH
 //==========================================================
 // Details > States: a doodad's named states (each with its own art, light and collision), a preview
@@ -32162,48 +32574,13 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
         }
         if (!DocsDoodads.Workspace.mounted || DocsDoodads.isEditableTarget(e.target)) return;
         if (DocsDoodads.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
-        if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-            e.preventDefault();
-            DocsDoodads.Undo.undo();
-        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
-            e.preventDefault();
-            DocsDoodads.Undo.redo();
-        } else if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-            e.preventDefault();
-            DocsDoodads.Persistence.saveAll();
-        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.duplicateSelectedDoodad();
-        } else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.showCommandPalette();
-        } else if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.copySelected();
-        } else if (e.ctrlKey && (e.key === 'v' || e.key === 'V')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.pasteCopied(e.shiftKey);
-        } else if (e.ctrlKey && (e.key === 'a' || e.key === 'A')) {
-            e.preventDefault();
-            DocsDoodads.Workspace.selectAllDoodads();
-        } else if (e.key === 'Delete') {
-            if (DocsDoodads.Workspace.selectedEvent) {
-                DocsDoodads.Workspace.deleteSelectedEvent();
-            } else {
-                DocsDoodads.Workspace.deleteSelectedDoodad();
-            }
-        } else if ((e.key === '[' || e.key === ']') && !e.ctrlKey && !e.altKey) {
-            if (DocsDoodads.Workspace.resizeBrush(e.key === ']' ? 1 : -1)) e.preventDefault();
-        } else if (e.key === 'g' || e.key === 'G') {
-            e.preventDefault();
-            DocsDoodads.Workspace.toggleGrid();
-        } else if (e.key === 'h' || e.key === 'H') {
-            e.preventDefault();
-            DocsDoodads.Workspace.toggleInspector();
-        } else if (e.key === 'f' || e.key === 'F') {
-            e.preventDefault();
-            DocsDoodads.Workspace.focusSearch();
-        } else if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        if (DocsDoodads.Workspace.capturingShortcut()) return; // the next keys are a new binding
+        // The path tool's own keys come first; then the shortcut table (11_shortcuts.js); then the keys
+        // that can't be rebound.
+        const pathKey = DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace');
+        const shortcut = pathKey ? null : DocsDoodads.Shortcuts.match(e);
+        if (shortcut && DocsDoodads.Workspace.runShortcut(shortcut, e)) return;
+        if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
             const W = DocsDoodads.Workspace;
             const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
             const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
@@ -32221,7 +32598,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
                 });
                 if (moved) W.refreshInspector();
             }
-        } else if (DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace')) {
+        } else if (pathKey) {
             e.preventDefault();
             if (e.key === 'Enter') DocsDoodads.Workspace.finishPath();
             else DocsDoodads.Workspace.pathPoints.pop();

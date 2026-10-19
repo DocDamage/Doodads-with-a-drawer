@@ -409,7 +409,7 @@
                 ${this.renderSelectionTools([d])}
                 ${this.renderEffectSections([d])}
                 <div style="display: flex; gap: 6px; margin-top: 8px;">
-                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">Duplicate (Ctrl+D)</button>
+                    <button class="dd-btn" id="dd-prop-dup" style="flex: 1;">${escapeHtml(DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'))}</button>
                     <button class="dd-btn" id="dd-prop-del" style="flex: 1; background: var(--dd-danger-soft);">Delete</button>
                 </div>
             `;

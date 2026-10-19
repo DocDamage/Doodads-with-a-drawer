@@ -71,7 +71,7 @@ DocsDoodads.Workspace = {
         const unsaved = DocsDoodads.Persistence.hasUnsavedWork();
         if (btn.classList) btn.classList.toggle('dd-unsaved', unsaved);
         // The tooltip reads it from data-dd-tip once it has taken over the title.
-        const tip = unsaved ? 'Save everything: some changes are not saved yet (Ctrl+S)' : 'Save everything: everything is saved (Ctrl+S)';
+        const tip = DocsDoodads.Shortcuts.tip('save', unsaved ? 'Save everything: some changes are not saved yet' : 'Save everything: everything is saved');
         if (btn.getAttribute && btn.getAttribute('data-dd-tip')) btn.setAttribute('data-dd-tip', tip); else btn.title = tip;
         const label = btn.querySelector ? btn.querySelector('b') : null;
         clearTimeout(this._savedTimer);
@@ -323,23 +323,23 @@ DocsDoodads.Workspace = {
         toolbar.style.cssText = 'position: absolute; top: 8px; left: 8px; right: 8px;';
         toolbar.innerHTML = `
             <div class="dd-brand" title="Doc's Doodads v${pluginVersion}">${U.icon('leaf', 2)}<span>Doodads</span></div>
-            ${tool('dd-select-btn', 'select', 'Select', 'Select: click things on the map to change them, drag to move (Esc)')}
-            ${tool('dd-stamp-btn', 'stamp', 'Stamp', 'Stamp: click the map to place the picked item again and again')}
-            ${tool('dd-brush-btn', 'brush', 'Scatter', 'Scatter: drag over the map to sprinkle the picked item around')}
-            ${tool('dd-biome-btn', 'biome', 'Paint', 'Paint: drag to paint a mix of plants (biomes)')}
-            ${tool('dd-path-btn', 'path', 'Path', 'Path: lay the picked item along a line you click out')}
-            ${tool('dd-terrain-btn', 'terrain', 'Hills', 'Hills: raise and lower the ground (3D view)')}
-            ${tool('dd-region-btn', 'grid', 'Regions', 'Regions: paint region numbers on tiles (and see terrain tags)')}
+            ${tool('dd-select-btn', 'select', 'Select', this.shortcutTip('dd-select-btn'))}
+            ${tool('dd-stamp-btn', 'stamp', 'Stamp', this.shortcutTip('dd-stamp-btn'))}
+            ${tool('dd-brush-btn', 'brush', 'Scatter', this.shortcutTip('dd-brush-btn'))}
+            ${tool('dd-biome-btn', 'biome', 'Paint', this.shortcutTip('dd-biome-btn'))}
+            ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
+            ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
+            ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
-            ${tool('dd-eyedropper-btn', 'picker', 'Grab', 'Grab: click a doodad on the map to pick up what it is made of (or Alt+click)')}
+            ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
             <div class="dd-sep"></div>
-            ${tool('dd-undo-btn', 'undo', 'Undo', 'Undo (Ctrl+Z)')}
-            ${tool('dd-redo-btn', 'redo', 'Redo', 'Redo (Ctrl+Y)')}
+            ${tool('dd-undo-btn', 'undo', 'Undo', this.shortcutTip('dd-undo-btn'))}
+            ${tool('dd-redo-btn', 'redo', 'Redo', this.shortcutTip('dd-redo-btn'))}
             ${tool('dd-undo-list-btn', 'history', 'Steps', 'Every step you took: jump back to any of them')}
             <div class="dd-spacer"></div>
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
             ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
-            ${tool('dd-save-btn', 'save', 'Save', 'Save everything (Ctrl+S)', 'dd-btn-good')}
+            ${tool('dd-save-btn', 'save', 'Save', DocsDoodads.Shortcuts.tip('save', 'Save everything'), 'dd-btn-good')}
             ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
         wrap.appendChild(toolbar);
@@ -444,12 +444,13 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-history-btn" title="Compare with earlier saves and bring single things back">${U.icon('folder', 1)} Old Saves</button>
                     <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
                     <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
-                    <button class="dd-btn" id="dd-grid-btn" title="Show the snapping grid (G)">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
+                    <button class="dd-btn" id="dd-grid-btn" title="${escapeHtml(this.shortcutTip('dd-grid-btn'))}">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
                     <button class="dd-btn" id="dd-collision-btn" title="Show every doodad's collision and the tiles you can't walk on">${U.icon('lock', 1)} <span id="dd-collision-label">${this.showCollision ? 'Hide Collision' : 'Show Collision'}</span></button>
                     <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
-                    <button class="dd-btn" id="dd-palette-btn" title="Type the name of any tool or setting (Ctrl+K)">${U.icon('search', 1)} Find a Tool</button>
+                    <button class="dd-btn" id="dd-palette-btn" title="${escapeHtml(this.shortcutTip('dd-palette-btn'))}">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
@@ -905,6 +906,7 @@ DocsDoodads.Workspace = {
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
+        on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });

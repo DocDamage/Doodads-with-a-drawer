@@ -18,6 +18,7 @@ function run(label, command, args) {
 
 run('Built from src/', process.execPath, [path.join('scripts', 'build.js'), '--check']);
 run('JavaScript syntax', process.execPath, ['--check', 'Docs-Doodads.js']);
+run('Guide shortcut table', process.execPath, [path.join('scripts', 'shortcuts.js'), '--check']);
 run('Regression suites', process.execPath, [path.join('scratch', 'run-tests.js')]);
 
 console.log('\n===== Repository data =====');

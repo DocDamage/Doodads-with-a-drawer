@@ -809,35 +809,57 @@ Editing real map data in playtest mode requires rigorous file protection:
 
 ## 23. Complete Keyboard Shortcuts Cheat Sheet
 
-| Shortcut | Action | Scope |
+Every key below except the *fixed* ones can be changed in **More > Keys** (or **Keyboard Shortcuts** in Ctrl+K): click a key, press the new keys, and Esc keeps the old ones. A key already in use asks before it moves. Your keys are kept on this computer; the tooltips, menus and the command palette show them. The table lists the keys the editor comes with, and the rows with no key are tools and views you can give one.
+
+<!-- shortcuts:start (written by npm run shortcuts from src/11_shortcuts.js) -->
+| Keys | What it does | Group |
 | :--- | :--- | :--- |
-| **F10** (or `editKey`) | Open / Close the editor | Global (Playtest) |
-| **Ctrl + Z** | Undo last action (300-level command stack) | Workspace |
-| **Ctrl + Y** | Redo last undone action | Workspace |
-| **Ctrl + S** | Explicit Save (Atomic save with backups & conflict check) | Workspace |
-| **Ctrl + D** | Duplicate selected doodad(s) (+16px offset) | Workspace |
-| **Ctrl + C** | Copy selected doodad(s) to clipboard | Workspace |
-| **Ctrl + V** | Paste copied doodad(s) | Workspace |
-| **Ctrl + Shift + V** | Paste in Place (at the copied position) | Workspace |
-| **Ctrl + A** | Select all doodads Select can reach | Workspace |
-| **Ctrl + K** | Command palette: tools, panels, maps, assets, looks | Workspace |
-| **Delete** | Delete selected doodad(s) | Workspace |
-| **Arrow Keys** | Nudge selected doodad(s) by 1 pixel | Workspace |
-| **Shift + Arrow Keys**| Nudge selected doodad(s) by 16 pixels | Workspace |
-| **Shift + Click / Drag**| Marquee multi-select or toggle doodad selection | Map Canvas |
-| **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map Canvas |
-| **Alt (Hold on Drag)**| Free pixel placement (bypasses 48px tile snap) | Map Canvas |
-| **[** / **]** | Smaller / bigger brush (Scatter, Paint, Hills, Regions) | Workspace |
+| **F10** (the Editor Key parameter) | Open or close the editor | Playtest |
+| **Ctrl** + **Z** | Undo | Editing |
+| **Ctrl** + **Y** | Redo | Editing |
+| **Ctrl** + **S** | Save everything | Editing |
+| **Ctrl** + **D** | Duplicate the picked doodads | Editing |
+| **Ctrl** + **C** | Copy the picked doodads | Editing |
+| **Ctrl** + **V** | Paste beside the cursor | Editing |
+| **Ctrl** + **Shift** + **V** | Paste in Place (where they were copied) | Editing |
+| **Ctrl** + **A** | Select All | Editing |
+| **Delete** | Delete the picked doodads or event | Editing |
+| **Arrow keys** | Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile *(fixed)* | Editing |
+| **Ctrl** + **K** | Find a Tool (command palette) | Panels |
+| **H** | Fold or open Details | Panels |
+| **F** | Search the Item Bag | Panels |
+| **Shift** + **/** | Keyboard Shortcuts (this list) | Panels |
+| **G** | Show or hide the grid | View |
+| *(no key)* | Show or hide collision | View |
+| *(no key)* | Show or hide sounds | View |
+| *(no key)* | Show or hide speed | View |
+| *(no key)* | Select tool | Tools |
+| *(no key)* | Stamp tool | Tools |
+| *(no key)* | Scatter tool | Tools |
+| *(no key)* | Paint tool (biomes) | Tools |
+| *(no key)* | Path tool | Tools |
+| *(no key)* | Hills tool | Tools |
+| *(no key)* | Regions tool | Tools |
+| *(no key)* | Grab tool | Tools |
+| **[** | Smaller brush (Scatter, Paint, Hills, Regions) | Tools |
+| **]** | Bigger brush | Tools |
+| **Enter** | Place props along the path being drawn *(fixed)* | Tools |
+| **Backspace** | Remove the last path point *(fixed)* | Tools |
+| **Escape** | Stop the tool, unpick, close pop-ups *(fixed)* | Tools |
+<!-- shortcuts:end -->
+
+With the mouse:
+
+| Mouse | What it does | Where |
+| :--- | :--- | :--- |
+| **Shift + Click / Drag** | Marquee multi-select or toggle doodad selection | Map |
+| **Alt + Click** | Grab: pick a placed doodad's art in the Item Bag | Map |
+| **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map |
 | **Right-drag** | Erase the picked item inside the brush | Scatter |
-| **G** | Toggle 48px Tile Grid visual overlay | Workspace |
-| **H** | Fold or open the Details panel | Workspace |
-| **F** | Find: type in the Item Bag's search box | Workspace |
-| **Escape** | Cancel active tool (Stamp/Scatter/Path/Grab) / Deselect / Close Mirror, More, the welcome card and dialogs | Workspace |
-| **Enter** / **Double-click** | Place props along the path being drawn | Path tool |
-| **Backspace** | Remove the last path point | Path tool |
-| **Drag a doodad** | Move with smart guides (**Alt**: free, **Shift**: tile grid) | Map Canvas |
-| **Mouse Wheel** | Scroll the Item Bag / zoom Cut Up Sheet | Item Bag / Cut Up Sheet |
-| **Ctrl + Wheel** | Zoom Slicer Modal canvas (100% to 1600%) | Slicer Modal |
+| **Double-click** | Place props along the path being drawn | Path tool |
+| **Middle-drag** / **Shift + middle-drag** / **Wheel** | Orbit / pan / zoom the 3D view | Map (3D) |
+| **Mouse Wheel** | Scroll the Item Bag | Item Bag |
+| **Ctrl + Wheel** | Zoom the Cut Up Sheet canvas (100% to 1600%) | Cut Up Sheet |
 
 ---
 

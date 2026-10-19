@@ -480,7 +480,7 @@
                 items.push({ label: 'Bring to Front', icon: '⏫', onClick: () => this.bringToFront([clickedDoodad]) });
                 items.push({ label: 'Send to Back', icon: '⏬', onClick: () => this.sendToBack([clickedDoodad]) });
                 items.push({ separator: true });
-                items.push({ label: 'Duplicate (Ctrl+D)', icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
+                items.push({ label: DocsDoodads.Shortcuts.tip('duplicate', 'Duplicate'), icon: '📄', onClick: () => this.duplicateSelectedDoodad() });
                 items.push({ label: clickedDoodad.locked ? 'Unlock' : 'Lock', icon: clickedDoodad.locked ? '🔓' : '🔒', onClick: () => this.lockSelected(!clickedDoodad.locked) });
                 items.push({ label: 'Hide in Editor', icon: '👁️', onClick: () => this.hideSelected(true) });
                 const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
@@ -521,10 +521,10 @@
             // Right-clicking empty map
             items.push({ label: this.gridSnapShow ? 'Hide Grid Overlay (G)' : 'Show Grid Overlay (G)', icon: '📐', onClick: () => this.toggleGrid() });
             if (this._clipboardDoodads && this._clipboardDoodads.length > 0) {
-                items.push({ label: `Paste ${this._clipboardDoodads.length} Doodad(s) (Ctrl+V)`, icon: '📑', onClick: () => this.pasteCopied() });
-                items.push({ label: 'Paste in Place (Ctrl+Shift+V)', icon: '📌', onClick: () => this.pasteCopied(true) });
+                items.push({ label: DocsDoodads.Shortcuts.tip('paste', `Paste ${this._clipboardDoodads.length} Doodad(s)`), icon: '📑', onClick: () => this.pasteCopied() });
+                items.push({ label: DocsDoodads.Shortcuts.tip('pasteInPlace', 'Paste in Place'), icon: '📌', onClick: () => this.pasteCopied(true) });
             }
-            items.push({ label: 'Select All (Ctrl+A)', icon: '⬚', onClick: () => this.selectAllDoodads() });
+            items.push({ label: DocsDoodads.Shortcuts.tip('selectAll', 'Select All'), icon: '⬚', onClick: () => this.selectAllDoodads() });
             if (this.selectionItems().length > 0) items.push({ label: 'Invert Selection', icon: '◪', onClick: () => this.invertSelection() });
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
