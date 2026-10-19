@@ -334,8 +334,8 @@ DocsDoodads.LpcCompose = {
     // ---- Reading the library's PNGs ----
 
     // PNG bytes (a Buffer) -> { width, height, data: RGBA }. inflate is zlib.inflateSync. Handles what the
-    // library uses: palette images at 1, 2, 4 or 8 bits with transparency, grey, RGB and RGBA (8 or 16 bits).
-    // Interlaced images are refused (null).
+    // library uses: palette images at 1, 2, 4 or 8 bits with transparency, grey, RGB and RGBA (8 or 16 bits),
+    // plain or interlaced (Adam7: a few of RPG Maker MZ's generator parts are).
     decodePng(buffer, inflate) {
         const sig = [137, 80, 78, 71, 13, 10, 26, 10];
         if (!buffer || buffer.length < 33 || sig.some((b, i) => buffer[i] !== b)) return null;
@@ -352,7 +352,7 @@ DocsDoodads.LpcCompose = {
             else if (type === 'IDAT') idat.push(body);
             else if (type === 'IEND') break;
         }
-        if (!header || header.interlace) return null;
+        if (!header || header.interlace > 1) return null;
         const { width, height, depth, colorType } = header;
         const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
         if (!channels || (colorType === 3 && !palette)) return null;
@@ -361,41 +361,55 @@ DocsDoodads.LpcCompose = {
         let at = 0;
         for (const b of idat) { joined.set(b, at); at += b.length; }
         const raw = inflate(joined);
-        const bits = channels * depth, stride = Math.ceil(width * bits / 8), bpp = Math.max(1, bits >> 3);
-        const rows = new Uint8Array(stride * height);
-        for (let y = 0; y < height; y++) {
-            const filter = raw[y * (stride + 1)], line = y * (stride + 1) + 1, out = y * stride, prev = out - stride;
-            for (let i = 0; i < stride; i++) {
-                const a = i >= bpp ? rows[out + i - bpp] : 0, b = y ? rows[prev + i] : 0, c = y && i >= bpp ? rows[prev + i - bpp] : 0;
-                let add = 0;
-                if (filter === 1) add = a; else if (filter === 2) add = b; else if (filter === 3) add = (a + b) >> 1;
-                else if (filter === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
-                rows[out + i] = (raw[line + i] + add) & 255;
-            }
-        }
+        const bits = channels * depth, bpp = Math.max(1, bits >> 3);
         const data = new Uint8ClampedArray(width * height * 4);
-        const sample = (row, index) => {
-            if (depth === 8) return rows[row + index];
-            if (depth === 16) return rows[row + index * 2];
-            const per = 8 / depth, byte = rows[row + Math.floor(index / per)];
-            return (byte >> (8 - depth * (index % per + 1))) & ((1 << depth) - 1);
-        };
         const grey = depth < 8 && colorType === 0 ? 255 / ((1 << depth) - 1) : 1;
-        for (let y = 0; y < height; y++) {
-            const row = y * stride;
-            for (let x = 0; x < width; x++) {
-                const o = (y * width + x) * 4;
-                if (colorType === 3) {
-                    const i = sample(row, x);
-                    data[o] = palette[i * 3]; data[o + 1] = palette[i * 3 + 1]; data[o + 2] = palette[i * 3 + 2];
-                    data[o + 3] = alpha && i < alpha.length ? alpha[i] : 255;
-                } else if (colorType === 0 || colorType === 4) {
-                    data[o] = data[o + 1] = data[o + 2] = Math.round(sample(row, x * channels) * grey);
-                    data[o + 3] = colorType === 4 ? sample(row, x * channels + 1) : 255;
-                } else {
-                    data[o] = sample(row, x * channels); data[o + 1] = sample(row, x * channels + 1); data[o + 2] = sample(row, x * channels + 2);
-                    data[o + 3] = colorType === 6 ? sample(row, x * channels + 3) : 255;
+        // Unfilters h rows of w pixels starting at raw[from], then puts each pixel at (x0 + i * dx, y0 + j * dy).
+        // A plain image is one pass over everything; an interlaced one (Adam7) is seven smaller ones.
+        const pass = (from, w, h, x0, y0, dx, dy) => {
+            const stride = Math.ceil(w * bits / 8);
+            const rows = new Uint8Array(stride * h);
+            for (let y = 0; y < h; y++) {
+                const filter = raw[from + y * (stride + 1)], line = from + y * (stride + 1) + 1, out = y * stride, prev = out - stride;
+                for (let i = 0; i < stride; i++) {
+                    const a = i >= bpp ? rows[out + i - bpp] : 0, b = y ? rows[prev + i] : 0, c = y && i >= bpp ? rows[prev + i - bpp] : 0;
+                    let add = 0;
+                    if (filter === 1) add = a; else if (filter === 2) add = b; else if (filter === 3) add = (a + b) >> 1;
+                    else if (filter === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+                    rows[out + i] = (raw[line + i] + add) & 255;
                 }
+            }
+            const sample = (row, index) => {
+                if (depth === 8) return rows[row + index];
+                if (depth === 16) return rows[row + index * 2];
+                const per = 8 / depth, byte = rows[row + Math.floor(index / per)];
+                return (byte >> (8 - depth * (index % per + 1))) & ((1 << depth) - 1);
+            };
+            for (let y = 0; y < h; y++) {
+                const row = y * stride;
+                for (let x = 0; x < w; x++) {
+                    const o = ((y0 + y * dy) * width + x0 + x * dx) * 4;
+                    if (colorType === 3) {
+                        const i = sample(row, x);
+                        data[o] = palette[i * 3]; data[o + 1] = palette[i * 3 + 1]; data[o + 2] = palette[i * 3 + 2];
+                        data[o + 3] = alpha && i < alpha.length ? alpha[i] : 255;
+                    } else if (colorType === 0 || colorType === 4) {
+                        data[o] = data[o + 1] = data[o + 2] = Math.round(sample(row, x * channels) * grey);
+                        data[o + 3] = colorType === 4 ? sample(row, x * channels + 1) : 255;
+                    } else {
+                        data[o] = sample(row, x * channels); data[o + 1] = sample(row, x * channels + 1); data[o + 2] = sample(row, x * channels + 2);
+                        data[o + 3] = colorType === 6 ? sample(row, x * channels + 3) : 255;
+                    }
+                }
+            }
+            return from + h * (stride + 1);
+        };
+        if (!header.interlace) pass(0, width, height, 0, 0, 1, 1);
+        else {
+            let from = 0;
+            for (const [x0, y0, dx, dy] of [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]]) {
+                const w = Math.ceil((width - x0) / dx), h = Math.ceil((height - y0) / dy);
+                if (w > 0 && h > 0) from = pass(from, w, h, x0, y0, dx, dy);
             }
         }
         return { width, height, data };
