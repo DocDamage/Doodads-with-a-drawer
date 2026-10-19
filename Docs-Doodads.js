@@ -18289,6 +18289,76 @@ DocsDoodads.LpcCompose = {
         return { sheet, warnings };
     },
 
+    // ---- Reading the library's PNGs ----
+
+    // PNG bytes (a Buffer) -> { width, height, data: RGBA }. inflate is zlib.inflateSync. Handles what the
+    // library uses: palette images at 1, 2, 4 or 8 bits with transparency, grey, RGB and RGBA (8 or 16 bits).
+    // Interlaced images are refused (null).
+    decodePng(buffer, inflate) {
+        const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+        if (!buffer || buffer.length < 33 || sig.some((b, i) => buffer[i] !== b)) return null;
+        const u32 = o => ((buffer[o] << 24) >>> 0) + (buffer[o + 1] << 16) + (buffer[o + 2] << 8) + buffer[o + 3];
+        let pos = 8, header = null, palette = null, alpha = null;
+        const idat = [];
+        while (pos + 8 <= buffer.length) {
+            const length = u32(pos), type = String.fromCharCode(buffer[pos + 4], buffer[pos + 5], buffer[pos + 6], buffer[pos + 7]);
+            const body = buffer.subarray(pos + 8, pos + 8 + length);
+            pos += 12 + length;
+            if (type === 'IHDR') header = { width: (body[0] << 24 >>> 0) + (body[1] << 16) + (body[2] << 8) + body[3], height: (body[4] << 24 >>> 0) + (body[5] << 16) + (body[6] << 8) + body[7], depth: body[8], colorType: body[9], interlace: body[12] };
+            else if (type === 'PLTE') palette = body;
+            else if (type === 'tRNS') alpha = body;
+            else if (type === 'IDAT') idat.push(body);
+            else if (type === 'IEND') break;
+        }
+        if (!header || header.interlace) return null;
+        const { width, height, depth, colorType } = header;
+        const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
+        if (!channels || (colorType === 3 && !palette)) return null;
+        const total = idat.reduce((n, b) => n + b.length, 0);
+        const joined = new Uint8Array(total);
+        let at = 0;
+        for (const b of idat) { joined.set(b, at); at += b.length; }
+        const raw = inflate(joined);
+        const bits = channels * depth, stride = Math.ceil(width * bits / 8), bpp = Math.max(1, bits >> 3);
+        const rows = new Uint8Array(stride * height);
+        for (let y = 0; y < height; y++) {
+            const filter = raw[y * (stride + 1)], line = y * (stride + 1) + 1, out = y * stride, prev = out - stride;
+            for (let i = 0; i < stride; i++) {
+                const a = i >= bpp ? rows[out + i - bpp] : 0, b = y ? rows[prev + i] : 0, c = y && i >= bpp ? rows[prev + i - bpp] : 0;
+                let add = 0;
+                if (filter === 1) add = a; else if (filter === 2) add = b; else if (filter === 3) add = (a + b) >> 1;
+                else if (filter === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+                rows[out + i] = (raw[line + i] + add) & 255;
+            }
+        }
+        const data = new Uint8ClampedArray(width * height * 4);
+        const sample = (row, index) => {
+            if (depth === 8) return rows[row + index];
+            if (depth === 16) return rows[row + index * 2];
+            const per = 8 / depth, byte = rows[row + Math.floor(index / per)];
+            return (byte >> (8 - depth * (index % per + 1))) & ((1 << depth) - 1);
+        };
+        const grey = depth < 8 && colorType === 0 ? 255 / ((1 << depth) - 1) : 1;
+        for (let y = 0; y < height; y++) {
+            const row = y * stride;
+            for (let x = 0; x < width; x++) {
+                const o = (y * width + x) * 4;
+                if (colorType === 3) {
+                    const i = sample(row, x);
+                    data[o] = palette[i * 3]; data[o + 1] = palette[i * 3 + 1]; data[o + 2] = palette[i * 3 + 2];
+                    data[o + 3] = alpha && i < alpha.length ? alpha[i] : 255;
+                } else if (colorType === 0 || colorType === 4) {
+                    data[o] = data[o + 1] = data[o + 2] = Math.round(sample(row, x * channels) * grey);
+                    data[o + 3] = colorType === 4 ? sample(row, x * channels + 1) : 255;
+                } else {
+                    data[o] = sample(row, x * channels); data[o + 1] = sample(row, x * channels + 1); data[o + 2] = sample(row, x * channels + 2);
+                    data[o + 3] = colorType === 6 ? sample(row, x * channels + 3) : 255;
+                }
+            }
+        }
+        return { width, height, data };
+    },
+
     // One frame (64x64) of a sheet: frame number along the row, direction by name.
     frameRect(animation, direction, frame) {
         const a = this.animations[animation] || { frames: 1 };
@@ -33720,6 +33790,9 @@ DocsDoodads.Ui.css += `
 #dd-lpc-card .dd-lpc-warn { background: var(--dd-warn-soft); border-radius: 12px; padding: 8px 10px; line-height: 1.45; color: var(--dd-text); }
 #dd-lpc-card .dd-lpc-note { font-size: 10px; color: var(--dd-faint); line-height: 1.4; }
 #dd-lpc-card label { display: flex; align-items: center; gap: 6px; }
+#dd-lpc-card .dd-lpc-try { display: flex; align-items: center; gap: 6px; }
+#dd-lpc-card #dd-lpc-preview { width: 128px; height: 128px; image-rendering: pixelated; border-radius: 16px; background: var(--dd-primary-soft); }
+#dd-lpc-card .dd-lpc-try-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 `;
 
 Object.assign(DocsDoodads.Workspace, {
@@ -33844,6 +33917,107 @@ Object.assign(DocsDoodads.Workspace, {
         return out;
     },
 
+    // ---- Drawing characters from the library ----
+
+    lpcSheetPath(file, index = this.lpcIndex()) {
+        const FS = DocsDoodads.FS;
+        return index && FS.path ? FS.path.join(index.library, 'spritesheets', file) : '';
+    },
+
+    // A library image, decoded (or null). The recoloured layers are cached by the compositor.
+    lpcLoadImage(file) {
+        const FS = DocsDoodads.FS;
+        try {
+            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+            if (!zlib || !FS.fs) return null;
+            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.lpcSheetPath(file)), data => zlib.inflateSync(data));
+        } catch (e) {
+            return null;
+        }
+    },
+
+    lpcCache() {
+        if (!this._lpcCache) this._lpcCache = DocsDoodads.LpcCompose.newCache(160);
+        return this._lpcCache;
+    },
+
+    // recipe -> { sheet, warnings, used } for one animation, or null without an index.
+    composeLpc(recipe, animation = 'walk') {
+        const C = DocsDoodads.LpcCompose, FS = DocsDoodads.FS;
+        const index = this.lpcIndex();
+        if (!index || !FS.fs) return null;
+        const resolved = C.resolve(index, recipe, animation, file => FS.existsSync(this.lpcSheetPath(file, index)));
+        const out = C.compose(resolved, index, file => this.lpcLoadImage(file), this.lpcCache());
+        return { sheet: out.sheet, warnings: out.warnings, used: resolved.used };
+    },
+
+    // The card's try-out: a random character walking, turned with the arrows.
+    shuffleLpcPreview() {
+        const index = this.lpcIndex();
+        if (!index) return null;
+        const p = this._lpcPreview || { dir: 'down', frame: 0 };
+        p.recipe = DocsDoodads.LpcCompose.randomRecipe(index, { safeOnly: this.lpcSafeOnly() });
+        const out = this.composeLpc(p.recipe, 'walk');
+        p.sheet = out && out.sheet;
+        p.warnings = out ? out.warnings : [];
+        this._lpcPreview = p;
+        this.drawLpcPreview();
+        return p;
+    },
+
+    turnLpcPreview(step) {
+        const p = this._lpcPreview;
+        if (!p) return;
+        const order = ['down', 'left', 'up', 'right'];
+        p.dir = order[(order.indexOf(p.dir) + step + 4) % 4];
+        this.drawLpcPreview();
+    },
+
+    drawLpcPreview() {
+        const p = this._lpcPreview;
+        const canvas = typeof document !== 'undefined' ? document.getElementById('dd-lpc-preview') : null;
+        const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+        if (!p || !p.sheet || !ctx || typeof ctx.createImageData !== 'function') return false;
+        const C = DocsDoodads.LpcCompose;
+        // Walking frames 1-8; frame 0 is standing.
+        const rect = C.frameRect('walk', p.dir, 1 + (p.frame % 8));
+        const frame = ctx.createImageData(rect.w, rect.h);
+        for (let y = 0; y < rect.h; y++) {
+            const from = ((rect.y + y) * p.sheet.width + rect.x) * 4;
+            frame.data.set(p.sheet.data.subarray(from, from + rect.w * 4), y * rect.w * 4);
+        }
+        if (!this._lpcScratch) { this._lpcScratch = document.createElement('canvas'); this._lpcScratch.width = rect.w; this._lpcScratch.height = rect.h; }
+        this._lpcScratch.getContext('2d').putImageData(frame, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(this._lpcScratch, 0, 0, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
+        return true;
+    },
+
+    // 'Male: Body Color, Human Male, Bob, Longsleeve' for the try-out.
+    lpcRecipeText(recipe) {
+        const index = this.lpcIndex();
+        const name = id => { const p = index && index.parts.find(x => x.id === id); return p ? p.name : id; };
+        const body = recipe.body.charAt(0).toUpperCase() + recipe.body.slice(1);
+        return body + ': ' + recipe.picks.filter(p => p.id !== 'body/body').map(p => name(p.id)).join(', ');
+    },
+
+    startLpcPreviewTimer() {
+        this.stopLpcPreviewTimer();
+        const reduced = DocsDoodads.Ui.lessMotion && DocsDoodads.Ui.lessMotion();
+        if (reduced || typeof setInterval === 'undefined') return;
+        this._lpcPreviewTimer = setInterval(() => {
+            if (!this._lpcPreview || typeof document === 'undefined' || !document.getElementById('dd-lpc-preview')) { this.stopLpcPreviewTimer(); return; }
+            this._lpcPreview.frame++;
+            this.drawLpcPreview();
+        }, 110);
+    },
+
+    stopLpcPreviewTimer() {
+        if (this._lpcPreviewTimer) clearInterval(this._lpcPreviewTimer);
+        this._lpcPreviewTimer = null;
+    },
+
     // ---- The card ----
 
     showLpcCard() {
@@ -33891,6 +34065,16 @@ Object.assign(DocsDoodads.Workspace, {
             </div>` : '<div class="dd-lpc-box" id="dd-lpc-status">Not scanned yet.</div>'}
             ${stale === 'changed' ? '<div class="dd-lpc-warn" id="dd-lpc-stale">The library has changed since it was scanned. Scan again to see what is new.</div>' : ''}
             ${stale === 'missing' ? `<div class="dd-lpc-warn" id="dd-lpc-stale">The library isn't at ${escapeHtml(index.library)} any more. Choose where it is now.</div>` : ''}
+            ${index && stale !== 'missing' ? `<div class="dd-lpc-group">Try it</div>
+            <div class="dd-lpc-try">
+                <button class="dd-btn" id="dd-lpc-turn-left" type="button" aria-label="Turn left" title="Turn left">${U.icon('left', 1)}</button>
+                <canvas id="dd-lpc-preview" width="128" height="128" role="img" aria-label="A random character from the library, walking"></canvas>
+                <button class="dd-btn" id="dd-lpc-turn-right" type="button" aria-label="Turn right" title="Turn right">${U.icon('right', 1)}</button>
+                <div class="dd-lpc-try-side">
+                    <button class="dd-btn dd-btn-primary" id="dd-lpc-shuffle" type="button" title="Another random character from the library">${U.icon('sparkle', 1)} Shuffle</button>
+                    <span class="dd-lpc-note" id="dd-lpc-try-note">${this._lpcPreview && this._lpcPreview.recipe ? escapeHtml(this.lpcRecipeText(this._lpcPreview.recipe)) : ''}</span>
+                </div>
+            </div>` : ''}
             <label title="On: the creator only offers parts whose art is offered under CC0 or OGA-BY, which allow encrypted games"><input type="checkbox" id="dd-lpc-safe" ${safeOnly ? 'checked' : ''} /> Only art that is safe to encrypt (CC0, OGA-BY)</label>
             <div class="dd-lpc-note">CC-BY and CC-BY-SA art may not be locked away, which MZ's "Encrypt image files" does. With this off you get every part${s ? ` (${s.parts} instead of ${s.safe})` : ''}, and must deploy without encrypting images that use them. This is a setting of the project.</div>
             <div class="dd-lpc-group">Credits</div>
@@ -33922,6 +34106,14 @@ Object.assign(DocsDoodads.Workspace, {
         const safe = document.getElementById('dd-lpc-safe');
         if (safe) safe.onchange = e => { this.setLpcSafeOnly(Boolean(e.target.checked)); this.refreshLpcCard(); };
         on('dd-lpc-credits-write', () => { this.writeLpcCreditsText(); this.refreshLpcCard(); });
+        on('dd-lpc-shuffle', () => { this.shuffleLpcPreview(); this.refreshLpcCard(); });
+        on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
+        on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
+        if (document.getElementById('dd-lpc-preview')) {
+            if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
+            else this.drawLpcPreview();
+            this.startLpcPreviewTimer();
+        }
         return card;
     },
 
@@ -33948,6 +34140,7 @@ Object.assign(DocsDoodads.Workspace, {
     closeLpcCard() {
         const card = typeof document !== 'undefined' ? document.getElementById('dd-lpc-card') : null;
         if (card && card.parentNode) card.parentNode.removeChild(card);
+        this.stopLpcPreviewTimer();
     }
 });
 //==========================================================

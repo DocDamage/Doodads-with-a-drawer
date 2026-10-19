@@ -225,6 +225,76 @@ DocsDoodads.LpcCompose = {
         return { sheet, warnings };
     },
 
+    // ---- Reading the library's PNGs ----
+
+    // PNG bytes (a Buffer) -> { width, height, data: RGBA }. inflate is zlib.inflateSync. Handles what the
+    // library uses: palette images at 1, 2, 4 or 8 bits with transparency, grey, RGB and RGBA (8 or 16 bits).
+    // Interlaced images are refused (null).
+    decodePng(buffer, inflate) {
+        const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+        if (!buffer || buffer.length < 33 || sig.some((b, i) => buffer[i] !== b)) return null;
+        const u32 = o => ((buffer[o] << 24) >>> 0) + (buffer[o + 1] << 16) + (buffer[o + 2] << 8) + buffer[o + 3];
+        let pos = 8, header = null, palette = null, alpha = null;
+        const idat = [];
+        while (pos + 8 <= buffer.length) {
+            const length = u32(pos), type = String.fromCharCode(buffer[pos + 4], buffer[pos + 5], buffer[pos + 6], buffer[pos + 7]);
+            const body = buffer.subarray(pos + 8, pos + 8 + length);
+            pos += 12 + length;
+            if (type === 'IHDR') header = { width: (body[0] << 24 >>> 0) + (body[1] << 16) + (body[2] << 8) + body[3], height: (body[4] << 24 >>> 0) + (body[5] << 16) + (body[6] << 8) + body[7], depth: body[8], colorType: body[9], interlace: body[12] };
+            else if (type === 'PLTE') palette = body;
+            else if (type === 'tRNS') alpha = body;
+            else if (type === 'IDAT') idat.push(body);
+            else if (type === 'IEND') break;
+        }
+        if (!header || header.interlace) return null;
+        const { width, height, depth, colorType } = header;
+        const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
+        if (!channels || (colorType === 3 && !palette)) return null;
+        const total = idat.reduce((n, b) => n + b.length, 0);
+        const joined = new Uint8Array(total);
+        let at = 0;
+        for (const b of idat) { joined.set(b, at); at += b.length; }
+        const raw = inflate(joined);
+        const bits = channels * depth, stride = Math.ceil(width * bits / 8), bpp = Math.max(1, bits >> 3);
+        const rows = new Uint8Array(stride * height);
+        for (let y = 0; y < height; y++) {
+            const filter = raw[y * (stride + 1)], line = y * (stride + 1) + 1, out = y * stride, prev = out - stride;
+            for (let i = 0; i < stride; i++) {
+                const a = i >= bpp ? rows[out + i - bpp] : 0, b = y ? rows[prev + i] : 0, c = y && i >= bpp ? rows[prev + i - bpp] : 0;
+                let add = 0;
+                if (filter === 1) add = a; else if (filter === 2) add = b; else if (filter === 3) add = (a + b) >> 1;
+                else if (filter === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); add = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+                rows[out + i] = (raw[line + i] + add) & 255;
+            }
+        }
+        const data = new Uint8ClampedArray(width * height * 4);
+        const sample = (row, index) => {
+            if (depth === 8) return rows[row + index];
+            if (depth === 16) return rows[row + index * 2];
+            const per = 8 / depth, byte = rows[row + Math.floor(index / per)];
+            return (byte >> (8 - depth * (index % per + 1))) & ((1 << depth) - 1);
+        };
+        const grey = depth < 8 && colorType === 0 ? 255 / ((1 << depth) - 1) : 1;
+        for (let y = 0; y < height; y++) {
+            const row = y * stride;
+            for (let x = 0; x < width; x++) {
+                const o = (y * width + x) * 4;
+                if (colorType === 3) {
+                    const i = sample(row, x);
+                    data[o] = palette[i * 3]; data[o + 1] = palette[i * 3 + 1]; data[o + 2] = palette[i * 3 + 2];
+                    data[o + 3] = alpha && i < alpha.length ? alpha[i] : 255;
+                } else if (colorType === 0 || colorType === 4) {
+                    data[o] = data[o + 1] = data[o + 2] = Math.round(sample(row, x * channels) * grey);
+                    data[o + 3] = colorType === 4 ? sample(row, x * channels + 1) : 255;
+                } else {
+                    data[o] = sample(row, x * channels); data[o + 1] = sample(row, x * channels + 1); data[o + 2] = sample(row, x * channels + 2);
+                    data[o + 3] = colorType === 6 ? sample(row, x * channels + 3) : 255;
+                }
+            }
+        }
+        return { width, height, data };
+    },
+
     // One frame (64x64) of a sheet: frame number along the row, direction by name.
     frameRect(animation, direction, frame) {
         const a = this.animations[animation] || { frames: 1 };

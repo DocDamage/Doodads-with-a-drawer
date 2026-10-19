@@ -30,7 +30,7 @@ global.$dataDocsDoodads = { 1: [] };
 const root = path.join(__dirname, 'lpc_library_fixture');
 fs.rmSync(root, { recursive: true, force: true });
 const project = path.join(root, 'project'), lib = path.join(root, 'library');
-const write = (base, rel, data) => { const f = path.join(base, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, typeof data === 'string' ? data : JSON.stringify(data)); };
+const write = (base, rel, data) => { const f = path.join(base, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, typeof data === 'string' || Buffer.isBuffer(data) ? data : JSON.stringify(data)); };
 const credit = (file, licenses) => ({ file, licenses, authors: ['Ann'], urls: ['https://opengameart.org/x'] });
 write(lib, 'sheet_definitions/body/body.json', { name: 'Body Color', layer_1: { zPos: 10, male: 'body/bodies/male/' }, credits: [credit('body/bodies/male', ['OGA-BY 3.0', 'CC-BY-SA 3.0'])] });
 write(lib, 'sheet_definitions/weapons/sword.json', { name: 'Sword', layer_1: { zPos: 140, male: 'weapon/sword/' }, credits: [credit('weapon/sword', ['CC-BY-SA 3.0'])] });
@@ -154,6 +154,51 @@ ws.closeLpcCard();
 assert.strictEqual(elements['dd-lpc-card'], undefined);
 assert.ok(/closeLpcCard/.test(String(ws.close)), 'closed with the editor');
 console.log('✓ card: status, stale and inside-project warnings, setting, credits, scan and folder picker');
+
+// 6. Drawing from the library on disk: real PNG files, decoded, recoloured, stacked, cached; the try-out
+// draws one walking frame and turns.
+const { encodePng } = require('../scripts/png');
+const zlib = require('zlib');
+const sheet = (w, h, fill) => { const d = new Uint8Array(w * h * 4); for (let i = 0; i < w * h; i++) d.set(fill(i % w, Math.floor(i / w)), i * 4); return encodePng(w, h, d, b => zlib.deflateSync(b)); };
+// The body: skin colour #271920 everywhere in walking frames; the sword: one opaque pixel row low down.
+write(lib, 'spritesheets/body/bodies/male/walk.png', sheet(576, 256, () => [0x27, 0x19, 0x20, 255]));
+write(lib, 'spritesheets/weapon/sword/walk.png', sheet(576, 256, (x, y) => (y % 64 === 63 ? [9, 9, 9, 255] : [0, 0, 0, 0])));
+write(lib, 'palette_definitions/body/body_ulpc.json', { light: ['#271920'], olive: ['#442725'] });
+fs.writeFileSync(path.join(lib, 'sheet_definitions/body/body.json'), JSON.stringify({ name: 'Body Color', type_name: 'body', match_body_color: true, recolors: { material: 'body' },
+    layer_1: { zPos: 10, male: 'body/bodies/male/' }, credits: [credit('body/bodies/male', ['OGA-BY 3.0'])] }));
+ws.setLpcLibraryFolder(lib);
+ws.scanLpcLibrary();
+const recipe = { body: 'male', picks: [{ id: 'weapons/sword' }, { id: 'body/body', colours: ['olive'] }] };
+const drawn = ws.composeLpc(recipe, 'walk');
+assert.deepStrictEqual([drawn.sheet.width, drawn.sheet.height], [576, 256]);
+assert.deepStrictEqual(Array.from(drawn.sheet.data.slice(0, 4)), [0x44, 0x27, 0x25, 255], 'recoloured to olive');
+assert.deepStrictEqual(Array.from(drawn.sheet.data.slice((63 * 576) * 4, (63 * 576) * 4 + 4)), [9, 9, 9, 255], 'the sword over the body');
+assert.deepStrictEqual(drawn.used.map(u => u.folder).sort(), ['body/bodies/male/', 'weapon/sword/']);
+const misses = ws.lpcCache().misses;
+ws.composeLpc(recipe, 'walk');
+assert.strictEqual(ws.lpcCache().misses, misses, 'drawn again from the cache');
+assert.ok(ws.composeLpc(recipe, 'slash').warnings.some(w => /no slash picture/.test(w)), 'missing animations are said');
+// The try-out: a canvas whose context records what is drawn.
+const calls = [];
+const ctx2d = { createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }), putImageData: (img) => calls.push(['put', img.data[0]]),
+    drawImage: (...a) => calls.push(['draw', a.length]), clearRect() {}, imageSmoothingEnabled: true };
+elements['dd-lpc-preview'] = { width: 128, height: 128, getContext: () => ctx2d };
+document.createElement = tag => ({ tagName: tag, style: {}, getContext: () => ctx2d, width: 0, height: 0 });
+const realRandom = Math.random;
+Math.random = () => 0.1; // a male body: the fixture only has male art
+const preview = ws.shuffleLpcPreview();
+Math.random = realRandom;
+assert.strictEqual(preview.recipe.body === 'male' || preview.recipe.body === 'female', true);
+assert.ok(calls.some(c => c[0] === 'draw' && c[1] === 9), 'a frame drawn scaled onto the canvas');
+assert.strictEqual(ctx2d.imageSmoothingEnabled, false, 'crisp pixels');
+const dir = preview.dir;
+ws.turnLpcPreview(1);
+assert.notStrictEqual(ws._lpcPreview.dir, dir);
+ws.turnLpcPreview(-1);
+assert.strictEqual(ws._lpcPreview.dir, dir);
+assert.ok(/^(Male|Female): /.test(ws.lpcRecipeText(preview.recipe)));
+ws.stopLpcPreviewTimer();
+console.log('✓ drawing: PNGs from the library, recoloured and stacked, cached; the try-out draws and turns');
 
 console.log('=== LPC library in the editor passed ===');
 })().catch(e => { console.error(e); process.exit(1); });
