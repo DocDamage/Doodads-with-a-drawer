@@ -20,3 +20,7 @@ coverage/
 .DS_Store
 Thumbs.db
 *.log
+
+# Third-party asset packs whose licences forbid sharing them (read from outside the project).
+/assets to add to tool/
+memao-assets/

@@ -743,6 +743,7 @@
         add('Rooms (room stamps)', () => this.showRoomsCard());
         add('Doodad Packs (make or bring in)', () => this.showPacksCard());
         add('Characters: LPC library and credits', () => this.showLpcCard());
+        add('Characters: Memao creator', () => (this.memaoIndex() ? this.openMemaoCreator() : this.showLpcCard()));
         add('Character Creator (LPC)', () => this.openCreator());
         add('Write CREDITS_LPC.txt (LPC artists)', () => this.writeLpcCreditsText());
         add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });

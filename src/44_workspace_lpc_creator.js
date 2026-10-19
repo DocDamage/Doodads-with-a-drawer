@@ -7,7 +7,8 @@
 // played in any animation; dice for a new body or outfit; saved characters by name. Keyboard: ↑ ↓ pick a
 // row, ← → change it (Shift: its colour), Q / E change tab, Tab the other card, X / Y the dice, Esc closes.
 // A gamepad does the same: d-pad, A colour, LB / RB tabs, Back the other card, X / Y dice, Start saves, B
-// closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's.
+// closes. The slots and recipes are in 23_lpc_slots.js; drawing is the compositor's. The same window builds
+// Memao characters (openCreator(state, 'memao')): what differs is in the kit (44_workspace_creator_kits.js).
 DocsDoodads.Ui.css += `
 #dd-creator { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; background: rgba(40, 30, 60, 0.45); }
 #dd-creator .dd-cr { width: 1160px; max-width: calc(100vw - 24px); height: 740px; max-height: calc(100vh - 24px); box-sizing: border-box; padding: 18px 22px;
@@ -96,15 +97,36 @@ Object.assign(DocsDoodads.Workspace, {
         ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat'], ['slash_reverse', 'Backswing']],
     creatorFps: { walk: 10, run: 12, idle: 3, combat: 3, sit: 2, emote: 3 },
 
-    openCreator(state) {
+    // The library the open creator builds from (DocsDoodads.CreatorKits): LPC unless it was opened for another.
+    creatorKit() {
+        const K = DocsDoodads.CreatorKits;
+        return K[(this._creator && this._creator.kit) || 'lpc'] || K.lpc;
+    },
+
+    creatorSlots() {
+        return this.creatorKit().slots;
+    },
+
+    creatorIndex() {
+        return this.creatorKit().index(this);
+    },
+
+    // The safe-to-encrypt switch (LPC only).
+    creatorSafeOnly() {
+        return this.creatorKit().safeSwitch ? this.lpcSafeOnly() : false;
+    },
+
+    openCreator(state, kit = 'lpc') {
         if (typeof document === 'undefined') return null;
-        const S = DocsDoodads.LpcSlots;
-        const index = this.lpcIndex();
-        if (!index) { this.showToast('Scan the LPC library first (More > Characters).', 'info'); this.showLpcCard(); return null; }
-        const safeOnly = this.lpcSafeOnly();
-        const was = this._creator;
+        const K = DocsDoodads.CreatorKits[kit] || DocsDoodads.CreatorKits.lpc;
+        const S = K.slots;
+        const index = K.index(this);
+        if (!index) { K.noLibrary(this); return null; }
+        const safeOnly = K.safeSwitch ? this.lpcSafeOnly() : false;
+        const was = this._creator && (this._creator.kit || 'lpc') === K.id ? this._creator : null;
         this._creator = {
-            state: state || (was && was.state) || S.newState(index, 'male', safeOnly),
+            kit: K.id,
+            state: state || (was && was.state) || S.newState(index, S.bodies[0][0], safeOnly),
             name: was ? was.name : '', anim: 'walk', dir: 'down', frame: 0,
             tabs: { body: 0, outfit: 0 }, cursor: { card: 'body', row: 0 }, showBody: true, addons: true, shadow: true, pop: null
         };
@@ -130,7 +152,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     // The rows of a card's current tab (the body tab starts with the body type).
     creatorRows(cardKey) {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const S = this.creatorSlots(), c = this._creator;
         const card = S.cards.find(x => x.key === cardKey);
         const tab = card.tabs[c.tabs[cardKey]];
         const rows = tab.slots.map(s => Object.assign({ card: cardKey }, s));
@@ -140,12 +162,12 @@ Object.assign(DocsDoodads.Workspace, {
 
     // What a row shows: value, the swatch's channel and colour, whether it can change.
     creatorRowView(row) {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex();
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         if (row.key === '_body') {
             const label = (S.bodies.find(b => b[0] === c.state.body) || [c.state.body, c.state.body])[1];
             return { value: label, channel: -1, off: false };
         }
-        const options = S.options(index, row, c.state.body, this.lpcSafeOnly());
+        const options = S.options(index, row, c.state.body, this.creatorSafeOnly());
         const pick = c.state.slots[row.key];
         const part = pick && index.parts.find(p => p.id === pick.id);
         const value = part ? part.name : (options.length ? 'None' : 'Nothing for this body');
@@ -167,7 +189,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorStep(rowKey, dir) {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex(), safe = this.lpcSafeOnly();
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex(), safe = this.creatorSafeOnly();
         if (rowKey === '_body') {
             const list = S.bodies.map(b => b[0]);
             const next = list[(list.indexOf(c.state.body) + dir + list.length) % list.length];
@@ -179,7 +201,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorColour(rowKey, dir, name) {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex();
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         const view = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
         if (view.channel < 0) return;
         const pick = c.state.slots[rowKey];
@@ -197,21 +219,21 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorShuffle(card) {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
-        c.state = S.shuffle(c.state, this.lpcIndex(), card, Math.random, this.lpcSafeOnly());
+        const S = this.creatorSlots(), c = this._creator;
+        c.state = S.shuffle(c.state, this.creatorIndex(), card, Math.random, this.creatorSafeOnly());
         this.creatorChanged('ok');
     },
 
     creatorRecipe() {
         const c = this._creator;
-        return DocsDoodads.LpcSlots.toRecipe(c.state, { showBody: c.showBody, addons: c.addons });
+        return this.creatorSlots().toRecipe(c.state, { showBody: c.showBody, addons: c.addons });
     },
 
     // The sheet of the current animation (composed once per change; the compositor caches the layers).
     creatorComposed() {
         const c = this._creator;
         if (!c.composed || c.composed.anim !== c.anim) {
-            const out = this.composeLpc(this.creatorRecipe(), c.anim) || { sheet: null, warnings: [], used: [] };
+            const out = this.creatorKit().draw(this, this.creatorRecipe(), c.anim) || { sheet: null, warnings: [], used: [] };
             c.composed = { anim: c.anim, sheet: out.sheet, warnings: out.warnings, used: out.used };
         }
         return c.composed;
@@ -221,8 +243,7 @@ Object.assign(DocsDoodads.Workspace, {
     creatorCredits() {
         const c = this._creator;
         if (!c) return [];
-        const walk = this.composeLpc(DocsDoodads.LpcSlots.toRecipe(c.state, { addons: c.addons }), 'walk');
-        return walk ? DocsDoodads.Lpc.creditsForLayers(walk.used) : [];
+        return this.creatorKit().credits(this, c.state, c.addons);
     },
 
     // ---- Drawing ----
@@ -232,16 +253,14 @@ Object.assign(DocsDoodads.Workspace, {
         const canvas = typeof document !== 'undefined' ? document.getElementById('dd-cr-canvas') : null;
         const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
         if (!c || !ctx || typeof ctx.createImageData !== 'function') return false;
-        const C = DocsDoodads.LpcCompose;
+        const K = this.creatorKit(), C = K.compose;
         const composed = this.creatorComposed();
         const F = (composed.sheet && composed.sheet.frame) || C.frame;
         this.fitCreatorCanvas(canvas, F);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         if (!composed.sheet) return false;
-        const meta = C.animations[c.anim] || { frames: 1 };
-        // Walking skips the standing frame 0.
-        const frames = c.anim === 'walk' ? 8 : meta.frames;
-        const frame = (c.anim === 'walk' ? 1 : 0) + (c.frame % frames);
+        const shown = K.stageFrames(c.anim);
+        const frame = shown.first + (c.frame % Math.max(1, shown.count));
         const rect = C.frameRect(c.anim, c.dir, frame, F);
         if (rect.x + rect.w > composed.sheet.width || rect.y + rect.h > composed.sheet.height) return false;
         const img = ctx.createImageData(rect.w, rect.h);
@@ -256,18 +275,20 @@ Object.assign(DocsDoodads.Workspace, {
         return true;
     },
 
-    // The stage's canvas for frames of F pixels. With oversize weapon art the canvas grows around the same
-    // 64-pixel body (same size, same place) and the swing spills over the stage; it lets clicks through.
+    // The stage's canvas for frames of F pixels, drawn the kit's whole number of times (LPC 4, or 3 in a small
+    // window; its CSS size). With oversize weapon art the canvas grows around the same body (same size, same
+    // place) and the swing spills over the stage; it lets clicks through.
     fitCreatorCanvas(canvas, F) {
-        const C = DocsDoodads.LpcCompose;
-        if (canvas.width === 4 * F && canvas.height === 4 * F) return;
-        const base = this._creator && this._creator.narrow ? 192 : 256;
-        const size = base * F / C.frame, spill = (size - base) / 2;
-        canvas.width = canvas.height = 4 * F;
+        const K = this.creatorKit(), body = K.compose.frame, k = K.stageScale || 4;
+        if (canvas.width === k * F && canvas.height === k * F) return;
+        const s = this._creator && this._creator.narrow ? (K.narrowScale || 3) : k;
+        const css = this._creator && this._creator.narrow ? 192 : 256;
+        const size = s * F, spill = (size - s * body) / 2;
+        canvas.width = canvas.height = k * F;
         if (!canvas.style) return;
-        canvas.style.width = canvas.style.height = F === C.frame ? '' : size + 'px';
-        canvas.style.margin = F === C.frame ? '' : `0 ${-spill}px ${-spill}px`;
-        canvas.style.pointerEvents = F === C.frame ? '' : 'none';
+        canvas.style.width = canvas.style.height = size === css ? '' : size + 'px';
+        canvas.style.margin = F === body ? '' : `0 ${-spill}px ${-spill}px`;
+        canvas.style.pointerEvents = F === body ? '' : 'none';
     },
 
     startCreatorLoop() {
@@ -282,7 +303,7 @@ Object.assign(DocsDoodads.Workspace, {
             acc += now - last;
             last = now;
             const still = DocsDoodads.Ui.lessMotion && DocsDoodads.Ui.lessMotion();
-            const step = 1000 / (this.creatorFps[c.anim] || 8);
+            const step = 1000 / (this.creatorKit().fps(this)[c.anim] || 8);
             if (!still && acc >= step) { c.frame += Math.floor(acc / step); acc %= step; this.drawCreatorFrame(); }
             if (still) acc = 0;
         }, 33);
@@ -294,9 +315,9 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     renderCreator() {
-        const D = DocsDoodads, U = D.Ui, S = D.LpcSlots, L = D.Lpc, c = this._creator;
+        const D = DocsDoodads, U = D.Ui, K = this.creatorKit(), S = K.slots, c = this._creator;
         if (!c || typeof document === 'undefined') return null;
-        const index = this.lpcIndex();
+        const index = this.creatorIndex();
         let root = document.getElementById('dd-creator');
         if (!root) {
             root = document.createElement('div');
@@ -305,7 +326,7 @@ Object.assign(DocsDoodads.Workspace, {
             root.setAttribute && root.setAttribute('aria-label', 'Character Creator');
             document.body.appendChild(root);
         }
-        const summary = L.summary(index, this.lpcSafeOnly());
+        const summary = K.safeSwitch ? D.Lpc.summary(index, this.lpcSafeOnly()) : null;
         // A small window (MZ's own 816 x 624) shows one card at a time beside a smaller stage.
         const narrow = typeof window !== 'undefined' && window.innerWidth ? window.innerWidth < 1120 : false;
         c.narrow = narrow;
@@ -323,7 +344,7 @@ Object.assign(DocsDoodads.Workspace, {
         };
         // Where the safe-to-encrypt switch hides parts from the tab in view, a line says so, with a way to see them.
         const moreHtml = cardKey => {
-            if (!this.lpcSafeOnly()) return '';
+            if (!this.creatorSafeOnly()) return '';
             const hidden = S.hiddenBySafeOnly(index, this.creatorRows(cardKey).filter(r => r.key !== '_body'), c.state.body);
             if (!hidden) return '';
             return `<div class="dd-cr-more" id="dd-cr-more-${cardKey}"><span>${hidden} more part${hidden === 1 ? '' : 's'} here ${hidden === 1 ? "isn't" : "aren't"} safe to encrypt.</span><button type="button" id="dd-cr-showall-${cardKey}" title="Turn off &quot;Only art safe to encrypt&quot; (at the top) to choose from every part">Show all parts</button></div>`;
@@ -344,10 +365,10 @@ Object.assign(DocsDoodads.Workspace, {
         const unsafe = credits.filter(f => !f.safeToEncrypt).length;
         root.innerHTML = `<div class="dd-cr${narrow ? ' dd-cr-narrow' : ''}">
             <div class="dd-cr-top">
-                <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} Character Creator</div>
-                <div class="dd-cr-lib">LPC library · ${summary.usable} parts${summary.commit ? ' · version ' + escapeHtml(summary.commit.slice(0, 7)) : ''}</div>
+                <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
+                <div class="dd-cr-lib">${K.libraryLine(this, index, this.creatorSafeOnly())}</div>
                 <div class="dd-cr-grow"></div>
-                <label class="dd-cr-chip" title="${this.lpcSafeOnly() ? `On: only parts offered under CC0 or OGA-BY (${summary.safe} of ${summary.parts}), which may be in a game deployed with &quot;Encrypt image files&quot;. Untick to choose from every part.` : `Off: every part (${summary.parts}). A character with CC-BY or CC-BY-SA art can't be in a game deployed with &quot;Encrypt image files&quot;; the export and Problems say which.`}"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt${this.lpcSafeOnly() ? ` · ${summary.safe} of ${summary.parts}` : ''}</label>
+                ${K.safeSwitch ? `<label class="dd-cr-chip" title="${this.lpcSafeOnly() ? `On: only parts offered under CC0 or OGA-BY (${summary.safe} of ${summary.parts}), which may be in a game deployed with &quot;Encrypt image files&quot;. Untick to choose from every part.` : `Off: every part (${summary.parts}). A character with CC-BY or CC-BY-SA art can't be in a game deployed with &quot;Encrypt image files&quot;; the export and Problems say which.`}"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt${this.lpcSafeOnly() ? ` · ${summary.safe} of ${summary.parts}` : ''}</label>` : ''}
                 <button type="button" class="dd-cr-close" id="dd-cr-close" aria-label="Close the creator" title="Close (Esc)">✕</button>
             </div>
             <div class="dd-cr-main">
@@ -359,7 +380,7 @@ Object.assign(DocsDoodads.Workspace, {
                         <input class="dd-cr-name" id="dd-cr-name" type="text" value="${escapeHtml(c.name)}" placeholder="Name your character" aria-label="Character name" />
                         <button type="button" class="dd-cr-dice" id="dd-cr-dice-outfit" style="right: 12px;" aria-label="Shuffle the outfit" title="Shuffle the outfit (Y)">⚅</button>
                         <div class="dd-cr-figure">
-                            ${c.shadow ? '<div class="dd-cr-shadow"></div>' : ''}
+                            ${c.shadow ? `<div class="dd-cr-shadow"${K.feetGap ? ` style="bottom: ${Math.max(0, K.feetGap * (narrow ? K.narrowScale : K.stageScale) - 8)}px;"` : ''}></div>` : ''}
                             <canvas class="dd-cr-canvas" id="dd-cr-canvas" width="256" height="256" role="img" aria-label="${escapeHtml((c.name || 'The character') + ', ' + c.anim + ', facing ' + c.dir)}"></canvas>
                         </div>
                         <div class="dd-cr-turn">
@@ -368,10 +389,10 @@ Object.assign(DocsDoodads.Workspace, {
                             <button type="button" id="dd-cr-turn-right" aria-label="Turn right" title="Turn right">↻</button>
                         </div>
                     </div>
-                    <div class="dd-cr-anims">${this.creatorAnimations.map(([key, label]) => `<button type="button" class="dd-cr-anim" id="dd-cr-anim-${key}" aria-pressed="${c.anim === key}">${escapeHtml(label)}</button>`).join('')}</div>
+                    <div class="dd-cr-anims">${K.animations(this).map(([key, label]) => `<button type="button" class="dd-cr-anim" id="dd-cr-anim-${key}" aria-pressed="${c.anim === key}">${escapeHtml(label)}</button>`).join('')}</div>
                     <div class="dd-cr-toggles">
                         <label><input type="checkbox" id="dd-cr-showbody" ${c.showBody ? 'checked' : ''} /> Show body</label>
-                        <label><input type="checkbox" id="dd-cr-addons" ${c.addons ? 'checked' : ''} /> Body add-ons</label>
+                        ${K.addons ? `<label><input type="checkbox" id="dd-cr-addons" ${c.addons ? 'checked' : ''} /> Body add-ons</label>` : ''}
                         <label><input type="checkbox" id="dd-cr-shadow" ${c.shadow ? 'checked' : ''} /> Cast shadow</label>
                     </div>
                     <div class="dd-cr-warn" id="dd-cr-warn">${missingAnim ? escapeHtml(`${missingAnim} part${missingAnim === 1 ? ' has' : 's have'} no ${c.anim}: ` + composed.warnings.filter(w => / has no /.test(w)).map(w => w.split(' has no ')[0]).join(', ')) : ''}</div>
@@ -394,7 +415,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorPopHtml() {
-        const S = DocsDoodads.LpcSlots, c = this._creator, index = this.lpcIndex();
+        const K = this.creatorKit(), S = K.slots, E = K.exporter, c = this._creator, index = this.creatorIndex();
         const pop = c.pop;
         if (pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: pop.row }, S.slot(pop.row)));
@@ -414,28 +435,28 @@ Object.assign(DocsDoodads.Workspace, {
             </div>`;
         }
         if (pop.kind === 'export') {
-            const o = c.exportOptions || (c.exportOptions = this.lpcExportDefaults());
-            const N = DocsDoodads.LpcExport.names(c.name);
-            const files = this.lpcExportFiles(c.name, o);
+            const o = c.exportOptions || (c.exportOptions = K.exportDefaults(this));
+            const N = E.names(c.name);
+            const files = K.exportFiles(this, c.name, o);
             const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
             const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="flex: none; width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
             const done = c.exported;
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
-                <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(DocsDoodads.LpcExport.cleanName(c.name) || 'your character')} to RPG Maker</div>
+                <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(E.cleanName(c.name) || 'your character')} to RPG Maker</div>
                 ${c.name.trim() ? '' : '<div style="color: #c8472c; font-weight: 800; margin-bottom: 6px;">Name the character first (above the stage).</div>'}
                 ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
                 ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(DocsDoodads.LpcExport.actionLabel(anim))}</button>`).join('')}</div></div>
+                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
-                ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
+                ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
-                <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.</div>
+                <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">${K.exportNote()}</div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <button type="button" class="dd-cr-export" id="dd-cr-ex-go" style="font-size: 15px; padding: 8px 20px;"${!c.name.trim() || !files.length ? ' disabled' : ''}>Export ${files.length} file${files.length === 1 ? '' : 's'}</button>
                     ${done ? `<button type="button" class="dd-cr-btn" id="dd-cr-ex-try" style="font-size: 13px; padding: 6px 14px;" title="Show it on the player now (this playtest only)">Try on the player</button>` : ''}
                 </div>
-                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}${done.oversize && done.oversize.length ? `<div id="dd-cr-ex-big" style="font-weight: 700; color: #5b4c70;">${escapeHtml(DocsDoodads.LpcExport.oversizeNote(done.oversize))}</div>` : ''}</div>` : ''}
+                ${done ? `<div id="dd-cr-ex-done" style="margin-top: 8px; color: #0f6f64; font-weight: 800; line-height: 1.4;">Wrote ${done.files.length} file${done.files.length === 1 ? '' : 's'}.${done.warnings.length ? ` <span style="color: #9a6a00;">${escapeHtml(done.warnings.slice(0, 2).join(' '))}</span>` : ''}${done.oversize && done.oversize.length && E.oversizeNote ? `<div id="dd-cr-ex-big" style="font-weight: 700; color: #5b4c70;">${escapeHtml(E.oversizeNote(done.oversize))}</div>` : ''}</div>` : ''}
                 ${done && done.parts && done.parts.length ? `<div style="margin-top: 8px; max-height: 210px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;">${done.parts.map((p, i) => `
                     <div style="background: #f6efe0; border-radius: 12px; padding: 6px 8px;">
                         <b>${escapeHtml(p.label)}: ${escapeHtml(p.name)}</b>
@@ -454,14 +475,14 @@ Object.assign(DocsDoodads.Workspace, {
                 <div style="font-weight: 900; font-size: 13px; margin-bottom: 6px;">Who made this art</div>
                 ${files.map(f => `<div style="margin-bottom: 6px;"><b>${escapeHtml(f.part || f.file)}</b>${f.safeToEncrypt ? '' : ' <span style="color: #c8472c; font-weight: 900;">(not safe to encrypt)</span>'}<br>
                     by ${escapeHtml(f.authors.join(', ') || 'unknown')}<br><span style="color: #7a6b8f;">${escapeHtml(DocsDoodads.Lpc.preferredLicence(f.licences) || 'no licence found')}</span></div>`).join('')}
-                <div style="color: #7a6b8f;">These go into ${escapeHtml(DocsDoodads.Lpc.creditsText)} when the character is exported.</div>
+                <div style="color: #7a6b8f;">${K.creditsNote()}</div>
             </div>`;
         }
         return '';
     },
 
     bindCreator() {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const K = this.creatorKit(), S = K.slots, E = K.exporter, c = this._creator;
         const on = (id, fn, ev = 'onclick') => { const el = document.getElementById(id); if (el) el[ev] = fn; return el; };
         on('dd-cr-close', () => this.closeCreator());
         for (const cardKey of ['body', 'outfit']) {
@@ -479,7 +500,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-dice-outfit', () => this.creatorShuffle('outfit'));
         on('dd-cr-turn-left', () => this.creatorTurn(-1));
         on('dd-cr-turn-right', () => this.creatorTurn(1));
-        this.creatorAnimations.forEach(([key]) => on('dd-cr-anim-' + key, () => { c.anim = key; c.frame = 0; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); }));
+        K.animations(this).forEach(([key]) => on('dd-cr-anim-' + key, () => { c.anim = key; c.frame = 0; DocsDoodads.Ui.sound('cursor'); this.renderCreator(); }));
         on('dd-cr-showbody', e => { c.showBody = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-addons', e => { c.addons = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-shadow', e => { c.shadow = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
@@ -492,10 +513,10 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-export', () => { c.pop = c.pop && c.pop.kind === 'export' ? null : { kind: 'export' }; c.exported = null; this.renderCreator(); });
         if (c.pop && c.pop.kind === 'export') {
             const o = c.exportOptions;
-            DocsDoodads.LpcExport.actions.forEach(([anim]) => on('dd-cr-ex-act-' + anim, () => {
+            E.actions.forEach(([anim]) => on('dd-cr-ex-act-' + anim, () => {
                 const list = new Set(o.actions || []);
                 if (list.has(anim)) list.delete(anim); else list.add(anim);
-                o.actions = DocsDoodads.LpcExport.actions.map(a => a[0]).filter(a => list.has(a));
+                o.actions = E.actions.map(a => a[0]).filter(a => list.has(a));
                 this.renderCreator();
             }));
             ((c.exported && c.exported.parts) || []).forEach((p, i) => {
@@ -513,12 +534,12 @@ Object.assign(DocsDoodads.Workspace, {
             for (const key of ['classic', 'smooth', 'face', 'battler', 'parts']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
             on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
             on('dd-cr-ex-go', () => this.creatorExport());
-            on('dd-cr-ex-try', () => { if (c.exported) { this.tryLpcOnPlayer(c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
+            on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
         }
         if (c.pop && c.pop.kind === 'palette') {
             const view = this.creatorRowView(Object.assign({ key: c.pop.row }, S.slot(c.pop.row)));
             const row = c.pop.row;
-            S.colours(this.lpcIndex(), view.part, view.channel).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = null; this.creatorColour(row, 0, n); }));
+            S.colours(this.creatorIndex(), view.part, view.channel).forEach((n, i) => on('dd-cr-pal-' + i, () => { c.pop = null; this.creatorColour(row, 0, n); }));
         }
         if (c.pop && c.pop.kind === 'load') {
             const saved = S.validSaved(this.readCreatorSaved()).characters;
@@ -535,7 +556,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     creatorTab(cardKey, i) {
         const c = this._creator;
-        const tabs = DocsDoodads.LpcSlots.cards.find(x => x.key === cardKey).tabs;
+        const tabs = this.creatorSlots().cards.find(x => x.key === cardKey).tabs;
         c.tabs[cardKey] = (i + tabs.length) % tabs.length;
         c.cursor = { card: cardKey, row: 0 };
         c.pop = null;
@@ -565,10 +586,11 @@ Object.assign(DocsDoodads.Workspace, {
     // Export, asking first when it would replace pictures already in the project.
     async creatorExport() {
         const c = this._creator, FS = DocsDoodads.FS;
-        const o = c.exportOptions || this.lpcExportDefaults();
-        const existing = this.lpcExportFiles(c.name, o).filter(f => FS.existsSync(f));
+        const K = this.creatorKit();
+        const o = c.exportOptions || K.exportDefaults(this);
+        const existing = K.exportFiles(this, c.name, o).filter(f => FS.existsSync(f));
         if (existing.length && !await DocsDoodads.Ui.confirm(`Replace ${existing.length} picture${existing.length === 1 ? '' : 's'} already in the project?\n${existing.join('\n')}`, { title: 'Export again', ok: 'Replace' })) return null;
-        const result = this.exportLpcCharacter(c.state, Object.assign({ name: c.name, addons: c.addons }, o));
+        const result = K.exportRun(this, c.state, Object.assign({ name: c.name, addons: c.addons }, o));
         if (result) { c.exported = result; DocsDoodads.Ui.sound('save'); }
         if (this.creatorOpen()) this.renderCreator();
         return result;
@@ -576,13 +598,14 @@ Object.assign(DocsDoodads.Workspace, {
 
     // ---- Saved characters ----
 
-    readCreatorSaved() {
-        const FS = DocsDoodads.FS, S = DocsDoodads.LpcSlots;
+    // The saved characters of a kit's slots (the open creator's by default).
+    readCreatorSaved(S = this.creatorSlots()) {
+        const FS = DocsDoodads.FS;
         try { return FS.existsSync(S.charactersFile) ? FS.readJson(S.charactersFile) : null; } catch (e) { return null; }
     },
 
     async creatorSave() {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const S = this.creatorSlots(), c = this._creator;
         let name = c.name.trim();
         if (!name) {
             name = await DocsDoodads.Ui.prompt('A name for this character:', '', { title: 'Save character', ok: 'Save', icon: 'person' });
@@ -598,20 +621,20 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     creatorLoad(name) {
-        const S = DocsDoodads.LpcSlots, c = this._creator;
+        const S = this.creatorSlots(), c = this._creator;
         const state = S.load(this.readCreatorSaved(), name);
         if (!state) return false;
         c.state = state;
         c.name = name;
         c.pop = null;
-        const gone = S.missing(state, this.lpcIndex(), this.lpcSafeOnly());
-        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): the library changed, or they aren't safe to encrypt.`, 'info');
+        const gone = S.missing(state, this.creatorIndex(), this.creatorSafeOnly());
+        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${this.creatorKit().missingNote}.`, 'info');
         this.creatorChanged('ok');
         return true;
     },
 
     async creatorDelete(name) {
-        const S = DocsDoodads.LpcSlots;
+        const S = this.creatorSlots();
         if (!await DocsDoodads.Ui.confirm(`Delete the saved character "${name}"?`, { danger: true, ok: 'Delete' })) return false;
         DocsDoodads.FS.atomicWriteJson(S.charactersFile, S.remove(this.readCreatorSaved(), name));
         this.renderCreator();
