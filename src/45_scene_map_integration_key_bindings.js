@@ -206,6 +206,14 @@ if (typeof SceneManager !== 'undefined' && typeof SceneManager.reloadGame === 'f
     };
 }
 
+// Autosave (More > Autosave; 33_persistence_saving.js): checked every 15 seconds while the editor is open.
+if (typeof window !== 'undefined' && typeof setInterval === 'function') {
+    const autosaveTimer = setInterval(() => {
+        if (editorMode && DocsDoodads.Compat.isTest() && DocsDoodads.Workspace.mounted) DocsDoodads.Persistence.autosaveTick();
+    }, 15000);
+    if (autosaveTimer && typeof autosaveTimer.unref === 'function') autosaveTimer.unref();
+}
+
 // Auto-recovery heartbeat
 if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     const recoveryTimer = setInterval(() => {

@@ -16,6 +16,7 @@ data/DocsDoodadsCharacters.json
 data/DocsDoodadsMemaoCharacters.json
 data/DocsDoodadsMzCharacters.json
 data/DocsDoodadsRequired.json
+data/DocsDoodadsMapPresets.json
 
 # Transaction scratch files (normally removed automatically)
 *.tmp

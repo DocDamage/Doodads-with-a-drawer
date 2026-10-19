@@ -180,6 +180,9 @@ DocsDoodads.Workspace = {
         this.closeProblems();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
+        this.closeTemplatesCard();
+        this.closeMapSettingsCard();
+        if (this.bagPicked) this.bagPicked.clear();
         if (typeof this.closeLpcCard === 'function') this.closeLpcCard();
         if (typeof this.closeCreator === 'function') this.closeCreator();
         clearTimeout(this._hoverShow);
@@ -479,6 +482,10 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-find-btn" title="Find doodads on this map or every map, by picture, name, tag, layer, light, sound...">${U.icon('search', 1)} Find Doodads</button>
                     <button class="dd-btn" id="dd-outliner-btn" title="This map's doodads by layer: hide, lock, pick, solo a layer">${U.icon('grid', 1)} Outliner</button>
+                    <button class="dd-btn" id="dd-templates-btn" title="Rename, sort and delete your own event templates">${U.icon('person', 1)} Templates</button>
+                    <button class="dd-btn" id="dd-mapset-btn" title="Copy another map's settings to this one, or keep them as a preset">${U.icon('map', 1)} Map Settings</button>
+                    <button class="dd-btn" id="dd-savemap-btn" title="Save this map's doodads, settings and events; other maps' changes wait">${U.icon('save', 1)} Save This Map</button>
+                    <button class="dd-btn" id="dd-autosave-btn" title="Save the project every few minutes of unsaved work (on this computer)">${U.icon('history', 1)} <span id="dd-autosave-label">${this.autosaveLabel()}</span></button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
@@ -964,6 +971,10 @@ DocsDoodads.Workspace = {
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
+        on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
+        on('dd-mapset-btn', () => { this.showMoreMenu(false); this.showMapSettingsCard(); });
+        on('dd-savemap-btn', () => { this.showMoreMenu(false); this.saveThisMap(); });
+        on('dd-autosave-btn', () => { this.cycleAutosave(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
         on('dd-listen-btn', () => { this.setPlacementTool('listen'); });
         on('dd-perf-btn', () => { this.togglePerfOverlay(); this.showMoreMenu(false); });
@@ -1190,7 +1201,8 @@ DocsDoodads.Workspace = {
 
     createCardElement(asset, cardHeight) {
         const card = document.createElement('div');
-        card.className = 'dd-card' + (this.selectedAsset === asset ? ' selected' : '');
+        card.className = 'dd-card' + (this.selectedAsset === asset ? ' selected' : '') + (this.bagPicked && this.bagPicked.has(asset.id) ? ' dd-bag-picked' : '');
+        card._ddAssetId = asset.id;
         card.style.cssText = `height: ${cardHeight}px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px;`;
 
         const imgEl = document.createElement('img');
@@ -1217,8 +1229,15 @@ DocsDoodads.Workspace = {
             card.appendChild(favBadge);
         }
 
-        card.onclick = () => {
+        card.onclick = (e) => {
             this.hideHoverCard(true);
+            // Ctrl or Shift: pick several for the batch bar (44_workspace_saving.js); a plain click picks none.
+            if (e && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+                this.bagPick(asset, e.shiftKey ? 'range' : 'toggle');
+                return;
+            }
+            if (this.bagPicked && this.bagPicked.size) this.clearBagPicks();
+            this._bagAnchor = asset.id;
             this.selectAsset(asset);
             const container = document.getElementById('dd-cards-container');
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));

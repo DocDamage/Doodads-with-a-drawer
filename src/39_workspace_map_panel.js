@@ -777,6 +777,12 @@
         add('Problems (check the map)', () => this.showProblems());
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
         add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
+        add('Event templates (rename, category, delete)', () => this.showTemplatesCard());
+        add('Copy map settings from another map...', () => this.askCopyMapSettings());
+        add('Map settings presets', () => this.showMapSettingsCard());
+        add('Save this map only', () => this.saveThisMap());
+        add('Autosave (off, 5, 10 or 20 minutes)', () => this.cycleAutosave());
+        add('Checkpoint: keep this map as it is now...', () => this.addCheckpoint());
         add('Pick doodads in a region...', async () => {
             const r = await DocsDoodads.Ui.prompt('Which region? (1-255)', '1', { title: 'Pick in a region', ok: 'Pick' });
             if (r) this.selectInRegion(Number(r));

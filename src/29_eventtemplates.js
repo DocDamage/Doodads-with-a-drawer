@@ -201,7 +201,11 @@ DocsDoodads.EventTemplates = {
         }
     },
 
+    // The keys of the templates that come with the plugin (they can't be renamed or deleted).
+    builtInKeys: null,
+
     init() {
+        if (!this.builtInKeys) this.builtInKeys = new Set(Object.keys(this.templates));
         const custom = DocsDoodads.FS.readJson(this.customPath);
         if (custom) {
             Object.assign(this.templates, custom);
@@ -213,8 +217,84 @@ DocsDoodads.EventTemplates = {
         return this.templates[templateKey] || null;
     },
 
+    isCustom(key) {
+        return Boolean(this.templates[key]) && !(this.builtInKeys && this.builtInKeys.has(key));
+    },
+
+    // The key a template of this name is kept under.
+    keyFor(name) {
+        return 'custom_' + String(name || '').trim().toLowerCase().replace(/\s+/g, '_');
+    },
+
+    // The custom templates, by category then name: [{ key, name, category }].
+    custom() {
+        return Object.keys(this.templates).filter(k => this.isCustom(k))
+            .map(key => ({ key, name: this.templates[key].name || key, category: this.templates[key].category || 'Custom' }))
+            .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    },
+
+    categories() {
+        const set = new Set(['Interaction', 'Mechanics', 'Atmosphere', 'Custom']);
+        for (const t of Object.values(this.templates)) if (t && t.category) set.add(t.category);
+        return Array.from(set);
+    },
+
+    // The custom templates file is written whole from what is in memory.
+    writeCustom() {
+        const out = {};
+        for (const key of Object.keys(this.templates)) if (this.isCustom(key)) out[key] = this.templates[key];
+        DocsDoodads.FS.atomicWriteJson(this.customPath, out);
+    },
+
+    // Renames a custom template: { key } (its new key), or { error }.
+    rename(key, name) {
+        name = String(name || '').trim();
+        if (!this.isCustom(key)) return { error: 'Only your own templates can be renamed.' };
+        if (!name) return { error: 'Give it a name.' };
+        const next = this.keyFor(name);
+        if (next !== key && this.templates[next]) return { error: `There is already a template called "${this.templates[next].name || name}".` };
+        const t = this.templates[key];
+        delete this.templates[key];
+        t.name = name;
+        this.templates[next] = t;
+        this.writeCustom();
+        return { key: next };
+    },
+
+    setCategory(key, category) {
+        if (!this.isCustom(key)) return false;
+        this.templates[key].category = String(category || '').trim() || 'Custom';
+        this.writeCustom();
+        return true;
+    },
+
+    remove(key) {
+        if (!this.isCustom(key)) return false;
+        delete this.templates[key];
+        this.writeCustom();
+        return true;
+    },
+
+    // A template from a pack: kept under its own key, or a new one when a different template has it.
+    // Returns the key it is under (an identical one already here is not added again).
+    addFromPack(key, template) {
+        if (!template || typeof template !== 'object') return null;
+        const copy = JSON.parse(JSON.stringify(template));
+        const base = copy.name || String(key).replace(/^custom_/, '');
+        let k = /^custom_/.test(String(key)) ? String(key) : this.keyFor(base);
+        const same = t => Boolean(t) && JSON.stringify(t) === JSON.stringify(copy);
+        for (let n = 2; this.templates[k] && !same(this.templates[k]); n++) {
+            k = this.keyFor(base + ' ' + n);
+            copy.name = base + ' ' + n;
+        }
+        if (this.templates[k]) return k;
+        this.templates[k] = copy;
+        this.writeCustom();
+        return k;
+    },
+
     saveCustomTemplate(name, eventObj, category = "Custom") {
-        const key = 'custom_' + name.toLowerCase().replace(/\s+/g, '_');
+        const key = this.keyFor(name);
         const page0 = eventObj.pages && eventObj.pages[0] ? eventObj.pages[0] : {};
         const tmpl = {
             name: name,
@@ -230,10 +310,7 @@ DocsDoodads.EventTemplates = {
             pages: JSON.parse(JSON.stringify(eventObj.pages || []))
         };
         this.templates[key] = tmpl;
-
-        let customData = DocsDoodads.FS.readJson(this.customPath) || {};
-        customData[key] = tmpl;
-        DocsDoodads.FS.atomicWriteJson(this.customPath, customData);
+        this.writeCustom();
         return key;
     }
 };

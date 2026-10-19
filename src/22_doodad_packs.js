@@ -2,7 +2,7 @@
 // SECTION 12B: DOODAD PACKS
 //==========================================================
 // A pack is one file (.ddpack, JSON) holding prefabs (with the prefabs inside them), room stamps,
-// biomes, dressing rules and collections, the art, sounds and models they use, and those files' Item Bag
+// biomes, dressing rules, collections and event templates, the art, sounds and models they use, and those files' Item Bag
 // entries (cut-up slices, tags, collision), to bring into another project. Pure: reading and writing
 // files is passed in, so the workspace (44_workspace_packs.js) does the disk work in a playtest.
 DocsDoodads.Packs = {
@@ -25,10 +25,10 @@ DocsDoodads.Packs = {
     },
 
     // What a selection holds, with what it needs: prefabs inside chosen prefabs come along.
-    // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names] }
-    // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id) }
+    // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names], templates: [keys] }
+    // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id), template(key) }
     gather(sel, src, audioFile) {
-        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {} };
+        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} };
         const files = new Set();
         const addDoodads = list => (list || []).forEach(d => this.filesOfDoodad(d, audioFile).forEach(f => files.add(f)));
         const seenPrefab = new Set();
@@ -67,6 +67,10 @@ DocsDoodads.Packs = {
             const paths = ids.map(id => src.assetPath(id)).filter(Boolean);
             contents.collections[name] = paths;
             paths.forEach(p => files.add(p));
+        }
+        for (const key of sel.templates || []) {
+            const t = src.template ? src.template(key) : null;
+            if (t) contents.templates[key] = JSON.parse(JSON.stringify(t));
         }
         return { contents, files: Array.from(files).map(f => f.replace(/\\/g, '/')).sort() };
     },
@@ -116,7 +120,7 @@ DocsDoodads.Packs = {
         try { pack = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a doodad pack (it is not readable JSON).'); }
         if (!pack || pack.format !== this.format) throw new Error('This file is not a doodad pack.');
         if (Number(pack.version) > this.version) throw new Error('This pack was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
-        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {} }, pack.contents || {});
+        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, pack.contents || {});
         pack.files = pack.files || {};
         pack.library = pack.library || {};
         return pack;
@@ -138,12 +142,13 @@ DocsDoodads.Packs = {
             unsafe: files.filter(f => f.state === 'unsafe').map(f => f.path),
             prefabs: pack.contents.prefabs.length, rooms: pack.contents.rooms.length, biomes: pack.contents.biomes.length,
             dress: pack.contents.dress.length, collections: Object.keys(pack.contents.collections).length,
+            templates: Object.keys(pack.contents.templates || {}).length,
             idClashes: clash(pack.contents.prefabs, ids.prefabs) + clash(pack.contents.rooms, ids.rooms) + clash(pack.contents.biomes, ids.biomes)
         };
     },
 
     // The pack's things ready to add: ids that clash get new ones (and prefabs inside prefabs follow).
-    // newId(prefix) makes an id. Returns { prefabs, rooms, biomes, dress, collections }.
+    // newId(prefix) makes an id. Returns { prefabs, rooms, biomes, dress, collections, templates }.
     prepare(pack, ids, newId) {
         const fresh = (list, have, prefix) => {
             const map = {};
@@ -161,7 +166,8 @@ DocsDoodads.Packs = {
             rooms: fresh(pack.contents.rooms, ids.rooms, 'room_').out,
             biomes: fresh(pack.contents.biomes, ids.biomes, 'biome_').out,
             dress: JSON.parse(JSON.stringify(pack.contents.dress || [])),
-            collections: JSON.parse(JSON.stringify(pack.contents.collections || {}))
+            collections: JSON.parse(JSON.stringify(pack.contents.collections || {})),
+            templates: JSON.parse(JSON.stringify(pack.contents.templates || {}))
         };
     },
 
