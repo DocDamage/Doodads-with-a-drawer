@@ -24,6 +24,7 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-top, #dd-creator .dd-cr-bottom { display: flex; align-items: center; gap: 12px; }
 #dd-creator .dd-cr-title { display: flex; align-items: center; gap: 8px; background: #19b6a4; color: #fffaf0; border-radius: 999px; padding: 6px 20px 6px 12px; box-shadow: 0 5px 0 #0f8a7c; font-size: 22px; font-weight: 900; }
 #dd-creator .dd-cr-lib { font-size: 13px; font-weight: 800; color: #7a6b8f; }
+#dd-creator .dd-cr-kit { height: 34px; border-radius: 999px; border: 3px solid #e8d6ab; background: #fffaf0; font-family: inherit; font-weight: 800; font-size: 13px; color: #3a2e4d; padding: 0 10px; box-shadow: 0 3px 0 #e8d6ab; }
 #dd-creator .dd-cr-grow { flex: 1; }
 #dd-creator .dd-cr-chip { display: flex; align-items: center; gap: 8px; border: 3px solid #e8d6ab; background: #fffaf0; border-radius: 999px; padding: 6px 14px; font-weight: 800; font-size: 13px; color: #3a2e4d; box-shadow: 0 4px 0 #e8d6ab; }
 #dd-creator .dd-cr-chip input[type=checkbox] { width: 18px; height: 18px; accent-color: #19b6a4; }
@@ -78,6 +79,10 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-list .dd-cr-item span { flex: 1; font-weight: 800; }
 #dd-creator .dd-cr-list button { border: 2px solid #e8d6ab; background: #fffaf0; border-radius: 999px; padding: 3px 10px; font-weight: 800; font-size: 11px; color: #3a2e4d; }
 #dd-creator .dd-cr-credits { max-width: 420px; max-height: 320px; overflow-y: auto; font-size: 11px; line-height: 1.45; }
+#dd-creator .dd-cr-faceslots { display: grid; grid-template-columns: repeat(8, 40px); gap: 4px; margin: -2px 0 8px 22px; }
+#dd-creator .dd-cr-faceslot { width: 40px; height: 40px; border: 2px solid #e8d6ab; border-radius: 10px; background: #f6efe0; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #b9a98c; overflow: hidden; }
+#dd-creator .dd-cr-faceslot img { width: 36px; height: 36px; image-rendering: pixelated; }
+#dd-creator .dd-cr-faceslot[aria-checked="true"] { border-color: #0b8174; box-shadow: 0 0 0 2px #0b8174; background: #d9f4ef; }
 :root.dd-less-motion #dd-creator button { transition: none; }
 #dd-creator .dd-cr-switch { display: none; }
 #dd-creator .dd-cr.dd-cr-narrow { padding: 12px 14px; gap: 10px; }
@@ -97,6 +102,15 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-narrow .dd-cr-btn { padding: 7px 16px; font-size: 14px; }
 #dd-creator .dd-cr-narrow .dd-cr-export { padding: 9px 18px; font-size: 15px; }
 #dd-creator .dd-cr-narrow .dd-cr-toggles { gap: 8px; flex-wrap: wrap; }
+/* High contrast (More > Look): the editor's black on white, 3-pixel borders; the yellow focus ring stays. */
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr { background: var(--dd-panel); background-image: none; color: var(--dd-text); border: 3px solid var(--dd-text); box-shadow: 0 0 0 3px var(--dd-panel), 0 24px 60px rgba(0, 0, 0, 0.5); }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-card, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-stage, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-pop, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-chip, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-value, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-btn, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-anim, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-tab, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-switch button, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-tile, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-tileimg, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-kit, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-faceslot, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-gridhead input, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-dice, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-more, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-list button, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-link, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-palette button, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-swatch { background-color: var(--dd-panel); color: var(--dd-text); border: 3px solid var(--dd-text); box-shadow: none; }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-tab[aria-selected="true"], :root[data-dd-theme="contrast"] #dd-creator .dd-cr-anim[aria-pressed="true"], :root[data-dd-theme="contrast"] #dd-creator .dd-cr-switch button[aria-pressed="true"], :root[data-dd-theme="contrast"] #dd-creator .dd-cr-tile[aria-selected="true"], :root[data-dd-theme="contrast"] #dd-creator .dd-cr-faceslot[aria-checked="true"], :root[data-dd-theme="contrast"] #dd-creator .dd-cr-lock.dd-cr-locked, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-arrow, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-turn button, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-export, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-close, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-title, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-more button, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-chn { background: var(--dd-text); color: var(--dd-panel); border: 3px solid var(--dd-text); box-shadow: none; }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-row.dd-cr-cursor { background: var(--dd-panel); box-shadow: 0 0 0 3px var(--dd-text); }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-lock { opacity: 0.55; } :root[data-dd-theme="contrast"] #dd-creator .dd-cr-lock.dd-cr-locked { opacity: 1; }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-label, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-lib, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-keys, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-warn, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-toggles, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-turn, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-name, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-gridcount, :root[data-dd-theme="contrast"] #dd-creator .dd-cr-tilename { color: var(--dd-text) !important; }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-shadow { background: rgba(0, 0, 0, 0.3); }
+:root[data-dd-theme="contrast"] #dd-creator .dd-cr-off { opacity: 0.6; }
 `;
 
 Object.assign(DocsDoodads.Workspace, {
@@ -143,6 +157,40 @@ Object.assign(DocsDoodads.Workspace, {
         return DocsDoodads.LpcCompose.cached(this.creatorImageCaches(kitId).raw, file, load);
     },
 
+    // ---- The library switcher ----
+
+    // The kits whose library has been scanned, in the Characters card's order.
+    creatorKitsReady() {
+        const K = DocsDoodads.CreatorKits;
+        return ['mz', 'lpc', 'memao'].filter(id => K[id] && K[id].index(this)).map(id => K[id]);
+    },
+
+    // The one opened last (Character Creator... in the palette), if its library is still there.
+    lastCreatorKit() {
+        const ready = this.creatorKitsReady().map(k => k.id), last = DocsDoodads.Ui.prefs().creatorKit;
+        return ready.includes(last) ? last : ready[0] || 'lpc';
+    },
+
+    creatorSwitcherHtml() {
+        const kits = this.creatorKitsReady(), now = this.creatorKit().id;
+        if (kits.length < 2) return '';
+        return `<select class="dd-cr-kit" id="dd-cr-kit" aria-label="Library" title="Make the character from another library (the name is kept)">${kits.map(k => `<option value="${k.id}"${k.id === now ? ' selected' : ''}>${escapeHtml(k.switchLabel)}</option>`).join('')}</select>`;
+    },
+
+    // Another library in the same window: the name is kept, and each library's character is kept for coming back.
+    creatorSwitchKit(kitId) {
+        const c = this._creator;
+        if (!c || !DocsDoodads.CreatorKits[kitId] || kitId === c.kit) return false;
+        const kept = this._creatorKept || (this._creatorKept = {});
+        kept[c.kit] = c.state;
+        const name = c.name;
+        if (!this.openCreator(kept[kitId] || null, kitId)) return false;
+        this._creator.name = name;
+        this.renderCreator();
+        this.creatorSay(this.creatorKit().title);
+        return true;
+    },
+
     // The safe-to-encrypt switch (LPC only).
     creatorSafeOnly() {
         return this.creatorKit().safeSwitch ? this.lpcSafeOnly() : false;
@@ -163,6 +211,7 @@ Object.assign(DocsDoodads.Workspace, {
             tabs: { body: 0, outfit: 0 }, cursor: { card: 'body', row: 0 }, showBody: true, addons: true, shadow: true, pop: null
         };
         this.closeLpcCard();
+        DocsDoodads.Ui.setPref('creatorKit', K.id);
         this.creatorLiveRegion();
         this.renderCreator();
         this.startCreatorLoop();
@@ -525,6 +574,7 @@ Object.assign(DocsDoodads.Workspace, {
         root.innerHTML = `<div class="dd-cr${narrow ? ' dd-cr-narrow' : ''}">
             <div class="dd-cr-top">
                 <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
+                ${this.creatorSwitcherHtml()}
                 <div class="dd-cr-lib">${K.libraryLine(this, index, this.creatorSafeOnly())}</div>
                 <div class="dd-cr-grow"></div>
                 ${K.safeSwitch ? `<label class="dd-cr-chip" title="${this.lpcSafeOnly() ? `On: only parts offered under CC0 or OGA-BY (${summary.safe} of ${summary.parts}), which may be in a game deployed with &quot;Encrypt image files&quot;. Untick to choose from every part.` : `Off: every part (${summary.parts}). A character with CC-BY or CC-BY-SA art can't be in a game deployed with &quot;Encrypt image files&quot;; the export and Problems say which.`}"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt${this.lpcSafeOnly() ? ` · ${summary.safe} of ${summary.parts}` : ''}</label>` : ''}
@@ -633,7 +683,8 @@ Object.assign(DocsDoodads.Workspace, {
                     ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`]
                 ]).map(([key, label, note]) => tick('dd-cr-ex-' + key, o[key], label, note)).join('')}
                 ${E.actions.length ? `<div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${E.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(E.actionName(c.name, anim))}.png">${escapeHtml(E.actionLabel(anim))}</button>`).join('')}</div></div>` : ''}
-                ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
+                ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in the slot picked below (the other faces in the sheet are kept).`)}
+                ${o.face ? this.creatorFaceSlotsHtml(c.name, o.faceSlot || 0) : ''}
                 ${K.parts ? tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`) : ''}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}
                 <div style="color: #7a6b8f; margin-bottom: 8px; line-height: 1.4;">${K.exportNote()}</div>
@@ -670,6 +721,7 @@ Object.assign(DocsDoodads.Workspace, {
         const K = this.creatorKit(), S = K.slots, E = K.exporter, c = this._creator;
         const on = (id, fn, ev = 'onclick') => { const el = document.getElementById(id); if (el) el[ev] = fn; return el; };
         on('dd-cr-close', () => this.closeCreator());
+        on('dd-cr-kit', e => this.creatorSwitchKit(String(e.target.value || '')), 'onchange');
         for (const cardKey of ['body', 'outfit']) {
             S.cards.find(x => x.key === cardKey).tabs.forEach((t, i) => on(`dd-cr-tab-${cardKey}-${i}`, () => this.creatorTab(cardKey, i)));
             this.creatorRows(cardKey).forEach((row, i) => {
@@ -720,7 +772,7 @@ Object.assign(DocsDoodads.Workspace, {
                 });
             });
             for (const key of ['classic', 'smooth', 'face', 'battler', 'parts', 'damage']) on('dd-cr-ex-' + key, e => { o[key] = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
-            on('dd-cr-ex-slot', e => { o.faceSlot = Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)); }, 'onchange');
+            for (let slot = 0; slot < 8; slot++) on('dd-cr-ex-slot-' + slot, () => { o.faceSlot = slot; this.renderCreator(); this.creatorSay(`Face slot ${slot + 1}`); });
             on('dd-cr-ex-go', () => this.creatorExport());
             on('dd-cr-ex-try', () => { if (c.exported) { K.tryOnPlayer(this, c.exported.names, c.exportOptions.smooth); this.closeCreator(); } });
         }
@@ -783,6 +835,32 @@ Object.assign(DocsDoodads.Workspace, {
         return (files || []).map(file => (file === face && o.face
             ? { file, faceSlot: slot, note: `face ${slot + 1} of 8 in ${N.face}.png; the others are kept` }
             : { file, note: '' }));
+    },
+
+    // The eight faces of the character's face sheet as it is in the project: [{ taken, url }] (url: a small
+    // picture of the face). Read again only when the file changes.
+    creatorFaceSlots(name) {
+        const E = DocsDoodads.LpcExport, F = E.faceSize, FS = DocsDoodads.FS;
+        const file = 'img/faces/' + this.creatorKit().exporter.names(name).face + '.png';
+        let stamp = '';
+        try { const st = FS.fs && FS.existsSync(file) ? FS.fs.statSync(file) : null; stamp = st ? st.mtimeMs + ':' + st.size : ''; } catch (e) { stamp = ''; }
+        const cached = this._creatorFaceSlots;
+        if (cached && cached.file === file && cached.stamp === stamp) return cached.slots;
+        const sheet = stamp ? this.readLpcPng(file) : null;
+        const slots = [];
+        for (let slot = 0; slot < 8; slot++) {
+            const face = sheet && sheet.width === F * 4 && sheet.height === F * 2 ? this.creatorFrame(sheet, { x: (slot % 4) * F, y: Math.floor(slot / 4) * F, w: F, h: F }) : null;
+            const taken = Boolean(face && this.creatorTrim(face));
+            slots.push({ taken, url: taken ? this.creatorThumbUrl(face, 36) : '' });
+        }
+        this._creatorFaceSlots = { file, stamp, slots };
+        return slots;
+    },
+
+    // The face slot picker of the export: the sheet's eight faces, the empty ones blank, the chosen one outlined.
+    creatorFaceSlotsHtml(name, chosen) {
+        const slots = this.creatorFaceSlots(name);
+        return `<div class="dd-cr-faceslots" role="radiogroup" aria-label="Face slot">${slots.map((s, i) => `<button type="button" class="dd-cr-faceslot" id="dd-cr-ex-slot-${i}" role="radio" aria-checked="${i === chosen}" aria-label="Slot ${i + 1}${s.taken ? ' (a face is there, it will be replaced)' : ', empty'}" title="Slot ${i + 1}${s.taken ? ': replaces the face there' : ': empty'}">${s.url ? `<img src="${s.url}" alt="" />` : `<span>${i + 1}</span>`}</button>`).join('')}</div>`;
     },
 
     // Whether a face sheet already has a face in that slot (a sheet of another size is replaced whole).

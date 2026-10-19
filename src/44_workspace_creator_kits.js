@@ -11,10 +11,12 @@
 //   compose    the compositor's layout facts: frame, directions, animations, frameRect
 //   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport, MzGenExport)
 //   cacheMB    memory for the kit's images: half for the decoded files, half for the recoloured layers
+//   switchLabel  its name in the window's library switcher
 DocsDoodads.CreatorKits = {
     lpc: {
         id: 'lpc',
         title: 'Character Creator',
+        switchLabel: 'LPC',
         slots: DocsDoodads.LpcSlots,
         compose: DocsDoodads.LpcCompose,
         exporter: DocsDoodads.LpcExport,
@@ -63,6 +65,7 @@ DocsDoodads.CreatorKits = {
     memao: {
         id: 'memao',
         title: 'Memao Creator',
+        switchLabel: 'Memao',
         slots: DocsDoodads.MemaoSlots,
         compose: DocsDoodads.MemaoCompose,
         exporter: DocsDoodads.MemaoExport,
@@ -108,6 +111,7 @@ DocsDoodads.CreatorKits = {
     mz: {
         id: 'mz',
         title: 'MZ Character Creator',
+        switchLabel: 'RPG Maker MZ',
         slots: DocsDoodads.MzGenSlots,
         compose: DocsDoodads.MzGenCompose,
         exporter: DocsDoodads.MzGenExport,

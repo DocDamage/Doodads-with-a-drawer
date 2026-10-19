@@ -181,7 +181,6 @@ Object.assign(DocsDoodads.Workspace, {
         const missing = index ? this.memaoIndexMissing(index) : false;
         const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
         return `
-            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">Memao Sprite Sheet Creator assets</div>
             <div class="dd-lpc-row">
                 <input type="text" id="dd-memao-folder" value="${escapeHtml(folder)}" placeholder="The unpacked memao-assets folder" aria-label="Memao asset folder" />
                 <button class="dd-btn" id="dd-memao-choose" type="button" title="Pick the folder">${U.icon('folder', 1)} Choose...</button>
