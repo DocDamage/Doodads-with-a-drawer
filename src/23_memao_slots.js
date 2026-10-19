@@ -10,7 +10,7 @@ DocsDoodads.MemaoSlots = {
     bodies: [['average', 'Average'], ['dainty', 'Dainty'], ['broad', 'Broad']],
 
     // card -> tabs -> slots. folder: the pack's folder; required: no "None"; follows: the slot whose colour it
-    // takes ('body' for the skin).
+    // takes ('body' for the skin); link: the slot whose colour it takes until it is given its own (ownColour).
     cards: [
         { key: 'body', label: 'Body', tabs: [
             { key: 'body', label: 'Body', slots: [
@@ -21,13 +21,13 @@ DocsDoodads.MemaoSlots = {
             ] },
             { key: 'face', label: 'Face', slots: [
                 { key: 'eyes', label: 'Eyes', folder: 'Eyes', required: true },
-                { key: 'eyebrows', label: 'Eyebrows', folder: 'Eyebrows' },
+                { key: 'eyebrows', label: 'Eyebrows', folder: 'Eyebrows', link: 'hair' },
                 { key: 'face', label: 'Face', folder: 'Face' }
             ] },
             { key: 'hair', label: 'Hair', slots: [
                 { key: 'hair', label: 'Hair', folder: 'HairA' },
-                { key: 'hairlong', label: 'Long hair', folder: 'HairB' },
-                { key: 'hairside', label: 'Side hair', folder: 'HairC' }
+                { key: 'hairlong', label: 'Long hair', folder: 'HairB', link: 'hair' },
+                { key: 'hairside', label: 'Side hair', folder: 'HairC', link: 'hair' }
             ] },
             { key: 'extras', label: 'Extras', slots: [
                 { key: 'glasses', label: 'Glasses', folder: 'AccessoryA' },
@@ -177,13 +177,33 @@ DocsDoodads.MemaoSlots = {
         return next;
     },
 
-    // The colour a slot draws in: its own, the skin, or its garment's.
+    // The colour a slot draws in: its own, the skin, its garment's, or (linked) the hair's.
     drawColour(state, slot, pick) {
-        if (slot.follows) {
-            const lead = state.slots[slot.follows];
-            if (lead && lead.colour) return lead.colour;
-        }
+        const link = this.linkOf(state, slot.key);
+        const lead = slot.follows ? state.slots[slot.follows] : link && link.linked ? state.slots[slot.link] : null;
+        if (lead && lead.colour) return lead.colour;
         return pick.colour || '';
+    },
+
+    // A linked row (long and side hair, eyebrows): { lead: 'hair', linked } while it has a part; linked is
+    // false once it has its own colour, or when there is no hair to follow.
+    linkOf(state, key) {
+        const slot = this.slot(key), pick = state && state.slots[key];
+        if (!slot || !slot.link || !pick) return null;
+        return { lead: slot.link, linked: !pick.ownColour && Boolean(state.slots[slot.link]) };
+    },
+
+    // K, or the chain beside the swatch: its own colour (starting from the hair's), or the hair's again.
+    setLinked(state, key, linked) {
+        const pick = state.slots[key], slot = this.slot(key);
+        if (!pick || !slot || !slot.link) return state;
+        if (linked) delete pick.ownColour;
+        else {
+            pick.ownColour = true;
+            const lead = state.slots[slot.link];
+            if (lead && lead.colour) pick.colour = lead.colour;
+        }
+        return state;
     },
 
     // The recipe for the compositor: the body's arms first, then each pick with the colour it draws in.
@@ -210,11 +230,20 @@ DocsDoodads.MemaoSlots = {
         return 'Arms/' + DocsDoodads.Memao.pad(at + 1);
     },
 
-    // The dice: a new body and face, or a new outfit.
-    shuffle(state, index, card, rand = Math.random) {
+
+    // The body type the dice give: the same one, unless opts.newType asks for another of opts.types (the types
+    // the library offers, from the creator).
+    diceBody(state, rand, opts = {}) {
+        if (!opts.newType) return state.body;
+        const types = (opts.types && opts.types.length ? opts.types : this.bodies.map(b => b[0]));
+        return types[Math.floor(rand() * types.length)];
+    },
+
+    // The dice: a new face, skin and hair on the same arms (opts.newType: other arms too), or a new outfit.
+    shuffle(state, index, card, rand = Math.random, safeOnly, opts = {}) {
         const next = { body: state.body, slots: Object.assign({}, state.slots) };
         if (card === 'body') {
-            next.body = this.bodies[Math.floor(rand() * this.bodies.length)][0];
+            next.body = this.diceBody(state, rand, opts);
             for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
         }
         const chance = { hair: 0.95, hairlong: 0.45, hairside: 0.3, eyebrows: 0.8, face: 0.15, ears: 0.15, horns: 0.05, glasses: 0.12, headwear: 0.2, headwear2: 0,

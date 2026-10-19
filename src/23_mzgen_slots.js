@@ -161,11 +161,20 @@ DocsDoodads.MzGenSlots = {
     },
 
     // The dice: a new body and face (with skin, eye and hair colours), or a new outfit (with its colours).
-    shuffle(state, index, card, rand = Math.random) {
+
+    // The body type the dice give: the same one, unless opts.newType asks for another of opts.types (the types
+    // the library offers, from the creator).
+    diceBody(state, rand, opts = {}) {
+        if (!opts.newType) return state.body;
+        const types = (opts.types && opts.types.length ? opts.types : this.bodies.map(b => b[0]));
+        return types[Math.floor(rand() * types.length)];
+    },
+
+    // The dice: a new face, hair and colours on the same base (opts.newType: another base too), or a new outfit.
+    shuffle(state, index, card, rand = Math.random, safeOnly, opts = {}) {
         const next = { body: state.body, colours: Object.assign({}, state.colours), slots: Object.assign({}, state.slots) };
         if (card === 'body') {
-            const bodies = (index.bases || this.bodies.map(b => b[0]));
-            next.body = bodies[Math.floor(rand() * bodies.length)];
+            next.body = this.diceBody(state, rand, Object.assign({ types: index.bases }, opts));
             for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
             for (const key of Object.keys(next.slots)) {
                 const old = index.parts.find(p => p.id === next.slots[key].id);

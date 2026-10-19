@@ -19792,13 +19792,21 @@ DocsDoodads.LpcSlots = {
         return { body: state.body, picks: options.showBody === false ? picks.filter(p => !state.slots.body || p.id !== state.slots.body.id) : picks };
     },
 
-    // The dice: a new body and face (card 'body'), or a new outfit (card 'outfit'). chance: how often an
-    // optional slot gets something.
-    shuffle(state, index, card, rand = Math.random, safeOnly = true) {
+
+    // The body type the dice give: the same one, unless opts.newType asks for another of opts.types (the types
+    // the library offers, from the creator).
+    diceBody(state, rand, opts = {}) {
+        if (!opts.newType) return state.body;
+        const types = (opts.types && opts.types.length ? opts.types : this.bodies.map(b => b[0]));
+        return types[Math.floor(rand() * types.length)];
+    },
+
+    // The dice: a new face, skin and hair on the same body type (card 'body'; opts.newType for a new type too),
+    // or a new outfit (card 'outfit'). chance: how often an optional slot gets something.
+    shuffle(state, index, card, rand = Math.random, safeOnly = true, opts = {}) {
         const next = { body: state.body, slots: Object.assign({}, state.slots) };
         if (card === 'body') {
-            const bodies = ['male', 'female'];
-            next.body = bodies[Math.floor(rand() * bodies.length)];
+            next.body = this.diceBody(state, rand, opts);
             for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
         }
         const chance = { hair: 0.9, shirt: 0.95, legs: 0.95, shoes: 0.85, eyebrows: 0.5, beard: next.body === 'female' ? 0 : 0.25, hat: 0.3,
@@ -20449,7 +20457,7 @@ DocsDoodads.MemaoSlots = {
     bodies: [['average', 'Average'], ['dainty', 'Dainty'], ['broad', 'Broad']],
 
     // card -> tabs -> slots. folder: the pack's folder; required: no "None"; follows: the slot whose colour it
-    // takes ('body' for the skin).
+    // takes ('body' for the skin); link: the slot whose colour it takes until it is given its own (ownColour).
     cards: [
         { key: 'body', label: 'Body', tabs: [
             { key: 'body', label: 'Body', slots: [
@@ -20460,13 +20468,13 @@ DocsDoodads.MemaoSlots = {
             ] },
             { key: 'face', label: 'Face', slots: [
                 { key: 'eyes', label: 'Eyes', folder: 'Eyes', required: true },
-                { key: 'eyebrows', label: 'Eyebrows', folder: 'Eyebrows' },
+                { key: 'eyebrows', label: 'Eyebrows', folder: 'Eyebrows', link: 'hair' },
                 { key: 'face', label: 'Face', folder: 'Face' }
             ] },
             { key: 'hair', label: 'Hair', slots: [
                 { key: 'hair', label: 'Hair', folder: 'HairA' },
-                { key: 'hairlong', label: 'Long hair', folder: 'HairB' },
-                { key: 'hairside', label: 'Side hair', folder: 'HairC' }
+                { key: 'hairlong', label: 'Long hair', folder: 'HairB', link: 'hair' },
+                { key: 'hairside', label: 'Side hair', folder: 'HairC', link: 'hair' }
             ] },
             { key: 'extras', label: 'Extras', slots: [
                 { key: 'glasses', label: 'Glasses', folder: 'AccessoryA' },
@@ -20616,13 +20624,33 @@ DocsDoodads.MemaoSlots = {
         return next;
     },
 
-    // The colour a slot draws in: its own, the skin, or its garment's.
+    // The colour a slot draws in: its own, the skin, its garment's, or (linked) the hair's.
     drawColour(state, slot, pick) {
-        if (slot.follows) {
-            const lead = state.slots[slot.follows];
-            if (lead && lead.colour) return lead.colour;
-        }
+        const link = this.linkOf(state, slot.key);
+        const lead = slot.follows ? state.slots[slot.follows] : link && link.linked ? state.slots[slot.link] : null;
+        if (lead && lead.colour) return lead.colour;
         return pick.colour || '';
+    },
+
+    // A linked row (long and side hair, eyebrows): { lead: 'hair', linked } while it has a part; linked is
+    // false once it has its own colour, or when there is no hair to follow.
+    linkOf(state, key) {
+        const slot = this.slot(key), pick = state && state.slots[key];
+        if (!slot || !slot.link || !pick) return null;
+        return { lead: slot.link, linked: !pick.ownColour && Boolean(state.slots[slot.link]) };
+    },
+
+    // K, or the chain beside the swatch: its own colour (starting from the hair's), or the hair's again.
+    setLinked(state, key, linked) {
+        const pick = state.slots[key], slot = this.slot(key);
+        if (!pick || !slot || !slot.link) return state;
+        if (linked) delete pick.ownColour;
+        else {
+            pick.ownColour = true;
+            const lead = state.slots[slot.link];
+            if (lead && lead.colour) pick.colour = lead.colour;
+        }
+        return state;
     },
 
     // The recipe for the compositor: the body's arms first, then each pick with the colour it draws in.
@@ -20649,11 +20677,20 @@ DocsDoodads.MemaoSlots = {
         return 'Arms/' + DocsDoodads.Memao.pad(at + 1);
     },
 
-    // The dice: a new body and face, or a new outfit.
-    shuffle(state, index, card, rand = Math.random) {
+
+    // The body type the dice give: the same one, unless opts.newType asks for another of opts.types (the types
+    // the library offers, from the creator).
+    diceBody(state, rand, opts = {}) {
+        if (!opts.newType) return state.body;
+        const types = (opts.types && opts.types.length ? opts.types : this.bodies.map(b => b[0]));
+        return types[Math.floor(rand() * types.length)];
+    },
+
+    // The dice: a new face, skin and hair on the same arms (opts.newType: other arms too), or a new outfit.
+    shuffle(state, index, card, rand = Math.random, safeOnly, opts = {}) {
         const next = { body: state.body, slots: Object.assign({}, state.slots) };
         if (card === 'body') {
-            next.body = this.bodies[Math.floor(rand() * this.bodies.length)][0];
+            next.body = this.diceBody(state, rand, opts);
             for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
         }
         const chance = { hair: 0.95, hairlong: 0.45, hairside: 0.3, eyebrows: 0.8, face: 0.15, ears: 0.15, horns: 0.05, glasses: 0.12, headwear: 0.2, headwear2: 0,
@@ -21376,11 +21413,20 @@ DocsDoodads.MzGenSlots = {
     },
 
     // The dice: a new body and face (with skin, eye and hair colours), or a new outfit (with its colours).
-    shuffle(state, index, card, rand = Math.random) {
+
+    // The body type the dice give: the same one, unless opts.newType asks for another of opts.types (the types
+    // the library offers, from the creator).
+    diceBody(state, rand, opts = {}) {
+        if (!opts.newType) return state.body;
+        const types = (opts.types && opts.types.length ? opts.types : this.bodies.map(b => b[0]));
+        return types[Math.floor(rand() * types.length)];
+    },
+
+    // The dice: a new face, hair and colours on the same base (opts.newType: another base too), or a new outfit.
+    shuffle(state, index, card, rand = Math.random, safeOnly, opts = {}) {
         const next = { body: state.body, colours: Object.assign({}, state.colours), slots: Object.assign({}, state.slots) };
         if (card === 'body') {
-            const bodies = (index.bases || this.bodies.map(b => b[0]));
-            next.body = bodies[Math.floor(rand() * bodies.length)];
+            next.body = this.diceBody(state, rand, Object.assign({ types: index.bases }, opts));
             for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
             for (const key of Object.keys(next.slots)) {
                 const old = index.parts.find(p => p.id === next.slots[key].id);
@@ -36300,6 +36346,7 @@ Object.assign(DocsDoodads.Workspace, {
         const S = this.creatorSlots(), c = this._creator, rowKey = c.pop.row;
         const o = this.creatorGridOptions(rowKey)[i];
         if (!o) return false;
+        if (this.creatorRemember) this.creatorRemember();
         S.setPart(c.state, this.creatorIndex(), rowKey, o.part);
         c.pop = null;
         this.creatorChanged('ok', this.creatorDescribe(rowKey));
@@ -36341,6 +36388,117 @@ Object.assign(DocsDoodads.Workspace, {
             if (e.stopPropagation) e.stopPropagation();
         }
         return done;
+    }
+});
+//==========================================================
+// SECTION 25s3: CHARACTER CREATOR UNDO, LOCKS AND LINKED COLOURS
+//==========================================================
+// For the Character Creator window (44_workspace_lpc_creator.js), all three kits:
+//   Undo      every change (a step, a colour, the dice, the body type, a grid pick, a load, a link) is
+//             remembered first, the last historyMax of them; Ctrl+Z (the pad's Back held with B) goes back one.
+//   Locks     a padlock per row (click, L, or the pad's Y held with a direction): the dice leave a locked row
+//             as it is (an MZ part keeps its colour slots too). Locking the body type keeps it when Shift+X
+//             (the pad's X held) rolls a new one. Locks belong to the open window, not to saved characters.
+//   Links     Memao's long hair, side hair and eyebrows take the hair's colour until given their own (K, or the
+//             chain beside the swatch); the kit says which rows link (slots.linkOf, setLinked).
+Object.assign(DocsDoodads.Workspace, {
+    historyMax: 20,
+
+    // Remembers the character as it is, before a change.
+    creatorRemember() {
+        const c = this._creator;
+        if (!c) return 0;
+        const h = c.history || (c.history = []);
+        const now = JSON.stringify(c.state);
+        if (h[h.length - 1] !== now) h.push(now);
+        while (h.length > this.historyMax) h.shift();
+        return h.length;
+    },
+
+    creatorUndo() {
+        const c = this._creator;
+        const h = c && c.history;
+        if (!h || !h.length) { this.creatorSay('Nothing to undo'); DocsDoodads.Ui.sound('buzzer'); return false; }
+        c.state = JSON.parse(h.pop());
+        this.creatorChanged('cancel', `Undone (${h.length} more)`);
+        return true;
+    },
+
+    // ---- Locks ----
+
+    creatorLocked(rowKey) {
+        const c = this._creator;
+        return Boolean(c && c.locks && c.locks[rowKey]);
+    },
+
+    // The locked rows (of one card, or all).
+    creatorLockedKeys(card) {
+        const c = this._creator, S = this.creatorSlots();
+        return Object.keys((c && c.locks) || {}).filter(k => c.locks[k] && (!card || (k === '_body' ? card === 'body' : S.slot(k) && S.slot(k).card === card)));
+    },
+
+    creatorToggleLock(rowKey) {
+        const c = this._creator, S = this.creatorSlots();
+        const label = rowKey === '_body' ? 'Body type' : (S.slot(rowKey) || { label: rowKey }).label;
+        c.locks = Object.assign({}, c.locks, { [rowKey]: !this.creatorLocked(rowKey) });
+        DocsDoodads.Ui.sound('cursor');
+        this.renderCreator();
+        this.creatorSay(c.locks[rowKey] ? `${label} locked: the dice leave it` : `${label} unlocked`);
+        return c.locks[rowKey];
+    },
+
+    // After the dice: each locked row back as it was (with an MZ part's colour slots).
+    creatorKeepLocked(before, after) {
+        const S = this.creatorSlots(), index = this.creatorIndex();
+        const next = JSON.parse(JSON.stringify(after));
+        for (const key of this.creatorLockedKeys()) {
+            if (key === '_body') continue;
+            const pick = before.slots[key];
+            if (pick) next.slots[key] = JSON.parse(JSON.stringify(pick)); else delete next.slots[key];
+            if (pick && S.channels && before.colours) {
+                const part = index.parts.find(p => p.id === pick.id);
+                next.colours = next.colours || {};
+                for (const ch of S.channels(index, part)) {
+                    if (before.colours[ch.slot] !== undefined) next.colours[ch.slot] = before.colours[ch.slot]; else delete next.colours[ch.slot];
+                }
+            }
+        }
+        return next;
+    },
+
+    // The body types a new roll may give: those the library has a body for, where every locked part still fits.
+    creatorBodyTypes() {
+        const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex(), safe = this.creatorSafeOnly();
+        const locked = this.creatorLockedKeys().filter(k => k !== '_body' && c.state.slots[k]);
+        const types = S.bodies.map(b => b[0]).filter(type => S.options(index, S.slot('body'), type, safe).length &&
+            locked.every(k => S.options(index, S.slot(k), type, safe).some(p => p.id === c.state.slots[k].id)));
+        return types.length ? types : [c.state.body];
+    },
+
+    // The dice: a new face, skin and hair on the same body type (newType: a new type too, unless it is
+    // locked), or a new outfit; locked rows stay.
+    creatorShuffle(card, newType = false) {
+        const S = this.creatorSlots(), c = this._creator;
+        this.creatorRemember();
+        const type = Boolean(newType) && card === 'body' && !this.creatorLocked('_body');
+        const next = S.shuffle(c.state, this.creatorIndex(), card, Math.random, this.creatorSafeOnly(), { newType: type, types: this.creatorBodyTypes() });
+        c.state = this.creatorKeepLocked(c.state, next);
+        const kept = this.creatorLockedKeys(card).filter(k => k !== '_body').length;
+        const what = card === 'body' ? (type ? 'New body type, face and hair' : 'New face and hair') : 'New outfit';
+        this.creatorChanged('ok', what + (kept ? `; ${kept} locked kept` : ''));
+    },
+
+    // ---- Linked colours ----
+
+    creatorToggleLink(rowKey) {
+        const S = this.creatorSlots(), c = this._creator;
+        const link = S.linkOf ? S.linkOf(c.state, rowKey) : null;
+        if (!link) return false;
+        this.creatorRemember();
+        S.setLinked(c.state, rowKey, !link.linked);
+        const label = (S.slot(rowKey) || { label: rowKey }).label, lead = (S.slot(link.lead) || { label: link.lead }).label.toLowerCase();
+        this.creatorChanged('cursor', link.linked ? `${label}: its own colour` : `${label}: takes the ${lead} colour`);
+        return true;
     }
 });
 //==========================================================
@@ -37371,7 +37529,12 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-tab { border: none; border-radius: 16px; padding: 8px 4px 6px; background: #f6efe0; color: #5b4c70; font-weight: 900; font-size: 14px; box-shadow: 0 4px 0 #e3d2a8; }
 #dd-creator .dd-cr-tab[aria-selected="true"] { background: #0b8174; color: #fffaf0; box-shadow: 0 4px 0 #075f55; }
 #dd-creator .dd-cr-rows { display: flex; flex-direction: column; gap: 7px; overflow-y: auto; padding: 3px; }
-#dd-creator .dd-cr-row { display: grid; grid-template-columns: 84px 32px minmax(0, 1fr) 32px 36px; align-items: center; gap: 5px; border-radius: 16px; padding: 2px; }
+#dd-creator .dd-cr-row { display: grid; grid-template-columns: 22px 72px 32px minmax(0, 1fr) 32px auto; align-items: center; gap: 5px; border-radius: 16px; padding: 2px; }
+#dd-creator .dd-cr-swcell { display: flex; align-items: center; gap: 3px; min-width: 32px; }
+#dd-creator .dd-cr-lock { width: 22px; height: 22px; border: none; border-radius: 8px; background: transparent; padding: 0; opacity: 0.3; display: flex; align-items: center; justify-content: center; }
+#dd-creator .dd-cr-lock.dd-cr-locked { opacity: 1; background: #ffc93c; box-shadow: 0 2px 0 #d9a21c; }
+#dd-creator .dd-cr-link { width: 18px; height: 18px; border-radius: 6px; border: 2px solid #ead8b0; background: #fffaf0; padding: 0; color: #5b4c70; display: flex; align-items: center; justify-content: center; }
+#dd-creator .dd-cr-link.dd-cr-linked { width: 32px; height: 32px; border-radius: 11px; border: 3px solid #fffaf0; box-shadow: 0 0 0 2px #ead8b0; color: #fffaf0; }
 #dd-creator .dd-cr-row.dd-cr-cursor { background: #fff1c2; box-shadow: 0 0 0 3px #ffc93c; }
 #dd-creator .dd-cr-row.dd-cr-off { opacity: 0.45; }
 #dd-creator .dd-cr-label { font-weight: 900; font-size: 13px; text-align: right; color: #5b4c70; }
@@ -37553,8 +37716,19 @@ Object.assign(DocsDoodads.Workspace, {
         const colourName = channel >= 0 ? this.creatorColourOf(row.key, channel) : '';
         const addonOff = row.addon && !c.addons;
         const channelLabel = channel < 0 ? '' : channels && channels[channel] ? channels[channel].label : channel === 1 && row.colour2 ? row.colour2 : row.label;
-        return { value, part, channel, channels: channels || [], usable, channelLabel, colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '',
+        const view = { value, part, channel, channels: channels || [], usable, channelLabel, colourName, colour: channel >= 0 ? S.swatch(index, part, colourName, channel) : '',
             off: !options.length || addonOff, count: options.length, position: part ? options.findIndex(p => p.id === part.id) + 1 : 0 };
+        // Memao's linked rows: { lead, linked, colour (the lead's swatch) }; linked, there is no swatch of its own.
+        const link = S.linkOf ? S.linkOf(c.state, row.key) : null;
+        if (link) {
+            view.link = link;
+            if (link.linked) {
+                const lead = c.state.slots[link.lead];
+                link.colour = lead && lead.colour ? S.swatch(index, part, lead.colour, 0) : '';
+                Object.assign(view, { channel: -1, usable: [], colourName: '', colour: '' });
+            }
+        }
+        return view;
     },
 
     // What a screen reader hears for a row: "Hair: Emo Left, 12 of 40", "Body type: Female, 2 of 6".
@@ -37627,6 +37801,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     creatorStep(rowKey, dir) {
         const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex(), safe = this.creatorSafeOnly();
+        this.creatorRemember();
         if (rowKey === '_body') {
             const list = S.bodies.map(b => b[0]);
             const next = list[(list.indexOf(c.state.body) + dir + list.length) % list.length];
@@ -37641,8 +37816,10 @@ Object.assign(DocsDoodads.Workspace, {
     creatorColour(rowKey, dir, name, channel) {
         const S = this.creatorSlots(), c = this._creator, index = this.creatorIndex();
         const view = this.creatorRowView(Object.assign({ key: rowKey }, S.slot(rowKey)));
+        if (view.link && view.link.linked) { this.creatorSay(`${S.slot(rowKey).label} takes the ${S.slot(view.link.lead).label.toLowerCase()} colour: K for its own`); return; }
         if (view.channel < 0) return;
         const ch = channel === undefined ? view.channel : channel;
+        this.creatorRemember();
         const pick = c.state.slots[rowKey];
         if (name !== undefined && name !== null) {
             if (S.setColour) S.setColour(c.state, index, rowKey, ch, name);
@@ -37671,12 +37848,6 @@ Object.assign(DocsDoodads.Workspace, {
         const s = DocsDoodads.Lpc.summary(this.lpcIndex(), false);
         this.showToast(`Showing all ${s ? s.parts : ''} parts. Characters with CC-BY or CC-BY-SA art can't be in a game deployed with "Encrypt image files" (the export says which). Tick "Only art safe to encrypt" at the top to go back.`, 'info');
         this.creatorChanged();
-    },
-
-    creatorShuffle(card) {
-        const S = this.creatorSlots(), c = this._creator;
-        c.state = S.shuffle(c.state, this.creatorIndex(), card, Math.random, this.creatorSafeOnly());
-        this.creatorChanged('ok', card === 'body' ? 'New body and face' : 'New outfit');
     },
 
     creatorRecipe() {
@@ -37810,13 +37981,18 @@ Object.assign(DocsDoodads.Workspace, {
             const v = this.creatorRowView(row);
             const here = c.cursor.card === row.card && this.creatorRows(row.card)[c.cursor.row] && this.creatorRows(row.card)[c.cursor.row].key === row.key;
             const id = 'dd-cr-' + row.key;
+            const locked = this.creatorLocked(row.key);
+            const lock = `<button type="button" class="dd-cr-lock${locked ? ' dd-cr-locked' : ''}" id="${id}-lock" aria-pressed="${locked}" aria-label="Lock ${escapeHtml(row.label)}" title="${row.key === '_body' ? 'Lock the body type: Shift+X keeps it (L)' : 'Lock: the dice leave it as it is (L)'}">${U.icon('lock', 1)}</button>`;
+            const leadLabel = v.link ? (S.slot(v.link.lead) || { label: v.link.lead }).label.toLowerCase() : '';
+            const chain = !v.link ? '' : `<button type="button" class="dd-cr-link${v.link.linked ? ' dd-cr-linked' : ''}" id="${id}-link" aria-pressed="${v.link.linked}" aria-label="${escapeHtml(row.label + ' takes the ' + leadLabel + ' colour')}" title="${escapeHtml(v.link.linked ? 'Takes the ' + leadLabel + ' colour. Click (or K) for a colour of its own' : 'Its own colour. Click (or K) to take the ' + leadLabel + ' colour again')}"${v.link.linked && v.link.colour ? ` style="background: ${escapeHtml(v.link.colour)};"` : ''}><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="1.5" y="5" width="8" height="6" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><rect x="6.5" y="5" width="8" height="6" rx="3" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>`;
             return `<div class="dd-cr-row${here ? ' dd-cr-cursor' : ''}${v.off ? ' dd-cr-off' : ''}" id="${id}-row" data-row="${escapeHtml(row.key)}">
+                ${lock}
                 <span class="dd-cr-label">${escapeHtml(row.label)}</span>
                 <button type="button" class="dd-cr-arrow" id="${id}-prev" aria-label="Previous ${escapeHtml(row.label)}"${v.off ? ' disabled' : ''}>◀</button>
                 ${row.key === '_body' || v.off ? `<div class="dd-cr-value" title="${escapeHtml(v.value + (v.count ? ' (' + v.count + ' to choose from)' : ''))}"><span>${escapeHtml(v.value)}</span></div>`
                     : `<button type="button" class="dd-cr-value" id="${id}-value" aria-haspopup="listbox" aria-label="${escapeHtml(row.label + ': ' + v.value + '. See all ' + v.count)}" title="${escapeHtml(v.value + ' (click to see all ' + v.count + ')')}"><span>${escapeHtml(v.value)}</span></button>`}
                 <button type="button" class="dd-cr-arrow" id="${id}-next" aria-label="Next ${escapeHtml(row.label)}"${v.off ? ' disabled' : ''}>▶</button>
-                ${v.channel >= 0 ? `<button type="button" class="dd-cr-swatch" id="${id}-colour" style="background: ${escapeHtml(v.colour)};" aria-label="${escapeHtml(v.channelLabel + ' colour: ' + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))}" title="${escapeHtml((v.usable.length > 1 ? v.channelLabel + ': ' : '') + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))} (click for all colours${v.usable.length > 1 ? '; C for the next' : ''})">${v.usable.length > 1 ? `<span class="dd-cr-chn">${v.usable.indexOf(v.channel) + 1}</span>` : ''}</button>` : '<span></span>'}
+                <span class="dd-cr-swcell">${v.channel >= 0 ? `<button type="button" class="dd-cr-swatch" id="${id}-colour" style="background: ${escapeHtml(v.colour)};" aria-label="${escapeHtml(v.channelLabel + ' colour: ' + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))}" title="${escapeHtml((v.usable.length > 1 ? v.channelLabel + ': ' : '') + (v.colourName ? v.colourName.replace(/_/g, ' ') : 'as drawn'))} (click for all colours${v.usable.length > 1 ? '; C for the next' : ''})">${v.usable.length > 1 ? `<span class="dd-cr-chn">${v.usable.indexOf(v.channel) + 1}</span>` : ''}</button>${chain}` : chain || '<span></span>'}</span>
             </div>`;
         };
         // Where the safe-to-encrypt switch hides parts from the tab in view, a line says so, with a way to see them.
@@ -37880,7 +38056,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <button type="button" class="dd-cr-btn" id="dd-cr-load">Load</button>
                 <button type="button" class="dd-cr-btn" id="dd-cr-save">Save</button>
                 <button type="button" class="dd-cr-btn" id="dd-cr-credits">Credits · ${artists} artist${artists === 1 ? '' : 's'}${unsafe ? ' · ' + unsafe + ' not safe to encrypt' : ''}</button>
-                <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Enter see all · Shift colour · C channel · Q/E tabs · [ ] side · X/Y dice</div>
+                <div class="dd-cr-grow dd-cr-keys" style="font-size: 12px; font-weight: 700; color: #7a6b8f; text-align: right;">↑↓ pick · ←→ change · Enter see all · Shift colour · C channel · L lock · Q/E tabs · [ ] side · X/Y dice · Ctrl+Z undo</div>
                 ${narrow ? '<div class="dd-cr-grow"></div>' : ''}
                 <button type="button" class="dd-cr-export" id="dd-cr-export" title="Make MZ character sheets and a face from this character">Export to RPG Maker</button>
             </div>
@@ -37995,6 +38171,8 @@ Object.assign(DocsDoodads.Workspace, {
                 on(id + '-prev', () => { c.cursor = { card: cardKey, row: i }; this.creatorStep(row.key, -1); });
                 on(id + '-next', () => { c.cursor = { card: cardKey, row: i }; this.creatorStep(row.key, 1); });
                 on(id + '-value', () => { c.cursor = { card: cardKey, row: i }; this.creatorOpenGrid(row.key); });
+                on(id + '-lock', () => { c.cursor = { card: cardKey, row: i }; this.creatorToggleLock(row.key); });
+                on(id + '-link', () => { c.cursor = { card: cardKey, row: i }; this.creatorToggleLink(row.key); });
                 const sw = on(id + '-colour', e => { c.cursor = { card: cardKey, row: i }; this.creatorOpenPalette(row.key, e); });
                 if (sw) sw.oncontextmenu = e => { if (e && e.preventDefault) e.preventDefault(); this.creatorColour(row.key, -1); };
             });
@@ -38155,6 +38333,7 @@ Object.assign(DocsDoodads.Workspace, {
         const state = S.load(this.readCreatorSaved(), name);
         if (!state) return false;
         const gone = this.creatorDropStale(state);
+        this.creatorRemember();
         c.state = state;
         c.name = name;
         c.pop = null;
@@ -38193,8 +38372,8 @@ Object.assign(DocsDoodads.Workspace, {
 
     // ---- Keyboard and gamepad ----
 
-    // One command from a key or a button: up, down, left, right, colourLeft, colourRight, channel, tabPrev,
-    // tabNext, card, diceBody, diceOutfit, turnLeft, turnRight, save, close.
+    // One command from a key or a button: up, down, left, right, colourLeft, colourRight, channel, grid, lock,
+    // link, undo, tabPrev, tabNext, card, diceBody, diceBodyType, diceOutfit, turnLeft, turnRight, save, close.
     creatorCommand(cmd) {
         const c = this._creator;
         if (!c) return false;
@@ -38220,6 +38399,10 @@ Object.assign(DocsDoodads.Workspace, {
             case 'left': case 'right': if (row && !this.creatorRowView(row).off) this.creatorStep(row.key, cmd === 'left' ? -1 : 1); return true;
             case 'colourLeft': case 'colourRight': if (row && row.key !== '_body') this.creatorColour(row.key, cmd === 'colourLeft' ? -1 : 1); return true;
             case 'channel': if (row && row.key !== '_body') this.creatorNextChannel(row.key); return true;
+            case 'lock': if (row) this.creatorToggleLock(row.key); return true;
+            case 'link': if (row && row.key !== '_body') this.creatorToggleLink(row.key); return true;
+            case 'undo': this.creatorUndo(); return true;
+            case 'diceBodyType': this.creatorShuffle('body', true); return true;
             case 'grid': if (row && row.key !== '_body') this.creatorOpenGrid(row.key); return true;
             case 'tabPrev': case 'tabNext': this.creatorTab(c.cursor.card, c.tabs[c.cursor.card] + (cmd === 'tabPrev' ? -1 : 1)); return true;
             case 'card': {
@@ -38264,11 +38447,14 @@ Object.assign(DocsDoodads.Workspace, {
         else if (k === '[' || k === ']' || k === '{' || k === '}') cmd = 'card';
         else if ((k === 'c' || k === 'C') && !e.ctrlKey && !e.metaKey) cmd = 'channel';
         else if (k === 'Enter' && !(e.target && /^(BUTTON|A)$/.test(e.target.tagName || ''))) cmd = 'grid';
-        else if (k === 'x' || k === 'X') cmd = 'diceBody';
+        else if (k === 'x' || k === 'X') cmd = e.shiftKey ? 'diceBodyType' : 'diceBody';
         else if (k === 'y' || k === 'Y') cmd = 'diceOutfit';
         else if (k === ',' || k === '<') cmd = 'turnLeft';
         else if (k === '.' || k === '>') cmd = 'turnRight';
         else if ((k === 's' || k === 'S') && (e.ctrlKey || e.metaKey)) cmd = 'save';
+        else if ((k === 'z' || k === 'Z') && (e.ctrlKey || e.metaKey)) cmd = 'undo';
+        else if ((k === 'l' || k === 'L') && !e.ctrlKey && !e.metaKey) cmd = 'lock';
+        else if ((k === 'k' || k === 'K') && !e.ctrlKey && !e.metaKey) cmd = 'link';
         // Keys the creator doesn't use still stop here, so the map tools and the game behind it don't act.
         if (!cmd) { if (e.stopPropagation) e.stopPropagation(); return; }
         if (e.preventDefault) e.preventDefault();
@@ -38296,9 +38482,12 @@ Object.assign(DocsDoodads.Workspace, {
         return true;
     },
 
-    // Standard gamepad buttons, pressed this time and not last time; the d-pad and left stick repeat. A: a
-    // short press is the next colour, held (padHold ms) the next colour channel.
+    // Standard gamepad buttons, pressed this time and not last time; the d-pad and left stick repeat. Buttons
+    // with a second use act when let go: A (held padHold ms: the next colour channel), X (held: a new body type
+    // too), Y (with a direction: lock the row, without moving), Back (with B: undo, without closing).
     padHold: 600,
+    padDeferred: { 0: 'colourRight', 2: 'diceBody', 3: 'diceOutfit', 8: 'card' },
+    padHeldUse: { 0: 'channel', 2: 'diceBodyType' },
 
     pollCreatorPad() {
         if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function' || (DocsDoodads.Ui.dialogOpen && DocsDoodads.Ui.dialogOpen())) return;
@@ -38309,23 +38498,30 @@ Object.assign(DocsDoodads.Workspace, {
         const axis = i => (pad.axes && pad.axes[i]) || 0;
         const held = {
             up: down(12) || axis(1) < -0.6, down: down(13) || axis(1) > 0.6, left: down(14) || axis(0) < -0.6, right: down(15) || axis(0) > 0.6,
-            close: down(1), diceBody: down(2), diceOutfit: down(3), tabPrev: down(4), tabNext: down(5),
-            turnLeft: down(6), turnRight: down(7), card: down(8), save: down(9), grid: down(11)
+            close: down(1), tabPrev: down(4), tabNext: down(5), turnLeft: down(6), turnRight: down(7), save: down(9), grid: down(11)
         };
         const was = this._creatorPad || {};
         const now = Date.now();
-        const a = this._creatorPadA;
-        if (down(0)) {
-            if (!a) this._creatorPadA = { since: now, held: false };
-            else if (!a.held && now - a.since >= this.padHold) { a.held = true; this.creatorCommand('channel'); }
-        } else if (a) {
-            this._creatorPadA = null;
-            if (!a.held) this.creatorCommand('colourRight');
+        const deferred = this._creatorPadHeld || (this._creatorPadHeld = {});
+        const moves = ['up', 'down', 'left', 'right'];
+        // Chords: Y held with a direction locks the cursor row; Back held with B undoes.
+        const skip = new Set();
+        if (deferred[3]) { moves.forEach(m => skip.add(m)); if (moves.some(m => held[m] && !was[m])) { deferred[3].used = true; this.creatorCommand('lock'); } }
+        if (deferred[8]) { skip.add('close'); if (held.close && !was.close) { deferred[8].used = true; this.creatorCommand('undo'); } }
+        for (const [b, cmd] of Object.entries(this.padDeferred)) {
+            const d = deferred[b];
+            if (down(Number(b))) {
+                if (!d) deferred[b] = { since: now, used: false };
+                else if (!d.used && this.padHeldUse[b] && now - d.since >= this.padHold) { d.used = true; this.creatorCommand(this.padHeldUse[b]); }
+            } else if (d) {
+                delete deferred[b];
+                if (!d.used) this.creatorCommand(cmd);
+            }
         }
         const repeat = this._creatorPadRepeat || (this._creatorPadRepeat = {});
         this._creatorPad = held;
         for (const [cmd, on] of Object.entries(held)) {
-            if (!on) { delete repeat[cmd]; continue; }
+            if (!on || skip.has(cmd)) { if (!on) delete repeat[cmd]; continue; }
             const moving = ['up', 'down', 'left', 'right'].includes(cmd);
             if (!was[cmd]) { repeat[cmd] = now + 380; this.creatorCommand(cmd); }
             else if (moving && now >= repeat[cmd]) { repeat[cmd] = now + 120; this.creatorCommand(cmd); }
