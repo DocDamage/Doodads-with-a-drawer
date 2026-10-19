@@ -20,7 +20,7 @@ Doc's Doodads is for RPG Maker MZ only.
 2. Enable **Docs-Doodads** in Plugin Manager.
 3. Start a playtest and press **F10** to open the editor. A welcome card shows the first steps, and a hint bubble says what to do next.
 
-The editor only runs in a playtest. In a deployed game the doodads, lights, sounds and 3D view work, but the editor and its file writing are off. If doodads don't show in a deployed game, leave **Exclude unused files** off in File > Deployment (it leaves out `img/doodads`); missing art is skipped with a console warning instead of stopping the game.
+The editor only runs in a playtest. In a deployed game the doodads, lights, sounds and 3D view work, but the editor and its file writing are off. If doodads don't show in a deployed game, leave **Exclude unused files** off in File > Deployment (it leaves out `img/doodads`), or run `npm run deploy -- --restore <project> <deployed folder>` afterwards to put back what the plugin draws; missing art is skipped with a console warning instead of stopping the game.
 
 Coming from QJ-Doodads? Replace `QJ-Doodads.js` with `Docs-Doodads.js` in Plugin Manager. Existing doodads, the asset library, templates, layouts, backups, and plugin settings are picked up automatically and saved under the new names on your next save.
 

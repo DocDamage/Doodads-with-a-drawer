@@ -329,6 +329,29 @@ DocsDoodads.api = {
         return true;
     },
 
+    // ---- The flat map's camera ----
+    // The camera stays where it is put (Scroll Map, setDisplayPos) until followCamera(); a character to follow.
+    freeCamera() {
+        const s = DocsDoodads.Camera2D.state();
+        if (!s) return false;
+        s.hold = null; s.path = null; s.follow = 0; s.free = 'event';
+        return true;
+    },
+
+    followCamera(character) {
+        const s = DocsDoodads.Camera2D.state();
+        if (!s) return false;
+        s.hold = null; s.path = null; s.free = null;
+        s.follow = character && typeof character.eventId === 'function' ? character.eventId() : 0;
+        return true;
+    },
+
+    // Zooms in on a tile ({ x, y }) or a character over frames; scale 1 goes back.
+    zoomTo(target, scale = 2, frames = 60) {
+        const C = DocsDoodads.Camera2D;
+        return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
+    },
+
     // ---- The calendar (the running clock's days; World > Day and Night) ----
     day() { return DocsDoodads.Calendar.day(); },
     weekday() { return DocsDoodads.Calendar.weekday(); },

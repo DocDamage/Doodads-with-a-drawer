@@ -580,7 +580,8 @@ DocsDoodads.mapSteps = [
     'updateDocsClock',     // the clock moves with the map (here)
     'updateDocsSounds',    // sound doodads, ambience, region sounds, echo (here)
     'updateDocsCamera3d',  // 3D camera moves and turning (17_perspective_runtime_1_view)
-    'updateDocsStateTimers' // states going back after some seconds (07_doodad_states_extras)
+    'updateDocsStateTimers', // states going back after some seconds (07_doodad_states_extras)
+    'updateDocsTouchTarget' // a clicked touchable doodad, touched on arrival (16_visual_equipment_map_destination_runtime)
 ];
 if (typeof Game_Map !== 'undefined') {
     $.Game_Map_update = Game_Map.prototype.update;
@@ -1309,8 +1310,8 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
     $.Sprite_DocsDoodad_updatePlacement = Sprite_DocsDoodad.prototype.updatePlacement;
     Sprite_DocsDoodad.prototype.updatePlacement = function() {
         $.Sprite_DocsDoodad_updatePlacement.call(this);
-        // Off the screen (culled), bending and effects wait and aren't drawn.
-        if (this._docsCulled) {
+        // Off the screen (culled), or far away in 3D (docsFar), bending and effects wait and aren't drawn.
+        if (this._docsCulled || this.docsFar()) {
             for (const key of ['_docsEmitter', '_docsVfx', '_docsLeaves']) if (this[key]) this[key].renderable = false;
             this._docsFxCulled = true;
             return;

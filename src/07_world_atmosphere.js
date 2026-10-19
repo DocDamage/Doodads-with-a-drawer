@@ -42,8 +42,9 @@ DocsDoodads.World = {
             jump: { enabled: false, distance: 2, up: 1, sound: 'Jump1', switchId: 0, noRegion: 0 },
             glide: { enabled: false, perHeight: 1.5, max: 6, switchId: 0 },
             swim: { enabled: false, speed: -1, sink: 20, suffix: '_swim', sound: '', switchId: 0, noRegion: 0 },
-            dive: { enabled: false, sound: 'Dive', switchId: 0 },
-            fly: { enabled: false, altitude: 48, speed: 1, sound: 'Up1', landSound: 'Down1', encounters: false, switchId: 0, noRegion: 0 },
+            dive: { enabled: false, sound: 'Dive', switchId: 0, commonEvent: 0 },
+            fly: { enabled: false, altitude: 48, speed: 1, sound: 'Up1', landSound: 'Down1', encounters: false, switchId: 0, noRegion: 0,
+                takeOffEvent: 0, landEvent: 0, landMaxHeight: 0 },
             climb: { enabled: false, regions: '', tags: '', speed: -1, switchId: 0 },
             ice: { enabled: false, regions: '', tags: '', speed: 1, switchId: 0 },
             // Gamepad buttons (-1 = none) and on-screen buttons ('touch': on touch screens, 'always', 'never').
@@ -60,7 +61,9 @@ DocsDoodads.World = {
         // 3D models drawn on the GPU (17_perspective_runtime_models.js): faster, and still new.
         models3d: { gpu: false },
         // Flat-map lighting (06_render_lights_directional.js): walls that stop light, and the player's flashlight.
-        lighting2d: { occlusion: false, wallRegions: '', rays: 160,
+        // blockDoodads: doodads with collision stop light too; blockEvents: events with <block light> in their
+        // note or a page comment (doors) stop it where they stand.
+        lighting2d: { occlusion: false, wallRegions: '', rays: 160, blockDoodads: false, blockEvents: false,
             flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {

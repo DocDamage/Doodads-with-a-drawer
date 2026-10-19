@@ -1411,6 +1411,56 @@
  * @type boolean
  * @default true
  *
+ * @command zoomToPoint
+ * @text Zoom to Point
+ * @desc On a flat map, the screen zooms in on a tile or a character (scale 1 goes back), over frames.
+ *
+ * @arg target
+ * @text On
+ * @type select
+ * @option A tile
+ * @value tile
+ * @option The player
+ * @value player
+ * @option This event
+ * @value this
+ * @option An event
+ * @value event
+ * @default tile
+ *
+ * @arg x
+ * @text Tile X
+ * @type number
+ * @default 0
+ *
+ * @arg y
+ * @text Tile Y
+ * @type number
+ * @default 0
+ *
+ * @arg eventId
+ * @text Event ID
+ * @type number
+ * @default 0
+ *
+ * @arg scale
+ * @text Scale
+ * @type number
+ * @decimals 2
+ * @min 0.25
+ * @default 2
+ *
+ * @arg frames
+ * @text Frames
+ * @type number
+ * @min 1
+ * @default 60
+ *
+ * @arg wait
+ * @text Wait
+ * @type boolean
+ * @default false
+ *
  * @command cameraFollow2d
  * @text 2D Camera Follow
  * @desc On flat maps: the camera follows the player (and stops a held path), this event, another event, or nothing (stays put for Scroll Map).
@@ -2433,8 +2483,9 @@ DocsDoodads.Lighting = {
         for (const d of doodads || []) {
             if (!d || !d.light || !d.light.enabled) continue;
             const l = this.lightOf(d);
-            // A state or an event can put the light out (it fades like an "after dark" lamp in game).
-            const on = DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true;
+            // A state or an event can put the light out (it fades like an "after dark" lamp in game), and so can
+            // its own switch or condition.
+            const on = (DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true) && (!this.lightWanted || this.lightWanted(l));
             if (!on && !ctx) continue;
             let level = 1;
             if (ctx) {
@@ -2544,7 +2595,15 @@ DocsDoodads.FrameAnim = {
 // with occlusion on, the light only reaches tiles a ray from it can get to (World > Lighting picks what
 // counts as a wall: tiles nobody can walk on, and any regions listed). The player can carry a
 // flashlight that points where they face (World > Lighting, the Flashlight command).
-Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '' });
+Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '', switchId: 0, condition: '' });
+
+// A light on only while its switch is on and its condition (JavaScript) is true; the editor shows it anyway.
+DocsDoodads.Lighting.lightWanted = function(l) {
+    if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return true;
+    const sw = Number(l.switchId) || 0;
+    if (sw > 0 && !(typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(sw))) return false;
+    return !l.condition || DocsDoodads.Appearance.conditionPasses(l.condition);
+};
 
 DocsDoodads.LightPresets = {
     list: [
@@ -3853,6 +3912,29 @@ DocsDoodads.api = {
         return true;
     },
 
+    // ---- The flat map's camera ----
+    // The camera stays where it is put (Scroll Map, setDisplayPos) until followCamera(); a character to follow.
+    freeCamera() {
+        const s = DocsDoodads.Camera2D.state();
+        if (!s) return false;
+        s.hold = null; s.path = null; s.follow = 0; s.free = 'event';
+        return true;
+    },
+
+    followCamera(character) {
+        const s = DocsDoodads.Camera2D.state();
+        if (!s) return false;
+        s.hold = null; s.path = null; s.free = null;
+        s.follow = character && typeof character.eventId === 'function' ? character.eventId() : 0;
+        return true;
+    },
+
+    // Zooms in on a tile ({ x, y }) or a character over frames; scale 1 goes back.
+    zoomTo(target, scale = 2, frames = 60) {
+        const C = DocsDoodads.Camera2D;
+        return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
+    },
+
     // ---- The calendar (the running clock's days; World > Day and Night) ----
     day() { return DocsDoodads.Calendar.day(); },
     weekday() { return DocsDoodads.Calendar.weekday(); },
@@ -3947,8 +4029,9 @@ DocsDoodads.World = {
             jump: { enabled: false, distance: 2, up: 1, sound: 'Jump1', switchId: 0, noRegion: 0 },
             glide: { enabled: false, perHeight: 1.5, max: 6, switchId: 0 },
             swim: { enabled: false, speed: -1, sink: 20, suffix: '_swim', sound: '', switchId: 0, noRegion: 0 },
-            dive: { enabled: false, sound: 'Dive', switchId: 0 },
-            fly: { enabled: false, altitude: 48, speed: 1, sound: 'Up1', landSound: 'Down1', encounters: false, switchId: 0, noRegion: 0 },
+            dive: { enabled: false, sound: 'Dive', switchId: 0, commonEvent: 0 },
+            fly: { enabled: false, altitude: 48, speed: 1, sound: 'Up1', landSound: 'Down1', encounters: false, switchId: 0, noRegion: 0,
+                takeOffEvent: 0, landEvent: 0, landMaxHeight: 0 },
             climb: { enabled: false, regions: '', tags: '', speed: -1, switchId: 0 },
             ice: { enabled: false, regions: '', tags: '', speed: 1, switchId: 0 },
             // Gamepad buttons (-1 = none) and on-screen buttons ('touch': on touch screens, 'always', 'never').
@@ -3965,7 +4048,9 @@ DocsDoodads.World = {
         // 3D models drawn on the GPU (17_perspective_runtime_models.js): faster, and still new.
         models3d: { gpu: false },
         // Flat-map lighting (06_render_lights_directional.js): walls that stop light, and the player's flashlight.
-        lighting2d: { occlusion: false, wallRegions: '', rays: 160,
+        // blockDoodads: doodads with collision stop light too; blockEvents: events with <block light> in their
+        // note or a page comment (doors) stop it where they stand.
+        lighting2d: { occlusion: false, wallRegions: '', rays: 160, blockDoodads: false, blockEvents: false,
             flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
@@ -8223,7 +8308,9 @@ DocsDoodads.Destination = {
     ],
     defaults: {
         style: 'default', color: '#ffffff', opacity: 120, blend: 'add', scale: 1, pulse: 'mz', spin: 0, bob: 0,
-        layer: 'above', image: '', fps: 8, animationId: 0, vfx: '', pathDots: false, dotColor: '#ffffff', dotSpacing: 1
+        layer: 'above', image: '', fps: 8, animationId: 0, vfx: '', pathDots: false, dotColor: '#ffffff', dotSpacing: 1,
+        // A tile the player can't stand on (a wall, deep water, a doodad's collision) shows a cross in this colour.
+        unreachable: true, unreachableColor: '#ff5a5a'
     },
 
     normalize(s) {
@@ -8251,15 +8338,20 @@ DocsDoodads.Destination = {
             vfx: String(s.vfx || ''),
             pathDots: s.pathDots === true,
             dotColor: color(s.dotColor, d.dotColor),
-            dotSpacing: Math.max(1, Math.floor(num(s.dotSpacing, d.dotSpacing, 1, 8)))
+            dotSpacing: Math.max(1, Math.floor(num(s.dotSpacing, d.dotSpacing, 1, 8))),
+            unreachable: s.unreachable !== false,
+            unreachableColor: color(s.unreachableColor, d.unreachableColor)
         };
     },
 
-    // The project's marker with mid-game changes from the plugin command on top.
-    merge(project, override) {
+    // The project's marker, then the map's own look (its map settings), then mid-game changes from the
+    // plugin command on top.
+    merge(project, override, map) {
         const out = Object.assign({}, project || {});
-        for (const key of Object.keys(override || {})) {
-            if (override[key] !== undefined && override[key] !== null) out[key] = override[key];
+        for (const layer of [map, override]) {
+            for (const key of Object.keys(layer || {})) {
+                if (layer[key] !== undefined && layer[key] !== null && layer[key] !== '') out[key] = layer[key];
+            }
         }
         return this.normalize(out);
     },
@@ -8371,7 +8463,10 @@ DocsDoodads.Perspective = {
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', standFlatRegion: 0, snowCover: false,
         clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false,
-        skyVideo: '', skyVideoMode: 'panorama', skyVideoSpeed: 1, skyVideoDayNight: true, skyVideoFlat: false
+        skyVideo: '', skyVideoMode: 'panorama', skyVideoSpeed: 1, skyVideoDayNight: true, skyVideoFlat: false,
+        // Doodads farther than this many tiles from the camera's target are drawn plain (no shadow, no
+        // particles or effects); 0 draws everything in full.
+        lodTiles: 0
     },
 
     curves: [
@@ -8429,7 +8524,8 @@ DocsDoodads.Perspective = {
             skyVideoMode: s.skyVideoMode === 'fill' ? 'fill' : 'panorama',
             skyVideoSpeed: num(s.skyVideoSpeed, d.skyVideoSpeed, 0, 4),
             skyVideoDayNight: s.skyVideoDayNight !== false,
-            skyVideoFlat: s.skyVideoFlat === true
+            skyVideoFlat: s.skyVideoFlat === true,
+            lodTiles: num(s.lodTiles, d.lodTiles, 0, 200)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -10302,8 +10398,17 @@ if (typeof PIXI !== 'undefined') {
         if (this._shimmerFilter) {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
         }
+        // Far away in 3D (the map's "Plain beyond"): drawn without its shadow, and its effects wait.
+        if (this.docsFar()) {
+            if (this._shadowSprite) this._shadowSprite.renderable = false;
+            return;
+        }
         this.updateShadow();
         if (this._shadowSprite) this._shadowSprite.renderable = true;
+    };
+
+    Sprite_DocsDoodad.prototype.docsFar = function() {
+        return this._docsFar3d === true && Boolean(DocsDoodads.Perspective && DocsDoodads.Perspective.active());
     };
 
     // Off-screen culling in play: true when the drawn rectangle, with room around it for a shadow, filters
@@ -11084,7 +11189,8 @@ DocsDoodads.mapSteps = [
     'updateDocsClock',     // the clock moves with the map (here)
     'updateDocsSounds',    // sound doodads, ambience, region sounds, echo (here)
     'updateDocsCamera3d',  // 3D camera moves and turning (17_perspective_runtime_1_view)
-    'updateDocsStateTimers' // states going back after some seconds (07_doodad_states_extras)
+    'updateDocsStateTimers', // states going back after some seconds (07_doodad_states_extras)
+    'updateDocsTouchTarget' // a clicked touchable doodad, touched on arrival (16_visual_equipment_map_destination_runtime)
 ];
 if (typeof Game_Map !== 'undefined') {
     $.Game_Map_update = Game_Map.prototype.update;
@@ -11813,8 +11919,8 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype && S
     $.Sprite_DocsDoodad_updatePlacement = Sprite_DocsDoodad.prototype.updatePlacement;
     Sprite_DocsDoodad.prototype.updatePlacement = function() {
         $.Sprite_DocsDoodad_updatePlacement.call(this);
-        // Off the screen (culled), bending and effects wait and aren't drawn.
-        if (this._docsCulled) {
+        // Off the screen (culled), or far away in 3D (docsFar), bending and effects wait and aren't drawn.
+        if (this._docsCulled || this.docsFar()) {
             for (const key of ['_docsEmitter', '_docsVfx', '_docsLeaves']) if (this[key]) this[key].renderable = false;
             this._docsFxCulled = true;
             return;
@@ -13134,14 +13240,60 @@ DocsDoodads.Occlusion.wallsFor = function() {
     return this._walls;
 };
 
+// What else stops light this frame (World > Lighting): tiles under doodads with collision, and events with
+// <block light> in their note or a page comment. { key, tiles: Set of "x,y" } (key changes when they move).
+DocsDoodads.Occlusion.blockers = function() {
+    const s = this.settings();
+    if (!s.blockDoodads && !s.blockEvents) return null;
+    const frame = DocsDoodads.frameCount();
+    if (this._blockers && this._blockers.frame === frame && frame !== 0) return this._blockers;
+    const tiles = new Set();
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    if (s.blockDoodads) {
+        const doodads = DocsDoodads.doodads() || [];
+        const ms = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+        const grid = doodads.length ? DocsDoodads.Collision.grid(doodads, tw, th) : null;
+        if (grid) {
+            for (const [key, list] of grid.tiles) {
+                if (!list.some(d => DocsDoodads.Layers.visibleInGame(d, ms) && DocsDoodads.Appearance.isVisible(d, {}) && DocsDoodads.States.blocks(d))) continue;
+                tiles.add(((key % 1048576) - 2) + ',' + (Math.floor(key / 1048576) - 2));
+            }
+        }
+    }
+    if (s.blockEvents) {
+        for (const ev of $gameMap.events()) {
+            if (!ev || ev._erased || !this.blocksLight(ev)) continue;
+            tiles.add(ev.x + ',' + ev.y);
+        }
+    }
+    const key = Array.from(tiles).sort().join(';');
+    this._blockers = { frame, key, tiles };
+    return this._blockers;
+};
+
+// An event marked <block light> (its note, or a comment on its current page), while it shows something.
+DocsDoodads.Occlusion.blocksLight = function(ev) {
+    if (!ev.characterName() && !(ev.tileId() > 0)) return false;
+    const text = DocsDoodads.VisualEquip && DocsDoodads.VisualEquip.eventText ? DocsDoodads.VisualEquip.eventText(ev) : ((ev.event() || {}).note || '');
+    return /<\s*block\s+light\s*>/i.test(text);
+};
+
 DocsDoodads.Occlusion.outlineFor = function(light, rays) {
     const walls = this.wallsFor();
     if (!walls) return null;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    // Doors that open, doodads that move: outlines are traced again when what stops light changes.
+    const blockers = this.blockers();
+    const blockKey = blockers ? blockers.key : '';
+    if (walls.blockKey !== blockKey) {
+        walls.blockKey = blockKey;
+        walls.outlines.clear();
+    }
     const key = [Math.round(light.mapX), Math.round(light.mapY), Math.round(light.radius), light.shape, Math.round(light.angle), Math.round(light.spread), rays].join('|');
     let pts = walls.outlines.get(key);
     if (!pts) {
-        const isWall = (x, y) => x < 0 || y < 0 || x >= walls.w || y >= walls.h ? false : walls.grid[y * walls.w + x] === 1;
+        const isWall = (x, y) => x < 0 || y < 0 || x >= walls.w || y >= walls.h ? false
+            : walls.grid[y * walls.w + x] === 1 || Boolean(blockers && blockers.tiles.has(x + ',' + y));
         pts = this.visibility(light.mapX, light.mapY, light.radius, isWall, tw, th,
             light.shape === 'cone' ? { rays, angle: light.angle, spread: light.spread } : { rays });
         // Moving lights (the flashlight) make new outlines every few steps; old ones are let go.
@@ -13765,12 +13917,67 @@ DocsDoodads.World.defaults.destination = Object.assign({}, DocsDoodads.Destinati
 DocsDoodads.Destination.current = function() {
     const project = DocsDoodads.World.settings().destination;
     const over = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsDestination || null : null;
+    const ms = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+    const map = ms && ms.destination ? ms.destination : null;
     const c = this._current;
-    if (c && c.project === project && c.over === over) return c.value;
-    const value = this.merge(project, over);
-    this._current = { project, over, value };
+    if (c && c.project === project && c.over === over && c.map === map) return c.value;
+    const value = this.merge(project, over, map);
+    this._current = { project, over, map, value };
     return value;
 };
+
+// Whether the player could stand on a tile: walkable (or water they swim, or anywhere when flying) and
+// not under a doodad's collision. A touchable doodad there counts as reachable: the player walks up to it.
+DocsDoodads.Destination.standable = function(x, y) {
+    if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.isValid(x, y)) return false;
+    if (this.touchTargetAt(x, y)) return true;
+    const T = DocsDoodads.Traversal;
+    const flying = T && T.isFlying && T.isFlying($gamePlayer);
+    if (flying) return true;
+    const walk = [2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
+    const swim = T && T.can && T.can('swim') && T.isWater(x, y);
+    if (!walk && !swim) return false;
+    return !DocsDoodads.Collision.blocksTile(x, y, false, $gamePlayer);
+};
+
+// The touchable doodad showing on a tile, or null.
+DocsDoodads.Destination.touchTargetAt = function(x, y) {
+    const doodads = DocsDoodads.doodads();
+    if (!doodads || !doodads.length) return null;
+    const settings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+    const visible = d => DocsDoodads.Layers.visibleInGame(d, settings) && DocsDoodads.Appearance.isVisible(d, {});
+    return DocsDoodads.Touch.at(x, y, doodads, $gameMap.tileWidth(), $gameMap.tileHeight(), visible)[0] || null;
+};
+
+// Clicking a touchable doodad: the player walks up to it, faces it and touches it.
+if (typeof Game_Temp !== 'undefined') {
+    $.Game_Temp_setDestination_touch = Game_Temp.prototype.setDestination;
+    Game_Temp.prototype.setDestination = function(x, y) {
+        $.Game_Temp_setDestination_touch.call(this, x, y);
+        const editing = DocsDoodads.Workspace && DocsDoodads.Workspace.mounted;
+        this._docsTouchTarget = !editing && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Destination.touchTargetAt(x, y) : null;
+    };
+}
+if (typeof Game_Map !== 'undefined') {
+    // A step of Game_Map.update (DocsDoodads.mapSteps): next to the clicked doodad, the player touches it.
+    Game_Map.prototype.updateDocsTouchTarget = function(sceneActive) {
+        const d = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsTouchTarget : null;
+        if (!d || sceneActive === false || typeof $gamePlayer === 'undefined' || $gamePlayer.isMoving() || this.isEventRunning()) return;
+        const tiles = DocsDoodads.Touch.tilesOf(d, this.tileWidth(), this.tileHeight());
+        const px = $gamePlayer.x, py = $gamePlayer.y;
+        const next = tiles.find(t => this.distance(px, py, t.x, t.y) === 1);
+        if (next) {
+            const dx = this.deltaX(next.x, px), dy = this.deltaY(next.y, py);
+            $gamePlayer.setDirection(dx > 0 ? 6 : dx < 0 ? 4 : dy > 0 ? 2 : 8);
+            $gameTemp._docsTouchTarget = null;
+            $gameTemp.clearDestination();
+            DocsDoodads.Touch.tryAt(next.x, next.y, 'action');
+        } else if (!$gameTemp.isDestinationValid()) {
+            // It stopped short (no way through): let it go.
+            $gameTemp._docsTouchTarget = null;
+        }
+    };
+}
 
 if (typeof Sprite_Destination !== 'undefined') {
     const D = DocsDoodads.Destination;
@@ -13790,7 +13997,16 @@ if (typeof Sprite_Destination !== 'undefined') {
     $.Sprite_Destination_update = Sprite_Destination.prototype.update;
     Sprite_Destination.prototype.update = function() {
         $.Sprite_Destination_update.call(this);
-        const s = D.current();
+        let s = D.current();
+        // A tile the player can't stand on: a cross in the unreachable colour (worked out once per tile).
+        if (s.unreachable && $gameTemp.isDestinationValid()) {
+            const at = $gameTemp.destinationX() + ',' + $gameTemp.destinationY();
+            if (this._docsReachKey !== at) {
+                this._docsReachKey = at;
+                this._docsUnreachable = !D.standable($gameTemp.destinationX(), $gameTemp.destinationY());
+            }
+            if (this._docsUnreachable) s = Object.assign({}, s, { style: 'cross', color: s.unreachableColor, pathDots: false });
+        }
         this.updateDocsStyle(s);
         this.z = D.zFor(s.layer);
         if (!$gameTemp.isDestinationValid()) {
@@ -14074,7 +14290,7 @@ DocsDoodads.Camera2D.isBusy = function() {
     const s = this.state();
     if (!s) return false;
     const c = this.settings();
-    return Boolean(s.path || s.follow || Number(c.smooth) > 0 || ((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).cameraBounds || []).length);
+    return Boolean(s.path || s.follow || s.free === 'event' || Number(c.smooth) > 0 || ((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).cameraBounds || []).length);
 };
 
 if (typeof Game_Player !== 'undefined') {
@@ -14178,7 +14394,32 @@ DocsDoodads.Camera2D.startPath = function(args) {
     return this.pathFrames(s.path);
 };
 
+// Zoom to a point on a flat map (a tile, or a character), with MZ's own screen zoom: { x, y } are screen
+// pixels of the point, scale 1 goes back. The zoom stays until zoomed back (the player's own zoom, World >
+// Zoom, takes over again only once it is back at 1).
+DocsDoodads.Camera2D.zoomTo = function(point, scale, frames) {
+    if (typeof $gameScreen === 'undefined' || !$gameScreen || !point) return false;
+    $gameScreen.startZoom(point.x, point.y, Math.max(0.25, Math.min(8, Number(scale) || 1)), Math.max(1, Math.round(Number(frames) || 1)));
+    return true;
+};
+
+// The screen point of a tile's centre, or of a character's middle.
+DocsDoodads.Camera2D.pointOf = function(target) {
+    if (typeof $gameMap === 'undefined' || !$gameMap || !target) return null;
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    if (typeof target.screenX === 'function') return { x: target.screenX(), y: target.screenY() - th / 2 };
+    return { x: ($gameMap.adjustX(Number(target.x) || 0) + 0.5) * tw, y: ($gameMap.adjustY(Number(target.y) || 0) + 0.5) * th };
+};
+
 if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    // Zoom to Point: the screen zooms in on a tile or a character (scale 1 goes back), over frames.
+    PluginManager.registerCommand(pluginName, 'zoomToPoint', function(args) {
+        const C = DocsDoodads.Camera2D;
+        const target = String(args.target || 'tile');
+        const who = target === 'tile' ? { x: Number(args.x) || 0, y: Number(args.y) || 0 } : DocsDoodads.characterFor(this, target, args.eventId);
+        const frames = Math.max(1, Number(args.frames) || 60);
+        if (C.zoomTo(C.pointOf(who), Number(args.scale) || 1, frames) && String(args.wait) === 'true' && this && typeof this.wait === 'function') this.wait(frames);
+    });
     PluginManager.registerCommand(pluginName, 'cameraPath2d', function(args) {
         const frames = DocsDoodads.Camera2D.startPath(args);
         if (frames && String(args.wait) !== 'false' && this && typeof this.wait === 'function') this.wait(frames);
@@ -14813,7 +15054,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 obj._docs3dOutFrame = frame;
                 if (out) continue;
             }
-            const fog = P.fogAt(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), fogRange[0], fogRange[1]);
+            const far = Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y);
+            const fog = P.fogAt(far, fogRange[0], fogRange[1]);
+            // Distance detail: far doodads are drawn plain (Sprite_DocsDoodad.docsFar).
+            obj._docsFar3d = s.lodTiles > 0 && far > s.lodTiles * tw;
             if (fog >= 1) {
                 obj._docs3dOut = true;
                 obj._docs3dOutFrame = frame;
@@ -17393,6 +17637,21 @@ DocsDoodads.Traversal = {
         return typeof $gamePlayer !== 'undefined' && (ch === $gamePlayer || (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower));
     },
 
+    // An event's own way of getting around, from <docs swim> or <docs fly> (or <docs fly: 32>, its height in
+    // pixels) in its note or a comment on its current page: { swim, fly, altitude }.
+    eventKind(ch) {
+        if (!ch || typeof Game_Event === 'undefined' || !(ch instanceof Game_Event) || !ch.event()) return null;
+        const VE = DocsDoodads.VisualEquip;
+        const text = VE && VE.eventText ? VE.eventText(ch) : String((ch.event() || {}).note || '');
+        const c = this._eventKinds = this._eventKinds || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        const hit = c ? c.get(ch) : null;
+        if (hit && hit.text === text) return hit.kind;
+        const fly = /<\s*docs\s+fly(?:\s*:\s*(\d+))?\s*>/i.exec(text);
+        const kind = { swim: /<\s*docs\s+swim\s*>/i.test(text), fly: Boolean(fly), altitude: fly ? (Number(fly[1]) || 48) : 0 };
+        if (c) c.set(ch, { text, kind });
+        return kind;
+    },
+
     inRegionOrTag(x, y, s) {
         const regions = this.ids(s && s.regions), tags = this.ids(s && s.tags);
         return (regions.length && regions.includes($gameMap.regionId(x, y))) || (tags.length && tags.includes($gameMap.terrainTag(x, y)));
@@ -17423,7 +17682,11 @@ DocsDoodads.Traversal = {
 
     // ---- State of the party ----
     isSwimming(ch) {
-        if (!ch || !this.isPartyMember(ch) || this.isFlying(ch)) return false;
+        if (ch && !this.isPartyMember(ch)) {
+            const k = this.eventKind(ch);
+            return Boolean(k && k.swim && !k.fly && this.isDeepWater(ch.x, ch.y));
+        }
+        if (!ch || this.isFlying(ch)) return false;
         if ($gamePlayer.isInVehicle && $gamePlayer.isInVehicle()) return false;
         return this.isDeepWater(ch.x, ch.y);
     },
@@ -17434,11 +17697,38 @@ DocsDoodads.Traversal = {
 
     // How far up a character is drawn by flying (its shadow and reflection stay on the ground).
     liftOf(ch) {
-        return this.isPartyMember(ch) ? this.altitude() : 0;
+        if (this.isPartyMember(ch)) return this.altitude();
+        const k = this.eventKind(ch);
+        return k && k.fly ? k.altitude : 0;
     },
 
     isFlying(ch) {
-        return Boolean(ch && this.isPartyMember(ch) && $gamePlayer._docsFlying);
+        if (ch && !this.isPartyMember(ch)) {
+            const k = this.eventKind(ch);
+            return Boolean(k && k.fly);
+        }
+        return Boolean(ch && $gamePlayer._docsFlying);
+    },
+
+    // An event that swims or flies may go where its kind takes it (the map's own passability having said no).
+    eventPassable(ch, x, y, d) {
+        const k = this.eventKind(ch);
+        if (!k || (!k.swim && !k.fly)) return false;
+        const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
+        if (!$gameMap.isValid(x2, y2)) return false;
+        if (k.fly) return !this.blockedBy('fly', x2, y2);
+        const here = this.isWater(x, y), there = this.isWater(x2, y2);
+        if (there && !this.blockedBy('swim', x2, y2)) return true;
+        return here && !there && $gameMap.isPassable(x2, y2, this.reverse(d));
+    },
+
+    // Take-off, landing and diving: a common event (World > Traversal) and a script event ("takeOff",
+    // "land", "dive").
+    hook(name) {
+        const s = this.settings();
+        const id = Number(name === 'dive' ? s.dive.commonEvent : name === 'land' ? s.fly.landEvent : s.fly.takeOffEvent) || 0;
+        if (id > 0 && typeof $gameTemp !== 'undefined' && $gameTemp && $gameTemp.reserveCommonEvent) $gameTemp.reserveCommonEvent(id);
+        if (DocsDoodads.api) DocsDoodads.api.emit(name, { mapId: typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0 });
     },
 
     // Characters that terrain steps (drops, hops, blocking) don't apply to: flying, or on a climb.
@@ -17560,6 +17850,7 @@ DocsDoodads.Traversal = {
             return false;
         }
         this.playSe(this.settings().dive.sound);
+        this.hook('dive');
         // The other map may be smaller: the player is kept inside it on arrival.
         p._docsKeepInside = true;
         p.reserveTransfer(to, p.x, p.y, p.direction(), 0);
@@ -17571,12 +17862,17 @@ DocsDoodads.Traversal = {
         if (!this.can('fly') || p._docsFlying || p.isMoving() || p.isJumping() || (p.isInVehicle && p.isInVehicle())) return false;
         p._docsFlying = true;
         this.playSe(this.settings().fly.sound);
+        this.hook('takeOff');
         return true;
     },
 
-    // Lands where the player could stand (and not on an event or in deep water without swimming).
+    // Lands where the player could stand (and not on an event or in deep water without swimming), and not
+    // on ground higher than Fly > Land up to (tiles of terrain height; 0 = any).
     canLandHere() {
         const p = $gamePlayer, x = p.x, y = p.y;
+        const most = Number(this.settings().fly.landMaxHeight) || 0;
+        const T = DocsDoodads.Terrain, grid = most > 0 && T.grid ? T.grid() : null;
+        if (grid && T.tileHeight(grid, x, y) > most + 1e-9) return false;
         const walk = [2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d));
         if (!walk && !(this.isWater(x, y) && this.can('swim'))) return false;
         if ($gameMap.eventsXyNt(x, y).some(e => e.isNormalPriority())) return false;
@@ -17592,7 +17888,19 @@ DocsDoodads.Traversal = {
         }
         p._docsFlying = false;
         this.playSe(this.settings().fly.landSound);
+        this.hook('land');
         return true;
+    },
+
+    // A traversal jump for any character (Set Movement Route > Script: this.docsJump()): over gaps up to Jump >
+    // Distance, landing where it may, with the jump's sound. Returns the jump made ({ dx, dy }).
+    jumpFor(ch) {
+        if (!ch || ch.isJumping()) return { dx: 0, dy: 0 };
+        const j = this.plan(ch);
+        ch.jump(j.dx, j.dy);
+        this.wrapAfterJump([ch]);
+        this.playSe(this.settings().jump.sound);
+        return j;
     },
 
     toggleFly() {
@@ -17784,14 +18092,14 @@ if (typeof Game_CharacterBase !== 'undefined') {
     $.Game_CharacterBase_screenY_traversal = Game_CharacterBase.prototype.screenY;
     Game_CharacterBase.prototype.screenY = function() {
         const y = $.Game_CharacterBase_screenY_traversal.call(this);
-        return X().isPartyMember(this) ? y - X().altitude() : y;
+        return y - X().liftOf(this);
     };
 
     // In the air, above tree tops and roofs (☆ tiles), as MZ's airship flies.
     $.Game_CharacterBase_screenZ_traversal = Game_CharacterBase.prototype.screenZ;
     Game_CharacterBase.prototype.screenZ = function() {
         const z = $.Game_CharacterBase_screenZ_traversal.call(this);
-        return X().isPartyMember(this) && X().altitude() > 0 ? Math.max(z, 5) : z;
+        return X().liftOf(this) > 0 ? Math.max(z, 5) : z;
     };
 
     // Climbable tiles act as ladders (the party faces up on them).
@@ -17805,7 +18113,7 @@ if (typeof Game_CharacterBase !== 'undefined') {
     Game_CharacterBase.prototype.refreshBushDepth = function() {
         $.Game_CharacterBase_refreshBushDepth_traversal.call(this);
         // Nothing to wade through in the air.
-        if (X().isPartyMember(this) && X().altitude() > 0) this._bushDepth = 0;
+        if (X().liftOf(this) > 0) this._bushDepth = 0;
         else if (X().isSwimming(this) && !this.isJumping()) this._bushDepth = Math.max(this._bushDepth, Number(X().settings().swim.sink) || 0);
     };
     $.Game_CharacterBase_increaseSteps_traversal = Game_CharacterBase.prototype.increaseSteps;
@@ -17821,6 +18129,22 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (!name || !X().isPartyMember(this) || !X().isSwimming(this)) return name;
         const suffix = String(X().settings().swim.suffix || '');
         return suffix && X().sheetExists(name + suffix) ? name + suffix : name;
+    };
+}
+
+if (typeof Game_Event !== 'undefined') {
+    // Events tagged <docs swim> or <docs fly> go where their kind takes them.
+    $.Game_Event_isMapPassable_traversal = Game_Event.prototype.isMapPassable;
+    Game_Event.prototype.isMapPassable = function(x, y, d) {
+        const X = DocsDoodads.Traversal, k = X.eventKind(this);
+        if (k && k.fly) return X.eventPassable(this, x, y, d);
+        return $.Game_Event_isMapPassable_traversal.call(this, x, y, d) || Boolean(k && k.swim && X.eventPassable(this, x, y, d));
+    };
+}
+if (typeof Game_Character !== 'undefined') {
+    // In a move route's Script: this.docsJump() jumps the way the character faces, as the player's Jump does.
+    Game_Character.prototype.docsJump = function() {
+        return DocsDoodads.Traversal.jumpFor(this);
     };
 }
 
@@ -19675,6 +19999,90 @@ DocsDoodads.Packs = {
     fileName(name) {
         const base = String(name || 'Pack').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'Pack';
         return base + this.extension;
+    }
+};
+//==========================================================
+// SECTION 11D: REQUIRED ASSETS (FOR "EXCLUDE UNUSED FILES")
+//==========================================================
+// MZ's Deployment with "Exclude unused files" keeps only the files its database and maps name. Pictures the
+// plugin draws (doodads and their states and seasons, picture layers, idle and run sheets, Visual
+// Equipment layers, sky videos, models, the click marker's image) would be left out. Each save writes
+// data/DocsDoodadsRequired.json: those files, project-relative. `npm run deploy -- --restore <project>
+// <MZ's output folder>` copies back the ones the deployment left out (encrypted if the build is).
+DocsDoodads.RequiredAssets = {
+    path: 'data/DocsDoodadsRequired.json',
+
+    // sources: { doodads ($dataDocsDoodads), database: { Actors, Armors, Weapons, States, Classes }, maps:
+    // { id: map data }, characters: [file names in img/characters] }. Returns sorted project paths.
+    collect(sources = {}) {
+        const out = new Set();
+        const add = p => { const s = String(p || '').replace(/\\/g, '/').replace(/^\.\//, ''); if (s && /^(img|audio|movies|models)\//i.test(s)) out.add(s); };
+        const data = sources.doodads || {};
+        const sheetNames = new Set();
+        for (const [key, list] of Object.entries(data)) {
+            if (!/^\d+$/.test(key) || !Array.isArray(list)) continue;
+            for (const d of list) {
+                if (!d) continue;
+                if (d.bit && d.bit[0] === 3) add(d.bit[1]);
+                for (const st of (d.states && d.states.list) || []) if (st && st.path) add(st.path);
+                if (d.model && d.model.path) add(d.model.path);
+            }
+        }
+        const world = data.world || {};
+        for (const set of (world.seasons && world.seasons.sets) || []) for (const p of Object.values(set || {})) add(p);
+        if (world.destination && world.destination.image) add('img/system/' + world.destination.image + '.png');
+        for (const set of (world.characterAnim && world.characterAnim.sets) || []) {
+            for (const name of [set && set.idle, set && set.run]) if (name) add('img/characters/' + name + '.png');
+        }
+        for (const ms of Object.values(data.mapSettings || {})) {
+            for (const layer of (ms && ms.layers2d) || []) if (layer && layer.image && layer.image !== '#fog') add('img/parallaxes/' + layer.image + '.png');
+            const p3 = ms && ms.perspective;
+            if (p3 && p3.skyVideo) add(p3.skyVideo);
+            if (ms && ms.destination && ms.destination.image) add('img/system/' + ms.destination.image + '.png');
+        }
+        // Visual Equipment layers named in the database's notes (<visual: Cape, sv SV_Cape>).
+        for (const list of Object.values(sources.database || {})) {
+            for (const item of list || []) {
+                const note = item && item.note ? String(item.note) : '';
+                for (const m of note.matchAll(/<\s*visual(?:\s+base)?\s*:\s*([^,>]+)([^>]*)>/gi)) {
+                    const name = m[1].trim();
+                    if (name && !/[{}#]/.test(name)) { add('img/characters/' + name + '.png'); sheetNames.add(name); }
+                    const sv = /\bsv\s+([^,>\s]+)/i.exec(m[2] || '');
+                    if (sv && !/[{}]/.test(sv[1])) add('img/sv_actors/' + sv[1] + '.png');
+                }
+                if (item && item.characterName) sheetNames.add(String(item.characterName));
+            }
+        }
+        for (const map of Object.values(sources.maps || {})) {
+            for (const ev of (map && map.events) || []) for (const page of (ev && ev.pages) || []) {
+                if (page && page.image && page.image.characterName) sheetNames.add(page.image.characterName);
+            }
+        }
+        // Idle, run and action sheets beside a sheet in use (Hero_idle[f2], Hero_run[f8], Hero_slash[f6]).
+        for (const file of sources.characters || []) {
+            const base = String(file).replace(/\.png$/i, '');
+            for (const name of sheetNames) {
+                if (name && base !== name && base.toLowerCase().startsWith(name.toLowerCase() + '_')) add('img/characters/' + file);
+            }
+        }
+        return Array.from(out).sort();
+    },
+
+    // From the project on disk and in memory (the editor, on save). Returns the list written, or null.
+    write() {
+        const FS = DocsDoodads.FS;
+        if (!FS.fs || !FS.path) return null;
+        const database = {};
+        for (const name of ['Actors', 'Armors', 'Weapons', 'States', 'Classes']) database[name] = FS.readJson(`data/${name}.json`) || [];
+        const maps = {};
+        for (const info of FS.readJson('data/MapInfos.json') || []) {
+            if (info) maps[info.id] = FS.readJson(DocsDoodads.Persistence.mapFilePath(info.id));
+        }
+        let characters = [];
+        try { characters = FS.fs.readdirSync('img/characters').filter(f => /\.png$/i.test(f)); } catch (e) { characters = []; }
+        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters });
+        const ok = FS.atomicWriteJson(this.path, { note: 'Files Doc\'s Doodads draws that MZ\'s "Exclude unused files" can\'t see. npm run deploy -- --restore <project> <deployed folder> puts them back.', files }, 2);
+        return ok ? files : null;
     }
 };
 //==========================================================
@@ -25162,10 +25570,21 @@ DocsDoodads.Collision = {
     }
 };
 
+// The collision shape a doodad's current state asks for (a state's own preset: an open gate keeps only
+// its posts), or '' to use the doodad's own.
+DocsDoodads.Collision.statePreset = function(dData) {
+    if (!dData || !dData.states || !DocsDoodads.States.has(dData)) return '';
+    const st = DocsDoodads.States.current(dData);
+    return st && st.collisionPreset && this.presets[st.collisionPreset] !== undefined ? String(st.collisionPreset) : '';
+};
+
 // A doodad's collision body in map pixels ({ x, y, w, h }), or null when it has none.
 DocsDoodads.Collision.bodyOf = function(dData) {
-    if (!dData || !dData.collision || dData.collision.preset === "none") return null;
-    const shape = dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
+    if (!dData) return null;
+    const byState = DocsDoodads.Collision.statePreset(dData);
+    if (!byState && (!dData.collision || dData.collision.preset === "none")) return null;
+    const shape = byState ? DocsDoodads.Collision.getPresetShape(byState)
+        : dData.collision.shape || DocsDoodads.Collision.getPresetShape(dData.collision.preset);
     if (!shape) return null;
     const dw = (dData.frameW || 48) * (dData.scaleX || 1);
     const dh = (dData.frameH || 48) * (dData.scaleY || 1);
@@ -25193,11 +25612,37 @@ DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
     return out;
 };
 
+// Who a doodad's collision stops (collision.who): everyone, only the party, or only events; and the
+// one way it can be crossed (collision.oneWay: 'down', 'up', 'left', 'right'; a ledge to jump down).
+DocsDoodads.Collision.whoOptions = [
+    { value: 'all', label: 'Everyone' }, { value: 'player', label: 'Only the player and followers' }, { value: 'events', label: 'Only events' }
+];
+DocsDoodads.Collision.oneWayOptions = [
+    { value: '', label: 'Both ways' }, { value: 'down', label: 'Only going down' }, { value: 'up', label: 'Only going up' },
+    { value: 'left', label: 'Only going left' }, { value: 'right', label: 'Only going right' }
+];
+DocsDoodads.Collision.oneWayDirs = { down: 2, left: 4, right: 6, up: 8 };
+
+// Whether this doodad stops this mover going direction d (a mover of null is anyone, d of 0 any way).
+DocsDoodads.Collision.stops = function(dData, mover, d) {
+    const col = dData.collision || {};
+    const who = col.who || 'all';
+    if (who !== 'all' && mover) {
+        const party = DocsDoodads.Traversal && DocsDoodads.Traversal.isPartyMember ? DocsDoodads.Traversal.isPartyMember(mover) : false;
+        const isEvent = typeof Game_Event !== 'undefined' && mover instanceof Game_Event;
+        if (who === 'player' && !party) return false;
+        if (who === 'events' && !isEvent) return false;
+    }
+    if (col.oneWay && d && this.oneWayDirs[col.oneWay] === d) return false;
+    return true;
+};
+
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
 // Doodads hidden by their switch, condition, season or a layer hidden in game never block, nor do
 // doodads in a state without collision (an open door).
-// vehicles: only doodads set to block boats and ships (collision.vehicles) count.
-DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
+// vehicles: only doodads set to block boats and ships (collision.vehicles) count. mover and d (the
+// character and its direction, when known) apply who it stops and its one way.
+DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles, mover, d) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -25207,6 +25652,7 @@ DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
     // The grid holds the doodads whose bodies cover this tile; switches and conditions are checked here.
     for (const dData of here) {
         if (vehicles && !(dData.collision && dData.collision.vehicles)) continue;
+        if ((mover || d) && dData.collision && !this.stops(dData, mover, d)) continue;
         if (DocsDoodads.Layers.visibleInGame(dData, mapSettings) && DocsDoodads.Appearance.isVisible(dData, {}) && DocsDoodads.States.blocks(dData)) return true;
     }
     return false;
@@ -25222,13 +25668,14 @@ DocsDoodads.Collision.cachedBody = function(d) {
     if (!this._bodies || !d || typeof d !== 'object') return { body: this.bodyOf(d), changed: true };
     const col = d.collision;
     const c = this._bodies.get(d);
+    const sp = d.states ? this.statePreset(d) : '';
     if (c && c.col === col && c.preset === (col && col.preset) && c.shape === (col && col.shape) && c.x === d.x && c.y === d.y
-        && c.fw === d.frameW && c.fh === d.frameH && c.sx === d.scaleX && c.sy === d.scaleY && c.ax === d.anchorX && c.ay === d.anchorY) {
+        && c.fw === d.frameW && c.fh === d.frameH && c.sx === d.scaleX && c.sy === d.scaleY && c.ax === d.anchorX && c.ay === d.anchorY && c.sp === sp) {
         return { body: c.body, changed: false };
     }
     const body = this.bodyOf(d);
     this._bodies.set(d, { col, preset: col && col.preset, shape: col && col.shape, x: d.x, y: d.y, fw: d.frameW, fh: d.frameH,
-        sx: d.scaleX, sy: d.scaleY, ax: d.anchorX, ay: d.anchorY, body });
+        sx: d.scaleX, sy: d.scaleY, ax: d.anchorX, ay: d.anchorY, sp, body });
     return { body, changed: true };
 };
 
@@ -25282,7 +25729,7 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
         // Boats and ships sail past doodads over water unless a doodad is set to block them (a pier).
         const sailing = (this.isInBoat && this.isInBoat()) || (this.isInShip && this.isInShip());
-        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing);
+        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing, this, d);
     };
 }
 
@@ -26550,6 +26997,8 @@ DocsDoodads.Persistence = {
         this.dirtyMap = false;
         this.dirtyDoodads = false;
         this.clearRecovery();
+        // The files MZ's "Exclude unused files" can't see (22_required_assets.js); a failure doesn't stop the save.
+        try { if (DocsDoodads.RequiredAssets) DocsDoodads.RequiredAssets.write(); } catch (e) { DocsDoodads.Core.log('Required assets list not written.', e); }
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateSaveState(true);
@@ -30076,6 +30525,14 @@ DocsDoodads.Workspace = {
                     </select>
                     <button class="dd-btn" id="dd-prop-trace-col" style="width: 100%; margin-top: 4px;" title="Fit the collision to the solid base of the image">Trace from Art</button>
                     <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 4px;" title="Boats and ships sail past doodads unless this is ticked (a pier, a rock in the sea)"><input type="checkbox" id="dd-prop-col-vehicles" ${d.collision && d.collision.vehicles ? 'checked' : ''} /> Blocks boats and ships</label>
+                    <label style="display: block; font-size: 11px; margin: 6px 0 3px;">Stops:</label>
+                    <select id="dd-prop-col-who" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
+                        ${DocsDoodads.Collision.whoOptions.map(o => `<option value="${o.value}"${((d.collision && d.collision.who) || 'all') === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
+                    </select>
+                    <label style="display: block; font-size: 11px; margin: 6px 0 3px;" title="A ledge: walk off it going down, but not back up">Can be crossed:</label>
+                    <select id="dd-prop-col-oneway" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; border-radius: 4px;">
+                        ${DocsDoodads.Collision.oneWayOptions.map(o => `<option value="${o.value}"${((d.collision && d.collision.oneWay) || '') === o.value ? ' selected' : ''}>${o.value ? o.label : 'Never (it blocks both ways)'}</option>`).join('')}
+                    </select>
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
@@ -30142,9 +30599,12 @@ DocsDoodads.Workspace = {
                 const val = e.target.value;
                 const colEditor = document.getElementById('dd-custom-col-editor');
                 this.editDoodads([d], o => {
-                    const vehicles = o.collision && o.collision.vehicles;
+                    // Who it stops, its one way and boats are kept when the shape changes.
+                    const keep = o.collision || {};
                     o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null };
-                    if (vehicles) o.collision.vehicles = true;
+                    if (keep.vehicles) o.collision.vehicles = true;
+                    if (keep.who && keep.who !== 'all') o.collision.who = keep.who;
+                    if (keep.oneWay) o.collision.oneWay = keep.oneWay;
                 }, 'set_collision');
                 if (colEditor) colEditor.style.display = val === 'custom' ? 'block' : 'none';
                 if (val === 'custom') renderColPreview();
@@ -30159,6 +30619,17 @@ DocsDoodads.Workspace = {
                     else delete o.collision.vehicles;
                 }, 'set_collision');
             };
+
+            const colField = (id, key, empty) => {
+                const el = document.getElementById(id);
+                if (el) el.onchange = e => this.editDoodads([d], o => {
+                    o.collision = Object.assign({ preset: 'none', shape: null }, o.collision);
+                    if (!e.target.value || e.target.value === empty) delete o.collision[key];
+                    else o.collision[key] = e.target.value;
+                }, 'set_collision');
+            };
+            colField('dd-prop-col-who', 'who', 'all');
+            colField('dd-prop-col-oneway', 'oneWay', '');
 
             const updateCustomCol = () => {
                 const cx = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-x').value) || 0));
@@ -30657,7 +31128,9 @@ DocsDoodads.Workspace = {
                 range('light.flicker', 'Flicker', 0, 1, 0.05),
                 range('light.glow', 'Daylight glow', 0, 1, 0.05),
                 number('light.offsetX', 'Offset X'),
-                number('light.offsetY', 'Offset Y')
+                number('light.offsetY', 'Offset Y'),
+                number('light.switchId', 'Only while this switch is on (0 = always)'),
+                { key: 'light.condition', label: 'Only while (JavaScript, e.g. $gameVariables.value(4) > 0)', type: 'text' }
             ] },
             { title: 'Visibility', fields: [
                 { key: 'switchText', label: 'Switches (e.g. 5:on, 6:off)', type: 'text' },
@@ -32133,6 +32606,7 @@ DocsDoodads.Workspace = {
             number('viewTiles', 'View distance (tiles of ground drawn)'),
             number('fogStart', 'Fog starts (tiles past the camera\'s target)', 0.5),
             number('fogEnd', 'Fog ends (tiles)', 0.5),
+            number('lodTiles', 'Plain beyond (tiles: no shadows or effects; 0 = never)', 1),
             check('fogUseColor', 'Fog is a colour (otherwise distant ground fades into the sky)'),
             { key: 'fogColor', label: 'Fog colour', type: 'color' },
             { key: 'skyColor', label: 'Sky colour (maps without a parallax)', type: 'color' },
@@ -33152,6 +33626,8 @@ DocsDoodads.Workspace = {
             ] },
             { title: 'Destination Marker', fields: [
                 select('destination.style', 'Marker', D.Destination.styles),
+                check('destination.unreachable', 'A cross where the player can\'t go'),
+                { key: 'destination.unreachableColor', label: 'Its colour', type: 'color' },
                 { key: 'destination.color', label: 'Colour', type: 'color' },
                 range('destination.opacity', 'Opacity', 0, 255, 5),
                 select('destination.blend', 'Blend', D.Destination.blends),
@@ -33214,6 +33690,10 @@ DocsDoodads.Workspace = {
                 range('traversal.fly.altitude', 'Flying height (pixels)', 8, 120, 4),
                 range('traversal.fly.speed', 'Flying speed change', -1, 2, 1),
                 check('traversal.fly.encounters', 'Random battles while flying'),
+                number('traversal.fly.landMaxHeight', 'Land only up to this terrain height (tiles; 0 = anywhere)', 0.5),
+                number('traversal.fly.takeOffEvent', 'Common event on take-off (0 = none)'),
+                number('traversal.fly.landEvent', 'Common event on landing'),
+                number('traversal.dive.commonEvent', 'Common event on diving or surfacing'),
                 check('traversal.climb.enabled', 'Climb walls and cliffs in these regions or terrain tags'),
                 { key: 'traversal.climb.regions', label: 'Climbable regions (e.g. 5, 6)', type: 'text' },
                 { key: 'traversal.climb.tags', label: 'Climbable terrain tags', type: 'text' },
@@ -33249,6 +33729,8 @@ DocsDoodads.Workspace = {
                 check('lighting2d.occlusion', 'Walls stop light (tiles nobody can walk on cast shadows)'),
                 { key: 'lighting2d.wallRegions', label: 'Also walls: regions (e.g. 9, 10)', type: 'text' },
                 range('lighting2d.rays', 'Shadow detail (rays per light)', 40, 360, 20),
+                check('lighting2d.blockDoodads', 'Doodads with collision stop light too'),
+                check('lighting2d.blockEvents', 'Events marked <block light> stop light (doors)'),
                 check('lighting2d.flashlight.enabled', 'The player carries a flashlight (it points where they face)'),
                 number('lighting2d.flashlight.switchId', 'Only while switch # is ON (0 = always)'),
                 range('lighting2d.flashlight.radius', 'Flashlight reach', 60, 800, 10),
@@ -42012,6 +42494,7 @@ DocsDoodads.Workspace.mapSections.push({
         const own = mapSettings && mapSettings.minimap;
         const value = own === 'on' || own === 'off' ? own : 'auto';
         const world = DocsDoodads.World.settings().minimap;
+        const marker = (mapSettings && mapSettings.destination) || {};
         const option = (v, label) => `<option value="${v}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
         return `
             <details id="dd-minimap-sec" ${this._openMinimap ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
@@ -42020,11 +42503,25 @@ DocsDoodads.Workspace.mapSections.push({
                     <div>Corner minimap when this map is flat
                         <select id="dd-minimap-mode" style="width: 100%;">${option('auto', `As World > Minimap (${world.flat ? 'on' : 'off'})`)}${option('on', 'On')}${option('off', 'Off')}</select></div>
                     <div style="color: var(--dd-faint); line-height: 1.4;">${world.fog ? 'Fog of war is on: the minimap shows what the player has been near.' : 'Fog of war is off (World > Minimap).'} The Show / Hide Minimap and Explored Map commands change it during play.</div>
+                    <div>Click marker on this map
+                        <select id="dd-map-marker" style="width: 100%;"><option value="">As World > Destination</option>${DocsDoodads.Destination.styles.map(o => `<option value="${o.value}"${marker.style === o.value ? ' selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}</select></div>
+                    <div>Its colour <input type="color" id="dd-map-marker-color" value="${escapeHtml(marker.color || DocsDoodads.World.settings().destination.color || '#ffffff')}" /></div>
                 </div>
             </details>`;
     },
     bind() {
         const details = document.getElementById('dd-minimap-sec');
+        const marker = document.getElementById('dd-map-marker');
+        if (marker) marker.onchange = e => {
+            const own = Object.assign({}, (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).destination);
+            if (e.target.value) own.style = e.target.value; else delete own.style;
+            this.setMapSetting('destination', Object.keys(own).length ? own : undefined);
+        };
+        const markerColor = document.getElementById('dd-map-marker-color');
+        if (markerColor) markerColor.onchange = e => {
+            const own = Object.assign({}, (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).destination, { color: e.target.value });
+            this.setMapSetting('destination', own);
+        };
         if (details) details.ontoggle = () => { this._openMinimap = details.open; };
         const select = document.getElementById('dd-minimap-mode');
         if (select) select.onchange = e => this.setMapSetting('minimap', e.target.value === 'auto' ? undefined : e.target.value);
@@ -44860,6 +45357,7 @@ Object.assign(DocsDoodads.Workspace, {
         const seOptions = chosen => option('', 'None', chosen || '') + seNames.map(n => option(n, n, chosen)).join('')
             + (chosen && !seNames.includes(chosen) ? option(chosen, chosen, chosen) : '');
         const vfxList = DocsDoodads.Vfx.library().concat(DocsDoodads.Vfx.builtIns);
+        const shapeOptions = chosen => option('', 'Its own', chosen || '') + Object.keys(DocsDoodads.Collision.presets).filter(k => k !== 'custom').map(k => option(k, k, chosen)).join('');
         const vfxOptions = chosen => option('', 'None', chosen || '') + vfxList.map(v => option(v.id, v.name, chosen)).join('');
         const rows = list.map((st, i) => `
             <div class="dd-state-row${preview === i ? ' dd-previewing' : ''}" data-state="${i}">
@@ -44879,6 +45377,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-state-opts">
                     <label title="A sound effect when it goes into this state">Sound <select id="dd-state-sound-${i}">${seOptions(st.sound)}</select></label>
                     <label title="An effect from the Effects Maker when it goes into this state">Effect <select id="dd-state-vfx-${i}">${vfxOptions(st.vfx)}</select></label>
+                    <label title="The collision shape in this state (an open gate keeps only its posts)">Shape <select id="dd-state-collisionPreset-${i}">${shapeOptions(st.collisionPreset)}</select></label>
                     <label title="Seconds before it goes back to the state it was in (0 = it stays)">Back after <input type="number" min="0" step="0.5" id="dd-state-revert-${i}" value="${Number(st.revert) || 0}" style="width: 52px;" /> s</label>
                 </div>
             </div>`).join('');
@@ -44931,7 +45430,7 @@ Object.assign(DocsDoodads.Workspace, {
             else if (field === 'art') {
                 if (value) Object.assign(list[index], { path: value.path, w: value.w || 0, h: value.h || 0 });
                 else { delete list[index].path; delete list[index].w; delete list[index].h; }
-            } else if (field === 'sound' || field === 'vfx') {
+            } else if (field === 'sound' || field === 'vfx' || field === 'collisionPreset') {
                 const v = String(value || '').trim();
                 if (v) list[index][field] = v; else delete list[index][field];
             } else if (field === 'revert') {
@@ -44979,7 +45478,7 @@ Object.assign(DocsDoodads.Workspace, {
             if (art) art.onclick = () => { const a = this.pickedStateArt(); if (a) this.setStateField(d, i, 'art', a); };
             const own = el(`dd-state-own-${i}`);
             if (own) own.onclick = () => this.setStateField(d, i, 'art', null);
-            for (const field of ['sound', 'vfx', 'revert']) {
+            for (const field of ['sound', 'vfx', 'revert', 'collisionPreset']) {
                 const input = el(`dd-state-${field}-${i}`);
                 if (input) input.onchange = () => this.setStateField(d, i, field, input.value);
             }

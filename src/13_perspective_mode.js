@@ -12,7 +12,10 @@ DocsDoodads.Perspective = {
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
         weather: true, weatherDensity: 1, dayNight: true, doodadScale: 1, characterScale: 1, standTiles: 'off', standFlatRegion: 0, snowCover: false,
         clouds: 0, cloudScale: 6, cloudSpeed: 1, mist: 0, mistHeight: 1, minimap: false, battleBack: false,
-        skyVideo: '', skyVideoMode: 'panorama', skyVideoSpeed: 1, skyVideoDayNight: true, skyVideoFlat: false
+        skyVideo: '', skyVideoMode: 'panorama', skyVideoSpeed: 1, skyVideoDayNight: true, skyVideoFlat: false,
+        // Doodads farther than this many tiles from the camera's target are drawn plain (no shadow, no
+        // particles or effects); 0 draws everything in full.
+        lodTiles: 0
     },
 
     curves: [
@@ -70,7 +73,8 @@ DocsDoodads.Perspective = {
             skyVideoMode: s.skyVideoMode === 'fill' ? 'fill' : 'panorama',
             skyVideoSpeed: num(s.skyVideoSpeed, d.skyVideoSpeed, 0, 4),
             skyVideoDayNight: s.skyVideoDayNight !== false,
-            skyVideoFlat: s.skyVideoFlat === true
+            skyVideoFlat: s.skyVideoFlat === true,
+            lodTiles: num(s.lodTiles, d.lodTiles, 0, 200)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
