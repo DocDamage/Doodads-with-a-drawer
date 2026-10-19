@@ -106,7 +106,8 @@
  *
  * 13. Spatial Sound (map panel: Spatial Sound, Sound (this map)):
  *    - Event and move-route sound effects are quieter far away and panned left/right,
- *      with slight random pitch/volume variation. <no spatial> opts an event out.
+ *      with optional random pitch/volume variation (off by default). <no spatial> opts an
+ *      event out of placement, <no variance> out of variation.
  *    - Ambient sounds on doodads and events (<sound: River, 80, 8>), cave echo,
  *      background sounds by region, and the Play SE At plugin command.
  *
@@ -374,6 +375,12 @@
  * @min 0
  * @max 59
  * @default 0
+ *
+ * @arg day
+ * @text Day
+ * @desc The clock's day count. Leave blank to keep the day (an earlier hour doesn't start a new day).
+ * @type string
+ * @default
  *
  * @command addTime
  * @text Pass Time
@@ -1249,7 +1256,7 @@
  *
  * @command storeDoodadState
  * @text Store Doodad State
- * @desc Stores the number of a named doodad's state on this map (0 = as placed; -1 when there is none) in a variable.
+ * @desc Stores the number of a named doodad's state (0 = as placed; -1 when there is none) in a variable.
  *
  * @arg name
  * @text Doodad Name
@@ -1259,6 +1266,13 @@
  * @text Variable
  * @type variable
  * @default 1
+ *
+ * @arg mapId
+ * @text Map
+ * @desc 0 = this map.
+ * @type number
+ * @min 0
+ * @default 0
  *
  * @command setWind
  * @text Set Wind
@@ -1325,7 +1339,7 @@
  *
  * @command cameraFollow2d
  * @text 2D Camera Follow
- * @desc On flat maps: the camera follows the player (and stops a held path), this event, or another event.
+ * @desc On flat maps: the camera follows the player (and stops a held path), this event, another event, or nothing (stays put for Scroll Map).
  *
  * @arg target
  * @text Follow
@@ -1336,6 +1350,8 @@
  * @value this
  * @option Event by ID
  * @value event
+ * @option Nothing (stay put, for Scroll Map and scripts)
+ * @value free
  * @default player
  *
  * @arg eventId

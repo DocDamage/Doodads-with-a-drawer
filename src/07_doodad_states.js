@@ -157,24 +157,37 @@ DocsDoodads.WorldState = {
         return typeof v === 'boolean' ? v : undefined;
     },
 
-    // The doodads on the current map with this name (or the given doodad).
-    doodadsNamed(name) {
+    // The doodads with this name (or the given doodad) on a map (this map when 0).
+    doodadsNamed(name, mapId) {
         if (name && typeof name === 'object') return [name];
         const id = this.handle(name);
         if (!id) return [];
-        const list = typeof DocsDoodads.doodads === 'function' ? DocsDoodads.doodads() || [] : [];
+        const list = typeof DocsDoodads.doodads === 'function' ? DocsDoodads.doodads(this.mapId(mapId)) || [] : [];
         return list.filter(d => d && this.idOf(d) === id);
+    },
+
+    // Whether a map's doodads are loaded, so a name missing from them really is missing.
+    mapLoaded(mapId) {
+        const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+        return Boolean(data && Array.isArray(data[this.mapId(mapId)]));
+    },
+
+    // The number of the state a named doodad is in (0 = as placed), or -1 when there is no such doodad.
+    stateIndex(name, mapId) {
+        const m = this.mapId(mapId);
+        const d = this.doodadsNamed(name, m)[0];
+        if (d) return DocsDoodads.States.index(d, m);
+        const id = this.handle(name);
+        const v = id ? this.store(false).states[this.key(m, id)] : undefined;
+        return typeof v === 'number' ? v : -1;
     },
 
     // The state a named doodad is in, as its name ('' when there is no such doodad on this map, or
     // what was saved for another map).
     state(name, mapId) {
         const m = this.mapId(mapId);
-        const here = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId && $gameMap.mapId() === m;
-        if (here) {
-            const d = this.doodadsNamed(name)[0];
-            if (d) return DocsDoodads.States.name(d, m);
-        }
+        const d = this.doodadsNamed(name, m)[0];
+        if (d) return DocsDoodads.States.name(d, m);
         const id = this.handle(name);
         const v = id ? this.store(false).states[this.key(m, id)] : undefined;
         return v === undefined || v === null ? '' : String(v);
@@ -200,24 +213,33 @@ DocsDoodads.WorldState = {
             told();
             return true;
         }
-        const d = this.doodadsNamed(name)[0];
-        const onThisMap = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId && $gameMap.mapId() === m;
+        const d = this.doodadsNamed(name, m)[0];
         if (raw.toLowerCase() === 'next') {
-            if (!d || !onThisMap) return false;
+            if (!d) return false;
             const n = DocsDoodads.States.list(d).length;
             if (n < 2) return false;
             states[key] = (DocsDoodads.States.index(d, m) + 1) % n;
             told();
             return true;
         }
+        // Only states the doodad has, so a typo doesn't leave a dead key in every save.
+        if (d && DocsDoodads.States.find(d, raw) < 0) {
+            const names = DocsDoodads.States.list(d).map((s, i) => String((s && s.name) || i)).join(', ');
+            console.warn(`[DocsDoodads] "${this.nameOf(name)}" has no state "${raw}"; its states are: ${names || 'none'}.`);
+            return false;
+        }
+        if (!d && this.mapLoaded(m)) {
+            console.warn(`[DocsDoodads] no doodad named "${this.nameOf(name)}" on map ${m}.`);
+            return false;
+        }
         states[key] = /^\d+$/.test(raw) ? Number(raw) : raw;
         told();
         return true;
     },
 
-    // Whether a named doodad's light is on; null when no doodad on this map has that name.
+    // Whether a named doodad's light is on; null when no doodad on that map has that name.
     light(name, mapId) {
-        const d = this.doodadsNamed(name)[0];
+        const d = this.doodadsNamed(name, mapId)[0];
         if (!d) {
             const id = this.handle(name);
             const v = id ? this.store(false).lights[this.key(mapId, id)] : undefined;
@@ -317,8 +339,12 @@ DocsDoodads.Touch = {
             ran = W.setState(d, 'next', mapId) || ran;
         }
         if (typeof $gameTemp !== 'undefined' && $gameTemp) {
-            $gameTemp._docsTouched = { mapId: W.mapId(mapId), name: String(d.name || ''), uid: d.uid || '', state: DocsDoodads.States.name(d, mapId) };
-            if (DocsDoodads.api) DocsDoodads.api.emit('touch', { doodad: d, mapId: W.mapId(mapId) });
+            // The tile its base stands on, so a common event can play a sound or an effect there.
+            const tw = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+            const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+            const x = Math.floor((Number(d.x) || 0) / tw), y = Math.floor(((Number(d.y) || 0) - 1) / th);
+            $gameTemp._docsTouched = { mapId: W.mapId(mapId), name: String(d.name || ''), uid: d.uid || '', state: DocsDoodads.States.name(d, mapId), x, y };
+            if (DocsDoodads.api) DocsDoodads.api.emit('touch', { doodad: d, mapId: W.mapId(mapId), x, y });
             const id = Number(t.commonEventId) || 0;
             if (id > 0 && $gameTemp.reserveCommonEvent) {
                 $gameTemp.reserveCommonEvent(id);
@@ -365,9 +391,14 @@ if (typeof Game_Player !== 'undefined') {
         if (_Game_Player_checkEventTriggerThere) _Game_Player_checkEventTriggerThere.apply(this, arguments);
         if (this.canStartLocalEvents && !this.canStartLocalEvents()) return;
         if (!triggers || !triggers.includes(0)) return;
-        const x2 = $gameMap.roundXWithDirection(this.x, this.direction());
-        const y2 = $gameMap.roundYWithDirection(this.y, this.direction());
-        DocsDoodads.Touch.tryAt(x2, y2, 'action');
+        const dir = this.direction();
+        const x2 = $gameMap.roundXWithDirection(this.x, dir);
+        const y2 = $gameMap.roundYWithDirection(this.y, dir);
+        if (DocsDoodads.Touch.tryAt(x2, y2, 'action')) return;
+        // Across a counter, as MZ does for events (a shop's lamp behind the counter).
+        if ($gameMap.isCounter && $gameMap.isCounter(x2, y2) && !($gameMap.isAnyEventStarting && $gameMap.isAnyEventStarting())) {
+            DocsDoodads.Touch.tryAt($gameMap.roundXWithDirection(x2, dir), $gameMap.roundYWithDirection(y2, dir), 'action');
+        }
     };
 
     const _Game_Player_checkEventTriggerTouch = Game_Player.prototype.checkEventTriggerTouch;
@@ -389,7 +420,6 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'storeDoodadState', args => {
         const id = Number(args.variableId) || 0;
         if (id <= 0 || typeof $gameVariables === 'undefined') return;
-        const d = DocsDoodads.WorldState.doodadsNamed(args.name)[0];
-        $gameVariables.setValue(id, d ? DocsDoodads.States.index(d) : -1);
+        $gameVariables.setValue(id, DocsDoodads.WorldState.stateIndex(args.name, Number(args.mapId) || 0));
     });
 }

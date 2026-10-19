@@ -32,9 +32,24 @@ if (typeof Game_Player !== 'undefined') {
     Game_Player.prototype.updateScroll = function(lastScrolledX, lastScrolledY) {
         const C = DocsDoodads.Camera2D;
         if (DocsDoodads.Perspective.active() || !C.isBusy() || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) {
+            C._external = false;
             return $.Game_Player_updateScroll_cam2d.call(this, lastScrolledX, lastScrolledY);
         }
         const s = C.state();
+        // Scroll Map, a script's setDisplayPos or 2D Camera Follow > Nothing: the camera is left where they
+        // put it (until the player takes a step, or until a follow command for Nothing).
+        if (!s.path) {
+            if (s.free === 'event') return;
+            if ($gameMap.isScrolling() || C._external) {
+                C._external = false;
+                s.free = { x: this.x, y: this.y };
+                return;
+            }
+            if (s.free) {
+                if (s.free.x === this.x && s.free.y === this.y) return;
+                s.free = null;
+            }
+        }
         const cfg = C.settings();
         const sw = $gameMap.screenTileX(), sh = $gameMap.screenTileY();
         let cx, cy, smooth = cfg.smooth;
@@ -71,6 +86,24 @@ if (typeof Game_Player !== 'undefined') {
     };
 }
 
+if (typeof Game_Map !== 'undefined' && typeof Game_Player !== 'undefined') {
+    // A display position set from outside (not the camera centring on the player) frees the camera.
+    $.Game_Map_setDisplayPos_cam2d = Game_Map.prototype.setDisplayPos;
+    Game_Map.prototype.setDisplayPos = function(x, y) {
+        $.Game_Map_setDisplayPos_cam2d.call(this, x, y);
+        if (!DocsDoodads.Camera2D._centering && this._docsCam2d) DocsDoodads.Camera2D._external = true;
+    };
+    $.Game_Player_center_cam2d = Game_Player.prototype.center;
+    Game_Player.prototype.center = function(x, y) {
+        DocsDoodads.Camera2D._centering = true;
+        try {
+            return $.Game_Player_center_cam2d.call(this, x, y);
+        } finally {
+            DocsDoodads.Camera2D._centering = false;
+        }
+    };
+}
+
 if (typeof Game_Map !== 'undefined') {
     // A new map starts with the camera on the player again.
     $.Game_Map_setup_cam2d = Game_Map.prototype.setup;
@@ -88,6 +121,7 @@ DocsDoodads.Camera2D.startPath = function(args) {
     const points = [here].concat(this.parsePoints(args.points));
     if (points.length < 2) return 0;
     s.hold = null;
+    s.free = null;
     const then = String(args.then || 'return');
     s.path = { points: then === 'return' ? points.concat([here]) : points, frames: Math.max(1, Number(args.frames) || 60), ease: String(args.ease || 'smooth'), frame: 0, then };
     // Coming back to the player: the last leg returns to where the camera was, then follows again.
@@ -105,6 +139,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         const target = String(args.target || 'player');
         s.hold = null;
         s.path = null;
+        s.free = target === 'free' ? 'event' : null;
         s.follow = target === 'event' ? Math.max(0, Number(args.eventId) || 0) : target === 'this' && this && this._eventId ? this._eventId : 0;
     });
 }

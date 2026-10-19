@@ -67,6 +67,17 @@ if (typeof PIXI !== 'undefined') {
         this.updatePlacement();
     };
 
+    // Change Tileset: doodads cut from the tileset take the new one's pictures.
+    if (typeof Spriteset_Map !== 'undefined' && typeof Spriteset_Map.prototype.loadTileset === 'function') {
+        $.Spriteset_Map_loadTileset_doodads = Spriteset_Map.prototype.loadTileset;
+        Spriteset_Map.prototype.loadTileset = function() {
+            $.Spriteset_Map_loadTileset_doodads.call(this);
+            for (const sprite of this._docsDoodadSprites || []) {
+                if (sprite && sprite._data && sprite._data.bit && sprite._data.bit[0] === 2) sprite.loadTexture();
+            }
+        };
+    }
+
     Sprite_DocsDoodad.prototype.loadTexture = function() {
         if (!this._data || !this._data.bit) return;
         const bit = this._data.bit;

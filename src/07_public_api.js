@@ -13,7 +13,7 @@ DocsDoodads.api = {
 
     _listeners: {},
 
-    // ---- Events: 'touch' ({ doodad, mapId }), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
+    // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
     on(event, fn) {
         if (typeof fn !== 'function') return () => {};
         (this._listeners[event] = this._listeners[event] || []).push(fn);
@@ -113,27 +113,30 @@ DocsDoodads.api = {
         d.y = spec.tiles ? (Number(spec.y) || 0) * ts.h + ts.h : Number(spec.y) || 0;
         d.temp = true;
         if (!d.uid) d.uid = 'dd_api_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        // The picture's size from the library, or from the picture once it loads.
-        const asset = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets
-            ? DocsDoodads.AssetIndex.data.assets[art.toLowerCase()] : null;
-        const known = spec.frameW || (asset && (asset.frameW || asset.width));
-        if (known) {
-            d.frameW = Number(spec.frameW) || asset.frameW || asset.width;
-            d.frameH = Number(spec.frameH) || asset.frameH || asset.height;
-        } else {
-            d.frameW = 0;
-            d.frameH = 0;
-            if (typeof DocsDoodads.loadBitmap === 'function') {
-                const bmp = DocsDoodads.loadBitmap(art);
-                if (bmp && bmp.addLoadListener) bmp.addLoadListener(b => { if (!d.frameW) { d.frameW = b.width; d.frameH = b.height; } });
-            }
-        }
+        this.sizeFor(d, art, spec.frameW, spec.frameH);
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
         data[mapId] = data[mapId] || [];
         data[mapId].push(d);
         const ss = this.spriteset();
         if (ss && mapId === this.mapId() && ss.addDocsDoodadSprites) ss.addDocsDoodadSprites([d]);
         return d;
+    },
+
+    // A doodad's frame size: as given, then from the library, then (for either one still missing) from
+    // the picture once it loads.
+    sizeFor(d, art, frameW, frameH) {
+        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets;
+        const asset = assets ? assets[String(art).toLowerCase()] : null;
+        d.frameW = Number(frameW) || (asset && Number(asset.frameW || asset.width)) || 0;
+        d.frameH = Number(frameH) || (asset && Number(asset.frameH || asset.height)) || 0;
+        if ((d.frameW && d.frameH) || typeof DocsDoodads.loadBitmap !== 'function') return;
+        const bmp = DocsDoodads.loadBitmap(art);
+        if (!bmp || !bmp.addLoadListener) return;
+        bmp.addLoadListener(b => {
+            if (!d.bit || d.bit[1] !== art) return;
+            if (!d.frameW) d.frameW = b.width;
+            if (!d.frameH) d.frameH = b.height;
+        });
     },
 
     // Moves doodads to (x, y): tiles unless opts.tiles is false; opts.relative moves them by that much.
@@ -154,27 +157,36 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new picture redraws them.
+    // Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new picture redraws them, at its own
+    // size unless frameW and frameH come with it.
     set(query, props) {
         const list = this.find(query);
         if (!props || list.length === 0) return 0;
         for (const d of list) {
             const next = Object.assign({}, props);
-            if (next.art) { d.bit = [3, String(next.art)]; delete next.art; }
+            if (next.art) {
+                const art = String(next.art);
+                d.bit = [3, art];
+                if (next.frameX === undefined) d.frameX = 0;
+                if (next.frameY === undefined) d.frameY = 0;
+                this.sizeFor(d, art, next.frameW, next.frameH);
+                delete next.art;
+                delete next.frameW;
+                delete next.frameH;
+            }
             Object.assign(d, next);
         }
         this.refresh();
         return list.length;
     },
 
-    remove(query) {
-        const list = this.find(query);
+    remove(query, mapId) {
+        const m = this.mapId(query && typeof query === 'object' && query.mapId !== undefined ? query.mapId : mapId);
+        const list = this.find(query, m);
         if (list.length === 0) return 0;
         const data = window.$dataDocsDoodads || {};
-        for (const key of Object.keys(data)) {
-            if (Array.isArray(data[key])) data[key] = data[key].filter(d => !list.includes(d));
-        }
-        this.refresh();
+        if (Array.isArray(data[m])) data[m] = data[m].filter(d => !list.includes(d));
+        if (m === this.mapId()) this.refresh();
         return list.length;
     },
 
@@ -207,13 +219,13 @@ DocsDoodads.api = {
         return m === null || m === undefined ? null : m;
     },
 
-    setTime(hour, minute = 0) {
-        DocsDoodads.setTimeOfDay((Number(hour) || 0) * 60 + (Number(minute) || 0));
+    // day (optional) sets the clock's day too; without it the day stays as it is.
+    setTime(hour, minute = 0, day = null) {
+        DocsDoodads.setTimeOfDay((Number(hour) || 0) * 60 + (Number(minute) || 0), day);
     },
 
     addTime(hours, minutes = 0) {
-        const now = this.time();
-        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + (Number(hours) || 0) * 60 + (Number(minutes) || 0));
+        DocsDoodads.addTimeOfDay((Number(hours) || 0) * 60 + (Number(minutes) || 0));
     },
 
     season() {

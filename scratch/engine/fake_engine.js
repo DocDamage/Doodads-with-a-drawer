@@ -322,7 +322,7 @@ function install() {
         constructor() { super(); this._followers = { _data: [], data() { return this._data; }, visibleFollowers() { return this._data; }, updateMove() {}, isVisible: () => true, forEach(f) { this._data.forEach(f); } };
             this._vehicleType = 'walk'; }
         canStartLocalEvents() { return !this.isInAirship(); } canEncounter() { return true; } moveByInput() {} isTransferring() { return Boolean(this._newMapId); }
-        center() {} searchLimit() { return 12; } reserveTransfer(m, x, y) { this._newMapId = m; this.locate(x, y); } canMove() { return true; } executeMove(d) { this.moveStraight(d); } getInputDirection() { return 0; } isInAirship() { return false; } isInVehicle() { return false; } isInShip() { return false; } getOnVehicle() { return false; }
+        center() {} searchLimit() { return 12; } reserveTransfer(m, x, y) { this._newMapId = m; this.locate(x, y); } performTransfer() { this._newMapId = 0; } canMove() { return true; } executeMove(d) { this.moveStraight(d); } getInputDirection() { return 0; } isInAirship() { return false; } isInVehicle() { return false; } isInShip() { return this._vehicleType === 'ship'; } isInBoat() { return this._vehicleType === 'boat'; } getOnVehicle() { return false; }
         followers() { return this._followers; } isDashing() { return false; } vehicle() { return null; } refresh() {}
     }
     class Game_Follower extends Game_Character { constructor(i) { super(); this._memberIndex = i; } actor() { return null; } isVisible() { return true; } }
@@ -340,7 +340,12 @@ function install() {
         mapId() { return this._mapId; } tilesetId() { return $dataMap ? $dataMap.tilesetId : 1; } tileset() { return $dataTilesets[this.tilesetId()]; }
         width() { return $dataMap ? $dataMap.width : 0; } height() { return $dataMap ? $dataMap.height : 0; } data() { return $dataMap.data; }
         tileWidth() { return 48; } tileHeight() { return 48; }
-        displayX() { return this._displayX; } displayY() { return this._displayY; } setDisplayPos(x, y) { this._displayX = x; this._displayY = y; }
+        displayX() { return this._displayX; } displayY() { return this._displayY; } setDisplayPos(x, y) { this._displayX = x; this._displayY = y; } isScrolling() { return this._scrollRest > 0; }
+        // As MZ: looping axes wrap, others stop at the map's edge.
+        scrollRight(d) { this._displayX = this.isLoopHorizontal() ? (this._displayX + d) % this.width() : Math.min(this._displayX + d, Math.max(0, this.width() - this.screenTileX())); }
+        scrollLeft(d) { this._displayX = this.isLoopHorizontal() ? (this._displayX + this.width() - d) % this.width() : Math.max(this._displayX - d, 0); }
+        scrollDown(d) { this._displayY = this.isLoopVertical() ? (this._displayY + d) % this.height() : Math.min(this._displayY + d, Math.max(0, this.height() - this.screenTileY())); }
+        scrollUp(d) { this._displayY = this.isLoopVertical() ? (this._displayY + this.height() - d) % this.height() : Math.max(this._displayY - d, 0); }
         screenTileX() { return 17; } screenTileY() { return 13; }
         isLoopHorizontal() { return $dataMap && ($dataMap.scrollType === 2 || $dataMap.scrollType === 3); } isLoopVertical() { return $dataMap && ($dataMap.scrollType === 1 || $dataMap.scrollType === 3); }
         adjustX(x) { if (this.isLoopHorizontal() && x < this._displayX - (this.width() - this.screenTileX()) / 2) return x - this._displayX + this.width(); return x - this._displayX; }
@@ -387,7 +392,9 @@ function install() {
         setCharacter(c) { this._character = c; }
     }
     g.Sprite_Character = Sprite_Character;
-    class Sprite_Destination extends MzSprite { constructor() { super(); this.z = 0.5; this._frameCount = 0; this.bitmap = new Bitmap(48, 48); this.anchor.set(0.5, 0.5); } update() {}
+    class Sprite_Destination extends MzSprite { constructor() { super(); this.z = 0.5; this._frameCount = 0; this.bitmap = new Bitmap(48, 48); this.anchor.set(0.5, 0.5); }
+        // As MZ: the marker grows and fades over 20 frames while there is a destination.
+        update() { if ($gameTemp.isDestinationValid()) { this.updatePosition(); this.updateAnimation(); this.visible = true; } else { this._frameCount = 0; this.visible = false; } }
         updatePosition() { const tw = 48, th = 48; this.x = ($gameMap.adjustX($gameTemp.destinationX()) + 0.5) * tw; this.y = ($gameMap.adjustY($gameTemp.destinationY()) + 0.5) * th; }
         updateAnimation() {} createBitmap() {} destroy(o) { super.destroy(o); } }
     g.Sprite_Destination = Sprite_Destination;
@@ -408,6 +415,7 @@ function install() {
     class Spriteset_Map extends Spriteset_Base {
         createLowerLayer() { super.createLowerLayer(); this.createParallax(); this.createTilemap(); this.createCharacters(); this.createShadow(); this.createDestination(); this.createWeather(); }
         createParallax() { this._parallax = new TilingSprite(); this._baseSprite.addChild(this._parallax); }
+        loadTileset() { this._tileset = $gameMap.tileset(); if (this._tileset) { this._tilemap.setBitmaps(this._tileset.tilesetNames.map(n => ImageManager.loadTileset(n))); this._tilemap.flags = this._tileset.flags || []; } }
         createTilemap() { const t = this._tilemap = new Tilemap(); t.setData($gameMap.width(), $gameMap.height(), $gameMap.data()); t.horizontalWrap = $gameMap.isLoopHorizontal(); t.verticalWrap = $gameMap.isLoopVertical();
             const tileset = $gameMap.tileset(); t.setBitmaps(((tileset && tileset.tilesetNames) || []).map(n => ImageManager.loadTileset(n))); t.flags = (tileset && tileset.flags) || []; this._baseSprite.addChild(t); }
         createCharacters() { this._characterSprites = []; for (const e of $gameMap.events()) this._characterSprites.push(new Sprite_Character(e));

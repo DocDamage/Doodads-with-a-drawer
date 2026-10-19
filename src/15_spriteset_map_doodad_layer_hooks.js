@@ -436,14 +436,14 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 
     // Time of day, seasons and effect switches.
     PluginManager.registerCommand(pluginName, 'setTime', args => {
-        DocsDoodads.setTimeOfDay((Number(args.hour) || 0) * 60 + (Number(args.minute) || 0));
+        const day = args.day === undefined || String(args.day).trim() === '' ? null : Number(args.day);
+        DocsDoodads.setTimeOfDay((Number(args.hour) || 0) * 60 + (Number(args.minute) || 0), day);
     });
     PluginManager.registerCommand(pluginName, 'addTime', args => {
-        const now = DocsDoodads.Atmosphere.minutes();
-        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + (Number(args.hours) || 0) * 60 + (Number(args.minutes) || 0));
+        DocsDoodads.addTimeOfDay((Number(args.hours) || 0) * 60 + (Number(args.minutes) || 0));
     });
     PluginManager.registerCommand(pluginName, 'clockControl', args => {
-        const clock = DocsDoodads.Atmosphere.clock();
+        const clock = DocsDoodads.Atmosphere.clock(true);
         if (!clock) return;
         if (args.action === 'pause') clock.paused = true;
         else if (args.action === 'resume') clock.paused = false;
@@ -468,8 +468,9 @@ DocsDoodads.currentAmbient = function(switchValue) {
         mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue });
 };
 
-// Variable mode writes the variables; otherwise the running clock jumps.
-DocsDoodads.setTimeOfDay = function(minutes) {
+// Variable mode writes the variables; otherwise the running clock jumps. Setting an earlier hour keeps the
+// day (a cutscene going back to 22:00 isn't tomorrow); pass day to set it too.
+DocsDoodads.setTimeOfDay = function(minutes, day) {
     const Time = DocsDoodads.TimeOfDay;
     const world = DocsDoodads.World.settings();
     const m = Time.wrap(minutes);
@@ -478,11 +479,26 @@ DocsDoodads.setTimeOfDay = function(minutes) {
         if (Number(world.time.minuteVariableId) > 0) $gameVariables.setValue(Number(world.time.minuteVariableId), Math.floor(m % 60));
         return;
     }
-    const clock = DocsDoodads.Atmosphere.clock();
+    const clock = DocsDoodads.Atmosphere.clock(true);
     if (!clock) return;
-    if (m < clock.minutes) clock.day = (clock.day || 0) + 1;
+    if (day !== null && day !== undefined && isFinite(Number(day))) clock.day = Math.max(0, Math.floor(Number(day)));
     clock.minutes = m;
-    Time.syncVariables(world, m, (id, value) => { if ($gameVariables.value(id) !== value) $gameVariables.setValue(id, value); });
+    if (typeof $gameVariables !== 'undefined' && $gameVariables) {
+        Time.syncVariables(world, m, (id, value) => { if ($gameVariables.value(id) !== value) $gameVariables.setValue(id, value); });
+    }
+};
+
+// Pass Time: forward past midnight is the next day (and back past it the day before).
+DocsDoodads.addTimeOfDay = function(deltaMinutes) {
+    const delta = Number(deltaMinutes) || 0;
+    const clock = DocsDoodads.Atmosphere.clock(true);
+    if (!clock) {
+        const now = DocsDoodads.Atmosphere.minutes();
+        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + delta);
+        return;
+    }
+    const total = (Number(clock.minutes) || 0) + delta;
+    DocsDoodads.setTimeOfDay(total, Math.max(0, (clock.day || 0) + Math.floor(total / 1440)));
 };
 
 DocsDoodads.setSeason = function(season) {
@@ -1447,8 +1463,8 @@ DocsDoodads.CharacterAnim.preload = function() {
     for (const name of names) {
         const set = this.setFor(name, sets);
         if (!set) continue;
-        if (set.idle) ImageManager.loadCharacter(set.idle);
-        if (set.run) ImageManager.loadCharacter(set.run);
+        if (set.idle) DocsDoodads.loadImgTracked('img/characters/', set.idle);
+        if (set.run) DocsDoodads.loadImgTracked('img/characters/', set.run);
     }
 };
 
@@ -1569,8 +1585,17 @@ if (typeof Sprite_Character !== 'undefined') {
     };
 
     $.Sprite_Character_updateBitmap = Sprite_Character.prototype.updateBitmap;
+    // An idle, run or action sheet that can't be loaded (left out of a deployed game) is not waited for:
+    // the character keeps walking on its own sheet.
+    Sprite_Character.prototype.docsAnimSheet = function(sheet) {
+        if (this._character && this._character.characterName && sheet === this._character.characterName()) return ImageManager.loadCharacter(sheet);
+        const bmp = DocsDoodads.loadImgTracked('img/characters/', sheet);
+        return bmp && !(bmp.isError && bmp.isError()) ? bmp : null;
+    };
+
     Sprite_Character.prototype.updateBitmap = function() {
-        const anim = this.docsAnimFrame();
+        let anim = this.docsAnimFrame();
+        if (anim && this._docsAnimSheet !== anim.sheet && !this.docsAnimSheet(anim.sheet)) anim = null;
         this._docsAnim = anim;
         if (!anim) {
             if (this._docsAnimSheet) {
@@ -1584,7 +1609,7 @@ if (typeof Sprite_Character !== 'undefined') {
             return $.Sprite_Character_updateBitmap.call(this);
         }
         if (this._docsAnimSheet !== anim.sheet) {
-            const bmp = ImageManager.loadCharacter(anim.sheet);
+            const bmp = this.docsAnimSheet(anim.sheet);
             // Keep the old frame on screen until the new sheet has loaded.
             if (bmp.isReady() || !this.bitmap) {
                 this._docsAnimSheet = anim.sheet;
@@ -1666,7 +1691,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         if (!ch) return;
         const action = DocsDoodads.CharacterAnim.newAction({ sheet: args.sheet, fps: Number(args.fps) || 8, loops: Number(args.loops), hold: String(args.hold) === 'true' });
         ch._docsAction = action;
-        if (typeof ImageManager !== 'undefined') ImageManager.loadCharacter(action.sheet);
+        if (typeof ImageManager !== 'undefined') DocsDoodads.loadImgTracked('img/characters/', action.sheet);
         if (String(args.wait) === 'true' && !action.hold && action.loops > 0 && this && this.setWaitMode) {
             this._docsWaitTarget = ch === $gamePlayer ? 'player' : (ch.eventId ? ch.eventId() : null);
             this.setWaitMode('docsAction');
@@ -1966,14 +1991,16 @@ if (typeof Game_CharacterBase !== 'undefined') {
     };
 }
 
-// A sound effect from a character, varied and placed relative to the player.
+// A sound effect from a map character, varied and placed relative to the player. Without a character
+// (battles, menus, common events) it is played as authored.
 DocsDoodads.SpatialSound.forCharacter = function(se, ch) {
     if (!se || !se.name) return se;
+    if (!ch || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return se;
     const s = this.settings();
-    const out = this.vary(se, s, Math.random);
-    if (!ch || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return out;
+    const tags = DocsDoodads.CharacterTags.forCharacter(ch);
+    const out = tags.variance === false ? se : this.vary(se, s, Math.random);
     const playerLike = ch === $gamePlayer || (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower);
-    if (!this.shouldSpatialize(s, DocsDoodads.CharacterTags.forCharacter(ch), playerLike)) return out;
+    if (!this.shouldSpatialize(s, tags, playerLike)) return out;
     return this.apply(out, $gameMap.deltaX(ch._realX, $gamePlayer._realX), $gameMap.deltaY(ch._realY, $gamePlayer._realY), s);
 };
 
@@ -1984,13 +2011,16 @@ DocsDoodads.SpatialSound.forTile = function(se, x, y) {
 };
 
 if (typeof Game_Interpreter !== 'undefined') {
-    // Play SE from a map event is heard from where the event stands.
+    // Play SE from a map event is heard from where the event stands. Anything else (battles, menus, common
+    // events) goes to the original, so plugins that wrapped Play SE before this one still run.
+    $.Game_Interpreter_command250 = Game_Interpreter.prototype.command250;
     Game_Interpreter.prototype.command250 = function(params) {
         const sameMap = typeof $gameMap !== 'undefined' && $gameMap && this._mapId === $gameMap.mapId();
         const ch = sameMap && this.eventId() > 0 ? $gameMap.event(this.eventId()) : null;
+        if (!ch || !params || !params[0]) return $.Game_Interpreter_command250.call(this, params);
         const se = DocsDoodads.SpatialSound.forCharacter(params[0], ch);
-        if (se) AudioManager.playSe(se);
-        return true;
+        if (!se) return true;
+        return $.Game_Interpreter_command250.call(this, [se].concat(params.slice(1)));
     };
 }
 

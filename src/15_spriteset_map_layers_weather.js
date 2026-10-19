@@ -47,8 +47,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (key !== this._docsLayersKey) {
             this.docsDestroyLayers2d();
             this._docsLayersKey = key;
+            // A picture missing from a deployed game (see MissingArt) leaves its layer out.
             this._docsLayers2d = list.map(layer => {
-                const bitmap = layer.image === '#fog' ? L.fogBitmap() : ImageManager.loadParallax(layer.image);
+                const bitmap = layer.image === '#fog' ? L.fogBitmap() : DocsDoodads.loadImgTracked('img/parallaxes/', layer.image);
+                if (!bitmap) return null;
                 const sprite = layer.loopX || layer.loopY ? new TilingSprite(bitmap) : new Sprite(bitmap);
                 sprite._docsLayer = layer;
                 sprite._docsDrift = { x: 0, y: 0 };
@@ -58,7 +60,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 if (sprite.move && sprite.origin) sprite.move(0, 0, Math.ceil(Graphics.width / layer.zoom) + 1, Math.ceil(Graphics.height / layer.zoom) + 1);
                 this.docsPlaceLayer2d(sprite, layer.place);
                 return sprite;
-            });
+            }).filter(Boolean);
         }
         if (!this._docsLayers2d || !this._docsLayers2d.length) return;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
