@@ -851,6 +851,7 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | *(no key)* | Hills tool | Tools |
 | *(no key)* | Regions tool | Tools |
 | *(no key)* | Grab tool | Tools |
+| *(no key)* | Rooms (room stamps) | Tools |
 | **[** | Smaller brush (Scatter, Paint, Hills, Regions) | Tools |
 | **]** | Bigger brush | Tools |
 | **Enter** | Place props along the path being drawn *(fixed)* | Tools |

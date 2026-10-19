@@ -740,6 +740,9 @@
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Rooms (room stamps)', () => this.showRoomsCard());
+        add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });
+        for (const r of D.Rooms.ensureLoaded()) add('Place Room: ' + r.name, () => { this.showRoomsCard(); this.pickRoom(r.id); }, 'Room');
         add('Check Reach from the player', () => this.checkReach());
         add('Check Reach from a tile...', () => this.setPlacementTool('reach'));
         add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());

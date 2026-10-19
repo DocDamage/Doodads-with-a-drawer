@@ -49,6 +49,7 @@ Object.assign(DocsDoodads.Workspace, {
             toolHills: tool('terrain'),
             toolRegions: tool('region'),
             toolGrab: tool('eyedropper'),
+            rooms: () => this.showRoomsCard(),
             brushSmaller: () => this.resizeBrush(-1) || false,
             brushBigger: () => this.resizeBrush(1) || false
         };
