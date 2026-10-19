@@ -1259,6 +1259,44 @@
  * @text Variable
  * @type variable
  * @default 1
+ *
+ * @command setMinimap
+ * @text Show / Hide Minimap
+ * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
+ *
+ * @arg show
+ * @text Minimap
+ * @type boolean
+ * @on Show
+ * @off Hide
+ * @default true
+ *
+ * @command exploredMap
+ * @text Explored Map
+ * @desc With the minimap's fog of war on: reveal a whole map, reveal around the player, or forget what was seen (saved with the game).
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Reveal the whole map
+ * @value all
+ * @option Reveal around the player
+ * @value around
+ * @option Forget it (all unexplored again)
+ * @value forget
+ * @default all
+ *
+ * @arg radius
+ * @text Radius (tiles)
+ * @type number
+ * @desc For "around the player".
+ * @default 8
+ *
+ * @arg mapId
+ * @text Map
+ * @type number
+ * @desc 0 for this map.
+ * @default 0
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });

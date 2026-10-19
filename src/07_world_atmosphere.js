@@ -48,7 +48,9 @@ DocsDoodads.World = {
         biomes: { list: [] },
         dress: { rules: [] },
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
-        destination: {}
+        destination: {},
+        // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
+        minimap: { flat: false, fog: false, radius: 6, size: 140 }
     },
 
     _cache: null,

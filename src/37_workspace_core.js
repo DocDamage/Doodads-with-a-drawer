@@ -92,6 +92,11 @@ DocsDoodads.Workspace = {
     // bubble says what to do. No tool (null) is Select.
     toolButtons: { select: 'dd-select-btn', eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn', terrain: 'dd-terrain-btn' },
     toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
+    // Tools added by later parts: { click(coords, e), down(e) (true starts a stroke), move(e, stroking),
+    // up(e), overlay(g) }, called with the workspace as this. The canvas input part calls them.
+    toolHooks: {},
+    // Extra sections of the map's own settings: [{ render(mapSettings) -> html, bind(mapSettings) }].
+    mapSections: [],
 
     setPlacementTool(tool) {
         if (this._tour && this._tour.tool !== tool) this.endTour();

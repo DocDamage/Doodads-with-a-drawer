@@ -1259,6 +1259,44 @@
  * @text Variable
  * @type variable
  * @default 1
+ *
+ * @command setMinimap
+ * @text Show / Hide Minimap
+ * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
+ *
+ * @arg show
+ * @text Minimap
+ * @type boolean
+ * @on Show
+ * @off Hide
+ * @default true
+ *
+ * @command exploredMap
+ * @text Explored Map
+ * @desc With the minimap's fog of war on: reveal a whole map, reveal around the player, or forget what was seen (saved with the game).
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Reveal the whole map
+ * @value all
+ * @option Reveal around the player
+ * @value around
+ * @option Forget it (all unexplored again)
+ * @value forget
+ * @default all
+ *
+ * @arg radius
+ * @text Radius (tiles)
+ * @type number
+ * @desc For "around the player".
+ * @default 8
+ *
+ * @arg mapId
+ * @text Map
+ * @type number
+ * @desc 0 for this map.
+ * @default 0
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -2889,7 +2927,9 @@ DocsDoodads.World = {
         biomes: { list: [] },
         dress: { rules: [] },
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
-        destination: {}
+        destination: {},
+        // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
+        minimap: { flat: false, fog: false, radius: 6, size: 140 }
     },
 
     _cache: null,
@@ -5529,6 +5569,127 @@ DocsDoodads.Shortcuts = {
 };
 
 //==========================================================
+// SECTION 6E: EXPLORED MAP (THE MINIMAP'S FOG OF WAR)
+//==========================================================
+// With fog of war on (World > Minimap), the minimap shows only the tiles the player has been near. What
+// was seen is kept per map in the save: $gameSystem._docsExplored[mapId] = { w, h, bits } (one bit per
+// tile, base64). While playing, the bits live decoded here and are written back before a save.
+DocsDoodads.Explored = {
+    _sys: null,
+    _maps: {}, // mapId -> { w, h, bytes: Uint8Array, dirty }
+
+    system() {
+        const sys = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        if (sys !== this._sys) { this._sys = sys; this._maps = {}; }
+        return sys;
+    },
+
+    encode(bytes) {
+        let text = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        return typeof btoa === 'function' ? btoa(text) : Buffer.from(text, 'binary').toString('base64');
+    },
+
+    decode(text, length) {
+        const out = new Uint8Array(length);
+        try {
+            const raw = typeof atob === 'function' ? atob(String(text || '')) : Buffer.from(String(text || ''), 'base64').toString('binary');
+            for (let i = 0; i < Math.min(length, raw.length); i++) out[i] = raw.charCodeAt(i);
+        } catch (e) {}
+        return out;
+    },
+
+    // The map's bits (a new map, or one whose size changed, starts unexplored).
+    entry(mapId, w, h) {
+        const sys = this.system();
+        const id = Number(mapId) || 0;
+        const length = Math.ceil((w * h) / 8);
+        let m = this._maps[id];
+        if (m && m.w === w && m.h === h) return m;
+        const saved = sys && sys._docsExplored && sys._docsExplored[id];
+        const bytes = saved && saved.w === w && saved.h === h ? this.decode(saved.bits, length) : new Uint8Array(length);
+        m = this._maps[id] = { w, h, bytes, dirty: false, version: 0 };
+        return m;
+    },
+
+    isExplored(m, x, y) {
+        if (!m || x < 0 || y < 0 || x >= m.w || y >= m.h) return false;
+        const i = y * m.w + x;
+        return (m.bytes[i >> 3] & (1 << (i & 7))) !== 0;
+    },
+
+    mark(m, x, y) {
+        const i = y * m.w + x;
+        const bit = 1 << (i & 7);
+        if (m.bytes[i >> 3] & bit) return false;
+        m.bytes[i >> 3] |= bit;
+        return true;
+    },
+
+    // Reveals a circle of tiles; returns the tiles newly seen ([{ x, y }]).
+    reveal(mapId, w, h, cx, cy, radius) {
+        const m = this.entry(mapId, w, h);
+        const r = Math.max(0, Number(radius) || 0);
+        const out = [];
+        for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(h - 1, Math.ceil(cy + r)); y++) {
+            for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(w - 1, Math.ceil(cx + r)); x++) {
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r + 0.25) continue;
+                if (this.mark(m, x, y)) out.push({ x, y });
+            }
+        }
+        if (out.length) { m.dirty = true; m.version++; }
+        return out;
+    },
+
+    revealAll(mapId, w, h) {
+        const m = this.entry(mapId, w, h);
+        m.bytes.fill(255);
+        m.dirty = true;
+        m.version++;
+        return m;
+    },
+
+    forget(mapId, w, h) {
+        const m = this.entry(mapId, w, h);
+        m.bytes.fill(0);
+        m.dirty = true;
+        m.version++;
+        return m;
+    },
+
+    // How much of a map has been seen, 0-1.
+    fraction(mapId, w, h) {
+        const m = this.entry(mapId, w, h);
+        let n = 0;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (this.isExplored(m, x, y)) n++;
+        return w * h ? n / (w * h) : 0;
+    },
+
+    // Into the save: every map changed since the last save.
+    writeBack() {
+        const sys = this.system();
+        if (!sys) return 0;
+        let n = 0;
+        for (const id of Object.keys(this._maps)) {
+            const m = this._maps[id];
+            if (!m.dirty) continue;
+            sys._docsExplored = sys._docsExplored || {};
+            sys._docsExplored[id] = { w: m.w, h: m.h, bits: this.encode(m.bytes) };
+            m.dirty = false;
+            n++;
+        }
+        return n;
+    }
+};
+
+if (typeof Game_System !== 'undefined' && Game_System.prototype.onBeforeSave) {
+    $.Game_System_onBeforeSave_explored = Game_System.prototype.onBeforeSave;
+    Game_System.prototype.onBeforeSave = function() {
+        if (this === DocsDoodads.Explored._sys) DocsDoodads.Explored.writeBack();
+        $.Game_System_onBeforeSave_explored.call(this);
+    };
+}
+//==========================================================
 // SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
 //==========================================================
 // Gear drawn on characters. Notetags (weapons, armors, states, actors, classes, events):
@@ -5744,6 +5905,21 @@ DocsDoodads.Minimap = {
                 const [r, g, b] = this.tileColor(infoAt(x, y));
                 const i = (y * width + x) * 4;
                 out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = 255;
+            }
+        }
+        return out;
+    },
+
+    // The minimap's pixels with tiles not yet seen dark (explored: DocsDoodads.Explored's entry).
+    fogColor: [18, 22, 34],
+    withFog(pixels, width, height, explored) {
+        const out = new Uint8ClampedArray(pixels);
+        const E = DocsDoodads.Explored;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (E.isExplored(explored, x, y)) continue;
+                const i = (y * width + x) * 4;
+                out[i] = this.fogColor[0]; out[i + 1] = this.fogColor[1]; out[i + 2] = this.fogColor[2]; out[i + 3] = 235;
             }
         }
         return out;
@@ -13656,11 +13832,52 @@ DocsDoodads.Minimap.canvasFor = function(pixels, width, height) {
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
+    this.paint(canvas, pixels, width, height);
+    return canvas;
+};
+
+DocsDoodads.Minimap.paint = function(canvas, pixels, width, height) {
     const ctx = canvas.getContext('2d');
     const image = ctx.createImageData(width, height);
     image.data.set(pixels);
     ctx.putImageData(image, 0, 0);
-    return canvas;
+};
+
+// The minimap's settings for a map: { on, fog, radius, size }.
+DocsDoodads.Minimap.settingsFor = function(mapId) {
+    const world = DocsDoodads.World.settings().minimap || {};
+    const own = (DocsDoodads.Lighting.mapSettings(mapId) || {}).minimap;
+    const s3d = DocsDoodads.Perspective.active();
+    const on = s3d ? Boolean(s3d.minimap) : own === 'on' || (own !== 'off' && Boolean(world.flat));
+    return { on, fog: Boolean(world.fog), radius: Math.max(1, Number(world.radius) || 6), size: Math.max(60, Math.min(400, Number(world.size) || 140)) };
+};
+
+// The Explored Map command. Another map's size is read from its file once it has been visited (its
+// explored bits know it); the current map's from the game.
+DocsDoodads.Minimap.exploredCommand = function(args) {
+    if (typeof $gameMap === 'undefined' || !$gameMap) return false;
+    const E = DocsDoodads.Explored;
+    const mapId = Number(args.mapId) || $gameMap.mapId();
+    let w = $gameMap.width(), h = $gameMap.height();
+    if (mapId !== $gameMap.mapId()) {
+        const saved = (E.system() && E.system()._docsExplored && E.system()._docsExplored[mapId]) || E._maps[mapId];
+        if (!saved) return false;
+        w = saved.w; h = saved.h;
+    }
+    const action = String(args.action || 'all');
+    if (action === 'forget') E.forget(mapId, w, h);
+    else if (action === 'around') E.reveal(mapId, w, h, $gamePlayer.x, $gamePlayer.y, Number(args.radius) || 8);
+    else E.revealAll(mapId, w, h);
+    return true;
+};
+
+// Reveals around the player when they reach a new tile (the explored map is kept in the save).
+DocsDoodads.Minimap.explore = function(map, cfg) {
+    if (typeof $gamePlayer === 'undefined' || !$gamePlayer) return 0;
+    const key = $gameMap.mapId() + ':' + $gamePlayer.x + ',' + $gamePlayer.y + ':' + cfg.radius;
+    if (this._lastExplore === key) return 0;
+    this._lastExplore = key;
+    return DocsDoodads.Explored.reveal($gameMap.mapId(), map.width, map.height, $gamePlayer.x, $gamePlayer.y, cfg.radius).length;
 };
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
@@ -13670,25 +13887,34 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this.updateDocsMinimap();
     };
 
-    // A small map in the top-right corner with the player's arrow, on maps that ask for it.
+    // A small map in the top-right corner with the player's arrow, on maps that ask for it (3D maps by
+    // their 3D settings, flat maps by World > Minimap or their own choice). With fog of war, only what
+    // the player has been near shows, and walking reveals more.
     Spriteset_Map.prototype.updateDocsMinimap = function() {
-        const s = DocsDoodads.Perspective.active();
-        const on = Boolean(s && s.minimap) && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const M = DocsDoodads.Minimap;
+        const cfg = M.settingsFor($gameMap.mapId());
+        const map = cfg.on || cfg.fog ? M.forCurrentMap() : null;
+        if (map && cfg.fog) M.explore(map, cfg);
+        const hidden = typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsMinimapHidden;
+        const on = cfg.on && Boolean(map) && !hidden && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
         if (!on) {
             if (this._docsMinimap) this._docsMinimap.visible = false;
             return;
         }
-        const map = DocsDoodads.Minimap.forCurrentMap();
-        if (!map) return;
         let mini = this._docsMinimap;
-        if (!mini || mini._docsData !== map.data) {
+        if (!mini || mini._docsData !== map.data || mini._docsSize !== cfg.size || mini._docsFog !== cfg.fog) {
             this.docsDestroyMinimap();
             mini = this._docsMinimap = new PIXI.Container();
             mini._docsData = map.data;
+            mini._docsSize = cfg.size;
+            mini._docsFog = cfg.fog;
+            mini._docsVersion = -1;
             // Its own picture (not in PIXI's shared cache), freed with the minimap.
-            const base = new PIXI.BaseTexture(DocsDoodads.Minimap.canvasFor(map.pixels, map.width, map.height), { scaleMode: PIXI.SCALE_MODES.NEAREST });
+            mini._docsCanvas = M.canvasFor(map.pixels, map.width, map.height);
+            const base = new PIXI.BaseTexture(mini._docsCanvas, { scaleMode: PIXI.SCALE_MODES.NEAREST });
+            mini._docsBase = base;
             const pic = new PIXI.Sprite(new PIXI.Texture(base));
-            const scale = 140 / Math.max(map.width, map.height);
+            const scale = cfg.size / Math.max(map.width, map.height);
             pic.scale.set(scale);
             const frame = new PIXI.Graphics();
             frame.lineStyle(2, 0x0f172a, 0.9).drawRect(-1, -1, map.width * scale + 2, map.height * scale + 2);
@@ -13699,6 +13925,15 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             mini._docsArrow = arrow;
             mini.alpha = 0.9;
             this.addChild(mini);
+        }
+        // Newly seen tiles: the picture is drawn again with the fog.
+        if (cfg.fog) {
+            const seen = DocsDoodads.Explored.entry($gameMap.mapId(), map.width, map.height);
+            if (seen.version !== mini._docsVersion) {
+                mini._docsVersion = seen.version;
+                M.paint(mini._docsCanvas, M.withFog(map.pixels, map.width, map.height, seen), map.width, map.height);
+                if (mini._docsBase && mini._docsBase.update) mini._docsBase.update();
+            }
         }
         const sc = mini._docsScale;
         mini.visible = true;
@@ -14197,8 +14432,13 @@ if (typeof Scene_MenuBase !== 'undefined') {
 
     Scene_DocsWorldMap.prototype.create = function() {
         Scene_MenuBase.prototype.create.call(this);
-        const map = DocsDoodads.Minimap.forCurrentMap();
+        let map = DocsDoodads.Minimap.forCurrentMap();
         const s = DocsDoodads.Perspective.active();
+        // With fog of war, the world map shows only what has been seen, as the minimap does.
+        if (map && DocsDoodads.Minimap.settingsFor($gameMap.mapId()).fog) {
+            const seen = DocsDoodads.Explored.entry($gameMap.mapId(), map.width, map.height);
+            map = Object.assign({}, map, { pixels: DocsDoodads.Minimap.withFog(map.pixels, map.width, map.height, seen) });
+        }
         this._map = map;
         this._globe = Boolean(s && s.curve === 'sphere');
         this._spin = 0;
@@ -14274,6 +14514,10 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'showWorldMap', () => {
         if (typeof SceneManager !== 'undefined' && typeof Scene_DocsWorldMap.prototype.create === 'function') SceneManager.push(Scene_DocsWorldMap);
     });
+    PluginManager.registerCommand(pluginName, 'setMinimap', args => {
+        if (typeof $gameSystem !== 'undefined' && $gameSystem) $gameSystem._docsMinimapHidden = String(args.show) === 'false' ? true : undefined;
+    });
+    PluginManager.registerCommand(pluginName, 'exploredMap', args => DocsDoodads.Minimap.exploredCommand(args));
 }
 
 // The ground height (tiles) under a character, for event conditions and scripts:
@@ -21171,6 +21415,11 @@ DocsDoodads.Workspace = {
     // bubble says what to do. No tool (null) is Select.
     toolButtons: { select: 'dd-select-btn', eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn', terrain: 'dd-terrain-btn' },
     toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
+    // Tools added by later parts: { click(coords, e), down(e) (true starts a stroke), move(e, stroking),
+    // up(e), overlay(g) }, called with the workspace as this. The canvas input part calls them.
+    toolHooks: {},
+    // Extra sections of the map's own settings: [{ render(mapSettings) -> html, bind(mapSettings) }].
+    mapSections: [],
 
     setPlacementTool(tool) {
         if (this._tour && this._tour.tool !== tool) this.endTour();
@@ -25821,8 +26070,14 @@ DocsDoodads.Workspace = {
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
                 range('motionBlur.strength', 'Strength', 0.1, 3, 0.1)
+            ] },
+            { title: 'Minimap', fields: [
+                check('minimap.flat', 'Minimap on flat maps too (3D maps have their own switch; a map can turn it off)'),
+                check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
+                range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
+                range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] }
-        ];
+        ].concat(this.extraWorldSections || []);
     },
 
     renderWorldSections() {
@@ -26189,6 +26444,7 @@ DocsDoodads.Workspace = {
             ${this.renderTerrainPanel()}
             ${this.renderMapSoundPanel(mapSettings)}
             ${this.renderLayersPanel(mapSettings)}
+            ${this.mapSections.map(section => section.render.call(this, mapSettings)).join('')}
             ${this.renderWorldSections()}
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}
@@ -26230,6 +26486,7 @@ DocsDoodads.Workspace = {
         this.bindTerrainPanel();
         this.bindMapSoundPanel(mapSettings);
         this.bindLayersPanel(mapSettings);
+        this.mapSections.forEach(section => { if (section.bind) section.bind.call(this, mapSettings); });
         this.bindWorldSections();
         this.bindMapNavigation();
         this.bindPackingPanel();
@@ -27970,6 +28227,7 @@ DocsDoodads.Workspace = {
         this.drawSoundOverlay(g);
         this.drawReachOverlay(g);
         this.drawRegionOverlay(g);
+        for (const name of Object.keys(this.toolHooks)) if (this.toolHooks[name].overlay) this.toolHooks[name].overlay.call(this, g);
         this.drawTransformHandles(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
@@ -28424,6 +28682,11 @@ DocsDoodads.Workspace = {
             }
             this.closeContextMenu();
             const coords = this.clientToMapCoords(e.clientX, e.clientY);
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.click) {
+                hook.click.call(this, coords, e);
+                return;
+            }
 
             // 1. Eyedropper Tool or Alt held
             if (this.placementTool === 'eyedropper' || e.altKey) {
@@ -28466,6 +28729,14 @@ DocsDoodads.Workspace = {
 
         this._onCanvasMouseDown = (e) => {
             if (e.button === 1 && this.beginCameraDrag(e)) return;
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.down && e.button === 0) {
+                if (hook.down.call(this, e)) {
+                    this.isBrushActive = true;
+                    this._hookStroke = hook;
+                }
+                return;
+            }
             if (this.placementTool === 'brush' && e.button === 2) {
                 this.beginScatterErase(e.clientX, e.clientY);
                 return;
@@ -28561,6 +28832,8 @@ DocsDoodads.Workspace = {
                 return;
             }
             if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.move) hook.move.call(this, e, Boolean(this.isBrushActive && this._hookStroke === hook));
             if (this.placementTool === 'region') {
                 this.trackRegionHover(e);
                 if (this.isBrushActive && this._regionStroke) this.regionPaintAt(e.clientX, e.clientY);
@@ -28625,6 +28898,11 @@ DocsDoodads.Workspace = {
                 if (this._scatterErase) this.endScatterErase();
                 if (this._terrainStroke) this.endTerrainStroke();
                 if (this._regionStroke) this.endRegionStroke();
+                if (this._hookStroke) {
+                    const hook = this._hookStroke;
+                    this._hookStroke = null;
+                    if (hook.up) hook.up.call(this, e);
+                }
                 if (this.currentBrushBatch.length > 0) {
                     const batch = [...this.currentBrushBatch];
                     const cmd = {
@@ -31060,6 +31338,34 @@ Object.assign(DocsDoodads.Workspace, {
         this.stopClock();
         this.stopListening();
         this.stopPerf();
+    }
+});
+//==========================================================
+// SECTION 25o: MINIMAP ON FLAT MAPS (MAP SETTINGS)
+//==========================================================
+// The map's own choice for the corner minimap when it is flat: follow World > Minimap, always, or never.
+// (A 3D map uses the switch in its 3D View section.)
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const own = mapSettings && mapSettings.minimap;
+        const value = own === 'on' || own === 'off' ? own : 'auto';
+        const world = DocsDoodads.World.settings().minimap;
+        const option = (v, label) => `<option value="${v}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        return `
+            <details id="dd-minimap-sec" ${this._openMinimap ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Minimap (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Corner minimap when this map is flat
+                        <select id="dd-minimap-mode" style="width: 100%;">${option('auto', `As World > Minimap (${world.flat ? 'on' : 'off'})`)}${option('on', 'On')}${option('off', 'Off')}</select></div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">${world.fog ? 'Fog of war is on: the minimap shows what the player has been near.' : 'Fog of war is off (World > Minimap).'} The Show / Hide Minimap and Explored Map commands change it during play.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-minimap-sec');
+        if (details) details.ontoggle = () => { this._openMinimap = details.open; };
+        const select = document.getElementById('dd-minimap-mode');
+        if (select) select.onchange = e => this.setMapSetting('minimap', e.target.value === 'auto' ? undefined : e.target.value);
     }
 });
 //==========================================================

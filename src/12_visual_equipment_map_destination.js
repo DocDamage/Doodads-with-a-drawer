@@ -219,6 +219,21 @@ DocsDoodads.Minimap = {
         return out;
     },
 
+    // The minimap's pixels with tiles not yet seen dark (explored: DocsDoodads.Explored's entry).
+    fogColor: [18, 22, 34],
+    withFog(pixels, width, height, explored) {
+        const out = new Uint8ClampedArray(pixels);
+        const E = DocsDoodads.Explored;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (E.isExplored(explored, x, y)) continue;
+                const i = (y * width + x) * 4;
+                out[i] = this.fogColor[0]; out[i + 1] = this.fogColor[1]; out[i + 2] = this.fogColor[2]; out[i + 3] = 235;
+            }
+        }
+        return out;
+    },
+
     // A globe (size x size) of the map wrapped round a sphere: the map's width is one lap, and it is
     // turned so (cx, cy) (tiles) faces the viewer. Outside the map's rows is dark; the back is hidden.
     globePixels(map, mapW, mapH, size, cx, cy, spin) {
