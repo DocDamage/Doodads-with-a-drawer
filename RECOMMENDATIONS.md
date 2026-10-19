@@ -87,7 +87,7 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 |---|---|---|
 | 6.1.1 | **Themed dialogs.** **Done.** All 25 prompt, confirm and alert calls are the editor's own cards (`DocsDoodads.Ui.confirm`, `prompt`, `form`, `choose`, `alert`): Enter answers, Esc cancels, Tab stays inside, names are shown as text. Placing an asset as an event picks its template from a list. | S |
 | 6.1.2 | **Ask before losing work.** **Done.** Done, the toggle key, closing the Playtest window and F5 ask Save, Don't Save or Keep Editing; Don't Save puts the saved doodads and events back. | S |
-| 6.1.3 | **One shortcut table.** Keep every binding in one table that drives the key handler, an in-app shortcut list under More, and the guide's cheat sheet, which still says "48px tile grid", "pointer tool" and "Slicer Modal". Let the user rebind keys there. | M |
+| 6.1.3 | **One shortcut table.** **Done.** `DocsDoodads.Shortcuts` drives the key handler, More > Keys (rebinding, kept per computer, asks before taking a key in use), tooltips, the palette and the guide's table (`npm run shortcuts`, checked by verify); letters follow the keyboard layout. | M |
 | 6.1.4 | **Any toggle key.** **Done.** `editKey` takes any key or a chord (`Ctrl+F10`, `Ctrl+Shift+E`); a key that types is ignored while typing in a field. | S |
 | 6.1.5 | **Item Bag sorting.** **Done.** Best match, name, newest first, biggest first, most placed and last placed; remembered. | S |
 | 6.1.6 | **More ways to select.** **Done.** Select All (Ctrl+A), Select Same Art, Select Everything on a layer and Invert Selection, in the canvas menu and the palette; right-clicking inside a multi-selection keeps it. | S |
@@ -98,11 +98,11 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.1.11 | **Drag readout.** **Done.** Position, tile and size beside the cursor while dragging; smart guides also snap base lines and, with nothing near, tile lines. | S |
 | 6.1.12 | **Scatter eraser.** **Done.** Right-drag with Scatter removes the picked item's doodads under the brush, inside a circle drawn on the map, one undo step a stroke. | S |
 | 6.1.13 | **Hills brush feel.** **Done.** Hard and soft edges, `[` and `]` for brush size (Scatter and Paint too), and height numbers on the tiles under the brush. | S |
-| 6.1.14 | **Prefab overrides.** Let a copy change a few named settings (a lamp's colour, a sign's switch) without leaving the prefab, and allow a prefab inside a prefab. | M |
+| 6.1.14 | **Prefab overrides.** **Done.** Settings changed in Details on a copy are its own (marked ●) and survive Sync, with Use Prefab's to go back; a whole copy saved into a prefab goes in as that prefab, synced with it, and kept as doodads if it is deleted. | M |
 | 6.1.15 | **Saved searches.** **Done.** Search terms as removable chips, and named saved searches as chips (kept with the library) and in the palette. | S |
 | 6.1.16 | **Richer hover card.** **Done.** Size, frame count, default depth, times placed and where-used count, with Details, Cut Up and Where Used. | S |
 | 6.1.17 | **Clock scrubber.** **Done.** A time and season preview at the top of the map panel, with ▶ to run the day fast and Now. | S |
-| 6.1.18 | **Looks by time and region.** Blend post-processing looks by the clock (a warm dusk grade) or by region (a cold crypt), beyond the game-wide and per-map looks. | M |
+| 6.1.18 | **Looks by time and region.** **Done.** Time windows that ease in and out (game-wide, a map can opt out) and region looks that fade while the player stands on them (game-wide or per map), each a preset or a copied look with a strength. | M |
 | 6.1.19 | **Sound shown on the map.** **Done.** Show Sounds draws each source's reach and region-sound tiles; Listen plays and lists what a tile hears, with the ambience radius around it. | S |
 | 6.1.20 | **Performance overlay.** **Done.** Show Speed: frames a second, draw calls (counted by wrapping WebGL only while shown), pictures loaded, doodads and lights, with budget warnings. | S |
 

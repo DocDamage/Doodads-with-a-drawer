@@ -44,6 +44,8 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Trace collision from art on a tree and a wall, and walk into both.
 - [ ] Draw a fence with the path tool using end and corner pieces; undo it in one step.
 - [ ] Save a prefab with an event under it, place copies, update the master from one copy, and sync all copies.
+- [ ] Prefab copy own settings: change one copy's light colour and Name in Details (both marked ●), change the master and Sync Copies: that copy keeps its colour and Name, the others follow. Use Prefab's gives the colour back; undo brings it back again.
+- [ ] Prefab inside a prefab: save a whole copy of a lamp prefab with a bench as a new prefab, place two of it, change the lamp prefab and sync it: both copies of the new prefab change. Delete the lamp prefab: the new prefab keeps the lamp's doodads.
 - [ ] Scatter with min spacing, a region rule, and Skip impassable tiles along a shoreline.
 - [ ] Scatter's circle follows the mouse; right-drag erases only the picked item inside it (red circle, no menu); undo the stroke; `[` and `]` resize Scatter, Paint and Hills.
 - [ ] Drag doodads with smart guides, Alt and Shift; undo.
@@ -80,6 +82,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Use Set Post-Processing Look with a fade, then Back to the map's look. Play each screen effect centred on the player and on an event.
 - [ ] Set Quality to Low, and Effects Quality in Options to each value; Off removes every effect.
 - [ ] Export a map image at 100% and 50%, with and without characters; open it and check there are no seams.
+- [ ] Looks by time: add a time look (Golden Hour, 17:00 to 19:30, fade 60) and scrub the clock bar from 15:00 to 21:00: it eases in, holds, eases out. Turn Looks by time of day off for an interior map: it stays plain.
+- [ ] Looks by region: paint region 5, give it Underwater (fade 1 s), walk on and off it in play: it fades in and out; a map's own region 5 look wins over the game-wide one; transfer onto region 5 and it is already in. The eye button previews it while editing.
 - [ ] Close the editor with Screen Looks and File Check open; both close too.
 
 ## Particles, VFX and character animation
@@ -142,6 +146,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Add Sample Items in a disposable project: four pictures, two prefabs and a biome appear; adding again adds nothing; place the garden and paint the meadow. Remove `img/doodads/samples` and `data/DocsDoodadsPrefabs.json` afterwards if the project should stay clean.
 - [ ] What's New shows once after an update and not for a first-time user.
 - [ ] Palette: "grid toggle" finds Toggle Grid; a command used twice shows under Recent; "time 6pm", "go to map 3", "season winter" and "size 125" work.
+- [ ] More > Keys: give Stamp the key S, press S on the map (Stamp is on), see S in its tooltip and the palette; bind G to Path and confirm it asks before taking the grid's key; F10, Esc and the arrows are refused; Esc while waiting keeps the old keys; Reset All. On a non-QWERTY layout (AZERTY), Ctrl+Z undoes from the key marked Z.
 - [ ] Map tabs: open three maps; tabs appear, the current one marked; edit one and switch: its tab keeps a dot until Save; × removes a tab.
 - [ ] Folder view: switch, open nested folders, search narrows the tree, reopen the editor and folders stay open; switch back to cards.
 - [ ] Clock: on a map with day and night, drag the time and see lamps, shadows and (3D) the sky follow; pick a season and see season art; ▶ runs the day; Now goes back.
