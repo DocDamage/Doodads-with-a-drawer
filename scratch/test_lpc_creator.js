@@ -109,7 +109,14 @@ const cr = () => ws._creator;
     assert.strictEqual(cr().state.slots.shirt.id, 'torso/robe', 'only safe parts: the robe');
     assert.strictEqual(cr().state.slots.shirt.colour, 'red');
     assert.ok(html().includes('id="dd-cr-shirt-colour"'), 'a swatch for its colour');
-    ws.setLpcSafeOnly(false);
+    // The safe-to-encrypt switch is on for a new project, says what it hides, and is easy to turn off.
+    assert.ok(/Only art safe to encrypt · 3 of 4/.test(html()), 'the switch says how many parts it shows');
+    assert.ok(html().includes("1 more part here isn't safe to encrypt.") && html().includes('id="dd-cr-showall-outfit"'), 'the tab says a part is hidden');
+    assert.ok(!html().includes('id="dd-cr-more-body"'), 'not where nothing is hidden');
+    click('dd-cr-showall-outfit');
+    assert.strictEqual(ws.lpcSafeOnly(), false);
+    assert.ok(/Showing all 4 parts\..*Tick "Only art safe to encrypt" at the top to go back\./.test(toasts.pop()[1]), 'it says what that means and how to go back');
+    assert.ok(!html().includes('dd-cr-showall-outfit') && /> Only art safe to encrypt<\/label>/.test(html()), 'the line goes; the switch is unticked');
     click('dd-cr-shirt-next');
     assert.strictEqual(cr().state.slots.shirt.id, 'torso/shirt', 'every part when the setting is off');
     assert.ok(/Credits · 2 artists · 1 not safe to encrypt/.test(html()), 'credits count the artists and unsafe art');

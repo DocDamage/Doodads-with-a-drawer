@@ -55,6 +55,8 @@ DocsDoodads.Ui.css += `
 #dd-creator .dd-cr-toggles label { display: flex; align-items: center; gap: 5px; }
 #dd-creator .dd-cr-toggles input { width: 16px; height: 16px; accent-color: #19b6a4; }
 #dd-creator .dd-cr-warn { font-size: 11px; font-weight: 700; color: #9a6a00; text-align: center; min-height: 14px; }
+#dd-creator .dd-cr-more { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; padding: 6px 10px; border-radius: 14px; background: #f6efe0; font-size: 12px; font-weight: 700; color: #5b4c70; }
+#dd-creator .dd-cr-more button { flex: none; border: none; border-radius: 999px; padding: 5px 12px; background: #0b8174; color: #fffaf0; font-weight: 900; font-size: 12px; box-shadow: 0 3px 0 #075f55; }
 #dd-creator .dd-cr-btn { border: 3px solid #e8d6ab; background: #fffaf0; border-radius: 999px; padding: 9px 22px; font-weight: 900; font-size: 15px; color: #3a2e4d; box-shadow: 0 5px 0 #e8d6ab; }
 #dd-creator .dd-cr-export { border: none; background: #c8472c; color: #fffaf0; border-radius: 999px; padding: 11px 26px; font-weight: 900; font-size: 17px; box-shadow: 0 6px 0 #9e3218; }
 #dd-creator .dd-cr-pop { position: absolute; z-index: 2; background: #fffaf0; border: 3px solid #f0e2c0; border-radius: 20px; box-shadow: 0 6px 0 #ecd9ad, 0 14px 30px rgba(58, 46, 77, 0.3); padding: 10px; }
@@ -186,6 +188,14 @@ Object.assign(DocsDoodads.Workspace, {
         this.creatorChanged();
     },
 
+    // "Show all parts": the safe-to-encrypt switch off, saying what that means and how to turn it back on.
+    creatorShowAllParts() {
+        this.setLpcSafeOnly(false);
+        const s = DocsDoodads.Lpc.summary(this.lpcIndex(), false);
+        this.showToast(`Showing all ${s ? s.parts : ''} parts. Characters with CC-BY or CC-BY-SA art can't be in a game deployed with "Encrypt image files" (the export says which). Tick "Only art safe to encrypt" at the top to go back.`, 'info');
+        this.creatorChanged();
+    },
+
     creatorShuffle(card) {
         const S = DocsDoodads.LpcSlots, c = this._creator;
         c.state = S.shuffle(c.state, this.lpcIndex(), card, Math.random, this.lpcSafeOnly());
@@ -311,12 +321,20 @@ Object.assign(DocsDoodads.Workspace, {
                 ${v.channel >= 0 ? `<button type="button" class="dd-cr-swatch" id="${id}-colour" style="background: ${escapeHtml(v.colour)};" aria-label="${escapeHtml((row.colour2 && v.channel === 1 ? row.colour2 : row.label) + ' colour: ' + v.colourName.replace(/_/g, ' '))}" title="${escapeHtml(v.colourName.replace(/_/g, ' '))} (click for all colours)"></button>` : '<span></span>'}
             </div>`;
         };
+        // Where the safe-to-encrypt switch hides parts from the tab in view, a line says so, with a way to see them.
+        const moreHtml = cardKey => {
+            if (!this.lpcSafeOnly()) return '';
+            const hidden = S.hiddenBySafeOnly(index, this.creatorRows(cardKey).filter(r => r.key !== '_body'), c.state.body);
+            if (!hidden) return '';
+            return `<div class="dd-cr-more" id="dd-cr-more-${cardKey}"><span>${hidden} more part${hidden === 1 ? '' : 's'} here ${hidden === 1 ? "isn't" : "aren't"} safe to encrypt.</span><button type="button" id="dd-cr-showall-${cardKey}" title="Turn off &quot;Only art safe to encrypt&quot; (at the top) to choose from every part">Show all parts</button></div>`;
+        };
         const cardHtml = cardKey => {
             const card = S.cards.find(x => x.key === cardKey);
             return `<div class="dd-cr-card${c.cursor.card === cardKey ? ' dd-cr-here' : ''}${narrow && c.cursor.card !== cardKey ? ' dd-cr-hidden' : ''}" id="dd-cr-card-${cardKey}" aria-label="${escapeHtml(card.label)}">
                 <div class="dd-cr-switch">${S.cards.map(k => `<button type="button" id="dd-cr-switch-${cardKey}-${k.key}" aria-pressed="${k.key === cardKey}">${escapeHtml(k.key === 'body' ? 'Body & face' : 'Outfit')}</button>`).join('')}</div>
                 <div class="dd-cr-tabs" role="tablist">${card.tabs.map((t, i) => `<button type="button" role="tab" class="dd-cr-tab" id="dd-cr-tab-${cardKey}-${i}" aria-selected="${c.tabs[cardKey] === i}">${escapeHtml(t.label)}</button>`).join('')}</div>
                 <div class="dd-cr-rows">${this.creatorRows(cardKey).map(rowHtml).join('')}</div>
+                ${moreHtml(cardKey)}
             </div>`;
         };
         const composed = this.creatorComposed();
@@ -329,7 +347,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} Character Creator</div>
                 <div class="dd-cr-lib">LPC library · ${summary.usable} parts${summary.commit ? ' · version ' + escapeHtml(summary.commit.slice(0, 7)) : ''}</div>
                 <div class="dd-cr-grow"></div>
-                <label class="dd-cr-chip" title="Only parts offered under CC0 or OGA-BY, which may be encrypted when deploying"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt</label>
+                <label class="dd-cr-chip" title="${this.lpcSafeOnly() ? `On: only parts offered under CC0 or OGA-BY (${summary.safe} of ${summary.parts}), which may be in a game deployed with &quot;Encrypt image files&quot;. Untick to choose from every part.` : `Off: every part (${summary.parts}). A character with CC-BY or CC-BY-SA art can't be in a game deployed with &quot;Encrypt image files&quot;; the export and Problems say which.`}"><input type="checkbox" id="dd-cr-safe" ${this.lpcSafeOnly() ? 'checked' : ''} /> Only art safe to encrypt${this.lpcSafeOnly() ? ` · ${summary.safe} of ${summary.parts}` : ''}</label>
                 <button type="button" class="dd-cr-close" id="dd-cr-close" aria-label="Close the creator" title="Close (Esc)">✕</button>
             </div>
             <div class="dd-cr-main">
@@ -466,6 +484,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-cr-addons', e => { c.addons = Boolean(e.target.checked); this.creatorChanged(); }, 'onchange');
         on('dd-cr-shadow', e => { c.shadow = Boolean(e.target.checked); this.renderCreator(); }, 'onchange');
         on('dd-cr-safe', e => { this.setLpcSafeOnly(Boolean(e.target.checked)); this.creatorChanged(); }, 'onchange');
+        for (const card of S.cards) on('dd-cr-showall-' + card.key, () => this.creatorShowAllParts());
         on('dd-cr-name', e => { c.name = String(e.target.value || ''); }, 'oninput');
         on('dd-cr-save', () => this.creatorSave());
         on('dd-cr-load', () => { c.pop = c.pop && c.pop.kind === 'load' ? null : { kind: 'load' }; this.renderCreator(); });

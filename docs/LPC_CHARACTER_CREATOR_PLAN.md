@@ -675,9 +675,14 @@ frames as custom animations instead, so before this a character holding one swun
 ## 19. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
-2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting
-   (`lpc.safeOnly`) and can be turned off.
+2. ~~**Default licence policy:**~~ decided (2026-10-19): **on** for a new project, and easy to find to turn off.
+   It is a project setting (`lpc.safeOnly`).
+   - The creator's top bar shows it with how many parts it lets through ("Only art safe to encrypt · 512 of 657").
+   - Where it hides parts in the tab in view, a line says how many, with **Show all parts**. That turns it off and
+     says what that means and how to go back.
+   - The Characters card keeps the switch with its explanation.
 3. ~~**Library location:**~~ decided in phase 1: one folder outside the project, remembered per computer. A folder
    inside the project would be copied into the game by MZ's Deployment.
-4. **Fork-specific additions:** does the DocDamage fork add parts or fields beyond the upstream generator that
-   should be supported from day one?
+4. ~~**Fork-specific additions:**~~ answered (2026-10-19): nothing extra to support. A scan of the DocDamage fork
+   at `b2c85f9` reads all 657 parts, skips none and finds no fields the plugin doesn't know. Parts added later in
+   the same format show up after a rescan; new fields would be reported by the schema guard.

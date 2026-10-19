@@ -77,12 +77,20 @@ DocsDoodads.LpcSlots = {
         return this.allSlots().find(s => s.key === key) || null;
     },
 
-    // Parts that fit: the slot's kinds, a picture for this body that walks, safe ones when asked. By name.
+    // Parts that fit: the slot's kinds, a picture for this body that walks (or the big weapon art that stands
+    // in for the usual animations: a long spear walks on walk_128, a club only swings), safe ones when asked.
+    // By name.
     options(index, slot, body, safeOnly) {
         if (!index || !slot) return [];
-        return index.parts.filter(p => slot.types.includes(p.type) && p.layers.some(l => l.paths[body] && !l.custom) &&
-            (!p.animations.length || p.animations.includes('walk')) && (!safeOnly || p.safeFor[body]))
+        const big = DocsDoodads.LpcCompose.oversize;
+        return index.parts.filter(p => slot.types.includes(p.type) && p.layers.some(l => l.paths[body] && (!l.custom || big[l.custom])) &&
+            (!p.animations.length || p.animations.includes('walk') || p.animations.some(a => big[a])) && (!safeOnly || p.safeFor[body]))
             .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    },
+
+    // How many parts the safe-to-encrypt switch hides from some slots, for this body.
+    hiddenBySafeOnly(index, slots, body) {
+        return (slots || []).reduce((n, slot) => n + this.options(index, slot, body, false).length - this.options(index, slot, body, true).length, 0);
     },
 
     // Whether the creator offers a channel: a part that matches the body takes its first colour from the skin.

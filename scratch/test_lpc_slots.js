@@ -42,6 +42,14 @@ assert.deepStrictEqual(S.options(index, S.slot('shirt'), 'male', false).map(p =>
 assert.deepStrictEqual(S.options(index, S.slot('shirt'), 'male', true).map(p => p.name), ['Robe', 'Shirt'], 'safe only');
 assert.deepStrictEqual(S.options(index, S.slot('shirt'), 'female', true).map(p => p.name), ['Shirt'], 'only parts drawn for the body');
 assert.deepStrictEqual(S.options(index, S.slot('legs'), 'male', true).map(p => p.name), ['Pants']);
+assert.strictEqual(S.hiddenBySafeOnly(index, [S.slot('shirt'), S.slot('legs')], 'male'), 1, 'what the safe-to-encrypt switch hides');
+// Big weapons that only have the library's bigger art (a spear walking on walk_128, a club that only swings) are offered.
+const weapons = { palettes, parts: [
+    part('weapons/spear', { name: 'Long spear', type_name: 'weapon', animations: ['walk_128', 'thrust_oversize'], layer_1: { zPos: 140, custom_animation: 'walk_128', male: 'w/spear/walk/' } }),
+    part('weapons/club', { name: 'Club', type_name: 'weapon', animations: ['slash_reverse_oversize'], layer_1: { zPos: 150, custom_animation: 'slash_reverse_oversize', male: 'w/club/' } }),
+    part('body/wheelchair', { name: 'Wheelchair', type_name: 'weapon', animations: ['wheelchair'], layer_1: { zPos: 1, custom_animation: 'wheelchair', male: 'w/chair/' } })
+] };
+assert.deepStrictEqual(S.options(weapons, S.slot('weapon'), 'male', false).map(p => p.name), ['Club', 'Long spear'], 'other custom animations still are not');
 console.log('✓ slots and options');
 
 // 2. A new character: the body and a head that suits it; skin-following channels are not offered.
