@@ -65,7 +65,7 @@ const block = name => { const m = new RegExp(':root\\[data-dd-theme="' + name + 
 const base = /:root \{([^}]*)\}/.exec(css)[1];
 const vars = text => new Set([...text.matchAll(/(--dd-[\w-]+)\s*:/g)].map(m => m[1]));
 const baseVars = vars(base);
-for (const theme of ['dark', 'contrast']) {
+for (const theme of ['dark', 'contrast', 'playful']) {
     const v = vars(block(theme));
     assert.ok(v.size > 10, theme + ' sets the colours');
     for (const name of v) assert.ok(baseVars.has(name), `${theme}: ${name} is a theme colour`);
@@ -85,7 +85,14 @@ assert.ok(ratio(value(block('dark'), '--dd-text'), value(block('dark'), '--dd-pa
 assert.ok(ratio(value(block('dark'), '--dd-muted'), value(block('dark'), '--dd-panel')) > 4.5, 'dark: muted text');
 assert.ok(ratio(value(block('contrast'), '--dd-muted'), value(block('contrast'), '--dd-panel')) > 12, 'high contrast: muted text is nearly black');
 assert.ok(ratio(value(base, '--dd-text'), value(base, '--dd-panel')) > 7, 'light: text on panels');
-console.log('✓ themes: only --dd-* colours, surfaces covered, readable contrast');
+// Playful: readable text on the cream cards, and white words on its filled buttons at 4.5:1 or better.
+const playful = block('playful');
+assert.ok(ratio(value(playful, '--dd-text'), value(playful, '--dd-panel')) > 7, 'playful: text on panels');
+assert.ok(ratio(value(playful, '--dd-muted'), value(playful, '--dd-panel')) > 4.5, 'playful: muted text');
+for (const fill of ['--dd-primary', '--dd-good', '--dd-danger']) assert.ok(ratio(value(playful, fill), '#ffffff') >= 4.5, 'playful: white on ' + fill);
+assert.ok(U.themes.some(t => t.value === 'playful'), 'Playful is offered under Look');
+assert.ok(/data-dd-theme="playful"\] \.dd-btn \{[^}]*border-radius: 999px/.test(css), 'playful: pill buttons');
+console.log('✓ themes: only --dd-* colours, surfaces covered, readable contrast (Playful too)');
 
 // 2. Look on the page, kept per computer.
 U.applyLook();
@@ -98,6 +105,9 @@ ws.mounted = true;
 ws.layoutPanels = () => {};
 assert.ok(ws.setLook('theme', 'dark'));
 assert.strictEqual(html.getAttribute('data-dd-theme'), 'dark');
+assert.ok(ws.setLook('theme', 'playful'));
+assert.strictEqual(html.getAttribute('data-dd-theme'), 'playful');
+ws.setLook('theme', 'dark');
 assert.strictEqual(U.prefs().theme, 'dark');
 ws.setLook('theme', 'nonsense');
 assert.strictEqual(html.getAttribute('data-dd-theme'), null, 'unknown: light');
