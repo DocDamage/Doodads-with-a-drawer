@@ -28,12 +28,16 @@ Source collection: [Universal LPC Spritesheet Character Generator](https://githu
 
 How it follows:
 
-1. **The library is installed per project, outside the plugin.** The user points the creator at a local copy
-   (a clone or the ZIP). It is about 1.5 GB, so we never bundle or download it ourselves. The default place is
-   `<project>/lpc/`, kept out of deployment. Only the **exported** sheets go into `img/`.
+1. **The library stays outside the project and the plugin.** The user points the editor at a local copy (a
+   clone or the ZIP), and the folder is remembered per computer. It is about 1.5 GB, so we never bundle or
+   download it ourselves.
+   - MZ's Deployment copies every file in the project folder, so a library inside the project would ship with
+     the game. The editor warns when the chosen folder is inside it.
+   - Only the **exported** sheets go into `img/`.
 2. **Credits travel with each export.** Each exported PNG gets an entry in `data/DocsDoodadsCredits.json` listing
    the files used, their authors, licences, URLs and notes (copied from each part's `credits` block). There are
-   also a **Credits** button in the creator, an "Export CREDITS.txt" action, and an optional in-game credits scene.
+   also a **Credits** button in the creator and a `CREDITS_LPC.txt` beside the game, which ships with it.
+   Problems says when that file needs writing again. An in-game credits scene is optional.
 3. **Encryption filter.** CC-BY and CC-BY-SA (3.0 and 4.0) forbid "technological measures" that stop people
    reusing the work, and MZ's "Encrypt image files" is such a measure. CC0 and OGA-BY allow it, which is why
    OGA-BY exists.
@@ -83,7 +87,8 @@ What the format looks like, from the research:
 
 - **Walk frames:** 0 is standing, and 1–8 are the cycle.
 
-**The importer** (editor only, NW.js `fs`) walks a chosen library folder and writes `data/DocsDoodadsLpcIndex.json`:
+**The importer** (editor only, NW.js `fs`) walks a chosen library folder and writes the editor cache,
+`data/docs_doodads_cache/lpc_index.json`. That is about 860 KB for 657 parts, and it sits beside the thumbnails:
 
 - one record per part: id, category, name, body types, variants, layers with z, animations, licences, authors,
   and `safeToEncrypt`;
@@ -334,12 +339,34 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
 
   Existing `[fN]` sheets must keep today's pace.
 
-## 12. Open questions for the owner
+## 12. Phase 1 (done, 2026-10-19)
+
+- **`src/23_lpc_index.js` (`DocsDoodads.Lpc`)** holds the pure parts, with the library read through an fs that is
+  passed in:
+  - the scan, with its schema guard: it skips with a reason, and reports fields it doesn't know;
+  - palettes, the library's commit, and a "library inside the project" check;
+  - licences per body type (`safeFor`), judged by the credit block of each layer folder;
+  - credits per picture, and the text of `CREDITS_LPC.txt`. That file names the most open licence each artwork
+    is offered under, then lists the others.
+- **`src/44_workspace_lpc_library.js`**, the More > **Characters** card:
+  - the folder (with a folder picker), Scan or Scan Again, and the status (parts, safe, colour sets, version,
+    kinds, skipped, new fields);
+  - a warning when the library has changed or moved since the scan;
+  - the encrypt-safe switch;
+  - credits, and Write `CREDITS_LPC.txt`.
+- **`recordLpcImage(image, used)`** is the hook the exports will call (phase 4).
+- **Problems** gets two project-wide groups, without Go To:
+  - pictures that can't be encrypted;
+  - `CREDITS_LPC.txt` missing or out of date, with **Write It**.
+- **Checked in MZ:** the real library scanned from the card in about 1.3 s (it says "Scanning..." first). Credits
+  for the spike's sheets were recorded, Problems listed the CC-BY-SA picture, and Write It wrote the file.
+
+## 13. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
-2. **Default licence policy:** start with the encrypt-safe switch **on** (fewer parts, deploy-safe), or **off**
-   (the full collection, with a warning at deploy)?
-3. **Library location:** inside the project (`<project>/lpc/`, simple and per-project) or one shared folder for
-   all projects (saves 1.5 GB per project)?
+2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting
+   (`lpc.safeOnly`) and can be turned off.
+3. ~~**Library location:**~~ decided in phase 1: one folder outside the project, remembered per computer. A folder
+   inside the project would be copied into the game by MZ's Deployment.
 4. **Fork-specific additions:** does the DocDamage fork add parts or fields beyond the upstream generator that
    should be supported from day one?

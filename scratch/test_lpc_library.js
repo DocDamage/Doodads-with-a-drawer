@@ -135,7 +135,9 @@ elements['dd-lpc-scan'] = { onclick: null };
 elements['dd-lpc-safe'] = { onchange: null };
 elements['dd-lpc-folder'] = { value: lib, onchange: null };
 ws.showLpcCard();
-elements['dd-lpc-scan'].onclick();
+(async () => {
+await elements['dd-lpc-scan'].onclick();
+assert.strictEqual(elements['dd-lpc-scan'].textContent, 'Scanning...', 'says so while it scans');
 assert.strictEqual(ws.lpcIndexStale(), '', 'scanning again catches up with the library');
 elements['dd-lpc-safe'].onchange({ target: { checked: false } });
 assert.strictEqual(ws.lpcSafeOnly(), false);
@@ -154,3 +156,4 @@ assert.ok(/closeLpcCard/.test(String(ws.close)), 'closed with the editor');
 console.log('✓ card: status, stale and inside-project warnings, setting, credits, scan and folder picker');
 
 console.log('=== LPC library in the editor passed ===');
+})().catch(e => { console.error(e); process.exit(1); });

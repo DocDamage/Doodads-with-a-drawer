@@ -33636,11 +33636,17 @@ Object.assign(DocsDoodads.Workspace, {
         if (field) field.onchange = e => { this.setLpcLibraryFolder(e.target.value); this.refreshLpcCard(); };
         on('dd-lpc-close', () => this.closeLpcCard());
         on('dd-lpc-choose', () => this.pickLpcLibraryFolder());
+        // A big library takes a second or so: say so first, then scan once the page has drawn it.
         on('dd-lpc-scan', () => {
             const typed = field ? field.value : folder;
             if (typed !== folder) this.setLpcLibraryFolder(typed);
-            this.scanLpcLibrary(this.lpcLibraryFolder());
-            this.refreshLpcCard();
+            const button = document.getElementById('dd-lpc-scan');
+            if (button) { button.disabled = true; button.textContent = 'Scanning...'; }
+            return new Promise(resolve => setTimeout(() => {
+                this.scanLpcLibrary(this.lpcLibraryFolder());
+                this.refreshLpcCard();
+                resolve();
+            }, 30));
         });
         const safe = document.getElementById('dd-lpc-safe');
         if (safe) safe.onchange = e => { this.setLpcSafeOnly(Boolean(e.target.checked)); this.refreshLpcCard(); };
