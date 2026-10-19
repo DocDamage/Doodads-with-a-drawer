@@ -697,6 +697,7 @@
     },
 
     applyDoodadProperty(d, key, value) {
+        if (d && d.prefabRef && this.noteOwnSetting) this.noteOwnSetting(d, key);
         if (key === 'flipX' || key === 'flipY') {
             const axis = key === 'flipX' ? 'scaleX' : 'scaleY';
             d[axis] = Math.abs(d[axis] !== undefined ? d[axis] : 1) * (value ? -1 : 1);
@@ -1028,7 +1029,9 @@
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;
                 const shared = items.length > 1 ? this.sharedValue(items, f.key) : { value: this.getDoodadProperty(first, f.key), mixed: false };
-                return this.fieldHtml(id, f, shared.value, shared.mixed);
+                // A prefab copy's own setting (kept when copies sync) is marked.
+                const own = items.some(d => d.prefabRef && Array.isArray(d.prefabRef.own) && d.prefabRef.own.includes(f.key));
+                return this.fieldHtml(id, own ? Object.assign({}, f, { label: f.label + ' ●' }) : f, shared.value, shared.mixed);
             }).join('');
             return `
                 <details id="dd-fx-sec-${si}" ${this._openEffectSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">

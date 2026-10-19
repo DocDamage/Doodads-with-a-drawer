@@ -282,41 +282,170 @@ DocsDoodads.Prefabs = {
         return { x: 0, y: 0 };
     },
 
+    // Each doodad in a master has a key (pk) that its placed copies keep in prefabRef.pk, so settings a
+    // copy keeps as its own (prefabRef.own, a list of Details keys) find their doodad again when copies are
+    // rebuilt. A master can hold other prefabs: children [{ key, id, x, y, own }], placed from their own
+    // master each time, so changing the inner prefab changes every prefab that holds it. A child's own
+    // settings are { innerPk: { key: value } }. Keys of a child's doodads are child.key + '/' + inner key.
+    pkOf(src, index) {
+        return src && src.pk ? String(src.pk) : 'k' + index;
+    },
+
+    // Sets a Details key on a doodad when no editor is there to do it (dot keys set inside the group).
+    setProperty(d, key, value) {
+        const dot = key.indexOf('.');
+        if (dot > 0) {
+            const group = key.slice(0, dot);
+            d[group] = Object.assign({}, d[group] || {}, { [key.slice(dot + 1)]: value });
+        } else {
+            d[key] = value;
+        }
+    },
+
+    // Every doodad the prefab places, positions relative to its origin, and its events with the pixel
+    // offset of the origin their tile offsets count from. A prefab inside itself is skipped.
+    expand(prefab, options = {}, seen = new Set()) {
+        const out = { doodads: [], events: [] };
+        if (!prefab || seen.has(prefab.id) || seen.size > 16) return out;
+        const inner = new Set(seen).add(prefab.id);
+        const apply = options.applyProperty || ((d, key, value) => this.setProperty(d, key, value));
+        (prefab.doodads || []).forEach((src, i) => {
+            const d = JSON.parse(JSON.stringify(src));
+            delete d.pk;
+            out.doodads.push({ d, pk: this.pkOf(src, i) });
+        });
+        (prefab.events || []).forEach(e => out.events.push({ e, ox: 0, oy: 0 }));
+        (prefab.children || []).forEach((child, ci) => {
+            const master = this.get(child.id);
+            if (!master) return;
+            const key = child.key || 'c' + ci;
+            const placed = this.expand(master, options, inner);
+            for (const item of placed.doodads) {
+                item.d.x += Number(child.x) || 0;
+                item.d.y += Number(child.y) || 0;
+                const own = child.own && child.own[item.pk];
+                if (own) for (const k of Object.keys(own)) apply(item.d, k, own[k]);
+                out.doodads.push({ d: item.d, pk: key + '/' + item.pk });
+            }
+            for (const ev of placed.events) out.events.push({ e: ev.e, ox: ev.ox + (Number(child.x) || 0), oy: ev.oy + (Number(child.y) || 0) });
+        });
+        return out;
+    },
+
+    // The prefabs that hold this one, however deep.
+    containers(prefabId) {
+        const found = new Set();
+        let frontier = [prefabId];
+        while (frontier.length) {
+            const next = [];
+            for (const p of this.ensureLoaded()) {
+                if (found.has(p.id) || p.id === prefabId) continue;
+                if ((p.children || []).some(c => frontier.includes(c.id))) { found.add(p.id); next.push(p.id); }
+            }
+            frontier = next;
+        }
+        return Array.from(found);
+    },
+
+    // Before a prefab is deleted: the prefabs holding it keep what it placed as their own doodads and
+    // events (same keys, so placed copies keep their own settings).
+    bakeChild(prefabId, options = {}) {
+        const tw = options.tileWidth || 48, th = options.tileHeight || 48;
+        let count = 0;
+        for (const p of this.ensureLoaded()) {
+            if (p.id === prefabId || !(p.children || []).some(c => c.id === prefabId)) continue;
+            p.children = p.children.filter((child, ci) => {
+                if (child.id !== prefabId) return true;
+                const key = child.key || 'c' + ci;
+                const placed = this.expand({ id: p.id + '/bake', children: [Object.assign({}, child, { key })] }, options);
+                for (const item of placed.doodads) p.doodads = (p.doodads || []).concat([Object.assign(item.d, { pk: item.pk })]);
+                for (const ev of placed.events) {
+                    p.events = (p.events || []).concat([Object.assign(JSON.parse(JSON.stringify(ev.e)), {
+                        dx: ev.e.dx + Math.round(ev.ox / tw), dy: ev.e.dy + Math.round(ev.oy / th)
+                    })]);
+                }
+                count++;
+                return false;
+            });
+            if (!p.children.length) delete p.children;
+            p.updatedAt = Date.now();
+        }
+        return count;
+    },
+
+    thumbnailFor(prefab) {
+        const first = this.expand(prefab).doodads.find(item => item.d.bit && item.d.bit[0] === 3);
+        return first ? first.d.bit[1] : '';
+    },
+
+    // options: { tileWidth, tileHeight, whole(instance) (every doodad of that placed copy is in the list:
+    // it becomes a child prefab), ownValues(d) ({ key: value } for the doodad's own settings) }.
     capture(name, doodads, events, options = {}) {
         const tw = options.tileWidth || 48, th = options.tileHeight || 48;
         doodads = (doodads || []).filter(Boolean);
         events = (events || []).filter(Boolean);
         const origin = this.originFor(doodads, events, tw, th);
         const originTile = { x: Math.floor(origin.x / tw), y: Math.floor((origin.y - 1) / th) };
-        const first = doodads.find(d => d.bit && d.bit[0] === 3);
-        return {
+        // options.onLink(d, pk) hears the key each picked doodad has in the new prefab.
+        const children = [], own = [], childOf = new Map(), seenIn = new Map();
+        for (const d of doodads) {
+            const ref = d.prefabRef;
+            if (ref && this.get(ref.id) && options.whole && options.whole(ref.instance)) {
+                let child = childOf.get(ref.instance);
+                if (!child) {
+                    child = { key: 'c' + children.length, id: ref.id, x: Math.round((Number(ref.ox) || 0) - origin.x), y: Math.round((Number(ref.oy) || 0) - origin.y) };
+                    childOf.set(ref.instance, child);
+                    children.push(child);
+                }
+                const n = seenIn.get(ref.instance) || 0;
+                seenIn.set(ref.instance, n + 1);
+                const inner = this.pkOf(ref, n);
+                const values = Array.isArray(ref.own) && ref.own.length && options.ownValues ? options.ownValues(d) : null;
+                if (values && Object.keys(values).length) (child.own = child.own || {})[inner] = values;
+                if (options.onLink) options.onLink(d, child.key + '/' + inner);
+            } else {
+                if (options.onLink) options.onLink(d, 'k' + own.length);
+                own.push(d);
+            }
+        }
+        const prefab = {
             id: this.newId('pf_'),
             name: String(name || 'Prefab').trim() || 'Prefab',
             createdAt: Date.now(),
             origin,
-            thumbnail: first ? first.bit[1] : '',
-            doodads: doodads.map(d => Object.assign(this.cleanDoodad(d), { x: d.x - origin.x, y: d.y - origin.y })),
+            thumbnail: '',
+            doodads: own.map((d, i) => Object.assign(this.cleanDoodad(d), { x: d.x - origin.x, y: d.y - origin.y, pk: 'k' + i })),
             events: events.map(e => Object.assign(JSON.parse(JSON.stringify(e)), { dx: e.x - originTile.x, dy: e.y - originTile.y }))
         };
+        if (children.length) prefab.children = children;
+        prefab.thumbnail = this.thumbnailFor(prefab);
+        return prefab;
     },
 
+    // options: { tileWidth, tileHeight, instance, groupId, allocateEventId, keep ({ pk: { key: value } }: a
+    // copy's own settings put back), applyProperty }.
     instantiate(prefab, at, options = {}) {
         const tw = options.tileWidth || 48, th = options.tileHeight || 48;
         const instance = options.instance || this.newId('pi_');
         const groupId = options.groupId || ('grp_' + instance);
-        const atTile = { x: Math.floor(at.x / tw), y: Math.floor((at.y - 1) / th) };
-        const doodads = (prefab.doodads || []).map(src => {
-            const d = JSON.parse(JSON.stringify(src));
-            d.x = Math.round(at.x + src.x);
-            d.y = Math.round(at.y + src.y);
+        const apply = options.applyProperty || ((d, key, value) => this.setProperty(d, key, value));
+        const placed = this.expand(prefab, options);
+        const doodads = placed.doodads.map(({ d, pk }) => {
+            d.x = Math.round(at.x + d.x);
+            d.y = Math.round(at.y + d.y);
             d.groupId = groupId;
-            d.prefabRef = { id: prefab.id, instance, ox: at.x, oy: at.y };
+            d.prefabRef = { id: prefab.id, instance, ox: at.x, oy: at.y, pk };
+            const keep = options.keep && options.keep[pk];
+            if (keep && Object.keys(keep).length) {
+                for (const key of Object.keys(keep)) apply(d, key, keep[key]);
+                d.prefabRef.own = Object.keys(keep);
+            }
             return d;
         });
-        const events = (prefab.events || []).map(src => {
+        const events = placed.events.map(({ e: src, ox, oy }) => {
             const e = JSON.parse(JSON.stringify(src));
-            e.x = atTile.x + src.dx;
-            e.y = atTile.y + src.dy;
+            e.x = Math.floor((at.x + ox) / tw) + src.dx;
+            e.y = Math.floor((at.y + oy - 1) / th) + src.dy;
             delete e.dx;
             delete e.dy;
             e.id = options.allocateEventId ? options.allocateEventId(e) : null;
@@ -325,13 +454,35 @@ DocsDoodads.Prefabs = {
         return { instance, groupId, doodads, events };
     },
 
-    // Recaptures the master's doodads from one placed copy (its events are left as they were).
-    updateFromInstance(prefab, instanceDoodads) {
+    // Recaptures the master from one placed copy (its events are left as they were). The copy's own
+    // doodads replace the master's; a child prefab moves with its doodads and keeps the copy's own settings
+    // for them. options: { ownValues(d) }.
+    updateFromInstance(prefab, instanceDoodads, options = {}) {
         if (!prefab || !instanceDoodads || instanceDoodads.length === 0) return null;
         const ref = instanceDoodads[0].prefabRef;
-        prefab.doodads = instanceDoodads.map(d => Object.assign(this.cleanDoodad(d), { x: d.x - ref.ox, y: d.y - ref.oy }));
-        const first = instanceDoodads.find(d => d.bit && d.bit[0] === 3);
-        if (first) prefab.thumbnail = first.bit[1];
+        const inChild = d => Boolean(d.prefabRef && String(d.prefabRef.pk || '').indexOf('/') > 0);
+        const expected = this.expand(prefab).doodads;
+        prefab.doodads = instanceDoodads.filter(d => !inChild(d)).map((d, i) =>
+            Object.assign(this.cleanDoodad(d), { x: d.x - ref.ox, y: d.y - ref.oy, pk: (d.prefabRef && d.prefabRef.pk) || 'k' + i }));
+        (prefab.children || []).forEach((child, ci) => {
+            const key = child.key || 'c' + ci;
+            const mine = instanceDoodads.filter(d => inChild(d) && String(d.prefabRef.pk).indexOf(key + '/') === 0);
+            if (!mine.length) return;
+            const was = expected.find(item => item.pk === mine[0].prefabRef.pk);
+            if (was) {
+                child.x = (Number(child.x) || 0) + Math.round(mine[0].x - ref.ox - was.d.x);
+                child.y = (Number(child.y) || 0) + Math.round(mine[0].y - ref.oy - was.d.y);
+            }
+            // What the child already changed stays; the copy's own settings are added on top.
+            const own = JSON.parse(JSON.stringify(child.own || {}));
+            for (const d of mine) {
+                const values = Array.isArray(d.prefabRef.own) && d.prefabRef.own.length && options.ownValues ? options.ownValues(d) : null;
+                const inner = String(d.prefabRef.pk).slice(key.length + 1);
+                if (values && Object.keys(values).length) own[inner] = Object.assign(own[inner] || {}, values);
+            }
+            if (Object.keys(own).length) child.own = own; else delete child.own;
+        });
+        prefab.thumbnail = this.thumbnailFor(prefab) || prefab.thumbnail;
         prefab.updatedAt = Date.now();
         return prefab;
     }
