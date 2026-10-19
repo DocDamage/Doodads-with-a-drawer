@@ -2121,8 +2121,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 // Loaded models by path (project-relative): { ready, error, primitives, textures }.
 DocsDoodads.Models = {
     _cache: {},
-    // A model that failed to load (missing, half-copied, broken) is tried again after this long.
-    retryAfter: 5000,
+
+    // The game's folder, where index.html is (as MZ finds its save folder), not the working directory: a
+    // deployed game can be started from a shortcut with another "Start in", or from Finder on macOS.
+    root() {
+        const path = DocsDoodads.FS.path;
+        const main = typeof process !== 'undefined' && process.mainModule && process.mainModule.filename;
+        return main ? path.dirname(main) : path.resolve('.');
+    },
 
     // Models, and the files they point to, have to be inside the project folder.
     inside(root, target) {
@@ -2131,18 +2137,20 @@ DocsDoodads.Models = {
         return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
     },
 
-    get(path) {
+    // retry: load again a model that failed (missing, half-copied, broken). Only map setup and live reload
+    // ask for that; drawing never does, so a broken model doesn't read files in the middle of play.
+    get(path, retry) {
         if (!path) return null;
         const key = String(path).replace(/\\/g, '/');
         const cached = this._cache[key];
-        if (cached && !(cached.error && Date.now() - cached.failedAt >= this.retryAfter)) return cached;
+        if (cached && !(retry && cached.error)) return cached;
         if (cached) this.release(cached);
         // files: every file the model reads (itself, its buffers and images), for live reload.
         const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [], files: [] };
         try {
             const FS = DocsDoodads.FS;
             if (!FS.fs) throw new Error('Models need the desktop game.');
-            const root = FS.path.resolve('.');
+            const root = this.root();
             const file = FS.path.resolve(root, key);
             if (!this.inside(root, file)) throw new Error('Models have to be inside the project folder.');
             entry.files.push(file);
@@ -2211,7 +2219,7 @@ DocsDoodads.Models = {
 
     // Loads the models a map's doodads use when the map is set up, not in the middle of drawing a frame.
     preload(list) {
-        for (const d of list || []) if (d && d.model && d.model.path) this.get(d.model.path);
+        for (const d of list || []) if (d && d.model && d.model.path) this.get(d.model.path, true);
     },
 
     // The primitive's colour texture (shared between scenes, and between parts using the same image),

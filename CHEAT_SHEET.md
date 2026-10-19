@@ -14,6 +14,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `<motion blur>` / `<no motion blur>` | Turns motion blur on or off for this event. | 8 |
 | `<no reflection>` | Not reflected in water. | 8 |
 | `<spatial>` / `<no spatial>` | Its sound effects are, or aren't, placed in the world (distance and panning). | 11 |
+| `<no variance>` | Its sound effects keep their authored pitch and volume (no random variation). | 11 |
 | `<sound: River, 80, 8>` | A looping background sound heard within 8 tiles, at volume 80. | 11 |
 | `<sound: se/Bird1, 60, 10, 5>` | A sound effect repeated about every 5 seconds, heard within 10 tiles. | 11 |
 | `<visual actor: 4>` | Wears actor 4's look (layers and all). | 13 |
@@ -52,7 +53,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | :--- | :--- | :--- |
 | Set Ambient Light | darkness, color, duration | Fades the map's darkness. |
 | Reset Ambient Light | duration | Back to the map's own darkness. |
-| Set Time of Day | hour, minute | Jumps the day/night clock. |
+| Set Time of Day | hour, minute, day (optional) | Jumps the day/night clock; the day stays unless given. |
 | Pass Time | hours, minutes | Moves the clock forward. |
 | Clock Control | action, speed | Pause, resume or change the clock's speed. |
 | Set Season | season | Changes the season. |
@@ -76,14 +77,14 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Flashlight | state | The player's flashlight on, off, or back to World > Lighting; saved. |
 | Set Wind | strength, direction, duration | Flat maps: wind for swaying doodads, particles, fog and leaves (0-1, or `world`). |
 | 2D Camera Path | points, frames, ease, then, wait | Flat maps: glide the camera through tiles (`10,5; 20,8`), then back or stay. |
-| 2D Camera Follow | target, eventId | Flat maps: the camera follows the player, this event or another event. |
+| 2D Camera Follow | target, eventId | Flat maps: the camera follows the player, this event, another event, or nothing (stays put). |
 | Set Traversal | ability, state | Jump, glide, swim, dive, fly, climb or ice on, off or as in the World settings, for this game. |
 | Traversal Action | action | The player jumps, takes off, lands or dives (if allowed). |
 | Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
 | Set Doodad State | name, state, mapId | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. |
 | Set Doodad Light | name, light, mapId | Named doodads' lights on, off or back to their own; saved. |
-| Store Doodad State | name, variableId | A named doodad's state number (-1: none here) into a variable. |
+| Store Doodad State | name, variableId, mapId | A named doodad's state number (-1: none there) into a variable. |
 | Show / Hide Minimap | show | The corner minimap off (cutscenes, dark caves) or back on; saved. |
 | Explored Map | action, radius, mapId | With fog of war: reveal a whole map, reveal around the player, or forget a map; saved. |
 
@@ -94,7 +95,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `DocsDoodads.Terrain.heightOf($gamePlayer) >= 2` | Conditional Branch on the ground height under the player (or `this.character(0)`). |
 | `DocsDoodads.WorldState.is('Front Door', 'Open')` | Conditional Branch on a named doodad's state. `state(name)` gives its state's name, `light(name)` whether its light is on. |
 | `DocsDoodads.api.find('Street Lamp')` | Doodads by Name (or `{ art, near: { x, y, radius } }`); also `place`, `move`, `set`, `remove`, `setState`, `setLight`, `setTime`, `setSeason`, `ambient`, and `on('touch', fn)`. See the Guide, section 15. |
-| `DocsDoodads.WorldState.touched().name` | In a doodad's touch common event: which doodad was touched (`name`, `state`, `mapId`). |
+| `DocsDoodads.WorldState.touched().name` | In a doodad's touch common event: which doodad was touched (`name`, `state`, `mapId`, and its tile `x`, `y`). |
 
 ## Player keys
 

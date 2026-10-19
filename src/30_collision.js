@@ -96,13 +96,15 @@ DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
 // Doodads hidden by their switch, condition, season or a layer hidden in game never block, nor do
 // doodads in a state without collision (an open door).
-DocsDoodads.Collision.blocksTile = function(tx, ty) {
+// vehicles: only doodads set to block boats and ships (collision.vehicles) count.
+DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
     const tileBox = this.tileBox(tx, ty, tw, th);
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
     for (const dData of doodads) {
+        if (vehicles && !(dData && dData.collision && dData.collision.vehicles)) continue;
         const colBody = this.bodyOf(dData);
         if (!colBody) continue;
         // The box test is cheap; switches and conditions are only checked for doodads on this tile.
@@ -121,7 +123,9 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (this.isThrough() || this.isDebugThrough()) return true;
         if (this.isInAirship && this.isInAirship()) return true;
         if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
-        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d));
+        // Boats and ships sail past doodads over water unless a doodad is set to block them (a pier).
+        const sailing = (this.isInBoat && this.isInBoat()) || (this.isInShip && this.isInShip());
+        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing);
     };
 }
 

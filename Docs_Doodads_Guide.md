@@ -174,7 +174,7 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Handles**: a picked doodad (one, on a flat map) shows corner handles and a knob above it. Drag a corner to resize it around its foot (it stays standing where it was); **Shift** keeps its proportions. Drag the knob to turn it; **Shift** snaps to 15 degrees. Each drag is one undo step.
 - **Animation** (Details, for a doodad drawn as a strip of frames): frames across and down (the picture is split evenly), speed (game frames per picture; 0 holds still), the frame to start on, and Play: Loop, Back and forth, Once (when its switch turns on; again each time it turns on) or Hold one frame.
 - **States** (Details): give the doodad a **Name** (events find it by this; doodads with the same name follow together), then **+ Add State**. State 0 is the doodad as placed; each other state can show another picture (**Use Picked Art** takes the one picked in the Item Bag) and can turn the doodad's **Light** and **Collision** off. **Switched by**: Events only, a switch (off shows state 0, on shows state 1) or a variable (its value picks the state). **Crossfade** is how many frames the old picture takes to fade. **Preview** shows a state on the map while editing (nothing is saved).
-- **Touch** (Details): a **common event to run** when the player presses Action facing the doodad (or clicks it), or, with **Runs on: Walking into it**, bumps into it or steps onto it. **Also go to its next state** makes a door that opens and closes with no event at all. Inside the common event, `DocsDoodads.WorldState.touched()` says which doodad it was (`name`, `state`).
+- **Touch** (Details): a **common event to run** when the player presses Action facing the doodad (or clicks it), or, with **Runs on: Walking into it**, bumps into it or steps onto it. **Also go to its next state** makes a door that opens and closes with no event at all. Inside the common event, `DocsDoodads.WorldState.touched()` says which doodad it was (`name`, `state`) and where (`mapId`, and `x`, `y`: the tile its base stands on).
 - **Several picked**: Details shows "—" where the picked doodads differ (a half-ticked box, a "— mixed —" choice); changing a field sets it on all of them. **Placement** sets their X, Y, Z-order, turn and size.
 - **Number boxes** in Details: drag the label left or right to change the number (Shift for bigger steps), or use the arrow keys.
 - **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
@@ -212,7 +212,7 @@ Select a placed doodad (or several) and open Details' collapsible sections. Ever
 
 **Map lighting**: with nothing selected, Details shows the map's settings. Set **Ambient Darkness** and colour, optionally only while a switch is ON (a night switch), and toggle **Preview lighting while editing**. During play, the plugin commands **Set Ambient Light** (darkness %, colour, fade frames) and **Reset Ambient Light** fade between moods.
 
-**Doodad states and lights in saves**: **Set Doodad State** (a Name, then a state's name or number, `next`, or blank to follow its switch or variable again; on this map or another), **Set Doodad Light** (on, off, or its own setting) and **Store Doodad State** (its number into a variable) are kept with the save file, so the lamp the player smashed stays smashed. A saved state wins over the doodad's switch or variable. In a Conditional Branch script: `DocsDoodads.WorldState.is('Front Door', 'Open')`.
+**Doodad states and lights in saves**: **Set Doodad State** (a Name, then a state's name or number, `next`, or blank to follow its switch or variable again; on this map or another), **Set Doodad Light** (on, off, or its own setting) and **Store Doodad State** (its number into a variable, on this map or another) are kept with the save file, so the lamp the player smashed stays smashed. A saved state wins over the doodad's switch or variable. A state the doodad doesn't have is refused, with a warning in the console that lists the ones it has. In a Conditional Branch script: `DocsDoodads.WorldState.is('Front Door', 'Open')`.
 
 ---
 
@@ -227,7 +227,7 @@ These settings apply to the whole game. With nothing selected, Details shows the
 - **Lamps**: set a doodad's Light to *After dark* and it fades on once darkness passes **Lamps switch on at darkness**, and off again in the morning.
 - **Preview a time while editing** scrubs the clock without changing the game.
 - **Per map**: *Day and night on this map* is *Auto* (follow the clock unless the map sets its own darkness, so caves stay dark), *Follow the clock*, or *Ignore (indoors)*.
-- Plugin commands: **Set Time of Day**, **Pass Time**, **Clock Control** (pause, resume, speed), and **Set/Reset Ambient Light**, which still win over the clock while they are active.
+- Plugin commands: **Set Time of Day**, **Pass Time**, **Clock Control** (pause, resume, speed), and **Set/Reset Ambient Light**, which still win over the clock while they are active. Set Time of Day keeps the day even when the new hour is earlier (give it a Day to change that); Pass Time past midnight starts the next day.
 
 ### Sun and Shadows
 - The sun rises in the east and sets in the west. Morning shadows point west, noon shadows are short and point up the screen, evening shadows point east, and a faint moon does the same at night. You can use a fixed direction or a variable (degrees) instead.
@@ -270,7 +270,7 @@ Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**,
 ### Layers, wind, lightning and the camera on flat maps
 - **Background and Overlay Layers** (the map's settings, flat maps): any number of pictures from `img/parallaxes`, each **behind the tiles** (above MZ's own parallax) or **over the map** (over characters, under weather and pictures). Each has how much it **follows the camera** (0 = fixed to the screen, 1 = moves with the map, in between = far away), its own **scroll** across and down, **zoom**, **opacity**, **blend** (normal, add, multiply, screen) and whether it **repeats** across and down. **Fog Banks** adds soft fog drawn by the game (`#fog` as the picture) that **drifts with the wind**. Layers draw in the order listed (↑ moves one further back). The 3D view has its own sky and fog, so layers show on flat maps only.
 - **World → Weather on Flat Maps**: **Wind** (0 calm to 1 gale), its direction and **gusts**; rain and storms make it windier. The wind leans doodads that **Sway**, pushes particles (smoke, leaves, sparks) and fog layers, and can blow **leaves** across the screen (with their colour). **Lightning in storms** flashes the screen about every few seconds in a full storm (rarer in weaker ones), and the **thunder** comes after: soon for near strikes, up to the delay set for far ones. **Set Wind** changes the wind during play, easing over some frames.
-- **World → Camera on Flat Maps**: the camera can **ease after the player** instead of keeping them exactly centred, and **look ahead** of where they walk. In the map's **Camera (flat map)** settings, list region numbers: while the player stands on one of them, the view stays inside the area that region covers (a room, a corridor). **2D Camera Path** glides the camera through tiles for a cutscene (waiting for it, if asked), then back to the player or staying put; **2D Camera Follow** follows this event, another event, or the player again.
+- **World → Camera on Flat Maps**: the camera can **ease after the player** instead of keeping them exactly centred, and **look ahead** of where they walk. In the map's **Camera (flat map)** settings, list region numbers: while the player stands on one of them, the view stays inside the area that region covers (a room, a corridor). **2D Camera Path** glides the camera through tiles for a cutscene (waiting for it, if asked), then back to the player or staying put; **2D Camera Follow** follows this event, another event, or the player again, or nothing: the camera stays put until a Follow for the player. **Scroll Map** works with the eased camera too: the view stays where Scroll Map (or a script's `setDisplayPos`) left it until the player takes a step.
 
 ### Turning effects off during play
 **Set Atmosphere Effect** switches character shadows, motion blur, water reflections or see-through on or off for the current playthrough.
@@ -391,7 +391,9 @@ Open **Traversal** in the map panel (*All maps*) to give the player more ways to
 With **Spatial Sound** on (map panel, *All maps*), every **Play SE** run by a map event, and every SE in a movement route, is heard from where the event stands:
 - Quieter with distance: full volume within *Full volume within* tiles, silent past *Silent beyond*.
 - Panned left or right by direction: fully to one side at *Full left/right at* tiles.
-- Slightly varied in pitch and volume each time (*Pitch variation*, *Volume variation*), so repeated footsteps, doors and barks never sound identical.
+- Optionally varied in pitch and volume each time (*Pitch variation*, *Volume variation*, both 0 until you set them), so repeated footsteps, doors and barks never sound identical. Tag an event `<no variance>` to keep its sounds as authored.
+
+Sounds in battles, menus and common events with no map event are always played as authored, and other plugins that change Play SE keep working.
 
 Sounds from the party stay centred. Choose *Only events tagged &lt;spatial&gt;* to opt events in one by one, or tag an event `<no spatial>` to opt it out. Nothing needs setting up on each event.
 
@@ -727,7 +729,7 @@ Everything works on the map the player is on unless a map ID is given. Doodads a
 | `move(query, x, y, { relative, tiles })`, `set(query, fields)`, `remove(query)` | Moves, changes (`art` for a new picture) or removes doodads. |
 | `state(name)`, `setState(name, state)`, `stateNames(name)` | States, as Set Doodad State (kept in the save). |
 | `light(name)`, `setLight(name, true / false / null)` | Lights, as Set Doodad Light (kept in the save). |
-| `time()`, `setTime(h, m)`, `addTime(h, m)` | The time of day in minutes (`null` with the clock off). |
+| `time()`, `setTime(h, m, day)`, `addTime(h, m)` | The time of day in minutes (`null` with the clock off). `day` is optional; without it the day stays. |
 | `season()`, `seasonName()`, `setSeason(n or name)` | The season. |
 | `ambient(darkness, color, frames)`, `ambient(null)` | Fades the ambient light (0 to 1), or back to the map's own. |
 | `on('touch' / 'state' / 'light', fn)` | Calls `fn` with `{ doodad }`, `{ name, state }` or `{ name, on }` (and `mapId`); returns a function that stops it. |

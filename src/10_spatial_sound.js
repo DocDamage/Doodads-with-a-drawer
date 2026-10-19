@@ -39,8 +39,9 @@ DocsDoodads.SpatialSound = {
         return { name: se.name, volume, pitch: se.pitch, pan };
     },
 
-    // Pitch drifts both ways; volume only dips, so nothing gets louder than authored.
+    // Pitch drifts both ways; volume only dips, so nothing gets louder than authored. Off with the mode.
     vary(se, s, rng) {
+        if (!s || s.mode === 'off') return se;
         const pv = Math.max(0, Number(s && s.pitchVariance) || 0), vv = Math.max(0, Number(s && s.volumeVariance) || 0);
         if (!se || (!pv && !vv)) return se;
         const r = rng || Math.random;

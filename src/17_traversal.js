@@ -171,8 +171,23 @@ DocsDoodads.Traversal = {
         if (!this.can('jump')) return false;
         const j = this.plan(p);
         p.jump(j.dx, j.dy);
+        this.wrapAfterJump([p].concat(p._followers && p._followers._data ? p._followers._data : []));
         this.playSe(this.settings().jump.sound);
         return true;
+    },
+
+    // MZ's jump adds the distance as it is, so a jump over a looping map's edge would land outside the
+    // map. Each jumper's tile is wrapped back in, and its drawn position with it (as MZ does for a step
+    // over the edge), so the jump still looks continuous.
+    wrapAfterJump(list) {
+        for (const ch of list) {
+            if (!ch || !ch.isJumping || !ch.isJumping()) continue;
+            const ox = $gameMap.roundX(ch._x) - ch._x, oy = $gameMap.roundY(ch._y) - ch._y;
+            ch._x += ox;
+            ch._realX += ox;
+            ch._y += oy;
+            ch._realY += oy;
+        }
     },
 
     // Dive from deep water to this map's underwater map, or surface from an underwater map.
@@ -183,7 +198,15 @@ DocsDoodads.Traversal = {
         const down = Number(ms.diveMap) || 0, up = Number(ms.surfaceMap) || 0;
         const to = this.isSwimming(p) && down > 0 ? down : up > 0 ? up : 0;
         if (!to) return false;
+        // A map that was deleted (or never made) would stop the game on the transfer.
+        if (typeof $dataMapInfos !== 'undefined' && $dataMapInfos && !$dataMapInfos[to]) {
+            console.warn(`[DocsDoodads] Dive: map ${to} doesn't exist.`);
+            if (typeof SoundManager !== 'undefined' && SoundManager.playBuzzer) SoundManager.playBuzzer();
+            return false;
+        }
         this.playSe(this.settings().dive.sound);
+        // The other map may be smaller: the player is kept inside it on arrival.
+        p._docsKeepInside = true;
         p.reserveTransfer(to, p.x, p.y, p.direction(), 0);
         return true;
     },
@@ -362,11 +385,24 @@ if (typeof Game_Player !== 'undefined') {
         return speed;
     };
 
-    // Ice: once on it the player slides on until stopped (no walking animation while sliding).
+    // Arriving from a dive on a smaller map: onto its nearest tile.
+    $.Game_Player_performTransfer_traversal = Game_Player.prototype.performTransfer;
+    Game_Player.prototype.performTransfer = function() {
+        const keep = this._docsKeepInside && this.isTransferring();
+        $.Game_Player_performTransfer_traversal.call(this);
+        if (!keep) return;
+        this._docsKeepInside = false;
+        if (!$gameMap.isValid(this.x, this.y)) {
+            this.locate(Math.max(0, Math.min($gameMap.width() - 1, this.x)), Math.max(0, Math.min($gameMap.height() - 1, this.y)));
+        }
+    };
+
+    // Ice: once on it the player slides on until stopped (no walking animation while sliding). The slide
+    // waits, as walking does, while a message is open or an event runs.
     $.Game_Player_moveByInput_traversal = Game_Player.prototype.moveByInput;
     Game_Player.prototype.moveByInput = function() {
         const d = this._docsSlideDir;
-        if (d && !this.isMoving() && !this.isJumping()) {
+        if (d && !this.isMoving() && !this.isJumping() && this.canMove()) {
             if (X().can('ice') && X().isIce(this.x, this.y) && this.canPass(this.x, this.y, d)) {
                 this.moveStraight(d);
                 if (this.isMovementSucceeded()) return;

@@ -208,8 +208,9 @@ DocsDoodads.EventTemplates = {
         }
     },
 
+    // A template by key, or null when there is none (a custom template deleted since it was picked).
     get(templateKey) {
-        return this.templates[templateKey] || this.templates.npc;
+        return this.templates[templateKey] || null;
     },
 
     saveCustomTemplate(name, eventObj, category = "Custom") {

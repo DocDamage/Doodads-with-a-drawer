@@ -418,13 +418,16 @@ if (typeof Sprite_Destination !== 'undefined') {
         $.Sprite_Destination_destroy.call(this, options);
     };
 
+    // MZ's update (and any plugin's that wrapped it first) runs, then the marker's own style is applied
+    // over it, counted on its own frame counter (MZ's wraps every 20 frames).
+    $.Sprite_Destination_update = Sprite_Destination.prototype.update;
     Sprite_Destination.prototype.update = function() {
-        Sprite.prototype.update.call(this);
+        $.Sprite_Destination_update.call(this);
         const s = D.current();
         this.updateDocsStyle(s);
         this.z = D.zFor(s.layer);
         if (!$gameTemp.isDestinationValid()) {
-            this._frameCount = 0;
+            this._docsFrame = 0;
             this.visible = false;
             this._docsKey = null;
             this.stopDocsEffect();
@@ -434,21 +437,21 @@ if (typeof Sprite_Destination !== 'undefined') {
         const key = $gameTemp.destinationX() + ',' + $gameTemp.destinationY() + ',' + s.style;
         if (key !== this._docsKey) {
             this._docsKey = key;
-            this._frameCount = 0;
+            this._docsFrame = 0;
             this.stopDocsEffect();
         }
         this.updatePosition();
-        this._frameCount++;
-        const p = D.pulse(s.pulse, this._frameCount);
+        this._docsFrame = (this._docsFrame || 0) + 1;
+        const p = D.pulse(s.pulse, this._docsFrame);
         const drawn = !['none', 'animation', 'vfx'].includes(s.style);
         this.visible = true;
         this.opacity = drawn ? s.opacity * p.alpha : 0;
         this.scale.set(s.scale * p.scale, s.scale * p.scale);
-        this.rotation = D.rotation(s.spin, this._frameCount);
-        this.y += D.bob(s.bob, this._frameCount);
+        this.rotation = D.rotation(s.spin, this._docsFrame);
+        this.y += D.bob(s.bob, this._docsFrame);
         this.blendMode = D.blendMode(s.blend);
         if (s.style === 'image' && this.bitmap && this.bitmap.isReady()) {
-            const f = D.imageFrame(s.image, this.bitmap.width, this.bitmap.height, this._frameCount, s.fps);
+            const f = D.imageFrame(s.image, this.bitmap.width, this.bitmap.height, this._docsFrame, s.fps);
             this.setFrame(f.x, f.y, f.w, f.h);
         }
         this.updateDocsEffect(s);
@@ -552,7 +555,7 @@ if (typeof Sprite_Destination !== 'undefined') {
         const r = Math.max(3, Math.min(tw, th) * 0.11);
         dots.clear();
         (this._docsDotTiles || []).forEach((t, i) => {
-            const fade = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin((this._frameCount - i * 6) / 60 * Math.PI * 2));
+            const fade = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(((this._docsFrame || 0) - i * 6) / 60 * Math.PI * 2));
             dots.beginFill(color, fade);
             dots.drawCircle(($gameMap.adjustX(t.x) + 0.5) * tw, ($gameMap.adjustY(t.y) + 0.5) * th, r);
             dots.endFill();
@@ -651,13 +654,14 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
     PluginManager.registerCommand(pluginName, 'setVisualColor', function(args) {
         const actor = VE.actorFor(args);
-        const part = String(args.part || '').trim();
+        // Parts match in any case (as layers do), so Hair and hair are one colour.
+        const part = String(args.part || '').trim().toLowerCase();
         if (!actor || !part) return;
         const v = visual(actor);
         v.colors = Object.assign({}, v.colors);
+        for (const key of Object.keys(v.colors)) if (key.toLowerCase() === part) delete v.colors[key];
         const tint = /^#?([0-9a-f]{6})$/i.exec(String(args.tint || '').trim());
-        if (String(args.reset) === 'true') delete v.colors[part];
-        else v.colors[part] = { hue: Number(args.hue) || 0, tint: tint ? parseInt(tint[1], 16) : null };
+        if (String(args.reset) !== 'true') v.colors[part] = { hue: Number(args.hue) || 0, tint: tint ? parseInt(tint[1], 16) : null };
     });
     PluginManager.registerCommand(pluginName, 'setDestination', function(args) {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return;

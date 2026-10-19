@@ -27,7 +27,7 @@ DocsDoodads.World = {
         postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [], feet: {}, svBody: {} },
-        sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
+        sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 0, volumeVariance: 0 },
         // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
         zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },
         focus: { enabled: true, music: 0.6, reach: 0.5, boost: 1.5 },
@@ -297,7 +297,7 @@ DocsDoodads.CharacterTags = {
 
     parse(text) {
         const out = {};
-        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection|spatial)\s*(?::([^>]*))?>/gi;
+        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection|spatial|variance)\s*(?::([^>]*))?>/gi;
         let match;
         while ((match = re.exec(String(text || '')))) {
             const on = !match[1];
@@ -316,6 +316,8 @@ DocsDoodads.CharacterTags = {
                 out.reflect = on;
             } else if (kind === 'spatial') {
                 out.spatial = on;
+            } else if (kind === 'variance') {
+                out.variance = on;
             }
         }
         const sound = /<\s*sound\s*:\s*([^>]+)>/i.exec(String(text || ''));
@@ -682,13 +684,17 @@ DocsDoodads.Atmosphere = {
         };
     },
 
-    clock() {
+    // The running clock, or null when day and night doesn't run on it. Reading never stores one in the save:
+    // until the clock first runs (or Set Time moves it) reads see the start hour. create stores it.
+    clock(create) {
         const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
         if (!system) return null;
-        if (!system._docsClock) {
-            system._docsClock = DocsDoodads.TimeOfDay.newClock((Number(DocsDoodads.World.settings().time.startHour) || 0) * 60);
-        }
-        return system._docsClock;
+        const time = DocsDoodads.World.settings().time;
+        if (time.source !== 'clock') return null;
+        if (system._docsClock) return system._docsClock;
+        const clock = DocsDoodads.TimeOfDay.newClock((Number(time.startHour) || 0) * 60);
+        if (create) system._docsClock = clock;
+        return clock;
     },
 
     editorPreview(field) {
@@ -723,7 +729,7 @@ DocsDoodads.Atmosphere = {
         const world = DocsDoodads.World.settings();
         if (world.time.source !== 'clock' || sceneActive === false) return;
         if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return;
-        const clock = this.clock();
+        const clock = this.clock(true);
         if (!clock) return;
         const speed = clock.speed !== null && clock.speed !== undefined ? clock.speed : world.time.minutesPerSecond;
         DocsDoodads.TimeOfDay.advance(clock, 1, speed);

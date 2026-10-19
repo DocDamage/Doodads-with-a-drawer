@@ -908,7 +908,12 @@
 
         if (mode === "event" || asset.type === "character_sheet" || asset.type === "single_character") {
             const picked = document.getElementById('dd-event-template');
-            const template = DocsDoodads.EventTemplates.get(templateKey || (picked ? picked.value : 'npc'));
+            const wanted = templateKey || (picked ? picked.value : 'npc');
+            let template = DocsDoodads.EventTemplates.get(wanted);
+            if (!template) {
+                template = DocsDoodads.EventTemplates.get('npc');
+                this.showToast(`The event template "${wanted}" is gone, so the event was made as an NPC.`, 'warning');
+            }
             const mapId = $gameMap.mapId();
             DocsDoodads.Persistence.stagedFor(mapId);
             const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);

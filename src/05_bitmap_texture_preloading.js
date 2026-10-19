@@ -15,9 +15,45 @@ DocsDoodads.loadBitmap = function(path) {
     }
     const slash = path.indexOf('/');
     const folder = slash > -1 ? 'img/' + path.slice(0, slash + 1) : 'img/';
+    const ext = /\.(jpe?g|webp)$/i.exec(path);
     const file = (slash > -1 ? path.slice(slash + 1) : path).replace(/\.[^/.]+$/, "");
     // Known to be missing: nothing to wait for (and no new request on every map).
-    if (MA.isMissing(folder, file)) return ImageManager._emptyBitmap || null;
+    if (MA.isMissing(folder, file, ext ? ext[0] : '')) return ImageManager._emptyBitmap || null;
+    // MZ's loadBitmap always asks for .png; other pictures load by their own name.
+    if (ext) return MA.track(DocsDoodads.loadPlainImage(MA.urlFor(folder, file, ext[0])));
+    return MA.track(ImageManager.loadBitmap(folder, file));
+};
+
+// A JPEG or WebP picture by URL, through MZ's image cache. MZ's Deployment encrypts only PNG files, so in
+// an encrypted game these are read as they are (MZ's Bitmap.load would ask for "Rock.jpg_").
+DocsDoodads.loadPlainImage = function(url) {
+    const encrypted = typeof Utils !== 'undefined' && typeof Utils.hasEncryptedImages === 'function' && Utils.hasEncryptedImages();
+    const cache = ImageManager._cache;
+    if (!encrypted || !cache || typeof Bitmap === 'undefined' || typeof Image === 'undefined' || typeof Bitmap.prototype._onLoad !== 'function') {
+        return ImageManager.loadBitmapFromUrl(url);
+    }
+    if (cache[url]) return cache[url];
+    // MZ's Bitmap.load and _startLoading for an unencrypted picture.
+    const bitmap = Object.create(Bitmap.prototype);
+    bitmap.initialize();
+    bitmap._url = url;
+    bitmap._image = new Image();
+    bitmap._image.onload = bitmap._onLoad.bind(bitmap);
+    bitmap._image.onerror = bitmap._onError.bind(bitmap);
+    if (typeof bitmap._destroyCanvas === 'function') bitmap._destroyCanvas();
+    bitmap._loadingState = 'loading';
+    bitmap._image.src = url;
+    cache[url] = bitmap;
+    return bitmap;
+};
+
+// A picture that only Doc's Doodads' data names (a layer's parallax, an idle, run or action sheet):
+// MZ's "Exclude unused files" leaves it out of a deployed game, so like doodad art it is skipped with a
+// warning instead of stopping the game. null when it is already known to be missing.
+DocsDoodads.loadImgTracked = function(folder, file) {
+    if (typeof ImageManager === 'undefined' || !file) return null;
+    const MA = DocsDoodads.MissingArt;
+    if (MA.isMissing(folder, file)) return null;
     return MA.track(ImageManager.loadBitmap(folder, file));
 };
 
@@ -29,13 +65,13 @@ DocsDoodads.MissingArt = {
     _art: typeof WeakSet !== 'undefined' ? new WeakSet() : null,
     missing: new Set(),
 
-    urlFor(folder, file) {
+    urlFor(folder, file, ext) {
         const encode = typeof Utils !== 'undefined' && Utils.encodeURI ? Utils.encodeURI : encodeURI;
-        return folder + encode(file) + '.png';
+        return folder + encode(file) + (ext || '.png');
     },
 
-    isMissing(folder, file) {
-        return this.missing.has(this.urlFor(folder, file));
+    isMissing(folder, file, ext) {
+        return this.missing.has(this.urlFor(folder, file, ext));
     },
 
     track(bitmap) {

@@ -369,6 +369,7 @@
                         <option value="custom">Custom Rectangle</option>
                     </select>
                     <button class="dd-btn" id="dd-prop-trace-col" style="width: 100%; margin-top: 4px;" title="Fit the collision to the solid base of the image">Trace from Art</button>
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 4px;" title="Boats and ships sail past doodads unless this is ticked (a pier, a rock in the sea)"><input type="checkbox" id="dd-prop-col-vehicles" ${d.collision && d.collision.vehicles ? 'checked' : ''} /> Blocks boats and ships</label>
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
@@ -434,12 +435,24 @@
             document.getElementById('dd-prop-col').onchange = (e) => {
                 const val = e.target.value;
                 const colEditor = document.getElementById('dd-custom-col-editor');
-                this.editDoodads([d], o => { o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null }; }, 'set_collision');
+                this.editDoodads([d], o => {
+                    const vehicles = o.collision && o.collision.vehicles;
+                    o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null };
+                    if (vehicles) o.collision.vehicles = true;
+                }, 'set_collision');
                 if (colEditor) colEditor.style.display = val === 'custom' ? 'block' : 'none';
                 if (val === 'custom') renderColPreview();
             };
 
             if (isCustomCol) renderColPreview();
+            document.getElementById('dd-prop-col-vehicles').onchange = (e) => {
+                const on = e.target.checked;
+                this.editDoodads([d], o => {
+                    o.collision = Object.assign({ preset: 'none', shape: null }, o.collision);
+                    if (on) o.collision.vehicles = true;
+                    else delete o.collision.vehicles;
+                }, 'set_collision');
+            };
 
             const updateCustomCol = () => {
                 const cx = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-x').value) || 0));

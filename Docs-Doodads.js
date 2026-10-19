@@ -106,7 +106,8 @@
  *
  * 13. Spatial Sound (map panel: Spatial Sound, Sound (this map)):
  *    - Event and move-route sound effects are quieter far away and panned left/right,
- *      with slight random pitch/volume variation. <no spatial> opts an event out.
+ *      with optional random pitch/volume variation (off by default). <no spatial> opts an
+ *      event out of placement, <no variance> out of variation.
  *    - Ambient sounds on doodads and events (<sound: River, 80, 8>), cave echo,
  *      background sounds by region, and the Play SE At plugin command.
  *
@@ -374,6 +375,12 @@
  * @min 0
  * @max 59
  * @default 0
+ *
+ * @arg day
+ * @text Day
+ * @desc The clock's day count. Leave blank to keep the day (an earlier hour doesn't start a new day).
+ * @type string
+ * @default
  *
  * @command addTime
  * @text Pass Time
@@ -1249,7 +1256,7 @@
  *
  * @command storeDoodadState
  * @text Store Doodad State
- * @desc Stores the number of a named doodad's state on this map (0 = as placed; -1 when there is none) in a variable.
+ * @desc Stores the number of a named doodad's state (0 = as placed; -1 when there is none) in a variable.
  *
  * @arg name
  * @text Doodad Name
@@ -1259,6 +1266,13 @@
  * @text Variable
  * @type variable
  * @default 1
+ *
+ * @arg mapId
+ * @text Map
+ * @desc 0 = this map.
+ * @type number
+ * @min 0
+ * @default 0
  *
  * @command setWind
  * @text Set Wind
@@ -1325,7 +1339,7 @@
  *
  * @command cameraFollow2d
  * @text 2D Camera Follow
- * @desc On flat maps: the camera follows the player (and stops a held path), this event, or another event.
+ * @desc On flat maps: the camera follows the player (and stops a held path), this event, another event, or nothing (stays put for Scroll Map).
  *
  * @arg target
  * @text Follow
@@ -1336,6 +1350,8 @@
  * @value this
  * @option Event by ID
  * @value event
+ * @option Nothing (stay put, for Scroll Map and scripts)
+ * @value free
  * @default player
  *
  * @arg eventId
@@ -1862,9 +1878,45 @@ DocsDoodads.loadBitmap = function(path) {
     }
     const slash = path.indexOf('/');
     const folder = slash > -1 ? 'img/' + path.slice(0, slash + 1) : 'img/';
+    const ext = /\.(jpe?g|webp)$/i.exec(path);
     const file = (slash > -1 ? path.slice(slash + 1) : path).replace(/\.[^/.]+$/, "");
     // Known to be missing: nothing to wait for (and no new request on every map).
-    if (MA.isMissing(folder, file)) return ImageManager._emptyBitmap || null;
+    if (MA.isMissing(folder, file, ext ? ext[0] : '')) return ImageManager._emptyBitmap || null;
+    // MZ's loadBitmap always asks for .png; other pictures load by their own name.
+    if (ext) return MA.track(DocsDoodads.loadPlainImage(MA.urlFor(folder, file, ext[0])));
+    return MA.track(ImageManager.loadBitmap(folder, file));
+};
+
+// A JPEG or WebP picture by URL, through MZ's image cache. MZ's Deployment encrypts only PNG files, so in
+// an encrypted game these are read as they are (MZ's Bitmap.load would ask for "Rock.jpg_").
+DocsDoodads.loadPlainImage = function(url) {
+    const encrypted = typeof Utils !== 'undefined' && typeof Utils.hasEncryptedImages === 'function' && Utils.hasEncryptedImages();
+    const cache = ImageManager._cache;
+    if (!encrypted || !cache || typeof Bitmap === 'undefined' || typeof Image === 'undefined' || typeof Bitmap.prototype._onLoad !== 'function') {
+        return ImageManager.loadBitmapFromUrl(url);
+    }
+    if (cache[url]) return cache[url];
+    // MZ's Bitmap.load and _startLoading for an unencrypted picture.
+    const bitmap = Object.create(Bitmap.prototype);
+    bitmap.initialize();
+    bitmap._url = url;
+    bitmap._image = new Image();
+    bitmap._image.onload = bitmap._onLoad.bind(bitmap);
+    bitmap._image.onerror = bitmap._onError.bind(bitmap);
+    if (typeof bitmap._destroyCanvas === 'function') bitmap._destroyCanvas();
+    bitmap._loadingState = 'loading';
+    bitmap._image.src = url;
+    cache[url] = bitmap;
+    return bitmap;
+};
+
+// A picture that only Doc's Doodads' data names (a layer's parallax, an idle, run or action sheet):
+// MZ's "Exclude unused files" leaves it out of a deployed game, so like doodad art it is skipped with a
+// warning instead of stopping the game. null when it is already known to be missing.
+DocsDoodads.loadImgTracked = function(folder, file) {
+    if (typeof ImageManager === 'undefined' || !file) return null;
+    const MA = DocsDoodads.MissingArt;
+    if (MA.isMissing(folder, file)) return null;
     return MA.track(ImageManager.loadBitmap(folder, file));
 };
 
@@ -1876,13 +1928,13 @@ DocsDoodads.MissingArt = {
     _art: typeof WeakSet !== 'undefined' ? new WeakSet() : null,
     missing: new Set(),
 
-    urlFor(folder, file) {
+    urlFor(folder, file, ext) {
         const encode = typeof Utils !== 'undefined' && Utils.encodeURI ? Utils.encodeURI : encodeURI;
-        return folder + encode(file) + '.png';
+        return folder + encode(file) + (ext || '.png');
     },
 
-    isMissing(folder, file) {
-        return this.missing.has(this.urlFor(folder, file));
+    isMissing(folder, file, ext) {
+        return this.missing.has(this.urlFor(folder, file, ext));
     },
 
     track(bitmap) {
@@ -2707,24 +2759,37 @@ DocsDoodads.WorldState = {
         return typeof v === 'boolean' ? v : undefined;
     },
 
-    // The doodads on the current map with this name (or the given doodad).
-    doodadsNamed(name) {
+    // The doodads with this name (or the given doodad) on a map (this map when 0).
+    doodadsNamed(name, mapId) {
         if (name && typeof name === 'object') return [name];
         const id = this.handle(name);
         if (!id) return [];
-        const list = typeof DocsDoodads.doodads === 'function' ? DocsDoodads.doodads() || [] : [];
+        const list = typeof DocsDoodads.doodads === 'function' ? DocsDoodads.doodads(this.mapId(mapId)) || [] : [];
         return list.filter(d => d && this.idOf(d) === id);
+    },
+
+    // Whether a map's doodads are loaded, so a name missing from them really is missing.
+    mapLoaded(mapId) {
+        const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+        return Boolean(data && Array.isArray(data[this.mapId(mapId)]));
+    },
+
+    // The number of the state a named doodad is in (0 = as placed), or -1 when there is no such doodad.
+    stateIndex(name, mapId) {
+        const m = this.mapId(mapId);
+        const d = this.doodadsNamed(name, m)[0];
+        if (d) return DocsDoodads.States.index(d, m);
+        const id = this.handle(name);
+        const v = id ? this.store(false).states[this.key(m, id)] : undefined;
+        return typeof v === 'number' ? v : -1;
     },
 
     // The state a named doodad is in, as its name ('' when there is no such doodad on this map, or
     // what was saved for another map).
     state(name, mapId) {
         const m = this.mapId(mapId);
-        const here = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId && $gameMap.mapId() === m;
-        if (here) {
-            const d = this.doodadsNamed(name)[0];
-            if (d) return DocsDoodads.States.name(d, m);
-        }
+        const d = this.doodadsNamed(name, m)[0];
+        if (d) return DocsDoodads.States.name(d, m);
         const id = this.handle(name);
         const v = id ? this.store(false).states[this.key(m, id)] : undefined;
         return v === undefined || v === null ? '' : String(v);
@@ -2750,24 +2815,33 @@ DocsDoodads.WorldState = {
             told();
             return true;
         }
-        const d = this.doodadsNamed(name)[0];
-        const onThisMap = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId && $gameMap.mapId() === m;
+        const d = this.doodadsNamed(name, m)[0];
         if (raw.toLowerCase() === 'next') {
-            if (!d || !onThisMap) return false;
+            if (!d) return false;
             const n = DocsDoodads.States.list(d).length;
             if (n < 2) return false;
             states[key] = (DocsDoodads.States.index(d, m) + 1) % n;
             told();
             return true;
         }
+        // Only states the doodad has, so a typo doesn't leave a dead key in every save.
+        if (d && DocsDoodads.States.find(d, raw) < 0) {
+            const names = DocsDoodads.States.list(d).map((s, i) => String((s && s.name) || i)).join(', ');
+            console.warn(`[DocsDoodads] "${this.nameOf(name)}" has no state "${raw}"; its states are: ${names || 'none'}.`);
+            return false;
+        }
+        if (!d && this.mapLoaded(m)) {
+            console.warn(`[DocsDoodads] no doodad named "${this.nameOf(name)}" on map ${m}.`);
+            return false;
+        }
         states[key] = /^\d+$/.test(raw) ? Number(raw) : raw;
         told();
         return true;
     },
 
-    // Whether a named doodad's light is on; null when no doodad on this map has that name.
+    // Whether a named doodad's light is on; null when no doodad on that map has that name.
     light(name, mapId) {
-        const d = this.doodadsNamed(name)[0];
+        const d = this.doodadsNamed(name, mapId)[0];
         if (!d) {
             const id = this.handle(name);
             const v = id ? this.store(false).lights[this.key(mapId, id)] : undefined;
@@ -2867,8 +2941,12 @@ DocsDoodads.Touch = {
             ran = W.setState(d, 'next', mapId) || ran;
         }
         if (typeof $gameTemp !== 'undefined' && $gameTemp) {
-            $gameTemp._docsTouched = { mapId: W.mapId(mapId), name: String(d.name || ''), uid: d.uid || '', state: DocsDoodads.States.name(d, mapId) };
-            if (DocsDoodads.api) DocsDoodads.api.emit('touch', { doodad: d, mapId: W.mapId(mapId) });
+            // The tile its base stands on, so a common event can play a sound or an effect there.
+            const tw = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+            const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+            const x = Math.floor((Number(d.x) || 0) / tw), y = Math.floor(((Number(d.y) || 0) - 1) / th);
+            $gameTemp._docsTouched = { mapId: W.mapId(mapId), name: String(d.name || ''), uid: d.uid || '', state: DocsDoodads.States.name(d, mapId), x, y };
+            if (DocsDoodads.api) DocsDoodads.api.emit('touch', { doodad: d, mapId: W.mapId(mapId), x, y });
             const id = Number(t.commonEventId) || 0;
             if (id > 0 && $gameTemp.reserveCommonEvent) {
                 $gameTemp.reserveCommonEvent(id);
@@ -2915,9 +2993,14 @@ if (typeof Game_Player !== 'undefined') {
         if (_Game_Player_checkEventTriggerThere) _Game_Player_checkEventTriggerThere.apply(this, arguments);
         if (this.canStartLocalEvents && !this.canStartLocalEvents()) return;
         if (!triggers || !triggers.includes(0)) return;
-        const x2 = $gameMap.roundXWithDirection(this.x, this.direction());
-        const y2 = $gameMap.roundYWithDirection(this.y, this.direction());
-        DocsDoodads.Touch.tryAt(x2, y2, 'action');
+        const dir = this.direction();
+        const x2 = $gameMap.roundXWithDirection(this.x, dir);
+        const y2 = $gameMap.roundYWithDirection(this.y, dir);
+        if (DocsDoodads.Touch.tryAt(x2, y2, 'action')) return;
+        // Across a counter, as MZ does for events (a shop's lamp behind the counter).
+        if ($gameMap.isCounter && $gameMap.isCounter(x2, y2) && !($gameMap.isAnyEventStarting && $gameMap.isAnyEventStarting())) {
+            DocsDoodads.Touch.tryAt($gameMap.roundXWithDirection(x2, dir), $gameMap.roundYWithDirection(y2, dir), 'action');
+        }
     };
 
     const _Game_Player_checkEventTriggerTouch = Game_Player.prototype.checkEventTriggerTouch;
@@ -2939,8 +3022,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'storeDoodadState', args => {
         const id = Number(args.variableId) || 0;
         if (id <= 0 || typeof $gameVariables === 'undefined') return;
-        const d = DocsDoodads.WorldState.doodadsNamed(args.name)[0];
-        $gameVariables.setValue(id, d ? DocsDoodads.States.index(d) : -1);
+        $gameVariables.setValue(id, DocsDoodads.WorldState.stateIndex(args.name, Number(args.mapId) || 0));
     });
 }
 //==========================================================
@@ -3100,7 +3182,7 @@ DocsDoodads.api = {
 
     _listeners: {},
 
-    // ---- Events: 'touch' ({ doodad, mapId }), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
+    // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
     on(event, fn) {
         if (typeof fn !== 'function') return () => {};
         (this._listeners[event] = this._listeners[event] || []).push(fn);
@@ -3200,27 +3282,30 @@ DocsDoodads.api = {
         d.y = spec.tiles ? (Number(spec.y) || 0) * ts.h + ts.h : Number(spec.y) || 0;
         d.temp = true;
         if (!d.uid) d.uid = 'dd_api_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        // The picture's size from the library, or from the picture once it loads.
-        const asset = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets
-            ? DocsDoodads.AssetIndex.data.assets[art.toLowerCase()] : null;
-        const known = spec.frameW || (asset && (asset.frameW || asset.width));
-        if (known) {
-            d.frameW = Number(spec.frameW) || asset.frameW || asset.width;
-            d.frameH = Number(spec.frameH) || asset.frameH || asset.height;
-        } else {
-            d.frameW = 0;
-            d.frameH = 0;
-            if (typeof DocsDoodads.loadBitmap === 'function') {
-                const bmp = DocsDoodads.loadBitmap(art);
-                if (bmp && bmp.addLoadListener) bmp.addLoadListener(b => { if (!d.frameW) { d.frameW = b.width; d.frameH = b.height; } });
-            }
-        }
+        this.sizeFor(d, art, spec.frameW, spec.frameH);
         const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
         data[mapId] = data[mapId] || [];
         data[mapId].push(d);
         const ss = this.spriteset();
         if (ss && mapId === this.mapId() && ss.addDocsDoodadSprites) ss.addDocsDoodadSprites([d]);
         return d;
+    },
+
+    // A doodad's frame size: as given, then from the library, then (for either one still missing) from
+    // the picture once it loads.
+    sizeFor(d, art, frameW, frameH) {
+        const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets;
+        const asset = assets ? assets[String(art).toLowerCase()] : null;
+        d.frameW = Number(frameW) || (asset && Number(asset.frameW || asset.width)) || 0;
+        d.frameH = Number(frameH) || (asset && Number(asset.frameH || asset.height)) || 0;
+        if ((d.frameW && d.frameH) || typeof DocsDoodads.loadBitmap !== 'function') return;
+        const bmp = DocsDoodads.loadBitmap(art);
+        if (!bmp || !bmp.addLoadListener) return;
+        bmp.addLoadListener(b => {
+            if (!d.bit || d.bit[1] !== art) return;
+            if (!d.frameW) d.frameW = b.width;
+            if (!d.frameH) d.frameH = b.height;
+        });
     },
 
     // Moves doodads to (x, y): tiles unless opts.tiles is false; opts.relative moves them by that much.
@@ -3241,27 +3326,36 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new picture redraws them.
+    // Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new picture redraws them, at its own
+    // size unless frameW and frameH come with it.
     set(query, props) {
         const list = this.find(query);
         if (!props || list.length === 0) return 0;
         for (const d of list) {
             const next = Object.assign({}, props);
-            if (next.art) { d.bit = [3, String(next.art)]; delete next.art; }
+            if (next.art) {
+                const art = String(next.art);
+                d.bit = [3, art];
+                if (next.frameX === undefined) d.frameX = 0;
+                if (next.frameY === undefined) d.frameY = 0;
+                this.sizeFor(d, art, next.frameW, next.frameH);
+                delete next.art;
+                delete next.frameW;
+                delete next.frameH;
+            }
             Object.assign(d, next);
         }
         this.refresh();
         return list.length;
     },
 
-    remove(query) {
-        const list = this.find(query);
+    remove(query, mapId) {
+        const m = this.mapId(query && typeof query === 'object' && query.mapId !== undefined ? query.mapId : mapId);
+        const list = this.find(query, m);
         if (list.length === 0) return 0;
         const data = window.$dataDocsDoodads || {};
-        for (const key of Object.keys(data)) {
-            if (Array.isArray(data[key])) data[key] = data[key].filter(d => !list.includes(d));
-        }
-        this.refresh();
+        if (Array.isArray(data[m])) data[m] = data[m].filter(d => !list.includes(d));
+        if (m === this.mapId()) this.refresh();
         return list.length;
     },
 
@@ -3294,13 +3388,13 @@ DocsDoodads.api = {
         return m === null || m === undefined ? null : m;
     },
 
-    setTime(hour, minute = 0) {
-        DocsDoodads.setTimeOfDay((Number(hour) || 0) * 60 + (Number(minute) || 0));
+    // day (optional) sets the clock's day too; without it the day stays as it is.
+    setTime(hour, minute = 0, day = null) {
+        DocsDoodads.setTimeOfDay((Number(hour) || 0) * 60 + (Number(minute) || 0), day);
     },
 
     addTime(hours, minutes = 0) {
-        const now = this.time();
-        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + (Number(hours) || 0) * 60 + (Number(minutes) || 0));
+        DocsDoodads.addTimeOfDay((Number(hours) || 0) * 60 + (Number(minutes) || 0));
     },
 
     season() {
@@ -3359,7 +3453,7 @@ DocsDoodads.World = {
         postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [], feet: {}, svBody: {} },
-        sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
+        sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 0, volumeVariance: 0 },
         // Zooming in on the player (mouse wheel, + and - keys, Set Zoom) and what it does to the sound.
         zoom: { enabled: false, wheel: true, keys: true, max: 2.5, step: 0.25, ease: 0.15 },
         focus: { enabled: true, music: 0.6, reach: 0.5, boost: 1.5 },
@@ -3629,7 +3723,7 @@ DocsDoodads.CharacterTags = {
 
     parse(text) {
         const out = {};
-        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection|spatial)\s*(?::([^>]*))?>/gi;
+        const re = /<\s*(no\s+)?(shadow|motion\s*blur|reflection|spatial|variance)\s*(?::([^>]*))?>/gi;
         let match;
         while ((match = re.exec(String(text || '')))) {
             const on = !match[1];
@@ -3648,6 +3742,8 @@ DocsDoodads.CharacterTags = {
                 out.reflect = on;
             } else if (kind === 'spatial') {
                 out.spatial = on;
+            } else if (kind === 'variance') {
+                out.variance = on;
             }
         }
         const sound = /<\s*sound\s*:\s*([^>]+)>/i.exec(String(text || ''));
@@ -4014,13 +4110,17 @@ DocsDoodads.Atmosphere = {
         };
     },
 
-    clock() {
+    // The running clock, or null when day and night doesn't run on it. Reading never stores one in the save:
+    // until the clock first runs (or Set Time moves it) reads see the start hour. create stores it.
+    clock(create) {
         const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
         if (!system) return null;
-        if (!system._docsClock) {
-            system._docsClock = DocsDoodads.TimeOfDay.newClock((Number(DocsDoodads.World.settings().time.startHour) || 0) * 60);
-        }
-        return system._docsClock;
+        const time = DocsDoodads.World.settings().time;
+        if (time.source !== 'clock') return null;
+        if (system._docsClock) return system._docsClock;
+        const clock = DocsDoodads.TimeOfDay.newClock((Number(time.startHour) || 0) * 60);
+        if (create) system._docsClock = clock;
+        return clock;
     },
 
     editorPreview(field) {
@@ -4055,7 +4155,7 @@ DocsDoodads.Atmosphere = {
         const world = DocsDoodads.World.settings();
         if (world.time.source !== 'clock' || sceneActive === false) return;
         if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return;
-        const clock = this.clock();
+        const clock = this.clock(true);
         if (!clock) return;
         const speed = clock.speed !== null && clock.speed !== undefined ? clock.speed : world.time.minutesPerSecond;
         DocsDoodads.TimeOfDay.advance(clock, 1, speed);
@@ -5175,8 +5275,9 @@ DocsDoodads.SpatialSound = {
         return { name: se.name, volume, pitch: se.pitch, pan };
     },
 
-    // Pitch drifts both ways; volume only dips, so nothing gets louder than authored.
+    // Pitch drifts both ways; volume only dips, so nothing gets louder than authored. Off with the mode.
     vary(se, s, rng) {
+        if (!s || s.mode === 'off') return se;
         const pv = Math.max(0, Number(s && s.pitchVariance) || 0), vv = Math.max(0, Number(s && s.volumeVariance) || 0);
         if (!se || (!pv && !vv)) return se;
         const r = rng || Math.random;
@@ -9234,6 +9335,17 @@ if (typeof PIXI !== 'undefined') {
         this.updatePlacement();
     };
 
+    // Change Tileset: doodads cut from the tileset take the new one's pictures.
+    if (typeof Spriteset_Map !== 'undefined' && typeof Spriteset_Map.prototype.loadTileset === 'function') {
+        $.Spriteset_Map_loadTileset_doodads = Spriteset_Map.prototype.loadTileset;
+        Spriteset_Map.prototype.loadTileset = function() {
+            $.Spriteset_Map_loadTileset_doodads.call(this);
+            for (const sprite of this._docsDoodadSprites || []) {
+                if (sprite && sprite._data && sprite._data.bit && sprite._data.bit[0] === 2) sprite.loadTexture();
+            }
+        };
+    }
+
     Sprite_DocsDoodad.prototype.loadTexture = function() {
         if (!this._data || !this._data.bit) return;
         const bit = this._data.bit;
@@ -10087,14 +10199,14 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 
     // Time of day, seasons and effect switches.
     PluginManager.registerCommand(pluginName, 'setTime', args => {
-        DocsDoodads.setTimeOfDay((Number(args.hour) || 0) * 60 + (Number(args.minute) || 0));
+        const day = args.day === undefined || String(args.day).trim() === '' ? null : Number(args.day);
+        DocsDoodads.setTimeOfDay((Number(args.hour) || 0) * 60 + (Number(args.minute) || 0), day);
     });
     PluginManager.registerCommand(pluginName, 'addTime', args => {
-        const now = DocsDoodads.Atmosphere.minutes();
-        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + (Number(args.hours) || 0) * 60 + (Number(args.minutes) || 0));
+        DocsDoodads.addTimeOfDay((Number(args.hours) || 0) * 60 + (Number(args.minutes) || 0));
     });
     PluginManager.registerCommand(pluginName, 'clockControl', args => {
-        const clock = DocsDoodads.Atmosphere.clock();
+        const clock = DocsDoodads.Atmosphere.clock(true);
         if (!clock) return;
         if (args.action === 'pause') clock.paused = true;
         else if (args.action === 'resume') clock.paused = false;
@@ -10119,8 +10231,9 @@ DocsDoodads.currentAmbient = function(switchValue) {
         mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue });
 };
 
-// Variable mode writes the variables; otherwise the running clock jumps.
-DocsDoodads.setTimeOfDay = function(minutes) {
+// Variable mode writes the variables; otherwise the running clock jumps. Setting an earlier hour keeps the
+// day (a cutscene going back to 22:00 isn't tomorrow); pass day to set it too.
+DocsDoodads.setTimeOfDay = function(minutes, day) {
     const Time = DocsDoodads.TimeOfDay;
     const world = DocsDoodads.World.settings();
     const m = Time.wrap(minutes);
@@ -10129,11 +10242,26 @@ DocsDoodads.setTimeOfDay = function(minutes) {
         if (Number(world.time.minuteVariableId) > 0) $gameVariables.setValue(Number(world.time.minuteVariableId), Math.floor(m % 60));
         return;
     }
-    const clock = DocsDoodads.Atmosphere.clock();
+    const clock = DocsDoodads.Atmosphere.clock(true);
     if (!clock) return;
-    if (m < clock.minutes) clock.day = (clock.day || 0) + 1;
+    if (day !== null && day !== undefined && isFinite(Number(day))) clock.day = Math.max(0, Math.floor(Number(day)));
     clock.minutes = m;
-    Time.syncVariables(world, m, (id, value) => { if ($gameVariables.value(id) !== value) $gameVariables.setValue(id, value); });
+    if (typeof $gameVariables !== 'undefined' && $gameVariables) {
+        Time.syncVariables(world, m, (id, value) => { if ($gameVariables.value(id) !== value) $gameVariables.setValue(id, value); });
+    }
+};
+
+// Pass Time: forward past midnight is the next day (and back past it the day before).
+DocsDoodads.addTimeOfDay = function(deltaMinutes) {
+    const delta = Number(deltaMinutes) || 0;
+    const clock = DocsDoodads.Atmosphere.clock(true);
+    if (!clock) {
+        const now = DocsDoodads.Atmosphere.minutes();
+        DocsDoodads.setTimeOfDay((now === null ? 0 : now) + delta);
+        return;
+    }
+    const total = (Number(clock.minutes) || 0) + delta;
+    DocsDoodads.setTimeOfDay(total, Math.max(0, (clock.day || 0) + Math.floor(total / 1440)));
 };
 
 DocsDoodads.setSeason = function(season) {
@@ -11098,8 +11226,8 @@ DocsDoodads.CharacterAnim.preload = function() {
     for (const name of names) {
         const set = this.setFor(name, sets);
         if (!set) continue;
-        if (set.idle) ImageManager.loadCharacter(set.idle);
-        if (set.run) ImageManager.loadCharacter(set.run);
+        if (set.idle) DocsDoodads.loadImgTracked('img/characters/', set.idle);
+        if (set.run) DocsDoodads.loadImgTracked('img/characters/', set.run);
     }
 };
 
@@ -11220,8 +11348,17 @@ if (typeof Sprite_Character !== 'undefined') {
     };
 
     $.Sprite_Character_updateBitmap = Sprite_Character.prototype.updateBitmap;
+    // An idle, run or action sheet that can't be loaded (left out of a deployed game) is not waited for:
+    // the character keeps walking on its own sheet.
+    Sprite_Character.prototype.docsAnimSheet = function(sheet) {
+        if (this._character && this._character.characterName && sheet === this._character.characterName()) return ImageManager.loadCharacter(sheet);
+        const bmp = DocsDoodads.loadImgTracked('img/characters/', sheet);
+        return bmp && !(bmp.isError && bmp.isError()) ? bmp : null;
+    };
+
     Sprite_Character.prototype.updateBitmap = function() {
-        const anim = this.docsAnimFrame();
+        let anim = this.docsAnimFrame();
+        if (anim && this._docsAnimSheet !== anim.sheet && !this.docsAnimSheet(anim.sheet)) anim = null;
         this._docsAnim = anim;
         if (!anim) {
             if (this._docsAnimSheet) {
@@ -11235,7 +11372,7 @@ if (typeof Sprite_Character !== 'undefined') {
             return $.Sprite_Character_updateBitmap.call(this);
         }
         if (this._docsAnimSheet !== anim.sheet) {
-            const bmp = ImageManager.loadCharacter(anim.sheet);
+            const bmp = this.docsAnimSheet(anim.sheet);
             // Keep the old frame on screen until the new sheet has loaded.
             if (bmp.isReady() || !this.bitmap) {
                 this._docsAnimSheet = anim.sheet;
@@ -11317,7 +11454,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         if (!ch) return;
         const action = DocsDoodads.CharacterAnim.newAction({ sheet: args.sheet, fps: Number(args.fps) || 8, loops: Number(args.loops), hold: String(args.hold) === 'true' });
         ch._docsAction = action;
-        if (typeof ImageManager !== 'undefined') ImageManager.loadCharacter(action.sheet);
+        if (typeof ImageManager !== 'undefined') DocsDoodads.loadImgTracked('img/characters/', action.sheet);
         if (String(args.wait) === 'true' && !action.hold && action.loops > 0 && this && this.setWaitMode) {
             this._docsWaitTarget = ch === $gamePlayer ? 'player' : (ch.eventId ? ch.eventId() : null);
             this.setWaitMode('docsAction');
@@ -11617,14 +11754,16 @@ if (typeof Game_CharacterBase !== 'undefined') {
     };
 }
 
-// A sound effect from a character, varied and placed relative to the player.
+// A sound effect from a map character, varied and placed relative to the player. Without a character
+// (battles, menus, common events) it is played as authored.
 DocsDoodads.SpatialSound.forCharacter = function(se, ch) {
     if (!se || !se.name) return se;
+    if (!ch || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return se;
     const s = this.settings();
-    const out = this.vary(se, s, Math.random);
-    if (!ch || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return out;
+    const tags = DocsDoodads.CharacterTags.forCharacter(ch);
+    const out = tags.variance === false ? se : this.vary(se, s, Math.random);
     const playerLike = ch === $gamePlayer || (typeof Game_Follower !== 'undefined' && ch instanceof Game_Follower);
-    if (!this.shouldSpatialize(s, DocsDoodads.CharacterTags.forCharacter(ch), playerLike)) return out;
+    if (!this.shouldSpatialize(s, tags, playerLike)) return out;
     return this.apply(out, $gameMap.deltaX(ch._realX, $gamePlayer._realX), $gameMap.deltaY(ch._realY, $gamePlayer._realY), s);
 };
 
@@ -11635,13 +11774,16 @@ DocsDoodads.SpatialSound.forTile = function(se, x, y) {
 };
 
 if (typeof Game_Interpreter !== 'undefined') {
-    // Play SE from a map event is heard from where the event stands.
+    // Play SE from a map event is heard from where the event stands. Anything else (battles, menus, common
+    // events) goes to the original, so plugins that wrapped Play SE before this one still run.
+    $.Game_Interpreter_command250 = Game_Interpreter.prototype.command250;
     Game_Interpreter.prototype.command250 = function(params) {
         const sameMap = typeof $gameMap !== 'undefined' && $gameMap && this._mapId === $gameMap.mapId();
         const ch = sameMap && this.eventId() > 0 ? $gameMap.event(this.eventId()) : null;
+        if (!ch || !params || !params[0]) return $.Game_Interpreter_command250.call(this, params);
         const se = DocsDoodads.SpatialSound.forCharacter(params[0], ch);
-        if (se) AudioManager.playSe(se);
-        return true;
+        if (!se) return true;
+        return $.Game_Interpreter_command250.call(this, [se].concat(params.slice(1)));
     };
 }
 
@@ -11935,8 +12077,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (key !== this._docsLayersKey) {
             this.docsDestroyLayers2d();
             this._docsLayersKey = key;
+            // A picture missing from a deployed game (see MissingArt) leaves its layer out.
             this._docsLayers2d = list.map(layer => {
-                const bitmap = layer.image === '#fog' ? L.fogBitmap() : ImageManager.loadParallax(layer.image);
+                const bitmap = layer.image === '#fog' ? L.fogBitmap() : DocsDoodads.loadImgTracked('img/parallaxes/', layer.image);
+                if (!bitmap) return null;
                 const sprite = layer.loopX || layer.loopY ? new TilingSprite(bitmap) : new Sprite(bitmap);
                 sprite._docsLayer = layer;
                 sprite._docsDrift = { x: 0, y: 0 };
@@ -11946,7 +12090,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 if (sprite.move && sprite.origin) sprite.move(0, 0, Math.ceil(Graphics.width / layer.zoom) + 1, Math.ceil(Graphics.height / layer.zoom) + 1);
                 this.docsPlaceLayer2d(sprite, layer.place);
                 return sprite;
-            });
+            }).filter(Boolean);
         }
         if (!this._docsLayers2d || !this._docsLayers2d.length) return;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -12637,13 +12781,16 @@ if (typeof Sprite_Destination !== 'undefined') {
         $.Sprite_Destination_destroy.call(this, options);
     };
 
+    // MZ's update (and any plugin's that wrapped it first) runs, then the marker's own style is applied
+    // over it, counted on its own frame counter (MZ's wraps every 20 frames).
+    $.Sprite_Destination_update = Sprite_Destination.prototype.update;
     Sprite_Destination.prototype.update = function() {
-        Sprite.prototype.update.call(this);
+        $.Sprite_Destination_update.call(this);
         const s = D.current();
         this.updateDocsStyle(s);
         this.z = D.zFor(s.layer);
         if (!$gameTemp.isDestinationValid()) {
-            this._frameCount = 0;
+            this._docsFrame = 0;
             this.visible = false;
             this._docsKey = null;
             this.stopDocsEffect();
@@ -12653,21 +12800,21 @@ if (typeof Sprite_Destination !== 'undefined') {
         const key = $gameTemp.destinationX() + ',' + $gameTemp.destinationY() + ',' + s.style;
         if (key !== this._docsKey) {
             this._docsKey = key;
-            this._frameCount = 0;
+            this._docsFrame = 0;
             this.stopDocsEffect();
         }
         this.updatePosition();
-        this._frameCount++;
-        const p = D.pulse(s.pulse, this._frameCount);
+        this._docsFrame = (this._docsFrame || 0) + 1;
+        const p = D.pulse(s.pulse, this._docsFrame);
         const drawn = !['none', 'animation', 'vfx'].includes(s.style);
         this.visible = true;
         this.opacity = drawn ? s.opacity * p.alpha : 0;
         this.scale.set(s.scale * p.scale, s.scale * p.scale);
-        this.rotation = D.rotation(s.spin, this._frameCount);
-        this.y += D.bob(s.bob, this._frameCount);
+        this.rotation = D.rotation(s.spin, this._docsFrame);
+        this.y += D.bob(s.bob, this._docsFrame);
         this.blendMode = D.blendMode(s.blend);
         if (s.style === 'image' && this.bitmap && this.bitmap.isReady()) {
-            const f = D.imageFrame(s.image, this.bitmap.width, this.bitmap.height, this._frameCount, s.fps);
+            const f = D.imageFrame(s.image, this.bitmap.width, this.bitmap.height, this._docsFrame, s.fps);
             this.setFrame(f.x, f.y, f.w, f.h);
         }
         this.updateDocsEffect(s);
@@ -12771,7 +12918,7 @@ if (typeof Sprite_Destination !== 'undefined') {
         const r = Math.max(3, Math.min(tw, th) * 0.11);
         dots.clear();
         (this._docsDotTiles || []).forEach((t, i) => {
-            const fade = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin((this._frameCount - i * 6) / 60 * Math.PI * 2));
+            const fade = 0.55 + 0.4 * (0.5 + 0.5 * Math.sin(((this._docsFrame || 0) - i * 6) / 60 * Math.PI * 2));
             dots.beginFill(color, fade);
             dots.drawCircle(($gameMap.adjustX(t.x) + 0.5) * tw, ($gameMap.adjustY(t.y) + 0.5) * th, r);
             dots.endFill();
@@ -12870,13 +13017,14 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
     PluginManager.registerCommand(pluginName, 'setVisualColor', function(args) {
         const actor = VE.actorFor(args);
-        const part = String(args.part || '').trim();
+        // Parts match in any case (as layers do), so Hair and hair are one colour.
+        const part = String(args.part || '').trim().toLowerCase();
         if (!actor || !part) return;
         const v = visual(actor);
         v.colors = Object.assign({}, v.colors);
+        for (const key of Object.keys(v.colors)) if (key.toLowerCase() === part) delete v.colors[key];
         const tint = /^#?([0-9a-f]{6})$/i.exec(String(args.tint || '').trim());
-        if (String(args.reset) === 'true') delete v.colors[part];
-        else v.colors[part] = { hue: Number(args.hue) || 0, tint: tint ? parseInt(tint[1], 16) : null };
+        if (String(args.reset) !== 'true') v.colors[part] = { hue: Number(args.hue) || 0, tint: tint ? parseInt(tint[1], 16) : null };
     });
     PluginManager.registerCommand(pluginName, 'setDestination', function(args) {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return;
@@ -12930,9 +13078,24 @@ if (typeof Game_Player !== 'undefined') {
     Game_Player.prototype.updateScroll = function(lastScrolledX, lastScrolledY) {
         const C = DocsDoodads.Camera2D;
         if (DocsDoodads.Perspective.active() || !C.isBusy() || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) {
+            C._external = false;
             return $.Game_Player_updateScroll_cam2d.call(this, lastScrolledX, lastScrolledY);
         }
         const s = C.state();
+        // Scroll Map, a script's setDisplayPos or 2D Camera Follow > Nothing: the camera is left where they
+        // put it (until the player takes a step, or until a follow command for Nothing).
+        if (!s.path) {
+            if (s.free === 'event') return;
+            if ($gameMap.isScrolling() || C._external) {
+                C._external = false;
+                s.free = { x: this.x, y: this.y };
+                return;
+            }
+            if (s.free) {
+                if (s.free.x === this.x && s.free.y === this.y) return;
+                s.free = null;
+            }
+        }
         const cfg = C.settings();
         const sw = $gameMap.screenTileX(), sh = $gameMap.screenTileY();
         let cx, cy, smooth = cfg.smooth;
@@ -12969,6 +13132,24 @@ if (typeof Game_Player !== 'undefined') {
     };
 }
 
+if (typeof Game_Map !== 'undefined' && typeof Game_Player !== 'undefined') {
+    // A display position set from outside (not the camera centring on the player) frees the camera.
+    $.Game_Map_setDisplayPos_cam2d = Game_Map.prototype.setDisplayPos;
+    Game_Map.prototype.setDisplayPos = function(x, y) {
+        $.Game_Map_setDisplayPos_cam2d.call(this, x, y);
+        if (!DocsDoodads.Camera2D._centering && this._docsCam2d) DocsDoodads.Camera2D._external = true;
+    };
+    $.Game_Player_center_cam2d = Game_Player.prototype.center;
+    Game_Player.prototype.center = function(x, y) {
+        DocsDoodads.Camera2D._centering = true;
+        try {
+            return $.Game_Player_center_cam2d.call(this, x, y);
+        } finally {
+            DocsDoodads.Camera2D._centering = false;
+        }
+    };
+}
+
 if (typeof Game_Map !== 'undefined') {
     // A new map starts with the camera on the player again.
     $.Game_Map_setup_cam2d = Game_Map.prototype.setup;
@@ -12986,6 +13167,7 @@ DocsDoodads.Camera2D.startPath = function(args) {
     const points = [here].concat(this.parsePoints(args.points));
     if (points.length < 2) return 0;
     s.hold = null;
+    s.free = null;
     const then = String(args.then || 'return');
     s.path = { points: then === 'return' ? points.concat([here]) : points, frames: Math.max(1, Number(args.frames) || 60), ease: String(args.ease || 'smooth'), frame: 0, then };
     // Coming back to the player: the last leg returns to where the camera was, then follows again.
@@ -13003,6 +13185,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         const target = String(args.target || 'player');
         s.hold = null;
         s.path = null;
+        s.free = target === 'free' ? 'event' : null;
         s.follow = target === 'event' ? Math.max(0, Number(args.eventId) || 0) : target === 'this' && this && this._eventId ? this._eventId : 0;
     });
 }
@@ -15129,8 +15312,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 // Loaded models by path (project-relative): { ready, error, primitives, textures }.
 DocsDoodads.Models = {
     _cache: {},
-    // A model that failed to load (missing, half-copied, broken) is tried again after this long.
-    retryAfter: 5000,
+
+    // The game's folder, where index.html is (as MZ finds its save folder), not the working directory: a
+    // deployed game can be started from a shortcut with another "Start in", or from Finder on macOS.
+    root() {
+        const path = DocsDoodads.FS.path;
+        const main = typeof process !== 'undefined' && process.mainModule && process.mainModule.filename;
+        return main ? path.dirname(main) : path.resolve('.');
+    },
 
     // Models, and the files they point to, have to be inside the project folder.
     inside(root, target) {
@@ -15139,18 +15328,20 @@ DocsDoodads.Models = {
         return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
     },
 
-    get(path) {
+    // retry: load again a model that failed (missing, half-copied, broken). Only map setup and live reload
+    // ask for that; drawing never does, so a broken model doesn't read files in the middle of play.
+    get(path, retry) {
         if (!path) return null;
         const key = String(path).replace(/\\/g, '/');
         const cached = this._cache[key];
-        if (cached && !(cached.error && Date.now() - cached.failedAt >= this.retryAfter)) return cached;
+        if (cached && !(retry && cached.error)) return cached;
         if (cached) this.release(cached);
         // files: every file the model reads (itself, its buffers and images), for live reload.
         const entry = this._cache[key] = { ready: false, error: null, primitives: [], textures: [], files: [] };
         try {
             const FS = DocsDoodads.FS;
             if (!FS.fs) throw new Error('Models need the desktop game.');
-            const root = FS.path.resolve('.');
+            const root = this.root();
             const file = FS.path.resolve(root, key);
             if (!this.inside(root, file)) throw new Error('Models have to be inside the project folder.');
             entry.files.push(file);
@@ -15219,7 +15410,7 @@ DocsDoodads.Models = {
 
     // Loads the models a map's doodads use when the map is set up, not in the middle of drawing a frame.
     preload(list) {
-        for (const d of list || []) if (d && d.model && d.model.path) this.get(d.model.path);
+        for (const d of list || []) if (d && d.model && d.model.path) this.get(d.model.path, true);
     },
 
     // The primitive's colour texture (shared between scenes, and between parts using the same image),
@@ -16258,8 +16449,23 @@ DocsDoodads.Traversal = {
         if (!this.can('jump')) return false;
         const j = this.plan(p);
         p.jump(j.dx, j.dy);
+        this.wrapAfterJump([p].concat(p._followers && p._followers._data ? p._followers._data : []));
         this.playSe(this.settings().jump.sound);
         return true;
+    },
+
+    // MZ's jump adds the distance as it is, so a jump over a looping map's edge would land outside the
+    // map. Each jumper's tile is wrapped back in, and its drawn position with it (as MZ does for a step
+    // over the edge), so the jump still looks continuous.
+    wrapAfterJump(list) {
+        for (const ch of list) {
+            if (!ch || !ch.isJumping || !ch.isJumping()) continue;
+            const ox = $gameMap.roundX(ch._x) - ch._x, oy = $gameMap.roundY(ch._y) - ch._y;
+            ch._x += ox;
+            ch._realX += ox;
+            ch._y += oy;
+            ch._realY += oy;
+        }
     },
 
     // Dive from deep water to this map's underwater map, or surface from an underwater map.
@@ -16270,7 +16476,15 @@ DocsDoodads.Traversal = {
         const down = Number(ms.diveMap) || 0, up = Number(ms.surfaceMap) || 0;
         const to = this.isSwimming(p) && down > 0 ? down : up > 0 ? up : 0;
         if (!to) return false;
+        // A map that was deleted (or never made) would stop the game on the transfer.
+        if (typeof $dataMapInfos !== 'undefined' && $dataMapInfos && !$dataMapInfos[to]) {
+            console.warn(`[DocsDoodads] Dive: map ${to} doesn't exist.`);
+            if (typeof SoundManager !== 'undefined' && SoundManager.playBuzzer) SoundManager.playBuzzer();
+            return false;
+        }
         this.playSe(this.settings().dive.sound);
+        // The other map may be smaller: the player is kept inside it on arrival.
+        p._docsKeepInside = true;
         p.reserveTransfer(to, p.x, p.y, p.direction(), 0);
         return true;
     },
@@ -16449,11 +16663,24 @@ if (typeof Game_Player !== 'undefined') {
         return speed;
     };
 
-    // Ice: once on it the player slides on until stopped (no walking animation while sliding).
+    // Arriving from a dive on a smaller map: onto its nearest tile.
+    $.Game_Player_performTransfer_traversal = Game_Player.prototype.performTransfer;
+    Game_Player.prototype.performTransfer = function() {
+        const keep = this._docsKeepInside && this.isTransferring();
+        $.Game_Player_performTransfer_traversal.call(this);
+        if (!keep) return;
+        this._docsKeepInside = false;
+        if (!$gameMap.isValid(this.x, this.y)) {
+            this.locate(Math.max(0, Math.min($gameMap.width() - 1, this.x)), Math.max(0, Math.min($gameMap.height() - 1, this.y)));
+        }
+    };
+
+    // Ice: once on it the player slides on until stopped (no walking animation while sliding). The slide
+    // waits, as walking does, while a message is open or an event runs.
     $.Game_Player_moveByInput_traversal = Game_Player.prototype.moveByInput;
     Game_Player.prototype.moveByInput = function() {
         const d = this._docsSlideDir;
-        if (d && !this.isMoving() && !this.isJumping()) {
+        if (d && !this.isMoving() && !this.isJumping() && this.canMove()) {
             if (X().can('ice') && X().isIce(this.x, this.y) && this.canPass(this.x, this.y, d)) {
                 this.moveStraight(d);
                 if (this.isMovementSucceeded()) return;
@@ -23247,8 +23474,9 @@ DocsDoodads.EventTemplates = {
         }
     },
 
+    // A template by key, or null when there is none (a custom template deleted since it was picked).
     get(templateKey) {
-        return this.templates[templateKey] || this.templates.npc;
+        return this.templates[templateKey] || null;
     },
 
     saveCustomTemplate(name, eventObj, category = "Custom") {
@@ -23377,13 +23605,15 @@ DocsDoodads.Collision.tilesUnder = function(body, tw, th) {
 // Whether a showing doodad's collision covers a map tile (a box two thirds of a tile, at its centre).
 // Doodads hidden by their switch, condition, season or a layer hidden in game never block, nor do
 // doodads in a state without collision (an open door).
-DocsDoodads.Collision.blocksTile = function(tx, ty) {
+// vehicles: only doodads set to block boats and ships (collision.vehicles) count.
+DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles) {
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
     const tileBox = this.tileBox(tx, ty, tw, th);
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
     for (const dData of doodads) {
+        if (vehicles && !(dData && dData.collision && dData.collision.vehicles)) continue;
         const colBody = this.bodyOf(dData);
         if (!colBody) continue;
         // The box test is cheap; switches and conditions are only checked for doodads on this tile.
@@ -23402,7 +23632,9 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (this.isThrough() || this.isDebugThrough()) return true;
         if (this.isInAirship && this.isInAirship()) return true;
         if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
-        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d));
+        // Boats and ships sail past doodads over water unless a doodad is set to block them (a pier).
+        const sailing = (this.isInBoat && this.isInBoat()) || (this.isInShip && this.isInShip());
+        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing);
     };
 }
 
@@ -28103,6 +28335,7 @@ DocsDoodads.Workspace = {
                         <option value="custom">Custom Rectangle</option>
                     </select>
                     <button class="dd-btn" id="dd-prop-trace-col" style="width: 100%; margin-top: 4px;" title="Fit the collision to the solid base of the image">Trace from Art</button>
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; margin-top: 4px;" title="Boats and ships sail past doodads unless this is ticked (a pier, a rock in the sea)"><input type="checkbox" id="dd-prop-col-vehicles" ${d.collision && d.collision.vehicles ? 'checked' : ''} /> Blocks boats and ships</label>
                 </div>
 
                 <!-- Custom Collision Box Visual Editor -->
@@ -28168,12 +28401,24 @@ DocsDoodads.Workspace = {
             document.getElementById('dd-prop-col').onchange = (e) => {
                 const val = e.target.value;
                 const colEditor = document.getElementById('dd-custom-col-editor');
-                this.editDoodads([d], o => { o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null }; }, 'set_collision');
+                this.editDoodads([d], o => {
+                    const vehicles = o.collision && o.collision.vehicles;
+                    o.collision = val === 'custom' ? { preset: 'custom', shape: shape } : { preset: val, shape: null };
+                    if (vehicles) o.collision.vehicles = true;
+                }, 'set_collision');
                 if (colEditor) colEditor.style.display = val === 'custom' ? 'block' : 'none';
                 if (val === 'custom') renderColPreview();
             };
 
             if (isCustomCol) renderColPreview();
+            document.getElementById('dd-prop-col-vehicles').onchange = (e) => {
+                const on = e.target.checked;
+                this.editDoodads([d], o => {
+                    o.collision = Object.assign({ preset: 'none', shape: null }, o.collision);
+                    if (on) o.collision.vehicles = true;
+                    else delete o.collision.vehicles;
+                }, 'set_collision');
+            };
 
             const updateCustomCol = () => {
                 const cx = Math.max(0, Math.min(1, parseFloat(document.getElementById('dd-col-x').value) || 0));
@@ -32562,7 +32807,12 @@ DocsDoodads.Workspace = {
 
         if (mode === "event" || asset.type === "character_sheet" || asset.type === "single_character") {
             const picked = document.getElementById('dd-event-template');
-            const template = DocsDoodads.EventTemplates.get(templateKey || (picked ? picked.value : 'npc'));
+            const wanted = templateKey || (picked ? picked.value : 'npc');
+            let template = DocsDoodads.EventTemplates.get(wanted);
+            if (!template) {
+                template = DocsDoodads.EventTemplates.get('npc');
+                this.showToast(`The event template "${wanted}" is gone, so the event was made as an NPC.`, 'warning');
+            }
             const mapId = $gameMap.mapId();
             DocsDoodads.Persistence.stagedFor(mapId);
             const newId = DocsDoodads.Events.allocateSafeId($gameMap._stagedMapData);

@@ -151,8 +151,8 @@ $gameMap.setDisplayPos(0, 0);
         assert.ok(M.get(later).error, 'missing');
         assert.strictEqual(M.get(later).error, M.get(later).error, 'not retried at once');
         fs.copyFileSync(crate, later);
-        M._cache[later.replace(/\\/g, '/')].failedAt -= M.retryAfter;
-        assert.strictEqual(M.get(later).ready, true, 'loads once the file is there');
+        assert.ok(M.get(later).error, 'drawing never reads the file again');
+        assert.strictEqual(M.get(later, true).ready, true, 'map setup loads it once the file is there');
         assert.strictEqual(warned.length, 2, 'one warning per problem, not one per frame');
     } finally {
         console.warn = warn;
