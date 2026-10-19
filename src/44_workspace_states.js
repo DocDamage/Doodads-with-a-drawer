@@ -35,6 +35,13 @@ Object.assign(DocsDoodads.Workspace, {
         const list = S.list(d);
         const preview = S.previewOf(d);
         const fileName = path => String(path || '').split('/').pop();
+        // Sound effects by name (audio/se), and the effects made in the Effects Maker or built in.
+        const seNames = this.audioFileOptions().map(o => o.value).filter(v => v.indexOf('se/') === 0).map(v => v.slice(3));
+        const option = (value, label, chosen) => `<option value="${escapeHtml(value)}"${value === chosen ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        const seOptions = chosen => option('', 'None', chosen || '') + seNames.map(n => option(n, n, chosen)).join('')
+            + (chosen && !seNames.includes(chosen) ? option(chosen, chosen, chosen) : '');
+        const vfxList = DocsDoodads.Vfx.library().concat(DocsDoodads.Vfx.builtIns);
+        const vfxOptions = chosen => option('', 'None', chosen || '') + vfxList.map(v => option(v.id, v.name, chosen)).join('');
         const rows = list.map((st, i) => `
             <div class="dd-state-row${preview === i ? ' dd-previewing' : ''}" data-state="${i}">
                 <div class="dd-state-top">
@@ -49,6 +56,11 @@ Object.assign(DocsDoodads.Workspace, {
                     <label><input type="checkbox" id="dd-state-col-${i}" ${st.collision !== false ? 'checked' : ''} /> Collision</label>
                     ${i > 0 ? `<button type="button" id="dd-state-art-${i}" title="Use the picture picked in the Item Bag">Use Picked Art</button>` : ''}
                     ${i > 0 && st.path ? `<button type="button" id="dd-state-own-${i}" title="Show the doodad's own picture in this state">Own Art</button>` : ''}
+                </div>
+                <div class="dd-state-opts">
+                    <label title="A sound effect when it goes into this state">Sound <select id="dd-state-sound-${i}">${seOptions(st.sound)}</select></label>
+                    <label title="An effect from the Effects Maker when it goes into this state">Effect <select id="dd-state-vfx-${i}">${vfxOptions(st.vfx)}</select></label>
+                    <label title="Seconds before it goes back to the state it was in (0 = it stays)">Back after <input type="number" min="0" step="0.5" id="dd-state-revert-${i}" value="${Number(st.revert) || 0}" style="width: 52px;" /> s</label>
                 </div>
             </div>`).join('');
         const name = String(d.name || '').trim();
@@ -100,6 +112,12 @@ Object.assign(DocsDoodads.Workspace, {
             else if (field === 'art') {
                 if (value) Object.assign(list[index], { path: value.path, w: value.w || 0, h: value.h || 0 });
                 else { delete list[index].path; delete list[index].w; delete list[index].h; }
+            } else if (field === 'sound' || field === 'vfx') {
+                const v = String(value || '').trim();
+                if (v) list[index][field] = v; else delete list[index][field];
+            } else if (field === 'revert') {
+                const v = Math.max(0, Number(value) || 0);
+                if (v > 0) list[index].revert = v; else delete list[index].revert;
             } else list[index][field] = Boolean(value);
         });
         this.refreshSpriteset(true);
@@ -142,6 +160,10 @@ Object.assign(DocsDoodads.Workspace, {
             if (art) art.onclick = () => { const a = this.pickedStateArt(); if (a) this.setStateField(d, i, 'art', a); };
             const own = el(`dd-state-own-${i}`);
             if (own) own.onclick = () => this.setStateField(d, i, 'art', null);
+            for (const field of ['sound', 'vfx', 'revert']) {
+                const input = el(`dd-state-${field}-${i}`);
+                if (input) input.onchange = () => this.setStateField(d, i, field, input.value);
+            }
         });
         const add = el('dd-state-add');
         if (add) add.onclick = () => this.addState(d);

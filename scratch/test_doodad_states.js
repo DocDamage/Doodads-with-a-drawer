@@ -244,7 +244,7 @@ const door = () => E.doodad(5, 3, {
     ws.applyDoodadProperty(lamp, 'name', ' ');
     assert.ok(!('name' in lamp), 'a blank name is removed');
     ws.applyDoodadProperty(lamp, 'touch.commonEventId', 1);
-    assert.deepStrictEqual(lamp.touch, { commonEventId: 1, trigger: 'action', nextState: false });
+    assert.deepStrictEqual(lamp.touch, { commonEventId: 1, trigger: 'action', nextState: false, once: false, cooldown: 0, prompt: '' });
     assert.strictEqual(ws.getDoodadProperty(lamp, 'touch.trigger'), 'action');
     ws.applyDoodadProperty(lamp, 'touch.commonEventId', 0);
     assert.ok(!('touch' in lamp), 'nothing to run: not touchable');

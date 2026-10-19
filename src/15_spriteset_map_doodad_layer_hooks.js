@@ -64,6 +64,20 @@ if (typeof Spriteset_Map !== 'undefined') {
         }
     };
 
+    // Takes the sprites of these doodads off the map (and their shadows and effects), leaving the rest.
+    Spriteset_Map.prototype.removeSomeDocsDoodads = function(items) {
+        const gone = new Set(items || []);
+        const keep = [];
+        for (const sprite of this._docsDoodadSprites || []) {
+            if (!gone.has(sprite._data)) { keep.push(sprite); continue; }
+            if (sprite.destroyDocsFx) sprite.destroyDocsFx();
+            if (sprite.destroyShadow) sprite.destroyShadow();
+            if (sprite.parent) sprite.parent.removeChild(sprite);
+            sprite.destroy();
+        }
+        this._docsDoodadSprites = keep;
+    };
+
     Spriteset_Map.prototype.sortDocsDoodads = function() {
         if (!this._docsDoodadsContainer) return;
         for (const sprite of this._docsDoodadSprites || []) sprite.updatePlacement();
@@ -83,7 +97,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         'updateDocsPerspective',    // the 3D view (17_perspective_runtime_1_view)
         'updateDocsSkyVideoOnMap',  // a flat map's sky video (17_perspective_runtime_1_view)
         'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
-        'updateDocsFlyShadow'       // the flying player's shadow (17_traversal)
+        'updateDocsFlyShadow',      // the flying player's shadow (17_traversal)
+        'updateDocsTouchPrompt'     // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
     ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
@@ -94,11 +109,16 @@ if (typeof Spriteset_Map !== 'undefined') {
     };
 
     Spriteset_Map.prototype.updateDocsDoodadsFrame = function() {
+        let left = null;
         if (this._docsDoodadSprites) {
             for (let i = 0; i < this._docsDoodadSprites.length; i++) {
-                this._docsDoodadSprites[i].update();
+                const sprite = this._docsDoodadSprites[i];
+                sprite.update();
+                // Removed with a transition (api.remove): gone once it has played out.
+                if (sprite._docsLeft) (left = left || []).push(sprite._data);
             }
         }
+        if (left && DocsDoodads.api) DocsDoodads.api.takeOut(left);
         this.updateDocsLighting();
         this.updateDocsReflections();
         this.updateDocsSilhouette();
@@ -559,7 +579,8 @@ DocsDoodads.setSeason = function(season) {
 DocsDoodads.mapSteps = [
     'updateDocsClock',     // the clock moves with the map (here)
     'updateDocsSounds',    // sound doodads, ambience, region sounds, echo (here)
-    'updateDocsCamera3d'   // 3D camera moves and turning (17_perspective_runtime_1_view)
+    'updateDocsCamera3d',  // 3D camera moves and turning (17_perspective_runtime_1_view)
+    'updateDocsStateTimers' // states going back after some seconds (07_doodad_states_extras)
 ];
 if (typeof Game_Map !== 'undefined') {
     $.Game_Map_update = Game_Map.prototype.update;
@@ -1733,6 +1754,14 @@ if (typeof Game_Interpreter !== 'undefined') {
             if (!waiting) {
                 this._waitMode = '';
                 this._docsWaitTarget = null;
+            }
+            return waiting;
+        }
+        if (this._waitMode === 'docsAnim') {
+            const waiting = (this._docsWaitAnim || []).some(d => DocsDoodads.AnimPlay.playing(d));
+            if (!waiting) {
+                this._waitMode = '';
+                this._docsWaitAnim = null;
             }
             return waiting;
         }

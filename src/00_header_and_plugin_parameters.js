@@ -401,6 +401,35 @@
  * @max 59
  * @default 0
  *
+ * @command calendar
+ * @text Calendar
+ * @desc The running clock's days: go to a day, move days on, or put the day, the weekday or the named date in a variable.
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Go to day
+ * @value setDay
+ * @option Move days on
+ * @value addDays
+ * @option Day number into a variable
+ * @value storeDay
+ * @option Weekday (1 = the first) into a variable
+ * @value storeWeekday
+ * @option Named date into a variable (text, blank on other days)
+ * @value storeDate
+ * @default storeDay
+ *
+ * @arg value
+ * @text Day / Days
+ * @type number
+ * @default 1
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 0
+ *
  * @command clockControl
  * @text Clock Control
  * @desc Pause, resume or change the speed of the running clock.
@@ -1231,6 +1260,49 @@
  * @desc 0 for this map.
  * @default 0
  *
+ * @arg wait
+ * @text Wait
+ * @desc Wait for the crossfade before the event goes on.
+ * @type boolean
+ * @default false
+ *
+ * @command playDoodadAnimation
+ * @text Play Doodad Animation
+ * @desc Named doodads play their picture strip once, now (a chest opening). Scripts hear "animationEnd" when it ends.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @desc The Name given in Details.
+ * @default
+ *
+ * @arg from
+ * @text From Frame
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg to
+ * @text To Frame
+ * @desc Blank for the last frame.
+ * @default
+ *
+ * @arg hold
+ * @text Hold the Last Frame
+ * @desc Off: it goes back to its own animation when done.
+ * @type boolean
+ * @default true
+ *
+ * @arg wait
+ * @text Wait
+ * @type boolean
+ * @default false
+ *
+ * @arg mapId
+ * @text Map
+ * @type number
+ * @desc 0 for this map.
+ * @default 0
+ *
  * @command setDoodadLight
  * @text Set Doodad Light
  * @desc Turns named doodads' lights on or off (saved with the game), or back to their own setting.
@@ -1400,6 +1472,10 @@
  * @value around
  * @option Forget it (all unexplored again)
  * @value forget
+ * @option Reveal a region (a map item)
+ * @value region
+ * @option How much is explored (0-100) into a variable
+ * @value store
  * @default all
  *
  * @arg radius
@@ -1407,6 +1483,18 @@
  * @type number
  * @desc For "around the player".
  * @default 8
+ *
+ * @arg region
+ * @text Region
+ * @type number
+ * @desc For "reveal a region" (this map).
+ * @default 0
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @desc For "how much is explored".
+ * @default 0
  *
  * @arg mapId
  * @text Map

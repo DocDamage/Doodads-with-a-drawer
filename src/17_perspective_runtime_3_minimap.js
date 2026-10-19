@@ -63,7 +63,16 @@ DocsDoodads.Minimap.exploredCommand = function(args) {
     const action = String(args.action || 'all');
     if (action === 'forget') E.forget(mapId, w, h);
     else if (action === 'around') E.reveal(mapId, w, h, $gamePlayer.x, $gamePlayer.y, Number(args.radius) || 8);
-    else E.revealAll(mapId, w, h);
+    // A map item: the tiles of a region (this map only: other maps' regions are in their files).
+    else if (action === 'region') {
+        if (mapId !== $gameMap.mapId()) return false;
+        E.revealWhere(mapId, w, h, (x, y) => $gameMap.regionId(x, y) === Number(args.region));
+    }
+    // How much has been seen, 0-100, into a variable (a reward at 100).
+    else if (action === 'store') {
+        const id = Number(args.variableId) || 0;
+        if (id > 0 && typeof $gameVariables !== 'undefined' && $gameVariables) $gameVariables.setValue(id, Math.floor(E.fraction(mapId, w, h) * 100));
+    } else E.revealAll(mapId, w, h);
     return true;
 };
 

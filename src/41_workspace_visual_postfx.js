@@ -525,7 +525,18 @@
                 number('time.minuteVariableId', 'Minute variable (optional)'),
                 range('time.minutesPerSecond', 'Game minutes per real second', 0.1, 60, 0.1),
                 number('time.startHour', 'Starting hour for new games', 0.5),
-                range('time.lampThreshold', 'Lamps switch on at darkness', 0, 1, 0.05)
+                range('time.lampThreshold', 'Lamps switch on at darkness', 0, 1, 0.05),
+                check('time.inBattle', 'The clock runs in battles'),
+                check('time.inMenus', 'The clock runs in menus'),
+                number('time.afterBattle', 'Minutes a battle takes (added when it ends)'),
+                number('time.dayVariableId', 'Day variable (day 1, 2, 3...)'),
+                number('time.weekdayVariableId', 'Weekday variable (1 = the first name below)'),
+                { key: 'time.weekdays', label: 'Weekdays (names, in order)', type: 'text',
+                    format: v => (v || []).join(', '), parse: t => String(t || '').split(',').map(s => s.trim()).filter(Boolean) },
+                { key: 'time.dates', label: 'Named dates (e.g. 30 Harvest Festival; 1 New Year every 112)', type: 'text',
+                    format: v => (v || []).map(e => e.day + ' ' + e.name + (Number(e.every) > 0 ? ' every ' + e.every : '')).join('; '),
+                    parse: t => String(t || '').split(/[;\n]+/).map(s => s.trim().match(/^(\d+)\s+(.+?)(?:\s+every\s+(\d+))?$/i)).filter(Boolean)
+                        .map(m => Object.assign({ day: Number(m[1]), name: m[2].trim() }, m[3] ? { every: Number(m[3]) } : {})) }
             ] },
             { title: 'Sun and Shadows', fields: [
                 select('sun.source', 'Shadow direction from', D.Sun.sources),
