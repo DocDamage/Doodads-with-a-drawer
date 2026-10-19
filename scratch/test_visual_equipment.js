@@ -95,6 +95,9 @@ assert.deepStrictEqual(V.frameRect('Wings[f4][d1]', 192, 48, 0, 2, 3), { x: 96, 
 // Side-view battlers: the same cell of a 9x6 sheet.
 assert.deepStrictEqual(V.svRect(576, 384, { x: 128, y: 64, width: 64, height: 64 }, 576, 384), { x: 128, y: 64, w: 64, h: 64 });
 assert.deepStrictEqual(V.svRect(288, 192, { x: 128, y: 64, width: 64, height: 64 }, 576, 384), { x: 64, y: 32, w: 32, h: 32 }, "scaled to the layer's own size");
+assert.deepStrictEqual(V.svScale(288, 192, 576, 384), { x: 2, y: 2 }, "art at half the resolution is drawn at the battler's size");
+assert.deepStrictEqual(V.svRect(1728, 768, { x: 192, y: 64, width: 64, height: 64 }, 576, 384), { x: 576, y: 128, w: 192, h: 128 }, 'bigger cells: the same cell');
+assert.deepStrictEqual(V.svScale(1728, 768, 576, 384), { x: 1, y: 1 }, 'cells of another shape (an LPC swing): drawn at their own size, on the same feet');
 
 // 4. Save files remember each member's layers so the load screen can draw them.
 const info = V.savefileLayers([layers, []]);

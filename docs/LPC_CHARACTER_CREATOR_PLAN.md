@@ -577,26 +577,45 @@ frames as custom animations instead, so before this a character holding one swun
     (32, 32) in 128. This was checked by drawing the body's own frames under the art at both candidate places. In
     the middle, the hilt is in the hand in every frame. At the bottom it floats above the head.
 - **Resolver:** `LpcCompose.oversize` maps each custom animation to the animation file it stands for, its frame,
-  and whether it is reversed. `standIns(animation)` lists them by file, so `1h_backslash` finds `backslash_128`.
+  and whether it is drawn for the body playing backwards. `standIns(animation)` lists them by file, so
+  `1h_backslash` finds `backslash_128`.
   - A part uses its bigger art only when it has no picture at the usual size for that animation. A bow's 64-pixel
     shoot wins, and a bow walks on `walk_128` because its universal folders have no walk.
+  - **Which way the body plays:** the animation's own way, or backwards for a slash whose only big art is a return
+    swing (the club, the boomerang). Big art drawn for the other way is played backwards (`layer.flip`), so it
+    still follows the hand. With a longsword and a club, the body swings forward and the club's art is flipped.
+  - `{ separateBody: true }` keeps the body's own way, for Visual Equipment parts, whose body is a sheet of its own.
   - The result has `frame` (64, 128 or 192), `reverse`, and `oversize` (the names used).
-  - If one part swings back and another forward, the forward swing wins and the other part is left out with a
-    warning.
   - `{ oversize: false }` leaves the bigger art out.
 - **Compositor:** with a bigger frame, the sheet is `frames × F` by `rows × F`, and `sheet.frame = F`.
-  - Each 64-pixel layer's frames are drawn in the middle of the bigger cells, in reverse order for a return swing.
-  - The bigger art is drawn at its size, and padded columns are ignored.
+  - Each 64-pixel layer's frames are drawn in the middle of the bigger cells, backwards when the body plays
+    backwards.
+  - The bigger art is drawn at its size, flipped when it is drawn for the other way.
+  - Padded columns are ignored, at any size. The wand's 64-pixel slash is also 13 columns wide; it used to be
+    left out as "another size".
   - Art whose height doesn't match its frame size is left out with a warning.
+- **The return swing as an action:** `slash_reverse` (`$Name_slash_reverse[f6]`, **Backswing** on the stage,
+  "slash reverse" among the export's actions). It is slash with every frame backwards. A part with a slash has
+  one; the longsword uses its `slash_reverse_oversize` art as drawn, and forward-only art is flipped.
 - **Exports (`LpcExport.cellOf`):** MZ stands every frame on its bottom edge, so a frame's feet must be at its
   bottom, as in a 64-pixel frame.
-  - A sheet with bigger frames keeps the full width and everything above the feet. A 192 frame becomes
-    192 × 128, and a 128 frame becomes 128 × 96.
-  - What the library draws below the body's cell is left out. That is up to 46 pixels of a downward spear thrust,
-    and 15–20 % of a few polearm sheets' pixels; most swords lose a few pixels or none.
-  - `$Name_slash[f6]` with 192 × 128 frames needs no new tag, because MZ splits a tagged sheet evenly.
+  - **Walkers and the battler** keep the full width and everything above the feet. A 192 frame becomes 192 × 128,
+    and a 128 frame becomes 128 × 96. They have to work in MZ without the plugin, and they lose little: at most
+    8 pixels for a `walk_128` walker, and at most 10 for the left-facing rows a battler uses.
   - The walkers (`$Name`, `$Name[f9][w2]`) get 128 × 96 frames when the weapon walks on `walk_128`. The idle and
     run sheets stay 64, and the feet stay at the same place.
+  - **Action sheets** keep the whole frame (192 × 192), so a downward thrust keeps its tip (up to 57 pixels below
+    the feet, on the down-facing row). Only this plugin plays them, so it can stand them on their feet: the
+    export writes how far each reaches below the feet into the project's `characterAnim.feet` table
+    (`{ "$Knight_slash[f6]": 64 }`). The names stay the same, and an entry goes when a sheet is exported again
+    without big art.
+- **Art below the feet at runtime:** `CharacterAnim.belowFor(sheet, table)` reads a sheet's `[bN]` tag, or the
+  table. The character's sprite stands such a frame on its feet by its anchor (`footAnchor`), so its position, the
+  map's sorting and everything else that uses the position stay the same.
+  - The bush halves, the cast shadow and its gear parts, the reflection, the see-through silhouette, Visual
+    Equipment layers (each by its own sheet), and characters drawn in menus follow the same feet.
+  - The sprite goes back to anchor 1 when the sheet has none.
+  - `[bN]` works for any artist's sheets, for example `Ogre_smash[f6][b32]`.
 - **The side-view battler (decided: grow it).** A 64-pixel battler slot would cut the weapon off, and scaling it
   down would shrink the body. So when any motion uses oversize art, every cell grows to the biggest one needed
   (192 × 128 for a big swing, so the sheet is 1728 × 768).
@@ -604,29 +623,49 @@ frames as custom animations instead, so before this a character holding one swun
   - MZ splits a battler evenly into 9 × 6 cells and stands it on the bottom, so this works without the plugin.
   - The cost: MZ centres battle animations on half the cell's height, so they show about 32 pixels higher on this
     battler.
-- **Export result:** `oversize: [{ file, w, h }]` (the battler also lists its motions). The creator's popover
-  says "Bigger frames for the weapon art: $Knight_slash[f6] 192 x 128, the battler 192 x 128."
+- **Export result:** `oversize: [{ file, w, h, below }]` (the battler also lists its motions). The creator's
+  popover says "Bigger frames for the weapon art: $Knight_slash[f6] 192 x 192 (64 below the feet), the battler
+  192 x 128."
 - **Creator stage:** with a bigger frame, the canvas grows around the same body (the same size and place) and the
   swing spills over the stage. The canvas lets clicks through, and the name, dice and turn buttons stay on top.
-- **Visual Equipment parts:** unchanged. `composeLpc` with a `keep` filter leaves the bigger art out, because part
-  sheets go over 64-pixel body sheets. A big weapon exported as a part has only its 64-pixel art: the longsword
-  walks and has no swing, and a polearm with only `walk_128` has nothing to draw.
+- **Visual Equipment parts:** a big weapon's part sheets get the same frames as the character's would. That means
+  walkers on 128 × 96 frames, actions on whole frames written into `characterAnim.feet`, and a grown battler
+  layer. They go over the 64-pixel body sheets because:
+  - Visual Equipment draws each map layer at its own frame size, standing on the same feet.
+  - A battler layer whose cells have another shape than the battler's is now drawn at its own pixel size
+    (`VisualEquip.svScale`). Layers with the same shape are still scaled to the battler, for art drawn at another
+    resolution.
+  - A return swing is flipped to follow the body's own slash, because the body is a sheet of its own.
 - **Checked:**
   - **Tests:** `scratch/test_lpc_compositor.js` and `scratch/test_lpc_export.js` use synthetic 64, 128 and
-    192 sheets.
-  - **The real library:** scanned through More > Characters. All 26 parts compose for each animation they stand in
-    for, with no size warnings, in 20–70 ms each.
-  - **In MZ:** the creator's stage showed the longsword's slash and the halberd's thrust. The export wrote
-    `$Knight_slash[f6]` at 1152 × 512 and `$Knight_thrust[f8]` at 1536 × 512, with a 1728 × 768 battler, in
-    about 300 ms.
-    - Play Character Action played the slash with the player's sprite at the same y and a 192 × 128 frame.
+    192 sheets. `scratch/test_character_anim.js` checks `[bN]` and the table, and `scratch/test_visual_equipment.js`
+    checks battler layer scaling.
+  - **The real library:** scanned through More > Characters. All 26 oversize parts compose for each animation they
+    stand in for, with no size warnings, in 20–70 ms each. Every weapon (328 compositions: slash, backswing,
+    thrust and walk, each with the body together and separate) has no size warnings.
+  - **In MZ (first pass):** the creator's stage showed the longsword's slash and the halberd's thrust. The export
+    wrote the sheets and a 1728 × 768 battler in about 300 ms.
+    - Play Character Action played the slash with the player's sprite at the same y.
     - In a side-view battle, the swing motion showed the longsword.
     - A long spear's `$Lance[f9][w2]` walked on 128 × 96 frames.
+  - **In MZ (second pass):**
+    - `$Lance_thrust[f8]` (1536 × 768) facing down showed the spear's tip below the feet, with the player at the
+      same y (anchor 0.667).
+    - The Squire's longsword, exported as parts and put on the actor's weapon, drew its 192-pixel `_slash` layers
+      over the 64-pixel body, hilt in hand.
+    - In battle, the part's 1728 × 768 `sv` layer was drawn at scale 1 over the 576 × 384 battler, the sword in the
+      hand.
+    - In a bush, the halves split at the feet for the body and for the layers. Shadow parts followed the feet.
+    - Back on an ordinary sheet, the anchor was 1 again.
     - No errors.
 - **Left for later:**
-  - a foot-offset tag, so that bigger frames could keep the art below the feet;
-  - oversize art in Visual Equipment parts (the body's sheet would need the same bigger frames);
-  - offering the return swing (`slash_reverse_oversize`) as its own action when a part has both.
+  - ~~a foot-offset tag, so that bigger frames could keep the art below the feet~~: done for action sheets (`[bN]` and
+    `characterAnim.feet`). Walkers and battlers still stand on their bottom edge, because they work without the
+    plugin;
+  - ~~oversize art in Visual Equipment parts~~: done;
+  - ~~the return swing as its own action~~: done (`slash_reverse`);
+  - battle animations on a grown battler show a little high. MZ centres them on the cell, and a fix would mean
+    patching `Sprite_Animation`.
 
 ## 19. Open questions for the owner
 

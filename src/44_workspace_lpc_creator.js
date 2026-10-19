@@ -91,7 +91,7 @@ Object.assign(DocsDoodads.Workspace, {
     _creator: null,
 
     creatorAnimations: [['walk', 'Walk'], ['idle', 'Idle'], ['run', 'Run'], ['slash', 'Slash'], ['thrust', 'Thrust'], ['spellcast', 'Spellcast'],
-        ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat']],
+        ['shoot', 'Shoot'], ['hurt', 'Hurt'], ['sit', 'Sit'], ['emote', 'Emote'], ['jump', 'Jump'], ['climb', 'Climb'], ['combat', 'Combat'], ['slash_reverse', 'Backswing']],
     creatorFps: { walk: 10, run: 12, idle: 3, combat: 3, sit: 2, emote: 3 },
 
     openCreator(state) {
@@ -408,7 +408,7 @@ Object.assign(DocsDoodads.Workspace, {
                 ${tick('dd-cr-ex-classic', o.classic, 'Classic walker', `${escapeHtml(N.classic)}.png: MZ's 3-frame walk. Works with or without this plugin.`)}
                 ${tick('dd-cr-ex-smooth', o.smooth, 'Smooth walker, idle and run', `${escapeHtml(N.smooth)}.png and its _idle and _run sheets: every walk frame, breathing when still, running when dashing.`)}
                 ${tick('dd-cr-ex-battler', o.battler, 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: walk, wait, chant, guard, damage, swing, thrust, missile, spell, victory, dead and the rest.`)}
-                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(anim.replace(/^1h_/, ''))}</button>`).join('')}</div></div>
+                <div style="margin: 0 0 6px 22px;"><b>Actions</b> <span style="color: #7a6b8f;">(for Play Character Action)</span><div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;">${DocsDoodads.LpcExport.actions.map(([anim]) => `<button type="button" class="dd-cr-anim" id="dd-cr-ex-act-${anim}" aria-pressed="${(o.actions || []).includes(anim)}" title="${escapeHtml(DocsDoodads.LpcExport.actionName(c.name, anim))}.png">${escapeHtml(DocsDoodads.LpcExport.actionLabel(anim))}</button>`).join('')}</div></div>
                 ${tick('dd-cr-ex-face', o.face, 'Face', `img/faces/${escapeHtml(N.face)}.png, in slot <select id="dd-cr-ex-slot" style="font-size: 11px;">${[0, 1, 2, 3, 4, 5, 6, 7].map(i => `<option value="${i}"${(o.faceSlot || 0) === i ? ' selected' : ''}>${i + 1}</option>`).join('')}</select> (other faces in the sheet are kept).`)}
                 ${tick('dd-cr-ex-parts', o.parts, 'Outfit as Visual Equipment parts', `The character's sheets get the body and face only; each piece it wears becomes part sheets in the same layouts, with the notetag to put on a weapon or armour, so changing equipment changes what it wears.`)}
                 ${unsafe ? `<div style="background: #fff1c2; border-radius: 12px; padding: 6px 8px; margin-bottom: 6px; line-height: 1.4;">${unsafe} artwork${unsafe === 1 ? ' is' : 's are'} not safe to encrypt: deploy without "Encrypt image files", or change ${unsafe === 1 ? 'it' : 'them'}.</div>` : ''}

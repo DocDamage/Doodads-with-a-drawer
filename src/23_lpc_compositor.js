@@ -22,7 +22,10 @@ DocsDoodads.LpcCompose = {
         shoot: { file: 'shoot', frames: 13 }, hurt: { file: 'hurt', frames: 6, rows: 1 }, climb: { file: 'climb', frames: 6, rows: 1 },
         jump: { file: 'jump', frames: 5 }, sit: { file: 'sit', frames: 3 }, emote: { file: 'emote', frames: 3 },
         combat: { file: 'combat_idle', frames: 2 }, '1h_slash': { file: 'slash', frames: 6 },
-        '1h_backslash': { file: 'backslash', frames: 13 }, '1h_halfslash': { file: 'halfslash', frames: 6 }
+        '1h_backslash': { file: 'backslash', frames: 13 }, '1h_halfslash': { file: 'halfslash', frames: 6 },
+        // The return swing: slash with every frame backwards (the library's slash_reverse_oversize art is drawn
+        // for it). A part with a slash has one.
+        slash_reverse: { file: 'slash', frames: 6, reverse: true, like: 'slash' }
     },
     // Bigger art that most swords, spears and polearms have instead of an animation (the library's custom
     // animations): the animation file each stands for, its frame size, and whether the body plays that
@@ -61,9 +64,11 @@ DocsDoodads.LpcCompose = {
         return table[key] !== undefined ? String(table[key]) : null;
     },
 
-    // options.oversize: false leaves out the bigger art (Visual Equipment parts are drawn over 64-pixel
-    // sheets). The result's frame is the biggest frame a layer needs (64 without bigger art), and reverse is
-    // set when the body plays the animation backwards for a return swing.
+    // options.oversize: false leaves out the bigger art. options.separateBody: the body is drawn on a sheet of
+    // its own (Visual Equipment parts go over it), so it plays the animation its own way. The result's frame
+    // is the biggest frame a layer needs (64 without bigger art), and reverse is set when the body plays the
+    // animation backwards: slash_reverse, or a slash whose only big art is a return swing (the club). Big art
+    // drawn for the other way round is played backwards (layer.flip), so it still follows the hand.
     resolve(index, recipe, animation, exists, options = {}) {
         const byId = new Map((index && index.parts || []).map(p => [p.id, p]));
         const body = recipe && recipe.body || 'male';
@@ -99,14 +104,18 @@ DocsDoodads.LpcCompose = {
             }
             return { files, missing };
         };
+        const meta = this.animations[animation] || {};
+        const backwards = Boolean(meta.reverse);
+        // Big art drawn for the way the body plays comes first.
+        const ways = k => (Boolean(this.oversize[k].reverse) === backwards ? 0 : 1);
         const chosen = [];
         for (const { part, pick, order } of picked) {
             if ((part.requiredTags || []).length && !part.requiredTags.some(t => tags.has(t))) {
                 warnings.push(`${part.name} goes with ${part.requiredTags.join(' or ')}, which nothing picked has.`);
                 continue;
             }
-            const standIns = options.oversize === false ? [] : this.standIns(animation).filter(k => part.layers.some(l => l.custom === k && l.paths[body]));
-            const listed = !(part.animations && part.animations.length) || part.animations.includes(animation);
+            const standIns = options.oversize === false ? [] : this.standIns(animation).filter(k => part.layers.some(l => l.custom === k && l.paths[body])).sort((a, b) => ways(a) - ways(b));
+            const listed = !(part.animations && part.animations.length) || part.animations.includes(animation) || Boolean(meta.like && part.animations.includes(meta.like));
             if (!listed && !standIns.length) {
                 warnings.push(`${part.name} has no ${animation}.`);
                 continue;
@@ -130,26 +139,23 @@ DocsDoodads.LpcCompose = {
             }
             chosen.push({ part, pick, order, files: got.files, size });
         }
-        // The body can't play forwards and backwards at once: a return swing gives way to a forward one.
-        const forward = chosen.some(c => c.size && !c.size.reverse);
-        const drawn = chosen.filter(c => {
-            if (!(forward && c.size && c.size.reverse)) return true;
-            warnings.push(`${c.part.name} only swings back, and another part swings forward; left out.`);
-            return false;
-        });
+        // Which way the body plays: the animation's own way, or backwards when all the big art is a return swing
+        // (the generator's own choice for the club), unless the body is on a sheet of its own.
+        const big = chosen.filter(c => c.size);
+        const reverse = backwards || (!options.separateBody && big.length > 0 && big.every(c => c.size.reverse));
         const layers = [];
         const used = [];
-        for (const { part, pick, order, files, size } of drawn) {
+        for (const { part, pick, order, files, size } of chosen) {
             for (const { layer, file, folder } of files) {
-                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick, folder, frame: size ? size.frame : this.frame, oversize: size ? size.name : '' });
+                layers.push({ z: layer.z, priority: part.priority || 0, order, file, part, pick, folder, frame: size ? size.frame : this.frame,
+                    oversize: size ? size.name : '', flip: Boolean(size) && Boolean(size.reverse) !== reverse });
                 used.push({ part, folder });
             }
         }
         layers.sort((a, b) => a.z - b.z || a.priority - b.priority || a.order - b.order);
-        const big = drawn.filter(c => c.size);
         return {
             body, animation, layers, used, warnings, frame: Math.max(this.frame, ...big.map(c => c.size.frame)),
-            reverse: big.some(c => c.size.reverse), oversize: [...new Set(big.map(c => c.size.name))]
+            reverse, oversize: [...new Set(big.map(c => c.size.name))]
         };
     },
 
@@ -304,11 +310,18 @@ DocsDoodads.LpcCompose = {
                     warnings.push(`${layer.part.name} is drawn at another size (${image.width}x${image.height}); left out.`);
                     continue;
                 }
-                this.overFrames(sheet, image, cell, meta.frames, rows, resolved.reverse && cell === this.frame);
+                this.overFrames(sheet, image, cell, meta.frames, rows, cell === this.frame ? resolved.reverse : Boolean(layer.flip));
                 drawn++;
                 continue;
             }
-            if (!sheet) sheet = this.blank(image.width, image.height);
+            // Some sheets are padded with empty columns (the wand's slash is 13 wide): only the animation's
+            // frames are drawn.
+            const F64 = this.frame, fits = meta.frames && image.height === rows * F64 && image.width >= meta.frames * F64;
+            if (!sheet) sheet = fits ? this.blank(meta.frames * F64, rows * F64) : this.blank(image.width, image.height);
+            if (fits && sheet.width === meta.frames * F64 && sheet.height === image.height) {
+                this.overRect(sheet, image, 0, 0, 0, 0, sheet.width, sheet.height);
+                continue;
+            }
             if (image.width !== sheet.width || image.height !== sheet.height) {
                 warnings.push(`${layer.part.name} is drawn at another size (${image.width}x${image.height}); left out.`);
                 continue;

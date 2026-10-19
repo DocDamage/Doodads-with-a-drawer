@@ -149,7 +149,7 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     console.log('✓ face and face sheet');
 
     // 3. [wN] at runtime: frame 0 stands; walking goes 1-8; one cycle per 2 tiles, at any speed.
-    assert.deepStrictEqual(C.parseName('$Robin[f9][w2]'), { base: '$Robin', frames: 9, dirs: 4, tagged: true, walkTiles: 2 });
+    assert.deepStrictEqual(C.parseName('$Robin[f9][w2]'), { base: '$Robin', frames: 9, dirs: 4, tagged: true, walkTiles: 2, below: 0 });
     assert.strictEqual(C.parseName('$Robin[f8]').walkTiles, 0);
     assert.strictEqual(C.parseName('$Robin_run[f8]').base, '$Robin_run');
     for (const speed of [3, 4, 5]) {
@@ -243,27 +243,39 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.strictEqual(E.actionName('Ace', '1h_backslash'), '$Ace_backslash[f13]');
     console.log('✓ actions and the side-view battler');
 
-    // 4b2. Oversize weapon art: action sheets and walkers with bigger frames standing on the feet (what is
-    // below the body's cell left out), the battler's cells grown to fit with every motion at the bottom middle,
-    // the export saying which; Visual Equipment parts keep 64-pixel frames.
-    assert.deepStrictEqual([E.cellOf(64), E.cellOf(128), E.cellOf(192)], [{ w: 64, h: 64 }, { w: 128, h: 96 }, { w: 192, h: 128 }]);
+    // 4b2. Oversize weapon art: walkers and the battler with bigger frames standing on the feet (what is below
+    // the body's cell left out), action sheets with the whole frame and how far it reaches below the feet in
+    // characterAnim.feet, the battler's cells grown with every motion at the bottom middle, the export saying
+    // which; Visual Equipment parts get the same frames; the return swing as an action.
+    assert.deepStrictEqual([E.cellOf(64), E.cellOf(128), E.cellOf(192)], [{ w: 64, h: 64, below: 0 }, { w: 128, h: 96, below: 0 }, { w: 192, h: 128, below: 0 }]);
+    assert.deepStrictEqual([E.cellOf(64, true), E.cellOf(192, true)], [{ w: 64, h: 64, below: 0 }, { w: 192, h: 192, below: 64 }]);
+    assert.deepStrictEqual(E.feetWith({ a: 32 }, 'b', 64), { a: 32, b: 64 });
+    assert.deepStrictEqual(E.feetWith({ a: 32, b: 64 }, 'b', 0), { a: 32 }, 'gone when a sheet no longer reaches below the feet');
+    assert.strictEqual(E.actionLabel('slash_reverse'), 'slash reverse');
+    assert.strictEqual(E.actionLabel('1h_backslash'), 'backslash');
     const knight = { body: 'male', slots: { body: { id: 'body/body', colour: 'light' }, weapon: { id: 'weapons/longsword', colour: '' } } };
-    const kn = ws.exportLpcCharacter(knight, { name: 'Knight', classic: true, actions: ['slash', 'hurt'], battler: true });
+    const kn = ws.exportLpcCharacter(knight, { name: 'Knight', classic: true, actions: ['slash', 'hurt', 'slash_reverse'], battler: true });
     const kimg = f => D.LpcCompose.decodePng(fs.readFileSync(path.join(project, f)), d => zlib.inflateSync(d));
     const kslash = kimg('img/characters/$Knight_slash[f6].png');
-    assert.deepStrictEqual([kslash.width, kslash.height], [6 * 192, 4 * 128], '192-pixel frames, 128 tall: everything above the feet');
-    assert.deepStrictEqual(px(kslash, 2 * 192 + 64 + 30, 64 + 40), [40, 120, 7, 255], 'MZ row 0 is the library\'s down row; the body ends at the frame\'s bottom');
+    assert.deepStrictEqual([kslash.width, kslash.height], [6 * 192, 4 * 192], 'action sheets keep the whole 192-pixel frame');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 64 + 30, 64 + 40), [40, 120, 7, 255], "MZ row 0 is the library's down row; the body in the middle");
     assert.deepStrictEqual(px(kslash, 2 * 192 + 5, 5), [200, 40, 100, 255], 'the blade at its size');
     assert.deepStrictEqual(px(kslash, 2 * 192 + 64 + 10, 64 + 20), [200, 40, 100, 255], 'in front of the body');
-    assert.deepStrictEqual(px(kslash, 2 * 192 + 5, 128 + 5), [200, 40, 50, 255], 'the next MZ row (left) starts right under the feet');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 5, 128 + 5), [200, 40, 100, 255], 'and the art below the feet');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 5, 192 + 5), [200, 40, 50, 255], 'the next MZ row (left)');
+    assert.deepStrictEqual(D.World.get('characterAnim.feet'), { '$Knight_slash[f6]': 64, '$Knight_slash_reverse[f6]': 64 }, 'the plugin is told how far they reach below the feet');
+    assert.strictEqual(D.CharacterAnim.belowFor('$Knight_slash[f6]', D.CharacterAnim.feet()), 64, 'and stands them on their feet');
+    const kback = kimg('img/characters/$Knight_slash_reverse[f6].png');
+    assert.deepStrictEqual([px(kback, 5, 5), px(kback, 64 + 30, 64 + 40)], [[200, 100, 100, 255], [100, 120, 7, 255]], 'the backswing: blade and body from the last slash frame');
     assert.deepStrictEqual([kimg('img/characters/$Knight_hurt[f6].png').width, kimg('img/characters/$Knight.png').width], [384, 192], 'sheets without oversize art keep 64-pixel frames');
     const ksv = kimg('img/sv_actors/Knight.png');
-    assert.deepStrictEqual([ksv.width, ksv.height], [9 * 192, 6 * 128], 'the battler\'s cells grow to the swing');
+    assert.deepStrictEqual([ksv.width, ksv.height], [9 * 192, 6 * 128], "the battler's cells grow to the swing");
     assert.deepStrictEqual(px(ksv, 64 + 10, 64 + 20), [20, 60, 7, 255], 'walk: the 64-pixel frame at the bottom middle of its cell');
     assert.deepStrictEqual(px(ksv, 3 * 192 + 64 + 10, 128 + 64 + 20), [200, 20, 50, 255], 'swing: the blade, frame 1 facing left');
     assert.deepStrictEqual(px(ksv, 3 * 192 + 64 + 30, 128 + 64 + 40), [20, 60, 7, 255], 'and the body at the same size and place as in walk');
-    assert.deepStrictEqual(kn.oversize, [{ file: 'img/characters/$Knight_slash[f6].png', w: 192, h: 128 }, { file: 'img/sv_actors/Knight.png', w: 192, h: 128, motions: ['swing', 'skill'] }], 'skill falls back to the slash');
-    assert.strictEqual(E.oversizeNote(kn.oversize), 'Bigger frames for the weapon art: $Knight_slash[f6] 192 x 128, the battler 192 x 128.');
+    assert.deepStrictEqual(kn.oversize, [{ file: 'img/characters/$Knight_slash[f6].png', w: 192, h: 192, below: 64 }, { file: 'img/characters/$Knight_slash_reverse[f6].png', w: 192, h: 192, below: 64 },
+        { file: 'img/sv_actors/Knight.png', w: 192, h: 128, below: 0, motions: ['swing', 'skill'] }], 'skill falls back to the slash');
+    assert.strictEqual(E.oversizeNote(kn.oversize.slice(0, 1).concat(kn.oversize.slice(2))), 'Bigger frames for the weapon art: $Knight_slash[f6] 192 x 192 (64 below the feet), the battler 192 x 128.');
     assert.strictEqual(E.oversizeNote([]), '');
     assert.ok(!kn.warnings.some(w => /Longsword has no slash/.test(w)) && kn.warnings.includes('Longsword has no hurt.'), 'the swing is not missing any more');
     // walk_128: the walkers get 128-pixel frames, 96 tall; idle and run (no spear) keep 64.
@@ -274,12 +286,18 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.deepStrictEqual(px(ls, 8 * 128 + 5, 5), [180, 160, 100, 255], 'the spear, frame 8 (the padded columns ignored)');
     assert.deepStrictEqual(kimg('img/characters/$Lance_idle[f2].png').width, 128);
     assert.deepStrictEqual(lance.oversize.map(o => o.file), ['img/characters/$Lance.png', 'img/characters/$Lance[f9][w2].png']);
-    // As Visual Equipment parts the sword keeps 64-pixel frames (it goes over 64-pixel body sheets).
+    // Exported again without the longsword: its sheets no longer reach below the feet.
+    ws.exportLpcCharacter({ body: 'male', slots: { body: { id: 'body/body', colour: 'light' } } }, { name: 'Knight', actions: ['slash'] });
+    assert.deepStrictEqual(D.World.get('characterAnim.feet'), { '$Knight_slash_reverse[f6]': 64 });
+    // As Visual Equipment parts the sword gets the same bigger frames, on the same feet as the 64-pixel body.
     const kp = ws.exportLpcCharacter(knight, { name: 'Knight2', smooth: true, battler: true, actions: ['slash'], parts: true });
     const sword = kp.parts.find(p => p.slot === 'weapon');
-    assert.ok(sword && !sword.files.some(f => /_slash/.test(f)), 'no oversize slash in the part sheets');
-    assert.deepStrictEqual([kimg(sword.files.find(f => f.startsWith('img/sv_actors/'))).width, kimg('img/characters/$Knight2_slash[f6].png').width], [576, 384]);
-    assert.deepStrictEqual(kp.oversize, []);
+    const swordSlash = sword.files.find(f => /_slash\[f6\]/.test(f));
+    assert.ok(swordSlash, 'an oversize slash in the part sheets');
+    assert.deepStrictEqual([kimg(swordSlash).width, kimg(swordSlash).height, D.World.get('characterAnim.feet')[swordSlash.replace(/^.*\//, '').replace(/\.png$/, '')]], [1152, 768, 64]);
+    assert.deepStrictEqual(px(kimg(swordSlash), 2 * 192 + 5, 5), [200, 40, 100, 255]);
+    assert.deepStrictEqual([kimg(sword.files.find(f => f.startsWith('img/sv_actors/'))).width, kimg('img/characters/$Knight2_slash[f6].png').width], [1728, 384], 'the body alone keeps 64-pixel frames');
+    assert.deepStrictEqual(kp.oversize.map(o => o.file), [swordSlash, sword.files.find(f => f.startsWith('img/sv_actors/'))]);
     // The creator's stage shows the swing on a bigger canvas around the same body; the export says which sheets are bigger.
     ws.openCreator(knight);
     const canvas = document.getElementById('dd-cr-canvas');
@@ -287,16 +305,18 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     document.getElementById('dd-cr-anim-slash').onclick();
     assert.strictEqual(document.getElementById('dd-cr-canvas').width, 4 * 192, 'Slash: 192-pixel frames');
     assert.ok(!/Longsword has no/.test(root.innerHTML), 'nothing missing');
+    assert.ok(root.innerHTML.includes('id="dd-cr-anim-slash_reverse"'), 'the backswing on the stage');
     document.getElementById('dd-cr-anim-walk').onclick();
     assert.strictEqual(document.getElementById('dd-cr-canvas').width, 256, 'back to 64');
     ws._creator.name = 'Knight';
     document.getElementById('dd-cr-export').onclick();
+    assert.ok(/id="dd-cr-ex-act-slash_reverse"[^>]*>slash reverse</.test(root.innerHTML), 'and as an action');
     ws._creator.exportOptions = { classic: false, smooth: false, face: false, battler: false, actions: ['slash'] };
     D.Ui.confirm = async () => true;
     await ws.creatorExport();
-    assert.ok(root.innerHTML.includes('Bigger frames for the weapon art: $Knight_slash[f6] 192 x 128.'), 'the popover says which sheets are bigger');
+    assert.ok(root.innerHTML.includes('Bigger frames for the weapon art: $Knight_slash[f6] 192 x 192 (64 below the feet).'), 'the popover says which sheets are bigger');
     ws.closeCreator();
-    console.log('✓ oversize weapon art: bigger frames on the feet, the battler grown, the stage, parts at 64');
+    console.log('✓ oversize weapon art: bigger frames on the feet, the battler grown, the stage, parts, the backswing');
 
     // 4c. The outfit as Visual Equipment parts: the body alone for the character, a part per piece (in front
     // and behind), in the same layouts, with the notetag; the notetag put on an armour in the database.

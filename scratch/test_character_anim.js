@@ -28,15 +28,22 @@ require('../Docs-Doodads.js');
 const C = DocsDoodads.CharacterAnim;
 
 // 1. Sheet names carry their layout: [f8] frames per row, [d1]/[d8] direction rows. %(8) is accepted too.
-assert.deepStrictEqual(C.parseName('Actor1'), { base: 'Actor1', frames: 3, dirs: 4, tagged: false, walkTiles: 0 });
-assert.deepStrictEqual(C.parseName('Hero[f8]'), { base: 'Hero', frames: 8, dirs: 4, tagged: true, walkTiles: 0 });
-assert.deepStrictEqual(C.parseName('$Slime[f6][d1]'), { base: '$Slime', frames: 6, dirs: 1, tagged: true, walkTiles: 0 });
-assert.deepStrictEqual(C.parseName('Knight[d8][f4]'), { base: 'Knight', frames: 4, dirs: 8, tagged: true, walkTiles: 0 });
-assert.deepStrictEqual(C.parseName('Bat%(5)'), { base: 'Bat', frames: 5, dirs: 4, tagged: true, walkTiles: 0 });
+assert.deepStrictEqual(C.parseName('Actor1'), { base: 'Actor1', frames: 3, dirs: 4, tagged: false, walkTiles: 0, below: 0 });
+assert.deepStrictEqual(C.parseName('Hero[f8]'), { base: 'Hero', frames: 8, dirs: 4, tagged: true, walkTiles: 0, below: 0 });
+assert.deepStrictEqual(C.parseName('$Slime[f6][d1]'), { base: '$Slime', frames: 6, dirs: 1, tagged: true, walkTiles: 0, below: 0 });
+assert.deepStrictEqual(C.parseName('Knight[d8][f4]'), { base: 'Knight', frames: 4, dirs: 8, tagged: true, walkTiles: 0, below: 0 });
+assert.deepStrictEqual(C.parseName('Bat%(5)'), { base: 'Bat', frames: 5, dirs: 4, tagged: true, walkTiles: 0, below: 0 });
 assert.strictEqual(C.parseName('Weird[f0]').frames, 3, "nonsense counts fall back");
 assert.strictEqual(C.parseName('Big[f99]').frames, 64, "and are capped");
-assert.deepStrictEqual(C.parseName('$Hero[f9][w2]'), { base: '$Hero', frames: 9, dirs: 4, tagged: true, walkTiles: 2 }, 'walk pace: frame 0 stands, a cycle every 2 tiles');
+assert.deepStrictEqual(C.parseName('$Hero[f9][w2]'), { base: '$Hero', frames: 9, dirs: 4, tagged: true, walkTiles: 2, below: 0 }, 'walk pace: frame 0 stands, a cycle every 2 tiles');
 assert.strictEqual(C.parseName('$Hero[w2]').walkTiles, 0, "pace needs more than MZ's 3 frames");
+// [bN]: art below the feet (an LPC spear thrust); the sheet still stands on its feet.
+assert.deepStrictEqual(C.parseName('$Knight_slash[f6][b64]'), { base: '$Knight_slash', frames: 6, dirs: 4, tagged: true, walkTiles: 0, below: 64 });
+assert.strictEqual(C.belowFor('$Knight_slash[f6][b64]', null), 64);
+assert.strictEqual(C.belowFor('$Knight_slash[f6]', { '$Knight_slash[f6]': 64 }), 64, "or the project's table (names unchanged)");
+assert.strictEqual(C.belowFor('$Knight[f9][w2]', { '$Knight_slash[f6]': 64 }), 0);
+assert.strictEqual(C.footAnchor(192, 64), 1 - 64 / 192, 'the feet stay where the character stands');
+assert.strictEqual(C.footAnchor(64, 0), 1);
 
 // 2. Which row a direction uses. MZ order: down, left, right, up; 8-direction sheets add the diagonals.
 assert.deepStrictEqual(C.rowFor(2, 4), { row: 0, mirror: false });

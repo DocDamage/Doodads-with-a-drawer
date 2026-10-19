@@ -6,7 +6,9 @@
 // that plays the idle and run sheets with the smooth walker, and keeps the character under its name so it
 // can be changed and exported again. Also, when ticked: action sheets for Play Character Action
 // ($Name_slash[f6]...) and a side-view battler (img/sv_actors/Name.png). Layouts are in 23_lpc_export.js.
-// Sheets drawn with oversize weapon art have bigger frames; the result lists them (oversize).
+// Sheets drawn with oversize weapon art have bigger frames; the result lists them (oversize), and action
+// sheets whose frames reach below the feet are noted in characterAnim.feet so the plugin stands them on their
+// feet without changing their names.
 Object.assign(DocsDoodads.Workspace, {
     // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot, battler, actions: [anim] }
     lpcExportDefaults() {
@@ -57,11 +59,21 @@ Object.assign(DocsDoodads.Workspace, {
         const written = [];
         const warnings = walk.warnings.slice();
         const record = (file, used) => { written.push(file); this.recordLpcImage(file, used); };
-        // The sheets with bigger frames: [{ file, w, h }] (the size of one frame).
+        // The sheets with bigger frames: [{ file, w, h, below }] (the size of one frame, and how far it reaches
+        // below the feet).
         const oversize = [];
-        const big = (file, sheet) => {
+        const big = (file, sheet, full) => {
             const F = E.frameOf(sheet);
-            if (F > E.frame) oversize.push(Object.assign({ file }, E.cellOf(F)));
+            if (F > E.frame) oversize.push(Object.assign({ file }, E.cellOf(F, full)));
+        };
+        // Action sheets reaching below the feet (and ones that no longer do).
+        let feet = D.World.get('characterAnim.feet') || {};
+        const action = (file, sheet) => {
+            feet = E.feetWith(feet, file.replace(/^.*\//, '').replace(/\.png$/i, ''), E.actionBelow(sheet));
+            big(file, sheet, true);
+        };
+        const battler = (file, sv) => {
+            if (sv.oversize.length) oversize.push({ file, w: sv.cell.w, h: sv.cell.h, below: 0, motions: sv.oversize });
         };
         let parts = [];
         try {
@@ -93,7 +105,7 @@ Object.assign(DocsDoodads.Workspace, {
                 const f = 'img/characters/' + E.actionName(name, anim) + '.png';
                 this.writeLpcPng(f, E.actionSheet(out.sheet, anim));
                 record(f, out.used);
-                big(f, out.sheet);
+                action(f, out.sheet);
                 warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
             }
             if (options.battler) {
@@ -107,7 +119,7 @@ Object.assign(DocsDoodads.Workspace, {
                 const f = 'img/sv_actors/' + N.face + '.png';
                 this.writeLpcPng(f, sv.sheet);
                 record(f, used);
-                if (sv.oversize.length) oversize.push({ file: f, w: sv.cell.w, h: sv.cell.h, motions: sv.oversize });
+                battler(f, sv);
                 if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
@@ -119,11 +131,12 @@ Object.assign(DocsDoodads.Workspace, {
                 this.writeLpcPng(file, E.faceSheet(this.readLpcPng(file), E.face(faceWalk.sheet), options.faceSlot || 0));
                 record(file, faceWalk.used);
             }
-            if (options.parts) parts = this.exportLpcParts(state, options, record, warnings);
+            if (options.parts) parts = this.exportLpcParts(state, options, record, warnings, { big, action, battler });
         } catch (e) {
             this.showToast('Could not write the sheets: ' + (e.message || e), 'error');
             return null;
         }
+        if (JSON.stringify(feet) !== JSON.stringify(D.World.get('characterAnim.feet') || {})) this.setWorldSetting('characterAnim.feet', feet);
         // Credits ship with the game; the character is kept to change and export again.
         if (written.length) this.writeLpcCreditsText();
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
@@ -134,8 +147,11 @@ Object.assign(DocsDoodads.Workspace, {
 
     // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the
     // pieces follow its walk, idle, run, actions and battler), with the notetag that puts it on an item.
-    // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot.
-    exportLpcParts(state, options, record, warnings) {
+    // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot. Oversize
+    // weapon art gives a piece bigger frames standing on the same feet (Visual Equipment draws each layer at
+    // its own frame size); a return swing is played to follow the body's own slash. note: { big, action,
+    // battler } to list sheets with bigger frames.
+    exportLpcParts(state, options, record, warnings, note = {}) {
         const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
         const index = this.lpcIndex();
         const out = [];
@@ -146,24 +162,30 @@ Object.assign(DocsDoodads.Workspace, {
             const colours = [pick.colour || ''].concat(pick.colour2 ? [pick.colour2] : []);
             const recipe = { body: state.body, picks: [{ id: pick.id, colours, variant: pick.colour || undefined }] };
             const pieces = [], files = [];
-            const write = (file, image, used) => { this.writeLpcPng(file, image); record(file, used); files.push(file); };
+            const write = (file, image, used, sheet, kind) => {
+                this.writeLpcPng(file, image);
+                record(file, used);
+                files.push(file);
+                if (kind === 'action' && note.action) note.action(file, sheet);
+                else if (kind && note.big) note.big(file, sheet);
+            };
             for (const behind of [false, true]) {
                 const keep = l => (behind ? l.z < E.bodyZ : l.z >= E.bodyZ);
                 const walk = this.composeLpc(recipe, 'walk', keep);
                 if (!walk || !walk.sheet || !walk.used.length) continue;
                 const base = E.partBase(slot.label, part.name, pick.colour, state.body, behind);
                 const N = E.names(base);
-                if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk.sheet), walk.used);
+                if (options.classic) write('img/characters/' + N.classic + '.png', E.classic(walk.sheet), walk.used, walk.sheet, 'sheet');
                 if (options.smooth) {
-                    write('img/characters/' + N.smooth + '.png', E.allFrames(walk.sheet), walk.used);
+                    write('img/characters/' + N.smooth + '.png', E.allFrames(walk.sheet), walk.used, walk.sheet, 'sheet');
                     for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
                         const o = this.composeLpc(recipe, anim, keep);
-                        if (o && o.sheet && o.used.length) write('img/characters/' + sheetName + '.png', E.allFrames(o.sheet), o.used);
+                        if (o && o.sheet && o.used.length) write('img/characters/' + sheetName + '.png', E.allFrames(o.sheet), o.used, o.sheet, 'sheet');
                     }
                 }
                 for (const anim of options.actions || []) {
                     const o = this.composeLpc(recipe, anim, keep);
-                    if (o && o.sheet && o.used.length) write('img/characters/' + E.actionName(base, anim) + '.png', E.actionSheet(o.sheet, anim), o.used);
+                    if (o && o.sheet && o.used.length) write('img/characters/' + E.actionName(base, anim) + '.png', E.actionSheet(o.sheet, anim), o.used, o.sheet, 'action');
                 }
                 if (options.battler) {
                     const sheets = {}, used = [];
@@ -172,7 +194,9 @@ Object.assign(DocsDoodads.Workspace, {
                         sheets[anim] = o && o.used.length ? o.sheet : null;
                         if (o) used.push(...o.used);
                     }
-                    write('img/sv_actors/' + N.face + '.png', E.svSheet(sheets).sheet, used);
+                    const sv = E.svSheet(sheets), f = 'img/sv_actors/' + N.face + '.png';
+                    write(f, sv.sheet, used);
+                    if (note.battler) note.battler(f, sv);
                 }
                 // Visual Equipment z: below 0 is behind the body; the library's order is kept.
                 const zs = part.layers.map(l => l.z).filter(z => (behind ? z < E.bodyZ : z >= E.bodyZ));

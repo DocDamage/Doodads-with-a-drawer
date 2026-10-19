@@ -3,8 +3,11 @@
 //==========================================================
 // Sheets for RPG Maker MZ from a composed LPC character (23_lpc_compositor.js). MZ's rows face down, left,
 // right, up; the library's face up, left, down, right, so rows are reordered. Frames stay 64 x 64, or grow
-// for oversize weapon art (192 x 128 for a 192-pixel swing, see cellOf): MZ draws $ sheets at any frame size,
-// standing on the tile's bottom edge.
+// for oversize weapon art (see cellOf): MZ draws $ sheets at any frame size, standing on the tile's bottom
+// edge. Walkers and battlers keep what is above the feet (192 x 128 for a 192-pixel swing); action sheets
+// keep the whole frame (192 x 192) and say how far it reaches below the feet (characterAnim.feet).
+//
+//   action   $Name_slash[f6].png    every frame of one animation, for Play Character Action
 //
 //   classic  $Name.png              3 x 4, MZ's own walk (step, stand, step), works without the plugin
 //   smooth   $Name[f9][w2].png      every walk frame; [w2]: frame 0 stands, the walk covers 2 tiles a cycle
@@ -54,14 +57,17 @@ DocsDoodads.LpcExport = {
 
     // The cell an MZ sheet gets from a composed frame F: its full width, and everything above the feet. MZ
     // stands a frame on its bottom edge, so the body must end there as it does in a 64-pixel frame; what a
-    // bigger frame has below the body's 64-pixel cell (the tip of a downward thrust) is left out.
-    cellOf(F) {
-        return { w: F, h: (F - this.frame) / 2 + this.frame };
+    // bigger frame has below the body's 64-pixel cell (the tip of a downward thrust) is left out. full: the
+    // whole frame, with `below` pixels under the feet, for sheets only this plugin draws (it stands them on
+    // their feet).
+    cellOf(F, full) {
+        const below = (F - this.frame) / 2;
+        return full ? { w: F, h: F, below } : { w: F, h: F - below, below: 0 };
     },
 
     // A sheet in MZ's row order from one of the library's animations, with the given columns (frames).
-    mzSheet(sheet, columns) {
-        const F = this.frameOf(sheet), c = this.cellOf(F), dirs = DocsDoodads.LpcCompose.directions;
+    mzSheet(sheet, columns, full) {
+        const F = this.frameOf(sheet), c = this.cellOf(F, full), dirs = DocsDoodads.LpcCompose.directions;
         const out = this.blank(columns.length * c.w, 4 * c.h);
         this.mzRows.forEach((dir, row) => columns.forEach((frame, col) => {
             if ((frame + 1) * F <= sheet.width) this.blit(out, sheet, frame * F, dirs.indexOf(dir) * F, col * c.w, row * c.h, c.w, c.h);
@@ -74,25 +80,31 @@ DocsDoodads.LpcExport = {
     },
 
     // What an export wrote with bigger frames, for the creator: 'Bigger frames for the weapon art:
-    // $Robin_slash[f6] 192 x 128, the battler 192 x 128.' ('' when nothing). list: [{ file, w, h }].
+    // $Robin_slash[f6] 192 x 192 (64 below the feet), the battler 192 x 128.' ('' when nothing).
+    // list: [{ file, w, h, below }].
     oversizeNote(list) {
         if (!list || !list.length) return '';
         const name = file => (/(^|\/)sv_actors\//.test(file) ? 'the battler' : String(file).replace(/^.*\//, '').replace(/\.png$/i, ''));
-        return 'Bigger frames for the weapon art: ' + list.map(o => name(o.file) + ' ' + o.w + ' x ' + o.h).join(', ') + '.';
+        return 'Bigger frames for the weapon art: ' + list.map(o => name(o.file) + ' ' + o.w + ' x ' + o.h + (o.below ? ' (' + o.below + ' below the feet)' : '')).join(', ') + '.';
     },
 
     classic(walk) {
         return this.mzSheet(walk, this.classicColumns);
     },
 
-    allFrames(sheet) {
-        return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i));
+    allFrames(sheet, full) {
+        return this.mzSheet(sheet, Array.from({ length: this.frames(sheet) }, (_, i) => i), full);
     },
 
     // ---- Character Actions ----
 
     // The animations offered as action sheets, with the speed they look right at (frames a second).
-    actions: [['slash', 12], ['thrust', 12], ['spellcast', 10], ['shoot', 14], ['hurt', 8], ['jump', 10], ['sit', 4], ['emote', 6], ['climb', 8], ['combat', 3], ['1h_backslash', 14], ['1h_halfslash', 12]],
+    actions: [['slash', 12], ['thrust', 12], ['spellcast', 10], ['shoot', 14], ['hurt', 8], ['jump', 10], ['sit', 4], ['emote', 6], ['climb', 8], ['combat', 3], ['1h_backslash', 14], ['1h_halfslash', 12], ['slash_reverse', 12]],
+
+    // 'backslash', 'slash reverse': an action's name on its button.
+    actionLabel(anim) {
+        return String(anim).replace(/^1h_/, '').replace(/_/g, ' ');
+    },
 
     actionName(name, anim) {
         const n = this.cleanName(name) || 'Character';
@@ -100,14 +112,27 @@ DocsDoodads.LpcExport = {
     },
 
     // An action sheet: every frame, four MZ rows. Animations drawn in one row (hurt, climb) use it for all four.
-    // With oversize weapon art the frames are bigger (cellOf); MZ splits a sheet evenly, so its [fN] tag is
-    // all it needs.
+    // With oversize weapon art the frames are the whole bigger frame (cellOf(F, true)); MZ splits a sheet
+    // evenly, so its [fN] tag is all it needs, and the plugin stands it on its feet (actionBelow).
     actionSheet(sheet, anim) {
         const meta = DocsDoodads.LpcCompose.animations[anim] || {};
-        if (meta.rows !== 1) return this.allFrames(sheet);
-        const c = this.cellOf(this.frameOf(sheet)), n = this.frames(sheet);
+        if (meta.rows !== 1) return this.allFrames(sheet, true);
+        const c = this.cellOf(this.frameOf(sheet), true), n = this.frames(sheet);
         const out = this.blank(n * c.w, 4 * c.h);
         for (let row = 0; row < 4; row++) this.blit(out, sheet, 0, 0, 0, row * c.h, n * c.w, c.h);
+        return out;
+    },
+
+    // Pixels of an action sheet's frames below the feet (0 without oversize art), for characterAnim.feet.
+    actionBelow(sheet) {
+        return this.cellOf(this.frameOf(sheet), true).below;
+    },
+
+    // The project's table of sheets with art below the feet, with one sheet's entry set (or removed for 0).
+    feetWith(table, sheetName, below) {
+        const out = Object.assign({}, table || {});
+        if (below > 0) out[sheetName] = below;
+        else delete out[sheetName];
         return out;
     },
 

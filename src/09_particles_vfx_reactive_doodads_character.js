@@ -308,8 +308,10 @@ DocsDoodads.CharacterAnim = {
     },
 
     // [w2]: frame 0 stands and the others walk, one cycle every 2 tiles (LPC walkers), whatever the speed.
+    // [b64]: each frame has 64 pixels of art below the feet (a spear thrust down); the character still stands
+    // on its feet.
     parseNameUncached(name) {
-        let frames = 3, dirs = 4, tagged = false, walkTiles = 0;
+        let frames = 3, dirs = 4, tagged = false, walkTiles = 0, below = 0;
         const f = name.match(/\[f(\d+)\]|%\((\d+)\)/i);
         if (f) {
             const n = parseInt(f[1] || f[2], 10);
@@ -326,9 +328,28 @@ DocsDoodads.CharacterAnim = {
             walkTiles = Math.min(16, parseFloat(w[1]));
             tagged = true;
         }
-        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]/gi, '');
+        const b = name.match(/\[b(\d+)\]/i);
+        if (b) {
+            below = parseInt(b[1], 10);
+            tagged = true;
+        }
+        const base = name.replace(/\[f\d+\]|%\(\d+\)|\[d[148]\]|\[w\d+(?:\.\d+)?\]|\[b\d+\]/gi, '');
         // Only with more than MZ's 3 frames: a 3-frame sheet stands in its middle frame.
-        return { base, frames, dirs, tagged, walkTiles: frames > 3 ? walkTiles : 0 };
+        return { base, frames, dirs, tagged, walkTiles: frames > 3 ? walkTiles : 0, below };
+    },
+
+    // Pixels of a sheet's frames below the feet: its [bN] tag, or the project's table (characterAnim.feet,
+    // written by the Character Creator so its sheet names stay the same).
+    belowFor(sheet, table) {
+        const tag = this.parseName(sheet).below;
+        if (tag) return tag;
+        const n = table ? Number(table[String(sheet || '')]) : 0;
+        return n > 0 ? n : 0;
+    },
+
+    // The anchor that stands a frame of height h with `below` pixels under the feet on its feet.
+    footAnchor(h, below) {
+        return below > 0 && h > below ? 1 - below / h : 1;
     },
 
     // Row in the sheet for a direction (1-9 numpad layout), and whether to mirror (single-row sheets face right).

@@ -224,8 +224,30 @@ out = C.compose(r, bigIndex, bigLoad, null);
 assert.deepStrictEqual(at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30), [5 * 20 + 10, 110, 1, 255], 'frame 0 shows the body\'s last frame');
 assert.deepStrictEqual(at(out.sheet, 0 * 192 + 5, 2 * 192 + 5), [190, 0, 100, 255], 'the weapon keeps its own order');
 r = C.resolve(bigIndex, male('weapons/club', 'weapons/longsword'), 'slash', bigExists);
-assert.deepStrictEqual([r.reverse, r.oversize], [false, ['slash_oversize']]);
-assert.ok(r.warnings.some(w => /Club only swings back.*left out/.test(w)), 'forward and back at once: the forward swing wins');
+assert.deepStrictEqual([r.reverse, r.oversize.sort(), r.warnings], [false, ['slash_oversize', 'slash_reverse_oversize'], []]);
+assert.deepStrictEqual(r.layers.filter(l => l.oversize).map(l => [l.oversize, l.flip]).sort(), [['slash_oversize', false], ['slash_oversize', false], ['slash_reverse_oversize', true]],
+    'forward and back at once: the body plays forwards and the return swing is played backwards to follow the hand');
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30), [10, 110, 1, 255], 'the body forwards');
+// A body on a sheet of its own (Visual Equipment parts) keeps its way; the club's art is flipped to follow it.
+r = C.resolve(bigIndex, male('weapons/club'), 'slash', bigExists, { separateBody: true });
+assert.deepStrictEqual([r.reverse, r.layers.find(l => l.oversize).flip], [false, true]);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 5, 2 * 192 + 5), [190, 100, 100, 255], "frame 0 shows the club's last frame");
+assert.deepStrictEqual(at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30), [10, 110, 1, 255]);
+// slash_reverse: the return swing as an animation of its own. The body backwards; forward art backwards too,
+// return-swing art as drawn; a part with a slash (listed as 'slash') has one.
+assert.strictEqual(C.fileOf('slash_reverse'), 'slash');
+r = C.resolve(bigIndex, male('weapons/longsword'), 'slash_reverse', bigExists);
+assert.deepStrictEqual([r.reverse, r.frame, r.layers.filter(l => l.oversize).every(l => l.flip), r.warnings], [true, 192, true, []]);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual([at(out.sheet, 0 * 192 + 5, 2 * 192 + 5), at(out.sheet, 0 * 192 + 64 + 40, 2 * 192 + 64 + 30)], [[200, 100, 100, 255], [110, 110, 1, 255]], 'blade and body both from frame 5');
+r = C.resolve(bigIndex, male('weapons/club'), 'slash_reverse', bigExists);
+assert.deepStrictEqual([r.reverse, r.layers.find(l => l.oversize).flip], [true, false], 'the club as drawn');
+r = C.resolve(index, { body: 'male', picks: [{ id: 'body/body', colours: ['light'] }, { id: 'weapons/sword' }] }, 'slash_reverse', exists);
+assert.deepStrictEqual([ids(r), r.reverse, r.frame, r.warnings], [['body/male/slash.png', 'weapon/sword/slash.png'], true, 64, []], "a part listing 'slash' has its return swing");
+out = C.compose(C.resolve(bigIndex, male(), 'slash_reverse', bigExists), bigIndex, bigLoad, null);
+assert.deepStrictEqual([out.sheet.width, out.sheet.frame, at(out.sheet, 64 + 40, 2 * 64 + 30)], [6 * 64, 64, [90, 110, 1, 255]], 'played backwards on 64-pixel frames (frame 1 is frame 4)');
 // walk_128: a spear carried on 128-pixel frames, the padded columns ignored.
 r = C.resolve(bigIndex, male('weapons/spear'), 'walk', bigExists);
 out = C.compose(r, bigIndex, bigLoad, null);
@@ -240,6 +262,10 @@ assert.deepStrictEqual([ids(r), r.frame], [['body/male/walk.png', 'weapon/bow/wa
 r = C.resolve(bigIndex, male('weapons/spear'), 'walk', f => f !== 'weapon/spear/walk/spear.png' && bigExists(f));
 assert.deepStrictEqual([ids(r), r.frame], [['body/male/walk.png'], 64]);
 assert.ok(r.warnings.includes('Spear has no walk picture for the male body.'));
+bigFiles['weapon/sword/behind/slash.png'] = weaponCells(13, 64, 140); // a 64-pixel sheet padded to 13 columns (the wand's slash)
+r = C.resolve(bigIndex, male('weapons/sword'), 'slash', bigExists);
+out = C.compose(r, bigIndex, bigLoad, null);
+assert.deepStrictEqual([ids(r), out.sheet.width, out.warnings, at(out.sheet, 5 * 64 + 5, 5)], [['weapon/sword/behind/slash.png', 'body/male/slash.png'], 6 * 64, [], [140, 100, 0, 255]], 'padded columns left off, even when the padded layer comes first');
 assert.deepStrictEqual(C.frameRect('slash', 'left', 2, 192), { x: 384, y: 192, w: 192, h: 192 });
 console.log('✓ oversize weapon art: stand-ins, bigger frames, centred body, return swing, left out on request');
 
