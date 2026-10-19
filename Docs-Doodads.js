@@ -16493,6 +16493,178 @@ DocsDoodads.Packer = {
 };
 
 //==========================================================
+// SECTION 12B: DOODAD PACKS
+//==========================================================
+// A pack is one file (.ddpack, JSON) holding prefabs (with the prefabs inside them), room stamps,
+// biomes, dressing rules and collections, the art, sounds and models they use, and those files' Item Bag
+// entries (cut-up slices, tags, collision), to bring into another project. Pure: reading and writing
+// files is passed in, so the workspace (44_workspace_packs.js) does the disk work in a playtest.
+DocsDoodads.Packs = {
+    format: 'docs-doodads-pack',
+    version: 1,
+    extension: '.ddpack',
+
+    // The project files one doodad uses. audioFile(name) finds 'bgs/River' as a file, or null.
+    filesOfDoodad(d, audioFile) {
+        const out = [];
+        if (!d) return out;
+        if (d.bit && d.bit[0] === 3 && d.bit[1]) out.push(String(d.bit[1]));
+        for (const s of (d.states && Array.isArray(d.states.list) ? d.states.list : [])) if (s && s.path) out.push(String(s.path));
+        if (d.model && d.model.path) out.push(String(d.model.path));
+        if (d.sound && d.sound.file && audioFile) {
+            const file = audioFile(String(d.sound.file));
+            if (file) out.push(file);
+        }
+        return out;
+    },
+
+    // What a selection holds, with what it needs: prefabs inside chosen prefabs come along.
+    // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names] }
+    // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id) }
+    gather(sel, src, audioFile) {
+        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {} };
+        const files = new Set();
+        const addDoodads = list => (list || []).forEach(d => this.filesOfDoodad(d, audioFile).forEach(f => files.add(f)));
+        const seenPrefab = new Set();
+        const addPrefab = id => {
+            if (seenPrefab.has(id)) return;
+            seenPrefab.add(id);
+            const p = src.prefab(id);
+            if (!p) return;
+            (p.children || []).forEach(c => addPrefab(c.id));
+            contents.prefabs.push(JSON.parse(JSON.stringify(p)));
+            addDoodads(p.doodads);
+            if (p.thumbnail) files.add(String(p.thumbnail));
+        };
+        (sel.prefabs || []).forEach(addPrefab);
+        for (const id of sel.rooms || []) {
+            const r = src.room(id);
+            if (!r) continue;
+            contents.rooms.push(JSON.parse(JSON.stringify(r)));
+            addDoodads(r.doodads);
+        }
+        for (const id of sel.biomes || []) {
+            const b = (src.biomes || []).find(x => x && x.id === id);
+            if (!b) continue;
+            contents.biomes.push(JSON.parse(JSON.stringify(b)));
+            (b.entries || []).forEach(e => e && e.path && files.add(String(e.path)));
+        }
+        for (const i of sel.dress || []) {
+            const r = (src.dress || [])[i];
+            if (!r) continue;
+            contents.dress.push(JSON.parse(JSON.stringify(r)));
+            (r.entries || []).forEach(e => e && e.path && files.add(String(e.path)));
+        }
+        for (const name of sel.collections || []) {
+            const ids = (src.collections || {})[name];
+            if (!Array.isArray(ids)) continue;
+            const paths = ids.map(id => src.assetPath(id)).filter(Boolean);
+            contents.collections[name] = paths;
+            paths.forEach(p => files.add(p));
+        }
+        return { contents, files: Array.from(files).map(f => f.replace(/\\/g, '/')).sort() };
+    },
+
+    // A pack from what was gathered. readFile(path) gives the bytes (a Buffer or Uint8Array) or null;
+    // library(path) gives the file's Item Bag entry or null. Files that couldn't be read are listed.
+    build(name, gathered, readFile, library) {
+        const pack = { format: this.format, version: this.version, name: String(name || 'Pack').trim() || 'Pack', createdAt: Date.now(),
+            contents: gathered.contents, library: {}, files: {}, missing: [] };
+        for (const p of gathered.files) {
+            if (!this.safePath(p)) { pack.missing.push(p); continue; }
+            const bytes = readFile(p);
+            if (!bytes) { pack.missing.push(p); continue; }
+            pack.files[p] = this.toBase64(bytes);
+            const entry = library ? library(p) : null;
+            if (entry) {
+                const keep = {};
+                for (const k of ['tags', 'slice', 'placement', 'collision', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
+                pack.library[p] = keep;
+            }
+        }
+        return pack;
+    },
+
+    toBase64(bytes) {
+        if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+        let s = '';
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s);
+    },
+
+    fromBase64(text) {
+        if (typeof Buffer !== 'undefined') return Buffer.from(String(text || ''), 'base64');
+        return Uint8Array.from(atob(String(text || '')), c => c.charCodeAt(0));
+    },
+
+    // Only files inside the project's own folders: no absolute paths, no "..".
+    safePath(p) {
+        const s = String(p || '').replace(/\\/g, '/');
+        return /^(img|audio|models|movies|effects|data\/DocsDoodads)\//i.test(s) && !s.split('/').includes('..') && !/^[a-z]:/i.test(s);
+    },
+
+    // Reads a pack's text; throws a message a person can act on when it isn't one.
+    parse(text) {
+        let pack;
+        try { pack = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a doodad pack (it is not readable JSON).'); }
+        if (!pack || pack.format !== this.format) throw new Error('This file is not a doodad pack.');
+        if (Number(pack.version) > this.version) throw new Error('This pack was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
+        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {} }, pack.contents || {});
+        pack.files = pack.files || {};
+        pack.library = pack.library || {};
+        return pack;
+    },
+
+    // What importing would do. fileState(path, bytes) -> 'new' | 'same' | 'different'. ids: { prefabs: Set,
+    // rooms: Set, biomes: Set } already in the project.
+    plan(pack, fileState, ids) {
+        const files = Object.keys(pack.files).map(path => {
+            if (!this.safePath(path)) return { path, state: 'unsafe' };
+            return { path, state: fileState(path, this.fromBase64(pack.files[path])) };
+        });
+        const clash = (list, have) => (list || []).filter(x => x && have && have.has(x.id)).length;
+        return {
+            files,
+            newFiles: files.filter(f => f.state === 'new').length,
+            sameFiles: files.filter(f => f.state === 'same').length,
+            conflicts: files.filter(f => f.state === 'different').map(f => f.path),
+            unsafe: files.filter(f => f.state === 'unsafe').map(f => f.path),
+            prefabs: pack.contents.prefabs.length, rooms: pack.contents.rooms.length, biomes: pack.contents.biomes.length,
+            dress: pack.contents.dress.length, collections: Object.keys(pack.contents.collections).length,
+            idClashes: clash(pack.contents.prefabs, ids.prefabs) + clash(pack.contents.rooms, ids.rooms) + clash(pack.contents.biomes, ids.biomes)
+        };
+    },
+
+    // The pack's things ready to add: ids that clash get new ones (and prefabs inside prefabs follow).
+    // newId(prefix) makes an id. Returns { prefabs, rooms, biomes, dress, collections }.
+    prepare(pack, ids, newId) {
+        const fresh = (list, have, prefix) => {
+            const map = {};
+            const out = (list || []).map(x => {
+                const copy = JSON.parse(JSON.stringify(x));
+                if (have && have.has(copy.id)) { map[copy.id] = newId(prefix); copy.id = map[x.id]; }
+                return copy;
+            });
+            return { out, map };
+        };
+        const prefabs = fresh(pack.contents.prefabs, ids.prefabs, 'pf_');
+        for (const p of prefabs.out) for (const c of p.children || []) if (prefabs.map[c.id]) c.id = prefabs.map[c.id];
+        return {
+            prefabs: prefabs.out,
+            rooms: fresh(pack.contents.rooms, ids.rooms, 'room_').out,
+            biomes: fresh(pack.contents.biomes, ids.biomes, 'biome_').out,
+            dress: JSON.parse(JSON.stringify(pack.contents.dress || [])),
+            collections: JSON.parse(JSON.stringify(pack.contents.collections || {}))
+        };
+    },
+
+    // A file name for a pack: letters, digits, spaces, dashes.
+    fileName(name) {
+        const base = String(name || 'Pack').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'Pack';
+        return base + this.extension;
+    }
+};
+//==========================================================
 // SECTION 12: DocsDoodads.SEARCH (TOKENIZED QUERY PARSER)
 //==========================================================
 DocsDoodads.Search = {
@@ -21923,6 +22095,7 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
                     <button class="dd-btn" id="dd-rooms-btn" title="Save part of the map (tiles, doodads, events) as a room stamp and place it again">${U.icon('map', 1)} Rooms</button>
+                    <button class="dd-btn" id="dd-packs-btn" title="Put prefabs, rooms, biomes and their art in one file for another project, or bring one in">${U.icon('box', 1)} Packs</button>
                     <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
@@ -22381,6 +22554,7 @@ DocsDoodads.Workspace = {
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
+        on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
@@ -24600,6 +24774,7 @@ DocsDoodads.Workspace = {
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
         add('Rooms (room stamps)', () => this.showRoomsCard());
+        add('Doodad Packs (make or bring in)', () => this.showPacksCard());
         add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });
         for (const r of D.Rooms.ensureLoaded()) add('Place Room: ' + r.name, () => { this.showRoomsCard(); this.pickRoom(r.id); }, 'Room');
         add('Check Reach from the player', () => this.checkReach());
@@ -32142,6 +32317,234 @@ Object.assign(DocsDoodads.Workspace, {
         const tours = document.getElementById('dd-whats-new-tours');
         if (tours) tours.onclick = () => { close(); this.replayTours(); };
         return card;
+    }
+});
+//==========================================================
+// SECTION 25q: DOODAD PACKS (CARD, EXPORT AND IMPORT)
+//==========================================================
+// More > Packs: pick prefabs, rooms, biomes, dressing rules and collections and save them, with the files
+// they use, as one .ddpack file in the project's packs folder; or bring a pack in from another project.
+// Files already here and different are kept unless "Use the pack's" is picked (a backup is made first).
+DocsDoodads.Ui.css += `
+#dd-packs-card { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 110px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+#dd-packs-card .dd-pack-group { font-size: 11px; font-weight: 900; color: var(--dd-muted); margin-top: 4px; }
+#dd-packs-card .dd-pack-list { display: flex; flex-direction: column; gap: 2px; max-height: 120px; overflow-y: auto; }
+#dd-packs-card label { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+#dd-packs-card .dd-pack-note { font-size: 10px; color: var(--dd-faint); line-height: 1.4; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [] },
+    _incomingPack: null,
+
+    packSources() {
+        const D = DocsDoodads;
+        return {
+            prefab: id => D.Prefabs.get(id),
+            room: id => D.Rooms.get(id),
+            biomes: D.World.get('biomes.list') || [],
+            dress: D.World.get('dress.rules') || [],
+            collections: (D.AssetIndex.data && D.AssetIndex.data.collections) || {},
+            assetPath: id => { const a = D.AssetIndex.data.assets[id]; return a ? a.path : null; }
+        };
+    },
+
+    // 'bgs/River' as the file the game would play, if it is in the project.
+    packAudioFile(name) {
+        const FS = DocsDoodads.FS;
+        for (const ext of ['.ogg', '.m4a', '.wav']) {
+            const file = 'audio/' + name + ext;
+            if (FS.existsSync(file)) return file;
+        }
+        return null;
+    },
+
+    readProjectFile(p) {
+        const FS = DocsDoodads.FS;
+        try { return FS.existsSync(p) ? FS.fs.readFileSync(p) : null; } catch (e) { return null; }
+    },
+
+    // Makes the pack and writes it to packs/<name>.ddpack. Returns { path, pack } or null.
+    exportPack(name, sel = this.packSelection) {
+        const D = DocsDoodads, P = D.Packs, FS = D.FS;
+        const gathered = P.gather(sel, this.packSources(), n => this.packAudioFile(n));
+        const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
+            gathered.contents.dress.length + Object.keys(gathered.contents.collections).length;
+        if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
+        const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
+        const out = FS.path.join('packs', P.fileName(pack.name));
+        try {
+            FS.mkdirp('packs');
+            FS.writeFileSync(out, JSON.stringify(pack), 'utf8');
+        } catch (e) {
+            this.showToast('Could not save the pack: ' + (e.message || e), 'error');
+            return null;
+        }
+        const files = Object.keys(pack.files).length;
+        this.showToast(`Saved ${out}: ${total} item(s) and ${files} file(s)${pack.missing.length ? `; ${pack.missing.length} file(s) not found were left out` : ''}.`, pack.missing.length ? 'info' : 'success');
+        try { if (typeof nw !== 'undefined' && nw.Shell) nw.Shell.showItemInFolder(FS.path.resolve(out)); } catch (e) {}
+        return { path: out, pack };
+    },
+
+    // The pack's files compared with the project's.
+    packFileState(p, bytes) {
+        const mine = this.readProjectFile(p);
+        if (!mine) return 'new';
+        if (mine.length === bytes.length && Buffer.compare(Buffer.from(mine), Buffer.from(bytes)) === 0) return 'same';
+        return 'different';
+    },
+
+    projectIds() {
+        const D = DocsDoodads;
+        return {
+            prefabs: new Set(D.Prefabs.ensureLoaded().map(p => p.id)),
+            rooms: new Set(D.Rooms.ensureLoaded().map(r => r.id)),
+            biomes: new Set((D.World.get('biomes.list') || []).map(b => b && b.id))
+        };
+    },
+
+    readPack(filePath) {
+        const text = DocsDoodads.FS.fs.readFileSync(filePath, 'utf8');
+        const pack = DocsDoodads.Packs.parse(text);
+        this._incomingPack = { pack, plan: DocsDoodads.Packs.plan(pack, (p, b) => this.packFileState(p, b), this.projectIds()), file: filePath, conflict: 'keep' };
+        return this._incomingPack;
+    },
+
+    // Brings the pack in. conflict: 'keep' (files already here stay) or 'replace' (backed up, then the
+    // pack's). Returns what was added.
+    async importPack(incoming = this._incomingPack) {
+        if (!incoming) return null;
+        const D = DocsDoodads, P = D.Packs, FS = D.FS;
+        const { pack, plan } = incoming;
+        const written = [];
+        for (const f of plan.files) {
+            if (f.state === 'unsafe' || f.state === 'same') continue;
+            if (f.state === 'different' && incoming.conflict !== 'replace') continue;
+            try {
+                if (f.state === 'different') FS.createTimestampedBackup(f.path);
+                FS.mkdirp(FS.path.dirname(f.path));
+                FS.fs.writeFileSync(f.path, P.fromBase64(pack.files[f.path]));
+                written.push(f.path);
+            } catch (e) {
+                this.showToast(`Could not write ${f.path}: ${e.message || e}`, 'error');
+            }
+        }
+        const ready = P.prepare(pack, this.projectIds(), prefix => D.Prefabs.newId(prefix));
+        ready.prefabs.forEach(p => D.Prefabs.add(p));
+        if (ready.prefabs.length) D.Prefabs.save();
+        ready.rooms.forEach(r => D.Rooms.add(r));
+        if (ready.rooms.length) D.Rooms.save();
+        if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
+        if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
+        // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
+        if (written.length && D.AssetIndex.scanAsync) await D.AssetIndex.scanAsync({ loadCache: false });
+        let entries = 0;
+        for (const p of written) {
+            const entry = D.AssetIndex.data.assets[p.toLowerCase()];
+            const from = pack.library[p];
+            if (entry && from) { Object.assign(entry, JSON.parse(JSON.stringify(from))); entries++; }
+        }
+        for (const name of Object.keys(ready.collections)) {
+            for (const p of ready.collections[name]) if (D.AssetIndex.data.assets[p.toLowerCase()]) D.AssetIndex.addAssetToCollection(p.toLowerCase(), name);
+        }
+        if (entries || Object.keys(ready.collections).length) {
+            D.AssetIndex.rebuildList();
+            if (D.AssetIndex.save) D.AssetIndex.save();
+        }
+        if (this.refreshDrawerCards) this.refreshDrawerCards();
+        this._incomingPack = null;
+        const kept = plan.conflicts.length && incoming.conflict !== 'replace' ? `; kept your own ${plan.conflicts.length} file(s) that differ` : '';
+        this.showToast(`Brought in "${pack.name}": ${ready.prefabs.length} prefab(s), ${ready.rooms.length} room(s), ${ready.biomes.length} biome(s), ${ready.dress.length} rule(s), ${written.length} file(s)${kept}.`, 'success');
+        this.refreshPacksCard();
+        return { written, ready };
+    },
+
+    pickPackToImport() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = DocsDoodads.Packs.extension + ',.json';
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file || !file.path) return;
+            try { this.readPack(file.path); } catch (e) { this.showToast(e.message || String(e), 'error'); }
+            this.refreshPacksCard();
+        };
+        if (typeof input.click === 'function') input.click();
+        return true;
+    },
+
+    // ---- The card ----
+    showPacksCard() {
+        if (typeof document === 'undefined') return null;
+        const D = DocsDoodads, U = D.Ui, sel = this.packSelection;
+        let card = document.getElementById('dd-packs-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-packs-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const src = this.packSources();
+        const groups = [
+            ['prefabs', 'Prefabs', D.Prefabs.ensureLoaded().map(p => [p.id, p.name])],
+            ['rooms', 'Rooms', D.Rooms.ensureLoaded().map(r => [r.id, r.name])],
+            ['biomes', 'Biomes', (src.biomes || []).filter(Boolean).map(b => [b.id, b.name])],
+            ['dress', 'Dressing rules', (src.dress || []).map((r, i) => [i, (r && r.name) || 'Rule ' + (i + 1)])],
+            ['collections', 'Collections', Object.keys(src.collections).map(n => [n, n])]
+        ];
+        const listHtml = (key, items) => items.length
+            ? items.map(([value, label], i) => `<label><input type="checkbox" id="dd-pk-${key}-${i}" ${sel[key].includes(value) ? 'checked' : ''} /> ${escapeHtml(String(label))}</label>`).join('')
+            : '<div class="dd-pack-note">None in this project.</div>';
+        const inc = this._incomingPack;
+        const incoming = inc ? `
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                <b style="font-size: 12px;">${escapeHtml(inc.pack.name)}</b>
+                <div class="dd-pack-note">${inc.plan.prefabs} prefab(s), ${inc.plan.rooms} room(s), ${inc.plan.biomes} biome(s), ${inc.plan.dress} rule(s), ${inc.plan.collections} collection(s);
+                    files: ${inc.plan.newFiles} new, ${inc.plan.sameFiles} already here${inc.plan.conflicts.length ? `, <b>${inc.plan.conflicts.length} different from yours</b>` : ''}.${inc.plan.idClashes ? ' Items with the same id as yours are added as new ones.' : ''}${inc.plan.unsafe.length ? ` ${inc.plan.unsafe.length} file(s) outside the project's folders are left out.` : ''}</div>
+                ${inc.plan.conflicts.length ? `<div class="dd-pack-note" style="max-height: 60px; overflow-y: auto;">${inc.plan.conflicts.map(escapeHtml).join('<br>')}</div>
+                <div style="font-size: 11px;">Files that differ <select id="dd-pk-conflict"><option value="keep"${inc.conflict === 'keep' ? ' selected' : ''}>Keep mine</option><option value="replace"${inc.conflict === 'replace' ? ' selected' : ''}>Use the pack's (mine are backed up)</option></select></div>` : ''}
+                <div style="display: flex; gap: 6px;"><button class="dd-btn dd-btn-primary" id="dd-pk-import" type="button">Bring It In</button>
+                    <button class="dd-btn" id="dd-pk-cancel" type="button">Cancel</button></div>
+            </div>` : '';
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('box', 1)} Doodad Packs</span>
+                <button class="dd-btn dd-fold" id="dd-packs-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div class="dd-pack-note">A pack is one file with the things you pick and the art, sounds and models they use, to bring into another project.</div>
+            ${groups.map(([key, title, items]) => `<div class="dd-pack-group">${title}</div><div class="dd-pack-list">${listHtml(key, items)}</div>`).join('')}
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="text" id="dd-pk-name" value="${escapeHtml(this._packName || 'My Pack')}" style="flex: 1; min-width: 0;" title="The pack's name" />
+                <button class="dd-btn dd-btn-primary" id="dd-pk-export" type="button" title="Saves it in the project's packs folder">Make Pack</button></div>
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px;">
+                <button class="dd-btn" id="dd-pk-open" type="button" title="Choose a .ddpack file from another project">${U.icon('folder', 1)} Bring In a Pack...</button></div>
+            ${incoming}`;
+        const byId = id => document.getElementById(id);
+        groups.forEach(([key, , items]) => items.forEach(([value], i) => {
+            const box = byId(`dd-pk-${key}-${i}`);
+            if (box) box.onchange = e => {
+                const list = sel[key].filter(v => v !== value);
+                if (e.target.checked) list.push(value);
+                sel[key] = list;
+            };
+        }));
+        const on = (id, fn) => { const node = byId(id); if (node) node.onclick = fn; };
+        on('dd-packs-close', () => this.closePacksCard());
+        on('dd-pk-export', () => { const name = byId('dd-pk-name'); this._packName = name ? name.value : 'My Pack'; this.exportPack(this._packName); });
+        on('dd-pk-open', () => this.pickPackToImport());
+        on('dd-pk-import', () => this.importPack());
+        on('dd-pk-cancel', () => { this._incomingPack = null; this.refreshPacksCard(); });
+        const conflict = byId('dd-pk-conflict');
+        if (conflict) conflict.onchange = e => { if (this._incomingPack) this._incomingPack.conflict = e.target.value === 'replace' ? 'replace' : 'keep'; };
+        return card;
+    },
+
+    refreshPacksCard() {
+        if (typeof document !== 'undefined' && document.getElementById('dd-packs-card')) this.showPacksCard();
+    },
+
+    closePacksCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-packs-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
     }
 });
 //==========================================================

@@ -741,6 +741,7 @@
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
         add('Rooms (room stamps)', () => this.showRoomsCard());
+        add('Doodad Packs (make or bring in)', () => this.showPacksCard());
         add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });
         for (const r of D.Rooms.ensureLoaded()) add('Place Room: ' + r.name, () => { this.showRoomsCard(); this.pickRoom(r.id); }, 'Room');
         add('Check Reach from the player', () => this.checkReach());
