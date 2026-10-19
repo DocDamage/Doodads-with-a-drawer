@@ -1,7 +1,8 @@
 //==========================================================
 // SECTION 25r: LPC CHARACTER LIBRARY (CARD, SCAN, CREDITS)
 //==========================================================
-// More > Characters: where the LPC library is on this computer, a scan of its parts into the editor's
+// More > Characters: a group per library (MZ's generator, LPC, Memao), each folded or open as last left on this
+// computer. The LPC group: where the LPC library is on this computer, a scan of its parts into the editor's
 // cache, whether this project uses only art that is safe to encrypt, and the credits of images made from
 // it (data/DocsDoodadsCredits.json, written out as CREDITS_LPC.txt beside the game). The folder is kept per
 // computer and should be outside the project: MZ's Deployment copies everything in the project folder.
@@ -18,6 +19,12 @@ DocsDoodads.Ui.css += `
 #dd-lpc-card .dd-lpc-try { display: flex; align-items: center; gap: 6px; }
 #dd-lpc-card #dd-lpc-preview { width: 128px; height: 128px; image-rendering: pixelated; border-radius: 16px; background: var(--dd-primary-soft); }
 #dd-lpc-card .dd-lpc-try-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+#dd-lpc-card .dd-chars-group { border-top: 2px solid var(--dd-line-soft); padding-top: 6px; }
+#dd-lpc-card .dd-chars-group summary { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; font-weight: 900; color: var(--dd-text); list-style: none; }
+#dd-lpc-card .dd-chars-group summary::before { content: '▸'; color: var(--dd-muted); }
+#dd-lpc-card .dd-chars-group[open] summary::before { content: '▾'; }
+#dd-lpc-card .dd-chars-status { font-size: 10px; font-weight: 800; color: var(--dd-muted); }
+#dd-lpc-card .dd-chars-body { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 `;
 
 Object.assign(DocsDoodads.Workspace, {
@@ -283,8 +290,8 @@ Object.assign(DocsDoodads.Workspace, {
         card.innerHTML = `
             <div class="dd-panel-head"><span class="dd-grow">${U.icon('person', 1)} Characters</span>
                 <button class="dd-btn dd-fold" id="dd-lpc-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
-            ${this.mzgenCardHtml()}
-            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">The LPC character library</div>
+            ${this.charactersGroup('mz', "RPG Maker MZ's generator parts", this.mzgenIndex() ? `${D.MzGen.summary(this.mzgenIndex()).parts} parts` : 'not scanned', this.mzgenCardHtml())}
+            ${this.charactersGroup('lpc', 'The LPC character library', s ? `${s.parts} parts` : 'not scanned', `
             <div class="dd-lpc-group">Library folder (on this computer)</div>
             <div class="dd-lpc-row">
                 <input type="text" id="dd-lpc-folder" value="${escapeHtml(folder)}" placeholder="The Universal LPC Spritesheet Character Generator folder" aria-label="Library folder" />
@@ -325,8 +332,8 @@ Object.assign(DocsDoodads.Workspace, {
             <div class="dd-lpc-row">
                 <button class="dd-btn" id="dd-lpc-credits-write" type="button" title="Write the artists, licences and links of every LPC picture into ${escapeHtml(L.creditsText)}, beside the game"${textState === 'none' ? ' disabled' : ''}>Write ${escapeHtml(L.creditsText)}</button>
             </div>
-            <div class="dd-lpc-note">Every LPC artwork needs its artists credited in the game. Credits are kept per picture in ${escapeHtml(L.creditsFile)}; Problems says when ${escapeHtml(L.creditsText)} needs writing again.</div>
-            ${this.memaoCardHtml()}`;
+            <div class="dd-lpc-note">Every LPC artwork needs its artists credited in the game. Credits are kept per picture in ${escapeHtml(L.creditsFile)}; Problems says when ${escapeHtml(L.creditsText)} needs writing again.</div>`)}
+            ${this.charactersGroup('memao', 'Memao Sprite Sheet Creator assets', this.memaoIndex() ? `${(D.Memao.summary(this.memaoIndex()) || { parts: 0 }).parts} parts` : 'not scanned', this.memaoCardHtml())}`;
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         const field = document.getElementById('dd-lpc-folder');
         if (field) field.onchange = e => { this.setLpcLibraryFolder(e.target.value); this.refreshLpcCard(); };
@@ -353,12 +360,46 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
         this.bindMemaoCard();
         this.bindMzGenCard();
-        if (document.getElementById('dd-lpc-preview')) {
+        this.bindCharactersGroups();
+        if (document.getElementById('dd-lpc-preview') && this.charactersGroupOpen('lpc')) {
             if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
             else this.drawLpcPreview();
             this.startLpcPreviewTimer();
         }
         return card;
+    },
+
+    // ---- The card's groups: one per library, each folded or open as last left on this computer ----
+
+    charactersGroupOpen(key) {
+        const open = DocsDoodads.Ui.prefs().charGroups;
+        return !(open && typeof open === 'object' && open[key] === false);
+    },
+
+    charactersGroup(key, title, status, body) {
+        return `<details class="dd-chars-group" id="dd-chars-${key}"${this.charactersGroupOpen(key) ? ' open' : ''}>
+            <summary><span class="dd-grow">${escapeHtml(title)}</span><span class="dd-chars-status">${escapeHtml(status)}</span></summary>
+            <div class="dd-chars-body">${body}</div></details>`;
+    },
+
+    bindCharactersGroups() {
+        for (const key of ['mz', 'lpc', 'memao']) {
+            const el = document.getElementById('dd-chars-' + key);
+            if (!el) continue;
+            // A group drawn open fires a toggle as the page draws it: only a change counts.
+            el.ontoggle = () => {
+                if (Boolean(el.open) === this.charactersGroupOpen(key)) return;
+                const U = DocsDoodads.Ui;
+                const was = U.prefs().charGroups;
+                U.setPref('charGroups', Object.assign({}, was && typeof was === 'object' ? was : {}, { [key]: Boolean(el.open) }));
+                if (key !== 'lpc') return;
+                if (!el.open) { this.stopLpcPreviewTimer(); return; }
+                if (document.getElementById('dd-lpc-preview')) {
+                    if (!this._lpcPreview || !this._lpcPreview.recipe) this.shuffleLpcPreview(); else this.drawLpcPreview();
+                    this.startLpcPreviewTimer();
+                }
+            };
+        }
     },
 
     // NW.js picks a folder with an <input type="file" nwdirectory>.

@@ -183,7 +183,6 @@ Object.assign(DocsDoodads.Workspace, {
         const missing = index ? this.mzgenIndexMissing(index) : false;
         const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
         return `
-            <div class="dd-lpc-group" style="margin-top: 10px; font-size: 12px;">RPG Maker MZ's generator parts</div>
             <div class="dd-lpc-row">
                 <input type="text" id="dd-mzgen-folder" value="${escapeHtml(folder)}" placeholder="RPG Maker MZ/generator" aria-label="MZ generator folder" />
                 <button class="dd-btn" id="dd-mzgen-choose" type="button" title="Pick the folder">${U.icon('folder', 1)} Choose...</button>
