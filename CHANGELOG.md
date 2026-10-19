@@ -2,6 +2,10 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- The keyboard in MZ's own window: Tab moves through the editor's controls (MZ swallowed it), and the focus ring shows on buttons, in every theme and in the Character Creator (the rings used `:focus-visible`, which MZ's Chromium 85 doesn't have). A mouse press hides the ring until the keys move focus again.
+- The right-click menu is a menu for the keyboard and screen readers: it takes the focus, the arrow keys (Home, End) move, Enter runs, Esc or Tab closes and gives the focus back, and the arrows no longer also nudge the selection. Undo and Redo say when there is nothing to take back.
+- The Item Bag's kinds are tabs (the arrow keys show the next one), and the edges of the Item Bag and Details resize with the arrow keys (Shift for 50 pixels, Home and End).
+- Screen-reader names are given only to what was just added, instead of going over the whole editor after every change.
 - Sound effects keep their authored pitch and volume: random variation is off by default (set *Pitch variation* and *Volume variation* to turn it on), only applies to map events and the party, and never to sounds in battles, menus or common events without a map event. `<no variance>` opts an event out. Play SE is wrapped instead of replaced, so plugins that change it keep working.
 - The day/night clock is only stored in the save once it runs (or Set Time moves it), so saves made with day and night off carry no clock, and the start hour isn't frozen by an early read. Setting an earlier hour keeps the day; Pass Time past midnight starts the next one; Set Time of Day and `api.setTime(h, m, day)` can set the day.
 - Doodad states and lights on another map: `WorldState.light` and `state` read that map's doodads, Set Doodad State refuses a state the doodad doesn't have (the console lists the ones it has), and Store Doodad State takes a map.

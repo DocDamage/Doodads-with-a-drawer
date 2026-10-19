@@ -25827,7 +25827,10 @@ DocsDoodads.Ui = {
 .dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 var(--dd-primary-line); transform: translateY(-1px); }
 .dd-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--dd-line); }
 .dd-btn:focus { outline: none; }
+/* MZ's NW.js is Chromium 85: no :focus-visible, and a rule list naming it is dropped whole. So each ring is a
+   rule of its own, twinned by a plain :focus one that a mouse press turns off (dd-mouse-focus, Ui.watchFocusSource). */
 .dd-btn:focus-visible { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
+:root:not(.dd-mouse-focus) .dd-btn:focus { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
 .dd-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
 .dd-btn-primary { background: var(--dd-primary); border-color: var(--dd-primary-dark); color: #fff; box-shadow: 0 3px 0 var(--dd-primary-dark); }
 .dd-btn-primary:hover { background: #45a8ff; border-color: var(--dd-primary-dark); box-shadow: 0 3px 0 var(--dd-primary-dark); }
@@ -26013,6 +26016,23 @@ DocsDoodads.Ui = {
         const url = DocsDoodads.UiIcons ? DocsDoodads.UiIcons.url : '';
         const fonts = DocsDoodads.UiFonts ? DocsDoodads.UiFonts.css + '\n' : '';
         return fonts + this.css.replace(':root {', `:root {\n    --dd-icons: url(${url});`);
+    },
+
+    // Where focus came from, for the :focus rings above: a press marks the page, moving with the keys
+    // (Tab, F6, arrows) clears it. Other keys leave it, so a shortcut doesn't ring the button last clicked.
+    focusKeys: ['Tab', 'F6', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'],
+
+    watchFocusSource() {
+        if (this._focusWatch || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return false;
+        const root = document.documentElement;
+        if (!root || !root.classList) return false;
+        const press = () => root.classList.add('dd-mouse-focus');
+        const key = e => { if (e && this.focusKeys.includes(e.key)) root.classList.remove('dd-mouse-focus'); };
+        document.addEventListener('pointerdown', press, true);
+        document.addEventListener('mousedown', press, true);
+        document.addEventListener('keydown', key, true);
+        this._focusWatch = { press, key };
+        return true;
     }
 };
 
@@ -26084,6 +26104,7 @@ Object.assign(DocsDoodads.Ui, {
             style.textContent = this.styleText();
             overlay.appendChild(style);
         }
+        if (this.watchFocusSource) this.watchFocusSource();
 
         const title = make('div', 'dd-pop-title');
         title.id = 'dd-dialog-title';
@@ -26509,7 +26530,9 @@ DocsDoodads.Ui.css += `
     --dd-switch-off: #8c8c8c; --dd-switch-line: #2f2a43; --dd-scroll: #2f2a43;
 }
 :root[data-dd-theme="contrast"] .dd-glass, :root[data-dd-theme="contrast"] .dd-btn { border-width: 3px; }
-:root[data-dd-theme="contrast"] .dd-btn:focus-visible, :root[data-dd-theme="contrast"] .dd-glass input:focus { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="contrast"] .dd-btn:focus-visible { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="contrast"]:not(.dd-mouse-focus) .dd-btn:focus { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="contrast"] .dd-glass input:focus { box-shadow: 0 0 0 3px #000000; }
 :root[data-dd-theme="dark"] .dd-btn-active, :root[data-dd-theme="dark"] .dd-badge { color: #fff4c9 !important; }
 .dd-dialog { zoom: var(--dd-scale, 1); }
 `;
@@ -26607,6 +26630,7 @@ DocsDoodads.Ui.css += `
 :root[data-dd-theme="playful"] .dd-btn:hover { border-color: var(--dd-accent); box-shadow: 0 4px 0 var(--dd-primary-line); }
 :root[data-dd-theme="playful"] .dd-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--dd-line); }
 :root[data-dd-theme="playful"] .dd-btn:focus-visible { box-shadow: 0 0 0 4px #ffc93c, 0 4px 0 var(--dd-line); }
+:root[data-dd-theme="playful"]:not(.dd-mouse-focus) .dd-btn:focus { box-shadow: 0 0 0 4px #ffc93c, 0 4px 0 var(--dd-line); }
 :root[data-dd-theme="playful"] .dd-btn-primary { box-shadow: 0 4px 0 var(--dd-primary-dark); }
 :root[data-dd-theme="playful"] .dd-btn-primary:hover { background: #0e9282; box-shadow: 0 4px 0 var(--dd-primary-dark); }
 :root[data-dd-theme="playful"] .dd-btn-good:hover { background: #31902a; }
@@ -26940,6 +26964,7 @@ DocsDoodads.Workspace = {
         style.id = 'dd-ui-style';
         style.textContent = U.styleText();
         wrap.appendChild(style);
+        U.watchFocusSource();
 
         const tool = (id, icon, label, title, extra = '') =>
             `<button class="dd-btn dd-tool ${extra}" id="${id}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
@@ -27118,7 +27143,7 @@ DocsDoodads.Workspace = {
             display: flex; flex-direction: column; gap: 7px; overflow: hidden;
         `;
         drawer.innerHTML = `
-            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Item Bag size" tabindex="0"></div>
             <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag">
                 ${U.icon('bag', 2)}
                 <span class="dd-grow">Item Bag <span id="dd-drawer-category" style="color: var(--dd-muted); font-weight: 800; font-size: 12px;"></span></span>
@@ -27132,8 +27157,8 @@ DocsDoodads.Workspace = {
                 <select id="dd-collection-select" title="Show one collection (right-click an item: Add to Collection)" style="flex: 1; min-width: 0;"></select>
                 <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the items stay)" style="display: none; padding: 3px 7px;">${U.icon('trash', 1)}</button>
             </div>
-            <div id="dd-category-tabs">
-                ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}">${U.icon(icon, 1)}</button>`).join('')}
+            <div id="dd-category-tabs" role="tablist" aria-label="Kinds of item">
+                ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}" role="tab" aria-selected="${cat === this.currentCategory}" aria-controls="dd-cards-container" tabindex="${cat === this.currentCategory ? 0 : -1}">${U.icon(icon, 1)}</button>`).join('')}
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800; white-space: nowrap;" id="dd-asset-count">0 items</span>
@@ -27161,7 +27186,7 @@ DocsDoodads.Workspace = {
             padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
         `;
         inspector.innerHTML = `
-            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Details size" tabindex="0"></div>
             <div class="dd-panel-head" id="dd-inspector-head">
                 <button class="dd-btn dd-fold" id="dd-inspector-fold" title="Fold the details away (H)">${U.icon('right', 1)}</button>
                 <span id="dd-inspector-icon">${U.icon('map', 2)}</span>
@@ -27553,6 +27578,7 @@ DocsDoodads.Workspace = {
                 this.setCategory(tab.dataset.cat);
             }
         };
+        catTabs.onkeydown = e => this.categoryTabKey(e);
 
         // The new buttons: Select, More (and what is in it), folding the panels.
         const U = DocsDoodads.Ui;
@@ -32528,7 +32554,17 @@ DocsDoodads.Workspace = {
             if (input) input.value = '';
         }
         const tabs = document.getElementById('dd-category-tabs');
-        if (tabs && tabs.querySelectorAll) tabs.querySelectorAll('button').forEach(b => { b.className = 'dd-btn' + (b.dataset && b.dataset.cat === category ? ' dd-btn-primary' : ''); });
+        if (tabs && tabs.querySelectorAll) {
+            // One tab is in the tab order: the chosen one, or the first when the bag shows something else (Look-alikes).
+            const buttons = Array.from(tabs.querySelectorAll('button'));
+            const isOn = b => Boolean(b.dataset && b.dataset.cat === category);
+            const any = buttons.some(isOn);
+            buttons.forEach((b, i) => {
+                const on = isOn(b);
+                b.className = 'dd-btn' + (on ? ' dd-btn-primary' : '');
+                if (b.setAttribute) { b.setAttribute('aria-selected', String(on)); b.setAttribute('tabindex', on || (!any && i === 0) ? '0' : '-1'); }
+            });
+        }
         if (this.isFolded && this.isFolded('drawer')) this.foldPanel('drawer', false);
         this.refreshDrawerCards();
     },
@@ -34919,11 +34955,25 @@ DocsDoodads.Workspace = {
         menu.id = 'dd-context-menu';
         menu.className = 'dd-glass';
         menu.style.cssText = 'position: fixed; z-index: 10050; display: flex; flex-direction: column; gap: 1px;';
+        if (menu.setAttribute) { menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Actions'); }
+        this._menuReturnFocus = typeof document !== 'undefined' ? document.activeElement : null;
         DocsDoodads.Ui.sound('cursor');
         const run = item => {
             this.closeContextMenu();
             this.noteMenuUse(item.label);
             if (item.onClick) item.onClick();
+        };
+        // Every action is a menu item the arrow keys reach; separators are skipped.
+        const entries = [];
+        const asItem = b => {
+            if (b.setAttribute) { b.setAttribute('role', 'menuitem'); b.setAttribute('tabindex', '-1'); }
+            entries.push(b);
+        };
+        const separator = () => {
+            const sep = document.createElement('div');
+            sep.className = 'dd-menu-sep';
+            if (sep.setAttribute) sep.setAttribute('role', 'separator');
+            return sep;
         };
         // The actions used most, as a row of buttons at the top.
         const quick = this.quickMenuItems(items);
@@ -34936,18 +34986,16 @@ DocsDoodads.Workspace = {
                 b.title = item.label;
                 b.innerHTML = `${item.iconName ? DocsDoodads.Ui.icon(item.iconName, 1) : `<span>${escapeHtml(item.icon || '•')}</span>`}<span>${escapeHtml(this.menuKey(item.label).replace(/#/g, '').replace(/\.\.\.$/, '').trim())}</span>`;
                 b.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); run(item); };
+                asItem(b);
                 rowEl.appendChild(b);
             });
+            if (rowEl.setAttribute) rowEl.setAttribute('role', 'group');
             menu.appendChild(rowEl);
-            const sep = document.createElement('div');
-            sep.className = 'dd-menu-sep';
-            menu.appendChild(sep);
+            menu.appendChild(separator());
         }
         items.forEach(item => {
             if (item.separator) {
-                const sep = document.createElement('div');
-                sep.className = 'dd-menu-sep';
-                menu.appendChild(sep);
+                menu.appendChild(separator());
                 return;
             }
             const row = document.createElement('button');
@@ -34960,9 +35008,12 @@ DocsDoodads.Workspace = {
                 e.stopPropagation();
                 run(item);
             };
+            asItem(row);
             menu.appendChild(row);
         });
+        if (menu.addEventListener) menu.addEventListener('keydown', e => this.contextMenuKey(entries, e));
         document.body.appendChild(menu);
+        if (entries[0] && entries[0].focus) entries[0].focus();
 
         const menuW = menu.offsetWidth || 180;
         const menuH = menu.offsetHeight || 200;
@@ -34979,9 +35030,37 @@ DocsDoodads.Workspace = {
         setTimeout(() => window.addEventListener('pointerdown', onDismiss), 50);
     },
 
-    closeContextMenu() {
-        const existing = document.getElementById('dd-context-menu');
-        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    // Keys in the menu: arrows (and Home, End) move, Enter or Space runs, Esc or Tab closes. The keys stop
+    // here, so the arrows don't also nudge the selection on the map.
+    contextMenuKey(entries, e) {
+        const list = entries.filter(b => !b.disabled);
+        if (!list.length) return false;
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        const i = list.indexOf(active);
+        let next = null;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = list[(i + 1) % list.length];
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = list[i < 0 ? list.length - 1 : (i + list.length - 1) % list.length];
+        else if (e.key === 'Home') next = list[0];
+        else if (e.key === 'End') next = list[list.length - 1];
+        else if (e.key === 'Enter' || e.key === ' ') { if (i >= 0 && list[i].click) list[i].click(); }
+        else if (e.key === 'Escape' || e.key === 'Tab') this.closeContextMenu(true);
+        else return false;
+        if (next && next.focus) next.focus();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
+    },
+
+    // Closing gives focus back to where it was when the menu opened, if the menu still had it.
+    closeContextMenu(refocus) {
+        const existing = typeof document !== 'undefined' ? document.getElementById('dd-context-menu') : null;
+        if (!existing) return;
+        const active = document.activeElement;
+        const hadFocus = refocus || Boolean(active && existing.contains && existing.contains(active));
+        if (existing.parentNode) existing.parentNode.removeChild(existing);
+        const back = this._menuReturnFocus;
+        this._menuReturnFocus = null;
+        if (hadFocus && back && back.focus && back.isConnected !== false) back.focus();
     },
 
     appendAudioCommandToEvent(payload, gameEvent) {
@@ -35377,8 +35456,14 @@ DocsDoodads.Workspace = {
     updateUndoButtons() {
         const uBtn = document.getElementById('dd-undo-btn');
         const rBtn = document.getElementById('dd-redo-btn');
-        if (uBtn) uBtn.style.opacity = DocsDoodads.Undo.undoStack.length > 0 ? '1' : '0.5';
-        if (rBtn) rBtn.style.opacity = DocsDoodads.Undo.redoStack.length > 0 ? '1' : '0.5';
+        // Faded when there is nothing to take back, and said so to screen readers.
+        const show = (btn, any) => {
+            if (!btn) return;
+            btn.style.opacity = any ? '1' : '0.5';
+            if (btn.setAttribute) btn.setAttribute('aria-disabled', String(!any));
+        };
+        show(uBtn, DocsDoodads.Undo.undoStack.length > 0);
+        show(rBtn, DocsDoodads.Undo.redoStack.length > 0);
         if (this._undoHistoryOpen) this.renderUndoHistory();
     }
 };
@@ -35820,6 +35905,39 @@ Object.assign(DocsDoodads.Workspace, {
             Object.assign(st, { top: '0', width: '6px', height: '100%', cursor: 'ew-resize', left: side === 'right' ? '0' : '', right: side === 'left' ? '0' : '' });
         }
         el.onmousedown = e => this.beginDockResize(which, e);
+        // The keyboard reaches it too: the arrow keys resize by 10 (50 with Shift).
+        if (el.setAttribute) {
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('role', 'separator');
+            el.setAttribute('aria-orientation', side === 'bottom' ? 'horizontal' : 'vertical');
+            el.setAttribute('aria-label', which === 'drawer' ? 'Item Bag size' : 'Details size');
+            el.setAttribute('aria-valuemin', String(side === 'bottom' ? 120 : 200));
+            el.setAttribute('aria-valuemax', String(side === 'bottom' ? 900 : which === 'drawer' ? 800 : 600));
+            const panel = this.panelEl(which);
+            el.setAttribute('aria-valuenow', String(side === 'bottom' ? this.dock.bottomHeight : (panel && parseInt(panel.style.width, 10)) || this._sideWidth[which]));
+        }
+        el.onkeydown = e => this.dockResizeKey(which, e);
+    },
+
+    // Arrow keys on a panel's edge: towards the map makes the panel bigger. Home and End go to the smallest
+    // and biggest size.
+    dockResizeKey(which, e) {
+        const panel = this.panelEl(which);
+        if (!panel || !e) return false;
+        const side = this.dock[which];
+        const by = e.shiftKey ? 50 : 10;
+        // The edge moves this many pixels right (or down, for a panel along the bottom).
+        const keys = side === 'bottom' ? { ArrowUp: -by, ArrowDown: by, Home: 9999, End: -9999 }
+            : side === 'left' ? { ArrowLeft: -by, ArrowRight: by, Home: -9999, End: 9999 }
+            : { ArrowLeft: -by, ArrowRight: by, Home: 9999, End: -9999 };
+        const d = keys[e.key];
+        if (d === undefined) return false;
+        const start = { x: 0, y: 0, w: parseInt(panel.style.width, 10) || this._sideWidth[which], h: this.dock.bottomHeight };
+        this.dockResizeTo(which, side, start, { clientX: d, clientY: d }, 1);
+        this.saveDock();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
     },
 
     beginDockResize(which, e) {
@@ -36506,6 +36624,7 @@ DocsDoodads.Ui.css += `
 #dd-creator button:active { transform: translateY(3px); }
 #dd-creator button:disabled { opacity: 0.45; cursor: default; transform: none; }
 #dd-creator button:focus-visible, #dd-creator input:focus-visible { outline: 4px solid #ffc93c; outline-offset: 1px; }
+:root:not(.dd-mouse-focus) #dd-creator button:focus, :root:not(.dd-mouse-focus) #dd-creator input:focus { outline: 4px solid #ffc93c; outline-offset: 1px; }
 #dd-creator .dd-cr-top, #dd-creator .dd-cr-bottom { display: flex; align-items: center; gap: 12px; }
 #dd-creator .dd-cr-title { display: flex; align-items: center; gap: 8px; background: #19b6a4; color: #fffaf0; border-radius: 999px; padding: 6px 20px 6px 12px; box-shadow: 0 5px 0 #0f8a7c; font-size: 22px; font-weight: 900; }
 #dd-creator .dd-cr-lib { font-size: 13px; font-weight: 800; color: #7a6b8f; }
@@ -41193,12 +41312,15 @@ DocsDoodads.Workspace.toolHooks.room = {
 // through (Enter picks). F6 goes from panel to panel. A visible ring shows where the keyboard is. Less
 // motion (More > Look, or the system's reduced-motion setting) stops the editor's animations.
 DocsDoodads.Ui.css += `
-#dd-workspace :focus-visible, .dd-glass :focus-visible, .dd-card:focus-visible { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+#dd-asset-workspace-root :focus-visible, .dd-glass :focus-visible, .dd-card:focus-visible { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+:root:not(.dd-mouse-focus) #dd-asset-workspace-root :focus, :root:not(.dd-mouse-focus) .dd-glass :focus, :root:not(.dd-mouse-focus) .dd-card:focus { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+#dd-context-menu .dd-btn:focus { background: var(--dd-primary-soft); }
+#dd-context-menu .dd-btn.dd-danger:focus { background: var(--dd-danger-soft); }
 .dd-card:focus { box-shadow: 0 0 0 3px var(--dd-primary-soft); }
 @media (prefers-reduced-motion: reduce) {
-    #dd-workspace *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
+    #dd-asset-workspace-root *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
 }
-:root.dd-less-motion #dd-workspace *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
+:root.dd-less-motion #dd-asset-workspace-root *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
 `;
 
 Object.assign(DocsDoodads.Ui, {
@@ -41224,8 +41346,9 @@ Object.assign(DocsDoodads.Ui, {
         return this.splitTip ? this.splitTip(title)[0] : title;
     },
 
-    // Names, roles and live regions for everything under root. Safe to run again.
-    labelTree(root) {
+    // Names, roles and live regions for everything under root (and root itself with opts.self, for a
+    // node just added). Safe to run again.
+    labelTree(root, opts = {}) {
         if (!root || typeof root.querySelectorAll !== 'function') return 0;
         let named = 0;
         const roles = { 'dd-toolbar': ['toolbar', 'Tools'], 'dd-drawer-panel': ['region', 'Item Bag'], 'dd-inspector-panel': ['region', 'Details'],
@@ -41236,11 +41359,16 @@ Object.assign(DocsDoodads.Ui, {
         }
         const hint = typeof document !== 'undefined' ? document.getElementById('dd-hint') : null;
         if (hint && hint.setAttribute && !hint.getAttribute('aria-live')) { hint.setAttribute('role', 'status'); hint.setAttribute('aria-live', 'polite'); }
-        for (const el of Array.from(root.querySelectorAll('button, input, select, textarea, [role="button"]'))) {
+        const controls = Array.from(root.querySelectorAll('button, input, select, textarea, [role="button"]'));
+        const isControl = /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(root.tagName || '') || (root.getAttribute && root.getAttribute('role') === 'button');
+        if (opts.self && isControl) controls.unshift(root);
+        // A label for a field can be outside a subtree that was just added.
+        const scope = opts.self && typeof document !== 'undefined' && typeof document.querySelector === 'function' ? document : root;
+        for (const el of controls) {
             if (!el.getAttribute || el.getAttribute('aria-label')) continue;
             const hasText = String(el.textContent || '').trim() && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
             // A field inside its own label is already named.
-            const labelled = el.id && root.querySelector && root.querySelector(`label[for="${el.id}"]`);
+            const labelled = el.id && scope.querySelector && scope.querySelector(`label[for="${el.id}"]`);
             const wrapped = el.closest && el.closest('label');
             if (hasText || labelled || wrapped) continue;
             const name = this.accessibleName(el);
@@ -41289,8 +41417,30 @@ Object.assign(DocsDoodads.Workspace, {
         return true;
     },
 
+    // The bag's kinds are tabs: the arrow keys (and Home, End) go to the next one and show it.
+    categoryTabKey(e) {
+        const tabs = typeof document !== 'undefined' ? document.getElementById('dd-category-tabs') : null;
+        if (!tabs || !tabs.querySelectorAll) return false;
+        const list = Array.from(tabs.querySelectorAll('button')).filter(b => b.dataset && b.dataset.cat);
+        if (!list.length) return false;
+        const i = list.indexOf(e.target && e.target.closest ? e.target.closest('button') : e.target);
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        let next = null;
+        if (step) next = list[((i < 0 ? 0 : i) + step + list.length) % list.length];
+        else if (e.key === 'Home') next = list[0];
+        else if (e.key === 'End') next = list[list.length - 1];
+        else return false;
+        this._categoryChosen = true;
+        this.setCategory(next.dataset.cat);
+        if (next.focus) next.focus();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
+    },
+
     // Names (and, in another language, words) for everything shown; a watcher does the same for what
-    // appears later: cards as the bag scrolls, Details, the cards and questions opened on the page.
+    // appears later (cards as the bag scrolls, Details, the cards and questions opened on the page),
+    // labelling only what was added, not the whole editor again.
     labelWorkspace() {
         const root = this.container || (typeof document !== 'undefined' ? document.body : null);
         DocsDoodads.Ui.labelTree(root);
@@ -41300,18 +41450,26 @@ Object.assign(DocsDoodads.Workspace, {
         if (watch && typeof MutationObserver !== 'undefined' && !this._accessWatch) {
             let pending = null, added = [];
             this._accessWatch = new MutationObserver(list => {
-                for (const m of list) for (const node of Array.from(m.addedNodes || [])) added.push(node);
-                if (pending) return;
+                for (const m of list) for (const node of Array.from(m.addedNodes || [])) if (node.nodeType === 1) added.push(node);
+                if (pending || !added.length) return;
                 pending = setTimeout(() => {
                     pending = null;
-                    const nodes = added;
+                    const nodes = this.outermostNodes(added);
                     added = [];
-                    for (const node of nodes) if (node.isConnected !== false) I.translateTree(node);
-                    DocsDoodads.Ui.labelTree(this.container || document.body);
+                    for (const node of nodes) {
+                        I.translateTree(node);
+                        DocsDoodads.Ui.labelTree(node, { self: true });
+                    }
                 }, 60);
             });
             this._accessWatch.observe(watch, { childList: true, subtree: true });
         }
+    },
+
+    // The added nodes still on the page, without those inside another one of them.
+    outermostNodes(nodes) {
+        const live = Array.from(new Set(nodes)).filter(n => n && n.isConnected !== false);
+        return live.filter(n => !live.some(o => o !== n && typeof o.contains === 'function' && o.contains(n)));
     },
 
     stopLabelWatch() {
@@ -42267,6 +42425,8 @@ if (typeof Input !== 'undefined' && typeof Input._onKeyDown === 'function') {
     $.Input__onKeyDown = Input._onKeyDown;
     Input._onKeyDown = function(event) {
         if (DocsDoodads.Workspace.mounted && DocsDoodads.isEditableTarget(event.target)) return;
+        // MZ cancels Tab on everything that isn't a field, so in the editor it would never leave a button.
+        if (DocsDoodads.Workspace.mounted && event.keyCode === 9) return;
         $.Input__onKeyDown.call(this, event);
     };
 }
@@ -42339,6 +42499,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             else DocsDoodads.Workspace.pathPoints.pop();
         } else if (e.key === 'Escape') {
             e.preventDefault();
+            DocsDoodads.Workspace.closeContextMenu();
             DocsDoodads.Workspace.setPlacementTool(null);
             const sym = document.getElementById('dd-sym-popover');
             if (sym) sym.style.display = 'none';

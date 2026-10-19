@@ -827,7 +827,7 @@ Switch panel layout presets in **More → Panel sizes**:
 
 ### Accessibility
 - Every control has a name for screen readers (icon buttons say their tooltip, fields their placeholder), the panels are named regions, and messages and the hint are read out as they come.
-- **The keyboard**: Tab and Shift+Tab move through the controls with a visible ring; **F6** (Shift+F6 back) goes from the top bar to the Item Bag's search, the map and Details; in the Item Bag the **arrow keys** move between items (Home and End too) and **Enter** or Space picks one. Details sections open with Enter on their title.
+- **The keyboard**: Tab and Shift+Tab move through the controls with a visible ring; **F6** (Shift+F6 back) goes from the top bar to the Item Bag's search, the map and Details; in the Item Bag the **arrow keys** move between items (Home and End too) and **Enter** or Space picks one; the row of kinds above them is a set of tabs (the arrow keys show the next kind). Details sections open with Enter on their title. The right-click menu takes the focus: the arrow keys move through it, Enter runs an item and Esc closes it. The edge of the Item Bag and of Details is in the Tab order too: the arrow keys resize the panel (Shift for bigger steps, Home and End for the smallest and biggest).
 - **Less motion** (More → Look), or the system's reduced-motion setting, stops the editor's animations and the moving thumbnails.
 
 ### Editor language

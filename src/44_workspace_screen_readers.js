@@ -6,12 +6,15 @@
 // through (Enter picks). F6 goes from panel to panel. A visible ring shows where the keyboard is. Less
 // motion (More > Look, or the system's reduced-motion setting) stops the editor's animations.
 DocsDoodads.Ui.css += `
-#dd-workspace :focus-visible, .dd-glass :focus-visible, .dd-card:focus-visible { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+#dd-asset-workspace-root :focus-visible, .dd-glass :focus-visible, .dd-card:focus-visible { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+:root:not(.dd-mouse-focus) #dd-asset-workspace-root :focus, :root:not(.dd-mouse-focus) .dd-glass :focus, :root:not(.dd-mouse-focus) .dd-card:focus { outline: 3px solid var(--dd-primary) !important; outline-offset: 2px; border-radius: 8px; }
+#dd-context-menu .dd-btn:focus { background: var(--dd-primary-soft); }
+#dd-context-menu .dd-btn.dd-danger:focus { background: var(--dd-danger-soft); }
 .dd-card:focus { box-shadow: 0 0 0 3px var(--dd-primary-soft); }
 @media (prefers-reduced-motion: reduce) {
-    #dd-workspace *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
+    #dd-asset-workspace-root *, .dd-glass, .dd-glass *, .dd-toast, #dd-hint { animation: none !important; transition: none !important; }
 }
-:root.dd-less-motion #dd-workspace *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
+:root.dd-less-motion #dd-asset-workspace-root *, :root.dd-less-motion .dd-glass, :root.dd-less-motion .dd-glass *, :root.dd-less-motion .dd-toast, :root.dd-less-motion #dd-hint { animation: none !important; transition: none !important; }
 `;
 
 Object.assign(DocsDoodads.Ui, {
@@ -37,8 +40,9 @@ Object.assign(DocsDoodads.Ui, {
         return this.splitTip ? this.splitTip(title)[0] : title;
     },
 
-    // Names, roles and live regions for everything under root. Safe to run again.
-    labelTree(root) {
+    // Names, roles and live regions for everything under root (and root itself with opts.self, for a
+    // node just added). Safe to run again.
+    labelTree(root, opts = {}) {
         if (!root || typeof root.querySelectorAll !== 'function') return 0;
         let named = 0;
         const roles = { 'dd-toolbar': ['toolbar', 'Tools'], 'dd-drawer-panel': ['region', 'Item Bag'], 'dd-inspector-panel': ['region', 'Details'],
@@ -49,11 +53,16 @@ Object.assign(DocsDoodads.Ui, {
         }
         const hint = typeof document !== 'undefined' ? document.getElementById('dd-hint') : null;
         if (hint && hint.setAttribute && !hint.getAttribute('aria-live')) { hint.setAttribute('role', 'status'); hint.setAttribute('aria-live', 'polite'); }
-        for (const el of Array.from(root.querySelectorAll('button, input, select, textarea, [role="button"]'))) {
+        const controls = Array.from(root.querySelectorAll('button, input, select, textarea, [role="button"]'));
+        const isControl = /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(root.tagName || '') || (root.getAttribute && root.getAttribute('role') === 'button');
+        if (opts.self && isControl) controls.unshift(root);
+        // A label for a field can be outside a subtree that was just added.
+        const scope = opts.self && typeof document !== 'undefined' && typeof document.querySelector === 'function' ? document : root;
+        for (const el of controls) {
             if (!el.getAttribute || el.getAttribute('aria-label')) continue;
             const hasText = String(el.textContent || '').trim() && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
             // A field inside its own label is already named.
-            const labelled = el.id && root.querySelector && root.querySelector(`label[for="${el.id}"]`);
+            const labelled = el.id && scope.querySelector && scope.querySelector(`label[for="${el.id}"]`);
             const wrapped = el.closest && el.closest('label');
             if (hasText || labelled || wrapped) continue;
             const name = this.accessibleName(el);
@@ -102,8 +111,30 @@ Object.assign(DocsDoodads.Workspace, {
         return true;
     },
 
+    // The bag's kinds are tabs: the arrow keys (and Home, End) go to the next one and show it.
+    categoryTabKey(e) {
+        const tabs = typeof document !== 'undefined' ? document.getElementById('dd-category-tabs') : null;
+        if (!tabs || !tabs.querySelectorAll) return false;
+        const list = Array.from(tabs.querySelectorAll('button')).filter(b => b.dataset && b.dataset.cat);
+        if (!list.length) return false;
+        const i = list.indexOf(e.target && e.target.closest ? e.target.closest('button') : e.target);
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        let next = null;
+        if (step) next = list[((i < 0 ? 0 : i) + step + list.length) % list.length];
+        else if (e.key === 'Home') next = list[0];
+        else if (e.key === 'End') next = list[list.length - 1];
+        else return false;
+        this._categoryChosen = true;
+        this.setCategory(next.dataset.cat);
+        if (next.focus) next.focus();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
+    },
+
     // Names (and, in another language, words) for everything shown; a watcher does the same for what
-    // appears later: cards as the bag scrolls, Details, the cards and questions opened on the page.
+    // appears later (cards as the bag scrolls, Details, the cards and questions opened on the page),
+    // labelling only what was added, not the whole editor again.
     labelWorkspace() {
         const root = this.container || (typeof document !== 'undefined' ? document.body : null);
         DocsDoodads.Ui.labelTree(root);
@@ -113,18 +144,26 @@ Object.assign(DocsDoodads.Workspace, {
         if (watch && typeof MutationObserver !== 'undefined' && !this._accessWatch) {
             let pending = null, added = [];
             this._accessWatch = new MutationObserver(list => {
-                for (const m of list) for (const node of Array.from(m.addedNodes || [])) added.push(node);
-                if (pending) return;
+                for (const m of list) for (const node of Array.from(m.addedNodes || [])) if (node.nodeType === 1) added.push(node);
+                if (pending || !added.length) return;
                 pending = setTimeout(() => {
                     pending = null;
-                    const nodes = added;
+                    const nodes = this.outermostNodes(added);
                     added = [];
-                    for (const node of nodes) if (node.isConnected !== false) I.translateTree(node);
-                    DocsDoodads.Ui.labelTree(this.container || document.body);
+                    for (const node of nodes) {
+                        I.translateTree(node);
+                        DocsDoodads.Ui.labelTree(node, { self: true });
+                    }
                 }, 60);
             });
             this._accessWatch.observe(watch, { childList: true, subtree: true });
         }
+    },
+
+    // The added nodes still on the page, without those inside another one of them.
+    outermostNodes(nodes) {
+        const live = Array.from(new Set(nodes)).filter(n => n && n.isConnected !== false);
+        return live.filter(n => !live.some(o => o !== n && typeof o.contains === 'function' && o.contains(n)));
     },
 
     stopLabelWatch() {

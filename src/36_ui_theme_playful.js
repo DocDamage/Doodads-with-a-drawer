@@ -24,6 +24,7 @@ DocsDoodads.Ui.css += `
 :root[data-dd-theme="playful"] .dd-btn:hover { border-color: var(--dd-accent); box-shadow: 0 4px 0 var(--dd-primary-line); }
 :root[data-dd-theme="playful"] .dd-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--dd-line); }
 :root[data-dd-theme="playful"] .dd-btn:focus-visible { box-shadow: 0 0 0 4px #ffc93c, 0 4px 0 var(--dd-line); }
+:root[data-dd-theme="playful"]:not(.dd-mouse-focus) .dd-btn:focus { box-shadow: 0 0 0 4px #ffc93c, 0 4px 0 var(--dd-line); }
 :root[data-dd-theme="playful"] .dd-btn-primary { box-shadow: 0 4px 0 var(--dd-primary-dark); }
 :root[data-dd-theme="playful"] .dd-btn-primary:hover { background: #0e9282; box-shadow: 0 4px 0 var(--dd-primary-dark); }
 :root[data-dd-theme="playful"] .dd-btn-good:hover { background: #31902a; }

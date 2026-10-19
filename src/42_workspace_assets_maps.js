@@ -629,7 +629,17 @@
             if (input) input.value = '';
         }
         const tabs = document.getElementById('dd-category-tabs');
-        if (tabs && tabs.querySelectorAll) tabs.querySelectorAll('button').forEach(b => { b.className = 'dd-btn' + (b.dataset && b.dataset.cat === category ? ' dd-btn-primary' : ''); });
+        if (tabs && tabs.querySelectorAll) {
+            // One tab is in the tab order: the chosen one, or the first when the bag shows something else (Look-alikes).
+            const buttons = Array.from(tabs.querySelectorAll('button'));
+            const isOn = b => Boolean(b.dataset && b.dataset.cat === category);
+            const any = buttons.some(isOn);
+            buttons.forEach((b, i) => {
+                const on = isOn(b);
+                b.className = 'dd-btn' + (on ? ' dd-btn-primary' : '');
+                if (b.setAttribute) { b.setAttribute('aria-selected', String(on)); b.setAttribute('tabindex', on || (!any && i === 0) ? '0' : '-1'); }
+            });
+        }
         if (this.isFolded && this.isFolded('drawer')) this.foldPanel('drawer', false);
         this.refreshDrawerCards();
     },

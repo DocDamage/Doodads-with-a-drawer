@@ -18,6 +18,7 @@ DocsDoodads.Ui.css += `
 #dd-creator button:active { transform: translateY(3px); }
 #dd-creator button:disabled { opacity: 0.45; cursor: default; transform: none; }
 #dd-creator button:focus-visible, #dd-creator input:focus-visible { outline: 4px solid #ffc93c; outline-offset: 1px; }
+:root:not(.dd-mouse-focus) #dd-creator button:focus, :root:not(.dd-mouse-focus) #dd-creator input:focus { outline: 4px solid #ffc93c; outline-offset: 1px; }
 #dd-creator .dd-cr-top, #dd-creator .dd-cr-bottom { display: flex; align-items: center; gap: 12px; }
 #dd-creator .dd-cr-title { display: flex; align-items: center; gap: 8px; background: #19b6a4; color: #fffaf0; border-radius: 999px; padding: 6px 20px 6px 12px; box-shadow: 0 5px 0 #0f8a7c; font-size: 22px; font-weight: 900; }
 #dd-creator .dd-cr-lib { font-size: 13px; font-weight: 800; color: #7a6b8f; }

@@ -66,6 +66,7 @@ Object.assign(DocsDoodads.Ui, {
             style.textContent = this.styleText();
             overlay.appendChild(style);
         }
+        if (this.watchFocusSource) this.watchFocusSource();
 
         const title = make('div', 'dd-pop-title');
         title.id = 'dd-dialog-title';
