@@ -247,6 +247,12 @@
                         <button class="dd-btn" id="dd-dist-h" title="Distribute Horizontally">Horizontal</button>
                         <button class="dd-btn" id="dd-dist-v" title="Distribute Vertically">Vertical</button>
                     </div>
+                    <div style="display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px; margin-top: 4px; align-items: center;">
+                        <input type="number" id="dd-space-px" value="${this._spacePx || 48}" min="1" style="width: 56px;" title="Pixels from one to the next" aria-label="Pixels apart" />
+                        <button class="dd-btn" id="dd-space-h" title="In a row, this many pixels apart">Row, px apart</button>
+                        <button class="dd-btn" id="dd-space-v" title="In a column, this many pixels apart">Column, px apart</button>
+                    </div>
+                    <button class="dd-btn" id="dd-snap-grid" style="width: 100%; margin-top: 4px;" title="Each one's foot to the middle bottom of its grid cell">Snap to Grid</button>
                 </div>
 
                 <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 8px; margin-bottom: 8px;">
@@ -288,6 +294,10 @@
 
             document.getElementById('dd-dist-h').onclick = () => this.distributeSelected('horizontal');
             document.getElementById('dd-dist-v').onclick = () => this.distributeSelected('vertical');
+            const spacePx = () => { const el = document.getElementById('dd-space-px'); this._spacePx = Math.max(1, Number(el && el.value) || 48); return this._spacePx; };
+            document.getElementById('dd-space-h').onclick = () => this.spaceSelection('horizontal', spacePx());
+            document.getElementById('dd-space-v').onclick = () => this.spaceSelection('vertical', spacePx());
+            document.getElementById('dd-snap-grid').onclick = () => this.snapSelectionToGrid();
 
             document.getElementById('dd-multi-z-fwd').onclick = () => this.bringForward();
             document.getElementById('dd-multi-z-back').onclick = () => this.sendBackward();

@@ -6,7 +6,7 @@ dice and the body type, linked hair; the rest of §2.2), 4 (the switcher, the ca
 game bugs), B2 (§9.1 and §9.2, the editor's data safety and behaviour), B3 (§9.3, keyboard and screen readers), B4
 (§10.1, per-frame performance, measured on a 3,000-doodad map), B5 (§10.2, editor performance) and B6 (§11, project
 and release). B7 (§12) is in four parts: B7a (game features for events: 12.1.2, .3, .4, .5, .7, .12, .13, .15) and B7b
-(movement, collision, light and camera: 12.1.1's distance detail, .6, .8, .9, .10, .11, .14) are done; 12.2.11 (the per-SE opt-out, variation off by default) was done in B1. All are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
+(movement, collision, light and camera: 12.1.1's distance detail, .6, .8, .9, .10, .11, .14) and B7c (find, outliner, picking and placing: 12.2.1 to .4) are done; 12.2.11 (the per-SE opt-out, variation off by default) was done in B1. All are played in MZ in `docs/QA_2026-10-19.md`. Where the code differs from the text: in phase 1 the card switch is
 `[` / `]` and the next colour channel `C` (§2.1 gave `]` to both), and a mask colour snaps only to a slot its part uses
 (the real masks put some within reach of other parts' keys). In phase 2 the pad opens the grid with the right stick, not
 A, which stays the colour; in the grid A picks as planned. In phase 3 Memao's linked rows are marked `link: 'hair'` (not
