@@ -206,7 +206,7 @@
                 const handle = this.handleAt(this.clientToCanvas(e.clientX, e.clientY));
                 if (handle && this.beginHandleDrag(handle, this.clientToCanvas(e.clientX, e.clientY))) return;
             }
-            if (!this.placementTool && e.button === 0 && !e.shiftKey && !e.altKey) {
+            if (!this.placementTool && e.button === 0 && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
                 const point = this.clientToMapCoords(e.clientX, e.clientY);
                 if (this.beginDoodadDrag(point)) {
                     this._dragClientStart = { x: e.clientX, y: e.clientY };
@@ -219,6 +219,9 @@
                 this.marqueeStartClient = { x: e.clientX, y: e.clientY };
                 this.marqueeShift = e.shiftKey;
                 this.hasMarqueeMoved = false;
+                // Alt+drag: a lasso; Ctrl+drag: a box that picks what it touches; a plain box picks feet inside it.
+                this.marqueeMode = e.altKey ? 'lasso' : (e.ctrlKey || e.metaKey) ? 'touch' : 'feet';
+                this._lasso = this.marqueeMode === 'lasso' ? [{ x: e.clientX, y: e.clientY }] : null;
             }
         };
 
@@ -284,6 +287,13 @@
             } else if (this.isBrushActive && this.placementTool === 'terrain') {
                 this.terrainPaintAt(e.clientX, e.clientY);
                 this.trackTerrainHover(e);
+            } else if (this.isMarqueeActive && this.marqueeStartClient && this.marqueeMode === 'lasso') {
+                const last = this._lasso[this._lasso.length - 1];
+                if (Math.hypot(e.clientX - last.x, e.clientY - last.y) > 3) this._lasso.push({ x: e.clientX, y: e.clientY });
+                if (Math.hypot(e.clientX - this.marqueeStartClient.x, e.clientY - this.marqueeStartClient.y) > 5) {
+                    this.hasMarqueeMoved = true;
+                    this.drawLasso(this._lasso);
+                }
             } else if (this.isMarqueeActive && this.marqueeStartClient) {
                 const dx = e.clientX - this.marqueeStartClient.x;
                 const dy = e.clientY - this.marqueeStartClient.y;
@@ -362,10 +372,15 @@
                 }
             }
             if (this.isMarqueeActive) {
-                const overlay = document.getElementById('dd-marquee-overlay');
-                if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                for (const id of ['dd-marquee-overlay', 'dd-lasso-overlay']) {
+                    const overlay = document.getElementById(id);
+                    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                }
                 if (this.hasMarqueeMoved && this.marqueeStartClient) {
-                    const enclosed = this.doodadsInClientBox(this.marqueeStartClient, { x: e.clientX, y: e.clientY });
+                    const end = { x: e.clientX, y: e.clientY };
+                    const enclosed = this.marqueeMode === 'lasso' ? this.doodadsInClientLasso(this._lasso.concat([end]))
+                        : this.marqueeMode === 'touch' ? this.doodadsTouchingClientBox(this.marqueeStartClient, end)
+                            : this.doodadsInClientBox(this.marqueeStartClient, end);
 
                     if (this.marqueeShift) {
                         const current = this.selectedDoodads ? [...this.selectedDoodads] : [];
@@ -646,6 +661,62 @@
             const p = this.doodadFootOnScreen(d);
             return Boolean(p) && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
         });
+    },
+
+    // The drawn rectangle of a doodad in canvas pixels (from its foot as drawn, so 3D too), or null.
+    doodadCanvasRect(d) {
+        const p = this.doodadFootOnScreen(d);
+        if (!p) return null;
+        const k = p.scale || 1;
+        const w = (d.frameW || 48) * Math.abs(d.scaleX !== undefined ? d.scaleX : 1) * k;
+        const h = (d.frameH || 48) * Math.abs(d.scaleY !== undefined ? d.scaleY : 1) * k;
+        return { x: p.x - w * (d.anchorX !== undefined ? d.anchorX : 0.5), y: p.y - h * (d.anchorY !== undefined ? d.anchorY : 1), w, h };
+    },
+
+    // The editable doodads whose drawn picture touches the box dragged between two page points (Ctrl+drag).
+    doodadsTouchingClientBox(c0, c1) {
+        const a = this.clientToCanvas(c0.x, c0.y), b = this.clientToCanvas(c1.x, c1.y);
+        const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x), minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
+        return (DocsDoodads.doodads() || []).filter(d => {
+            if (!d || d.editorHidden || !this.layerAllowsEditing(d)) return false;
+            const r = this.doodadCanvasRect(d);
+            return Boolean(r) && r.x <= maxX && r.x + r.w >= minX && r.y <= maxY && r.y + r.h >= minY;
+        });
+    },
+
+    // The editable doodads whose foot is inside the lasso (page points; Alt+drag).
+    doodadsInClientLasso(points) {
+        const poly = (points || []).map(p => this.clientToCanvas(p.x, p.y));
+        if (poly.length < 3) return [];
+        const inside = (x, y) => {
+            let hit = false;
+            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                const a = poly[i], b = poly[j];
+                if ((a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x) hit = !hit;
+            }
+            return hit;
+        };
+        return (DocsDoodads.doodads() || []).filter(d => {
+            if (!d || d.editorHidden || !this.layerAllowsEditing(d)) return false;
+            const p = this.doodadFootOnScreen(d);
+            return Boolean(p) && inside(p.x, p.y);
+        });
+    },
+
+    // The lasso's line while it is drawn (page coordinates, over the editor).
+    drawLasso(points) {
+        if (typeof document === 'undefined' || !document.createElementNS) return;
+        let svg = document.getElementById('dd-lasso-overlay');
+        if (!svg) {
+            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.id = 'dd-lasso-overlay';
+            svg.setAttribute('style', 'position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 10006;');
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+            line.setAttribute('style', 'fill: rgba(56, 189, 248, 0.15); stroke: var(--dd-primary); stroke-width: 1.5; stroke-dasharray: 5 4;');
+            svg.appendChild(line);
+            document.body.appendChild(svg);
+        }
+        svg.firstChild.setAttribute('points', points.map(p => p.x + ',' + p.y).join(' '));
     },
 
     selectionScreenRects() {

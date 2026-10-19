@@ -128,8 +128,9 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
             if (W.selectionItems().some(d => !d.locked)) {
                 e.preventDefault();
-                const step = e.shiftKey ? 16 : 1;
-                W.nudgeSelection(dx * step, dy * step);
+                // Ctrl: a tile at a time, where the terrain lets them stand; Shift: 16 pixels.
+                if (e.ctrlKey || e.metaKey) W.nudgeByTile(dx, dy);
+                else W.nudgeSelection(dx * (e.shiftKey ? 16 : 1), dy * (e.shiftKey ? 16 : 1));
             } else if (W.selectedEvent) {
                 e.preventDefault();
                 const w = window.$gameMap && $gameMap.width ? $gameMap.width() : Infinity;

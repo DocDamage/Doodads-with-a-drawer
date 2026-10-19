@@ -173,7 +173,9 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Select All, Same Art, Layer, Invert**: these pick only what Select can reach (not doodads hidden in the editor or on hidden or locked layers). Same Art matches the picture however its path is written.
 - **Hidden doodads**: a doodad hidden in the editor (Hide) can't be clicked or boxed. **Show Hidden Doodads** (right-click the empty map, Ctrl+K, or the button under Layers in the map's Details) shows them all again and picks them, in one step to undo. Layers counts them in brackets beside each layer.
 - **Replace Art**: a new picture for the picked doodads, or for every doodad showing the same picture on this map or on every map. Type or choose the picture (the last one picked in the Item Bag is suggested); position, size, depth, motion, lights and collision stay, the frame size follows the new picture, and locked doodads are left alone. It is one undo step. An Item Bag picture's right-click menu has **Replace Art on Maps...**, which pairs with **Where Used**.
-- **Marquee Drag Box**: Click and drag on empty map space with the pointer tool to draw a blue selection box. All enclosed doodads are selected at once!
+- **Marquee Drag Box**: Click and drag on empty map space with the pointer tool to draw a blue selection box: the doodads whose foot is inside it are picked. **Ctrl + drag** picks every doodad the box touches (a tall tree whose top is in the box), and **Alt + drag** draws a **lasso** around the feet to pick. **Pick doodads in a region...** (Ctrl+K) picks the doodads standing in a region.
+- **Find Doodads** (More, or Ctrl+K): search this map or every map by words (the picture, the Name, a tag) and filters: `tag:`, `name:`, `layer:`, `has:light`, `has:sound`, `has:collision`, `has:states`, `has:touch`, `is:locked`, `is:hidden`, with `-` to leave out (`tree has:light -is:hidden`). Each result has **Go To** (other maps too); **Pick All** picks this map's results so Details changes them together, and **Hide**, **Show**, **Lock** and **Unlock** act on all of them as one undo step.
+- **Outliner** (More, or Ctrl+K): this map's doodads by layer, each with Hide/Show and Lock/Unlock, a click to pick it (a hidden one is shown first), **Show Hidden**, and **Solo** to see only one layer while editing (nothing is saved; closing the outliner shows them all).
 - **Shift + Click / Shift + Marquee**: Add or toggle doodads in the active multi-selection.
 - **Handles**: a picked doodad (one, on a flat map) shows corner handles and a knob above it. Drag a corner to resize it around its foot (it stays standing where it was); **Shift** keeps its proportions. Drag the knob to turn it; **Shift** snaps to 15 degrees. Each drag is one undo step.
 - **Animation** (Details, for a doodad drawn as a strip of frames): frames across and down (the picture is split evenly), speed (game frames per picture; 0 holds still), the frame to start on, and Play: Loop, Back and forth, Once (when its switch turns on; again each time it turns on) or Hold one frame.
@@ -181,7 +183,7 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Touch** (Details): a **common event to run** when the player presses Action facing the doodad (or clicks it), or, with **Runs on: Walking into it**, bumps into it or steps onto it. **Also go to its next state** makes a door that opens and closes with no event at all. Inside the common event, `DocsDoodads.WorldState.touched()` says which doodad it was (`name`, `state`) and where (`mapId`, and `x`, `y`: the tile its base stands on). **Only once** makes a chest: it runs one time, and the save remembers (`DocsDoodads.api.resetTouch(name)` lets it run again). **Wait between touches** keeps a lever from running twice in a row. **Prompt** (for example *Open*, *Read* or *!*) shows in a small bubble over the doodad while the player faces it.
 - **Several picked**: Details shows "—" where the picked doodads differ (a half-ticked box, a "— mixed —" choice); changing a field sets it on all of them. **Placement** sets their X, Y, Z-order, turn and size.
 - **Number boxes** in Details: drag the label left or right to change the number (Shift for bigger steps), or use the arrow keys.
-- **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
+- **Nudge**: Press **Arrow Keys** to nudge selected doodads by 1 pixel (**Shift + Arrow Keys** for 16 pixels, **Ctrl + Arrow Keys** for a tile, refused where the 3D terrain is too steep for a doodad); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable).
 - **Duplicate**: Press **Ctrl + D** to duplicate all selected doodads (+16px offset) or selected event.
 - **Copy / Paste**: Press **Ctrl + C** to copy selected doodads and **Ctrl + V** to paste them.
 - **Delete**: Press **Delete** to remove selected doodad(s) or selected event.
@@ -189,7 +191,8 @@ The workspace features a multi-tiered slicing engine that segments composite she
 ### Alignment & Distribution
 When 2 or more doodads are selected, Details exposes one-click alignment tools:
 - **Align**: Left, Center X, Right, Top, Center Y, Bottom.
-- **Distribute**: Horizontal Distribution, Vertical Distribution.
+- **Distribute**: Horizontal Distribution, Vertical Distribution, or **in a row / column so many pixels apart**.
+- **Snap to Grid**: each one's foot to the middle bottom of the grid cell it stands in.
 
 ### Organization & Layering
 - **Grouping**: Click **Group** to link selected doodads (`d.groupId`). Clicking any member selects the entire group.

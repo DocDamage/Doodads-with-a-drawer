@@ -775,6 +775,13 @@
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
+        add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
+        add('Pick doodads in a region...', async () => {
+            const r = await DocsDoodads.Ui.prompt('Which region? (1-255)', '1', { title: 'Pick in a region', ok: 'Pick' });
+            if (r) this.selectInRegion(Number(r));
+        });
+        add('Snap picked doodads to the grid', () => this.snapSelectionToGrid());
         add('Rooms (room stamps)', () => this.showRoomsCard());
         add('Doodad Packs (make or bring in)', () => this.showPacksCard());
         add('Characters (MZ, LPC and Memao libraries)', () => this.showLpcCard());

@@ -178,6 +178,8 @@ DocsDoodads.Workspace = {
         this.endTour();
         this.closeCaptureCard();
         this.closeProblems();
+        if (this._findOpen) this.closeFind();
+        if (this._outlinerOpen) this.closeOutliner();
         if (typeof this.closeLpcCard === 'function') this.closeLpcCard();
         if (typeof this.closeCreator === 'function') this.closeCreator();
         clearTimeout(this._hoverShow);
@@ -475,6 +477,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-lpc-btn" title="Character creators: RPG Maker MZ's generator parts, the LPC library and the Memao assets on this computer">${U.icon('person', 1)} Characters</button>
                     <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
+                    <button class="dd-btn" id="dd-find-btn" title="Find doodads on this map or every map, by picture, name, tag, layer, light, sound...">${U.icon('search', 1)} Find Doodads</button>
+                    <button class="dd-btn" id="dd-outliner-btn" title="This map's doodads by layer: hide, lock, pick, solo a layer">${U.icon('grid', 1)} Outliner</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
@@ -958,6 +962,8 @@ DocsDoodads.Workspace = {
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
+        on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
+        on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
         on('dd-listen-btn', () => { this.setPlacementTool('listen'); });
         on('dd-perf-btn', () => { this.togglePerfOverlay(); this.showMoreMenu(false); });
