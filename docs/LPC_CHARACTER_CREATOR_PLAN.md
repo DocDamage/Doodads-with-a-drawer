@@ -394,7 +394,7 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
     40 random characters averaged 15 ms each with no warnings.
   - In MZ: a shuffle takes 30–75 ms, and all 16 animations of one character compose in 570 ms.
 - **Left for later:**
-  - oversize and 128-pixel weapon art (`*_oversize`, `*_128`);
+  - ~~oversize and 128-pixel weapon art (`*_oversize`, `*_128`)~~: done, see §18;
   - `watering` and the tool animations;
   - an "only this part" view, for Visual Equipment (phase 6).
 
@@ -517,8 +517,8 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
   - Play Character Action with `$Robin_slash[f6]` played frames 0–5 twice, then went back to the idle sheet.
   - In a side-view battle, the 576 × 384 battler loaded and the swing motion played with the dagger.
 - **Left for later:**
-  - Oversize weapon art (`slash_oversize`, `thrust_oversize` and `*_128`: most swords, spears and polearms) needs
-    sheets with bigger frames.
+  - ~~Oversize weapon art (`slash_oversize`, `thrust_oversize` and `*_128`: most swords, spears and polearms) needs
+    sheets with bigger frames.~~ Done, see §18.
   - Visual Equipment parts (phase 6).
 
 ## 17. Phase 6 (done, 2026-10-19)
@@ -554,7 +554,81 @@ the try-on preview and the equip screen.
   - `hide` rules, such as a hood hiding long hair;
   - an Item Bag People tab entry.
 
-## 18. Open questions for the owner
+## 18. Oversize weapon art (done, 2026-10-19)
+
+Most swords, spears and polearms have no art for the usual 64-pixel animations. The library draws them on bigger
+frames as custom animations instead, so before this a character holding one swung empty-handed.
+
+- **What the library has (checked on commit b2c85f9):** 26 parts use them.
+
+  | Custom animation | Frame | Stands for | Notes |
+  | --- | --- | --- | --- |
+  | `slash_oversize` | 192 | slash | |
+  | `slash_reverse_oversize` | 192 | slash | The body plays slash backwards (a return swing). The club and boomerang have only this. |
+  | `thrust_oversize` | 192 | thrust | |
+  | `walk_128` | 128 | walk | Polearms, katana, scimitar, bows. |
+  | `slash_128` | 128 | slash | |
+  | `backslash_128` | 128 | backslash | |
+  | `halfslash_128` | 128 | halfslash | |
+
+  - The sheets have the animation's frames in its order, in four direction rows. Some are padded with empty
+    columns: every `walk_128` sheet, and the katana's `slash_128`, is 13 columns wide.
+  - **Where the body goes:** the 64-pixel body sits in the middle of each bigger frame, at (64, 64) in 192 and
+    (32, 32) in 128. This was checked by drawing the body's own frames under the art at both candidate places. In
+    the middle, the hilt is in the hand in every frame. At the bottom it floats above the head.
+- **Resolver:** `LpcCompose.oversize` maps each custom animation to the animation file it stands for, its frame,
+  and whether it is reversed. `standIns(animation)` lists them by file, so `1h_backslash` finds `backslash_128`.
+  - A part uses its bigger art only when it has no picture at the usual size for that animation. A bow's 64-pixel
+    shoot wins, and a bow walks on `walk_128` because its universal folders have no walk.
+  - The result has `frame` (64, 128 or 192), `reverse`, and `oversize` (the names used).
+  - If one part swings back and another forward, the forward swing wins and the other part is left out with a
+    warning.
+  - `{ oversize: false }` leaves the bigger art out.
+- **Compositor:** with a bigger frame, the sheet is `frames × F` by `rows × F`, and `sheet.frame = F`.
+  - Each 64-pixel layer's frames are drawn in the middle of the bigger cells, in reverse order for a return swing.
+  - The bigger art is drawn at its size, and padded columns are ignored.
+  - Art whose height doesn't match its frame size is left out with a warning.
+- **Exports (`LpcExport.cellOf`):** MZ stands every frame on its bottom edge, so a frame's feet must be at its
+  bottom, as in a 64-pixel frame.
+  - A sheet with bigger frames keeps the full width and everything above the feet. A 192 frame becomes
+    192 × 128, and a 128 frame becomes 128 × 96.
+  - What the library draws below the body's cell is left out. That is up to 46 pixels of a downward spear thrust,
+    and 15–20 % of a few polearm sheets' pixels; most swords lose a few pixels or none.
+  - `$Name_slash[f6]` with 192 × 128 frames needs no new tag, because MZ splits a tagged sheet evenly.
+  - The walkers (`$Name`, `$Name[f9][w2]`) get 128 × 96 frames when the weapon walks on `walk_128`. The idle and
+    run sheets stay 64, and the feet stay at the same place.
+- **The side-view battler (decided: grow it).** A 64-pixel battler slot would cut the weapon off, and scaling it
+  down would shrink the body. So when any motion uses oversize art, every cell grows to the biggest one needed
+  (192 × 128 for a big swing, so the sheet is 1728 × 768).
+  - Each motion stands at the bottom middle of its cell, so the body keeps its size and place.
+  - MZ splits a battler evenly into 9 × 6 cells and stands it on the bottom, so this works without the plugin.
+  - The cost: MZ centres battle animations on half the cell's height, so they show about 32 pixels higher on this
+    battler.
+- **Export result:** `oversize: [{ file, w, h }]` (the battler also lists its motions). The creator's popover
+  says "Bigger frames for the weapon art: $Knight_slash[f6] 192 x 128, the battler 192 x 128."
+- **Creator stage:** with a bigger frame, the canvas grows around the same body (the same size and place) and the
+  swing spills over the stage. The canvas lets clicks through, and the name, dice and turn buttons stay on top.
+- **Visual Equipment parts:** unchanged. `composeLpc` with a `keep` filter leaves the bigger art out, because part
+  sheets go over 64-pixel body sheets. A big weapon exported as a part has only its 64-pixel art: the longsword
+  walks and has no swing, and a polearm with only `walk_128` has nothing to draw.
+- **Checked:**
+  - **Tests:** `scratch/test_lpc_compositor.js` and `scratch/test_lpc_export.js` use synthetic 64, 128 and
+    192 sheets.
+  - **The real library:** scanned through More > Characters. All 26 parts compose for each animation they stand in
+    for, with no size warnings, in 20–70 ms each.
+  - **In MZ:** the creator's stage showed the longsword's slash and the halberd's thrust. The export wrote
+    `$Knight_slash[f6]` at 1152 × 512 and `$Knight_thrust[f8]` at 1536 × 512, with a 1728 × 768 battler, in
+    about 300 ms.
+    - Play Character Action played the slash with the player's sprite at the same y and a 192 × 128 frame.
+    - In a side-view battle, the swing motion showed the longsword.
+    - A long spear's `$Lance[f9][w2]` walked on 128 × 96 frames.
+    - No errors.
+- **Left for later:**
+  - a foot-offset tag, so that bigger frames could keep the art below the feet;
+  - oversize art in Visual Equipment parts (the body's sheet would need the same bigger frames);
+  - offering the return swing (`slash_reverse_oversize`) as its own action when a part has both.
+
+## 19. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting

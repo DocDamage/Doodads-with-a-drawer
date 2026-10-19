@@ -6,6 +6,7 @@
 // that plays the idle and run sheets with the smooth walker, and keeps the character under its name so it
 // can be changed and exported again. Also, when ticked: action sheets for Play Character Action
 // ($Name_slash[f6]...) and a side-view battler (img/sv_actors/Name.png). Layouts are in 23_lpc_export.js.
+// Sheets drawn with oversize weapon art have bigger frames; the result lists them (oversize).
 Object.assign(DocsDoodads.Workspace, {
     // What to make. options: { name, classic, smooth (with idle and run), face, faceSlot, battler, actions: [anim] }
     lpcExportDefaults() {
@@ -56,23 +57,32 @@ Object.assign(DocsDoodads.Workspace, {
         const written = [];
         const warnings = walk.warnings.slice();
         const record = (file, used) => { written.push(file); this.recordLpcImage(file, used); };
+        // The sheets with bigger frames: [{ file, w, h }] (the size of one frame).
+        const oversize = [];
+        const big = (file, sheet) => {
+            const F = E.frameOf(sheet);
+            if (F > E.frame) oversize.push(Object.assign({ file }, E.cellOf(F)));
+        };
         let parts = [];
         try {
             if (options.classic) {
                 const file = 'img/characters/' + N.classic + '.png';
                 this.writeLpcPng(file, E.classic(walk.sheet));
                 record(file, walk.used);
+                big(file, walk.sheet);
             }
             if (options.smooth) {
                 const file = 'img/characters/' + N.smooth + '.png';
                 this.writeLpcPng(file, E.allFrames(walk.sheet));
                 record(file, walk.used);
+                big(file, walk.sheet);
                 for (const [anim, sheetName] of [['idle', N.idle], ['run', N.run]]) {
                     const out = this.composeLpc(recipe, anim);
                     if (!out || !out.sheet) { warnings.push(`No ${anim} sheet: the parts have no ${anim}.`); continue; }
                     const f = 'img/characters/' + sheetName + '.png';
                     this.writeLpcPng(f, E.allFrames(out.sheet));
                     record(f, out.used);
+                    big(f, out.sheet);
                     warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
                 }
                 this.addLpcAnimationSet(N);
@@ -83,6 +93,7 @@ Object.assign(DocsDoodads.Workspace, {
                 const f = 'img/characters/' + E.actionName(name, anim) + '.png';
                 this.writeLpcPng(f, E.actionSheet(out.sheet, anim));
                 record(f, out.used);
+                big(f, out.sheet);
                 warnings.push(...out.warnings.filter(w => !warnings.includes(w)));
             }
             if (options.battler) {
@@ -96,13 +107,14 @@ Object.assign(DocsDoodads.Workspace, {
                 const f = 'img/sv_actors/' + N.face + '.png';
                 this.writeLpcPng(f, sv.sheet);
                 record(f, used);
+                if (sv.oversize.length) oversize.push({ file: f, w: sv.cell.w, h: sv.cell.h, motions: sv.oversize });
                 if (sv.fellBack.length) warnings.push(`The battler's ${sv.fellBack.join(', ')} use${sv.fellBack.length === 1 ? 's' : ''} another animation (the parts have none of their own).`);
             }
             if (options.face) {
                 // The face leaves out what is held or carried.
                 const faceState = { body: state.body, slots: Object.assign({}, state.slots) };
                 for (const key of ['weapon', 'shield', 'back', 'ammo']) delete faceState.slots[key];
-                const faceWalk = this.composeLpc(S.toRecipe(faceState, { addons: options.addons !== false }), 'walk');
+                const faceWalk = this.composeLpc(S.toRecipe(faceState, { addons: options.addons !== false }), 'walk', null, { oversize: false });
                 const file = 'img/faces/' + N.face + '.png';
                 this.writeLpcPng(file, E.faceSheet(this.readLpcPng(file), E.face(faceWalk.sheet), options.faceSlot || 0));
                 record(file, faceWalk.used);
@@ -117,7 +129,7 @@ Object.assign(DocsDoodads.Workspace, {
         FS.atomicWriteJson(S.charactersFile, S.save(this.readCreatorSaved(), name, state));
         const unsafe = D.Lpc.unsafeImages(this.lpcCredits(), f => written.includes(f)).length;
         this.showToast(`Exported ${name}: ${written.length} picture${written.length === 1 ? '' : 's'}` + (unsafe ? `; ${unsafe} can't be encrypted` : '') + '.', unsafe ? 'info' : 'success');
-        return { files: written, warnings: [...new Set(warnings)], names: N, parts };
+        return { files: written, warnings: [...new Set(warnings)], names: N, parts, oversize };
     },
 
     // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the

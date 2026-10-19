@@ -2,6 +2,7 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- The Character Creator draws big weapons (the LPC library's oversize and 128-pixel art: most swords, spears and polearms) at their size instead of leaving them out. The stage shows the whole swing; action sheets, walkers and the side-view battler that use them get bigger frames standing on the feet (`$Name_slash[f6]` at 192 × 128, a battler with 192 × 128 cells), and the export says which. The club's and boomerang's return swing plays the body backwards. Art below the feet is left out, and Visual Equipment parts stay at 64 pixels.
 - A Playful theme (More > Look): cream cards, teal and coral, yellow for what is picked, rounder corners and pill buttons. Filled buttons keep white text at 4.5:1 or better.
 - The Character Creator's outfit as Visual Equipment parts: the character's sheets become the body only, each piece it wears gets part sheets in the same layouts (walker, idle, run, actions, battler; front and behind pieces in one part slot) with its notetag, which can be copied or put on a weapon, armour or actor (backed up, and live in the playtest). Equipping and unequipping then changes what the character wears.
 - Visual Equipment layers follow the body's idle, run and action sheets: `Hat` draws `Hat_idle[f2]` while the body shows `$Hero_idle[f2]`, when the file is there.

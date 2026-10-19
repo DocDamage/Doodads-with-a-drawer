@@ -91,6 +91,18 @@ write(lib, 'spritesheets/weapon/sword/walk.png', sheet(9, () => [250, 250, 250, 
 write(lib, 'spritesheets/cape/front/walk.png', sheet(9, () => [10, 10, 200, 255]));
 write(lib, 'spritesheets/cape/front/idle.png', sheet(2, () => [10, 10, 201, 255]));
 write(lib, 'spritesheets/cape/back/walk.png', sheet(9, () => [10, 200, 10, 255]));
+// Oversize weapon art: cells of 192 (or 128) with a dot at (5, 5), one where the 64-pixel body's (10, 20) is,
+// and one below the body's cell (left out of MZ's sheets, which stand on the feet).
+const bigSheet = (cols, cell, colour) => { const w = cols * cell, d = new Uint8Array(w * 4 * cell * 4), pad = (cell - 64) / 2;
+    for (let r = 0; r < 4; r++) for (let f = 0; f < cols; f++) for (const [x, y] of [[5, 5], [pad + 10, pad + 20], [5, pad + 64 + 5]]) d.set(colour(f, r), ((r * cell + y) * w + f * cell + x) * 4);
+    return encodePng(w, 4 * cell, d, b => zlib.deflateSync(b)); };
+write(lib, 'sheet_definitions/weapons/longsword.json', { name: 'Longsword', type_name: 'weapon', variants: ['long'], animations: ['walk', 'slash_oversize'],
+    layer_1: { zPos: 140, male: 'weapon/long/' }, layer_2: { zPos: 150, custom_animation: 'slash_oversize', male: 'weapon/long/attack_slash/' }, credits: credit('weapon', ['CC0']) });
+write(lib, 'sheet_definitions/weapons/spear.json', { name: 'Spear', type_name: 'weapon', variants: ['spear'], animations: ['walk_128'],
+    layer_1: { zPos: 140, custom_animation: 'walk_128', male: 'weapon/spear/walk/' }, credits: credit('weapon', ['CC0']) });
+write(lib, 'spritesheets/weapon/long/walk.png', sheet(9, () => [0, 0, 0, 0]));
+write(lib, 'spritesheets/weapon/long/attack_slash/long.png', bigSheet(6, 192, (f, r) => [200, f * 20, r * 50, 255]));
+write(lib, 'spritesheets/weapon/spear/walk/spear.png', bigSheet(13, 128, (f, r) => [180, f * 20, r * 50, 255]));
 fs.mkdirSync(path.join(project, 'data'), { recursive: true });
 process.on('exit', () => { process.chdir(__dirname); fs.rmSync(fixture, { recursive: true, force: true }); });
 process.chdir(project);
@@ -230,6 +242,61 @@ const px = (img, x, y) => Array.from(img.data.slice((y * img.width + x) * 4, (y 
     assert.deepStrictEqual(E.svMotions.map(m => m.motion), ['walk', 'wait', 'chant', 'guard', 'damage', 'evade', 'thrust', 'swing', 'missile', 'skill', 'spell', 'item', 'escape', 'victory', 'dying', 'abnormal', 'sleep', 'dead'], "MZ's motion order");
     assert.strictEqual(E.actionName('Ace', '1h_backslash'), '$Ace_backslash[f13]');
     console.log('✓ actions and the side-view battler');
+
+    // 4b2. Oversize weapon art: action sheets and walkers with bigger frames standing on the feet (what is
+    // below the body's cell left out), the battler's cells grown to fit with every motion at the bottom middle,
+    // the export saying which; Visual Equipment parts keep 64-pixel frames.
+    assert.deepStrictEqual([E.cellOf(64), E.cellOf(128), E.cellOf(192)], [{ w: 64, h: 64 }, { w: 128, h: 96 }, { w: 192, h: 128 }]);
+    const knight = { body: 'male', slots: { body: { id: 'body/body', colour: 'light' }, weapon: { id: 'weapons/longsword', colour: '' } } };
+    const kn = ws.exportLpcCharacter(knight, { name: 'Knight', classic: true, actions: ['slash', 'hurt'], battler: true });
+    const kimg = f => D.LpcCompose.decodePng(fs.readFileSync(path.join(project, f)), d => zlib.inflateSync(d));
+    const kslash = kimg('img/characters/$Knight_slash[f6].png');
+    assert.deepStrictEqual([kslash.width, kslash.height], [6 * 192, 4 * 128], '192-pixel frames, 128 tall: everything above the feet');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 64 + 30, 64 + 40), [40, 120, 7, 255], 'MZ row 0 is the library\'s down row; the body ends at the frame\'s bottom');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 5, 5), [200, 40, 100, 255], 'the blade at its size');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 64 + 10, 64 + 20), [200, 40, 100, 255], 'in front of the body');
+    assert.deepStrictEqual(px(kslash, 2 * 192 + 5, 128 + 5), [200, 40, 50, 255], 'the next MZ row (left) starts right under the feet');
+    assert.deepStrictEqual([kimg('img/characters/$Knight_hurt[f6].png').width, kimg('img/characters/$Knight.png').width], [384, 192], 'sheets without oversize art keep 64-pixel frames');
+    const ksv = kimg('img/sv_actors/Knight.png');
+    assert.deepStrictEqual([ksv.width, ksv.height], [9 * 192, 6 * 128], 'the battler\'s cells grow to the swing');
+    assert.deepStrictEqual(px(ksv, 64 + 10, 64 + 20), [20, 60, 7, 255], 'walk: the 64-pixel frame at the bottom middle of its cell');
+    assert.deepStrictEqual(px(ksv, 3 * 192 + 64 + 10, 128 + 64 + 20), [200, 20, 50, 255], 'swing: the blade, frame 1 facing left');
+    assert.deepStrictEqual(px(ksv, 3 * 192 + 64 + 30, 128 + 64 + 40), [20, 60, 7, 255], 'and the body at the same size and place as in walk');
+    assert.deepStrictEqual(kn.oversize, [{ file: 'img/characters/$Knight_slash[f6].png', w: 192, h: 128 }, { file: 'img/sv_actors/Knight.png', w: 192, h: 128, motions: ['swing', 'skill'] }], 'skill falls back to the slash');
+    assert.strictEqual(E.oversizeNote(kn.oversize), 'Bigger frames for the weapon art: $Knight_slash[f6] 192 x 128, the battler 192 x 128.');
+    assert.strictEqual(E.oversizeNote([]), '');
+    assert.ok(!kn.warnings.some(w => /Longsword has no slash/.test(w)) && kn.warnings.includes('Longsword has no hurt.'), 'the swing is not missing any more');
+    // walk_128: the walkers get 128-pixel frames, 96 tall; idle and run (no spear) keep 64.
+    const lance = ws.exportLpcCharacter({ body: 'male', slots: { body: { id: 'body/body', colour: 'light' }, weapon: { id: 'weapons/spear', colour: '' } } }, { name: 'Lance', classic: true, smooth: true });
+    const lc = kimg('img/characters/$Lance.png'), ls = kimg('img/characters/$Lance[f9][w2].png');
+    assert.deepStrictEqual([lc.width, lc.height, ls.width, ls.height], [3 * 128, 4 * 96, 9 * 128, 4 * 96]);
+    assert.deepStrictEqual(px(lc, 32 + 30, 32 + 40), [20, 120, 7, 255], 'classic column 0 is walk frame 1, down, the body ending at the bottom');
+    assert.deepStrictEqual(px(ls, 8 * 128 + 5, 5), [180, 160, 100, 255], 'the spear, frame 8 (the padded columns ignored)');
+    assert.deepStrictEqual(kimg('img/characters/$Lance_idle[f2].png').width, 128);
+    assert.deepStrictEqual(lance.oversize.map(o => o.file), ['img/characters/$Lance.png', 'img/characters/$Lance[f9][w2].png']);
+    // As Visual Equipment parts the sword keeps 64-pixel frames (it goes over 64-pixel body sheets).
+    const kp = ws.exportLpcCharacter(knight, { name: 'Knight2', smooth: true, battler: true, actions: ['slash'], parts: true });
+    const sword = kp.parts.find(p => p.slot === 'weapon');
+    assert.ok(sword && !sword.files.some(f => /_slash/.test(f)), 'no oversize slash in the part sheets');
+    assert.deepStrictEqual([kimg(sword.files.find(f => f.startsWith('img/sv_actors/'))).width, kimg('img/characters/$Knight2_slash[f6].png').width], [576, 384]);
+    assert.deepStrictEqual(kp.oversize, []);
+    // The creator's stage shows the swing on a bigger canvas around the same body; the export says which sheets are bigger.
+    ws.openCreator(knight);
+    const canvas = document.getElementById('dd-cr-canvas');
+    assert.strictEqual(canvas.width, 256);
+    document.getElementById('dd-cr-anim-slash').onclick();
+    assert.strictEqual(document.getElementById('dd-cr-canvas').width, 4 * 192, 'Slash: 192-pixel frames');
+    assert.ok(!/Longsword has no/.test(root.innerHTML), 'nothing missing');
+    document.getElementById('dd-cr-anim-walk').onclick();
+    assert.strictEqual(document.getElementById('dd-cr-canvas').width, 256, 'back to 64');
+    ws._creator.name = 'Knight';
+    document.getElementById('dd-cr-export').onclick();
+    ws._creator.exportOptions = { classic: false, smooth: false, face: false, battler: false, actions: ['slash'] };
+    D.Ui.confirm = async () => true;
+    await ws.creatorExport();
+    assert.ok(root.innerHTML.includes('Bigger frames for the weapon art: $Knight_slash[f6] 192 x 128.'), 'the popover says which sheets are bigger');
+    ws.closeCreator();
+    console.log('✓ oversize weapon art: bigger frames on the feet, the battler grown, the stage, parts at 64');
 
     // 4c. The outfit as Visual Equipment parts: the body alone for the character, a part per piece (in front
     // and behind), in the same layouts, with the notetag; the notetag put on an armour in the database.
