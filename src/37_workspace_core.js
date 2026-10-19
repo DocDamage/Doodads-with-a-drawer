@@ -319,6 +319,7 @@ DocsDoodads.Workspace = {
         style.id = 'dd-ui-style';
         style.textContent = U.styleText();
         wrap.appendChild(style);
+        U.watchFocusSource();
 
         const tool = (id, icon, label, title, extra = '') =>
             `<button class="dd-btn dd-tool ${extra}" id="${id}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
@@ -497,7 +498,7 @@ DocsDoodads.Workspace = {
             display: flex; flex-direction: column; gap: 7px; overflow: hidden;
         `;
         drawer.innerHTML = `
-            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Item Bag size" tabindex="0"></div>
             <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag">
                 ${U.icon('bag', 2)}
                 <span class="dd-grow">Item Bag <span id="dd-drawer-category" style="color: var(--dd-muted); font-weight: 800; font-size: 12px;"></span></span>
@@ -511,8 +512,8 @@ DocsDoodads.Workspace = {
                 <select id="dd-collection-select" title="Show one collection (right-click an item: Add to Collection)" style="flex: 1; min-width: 0;"></select>
                 <button class="dd-btn" id="dd-del-collection-btn" title="Delete this collection (the items stay)" style="display: none; padding: 3px 7px;">${U.icon('trash', 1)}</button>
             </div>
-            <div id="dd-category-tabs">
-                ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}">${U.icon(icon, 1)}</button>`).join('')}
+            <div id="dd-category-tabs" role="tablist" aria-label="Kinds of item">
+                ${this.categoryTabs.map(([cat, icon, name]) => `<button class="dd-btn${cat === this.currentCategory ? ' dd-btn-primary' : ''}" data-cat="${cat}" title="${escapeHtml(name)}" role="tab" aria-selected="${cat === this.currentCategory}" aria-controls="dd-cards-container" tabindex="${cat === this.currentCategory ? 0 : -1}">${U.icon(icon, 1)}</button>`).join('')}
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="font-size: 11px; color: var(--dd-muted); font-weight: 800; white-space: nowrap;" id="dd-asset-count">0 items</span>
@@ -540,7 +541,7 @@ DocsDoodads.Workspace = {
             padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
         `;
         inspector.innerHTML = `
-            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize"></div>
+            <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Details size" tabindex="0"></div>
             <div class="dd-panel-head" id="dd-inspector-head">
                 <button class="dd-btn dd-fold" id="dd-inspector-fold" title="Fold the details away (H)">${U.icon('right', 1)}</button>
                 <span id="dd-inspector-icon">${U.icon('map', 2)}</span>
@@ -932,6 +933,7 @@ DocsDoodads.Workspace = {
                 this.setCategory(tab.dataset.cat);
             }
         };
+        catTabs.onkeydown = e => this.categoryTabKey(e);
 
         // The new buttons: Select, More (and what is in it), folding the panels.
         const U = DocsDoodads.Ui;

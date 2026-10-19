@@ -20,7 +20,9 @@ DocsDoodads.Ui.css += `
     --dd-switch-off: #8c8c8c; --dd-switch-line: #2f2a43; --dd-scroll: #2f2a43;
 }
 :root[data-dd-theme="contrast"] .dd-glass, :root[data-dd-theme="contrast"] .dd-btn { border-width: 3px; }
-:root[data-dd-theme="contrast"] .dd-btn:focus-visible, :root[data-dd-theme="contrast"] .dd-glass input:focus { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="contrast"] .dd-btn:focus-visible { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="contrast"]:not(.dd-mouse-focus) .dd-btn:focus { box-shadow: 0 0 0 3px #000000; }
+:root[data-dd-theme="contrast"] .dd-glass input:focus { box-shadow: 0 0 0 3px #000000; }
 :root[data-dd-theme="dark"] .dd-btn-active, :root[data-dd-theme="dark"] .dd-badge { color: #fff4c9 !important; }
 .dd-dialog { zoom: var(--dd-scale, 1); }
 `;

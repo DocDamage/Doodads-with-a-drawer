@@ -1368,11 +1368,25 @@
         menu.id = 'dd-context-menu';
         menu.className = 'dd-glass';
         menu.style.cssText = 'position: fixed; z-index: 10050; display: flex; flex-direction: column; gap: 1px;';
+        if (menu.setAttribute) { menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Actions'); }
+        this._menuReturnFocus = typeof document !== 'undefined' ? document.activeElement : null;
         DocsDoodads.Ui.sound('cursor');
         const run = item => {
             this.closeContextMenu();
             this.noteMenuUse(item.label);
             if (item.onClick) item.onClick();
+        };
+        // Every action is a menu item the arrow keys reach; separators are skipped.
+        const entries = [];
+        const asItem = b => {
+            if (b.setAttribute) { b.setAttribute('role', 'menuitem'); b.setAttribute('tabindex', '-1'); }
+            entries.push(b);
+        };
+        const separator = () => {
+            const sep = document.createElement('div');
+            sep.className = 'dd-menu-sep';
+            if (sep.setAttribute) sep.setAttribute('role', 'separator');
+            return sep;
         };
         // The actions used most, as a row of buttons at the top.
         const quick = this.quickMenuItems(items);
@@ -1385,18 +1399,16 @@
                 b.title = item.label;
                 b.innerHTML = `${item.iconName ? DocsDoodads.Ui.icon(item.iconName, 1) : `<span>${escapeHtml(item.icon || '•')}</span>`}<span>${escapeHtml(this.menuKey(item.label).replace(/#/g, '').replace(/\.\.\.$/, '').trim())}</span>`;
                 b.onclick = e => { if (e && e.stopPropagation) e.stopPropagation(); run(item); };
+                asItem(b);
                 rowEl.appendChild(b);
             });
+            if (rowEl.setAttribute) rowEl.setAttribute('role', 'group');
             menu.appendChild(rowEl);
-            const sep = document.createElement('div');
-            sep.className = 'dd-menu-sep';
-            menu.appendChild(sep);
+            menu.appendChild(separator());
         }
         items.forEach(item => {
             if (item.separator) {
-                const sep = document.createElement('div');
-                sep.className = 'dd-menu-sep';
-                menu.appendChild(sep);
+                menu.appendChild(separator());
                 return;
             }
             const row = document.createElement('button');
@@ -1409,9 +1421,12 @@
                 e.stopPropagation();
                 run(item);
             };
+            asItem(row);
             menu.appendChild(row);
         });
+        if (menu.addEventListener) menu.addEventListener('keydown', e => this.contextMenuKey(entries, e));
         document.body.appendChild(menu);
+        if (entries[0] && entries[0].focus) entries[0].focus();
 
         const menuW = menu.offsetWidth || 180;
         const menuH = menu.offsetHeight || 200;
@@ -1428,9 +1443,37 @@
         setTimeout(() => window.addEventListener('pointerdown', onDismiss), 50);
     },
 
-    closeContextMenu() {
-        const existing = document.getElementById('dd-context-menu');
-        if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    // Keys in the menu: arrows (and Home, End) move, Enter or Space runs, Esc or Tab closes. The keys stop
+    // here, so the arrows don't also nudge the selection on the map.
+    contextMenuKey(entries, e) {
+        const list = entries.filter(b => !b.disabled);
+        if (!list.length) return false;
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        const i = list.indexOf(active);
+        let next = null;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') next = list[(i + 1) % list.length];
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') next = list[i < 0 ? list.length - 1 : (i + list.length - 1) % list.length];
+        else if (e.key === 'Home') next = list[0];
+        else if (e.key === 'End') next = list[list.length - 1];
+        else if (e.key === 'Enter' || e.key === ' ') { if (i >= 0 && list[i].click) list[i].click(); }
+        else if (e.key === 'Escape' || e.key === 'Tab') this.closeContextMenu(true);
+        else return false;
+        if (next && next.focus) next.focus();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
+    },
+
+    // Closing gives focus back to where it was when the menu opened, if the menu still had it.
+    closeContextMenu(refocus) {
+        const existing = typeof document !== 'undefined' ? document.getElementById('dd-context-menu') : null;
+        if (!existing) return;
+        const active = document.activeElement;
+        const hadFocus = refocus || Boolean(active && existing.contains && existing.contains(active));
+        if (existing.parentNode) existing.parentNode.removeChild(existing);
+        const back = this._menuReturnFocus;
+        this._menuReturnFocus = null;
+        if (hadFocus && back && back.focus && back.isConnected !== false) back.focus();
     },
 
     appendAudioCommandToEvent(payload, gameEvent) {
@@ -1826,8 +1869,14 @@
     updateUndoButtons() {
         const uBtn = document.getElementById('dd-undo-btn');
         const rBtn = document.getElementById('dd-redo-btn');
-        if (uBtn) uBtn.style.opacity = DocsDoodads.Undo.undoStack.length > 0 ? '1' : '0.5';
-        if (rBtn) rBtn.style.opacity = DocsDoodads.Undo.redoStack.length > 0 ? '1' : '0.5';
+        // Faded when there is nothing to take back, and said so to screen readers.
+        const show = (btn, any) => {
+            if (!btn) return;
+            btn.style.opacity = any ? '1' : '0.5';
+            if (btn.setAttribute) btn.setAttribute('aria-disabled', String(!any));
+        };
+        show(uBtn, DocsDoodads.Undo.undoStack.length > 0);
+        show(rBtn, DocsDoodads.Undo.redoStack.length > 0);
         if (this._undoHistoryOpen) this.renderUndoHistory();
     }
 };

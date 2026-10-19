@@ -124,7 +124,10 @@ DocsDoodads.Ui = {
 .dd-btn:hover { border-color: var(--dd-primary); box-shadow: 0 3px 0 var(--dd-primary-line); transform: translateY(-1px); }
 .dd-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--dd-line); }
 .dd-btn:focus { outline: none; }
+/* MZ's NW.js is Chromium 85: no :focus-visible, and a rule list naming it is dropped whole. So each ring is a
+   rule of its own, twinned by a plain :focus one that a mouse press turns off (dd-mouse-focus, Ui.watchFocusSource). */
 .dd-btn:focus-visible { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
+:root:not(.dd-mouse-focus) .dd-btn:focus { box-shadow: 0 0 0 3px rgba(46, 155, 255, 0.45), 0 3px 0 var(--dd-line); }
 .dd-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
 .dd-btn-primary { background: var(--dd-primary); border-color: var(--dd-primary-dark); color: #fff; box-shadow: 0 3px 0 var(--dd-primary-dark); }
 .dd-btn-primary:hover { background: #45a8ff; border-color: var(--dd-primary-dark); box-shadow: 0 3px 0 var(--dd-primary-dark); }
@@ -310,6 +313,23 @@ DocsDoodads.Ui = {
         const url = DocsDoodads.UiIcons ? DocsDoodads.UiIcons.url : '';
         const fonts = DocsDoodads.UiFonts ? DocsDoodads.UiFonts.css + '\n' : '';
         return fonts + this.css.replace(':root {', `:root {\n    --dd-icons: url(${url});`);
+    },
+
+    // Where focus came from, for the :focus rings above: a press marks the page, moving with the keys
+    // (Tab, F6, arrows) clears it. Other keys leave it, so a shortcut doesn't ring the button last clicked.
+    focusKeys: ['Tab', 'F6', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'],
+
+    watchFocusSource() {
+        if (this._focusWatch || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return false;
+        const root = document.documentElement;
+        if (!root || !root.classList) return false;
+        const press = () => root.classList.add('dd-mouse-focus');
+        const key = e => { if (e && this.focusKeys.includes(e.key)) root.classList.remove('dd-mouse-focus'); };
+        document.addEventListener('pointerdown', press, true);
+        document.addEventListener('mousedown', press, true);
+        document.addEventListener('keydown', key, true);
+        this._focusWatch = { press, key };
+        return true;
     }
 };
 

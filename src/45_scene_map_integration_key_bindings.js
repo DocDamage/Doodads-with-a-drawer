@@ -61,6 +61,8 @@ if (typeof Input !== 'undefined' && typeof Input._onKeyDown === 'function') {
     $.Input__onKeyDown = Input._onKeyDown;
     Input._onKeyDown = function(event) {
         if (DocsDoodads.Workspace.mounted && DocsDoodads.isEditableTarget(event.target)) return;
+        // MZ cancels Tab on everything that isn't a field, so in the editor it would never leave a button.
+        if (DocsDoodads.Workspace.mounted && event.keyCode === 9) return;
         $.Input__onKeyDown.call(this, event);
     };
 }
@@ -133,6 +135,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             else DocsDoodads.Workspace.pathPoints.pop();
         } else if (e.key === 'Escape') {
             e.preventDefault();
+            DocsDoodads.Workspace.closeContextMenu();
             DocsDoodads.Workspace.setPlacementTool(null);
             const sym = document.getElementById('dd-sym-popover');
             if (sym) sym.style.display = 'none';

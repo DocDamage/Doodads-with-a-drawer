@@ -123,6 +123,39 @@ Object.assign(DocsDoodads.Workspace, {
             Object.assign(st, { top: '0', width: '6px', height: '100%', cursor: 'ew-resize', left: side === 'right' ? '0' : '', right: side === 'left' ? '0' : '' });
         }
         el.onmousedown = e => this.beginDockResize(which, e);
+        // The keyboard reaches it too: the arrow keys resize by 10 (50 with Shift).
+        if (el.setAttribute) {
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('role', 'separator');
+            el.setAttribute('aria-orientation', side === 'bottom' ? 'horizontal' : 'vertical');
+            el.setAttribute('aria-label', which === 'drawer' ? 'Item Bag size' : 'Details size');
+            el.setAttribute('aria-valuemin', String(side === 'bottom' ? 120 : 200));
+            el.setAttribute('aria-valuemax', String(side === 'bottom' ? 900 : which === 'drawer' ? 800 : 600));
+            const panel = this.panelEl(which);
+            el.setAttribute('aria-valuenow', String(side === 'bottom' ? this.dock.bottomHeight : (panel && parseInt(panel.style.width, 10)) || this._sideWidth[which]));
+        }
+        el.onkeydown = e => this.dockResizeKey(which, e);
+    },
+
+    // Arrow keys on a panel's edge: towards the map makes the panel bigger. Home and End go to the smallest
+    // and biggest size.
+    dockResizeKey(which, e) {
+        const panel = this.panelEl(which);
+        if (!panel || !e) return false;
+        const side = this.dock[which];
+        const by = e.shiftKey ? 50 : 10;
+        // The edge moves this many pixels right (or down, for a panel along the bottom).
+        const keys = side === 'bottom' ? { ArrowUp: -by, ArrowDown: by, Home: 9999, End: -9999 }
+            : side === 'left' ? { ArrowLeft: -by, ArrowRight: by, Home: -9999, End: 9999 }
+            : { ArrowLeft: -by, ArrowRight: by, Home: 9999, End: -9999 };
+        const d = keys[e.key];
+        if (d === undefined) return false;
+        const start = { x: 0, y: 0, w: parseInt(panel.style.width, 10) || this._sideWidth[which], h: this.dock.bottomHeight };
+        this.dockResizeTo(which, side, start, { clientX: d, clientY: d }, 1);
+        this.saveDock();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return true;
     },
 
     beginDockResize(which, e) {
