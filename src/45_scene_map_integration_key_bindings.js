@@ -103,9 +103,20 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             DocsDoodads.Workspace.toggle();
             return;
         }
-        if (!DocsDoodads.Workspace.mounted || DocsDoodads.isEditableTarget(e.target)) return;
+        if (!DocsDoodads.Workspace.mounted) return;
+        // In a field, only chords that don't type reach the shortcut table (11_shortcuts.js passesField).
+        const inField = DocsDoodads.isEditableTarget(e.target);
+        if (inField && !DocsDoodads.Shortcuts.passesField(e)) return;
         if (DocsDoodads.Slicing.Editor.modal) return; // the slicer owns undo/delete while it is open
         if (DocsDoodads.Workspace.capturingShortcut()) return; // the next keys are a new binding
+        if (inField) {
+            const id = DocsDoodads.Shortcuts.match(e);
+            if (!id) return;
+            // What was typed counts first (a field's change fires when it loses the focus); F6 moves on from it.
+            if (id !== 'nextPanel' && id !== 'prevPanel' && typeof e.target.blur === 'function') e.target.blur();
+            DocsDoodads.Workspace.runShortcut(id, e);
+            return;
+        }
         // The path tool's own keys come first; then the shortcut table (11_shortcuts.js); then the keys
         // that can't be rebound.
         const pathKey = DocsDoodads.Workspace.placementTool === 'path' && (e.key === 'Enter' || e.key === 'Backspace');
@@ -142,6 +153,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
             const welcome = document.getElementById('dd-welcome-ok');
             if (welcome) welcome.click();
             DocsDoodads.Workspace.removeGhost();
+            DocsDoodads.Workspace.selectedEvent = null; // a picked event is let go too
             DocsDoodads.Workspace.selectDoodad(null);
         }
     });

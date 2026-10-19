@@ -83,6 +83,21 @@ DocsDoodads.FS = {
         }
     },
 
+    // Text or bytes written whole or not at all: a temporary file beside the target, then a rename. Throws
+    // (with the temporary file removed) when it can't write.
+    atomicWriteFile(filePath, data, encoding) {
+        if (!this.fs || !this.path) throw new Error('Filesystem access is unavailable.');
+        const tmpPath = filePath + '.tmp';
+        try {
+            this.fs.writeFileSync(tmpPath, data, encoding);
+            this.fs.renameSync(tmpPath, filePath);
+        } catch (e) {
+            try { if (this.existsSync(tmpPath)) this.fs.unlinkSync(tmpPath); } catch (cleanupError) {}
+            throw e;
+        }
+        return true;
+    },
+
     createTimestampedBackup(filePath, backupDirectory = 'data/docs_doodads_cache/backups') {
         if (!this.fs || !this.path || !this.existsSync(filePath)) return null;
         const cacheDir = backupDirectory;

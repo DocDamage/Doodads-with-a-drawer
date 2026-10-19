@@ -138,6 +138,20 @@ DocsDoodads.Shortcuts = {
         return null;
     },
 
+    // Keys a text field leaves to the editor (Ctrl+S right after typing in Details): chords with Ctrl or Alt,
+    // and the F-keys. Not the field's own editing keys (Ctrl+Z, Y, A, C, V, X, moving and deleting by word),
+    // and not Ctrl+Alt with a character (AltGr types on many keyboards).
+    passesField(e) {
+        if (!e) return false;
+        const key = String(e.key || '');
+        const ctrl = Boolean(e.ctrlKey || e.metaKey), alt = Boolean(e.altKey);
+        if (/^F\d{1,2}$/.test(key)) return true;
+        if (!ctrl && !alt) return false;
+        if (ctrl && alt && key.length === 1) return false;
+        if (ctrl && !alt && (/^[zyacvx]$/i.test(key) || /^(Arrow|Home|End|Backspace|Delete)/.test(key))) return false;
+        return true;
+    },
+
     // A key press while changing a binding: the chord it makes, or null for a lone Ctrl, Shift or Alt.
     chordFromEvent(e) {
         if (!e || /^(Control|Shift|Alt|Meta|OS|AltGraph|CapsLock)$/.test(String(e.key || ''))) return null;

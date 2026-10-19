@@ -30,6 +30,7 @@ DocsDoodads.Slicing.Editor = {
         if (!asset || !asset.path) return;
         this.asset = asset;
         this.regions = JSON.parse(JSON.stringify(asset.slice.regions || []));
+        this._savedRegions = JSON.stringify(this.regions);
         this.selectedRegionIdx = this.regions.length > 0 ? 0 : -1;
         this.zoom = 1.0;
         this.panX = 0;
@@ -114,8 +115,8 @@ DocsDoodads.Slicing.Editor = {
         return true;
     },
 
-    saveState() {
-        this.undoStack.push(JSON.stringify(this.regions));
+    saveState(snapshot = JSON.stringify(this.regions)) {
+        this.undoStack.push(snapshot);
         if (this.undoStack.length > 50) this.undoStack.shift();
         this.redoStack = [];
         this.updateUndoButtons();
@@ -262,13 +263,9 @@ DocsDoodads.Slicing.Editor = {
         const container = document.getElementById('dd-slicer-canvas-container');
 
         // Close & Save
-        document.getElementById('dd-slicer-close-btn').onclick = () => this.close();
+        document.getElementById('dd-slicer-close-btn').onclick = () => this.requestClose();
         document.getElementById('dd-slicer-save-btn').onclick = () => {
-            this.asset.slice.regions = this.regions;
-            this.asset.slice.status = "manual";
-            DocsDoodads.AssetIndex.save();
-            DocsDoodads.Workspace.refreshDrawerCards();
-            DocsDoodads.Workspace.showToast("Slice Regions Saved!");
+            this.savePieces();
             this.close();
         };
 
@@ -416,7 +413,8 @@ DocsDoodads.Slicing.Editor = {
                     const r = this.regions[this.selectedRegionIdx];
                     const handle = this.hitTestHandles(mouseX, mouseY, r);
                     if (handle) {
-                        this.saveState();
+                        // A drag is an undo step only if it moved something (see onWindowMouseUp).
+                        this._dragBefore = JSON.stringify(this.regions);
                         this.isDraggingHandle = true;
                         this.activeHandle = handle;
                         this.dragStartMouse = { x: mouseX, y: mouseY };
@@ -428,7 +426,7 @@ DocsDoodads.Slicing.Editor = {
                 // Check if clicking inside any region
                 const clickedIdx = this.hitTestRegions(mouseX, mouseY);
                 if (clickedIdx >= 0) {
-                    this.saveState();
+                    this._dragBefore = JSON.stringify(this.regions);
                     this.selectedRegionIdx = clickedIdx;
                     this.isDraggingHandle = true;
                     this.activeHandle = 'body';
@@ -530,6 +528,8 @@ DocsDoodads.Slicing.Editor = {
         }
         if (this.isDraggingHandle) {
             this.isDraggingHandle = false;
+            if (this._dragBefore && this._dragBefore !== JSON.stringify(this.regions)) this.saveState(this._dragBefore);
+            this._dragBefore = null;
             this.activeHandle = null;
             this.activeGuides = [];
             this.render();
@@ -570,10 +570,50 @@ DocsDoodads.Slicing.Editor = {
         return out;
     },
 
+    // Save Pieces: the pieces go into the library and the item's picture in the bag is made again.
+    savePieces() {
+        if (!this.asset) return false;
+        this.asset.slice.regions = this.regions;
+        this.asset.slice.status = "manual";
+        this._savedRegions = JSON.stringify(this.regions);
+        DocsDoodads.AssetIndex.save();
+        if (this.asset.id) DocsDoodads.Thumbnail.invalidate(this.asset.id);
+        DocsDoodads.Workspace.refreshDrawerCards();
+        DocsDoodads.Workspace.showToast("Slice Regions Saved!");
+        return true;
+    },
+
+    // Pieces changed since they were opened or last saved.
+    hasChanges() {
+        return Boolean(this.modal) && JSON.stringify(this.regions) !== this._savedRegions;
+    },
+
+    // Close, or Esc: with pieces not saved, asks first (Save, Don't Save, or keep editing).
+    async requestClose() {
+        if (!this.modal || this._asking) return false;
+        if (!this.hasChanges()) { this.close(); return true; }
+        this._asking = true;
+        let answer;
+        try {
+            answer = await DocsDoodads.Ui.choose('The pieces you changed are not saved yet.', [
+                { label: 'Keep Editing', value: 'stay' },
+                { label: "Don't Save", value: 'discard', kind: 'danger' },
+                { label: 'Save Pieces', value: 'save', kind: 'primary', main: true }
+            ], { title: 'Save pieces?', icon: 'scissors', cancelValue: 'stay' });
+        } finally {
+            this._asking = false;
+        }
+        if (answer === 'stay' || !this.modal) return false;
+        if (answer === 'save') this.savePieces();
+        this.close();
+        return true;
+    },
+
     handleKeyDown(e) {
         if (!this.modal) return;
+        if (DocsDoodads.Ui.dialogOpen()) return; // a question card is answered first
         if (e.key === 'Escape') {
-            this.close();
+            this.requestClose();
             return;
         }
         if (DocsDoodads.isEditableTarget(e.target)) return;
@@ -582,14 +622,18 @@ DocsDoodads.Slicing.Editor = {
             this._spaceHeld = true;
             return;
         }
+        // Undo, Redo and Duplicate are the editor's own keys, rebound or not (Keys in More).
+        const shortcut = DocsDoodads.Shortcuts.match(e);
         if (e.key === 'Delete' || e.key === 'Backspace') {
             const del = document.getElementById('dd-slicer-del-btn');
             if (del) del.click();
-        } else if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+        } else if (shortcut === 'undo') {
+            e.preventDefault();
             this.undo();
-        } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+        } else if (shortcut === 'redo') {
+            e.preventDefault();
             this.redo();
-        } else if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
+        } else if (shortcut === 'duplicate') {
             e.preventDefault();
             const dup = document.getElementById('dd-slicer-dup-btn');
             if (dup) dup.click();

@@ -103,10 +103,11 @@ DocsDoodads.Packs = {
         return Uint8Array.from(atob(String(text || '')), c => c.charCodeAt(0));
     },
 
-    // Only files inside the project's own folders: no absolute paths, no "..".
+    // Only files inside the project's own art folders: no absolute paths, no "..", and nothing in data/
+    // (that would replace this project's own maps' doodads; prefabs and rooms travel as JSON in the pack).
     safePath(p) {
         const s = String(p || '').replace(/\\/g, '/');
-        return /^(img|audio|models|movies|effects|data\/DocsDoodads)\//i.test(s) && !s.split('/').includes('..') && !/^[a-z]:/i.test(s);
+        return /^(img|audio|models|movies|effects)\//i.test(s) && !s.split('/').includes('..') && !/^[a-z]:/i.test(s);
     },
 
     // Reads a pack's text; throws a message a person can act on when it isn't one.

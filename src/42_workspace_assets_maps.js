@@ -77,8 +77,16 @@
         const collision = asset.collision || {};
         d.collision = { preset: collision.preset || "none", shape: collision.shape ? JSON.parse(JSON.stringify(collision.shape)) : null };
         DocsDoodads.MapLinks.ensureUid(d);
-        if (this.activeLayer && this.activeLayer !== 'main') d.layer = this.activeLayer;
+        const layer = this.layerOnThisMap(this.activeLayer);
+        if (layer !== 'main') d.layer = layer;
         return d;
+    },
+
+    // The layer id if this map has it, else 'main'.
+    layerOnThisMap(id) {
+        if (!id || id === 'main') return 'main';
+        const layers = DocsDoodads.Layers.list(DocsDoodads.Lighting.mapSettings(this.currentMapId()));
+        return layers.some(l => l.id === id) ? id : 'main';
     },
 
     // ---- Prefab drawer entries and panels ----
@@ -416,6 +424,8 @@
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
         this.pathPoints = [];
+        // Layers are per map: new doodads go on Main unless this map has the layer that was picked.
+        this.activeLayer = this.layerOnThisMap(this.activeLayer);
         // The save-history panel compares against the map it was opened on.
         this._historyDiff = null;
         if (this._historyPanel && this._historyPanel.parentNode) this._historyPanel.parentNode.removeChild(this._historyPanel);
@@ -619,6 +629,17 @@
         this.similarSource = asset.fileName;
         this.setCategory('Similar');
         this.showToast(`Showing images most like ${asset.fileName}.`);
+    },
+
+    // After the library was read again: the picked item, the last one placed, the look-alikes and the shown
+    // list are the new entries with the same ids (prefabs aren't library entries and stay as they are).
+    reresolveAssets() {
+        const assets = (DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets) || {};
+        const again = a => (!a ? null : a.type === 'prefab' ? a : (a.id && assets[a.id]) || null);
+        this.selectedAsset = again(this.selectedAsset);
+        this.lastAsset = again(this.lastAsset);
+        if (Array.isArray(this.similarResults)) this.similarResults = this.similarResults.map(again).filter(Boolean);
+        if (Array.isArray(this.filteredAssets)) this.filteredAssets = this.filteredAssets.map(again).filter(Boolean);
     },
 
     setCategory(category) {
@@ -1044,6 +1065,25 @@
         this.editDoodads(items, d => { d.locked = !!locked; }, 'lock_doodads');
         this.refreshInspector();
         this.showToast(locked ? `Locked ${items.length} doodads.` : `Unlocked ${items.length} doodads.`);
+    },
+
+    // Doodads hidden in the editor can't be clicked, boxed or selected; these find them again.
+    hiddenDoodads() {
+        return (DocsDoodads.doodads(this.currentMapId()) || []).filter(d => d && d.editorHidden);
+    },
+
+    // Shows every doodad hidden in the editor on this map (one step to undo) and picks them.
+    showHiddenDoodads() {
+        const items = this.hiddenDoodads();
+        if (items.length === 0) {
+            this.showToast('Nothing on this map is hidden in the editor.', 'info');
+            return 0;
+        }
+        this.editDoodads(items, d => { d.editorHidden = false; }, 'hide_doodads');
+        this.selectDoodads(items.filter(d => this.layerAllowsEditing(d)));
+        this.refreshInspector();
+        this.toastUndo(`Showing ${items.length} hidden doodad(s) again.`, 'success');
+        return items.length;
     },
 
     hideSelected(hidden) {

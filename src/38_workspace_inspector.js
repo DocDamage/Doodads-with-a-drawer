@@ -604,15 +604,20 @@
         modeSel.value = a.placement.defaultMode || "doodad";
         templateGroup.style.display = modeSel.value === "event" ? "block" : "none";
 
+        // Kept in the library like collision and depth (a moment later, so scrolling through the list writes once).
         modeSel.onchange = (e) => {
             a.placement.defaultMode = e.target.value;
             templateGroup.style.display = a.placement.defaultMode === "event" ? "block" : "none";
+            DocsDoodads.AssetIndex.saveSoon(400);
         };
 
         const charSel = document.getElementById('dd-char-index');
         if (charSel) {
             charSel.value = String(a.placement.characterIndex || 0);
-            charSel.onchange = (e) => { a.placement.characterIndex = parseInt(e.target.value, 10) || 0; };
+            charSel.onchange = (e) => {
+                a.placement.characterIndex = parseInt(e.target.value, 10) || 0;
+                DocsDoodads.AssetIndex.saveSoon(400);
+            };
         }
 
         const tagInput = document.getElementById('dd-asset-tags');
