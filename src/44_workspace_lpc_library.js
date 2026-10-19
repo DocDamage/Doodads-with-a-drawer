@@ -15,6 +15,9 @@ DocsDoodads.Ui.css += `
 #dd-lpc-card .dd-lpc-warn { background: var(--dd-warn-soft); border-radius: 12px; padding: 8px 10px; line-height: 1.45; color: var(--dd-text); }
 #dd-lpc-card .dd-lpc-note { font-size: 10px; color: var(--dd-faint); line-height: 1.4; }
 #dd-lpc-card label { display: flex; align-items: center; gap: 6px; }
+#dd-lpc-card .dd-lpc-try { display: flex; align-items: center; gap: 6px; }
+#dd-lpc-card #dd-lpc-preview { width: 128px; height: 128px; image-rendering: pixelated; border-radius: 16px; background: var(--dd-primary-soft); }
+#dd-lpc-card .dd-lpc-try-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 `;
 
 Object.assign(DocsDoodads.Workspace, {
@@ -139,6 +142,107 @@ Object.assign(DocsDoodads.Workspace, {
         return out;
     },
 
+    // ---- Drawing characters from the library ----
+
+    lpcSheetPath(file, index = this.lpcIndex()) {
+        const FS = DocsDoodads.FS;
+        return index && FS.path ? FS.path.join(index.library, 'spritesheets', file) : '';
+    },
+
+    // A library image, decoded (or null). The recoloured layers are cached by the compositor.
+    lpcLoadImage(file) {
+        const FS = DocsDoodads.FS;
+        try {
+            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+            if (!zlib || !FS.fs) return null;
+            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.lpcSheetPath(file)), data => zlib.inflateSync(data));
+        } catch (e) {
+            return null;
+        }
+    },
+
+    lpcCache() {
+        if (!this._lpcCache) this._lpcCache = DocsDoodads.LpcCompose.newCache(160);
+        return this._lpcCache;
+    },
+
+    // recipe -> { sheet, warnings, used } for one animation, or null without an index.
+    composeLpc(recipe, animation = 'walk') {
+        const C = DocsDoodads.LpcCompose, FS = DocsDoodads.FS;
+        const index = this.lpcIndex();
+        if (!index || !FS.fs) return null;
+        const resolved = C.resolve(index, recipe, animation, file => FS.existsSync(this.lpcSheetPath(file, index)));
+        const out = C.compose(resolved, index, file => this.lpcLoadImage(file), this.lpcCache());
+        return { sheet: out.sheet, warnings: out.warnings, used: resolved.used };
+    },
+
+    // The card's try-out: a random character walking, turned with the arrows.
+    shuffleLpcPreview() {
+        const index = this.lpcIndex();
+        if (!index) return null;
+        const p = this._lpcPreview || { dir: 'down', frame: 0 };
+        p.recipe = DocsDoodads.LpcCompose.randomRecipe(index, { safeOnly: this.lpcSafeOnly() });
+        const out = this.composeLpc(p.recipe, 'walk');
+        p.sheet = out && out.sheet;
+        p.warnings = out ? out.warnings : [];
+        this._lpcPreview = p;
+        this.drawLpcPreview();
+        return p;
+    },
+
+    turnLpcPreview(step) {
+        const p = this._lpcPreview;
+        if (!p) return;
+        const order = ['down', 'left', 'up', 'right'];
+        p.dir = order[(order.indexOf(p.dir) + step + 4) % 4];
+        this.drawLpcPreview();
+    },
+
+    drawLpcPreview() {
+        const p = this._lpcPreview;
+        const canvas = typeof document !== 'undefined' ? document.getElementById('dd-lpc-preview') : null;
+        const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+        if (!p || !p.sheet || !ctx || typeof ctx.createImageData !== 'function') return false;
+        const C = DocsDoodads.LpcCompose;
+        // Walking frames 1-8; frame 0 is standing.
+        const rect = C.frameRect('walk', p.dir, 1 + (p.frame % 8));
+        const frame = ctx.createImageData(rect.w, rect.h);
+        for (let y = 0; y < rect.h; y++) {
+            const from = ((rect.y + y) * p.sheet.width + rect.x) * 4;
+            frame.data.set(p.sheet.data.subarray(from, from + rect.w * 4), y * rect.w * 4);
+        }
+        if (!this._lpcScratch) { this._lpcScratch = document.createElement('canvas'); this._lpcScratch.width = rect.w; this._lpcScratch.height = rect.h; }
+        this._lpcScratch.getContext('2d').putImageData(frame, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(this._lpcScratch, 0, 0, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
+        return true;
+    },
+
+    // 'Male: Body Color, Human Male, Bob, Longsleeve' for the try-out.
+    lpcRecipeText(recipe) {
+        const index = this.lpcIndex();
+        const name = id => { const p = index && index.parts.find(x => x.id === id); return p ? p.name : id; };
+        const body = recipe.body.charAt(0).toUpperCase() + recipe.body.slice(1);
+        return body + ': ' + recipe.picks.filter(p => p.id !== 'body/body').map(p => name(p.id)).join(', ');
+    },
+
+    startLpcPreviewTimer() {
+        this.stopLpcPreviewTimer();
+        const reduced = DocsDoodads.Ui.lessMotion && DocsDoodads.Ui.lessMotion();
+        if (reduced || typeof setInterval === 'undefined') return;
+        this._lpcPreviewTimer = setInterval(() => {
+            if (!this._lpcPreview || typeof document === 'undefined' || !document.getElementById('dd-lpc-preview')) { this.stopLpcPreviewTimer(); return; }
+            this._lpcPreview.frame++;
+            this.drawLpcPreview();
+        }, 110);
+    },
+
+    stopLpcPreviewTimer() {
+        if (this._lpcPreviewTimer) clearInterval(this._lpcPreviewTimer);
+        this._lpcPreviewTimer = null;
+    },
+
     // ---- The card ----
 
     showLpcCard() {
@@ -186,6 +290,16 @@ Object.assign(DocsDoodads.Workspace, {
             </div>` : '<div class="dd-lpc-box" id="dd-lpc-status">Not scanned yet.</div>'}
             ${stale === 'changed' ? '<div class="dd-lpc-warn" id="dd-lpc-stale">The library has changed since it was scanned. Scan again to see what is new.</div>' : ''}
             ${stale === 'missing' ? `<div class="dd-lpc-warn" id="dd-lpc-stale">The library isn't at ${escapeHtml(index.library)} any more. Choose where it is now.</div>` : ''}
+            ${index && stale !== 'missing' ? `<div class="dd-lpc-group">Try it</div>
+            <div class="dd-lpc-try">
+                <button class="dd-btn" id="dd-lpc-turn-left" type="button" aria-label="Turn left" title="Turn left">${U.icon('left', 1)}</button>
+                <canvas id="dd-lpc-preview" width="128" height="128" role="img" aria-label="A random character from the library, walking"></canvas>
+                <button class="dd-btn" id="dd-lpc-turn-right" type="button" aria-label="Turn right" title="Turn right">${U.icon('right', 1)}</button>
+                <div class="dd-lpc-try-side">
+                    <button class="dd-btn dd-btn-primary" id="dd-lpc-shuffle" type="button" title="Another random character from the library">${U.icon('sparkle', 1)} Shuffle</button>
+                    <span class="dd-lpc-note" id="dd-lpc-try-note">${this._lpcPreview && this._lpcPreview.recipe ? escapeHtml(this.lpcRecipeText(this._lpcPreview.recipe)) : ''}</span>
+                </div>
+            </div>` : ''}
             <label title="On: the creator only offers parts whose art is offered under CC0 or OGA-BY, which allow encrypted games"><input type="checkbox" id="dd-lpc-safe" ${safeOnly ? 'checked' : ''} /> Only art that is safe to encrypt (CC0, OGA-BY)</label>
             <div class="dd-lpc-note">CC-BY and CC-BY-SA art may not be locked away, which MZ's "Encrypt image files" does. With this off you get every part${s ? ` (${s.parts} instead of ${s.safe})` : ''}, and must deploy without encrypting images that use them. This is a setting of the project.</div>
             <div class="dd-lpc-group">Credits</div>
@@ -217,6 +331,14 @@ Object.assign(DocsDoodads.Workspace, {
         const safe = document.getElementById('dd-lpc-safe');
         if (safe) safe.onchange = e => { this.setLpcSafeOnly(Boolean(e.target.checked)); this.refreshLpcCard(); };
         on('dd-lpc-credits-write', () => { this.writeLpcCreditsText(); this.refreshLpcCard(); });
+        on('dd-lpc-shuffle', () => { this.shuffleLpcPreview(); this.refreshLpcCard(); });
+        on('dd-lpc-turn-left', () => this.turnLpcPreview(-1));
+        on('dd-lpc-turn-right', () => this.turnLpcPreview(1));
+        if (document.getElementById('dd-lpc-preview')) {
+            if (!this._lpcPreview || !this._lpcPreview.recipe) { this.shuffleLpcPreview(); const note = document.getElementById('dd-lpc-try-note'); if (note && this._lpcPreview) note.textContent = this.lpcRecipeText(this._lpcPreview.recipe); }
+            else this.drawLpcPreview();
+            this.startLpcPreviewTimer();
+        }
         return card;
     },
 
@@ -243,5 +365,6 @@ Object.assign(DocsDoodads.Workspace, {
     closeLpcCard() {
         const card = typeof document !== 'undefined' ? document.getElementById('dd-lpc-card') : null;
         if (card && card.parentNode) card.parentNode.removeChild(card);
+        this.stopLpcPreviewTimer();
     }
 });

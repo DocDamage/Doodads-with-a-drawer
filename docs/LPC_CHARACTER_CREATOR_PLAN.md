@@ -361,7 +361,44 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
 - **Checked in MZ:** the real library scanned from the card in about 1.3 s (it says "Scanning..." first). Credits
   for the spike's sheets were recorded, Problems listed the CC-BY-SA picture, and Write It wrote the file.
 
-## 13. Open questions for the owner
+## 13. Phase 2 (done, 2026-10-19)
+
+- **`src/23_lpc_compositor.js` (`DocsDoodads.LpcCompose`)** is pure, and works on `{ width, height, data }` images.
+  - **`resolve(index, recipe, animation, exists)`** decides which files to stack, sorted by `zPos`, then
+    `priority`, then pick order. It handles:
+    - body types;
+    - fixed-colour variants (`<anim>/<variant>.png`);
+    - custom animations (`<variant>.png`);
+    - `${head}` paths through `replace_in_path`, keyed by the head's name;
+    - `required_tags`;
+    - parts without the animation.
+
+    Each problem becomes a plain warning, and it also lists the folders used, for credits.
+  - **`compose`:**
+    - recolours from the material's base ramp, from a channel's own `source` ramp, or from the body's skin (for
+      `match_body_color`);
+    - stacks with alpha;
+    - caches recoloured layers by (file, colours), dropping the oldest past a limit;
+    - leaves out layers drawn at another size (oversize weapons, 128 px sheets) with a warning, for now.
+  - **`decodePng`:** the library's PNGs, read without packages. It matches the script decoder on 1,500 of the
+    library's sheets.
+  - **`randomRecipe`:** the dice. It picks a body, then a head that fits, then hair, a shirt, trousers and shoes,
+    each by chance. It uses only parts with a walk for that body (and safe ones when asked), and skips parts that
+    need tags.
+- **Editor:**
+  - `composeLpc(recipe, animation)` loads from the library folder, through one shared cache.
+  - The Characters card has a **Try it** stage: a random character walking (stopped under Less motion), with
+    Shuffle and turn.
+- **Measured:**
+  - In Node: the spike's recipe gives the same bytes as the phase 0 sheet. A cached second draw takes 1 ms, and
+    40 random characters averaged 15 ms each with no warnings.
+  - In MZ: a shuffle takes 30–75 ms, and all 16 animations of one character compose in 570 ms.
+- **Left for later:**
+  - oversize and 128-pixel weapon art (`*_oversize`, `*_128`);
+  - `watering` and the tool animations;
+  - an "only this part" view, for Visual Equipment (phase 6).
+
+## 14. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting
