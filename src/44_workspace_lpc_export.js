@@ -149,6 +149,35 @@ Object.assign(DocsDoodads.Workspace, {
         return { files: written, warnings: [...new Set(warnings)], names: N, parts, oversize };
     },
 
+    // The part sheets exportLpcParts would write, by name only (nothing drawn): a piece in front of the body
+    // and one behind it where the part has layers there, each in the ticked layouts its animations allow.
+    lpcPartFiles(state, options) {
+        const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
+        const index = this.lpcIndex();
+        const out = [];
+        if (!index || !state) return out;
+        for (const slot of S.allSlots().filter(s => s.card === 'outfit')) {
+            const pick = state.slots[slot.key];
+            const part = pick && index.parts.find(p => p.id === pick.id);
+            if (!part) continue;
+            const has = anim => !part.animations.length || part.animations.includes(anim);
+            for (const behind of [false, true]) {
+                if (!part.layers.some(l => l.paths[state.body] && (behind ? l.z < E.bodyZ : l.z >= E.bodyZ))) continue;
+                const base = E.partBase(slot.label, part.name, pick.colour, state.body, behind), N = E.names(base);
+                const note = `outfit part: ${slot.label}${behind ? ' (behind)' : ''}`;
+                if (options.classic) out.push({ file: 'img/characters/' + N.classic + '.png', note });
+                if (options.smooth) {
+                    out.push({ file: 'img/characters/' + N.smooth + '.png', note });
+                    if (has('idle')) out.push({ file: 'img/characters/' + N.idle + '.png', note });
+                    if (has('run')) out.push({ file: 'img/characters/' + N.run + '.png', note });
+                }
+                for (const anim of options.actions || []) if (has(anim)) out.push({ file: 'img/characters/' + E.actionName(base, anim) + '.png', note });
+                if (options.battler) out.push({ file: 'img/sv_actors/' + N.face + '.png', note });
+            }
+        }
+        return out;
+    },
+
     // Each outfit piece as Visual Equipment part sheets, in the same layouts the character uses (so the
     // pieces follow its walk, idle, run, actions and battler), with the notetag that puts it on an item.
     // Layers below the body (a quiver, a cape's back) are a second piece in the same part slot. Oversize
@@ -156,6 +185,8 @@ Object.assign(DocsDoodads.Workspace, {
     // its own frame size); a return swing is played to follow the body's own slash. note: { big, action,
     // battler } to list sheets with bigger frames.
     exportLpcParts(state, options, record, warnings, note = {}) {
+        // A dry run: the files it would write, nothing drawn or written.
+        if (note.dryRun) return this.lpcPartFiles(state, options);
         const D = DocsDoodads, E = D.LpcExport, S = D.LpcSlots;
         const index = this.lpcIndex();
         const out = [];

@@ -130,11 +130,33 @@ DocsDoodads.MzGen = {
             }
         }
         const parts = [...byKey.values()].sort((a, b) => (a.base < b.base ? -1 : a.base > b.base ? 1 : 0) || (a.family < b.family ? -1 : a.family > b.family ? 1 : 0) || a.num - b.num);
+        // Each mask is read once: the slots it holds (so a colour change only redraws the layers it reaches),
+        // and the colours that are no key: listed, so a stray pixel left as drawn can be found.
+        const offKeys = new Map(), snappedKeys = new Map();
+        const note = (map, rgb, part) => { const list = map.get(rgb) || []; if (!list.includes(part.name + ' (' + part.base + ')')) list.push(part.name + ' (' + part.base + ')'); map.set(rgb, list); };
         for (const part of parts) {
             for (const s of this.familySlots[part.family] || []) if (!part.slots.includes(s)) part.slots.push(s);
             part.slots.sort();
             part.name = this.label(part.family) + ' ' + part.num;
+            for (const view of ['TV', 'TVD', 'SV']) {
+                for (const entry of part.files[view]) {
+                    if (!entry.mask) continue;
+                    let mask = null;
+                    try { mask = DocsDoodads.LpcCompose.decodePng(fsLike.readFileSync(pathLib.join(root, entry.mask)), inflate); } catch (e) { mask = null; }
+                    if (!mask) continue;
+                    const seen = this.maskSlots(mask, part.slots);
+                    entry.slots = seen.slots;
+                    seen.unknown.forEach(rgb => note(offKeys, rgb, part));
+                    seen.snapped.forEach(rgb => note(snappedKeys, rgb, part));
+                }
+            }
         }
+        const some = list => list.slice(0, 3).join(', ') + (list.length > 3 ? ` and ${list.length - 3} more` : '');
+        for (const [rgb, list] of snappedKeys) {
+            const k = this.nearestKey(rgb);
+            warnings.push(`Mask colour ${this.hex(rgb)} is read as ${this.slots[this.keys[this.hex(k).slice(1)]][0]} (${this.hex(k)}) in ${some(list)}.`);
+        }
+        for (const [rgb, list] of offKeys) warnings.push(`Mask colour ${this.hex(rgb)} is no colour slot: those pixels keep their colour, in ${some(list)}.`);
         return { format: this.indexFormat, version: this.indexVersion, library: root, built: now || new Date().toISOString(), bases: this.bases.filter(b => parts.some(p => p.base === b)), ramps, parts, warnings };
     },
 
@@ -152,9 +174,75 @@ DocsDoodads.MzGen = {
         return { parts: index.parts.length, bases: index.bases || [], built: index.built || '', warnings: index.warnings || [] };
     },
 
-    // The slot a mask key colour stands for ('' when it is fixed).
+    // The slot a mask key colour stands for ('' when it is fixed). Called for every pixel of a layer, so the
+    // keys are a Map from the packed colour, and an off-key colour (MZ's masks have a few) takes the nearest key
+    // whose channels are each within snapDistance; farther ones stay fixed. Results are remembered.
+    snapDistance: 24,
+
     slotOfKey(rgb) {
-        return this.keys[(rgb & 0xffffff).toString(16).padStart(6, '0')] || '';
+        rgb &= 0xffffff;
+        const known = this.keyMap();
+        if (known.has(rgb)) return known.get(rgb);
+        const near = this._snapped || (this._snapped = new Map());
+        if (!near.has(rgb)) {
+            const k = this.nearestKey(rgb);
+            near.set(rgb, k === null ? '' : known.get(k));
+        }
+        return near.get(rgb);
+    },
+
+    keyMap() {
+        if (!this._keyMap) this._keyMap = new Map(Object.entries(this.keys).map(([hex, slot]) => [parseInt(hex, 16), slot]));
+        return this._keyMap;
+    },
+
+    // The known key nearest rgb (by distance in RGB) among those with every channel within snapDistance, or
+    // null. White and near-white mean fixed and never snap.
+    isWhite(rgb) {
+        return ((rgb >> 16) & 255) >= 0xf0 && ((rgb >> 8) & 255) >= 0xf0 && (rgb & 255) >= 0xf0;
+    },
+
+    nearestKey(rgb) {
+        const r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
+        if (this.isWhite(rgb)) return null;
+        let best = null, bestD = Infinity;
+        for (const key of this.keyMap().keys()) {
+            const dr = ((key >> 16) & 255) - r, dg = ((key >> 8) & 255) - g, db = (key & 255) - b;
+            if (Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db)) > this.snapDistance) continue;
+            const d = dr * dr + dg * dg + db * db;
+            if (d < bestD) { best = key; bestD = d; }
+        }
+        return best;
+    },
+
+    // A walking, damaged or battler mask's colour slots, and its colours that are neither a key, near one,
+    // nor white (left as drawn): { slots: [...], unknown: [rgb], snapped: [rgb] }. partSlots: the slots the
+    // part uses (its face files', its family's): a near colour only counts as a slot the part has or the mask
+    // holds exactly (a stray pixel in a coat must not take the tail's colour).
+    maskSlots(mask, partSlots) {
+        const known = this.keyMap(), d = mask.data;
+        const colours = new Set();
+        let last = -1;
+        for (let i = 0; i < d.length; i += 4) {
+            if (!d[i + 3]) continue;
+            const rgb = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+            if (rgb !== last) { colours.add(rgb); last = rgb; }
+        }
+        const allowed = new Set(partSlots || []);
+        for (const rgb of colours) if (known.has(rgb)) allowed.add(known.get(rgb));
+        const slots = new Set(), unknown = new Set(), snapped = new Set();
+        for (const rgb of colours) {
+            const slot = this.slotOfKey(rgb);
+            if (slot && (known.has(rgb) || !partSlots || allowed.has(slot))) {
+                slots.add(slot);
+                if (!known.has(rgb)) snapped.add(rgb);
+            } else if (!this.isWhite(rgb)) unknown.add(rgb);
+        }
+        return { slots: [...slots].sort(), unknown: [...unknown], snapped: [...snapped] };
+    },
+
+    hex(rgb) {
+        return '#' + (rgb & 0xffffff).toString(16).padStart(6, '0');
     },
 
     // ---- Colours ----

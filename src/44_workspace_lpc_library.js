@@ -67,6 +67,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!index) return null;
         if (!FS.atomicWriteJson(L.indexFile, index, 0)) { this.showToast('Could not save the library index.', 'error'); return null; }
         this._lpcIndex = index;
+        this.resetCreatorImageCaches('lpc');
         const s = L.summary(index, this.lpcSafeOnly());
         this.showToast(`Found ${s.parts} character parts (${s.safe} safe to encrypt)` + (s.skipped ? `; ${s.skipped} skipped` : '') + '.', 'success');
         return index;
@@ -150,21 +151,22 @@ Object.assign(DocsDoodads.Workspace, {
         return index && FS.path ? FS.path.join(index.library, 'spritesheets', file) : '';
     },
 
-    // A library image, decoded (or null). The recoloured layers are cached by the compositor.
+    // A library image, decoded once (or null). The recoloured layers are cached by the compositor.
     lpcLoadImage(file) {
-        const FS = DocsDoodads.FS;
-        try {
-            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-            if (!zlib || !FS.fs) return null;
-            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.lpcSheetPath(file)), data => zlib.inflateSync(data));
-        } catch (e) {
-            return null;
-        }
+        return this.creatorRawImage('lpc', file, () => {
+            const FS = DocsDoodads.FS;
+            try {
+                const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+                if (!zlib || !FS.fs) return null;
+                return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.lpcSheetPath(file)), data => zlib.inflateSync(data));
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     lpcCache() {
-        if (!this._lpcCache) this._lpcCache = DocsDoodads.LpcCompose.newCache(160);
-        return this._lpcCache;
+        return this.creatorImageCaches('lpc').layers;
     },
 
     // recipe -> { sheet, warnings, used, oversize } for one animation, or null without an index. keep(layer):

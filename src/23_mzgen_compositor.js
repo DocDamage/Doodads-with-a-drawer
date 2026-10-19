@@ -55,7 +55,7 @@ DocsDoodads.MzGenCompose = {
             for (const f of part.files[anim.view] || []) {
                 const r = rank(part.family, f.layer);
                 if (r < 0 || !exists(f.file)) continue;
-                layers.push({ file: f.file, mask: f.mask || '', slot: f.m || '', c: f.c || 0, rank: r, n, part, face: anim.view === 'Face' });
+                layers.push({ file: f.file, mask: f.mask || '', maskSlots: f.slots || null, slot: f.m || '', c: f.c || 0, rank: r, n, part, face: anim.view === 'Face' });
             }
         });
         // Back to front: the view's order; a face part's layers from the highest c (c1 on top).
@@ -109,16 +109,28 @@ DocsDoodads.MzGenCompose = {
         for (const [slot, name] of Object.entries(colours)) { const r = name && M.ramp(index, name); if (r) luts[slot] = C.cached(cache, 'lut|' + name, () => this.lut(r)); }
         let drawn = 0;
         for (const layer of resolved.layers) {
-            const used = layer.face ? (luts[layer.slot] ? layer.slot + '=' + colours[layer.slot] : '')
-                : Object.keys(luts).sort().map(s => s + '=' + colours[s]).join(',');
+            // The cache key names only the colours this layer can take: a face file its own slot; a walking or
+            // battler layer the slots its mask holds (from the index; every coloured slot for an older index).
+            // So a new skin colour doesn't redraw clothing with no skin in it.
+            const reach = layer.face ? [layer.slot] : layer.maskSlots;
+            const slots = Object.keys(luts).filter(s => !reach || reach.includes(s)).sort();
+            const used = slots.map(s => s + '=' + colours[s]).join(',');
             const image = C.cached(cache, layer.file + '|' + used, () => {
                 const raw = loadImage(layer.file);
                 if (!raw) return null;
+                // Nothing to recolour: the decoded file as it is (nothing draws into a cached image).
+                if (!slots.length) return raw;
                 const copy = C.copy(raw);
-                if (layer.face) return luts[layer.slot] ? this.recolour(copy, () => layer.slot, luts) : copy;
+                if (layer.face) return this.recolour(copy, () => layer.slot, luts);
                 const mask = layer.mask ? loadImage(layer.mask) : null;
-                if (!mask || mask.width !== raw.width || mask.height !== raw.height || !Object.keys(luts).length) return copy;
-                return this.recolour(copy, i => (mask.data[i + 3] ? M.slotOfKey((mask.data[i] << 16) | (mask.data[i + 1] << 8) | mask.data[i + 2]) : ''), luts);
+                if (!mask || mask.width !== raw.width || mask.height !== raw.height) return raw;
+                // A near colour the index didn't give this layer (one of another part's slots) stays as drawn.
+                const slotAt = i => {
+                    if (!mask.data[i + 3]) return '';
+                    const s = M.slotOfKey((mask.data[i] << 16) | (mask.data[i + 1] << 8) | mask.data[i + 2]);
+                    return !reach || reach.includes(s) ? s : '';
+                };
+                return this.recolour(copy, slotAt, luts);
             });
             if (!image) { warnings.push(`Could not read ${layer.file}.`); continue; }
             // Face parts may be 160 x 160: centred on the 144 face.

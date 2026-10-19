@@ -43,7 +43,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!index) return null;
         if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the Memao index.', 'error'); return null; }
         this._memaoIndex = index;
-        this._memaoCache = null;
+        this.resetCreatorImageCaches('memao');
         const s = M.summary(index);
         this.showToast(`Found ${s.parts} Memao parts in ${s.sets.length} set${s.sets.length === 1 ? '' : 's'}` + (s.warnings.length ? ` (${s.warnings.length} note${s.warnings.length === 1 ? '' : 's'})` : '') + '.', 'success');
         return index;
@@ -63,19 +63,20 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     memaoLoadImage(file) {
-        const FS = DocsDoodads.FS;
-        try {
-            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-            if (!zlib || !FS.fs) return null;
-            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.memaoSheetPath(file)), data => zlib.inflateSync(data));
-        } catch (e) {
-            return null;
-        }
+        return this.creatorRawImage('memao', file, () => {
+            const FS = DocsDoodads.FS;
+            try {
+                const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+                if (!zlib || !FS.fs) return null;
+                return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.memaoSheetPath(file)), data => zlib.inflateSync(data));
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     memaoCache() {
-        if (!this._memaoCache) this._memaoCache = DocsDoodads.LpcCompose.newCache(200);
-        return this._memaoCache;
+        return this.creatorImageCaches('memao').layers;
     },
 
     // recipe -> { sheet, warnings, used } for one animation, or null without an index.

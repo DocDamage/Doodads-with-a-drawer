@@ -2,6 +2,11 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- Character creators: a new colour no longer reads and unpacks the library's pictures again (each kit keeps its decoded files within a memory budget: LPC 96 MB, Memao 160 MB, MZ 96 MB), an MZ skin colour no longer redraws clothing with no skin in it, and the LPC credits no longer draw the walk a second time.
+- MZ creator: mask colours a step off a colour slot's key (a few of MZ's own masks have them) take that slot's colour when the part uses that slot, so a recoloured part keeps no stray pixels; colours that are no slot keep their colour and the scan lists them. The generator folder is found from MZ on macOS too.
+- Character creators: Tab and Shift+Tab move between the buttons (the other side is now `[` or `]`), the focus stays on the button pressed, and screen readers hear what changed ("Hair: Emo Left, 12 of 40"). A part with several colours (MZ's Clothing 2–4, LPC's eyes) shows which one the swatch is on; `C` (or holding the pad's A) goes to the next, and Shift+arrows change it. The window follows its size, and the row being changed stays in view.
+- Export again: the "Replace" question says which face of the face sheet changes (and leaves the face out when that slot is empty), and lists the Visual Equipment part sheets it would replace.
+- A saved character whose parts are gone loads without them (they are named), and a slot that needs a part takes the nearest. The creators' row labels are in the translation template.
 - Rebuild Index asks first and keeps what you set on each item (tags, favourites, collections, cut-up pieces, collision, placement and use counts); before, it wiped them. Opening the editor reads the Item Bag's library again only when the file changed, and what was picked follows it.
 - Restoring a backup of the doodads or a map drops the unsaved changes and starts Undo again (its steps pointed into the old data); the card says so first.
 - Packs: making one with the name of a pack already there asks before replacing it, packs and the files they bring are written whole or not at all, and a pack can no longer write into `data/` (it could replace this project's own maps' doodads).

@@ -15,13 +15,21 @@ Object.assign(DocsDoodads.Workspace, {
         return this.mzgenDetectFolder();
     },
 
-    mzgenDetectFolder() {
+    // The generator folder of the MZ running this playtest: beside a folder on the way up from its nw.exe
+    // (nwjs-win/nw.exe on Windows; deep inside RPG Maker MZ.app on macOS), at most six folders up.
+    mzgenDetectFolder(exe = typeof process !== 'undefined' && process.execPath ? process.execPath : '') {
         const FS = DocsDoodads.FS;
         try {
-            const exe = typeof process !== 'undefined' && process.execPath ? process.execPath : '';
             if (!exe || !FS.path || !FS.fs) return '';
-            const folder = FS.path.resolve(FS.path.dirname(exe), '..', 'generator');
-            return DocsDoodads.MzGen.isLibrary(FS.fs, FS.path, folder) ? folder : '';
+            let dir = FS.path.dirname(exe);
+            for (let up = 0; up <= 6; up++) {
+                const folder = FS.path.join(dir, 'generator');
+                if (DocsDoodads.MzGen.isLibrary(FS.fs, FS.path, folder)) return FS.path.resolve(folder);
+                const parent = FS.path.dirname(dir);
+                if (parent === dir) break;
+                dir = parent;
+            }
+            return '';
         } catch (e) {
             return '';
         }
@@ -56,7 +64,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!index) return null;
         if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the generator index.', 'error'); return null; }
         this._mzgenIndex = index;
-        this._mzgenCache = null;
+        this.resetCreatorImageCaches('mz');
         const s = M.summary(index);
         this.showToast(`Found ${s.parts} generator parts (${s.bases.join(', ')}).`, 'success');
         return index;
@@ -75,19 +83,20 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     mzgenLoadImage(file) {
-        const FS = DocsDoodads.FS;
-        try {
-            const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-            if (!zlib || !FS.fs) return null;
-            return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.mzgenSheetPath(file)), data => zlib.inflateSync(data));
-        } catch (e) {
-            return null;
-        }
+        return this.creatorRawImage('mz', file, () => {
+            const FS = DocsDoodads.FS;
+            try {
+                const zlib = typeof require !== 'undefined' ? require('zlib') : null;
+                if (!zlib || !FS.fs) return null;
+                return DocsDoodads.LpcCompose.decodePng(FS.fs.readFileSync(this.mzgenSheetPath(file)), data => zlib.inflateSync(data));
+            } catch (e) {
+                return null;
+            }
+        });
     },
 
     mzgenCache() {
-        if (!this._mzgenCache) this._mzgenCache = DocsDoodads.LpcCompose.newCache(400);
-        return this._mzgenCache;
+        return this.creatorImageCaches('mz').layers;
     },
 
     // recipe -> { sheet, view, warnings, used } for one animation (walk, damage, face, sv_swing...), or null.

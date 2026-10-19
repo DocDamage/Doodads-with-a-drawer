@@ -192,6 +192,16 @@ DocsDoodads.MzGenSlots = {
         return next;
     },
 
+    // For a part that is gone: the slot's part with the same number on this base, else the nearest number.
+    nearestPart(index, slot, body, oldId) {
+        const list = this.options(index, slot, body);
+        const m = /\/(\d+)$/.exec(String(oldId || ''));
+        if (!list.length) return null;
+        if (!m) return list[0];
+        const num = Number(m[1]);
+        return list.slice().sort((a, b) => Math.abs(a.num - num) - Math.abs(b.num - num) || a.num - b.num)[0];
+    },
+
     missing(state, index) {
         const out = [];
         for (const [key, pick] of Object.entries(state.slots)) {

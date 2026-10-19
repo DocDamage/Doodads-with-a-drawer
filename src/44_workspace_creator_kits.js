@@ -10,6 +10,7 @@
 //              channels: channels, getColour, setColour)
 //   compose    the compositor's layout facts: frame, directions, animations, frameRect
 //   exporter   names, actions and labels for the export popover (LpcExport, MemaoExport, MzGenExport)
+//   cacheMB    memory for the kit's images: half for the decoded files, half for the recoloured layers
 DocsDoodads.CreatorKits = {
     lpc: {
         id: 'lpc',
@@ -17,6 +18,7 @@ DocsDoodads.CreatorKits = {
         slots: DocsDoodads.LpcSlots,
         compose: DocsDoodads.LpcCompose,
         exporter: DocsDoodads.LpcExport,
+        cacheMB: 96,
         safeSwitch: true,
         addons: true,
         parts: true,
@@ -35,15 +37,18 @@ DocsDoodads.CreatorKits = {
             const s = DocsDoodads.Lpc.summary(index, safeOnly);
             return `LPC library · ${s.usable} parts${s.commit ? ' · version ' + escapeHtml(s.commit.slice(0, 7)) : ''}`;
         },
-        credits(ws, state, addons) {
-            const walk = ws.composeLpc(DocsDoodads.LpcSlots.toRecipe(state, { addons }), 'walk');
+        // From the stage's walk when it shows the whole character walking (walk: { used }); else the walk is drawn.
+        credits(ws, state, addons, walk) {
+            if (!walk) walk = ws.composeLpc(DocsDoodads.LpcSlots.toRecipe(state, { addons }), 'walk');
             return walk ? DocsDoodads.Lpc.creditsForLayers(walk.used) : [];
         },
         creditsNote: () => `These go into ${escapeHtml(DocsDoodads.Lpc.creditsText)} when the character is exported.`,
         exportNote: () => `Credits are added to ${escapeHtml(DocsDoodads.Lpc.creditsText)}. The character is saved under its name to change and export again.`,
         missingNote: 'the library changed, or they aren\'t safe to encrypt',
         exportDefaults: ws => ws.lpcExportDefaults(),
-        exportFiles: (ws, name, o) => ws.lpcExportFiles(name, o),
+        // { file, note, faceSlot } (44_workspace_lpc_creator.js creatorFileEntries), with the outfit's part sheets.
+        exportFiles: (ws, name, o, state) => ws.creatorFileEntries(ws.lpcExportFiles(name, o), name, o, DocsDoodads.LpcExport)
+            .concat(o.parts ? ws.exportLpcParts(state, o, null, null, { dryRun: true }) : []),
         exportRun: (ws, state, o) => ws.exportLpcCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
     },
@@ -54,6 +59,7 @@ DocsDoodads.CreatorKits = {
         slots: DocsDoodads.MemaoSlots,
         compose: DocsDoodads.MemaoCompose,
         exporter: DocsDoodads.MemaoExport,
+        cacheMB: 160,
         safeSwitch: false,
         addons: false,
         parts: false,
@@ -81,7 +87,7 @@ DocsDoodads.CreatorKits = {
         exportNote: () => 'Sheets made from the Memao assets may go into your games, but not be shared on their own. The character is saved under its name to change and export again.',
         missingNote: 'the asset folder changed',
         exportDefaults: ws => ws.memaoExportDefaults(),
-        exportFiles: (ws, name, o) => ws.memaoExportFiles(name, o),
+        exportFiles: (ws, name, o) => ws.creatorFileEntries(ws.memaoExportFiles(name, o), name, o, DocsDoodads.MemaoExport),
         exportRun: (ws, state, o) => ws.exportMemaoCharacter(state, o),
         tryOnPlayer: (ws, names, smooth) => ws.tryLpcOnPlayer(names, smooth)
     },
@@ -92,6 +98,7 @@ DocsDoodads.CreatorKits = {
         slots: DocsDoodads.MzGenSlots,
         compose: DocsDoodads.MzGenCompose,
         exporter: DocsDoodads.MzGenExport,
+        cacheMB: 96,
         safeSwitch: false,
         addons: false,
         parts: false,
@@ -130,7 +137,7 @@ DocsDoodads.CreatorKits = {
             ['battler', 'Side-view battler', `img/sv_actors/${escapeHtml(N.face)}.png: MZ's 18 battle motions.`]
         ],
         exportDefaults: ws => ws.mzgenExportDefaults(),
-        exportFiles: (ws, name, o) => ws.mzgenExportFiles(name, o),
+        exportFiles: (ws, name, o) => ws.creatorFileEntries(ws.mzgenExportFiles(name, o), name, o, DocsDoodads.MzGenExport),
         exportRun: (ws, state, o) => ws.exportMzGenCharacter(state, o),
         tryOnPlayer: (ws, names) => ws.tryLpcOnPlayer(names, false)
     }

@@ -12,8 +12,9 @@ const root = path.resolve(__dirname, '..');
 const src = path.join(root, 'src');
 const out = path.join(root, 'languages', 'template.json');
 
-// The editor's parts: its look and cards (36), the workspace (37-44), the shortcut table, and key bindings.
-const partFiles = () => fs.readdirSync(src).filter(f => /^(3[6-9]|4[0-5])_.*\.js$|^11_shortcuts\.js$/.test(f) && !/ui_(icons|fonts)\.js$/.test(f)).sort();
+// The editor's parts: its look and cards (36), the workspace (37-44), the shortcut table, key bindings, and
+// the character creators' slots (their row labels: Beast ears, Field tool...).
+const partFiles = () => fs.readdirSync(src).filter(f => /^(3[6-9]|4[0-5])_.*\.js$|^11_shortcuts\.js$|^23_(lpc|memao|mzgen)_slots\.js$/.test(f) && !/ui_(icons|fonts)\.js$/.test(f)).sort();
 
 // `Placed ${list.length} doodads` -> 'Placed {length} doodads'
 function placeholders(text) {
