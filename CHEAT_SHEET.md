@@ -42,6 +42,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `[f8]` or `%(8)` | 8 frames per row instead of 3. | 10 |
 | `[d1]` | One row, mirrored for the other side. | 10 |
 | `[d8]` | Eight directions (diagonals). | 10 |
+| `[w2]` | With `[fN]`: frame 0 stands, the rest walk, one cycle every 2 tiles. | 10 |
 | `Name_idle`, `Name_run` | Idle and run cycles for the sheet `Name`, found automatically. | 10 |
 | `$Name` | One character on the sheet (MZ's own rule). | |
 

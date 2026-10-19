@@ -445,7 +445,45 @@ The spike is `scripts/lpc_spike.js` (with `scripts/png_read.js`). It was run on 
   - parts that need other parts (hat trims, shield patterns, sleeves): 176 parts aren't in a slot yet, and 15 in a slot need another part first;
   - the Item Bag People tab entry, which waits for exports.
 
-## 15. Open questions for the owner
+## 15. Phase 4 (done, 2026-10-19)
+
+- **`src/23_lpc_export.js` (`DocsDoodads.LpcExport`, pure):**
+  - Names: `$Name`, `$Name[f9][w2]`, `$Name_idle[f2]`, `$Name_run[f8]`, and `img/faces/Name`, cleaned for MZ and
+    Windows.
+  - Sheets in MZ's row order: down, left, right, up.
+  - The classic walker's columns are LPC frames 1, 0 and 5 (the widest strides around the standing pose).
+  - The face is the head found from the top of the down-facing standing frame, scaled 4× on a rounded card, in a
+    576 × 288 face sheet that keeps its other faces.
+  - The animation set: idle after 90 frames at 3 fps, run at 20 fps.
+- **`src/44_workspace_lpc_export.js`:**
+  - writes the ticked files, and clears MZ's image cache for them;
+  - records each file's credits, and writes `CREDITS_LPC.txt` again;
+  - adds or replaces the animation set, and keeps the character under its name;
+  - leaves weapons and back gear out of the face;
+  - works in a playtest only.
+- **The creator's Export popover:** the three choices with their file names, the face slot, the encryption note,
+  a question before replacing files, and **Try on the player**.
+- **Runtime, `[wN]`:** with `[fN]`, frame 0 is the standing pose and walking cycles frames 1 to N−1. The pace
+  follows the distance walked: MZ's animation wait becomes 1.5 × N / (frames − 1) / distance per frame. Sheets
+  without the tag keep MZ's pace.
+- **Fixes found while testing:**
+  - Run sheets flashed back to the walk for one frame per tile, because a character is still between steps.
+    That frame now counts as moving.
+  - The library card's project setting wasn't marked as changed, so it could be lost. It now goes through the
+    workspace's undoable setting.
+- **Checked in MZ:**
+  - The export takes 140 ms for 5 files.
+  - The walk measures 3.8 frames per tile, and dashing 3.5 (one cycle per about 2 tiles at both speeds), never
+    showing the standing frame while moving.
+  - The run sheet plays continuously, and the idle sheet plays when still.
+  - The face shows in a message window.
+- **Left for later:**
+  - Character Action sheets (slash, thrust, spellcast, shoot, hurt and the rest);
+  - the side-view battler (phase 5);
+  - Visual Equipment part sheets (phase 6);
+  - an Item Bag People entry.
+
+## 16. Open questions for the owner
 
 1. ~~**The look:**~~ decided: option B, an opt-in Playful theme for the whole editor, plus the look inside the creator.
 2. **Default licence policy:** phase 1 starts with the encrypt-safe switch **on**. It is a project setting

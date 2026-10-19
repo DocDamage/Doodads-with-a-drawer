@@ -384,7 +384,7 @@ Object.assign(DocsDoodads.Workspace, {
             const N = DocsDoodads.LpcExport.names(c.name);
             const files = this.lpcExportFiles(c.name, o);
             const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
-            const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
+            const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="flex: none; width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
             const done = c.exported;
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
                 <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(DocsDoodads.LpcExport.cleanName(c.name) || 'your character')} to RPG Maker</div>

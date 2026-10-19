@@ -11126,7 +11126,9 @@ if (typeof Sprite_Character !== 'undefined') {
         const action = ch._docsAction;
         const parsedName = C.parseName(name);
         if (!action && !set && !parsedName.tagged) return null;
-        const moving = ch.isMoving();
+        // Between two steps a character is still for one frame; counting that as moving keeps a run sheet
+        // from flashing back to the walk on every tile.
+        const moving = ch.isMoving() || (ch._docsStill || 0) <= 1;
         const dashing = moving && ch.realMoveSpeed && ch.realMoveSpeed() >= 5;
         const state = C.stateFor({ moving, dashing, stillFrames: ch._docsStill || 0, action }, set);
         const sheet = state === 'action' ? action.sheet : C.sheetFor(state, name, set);
@@ -34608,7 +34610,7 @@ Object.assign(DocsDoodads.Workspace, {
             const N = DocsDoodads.LpcExport.names(c.name);
             const files = this.lpcExportFiles(c.name, o);
             const unsafe = this.creatorCredits().filter(f => !f.safeToEncrypt).length;
-            const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
+            const tick = (id, on, label, note) => `<label style="display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px;"><input type="checkbox" id="${id}" ${on ? 'checked' : ''} style="flex: none; width: 16px; height: 16px; accent-color: #19b6a4;" /><span><b>${escapeHtml(label)}</b><br><span style="color: #7a6b8f;">${note}</span></span></label>`;
             const done = c.exported;
             return `<div class="dd-cr-pop" id="dd-cr-pop" style="right: 22px; bottom: 70px; width: 380px; font-size: 12px;">
                 <div style="font-weight: 900; font-size: 14px; margin-bottom: 8px;">Export ${escapeHtml(DocsDoodads.LpcExport.cleanName(c.name) || 'your character')} to RPG Maker</div>

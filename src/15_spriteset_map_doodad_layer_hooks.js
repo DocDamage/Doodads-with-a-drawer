@@ -1527,7 +1527,9 @@ if (typeof Sprite_Character !== 'undefined') {
         const action = ch._docsAction;
         const parsedName = C.parseName(name);
         if (!action && !set && !parsedName.tagged) return null;
-        const moving = ch.isMoving();
+        // Between two steps a character is still for one frame; counting that as moving keeps a run sheet
+        // from flashing back to the walk on every tile.
+        const moving = ch.isMoving() || (ch._docsStill || 0) <= 1;
         const dashing = moving && ch.realMoveSpeed && ch.realMoveSpeed() >= 5;
         const state = C.stateFor({ moving, dashing, stillFrames: ch._docsStill || 0, action }, set);
         const sheet = state === 'action' ? action.sheet : C.sheetFor(state, name, set);

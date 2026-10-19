@@ -249,6 +249,7 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Each animation chip plays; a part without that animation is named under the stage.
 - [ ] Save a character, change it, Load it back; delete it. Turn "Only art safe to encrypt" on and load a character using unsafe art: the parts not offered are named.
 - [ ] Credits lists the artists of the character on screen.
+- [ ] Export a named character with all three ticked; pick the sheets for an actor in MZ's database and play: the smooth walker's feet keep pace with the ground when walking and dashing, it breathes when still, it runs when dashing, and the face shows in Show Text. Export again: it asks before replacing.
 
 ## Scale and compatibility
 
