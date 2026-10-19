@@ -2865,7 +2865,7 @@ DocsDoodads.World = {
         seeThrough: { enabled: true, mode: 'fade', opacity: 0.4, speed: 0.1, silhouetteColor: '#7dd3fc' },
         reflections: { enabled: false, opacity: 0.4, ripple: 0.5, regionId: 0, shoreInset: 12 },
         seasons: { source: 'off', variableId: 0, names: ['Spring', 'Summer', 'Autumn', 'Winter'], sets: [] },
-        postfx: { enabled: true, quality: 'high', includePictures: false, look: {} },
+        postfx: { enabled: true, quality: 'high', includePictures: false, look: {}, times: [], regions: [] },
         vfx: { library: [] },
         characterAnim: { diagonal: false, sets: [] },
         sound: { mode: 'auto', near: 2, far: 14, panWidth: 8, pitchVariance: 5, volumeVariance: 8 },
@@ -3708,7 +3708,7 @@ DocsDoodads.PostFX = {
                 const va = side(ea, eb), vb = side(eb, ea);
                 if (p.type === 'color') e[p.key] = DocsDoodads.Lighting.mixColor(va, vb, t);
                 else if (p.type === 'checkbox') e[p.key] = t < 0.5 ? va : vb;
-                else e[p.key] = va + (vb - va) * t;
+                else e[p.key] = t >= 1 ? vb : va + (vb - va) * t;
             }
             out[effect.id] = e;
         }
@@ -3729,8 +3729,9 @@ DocsDoodads.PostFX = {
         return fade;
     },
 
-    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look.
-    resolveLook({ world, mapSettings, runtime } = {}) {
+    // runtime (plugin command) > the map's choice (off / its own look) > the game-wide look; then the looks
+    // by time (when minutes is given) and by region (regionWeights) are mixed in (Blends, below).
+    resolveLook({ world, mapSettings, runtime, minutes, regionWeights } = {}) {
         if (runtime) {
             const look = this.normalizeLook(runtime);
             return this.isActive(look) ? look : null;
@@ -3739,7 +3740,8 @@ DocsDoodads.PostFX = {
         if (!pf || pf.enabled === false) return null;
         const mine = mapSettings && mapSettings.postfx;
         if (mine && mine.mode === 'off') return null;
-        const look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        let look = this.normalizeLook(mine && mine.mode === 'custom' ? mine.look : pf.look);
+        if (this.Blends) look = this.Blends.apply(look, { world, mapSettings, minutes, regionWeights });
         return this.isActive(look) ? look : null;
     },
 
@@ -4049,6 +4051,133 @@ DocsDoodads.MapExport = {
     }
 };
 
+//==========================================================
+// SECTION 5D2: LOOKS BY TIME AND BY REGION
+//==========================================================
+// On top of the game-wide or map look: looks that blend in by the clock (world.postfx.times: a warm dusk
+// from 17:00 to 19:30) and while the player stands on a region (world.postfx.regions, and a map's own in
+// mapSettings.lookBlends.regions, which win for the same region number: a cold crypt). A map can turn the
+// time looks off (mapSettings.lookBlends.noTimes, for interiors). Each entry's look is a preset
+// ({ preset: 'golden' }) or its own ({ look: {...} }), with a strength.
+//   time:   { from, to, fade (minutes, 0-1439 for from/to), preset | look, amount }
+//   region: { region (1-255), fade (seconds), preset | look, amount }
+DocsDoodads.PostFX.Blends = {
+    timeDefaults: { from: 17 * 60, to: 19 * 60 + 30, fade: 60, preset: 'golden', amount: 1 },
+    regionDefaults: { region: 1, fade: 1, preset: 'underwater', amount: 1 },
+
+    wrap(m) {
+        return ((Math.round(Number(m) || 0) % 1440) + 1440) % 1440;
+    },
+
+    normalizeTime(entry) {
+        const e = Object.assign({}, this.timeDefaults, entry || {});
+        const out = { from: this.wrap(e.from), to: this.wrap(e.to), fade: Math.max(0, Math.min(720, Math.round(Number(e.fade) || 0))),
+            amount: Math.max(0, Math.min(1, Number(e.amount))) };
+        if (!isFinite(out.amount)) out.amount = 1;
+        return Object.assign(out, this.lookRefOf(e));
+    },
+
+    normalizeRegion(entry) {
+        const e = Object.assign({}, this.regionDefaults, entry || {});
+        const out = { region: Math.max(1, Math.min(255, Math.round(Number(e.region) || 1))), fade: Math.max(0, Math.min(30, Number(e.fade) || 0)),
+            amount: Math.max(0, Math.min(1, Number(e.amount))) };
+        if (!isFinite(out.amount)) out.amount = 1;
+        return Object.assign(out, this.lookRefOf(e));
+    },
+
+    // { look } when the entry has a look of its own, else { preset }.
+    lookRefOf(e) {
+        if (e && e.look && typeof e.look === 'object') return { look: DocsDoodads.PostFX.normalizeLook(e.look) };
+        const P = DocsDoodads.PostFX;
+        return { preset: P.presets.some(p => p.id === (e && e.preset)) ? e.preset : 'golden' };
+    },
+
+    lookOf(entry) {
+        const P = DocsDoodads.PostFX;
+        return entry.look ? P.normalizeLook(entry.look) : P.presetLook(entry.preset) || P.defaultLook();
+    },
+
+    // How much a time entry shows at a minute of the day: 1 from "from" to "to" (across midnight too),
+    // easing in during the fade before "from" and out during the fade after "to".
+    timeWeight(entry, minutes) {
+        const e = this.normalizeTime(entry);
+        const m = this.wrap(minutes);
+        const span = (e.to - e.from + 1440) % 1440;
+        const into = (m - e.from + 1440) % 1440;
+        if (into <= span) return 1;
+        if (e.fade <= 0) return 0;
+        const after = into - span;              // minutes since "to"
+        const before = 1440 - into;             // minutes until "from"
+        const w = Math.max(after <= e.fade ? 1 - after / e.fade : 0, before <= e.fade ? 1 - before / e.fade : 0);
+        return w * w * (3 - 2 * w);             // smoothstep: no sudden start or stop
+    },
+
+    times(world, mapSettings) {
+        const own = mapSettings && mapSettings.lookBlends;
+        if (own && own.noTimes) return [];
+        const list = world && world.postfx && Array.isArray(world.postfx.times) ? world.postfx.times : [];
+        return list.map(e => this.normalizeTime(e));
+    },
+
+    // Game-wide region looks, with the map's own in place of any for the same region.
+    regions(world, mapSettings) {
+        const byRegion = new Map();
+        const add = list => (Array.isArray(list) ? list : []).forEach(e => { const n = this.normalizeRegion(e); byRegion.set(n.region, n); });
+        add(world && world.postfx && world.postfx.regions);
+        add(mapSettings && mapSettings.lookBlends && mapSettings.lookBlends.regions);
+        return Array.from(byRegion.values());
+    },
+
+    // The base look with the time looks (when minutes is given) and region looks (weights by region) mixed in.
+    apply(base, { world, mapSettings, minutes, regionWeights } = {}) {
+        const P = DocsDoodads.PostFX;
+        let look = P.normalizeLook(base);
+        if (minutes !== undefined && minutes !== null) {
+            for (const e of this.times(world, mapSettings)) {
+                const w = this.timeWeight(e, minutes) * e.amount;
+                if (w > 0) look = P.lerpLook(look, this.lookOf(e), w);
+            }
+        }
+        if (regionWeights) {
+            for (const e of this.regions(world, mapSettings)) {
+                const w = (Number(regionWeights[e.region]) || 0) * e.amount;
+                if (w > 0) look = P.lerpLook(look, this.lookOf(e), w);
+            }
+        }
+        return look;
+    },
+
+    // ---- The player's region, faded in and out ----
+    _fade: { mapId: 0, weights: {} },
+
+    // Moves each region's weight one frame toward 1 (the region the player is on) or 0. A new map starts
+    // at its target straight away, so a transfer into a crypt is already cold. frames: how many frames passed.
+    stepRegions(mapId, regionId, world, mapSettings, frames = 1) {
+        const f = this._fade;
+        const list = this.regions(world, mapSettings);
+        const snap = f.mapId !== mapId;
+        f.mapId = mapId;
+        const next = {};
+        for (const e of list) {
+            const target = e.region === Number(regionId) ? 1 : 0;
+            const now = snap ? target : (Number(f.weights[e.region]) || 0);
+            const step = e.fade > 0 ? frames / (e.fade * 60) : 1;
+            const w = now < target ? Math.min(target, now + step) : Math.max(target, now - step);
+            if (w > 0) next[e.region] = w;
+        }
+        f.weights = next;
+        return next;
+    },
+
+    regionWeights() {
+        return this._fade.weights;
+    },
+
+    // While editing, a region's look can be previewed at full strength.
+    previewWeights(region) {
+        return region ? { [Number(region)]: 1 } : null;
+    }
+};
 //==========================================================
 // SECTION 5E: PARTICLES, VFX, REACTIVE DOODADS & CHARACTER ANIMATION
 //==========================================================
@@ -9492,7 +9621,9 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const hidden = (editing && (ws.postFxCompare || ws.postFxPreview === false)) || !DocsDoodads.Atmosphere.featureOn('postfx');
         const mapSettings = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
         const runtime = P.runtimeLook();
-        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime });
+        // Region fades move once a frame, on the map (a battle keeps the map's).
+        const live = P.liveInputs(typeof Spriteset_Map !== 'undefined' && this instanceof Spriteset_Map);
+        let look = hidden ? null : P.resolveLook({ world, mapSettings, runtime, minutes: live.minutes, regionWeights: live.regionWeights });
         let anim = P.Animations.sample(P._anims, DocsDoodads.frameCount());
         if (this._docsExportLook !== undefined) {
             look = this._docsExportLook;
@@ -9566,12 +9697,30 @@ DocsDoodads.PostFX.play = function(spec) {
     return this.Animations.start(this._anims, spec, DocsDoodads.frameCount());
 };
 
+// The clock and the player's region, for the looks by time and by region. step: move the region fades on
+// one frame (the map's spriteset does, once a frame). While editing, a region look can be previewed.
+DocsDoodads.PostFX.liveInputs = function(step) {
+    const B = this.Blends;
+    let minutes;
+    try { minutes = DocsDoodads.Atmosphere.minutes(); } catch (e) { minutes = undefined; }
+    const ws = DocsDoodads.Workspace;
+    if (ws && ws.mounted && ws.previewRegionLook) return { minutes, regionWeights: B.previewWeights(ws.previewRegionLook) };
+    const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+    if (step && map && map.mapId) {
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        const region = player && typeof map.regionId === 'function' ? map.regionId(player.x, player.y) : 0;
+        B.stepRegions(map.mapId(), region, DocsDoodads.World.settings(), DocsDoodads.Lighting.mapSettings(map.mapId()), 1);
+    }
+    return { minutes, regionWeights: B.regionWeights() };
+};
+
 // "Set Look" fades from what is on screen now to a preset, to no effects, or back to the map's own look.
 DocsDoodads.PostFX.setLook = function(id, frames) {
     if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
     const world = DocsDoodads.World.settings();
     const mapSettings = typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
-    const mapLook = this.resolveLook({ world, mapSettings }) || this.defaultLook();
+    const live = this.liveInputs(false);
+    const mapLook = this.resolveLook({ world, mapSettings, minutes: live.minutes, regionWeights: live.regionWeights }) || this.defaultLook();
     const current = $gameSystem._docsLook ? $gameSystem._docsLook.current : mapLook;
     const target = id === 'map' ? mapLook : id === 'none' ? this.defaultLook() : this.presetLook(id);
     if (!target) return null;
@@ -9609,7 +9758,8 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
     const saved = { x: $gameMap._displayX, y: $gameMap._displayY, px: $gameMap._parallaxX, py: $gameMap._parallaxY };
     const P = DocsDoodads.PostFX;
     const look = options.includeEffects
-        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook() }))
+        // The time of day's look, as on screen; a region's look belongs to where the player stands, not the whole map.
+        ? P.exportLook(P.resolveLook({ world: DocsDoodads.World.settings(), mapSettings: DocsDoodads.Lighting.mapSettings($gameMap.mapId()), runtime: P.runtimeLook(), minutes: P.liveInputs(false).minutes }))
         : null;
     spriteset._docsExportLook = look;
     const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
@@ -25367,6 +25517,7 @@ DocsDoodads.Workspace = {
                 <div style="font-size: 10px; color: var(--dd-muted);">Quality <select id="dd-pfx-quality" style="${selectStyle}">${P.qualities.map(q => option(q.value, q.label, pf.quality)).join('')}</select></div>
             </div>
             <div style="overflow-y: auto; display: flex; flex-direction: column; gap: 4px; min-height: 80px;">${effects}</div>
+            ${this.lookBlendsHtml ? this.lookBlendsHtml(target) : ''}
             <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; gap: 6px; align-items: flex-end;">
                 <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Screen effect (test)
                     <select id="dd-pfx-anim" style="${selectStyle}">${P.Animations.types.map(t => option(t.value, t.label, '')).join('')}</select></div>
@@ -25410,6 +25561,7 @@ DocsDoodads.Workspace = {
         const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
         on('dd-pfx-close', 'onclick', () => {
             this.setPostFxCompare(false);
+            this.previewRegionLook = 0;
             if (this._postFxPanel && this._postFxPanel.parentNode) this._postFxPanel.parentNode.removeChild(this._postFxPanel);
         });
         on('dd-pfx-target', 'onchange', e => { this.postFxTarget = e.target.value; this.refreshPostFxBuilder(); });
@@ -25435,6 +25587,7 @@ DocsDoodads.Workspace = {
                 includeEffects: Boolean(byId('dd-pfx-export-fx').checked)
             });
         });
+        if (this.bindLookBlends) this.bindLookBlends(target);
         if (target === 'map' && this.mapPostFxMode() !== 'custom') return;
         P.effects.forEach((effect, i) => {
             const details = byId(`dd-pfx-sec-${i}`);
@@ -31534,6 +31687,168 @@ Object.assign(DocsDoodads.Workspace, {
         const tours = document.getElementById('dd-whats-new-tours');
         if (tours) tours.onclick = () => { close(); this.replayTours(); };
         return card;
+    }
+});
+//==========================================================
+// SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
+//==========================================================
+// In the Screen Looks card, under the effects: looks that blend in by the clock (game-wide) and while the
+// player is on a region (game-wide, or this map's own), each a preset or a copy of the look above, with a
+// strength. A map can leave the time looks out (interiors). The rules are DocsDoodads.PostFX.Blends.
+Object.assign(DocsDoodads.Workspace, {
+    previewRegionLook: 0,
+
+    timeText(minutes) {
+        const m = DocsDoodads.PostFX.Blends.wrap(minutes);
+        return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    },
+
+    // "18:30" or "6:05" to minutes; null when it isn't a time.
+    parseTimeText(text) {
+        const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(text || ''));
+        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+        return Number(m[1]) * 60 + Number(m[2]);
+    },
+
+    timeLooks() {
+        const list = DocsDoodads.World.raw('postfx.times');
+        return Array.isArray(list) ? list.map(e => DocsDoodads.PostFX.Blends.normalizeTime(e)) : [];
+    },
+
+    setTimeLooks(list) {
+        this.setWorldSetting('postfx.times', list.length ? list.map(e => DocsDoodads.PostFX.Blends.normalizeTime(e)) : undefined);
+    },
+
+    mapLookBlends() {
+        const own = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).lookBlends;
+        return own && typeof own === 'object' ? own : {};
+    },
+
+    setMapLookBlends(next) {
+        const clean = {};
+        if (next.noTimes) clean.noTimes = true;
+        if (Array.isArray(next.regions) && next.regions.length) clean.regions = next.regions.map(e => DocsDoodads.PostFX.Blends.normalizeRegion(e));
+        this.setMapSetting('lookBlends', Object.keys(clean).length ? clean : undefined);
+    },
+
+    // The region looks being edited: game-wide, or this map's own.
+    regionLooks(target) {
+        const B = DocsDoodads.PostFX.Blends;
+        const list = target === 'map' ? this.mapLookBlends().regions : DocsDoodads.World.raw('postfx.regions');
+        return Array.isArray(list) ? list.map(e => B.normalizeRegion(e)) : [];
+    },
+
+    setRegionLooks(target, list) {
+        const B = DocsDoodads.PostFX.Blends;
+        if (target === 'map') this.setMapLookBlends(Object.assign({}, this.mapLookBlends(), { regions: list }));
+        else this.setWorldSetting('postfx.regions', list.length ? list.map(e => B.normalizeRegion(e)) : undefined);
+    },
+
+    // An entry's look becomes a copy of the look shown above it (the game-wide look, or this map's).
+    lookAboveFor(target) {
+        const P = DocsDoodads.PostFX;
+        const mine = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).postfx;
+        if (target === 'map' && mine && mine.mode === 'custom' && mine.look) return P.normalizeLook(mine.look);
+        return P.normalizeLook(DocsDoodads.World.get('postfx.look'));
+    },
+
+    withLookChoice(entry, value, target) {
+        const out = Object.assign({}, entry);
+        delete out.look;
+        delete out.preset;
+        if (value === '__own') out.look = entry.look || this.lookAboveFor(target);
+        else if (value === '__above') out.look = this.lookAboveFor(target);
+        else out.preset = value;
+        return out;
+    },
+
+    lookChoiceHtml(id, entry) {
+        const P = DocsDoodads.PostFX;
+        const current = entry.look ? '__own' : entry.preset;
+        const option = (value, label) => `<option value="${escapeHtml(value)}"${value === current ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        return `<select id="${id}" title="The look to blend in">${P.presets.map(p => option(p.id, p.label)).join('')}` +
+            `${entry.look ? option('__own', 'Its own look') : ''}${option('__above', 'Copy the look above')}</select>`;
+    },
+
+    lookBlendsHtml(target) {
+        const rowStyle = 'display: grid; gap: 4px; align-items: center; font-size: 10px; color: var(--dd-muted);';
+        const amount = (id, value) => `<input type="range" id="${id}" min="0" max="1" step="0.05" value="${value}" title="Strength: ${Math.round(value * 100)}%" />`;
+        const times = this.timeLooks();
+        const regions = this.regionLooks(target);
+        const own = this.mapLookBlends();
+        const timePart = target === 'map'
+            ? `<label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dd-text);" title="Off for interiors: the time of day's looks leave this map alone">
+                <input type="checkbox" id="dd-lb-times-on" ${own.noTimes ? '' : 'checked'} /> Looks by time of day on this map</label>`
+            : `<div style="font-size: 11px; font-weight: bold; color: var(--dd-muted);">Looks by time of day</div>
+               ${times.map((e, i) => `
+                <div style="${rowStyle} grid-template-columns: 58px 58px 44px 1fr;">
+                    <input type="time" id="dd-lb-t-${i}-from" value="${this.timeText(e.from)}" title="From" />
+                    <input type="time" id="dd-lb-t-${i}-to" value="${this.timeText(e.to)}" title="To" />
+                    <input type="number" id="dd-lb-t-${i}-fade" value="${e.fade}" min="0" max="720" title="Fade in and out (minutes of game time)" />
+                    ${this.lookChoiceHtml(`dd-lb-t-${i}-look`, e)}
+                </div>
+                <div style="${rowStyle} grid-template-columns: 1fr auto;">${amount(`dd-lb-t-${i}-amount`, e.amount)}
+                    <button class="dd-btn" id="dd-lb-t-${i}-del" type="button" title="Remove this time" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('trash', 1)}</button></div>`).join('')}
+               ${times.length ? '' : '<div style="font-size: 10px; color: var(--dd-faint);">None yet: add one for a warm dusk or a blue night. The clock bar previews it.</div>'}
+               <button class="dd-btn" id="dd-lb-add-time" type="button">${DocsDoodads.Ui.icon('plus', 1)} Add a Time</button>`;
+        return `
+            <div id="dd-lb" style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                ${timePart}
+                <div style="font-size: 11px; font-weight: bold; color: var(--dd-muted); margin-top: 4px;">Looks by region ${target === 'map' ? '(this map: these win over the game-wide ones)' : '(every map)'}</div>
+                ${regions.map((e, i) => `
+                <div style="${rowStyle} grid-template-columns: 44px 44px 1fr;">
+                    <input type="number" id="dd-lb-r-${i}-region" value="${e.region}" min="1" max="255" title="Region number" />
+                    <input type="number" id="dd-lb-r-${i}-fade" value="${e.fade}" min="0" max="30" step="0.5" title="Fade in and out (seconds)" />
+                    ${this.lookChoiceHtml(`dd-lb-r-${i}-look`, e)}
+                </div>
+                <div style="${rowStyle} grid-template-columns: 1fr auto auto;">${amount(`dd-lb-r-${i}-amount`, e.amount)}
+                    <button class="dd-btn${this.previewRegionLook === e.region ? ' dd-btn-primary' : ''}" id="dd-lb-r-${i}-preview" type="button" title="See this region's look now (while editing)" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('eye', 1)}</button>
+                    <button class="dd-btn" id="dd-lb-r-${i}-del" type="button" title="Remove this region" style="padding: 2px 6px;">${DocsDoodads.Ui.icon('trash', 1)}</button></div>`).join('')}
+                ${regions.length ? '' : '<div style="font-size: 10px; color: var(--dd-faint);">None yet: paint a region (Regions tool) and give it a look, like a cold crypt.</div>'}
+                <button class="dd-btn" id="dd-lb-add-region" type="button">${DocsDoodads.Ui.icon('plus', 1)} Add a Region</button>
+            </div>`;
+    },
+
+    bindLookBlends(target) {
+        const byId = id => (typeof document !== 'undefined' ? document.getElementById(id) : null);
+        const on = (id, event, handler) => { const node = byId(id); if (node) node[event] = handler; };
+        const B = DocsDoodads.PostFX.Blends;
+        const again = () => this.refreshPostFxBuilder();
+        on('dd-lb-times-on', 'onchange', e => { this.setMapLookBlends(Object.assign({}, this.mapLookBlends(), { noTimes: !e.target.checked })); again(); });
+        on('dd-lb-add-time', 'onclick', () => { this.setTimeLooks(this.timeLooks().concat([Object.assign({}, B.timeDefaults)])); again(); });
+        this.timeLooks().forEach((e, i) => {
+            const change = edit => { const list = this.timeLooks(); list[i] = edit(list[i]); this.setTimeLooks(list); again(); };
+            const time = key => ev => { const m = this.parseTimeText(ev.target.value); if (m !== null) change(x => Object.assign(x, { [key]: m })); };
+            on(`dd-lb-t-${i}-from`, 'onchange', time('from'));
+            on(`dd-lb-t-${i}-to`, 'onchange', time('to'));
+            on(`dd-lb-t-${i}-fade`, 'onchange', ev => change(x => Object.assign(x, { fade: Number(ev.target.value) || 0 })));
+            on(`dd-lb-t-${i}-look`, 'onchange', ev => change(x => this.withLookChoice(x, ev.target.value, 'world')));
+            on(`dd-lb-t-${i}-amount`, 'onchange', ev => change(x => Object.assign(x, { amount: Number(ev.target.value) })));
+            on(`dd-lb-t-${i}-del`, 'onclick', () => { const list = this.timeLooks(); list.splice(i, 1); this.setTimeLooks(list); again(); });
+        });
+        on('dd-lb-add-region', 'onclick', () => {
+            const list = this.regionLooks(target);
+            const used = new Set(list.map(e => e.region));
+            let region = 1;
+            while (used.has(region) && region < 255) region++;
+            this.setRegionLooks(target, list.concat([Object.assign({}, B.regionDefaults, { region })]));
+            again();
+        });
+        this.regionLooks(target).forEach((e, i) => {
+            const change = edit => { const list = this.regionLooks(target); list[i] = edit(list[i]); this.setRegionLooks(target, list); again(); };
+            on(`dd-lb-r-${i}-region`, 'onchange', ev => change(x => Object.assign(x, { region: Number(ev.target.value) || 1 })));
+            on(`dd-lb-r-${i}-fade`, 'onchange', ev => change(x => Object.assign(x, { fade: Number(ev.target.value) || 0 })));
+            on(`dd-lb-r-${i}-look`, 'onchange', ev => change(x => this.withLookChoice(x, ev.target.value, target)));
+            on(`dd-lb-r-${i}-amount`, 'onchange', ev => change(x => Object.assign(x, { amount: Number(ev.target.value) })));
+            on(`dd-lb-r-${i}-preview`, 'onclick', () => { this.previewRegionLook = this.previewRegionLook === e.region ? 0 : e.region; again(); });
+            on(`dd-lb-r-${i}-del`, 'onclick', () => {
+                const list = this.regionLooks(target);
+                if (this.previewRegionLook === e.region) this.previewRegionLook = 0;
+                list.splice(i, 1);
+                this.setRegionLooks(target, list);
+                again();
+            });
+        });
     }
 });
 //==========================================================
