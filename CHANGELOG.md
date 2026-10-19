@@ -2,6 +2,8 @@
 
 ## Unreleased — 2.0.0-alpha.1
 
+- The Character Creator's "Only art safe to encrypt" (on for a new project) says how many parts it lets through, and where it hides parts in the tab in view, a line says how many, with **Show all parts** to turn it off.
+- The Character Creator offers the big weapons that only have the library's bigger art: long spear, dragon spear, trident, katana, scimitar, the other longsword, club and boomerang. Before, they couldn't be picked.
 - The Character Creator draws big weapons (the LPC library's oversize and 128-pixel art: most swords, spears and polearms) at their size instead of leaving them out. The stage shows the whole swing. Action sheets keep the whole bigger frame (`$Name_slash[f6]` at 192 × 192, the tip of a downward thrust included) and stand on the feet; walkers and the side-view battler get bigger frames that keep what is above the feet (a battler with 192 × 128 cells). The export says which. Visual Equipment parts get the same frames, and battler layers with bigger cells are drawn at their own size.
 - A Backswing action (`$Name_slash_reverse[f6]`): the slash played backwards, with the return-swing art of the weapons that have it. The club and boomerang swing that way on Slash too.
 - Battle animations aim at the figure on a side-view battler whose cells are bigger than it (the Character Creator's battlers grown for a big weapon, or `[hN]` in a battler's name), instead of showing high.
