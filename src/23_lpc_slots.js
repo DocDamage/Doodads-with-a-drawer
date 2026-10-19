@@ -213,13 +213,21 @@ DocsDoodads.LpcSlots = {
         return { body: state.body, picks: options.showBody === false ? picks.filter(p => !state.slots.body || p.id !== state.slots.body.id) : picks };
     },
 
-    // The dice: a new body and face (card 'body'), or a new outfit (card 'outfit'). chance: how often an
-    // optional slot gets something.
-    shuffle(state, index, card, rand = Math.random, safeOnly = true) {
+
+    // The body type the dice give: the same one, unless opts.newType asks for another of opts.types (the types
+    // the library offers, from the creator).
+    diceBody(state, rand, opts = {}) {
+        if (!opts.newType) return state.body;
+        const types = (opts.types && opts.types.length ? opts.types : this.bodies.map(b => b[0]));
+        return types[Math.floor(rand() * types.length)];
+    },
+
+    // The dice: a new face, skin and hair on the same body type (card 'body'; opts.newType for a new type too),
+    // or a new outfit (card 'outfit'). chance: how often an optional slot gets something.
+    shuffle(state, index, card, rand = Math.random, safeOnly = true, opts = {}) {
         const next = { body: state.body, slots: Object.assign({}, state.slots) };
         if (card === 'body') {
-            const bodies = ['male', 'female'];
-            next.body = bodies[Math.floor(rand() * bodies.length)];
+            next.body = this.diceBody(state, rand, opts);
             for (const key of Object.keys(next.slots)) if (this.slot(key) && this.slot(key).card === 'body') delete next.slots[key];
         }
         const chance = { hair: 0.9, shirt: 0.95, legs: 0.95, shoes: 0.85, eyebrows: 0.5, beard: next.body === 'female' ? 0 : 0.25, hat: 0.3,

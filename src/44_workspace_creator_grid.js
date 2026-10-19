@@ -265,6 +265,7 @@ Object.assign(DocsDoodads.Workspace, {
         const S = this.creatorSlots(), c = this._creator, rowKey = c.pop.row;
         const o = this.creatorGridOptions(rowKey)[i];
         if (!o) return false;
+        if (this.creatorRemember) this.creatorRemember();
         S.setPart(c.state, this.creatorIndex(), rowKey, o.part);
         c.pop = null;
         this.creatorChanged('ok', this.creatorDescribe(rowKey));

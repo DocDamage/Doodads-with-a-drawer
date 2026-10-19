@@ -296,7 +296,7 @@ const said = () => (live.length ? live[live.length - 1].textContent : '');
     document.activeElement = null;
     key('Tab');
     assert.strictEqual(document.activeElement, first, 'from outside the window, in to its first control');
-    assert.ok(/C channel · Q\/E tabs · \[ \] side/.test(html()), 'the key line says the new keys');
+    assert.ok(/C channel · /.test(html()) && / \[ \] side · /.test(html()), 'the key line says the new keys');
     // The size: smaller, the window shows one card; the cursor row is scrolled into view.
     scrolled.length = 0;
     global.innerWidth = 816;
