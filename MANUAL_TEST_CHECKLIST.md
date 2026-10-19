@@ -85,6 +85,9 @@ Test these on an exterior map and on a looping world map.
 - [ ] Looks by time: add a time look (Golden Hour, 17:00 to 19:30, fade 60) and scrub the clock bar from 15:00 to 21:00: it eases in, holds, eases out. Turn Looks by time of day off for an interior map: it stays plain.
 - [ ] Looks by region: paint region 5, give it Underwater (fade 1 s), walk on and off it in play: it fades in and out; a map's own region 5 look wins over the game-wide one; transfer onto region 5 and it is already in. The eye button previews it while editing.
 - [ ] Close the editor with Screen Looks and File Check open; both close too.
+- [ ] Minimap on a flat map (World > Minimap) with fog of war: walk around, save, reload: what was seen is still seen; Show World Map shows only that; Explored Map reveal all and forget; Show / Hide Minimap.
+- [ ] Rooms: save a house (walls, a table, a region, a lamp doodad, a door event) and place it on another map; the tiles show at once, the door works after saving, undo removes it all.
+- [ ] Packs: make a pack with a prefab holding another prefab and a biome; bring it into a second project: the art appears in the Item Bag with its slices, the prefabs place, a different file of mine is kept (then replaced with a backup).
 
 ## Particles, VFX and character animation
 

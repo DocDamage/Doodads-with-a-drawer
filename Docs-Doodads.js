@@ -1259,6 +1259,44 @@
  * @text Variable
  * @type variable
  * @default 1
+ *
+ * @command setMinimap
+ * @text Show / Hide Minimap
+ * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
+ *
+ * @arg show
+ * @text Minimap
+ * @type boolean
+ * @on Show
+ * @off Hide
+ * @default true
+ *
+ * @command exploredMap
+ * @text Explored Map
+ * @desc With the minimap's fog of war on: reveal a whole map, reveal around the player, or forget what was seen (saved with the game).
+ *
+ * @arg action
+ * @text Action
+ * @type select
+ * @option Reveal the whole map
+ * @value all
+ * @option Reveal around the player
+ * @value around
+ * @option Forget it (all unexplored again)
+ * @value forget
+ * @default all
+ *
+ * @arg radius
+ * @text Radius (tiles)
+ * @type number
+ * @desc For "around the player".
+ * @default 8
+ *
+ * @arg mapId
+ * @text Map
+ * @type number
+ * @desc 0 for this map.
+ * @default 0
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -2889,7 +2927,9 @@ DocsDoodads.World = {
         biomes: { list: [] },
         dress: { rules: [] },
         visualEquip: { enabled: true, followers: true, events: true, battlers: true, menus: true, equipPreview: true },
-        destination: {}
+        destination: {},
+        // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
+        minimap: { flat: false, fog: false, radius: 6, size: 140 }
     },
 
     _cache: null,
@@ -5368,6 +5408,7 @@ DocsDoodads.Shortcuts = {
         { id: 'toolHills', label: 'Hills tool', group: 'Tools', keys: '' },
         { id: 'toolRegions', label: 'Regions tool', group: 'Tools', keys: '' },
         { id: 'toolGrab', label: 'Grab tool', group: 'Tools', keys: '' },
+        { id: 'rooms', label: 'Rooms (room stamps)', group: 'Tools', keys: '' },
         { id: 'brushSmaller', label: 'Smaller brush (Scatter, Paint, Hills, Regions)', group: 'Tools', keys: '[' },
         { id: 'brushBigger', label: 'Bigger brush', group: 'Tools', keys: ']' },
         { id: 'pathFinish', label: 'Place props along the path being drawn', group: 'Tools', keys: 'Enter', fixed: true },
@@ -5528,6 +5569,127 @@ DocsDoodads.Shortcuts = {
     }
 };
 
+//==========================================================
+// SECTION 6E: EXPLORED MAP (THE MINIMAP'S FOG OF WAR)
+//==========================================================
+// With fog of war on (World > Minimap), the minimap shows only the tiles the player has been near. What
+// was seen is kept per map in the save: $gameSystem._docsExplored[mapId] = { w, h, bits } (one bit per
+// tile, base64). While playing, the bits live decoded here and are written back before a save.
+DocsDoodads.Explored = {
+    _sys: null,
+    _maps: {}, // mapId -> { w, h, bytes: Uint8Array, dirty }
+
+    system() {
+        const sys = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
+        if (sys !== this._sys) { this._sys = sys; this._maps = {}; }
+        return sys;
+    },
+
+    encode(bytes) {
+        let text = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+        return typeof btoa === 'function' ? btoa(text) : Buffer.from(text, 'binary').toString('base64');
+    },
+
+    decode(text, length) {
+        const out = new Uint8Array(length);
+        try {
+            const raw = typeof atob === 'function' ? atob(String(text || '')) : Buffer.from(String(text || ''), 'base64').toString('binary');
+            for (let i = 0; i < Math.min(length, raw.length); i++) out[i] = raw.charCodeAt(i);
+        } catch (e) {}
+        return out;
+    },
+
+    // The map's bits (a new map, or one whose size changed, starts unexplored).
+    entry(mapId, w, h) {
+        const sys = this.system();
+        const id = Number(mapId) || 0;
+        const length = Math.ceil((w * h) / 8);
+        let m = this._maps[id];
+        if (m && m.w === w && m.h === h) return m;
+        const saved = sys && sys._docsExplored && sys._docsExplored[id];
+        const bytes = saved && saved.w === w && saved.h === h ? this.decode(saved.bits, length) : new Uint8Array(length);
+        m = this._maps[id] = { w, h, bytes, dirty: false, version: 0 };
+        return m;
+    },
+
+    isExplored(m, x, y) {
+        if (!m || x < 0 || y < 0 || x >= m.w || y >= m.h) return false;
+        const i = y * m.w + x;
+        return (m.bytes[i >> 3] & (1 << (i & 7))) !== 0;
+    },
+
+    mark(m, x, y) {
+        const i = y * m.w + x;
+        const bit = 1 << (i & 7);
+        if (m.bytes[i >> 3] & bit) return false;
+        m.bytes[i >> 3] |= bit;
+        return true;
+    },
+
+    // Reveals a circle of tiles; returns the tiles newly seen ([{ x, y }]).
+    reveal(mapId, w, h, cx, cy, radius) {
+        const m = this.entry(mapId, w, h);
+        const r = Math.max(0, Number(radius) || 0);
+        const out = [];
+        for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(h - 1, Math.ceil(cy + r)); y++) {
+            for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(w - 1, Math.ceil(cx + r)); x++) {
+                if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r + 0.25) continue;
+                if (this.mark(m, x, y)) out.push({ x, y });
+            }
+        }
+        if (out.length) { m.dirty = true; m.version++; }
+        return out;
+    },
+
+    revealAll(mapId, w, h) {
+        const m = this.entry(mapId, w, h);
+        m.bytes.fill(255);
+        m.dirty = true;
+        m.version++;
+        return m;
+    },
+
+    forget(mapId, w, h) {
+        const m = this.entry(mapId, w, h);
+        m.bytes.fill(0);
+        m.dirty = true;
+        m.version++;
+        return m;
+    },
+
+    // How much of a map has been seen, 0-1.
+    fraction(mapId, w, h) {
+        const m = this.entry(mapId, w, h);
+        let n = 0;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (this.isExplored(m, x, y)) n++;
+        return w * h ? n / (w * h) : 0;
+    },
+
+    // Into the save: every map changed since the last save.
+    writeBack() {
+        const sys = this.system();
+        if (!sys) return 0;
+        let n = 0;
+        for (const id of Object.keys(this._maps)) {
+            const m = this._maps[id];
+            if (!m.dirty) continue;
+            sys._docsExplored = sys._docsExplored || {};
+            sys._docsExplored[id] = { w: m.w, h: m.h, bits: this.encode(m.bytes) };
+            m.dirty = false;
+            n++;
+        }
+        return n;
+    }
+};
+
+if (typeof Game_System !== 'undefined' && Game_System.prototype.onBeforeSave) {
+    $.Game_System_onBeforeSave_explored = Game_System.prototype.onBeforeSave;
+    Game_System.prototype.onBeforeSave = function() {
+        if (this === DocsDoodads.Explored._sys) DocsDoodads.Explored.writeBack();
+        $.Game_System_onBeforeSave_explored.call(this);
+    };
+}
 //==========================================================
 // SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
 //==========================================================
@@ -5744,6 +5906,21 @@ DocsDoodads.Minimap = {
                 const [r, g, b] = this.tileColor(infoAt(x, y));
                 const i = (y * width + x) * 4;
                 out[i] = r; out[i + 1] = g; out[i + 2] = b; out[i + 3] = 255;
+            }
+        }
+        return out;
+    },
+
+    // The minimap's pixels with tiles not yet seen dark (explored: DocsDoodads.Explored's entry).
+    fogColor: [18, 22, 34],
+    withFog(pixels, width, height, explored) {
+        const out = new Uint8ClampedArray(pixels);
+        const E = DocsDoodads.Explored;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                if (E.isExplored(explored, x, y)) continue;
+                const i = (y * width + x) * 4;
+                out[i] = this.fogColor[0]; out[i + 1] = this.fogColor[1]; out[i + 2] = this.fogColor[2]; out[i + 3] = 235;
             }
         }
         return out;
@@ -13656,11 +13833,52 @@ DocsDoodads.Minimap.canvasFor = function(pixels, width, height) {
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
+    this.paint(canvas, pixels, width, height);
+    return canvas;
+};
+
+DocsDoodads.Minimap.paint = function(canvas, pixels, width, height) {
     const ctx = canvas.getContext('2d');
     const image = ctx.createImageData(width, height);
     image.data.set(pixels);
     ctx.putImageData(image, 0, 0);
-    return canvas;
+};
+
+// The minimap's settings for a map: { on, fog, radius, size }.
+DocsDoodads.Minimap.settingsFor = function(mapId) {
+    const world = DocsDoodads.World.settings().minimap || {};
+    const own = (DocsDoodads.Lighting.mapSettings(mapId) || {}).minimap;
+    const s3d = DocsDoodads.Perspective.active();
+    const on = s3d ? Boolean(s3d.minimap) : own === 'on' || (own !== 'off' && Boolean(world.flat));
+    return { on, fog: Boolean(world.fog), radius: Math.max(1, Number(world.radius) || 6), size: Math.max(60, Math.min(400, Number(world.size) || 140)) };
+};
+
+// The Explored Map command. Another map's size is read from its file once it has been visited (its
+// explored bits know it); the current map's from the game.
+DocsDoodads.Minimap.exploredCommand = function(args) {
+    if (typeof $gameMap === 'undefined' || !$gameMap) return false;
+    const E = DocsDoodads.Explored;
+    const mapId = Number(args.mapId) || $gameMap.mapId();
+    let w = $gameMap.width(), h = $gameMap.height();
+    if (mapId !== $gameMap.mapId()) {
+        const saved = (E.system() && E.system()._docsExplored && E.system()._docsExplored[mapId]) || E._maps[mapId];
+        if (!saved) return false;
+        w = saved.w; h = saved.h;
+    }
+    const action = String(args.action || 'all');
+    if (action === 'forget') E.forget(mapId, w, h);
+    else if (action === 'around') E.reveal(mapId, w, h, $gamePlayer.x, $gamePlayer.y, Number(args.radius) || 8);
+    else E.revealAll(mapId, w, h);
+    return true;
+};
+
+// Reveals around the player when they reach a new tile (the explored map is kept in the save).
+DocsDoodads.Minimap.explore = function(map, cfg) {
+    if (typeof $gamePlayer === 'undefined' || !$gamePlayer) return 0;
+    const key = $gameMap.mapId() + ':' + $gamePlayer.x + ',' + $gamePlayer.y + ':' + cfg.radius;
+    if (this._lastExplore === key) return 0;
+    this._lastExplore = key;
+    return DocsDoodads.Explored.reveal($gameMap.mapId(), map.width, map.height, $gamePlayer.x, $gamePlayer.y, cfg.radius).length;
 };
 
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
@@ -13670,25 +13888,34 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this.updateDocsMinimap();
     };
 
-    // A small map in the top-right corner with the player's arrow, on maps that ask for it.
+    // A small map in the top-right corner with the player's arrow, on maps that ask for it (3D maps by
+    // their 3D settings, flat maps by World > Minimap or their own choice). With fog of war, only what
+    // the player has been near shows, and walking reveals more.
     Spriteset_Map.prototype.updateDocsMinimap = function() {
-        const s = DocsDoodads.Perspective.active();
-        const on = Boolean(s && s.minimap) && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const M = DocsDoodads.Minimap;
+        const cfg = M.settingsFor($gameMap.mapId());
+        const map = cfg.on || cfg.fog ? M.forCurrentMap() : null;
+        if (map && cfg.fog) M.explore(map, cfg);
+        const hidden = typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsMinimapHidden;
+        const on = cfg.on && Boolean(map) && !hidden && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
         if (!on) {
             if (this._docsMinimap) this._docsMinimap.visible = false;
             return;
         }
-        const map = DocsDoodads.Minimap.forCurrentMap();
-        if (!map) return;
         let mini = this._docsMinimap;
-        if (!mini || mini._docsData !== map.data) {
+        if (!mini || mini._docsData !== map.data || mini._docsSize !== cfg.size || mini._docsFog !== cfg.fog) {
             this.docsDestroyMinimap();
             mini = this._docsMinimap = new PIXI.Container();
             mini._docsData = map.data;
+            mini._docsSize = cfg.size;
+            mini._docsFog = cfg.fog;
+            mini._docsVersion = -1;
             // Its own picture (not in PIXI's shared cache), freed with the minimap.
-            const base = new PIXI.BaseTexture(DocsDoodads.Minimap.canvasFor(map.pixels, map.width, map.height), { scaleMode: PIXI.SCALE_MODES.NEAREST });
+            mini._docsCanvas = M.canvasFor(map.pixels, map.width, map.height);
+            const base = new PIXI.BaseTexture(mini._docsCanvas, { scaleMode: PIXI.SCALE_MODES.NEAREST });
+            mini._docsBase = base;
             const pic = new PIXI.Sprite(new PIXI.Texture(base));
-            const scale = 140 / Math.max(map.width, map.height);
+            const scale = cfg.size / Math.max(map.width, map.height);
             pic.scale.set(scale);
             const frame = new PIXI.Graphics();
             frame.lineStyle(2, 0x0f172a, 0.9).drawRect(-1, -1, map.width * scale + 2, map.height * scale + 2);
@@ -13699,6 +13926,15 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             mini._docsArrow = arrow;
             mini.alpha = 0.9;
             this.addChild(mini);
+        }
+        // Newly seen tiles: the picture is drawn again with the fog.
+        if (cfg.fog) {
+            const seen = DocsDoodads.Explored.entry($gameMap.mapId(), map.width, map.height);
+            if (seen.version !== mini._docsVersion) {
+                mini._docsVersion = seen.version;
+                M.paint(mini._docsCanvas, M.withFog(map.pixels, map.width, map.height, seen), map.width, map.height);
+                if (mini._docsBase && mini._docsBase.update) mini._docsBase.update();
+            }
         }
         const sc = mini._docsScale;
         mini.visible = true;
@@ -14197,8 +14433,13 @@ if (typeof Scene_MenuBase !== 'undefined') {
 
     Scene_DocsWorldMap.prototype.create = function() {
         Scene_MenuBase.prototype.create.call(this);
-        const map = DocsDoodads.Minimap.forCurrentMap();
+        let map = DocsDoodads.Minimap.forCurrentMap();
         const s = DocsDoodads.Perspective.active();
+        // With fog of war, the world map shows only what has been seen, as the minimap does.
+        if (map && DocsDoodads.Minimap.settingsFor($gameMap.mapId()).fog) {
+            const seen = DocsDoodads.Explored.entry($gameMap.mapId(), map.width, map.height);
+            map = Object.assign({}, map, { pixels: DocsDoodads.Minimap.withFog(map.pixels, map.width, map.height, seen) });
+        }
         this._map = map;
         this._globe = Boolean(s && s.curve === 'sphere');
         this._spin = 0;
@@ -14274,6 +14515,10 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'showWorldMap', () => {
         if (typeof SceneManager !== 'undefined' && typeof Scene_DocsWorldMap.prototype.create === 'function') SceneManager.push(Scene_DocsWorldMap);
     });
+    PluginManager.registerCommand(pluginName, 'setMinimap', args => {
+        if (typeof $gameSystem !== 'undefined' && $gameSystem) $gameSystem._docsMinimapHidden = String(args.show) === 'false' ? true : undefined;
+    });
+    PluginManager.registerCommand(pluginName, 'exploredMap', args => DocsDoodads.Minimap.exploredCommand(args));
 }
 
 // The ground height (tiles) under a character, for event conditions and scripts:
@@ -16247,6 +16492,178 @@ DocsDoodads.Packer = {
     }
 };
 
+//==========================================================
+// SECTION 12B: DOODAD PACKS
+//==========================================================
+// A pack is one file (.ddpack, JSON) holding prefabs (with the prefabs inside them), room stamps,
+// biomes, dressing rules and collections, the art, sounds and models they use, and those files' Item Bag
+// entries (cut-up slices, tags, collision), to bring into another project. Pure: reading and writing
+// files is passed in, so the workspace (44_workspace_packs.js) does the disk work in a playtest.
+DocsDoodads.Packs = {
+    format: 'docs-doodads-pack',
+    version: 1,
+    extension: '.ddpack',
+
+    // The project files one doodad uses. audioFile(name) finds 'bgs/River' as a file, or null.
+    filesOfDoodad(d, audioFile) {
+        const out = [];
+        if (!d) return out;
+        if (d.bit && d.bit[0] === 3 && d.bit[1]) out.push(String(d.bit[1]));
+        for (const s of (d.states && Array.isArray(d.states.list) ? d.states.list : [])) if (s && s.path) out.push(String(s.path));
+        if (d.model && d.model.path) out.push(String(d.model.path));
+        if (d.sound && d.sound.file && audioFile) {
+            const file = audioFile(String(d.sound.file));
+            if (file) out.push(file);
+        }
+        return out;
+    },
+
+    // What a selection holds, with what it needs: prefabs inside chosen prefabs come along.
+    // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names] }
+    // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id) }
+    gather(sel, src, audioFile) {
+        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {} };
+        const files = new Set();
+        const addDoodads = list => (list || []).forEach(d => this.filesOfDoodad(d, audioFile).forEach(f => files.add(f)));
+        const seenPrefab = new Set();
+        const addPrefab = id => {
+            if (seenPrefab.has(id)) return;
+            seenPrefab.add(id);
+            const p = src.prefab(id);
+            if (!p) return;
+            (p.children || []).forEach(c => addPrefab(c.id));
+            contents.prefabs.push(JSON.parse(JSON.stringify(p)));
+            addDoodads(p.doodads);
+            if (p.thumbnail) files.add(String(p.thumbnail));
+        };
+        (sel.prefabs || []).forEach(addPrefab);
+        for (const id of sel.rooms || []) {
+            const r = src.room(id);
+            if (!r) continue;
+            contents.rooms.push(JSON.parse(JSON.stringify(r)));
+            addDoodads(r.doodads);
+        }
+        for (const id of sel.biomes || []) {
+            const b = (src.biomes || []).find(x => x && x.id === id);
+            if (!b) continue;
+            contents.biomes.push(JSON.parse(JSON.stringify(b)));
+            (b.entries || []).forEach(e => e && e.path && files.add(String(e.path)));
+        }
+        for (const i of sel.dress || []) {
+            const r = (src.dress || [])[i];
+            if (!r) continue;
+            contents.dress.push(JSON.parse(JSON.stringify(r)));
+            (r.entries || []).forEach(e => e && e.path && files.add(String(e.path)));
+        }
+        for (const name of sel.collections || []) {
+            const ids = (src.collections || {})[name];
+            if (!Array.isArray(ids)) continue;
+            const paths = ids.map(id => src.assetPath(id)).filter(Boolean);
+            contents.collections[name] = paths;
+            paths.forEach(p => files.add(p));
+        }
+        return { contents, files: Array.from(files).map(f => f.replace(/\\/g, '/')).sort() };
+    },
+
+    // A pack from what was gathered. readFile(path) gives the bytes (a Buffer or Uint8Array) or null;
+    // library(path) gives the file's Item Bag entry or null. Files that couldn't be read are listed.
+    build(name, gathered, readFile, library) {
+        const pack = { format: this.format, version: this.version, name: String(name || 'Pack').trim() || 'Pack', createdAt: Date.now(),
+            contents: gathered.contents, library: {}, files: {}, missing: [] };
+        for (const p of gathered.files) {
+            if (!this.safePath(p)) { pack.missing.push(p); continue; }
+            const bytes = readFile(p);
+            if (!bytes) { pack.missing.push(p); continue; }
+            pack.files[p] = this.toBase64(bytes);
+            const entry = library ? library(p) : null;
+            if (entry) {
+                const keep = {};
+                for (const k of ['tags', 'slice', 'placement', 'collision', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
+                pack.library[p] = keep;
+            }
+        }
+        return pack;
+    },
+
+    toBase64(bytes) {
+        if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+        let s = '';
+        for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s);
+    },
+
+    fromBase64(text) {
+        if (typeof Buffer !== 'undefined') return Buffer.from(String(text || ''), 'base64');
+        return Uint8Array.from(atob(String(text || '')), c => c.charCodeAt(0));
+    },
+
+    // Only files inside the project's own folders: no absolute paths, no "..".
+    safePath(p) {
+        const s = String(p || '').replace(/\\/g, '/');
+        return /^(img|audio|models|movies|effects|data\/DocsDoodads)\//i.test(s) && !s.split('/').includes('..') && !/^[a-z]:/i.test(s);
+    },
+
+    // Reads a pack's text; throws a message a person can act on when it isn't one.
+    parse(text) {
+        let pack;
+        try { pack = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a doodad pack (it is not readable JSON).'); }
+        if (!pack || pack.format !== this.format) throw new Error('This file is not a doodad pack.');
+        if (Number(pack.version) > this.version) throw new Error('This pack was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
+        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {} }, pack.contents || {});
+        pack.files = pack.files || {};
+        pack.library = pack.library || {};
+        return pack;
+    },
+
+    // What importing would do. fileState(path, bytes) -> 'new' | 'same' | 'different'. ids: { prefabs: Set,
+    // rooms: Set, biomes: Set } already in the project.
+    plan(pack, fileState, ids) {
+        const files = Object.keys(pack.files).map(path => {
+            if (!this.safePath(path)) return { path, state: 'unsafe' };
+            return { path, state: fileState(path, this.fromBase64(pack.files[path])) };
+        });
+        const clash = (list, have) => (list || []).filter(x => x && have && have.has(x.id)).length;
+        return {
+            files,
+            newFiles: files.filter(f => f.state === 'new').length,
+            sameFiles: files.filter(f => f.state === 'same').length,
+            conflicts: files.filter(f => f.state === 'different').map(f => f.path),
+            unsafe: files.filter(f => f.state === 'unsafe').map(f => f.path),
+            prefabs: pack.contents.prefabs.length, rooms: pack.contents.rooms.length, biomes: pack.contents.biomes.length,
+            dress: pack.contents.dress.length, collections: Object.keys(pack.contents.collections).length,
+            idClashes: clash(pack.contents.prefabs, ids.prefabs) + clash(pack.contents.rooms, ids.rooms) + clash(pack.contents.biomes, ids.biomes)
+        };
+    },
+
+    // The pack's things ready to add: ids that clash get new ones (and prefabs inside prefabs follow).
+    // newId(prefix) makes an id. Returns { prefabs, rooms, biomes, dress, collections }.
+    prepare(pack, ids, newId) {
+        const fresh = (list, have, prefix) => {
+            const map = {};
+            const out = (list || []).map(x => {
+                const copy = JSON.parse(JSON.stringify(x));
+                if (have && have.has(copy.id)) { map[copy.id] = newId(prefix); copy.id = map[x.id]; }
+                return copy;
+            });
+            return { out, map };
+        };
+        const prefabs = fresh(pack.contents.prefabs, ids.prefabs, 'pf_');
+        for (const p of prefabs.out) for (const c of p.children || []) if (prefabs.map[c.id]) c.id = prefabs.map[c.id];
+        return {
+            prefabs: prefabs.out,
+            rooms: fresh(pack.contents.rooms, ids.rooms, 'room_').out,
+            biomes: fresh(pack.contents.biomes, ids.biomes, 'biome_').out,
+            dress: JSON.parse(JSON.stringify(pack.contents.dress || [])),
+            collections: JSON.parse(JSON.stringify(pack.contents.collections || {}))
+        };
+    },
+
+    // A file name for a pack: letters, digits, spaces, dashes.
+    fileName(name) {
+        const base = String(name || 'Pack').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_') || 'Pack';
+        return base + this.extension;
+    }
+};
 //==========================================================
 // SECTION 12: DocsDoodads.SEARCH (TOKENIZED QUERY PARSER)
 //==========================================================
@@ -19181,6 +19598,146 @@ DocsDoodads.MapLinks = {
 };
 
 //==========================================================
+// SECTION 19C: ROOM STAMPS
+//==========================================================
+// A rectangle of map saved as a stamp: its tiles (all six layers: four tile layers, shadows and
+// regions), the doodads standing in it and the events on it, to place again here or on another map.
+// Stamps are kept in data/DocsDoodadsRooms.json. Tiles are MZ's map data (index (z * h + y) * w + x).
+DocsDoodads.Rooms = {
+    filePath: 'data/DocsDoodadsRooms.json',
+    layers: 6,
+    list: [],
+    loaded: false,
+
+    load() {
+        const data = DocsDoodads.FS.readJson(this.filePath);
+        this.list = data && Array.isArray(data.rooms) ? data.rooms : [];
+        this.loaded = true;
+        return this.list;
+    },
+
+    ensureLoaded() {
+        if (!this.loaded) this.load();
+        return this.list;
+    },
+
+    save() {
+        return DocsDoodads.FS.atomicWriteJson(this.filePath, { version: 1, rooms: this.ensureLoaded() });
+    },
+
+    get(id) {
+        return this.ensureLoaded().find(r => r.id === id) || null;
+    },
+
+    add(room) {
+        this.ensureLoaded().push(room);
+        return room;
+    },
+
+    remove(id) {
+        const i = this.ensureLoaded().findIndex(r => r.id === id);
+        if (i >= 0) this.list.splice(i, 1);
+        return i >= 0;
+    },
+
+    index(w, h, x, y, z) {
+        return (z * h + y) * w + x;
+    },
+
+    // The rectangle between two tiles, inside the map.
+    rectBetween(a, b, mapW, mapH) {
+        const x0 = Math.max(0, Math.min(a.x, b.x)), y0 = Math.max(0, Math.min(a.y, b.y));
+        const x1 = Math.min(mapW - 1, Math.max(a.x, b.x)), y1 = Math.min(mapH - 1, Math.max(a.y, b.y));
+        return { x: x0, y: y0, w: Math.max(0, x1 - x0 + 1), h: Math.max(0, y1 - y0 + 1) };
+    },
+
+    // map: { width, height, data }; rect in tiles; doodads (pixels) and events (tiles) of the map.
+    capture(name, map, rect, doodads, events, tw = 48, th = 48) {
+        const W = Number(map.width) || 0, H = Number(map.height) || 0;
+        const tiles = new Array(rect.w * rect.h * this.layers).fill(0);
+        for (let z = 0; z < this.layers; z++) {
+            for (let y = 0; y < rect.h; y++) {
+                for (let x = 0; x < rect.w; x++) {
+                    tiles[this.index(rect.w, rect.h, x, y, z)] = Number(map.data[this.index(W, H, rect.x + x, rect.y + y, z)]) || 0;
+                }
+            }
+        }
+        const left = rect.x * tw, top = rect.y * th, right = (rect.x + rect.w) * tw, bottom = (rect.y + rect.h) * th;
+        // A doodad belongs to the room when it stands in it (its anchor point, at its foot).
+        const inside = (doodads || []).filter(d => d && d.x >= left && d.x < right && d.y > top && d.y <= bottom && !d.mirrorOf);
+        return {
+            id: DocsDoodads.Prefabs.newId('room_'),
+            name: String(name || 'Room').trim() || 'Room',
+            createdAt: Date.now(),
+            w: rect.w, h: rect.h, tileWidth: tw, tileHeight: th,
+            tiles,
+            doodads: inside.map(d => Object.assign(DocsDoodads.Prefabs.cleanDoodad(d), { x: d.x - left, y: d.y - top })),
+            events: (events || []).filter(e => e && e.x >= rect.x && e.x < rect.x + rect.w && e.y >= rect.y && e.y < rect.y + rect.h)
+                .map(e => Object.assign(JSON.parse(JSON.stringify(e)), { dx: e.x - rect.x, dy: e.y - rect.y }))
+        };
+    },
+
+    // What placing the room with its top-left on tile (at.x, at.y) does. options: { tiles, doodads, events
+    // (each on unless false), keepUnder (a tile layer the room leaves empty keeps the map's tile), tileWidth,
+    // tileHeight, allocateEventId }. Returns { changes: [{ index, before, after }], doodads, events }; the
+    // map is not changed here. Parts outside the map are left off.
+    place(room, map, at, options = {}) {
+        const W = Number(map.width) || 0, H = Number(map.height) || 0;
+        const tw = options.tileWidth || 48, th = options.tileHeight || 48;
+        const keepUnder = options.keepUnder !== false;
+        const out = { changes: [], doodads: [], events: [] };
+        const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+        if (options.tiles !== false) {
+            for (let z = 0; z < this.layers; z++) {
+                for (let y = 0; y < room.h; y++) {
+                    for (let x = 0; x < room.w; x++) {
+                        const mx = at.x + x, my = at.y + y;
+                        if (!inMap(mx, my)) continue;
+                        const after = Number(room.tiles[this.index(room.w, room.h, x, y, z)]) || 0;
+                        // Empty upper layers and no region in the room leave the map's own.
+                        if (keepUnder && after === 0 && z > 0) continue;
+                        const index = this.index(W, H, mx, my, z);
+                        const before = Number(map.data[index]) || 0;
+                        if (before !== after) out.changes.push({ index, before, after });
+                    }
+                }
+            }
+        }
+        // Doodads keep where they stood in the room; their size scales with a different tile size.
+        const sx = tw / (room.tileWidth || tw), sy = th / (room.tileHeight || th);
+        if (options.doodads !== false) {
+            const groupId = 'grp_' + DocsDoodads.Prefabs.newId('rm_');
+            for (const src of room.doodads || []) {
+                const d = JSON.parse(JSON.stringify(src));
+                d.x = Math.round(at.x * tw + src.x * sx);
+                d.y = Math.round(at.y * th + src.y * sy);
+                if (!inMap(Math.floor(d.x / tw), Math.floor((d.y - 1) / th))) continue;
+                if ((room.doodads || []).length > 1) d.groupId = groupId;
+                out.doodads.push(d);
+            }
+        }
+        if (options.events !== false) {
+            for (const src of room.events || []) {
+                const x = at.x + src.dx, y = at.y + src.dy;
+                if (!inMap(x, y)) continue;
+                const e = JSON.parse(JSON.stringify(src));
+                delete e.dx;
+                delete e.dy;
+                e.x = x;
+                e.y = y;
+                e.id = options.allocateEventId ? options.allocateEventId(e) : null;
+                out.events.push(e);
+            }
+        }
+        return out;
+    },
+
+    summary(room) {
+        const n = (room.doodads || []).length, e = (room.events || []).length;
+        return `${room.w} x ${room.h} tiles` + (n ? `, ${n} doodad${n === 1 ? '' : 's'}` : '') + (e ? `, ${e} event${e === 1 ? '' : 's'}` : '');
+    }
+};
+//==========================================================
 // SECTION 20: DocsDoodads.UNDO (COMMAND-BASED HISTORY STACK)
 //==========================================================
 DocsDoodads.Undo = {
@@ -21171,6 +21728,11 @@ DocsDoodads.Workspace = {
     // bubble says what to do. No tool (null) is Select.
     toolButtons: { select: 'dd-select-btn', eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn', terrain: 'dd-terrain-btn' },
     toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
+    // Tools added by later parts: { click(coords, e), down(e) (true starts a stroke), move(e, stroking),
+    // up(e), overlay(g) }, called with the workspace as this. The canvas input part calls them.
+    toolHooks: {},
+    // Extra sections of the map's own settings: [{ render(mapSettings) -> html, bind(mapSettings) }].
+    mapSections: [],
 
     setPlacementTool(tool) {
         if (this._tour && this._tour.tool !== tool) this.endTour();
@@ -21278,6 +21840,9 @@ DocsDoodads.Workspace = {
         this._historyPanel = null;
         this._vfxPanel = null;
         this._postFxPanel = null;
+        if (this.stopShortcutCapture) this.stopShortcutCapture();
+        this.previewRegionLook = 0;
+        this._roomDrag = null;
         this.stopVfxPreview();
         this.postFxCompare = false;
         this.mounted = false;
@@ -21529,6 +22094,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-palette-btn" title="${escapeHtml(this.shortcutTip('dd-palette-btn'))}">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-rooms-btn" title="Save part of the map (tiles, doodads, events) as a room stamp and place it again">${U.icon('map', 1)} Rooms</button>
+                    <button class="dd-btn" id="dd-packs-btn" title="Put prefabs, rooms, biomes and their art in one file for another project, or bring one in">${U.icon('box', 1)} Packs</button>
                     <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
@@ -21986,6 +22553,8 @@ DocsDoodads.Workspace = {
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
+        on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
+        on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
@@ -24204,6 +24773,10 @@ DocsDoodads.Workspace = {
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Rooms (room stamps)', () => this.showRoomsCard());
+        add('Doodad Packs (make or bring in)', () => this.showPacksCard());
+        add('Save a Room from the Map', () => { this.showRoomsCard(); this.startRoomCapture(); });
+        for (const r of D.Rooms.ensureLoaded()) add('Place Room: ' + r.name, () => { this.showRoomsCard(); this.pickRoom(r.id); }, 'Room');
         add('Check Reach from the player', () => this.checkReach());
         add('Check Reach from a tile...', () => this.setPlacementTool('reach'));
         add('Capture: orbit GIF (3D)', () => this.captureOrbitGif());
@@ -25821,8 +26394,14 @@ DocsDoodads.Workspace = {
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
                 range('motionBlur.strength', 'Strength', 0.1, 3, 0.1)
+            ] },
+            { title: 'Minimap', fields: [
+                check('minimap.flat', 'Minimap on flat maps too (3D maps have their own switch; a map can turn it off)'),
+                check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
+                range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
+                range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] }
-        ];
+        ].concat(this.extraWorldSections || []);
     },
 
     renderWorldSections() {
@@ -26189,6 +26768,7 @@ DocsDoodads.Workspace = {
             ${this.renderTerrainPanel()}
             ${this.renderMapSoundPanel(mapSettings)}
             ${this.renderLayersPanel(mapSettings)}
+            ${this.mapSections.map(section => section.render.call(this, mapSettings)).join('')}
             ${this.renderWorldSections()}
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}
@@ -26230,6 +26810,7 @@ DocsDoodads.Workspace = {
         this.bindTerrainPanel();
         this.bindMapSoundPanel(mapSettings);
         this.bindLayersPanel(mapSettings);
+        this.mapSections.forEach(section => { if (section.bind) section.bind.call(this, mapSettings); });
         this.bindWorldSections();
         this.bindMapNavigation();
         this.bindPackingPanel();
@@ -27970,6 +28551,7 @@ DocsDoodads.Workspace = {
         this.drawSoundOverlay(g);
         this.drawReachOverlay(g);
         this.drawRegionOverlay(g);
+        for (const name of Object.keys(this.toolHooks)) if (this.toolHooks[name].overlay) this.toolHooks[name].overlay.call(this, g);
         this.drawTransformHandles(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
@@ -28424,6 +29006,11 @@ DocsDoodads.Workspace = {
             }
             this.closeContextMenu();
             const coords = this.clientToMapCoords(e.clientX, e.clientY);
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.click) {
+                hook.click.call(this, coords, e);
+                return;
+            }
 
             // 1. Eyedropper Tool or Alt held
             if (this.placementTool === 'eyedropper' || e.altKey) {
@@ -28466,6 +29053,14 @@ DocsDoodads.Workspace = {
 
         this._onCanvasMouseDown = (e) => {
             if (e.button === 1 && this.beginCameraDrag(e)) return;
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.down && e.button === 0) {
+                if (hook.down.call(this, e)) {
+                    this.isBrushActive = true;
+                    this._hookStroke = hook;
+                }
+                return;
+            }
             if (this.placementTool === 'brush' && e.button === 2) {
                 this.beginScatterErase(e.clientX, e.clientY);
                 return;
@@ -28561,6 +29156,8 @@ DocsDoodads.Workspace = {
                 return;
             }
             if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.move) hook.move.call(this, e, Boolean(this.isBrushActive && this._hookStroke === hook));
             if (this.placementTool === 'region') {
                 this.trackRegionHover(e);
                 if (this.isBrushActive && this._regionStroke) this.regionPaintAt(e.clientX, e.clientY);
@@ -28625,6 +29222,11 @@ DocsDoodads.Workspace = {
                 if (this._scatterErase) this.endScatterErase();
                 if (this._terrainStroke) this.endTerrainStroke();
                 if (this._regionStroke) this.endRegionStroke();
+                if (this._hookStroke) {
+                    const hook = this._hookStroke;
+                    this._hookStroke = null;
+                    if (hook.up) hook.up.call(this, e);
+                }
                 if (this.currentBrushBatch.length > 0) {
                     const batch = [...this.currentBrushBatch];
                     const cmd = {
@@ -31063,6 +31665,34 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25o: MINIMAP ON FLAT MAPS (MAP SETTINGS)
+//==========================================================
+// The map's own choice for the corner minimap when it is flat: follow World > Minimap, always, or never.
+// (A 3D map uses the switch in its 3D View section.)
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const own = mapSettings && mapSettings.minimap;
+        const value = own === 'on' || own === 'off' ? own : 'auto';
+        const world = DocsDoodads.World.settings().minimap;
+        const option = (v, label) => `<option value="${v}"${v === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+        return `
+            <details id="dd-minimap-sec" ${this._openMinimap ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Minimap (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Corner minimap when this map is flat
+                        <select id="dd-minimap-mode" style="width: 100%;">${option('auto', `As World > Minimap (${world.flat ? 'on' : 'off'})`)}${option('on', 'On')}${option('off', 'Off')}</select></div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">${world.fog ? 'Fog of war is on: the minimap shows what the player has been near.' : 'Fog of war is off (World > Minimap).'} The Show / Hide Minimap and Explored Map commands change it during play.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-minimap-sec');
+        if (details) details.ontoggle = () => { this._openMinimap = details.open; };
+        const select = document.getElementById('dd-minimap-mode');
+        if (select) select.onchange = e => this.setMapSetting('minimap', e.target.value === 'auto' ? undefined : e.target.value);
+    }
+});
+//==========================================================
 // SECTION 25f: WORKSPACE NAVIGATION (PALETTE, MAP TABS, FOLDER VIEW)
 //==========================================================
 // Getting around: the command palette (any word order, recent first, shortcuts shown, and values typed
@@ -31687,6 +32317,234 @@ Object.assign(DocsDoodads.Workspace, {
         const tours = document.getElementById('dd-whats-new-tours');
         if (tours) tours.onclick = () => { close(); this.replayTours(); };
         return card;
+    }
+});
+//==========================================================
+// SECTION 25q: DOODAD PACKS (CARD, EXPORT AND IMPORT)
+//==========================================================
+// More > Packs: pick prefabs, rooms, biomes, dressing rules and collections and save them, with the files
+// they use, as one .ddpack file in the project's packs folder; or bring a pack in from another project.
+// Files already here and different are kept unless "Use the pack's" is picked (a backup is made first).
+DocsDoodads.Ui.css += `
+#dd-packs-card { position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 10045; width: 420px; max-width: calc(100vw - 32px); max-height: calc(100vh - 110px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+#dd-packs-card .dd-pack-group { font-size: 11px; font-weight: 900; color: var(--dd-muted); margin-top: 4px; }
+#dd-packs-card .dd-pack-list { display: flex; flex-direction: column; gap: 2px; max-height: 120px; overflow-y: auto; }
+#dd-packs-card label { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+#dd-packs-card .dd-pack-note { font-size: 10px; color: var(--dd-faint); line-height: 1.4; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [] },
+    _incomingPack: null,
+
+    packSources() {
+        const D = DocsDoodads;
+        return {
+            prefab: id => D.Prefabs.get(id),
+            room: id => D.Rooms.get(id),
+            biomes: D.World.get('biomes.list') || [],
+            dress: D.World.get('dress.rules') || [],
+            collections: (D.AssetIndex.data && D.AssetIndex.data.collections) || {},
+            assetPath: id => { const a = D.AssetIndex.data.assets[id]; return a ? a.path : null; }
+        };
+    },
+
+    // 'bgs/River' as the file the game would play, if it is in the project.
+    packAudioFile(name) {
+        const FS = DocsDoodads.FS;
+        for (const ext of ['.ogg', '.m4a', '.wav']) {
+            const file = 'audio/' + name + ext;
+            if (FS.existsSync(file)) return file;
+        }
+        return null;
+    },
+
+    readProjectFile(p) {
+        const FS = DocsDoodads.FS;
+        try { return FS.existsSync(p) ? FS.fs.readFileSync(p) : null; } catch (e) { return null; }
+    },
+
+    // Makes the pack and writes it to packs/<name>.ddpack. Returns { path, pack } or null.
+    exportPack(name, sel = this.packSelection) {
+        const D = DocsDoodads, P = D.Packs, FS = D.FS;
+        const gathered = P.gather(sel, this.packSources(), n => this.packAudioFile(n));
+        const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
+            gathered.contents.dress.length + Object.keys(gathered.contents.collections).length;
+        if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
+        const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
+        const out = FS.path.join('packs', P.fileName(pack.name));
+        try {
+            FS.mkdirp('packs');
+            FS.writeFileSync(out, JSON.stringify(pack), 'utf8');
+        } catch (e) {
+            this.showToast('Could not save the pack: ' + (e.message || e), 'error');
+            return null;
+        }
+        const files = Object.keys(pack.files).length;
+        this.showToast(`Saved ${out}: ${total} item(s) and ${files} file(s)${pack.missing.length ? `; ${pack.missing.length} file(s) not found were left out` : ''}.`, pack.missing.length ? 'info' : 'success');
+        try { if (typeof nw !== 'undefined' && nw.Shell) nw.Shell.showItemInFolder(FS.path.resolve(out)); } catch (e) {}
+        return { path: out, pack };
+    },
+
+    // The pack's files compared with the project's.
+    packFileState(p, bytes) {
+        const mine = this.readProjectFile(p);
+        if (!mine) return 'new';
+        if (mine.length === bytes.length && Buffer.compare(Buffer.from(mine), Buffer.from(bytes)) === 0) return 'same';
+        return 'different';
+    },
+
+    projectIds() {
+        const D = DocsDoodads;
+        return {
+            prefabs: new Set(D.Prefabs.ensureLoaded().map(p => p.id)),
+            rooms: new Set(D.Rooms.ensureLoaded().map(r => r.id)),
+            biomes: new Set((D.World.get('biomes.list') || []).map(b => b && b.id))
+        };
+    },
+
+    readPack(filePath) {
+        const text = DocsDoodads.FS.fs.readFileSync(filePath, 'utf8');
+        const pack = DocsDoodads.Packs.parse(text);
+        this._incomingPack = { pack, plan: DocsDoodads.Packs.plan(pack, (p, b) => this.packFileState(p, b), this.projectIds()), file: filePath, conflict: 'keep' };
+        return this._incomingPack;
+    },
+
+    // Brings the pack in. conflict: 'keep' (files already here stay) or 'replace' (backed up, then the
+    // pack's). Returns what was added.
+    async importPack(incoming = this._incomingPack) {
+        if (!incoming) return null;
+        const D = DocsDoodads, P = D.Packs, FS = D.FS;
+        const { pack, plan } = incoming;
+        const written = [];
+        for (const f of plan.files) {
+            if (f.state === 'unsafe' || f.state === 'same') continue;
+            if (f.state === 'different' && incoming.conflict !== 'replace') continue;
+            try {
+                if (f.state === 'different') FS.createTimestampedBackup(f.path);
+                FS.mkdirp(FS.path.dirname(f.path));
+                FS.fs.writeFileSync(f.path, P.fromBase64(pack.files[f.path]));
+                written.push(f.path);
+            } catch (e) {
+                this.showToast(`Could not write ${f.path}: ${e.message || e}`, 'error');
+            }
+        }
+        const ready = P.prepare(pack, this.projectIds(), prefix => D.Prefabs.newId(prefix));
+        ready.prefabs.forEach(p => D.Prefabs.add(p));
+        if (ready.prefabs.length) D.Prefabs.save();
+        ready.rooms.forEach(r => D.Rooms.add(r));
+        if (ready.rooms.length) D.Rooms.save();
+        if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
+        if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
+        // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
+        if (written.length && D.AssetIndex.scanAsync) await D.AssetIndex.scanAsync({ loadCache: false });
+        let entries = 0;
+        for (const p of written) {
+            const entry = D.AssetIndex.data.assets[p.toLowerCase()];
+            const from = pack.library[p];
+            if (entry && from) { Object.assign(entry, JSON.parse(JSON.stringify(from))); entries++; }
+        }
+        for (const name of Object.keys(ready.collections)) {
+            for (const p of ready.collections[name]) if (D.AssetIndex.data.assets[p.toLowerCase()]) D.AssetIndex.addAssetToCollection(p.toLowerCase(), name);
+        }
+        if (entries || Object.keys(ready.collections).length) {
+            D.AssetIndex.rebuildList();
+            if (D.AssetIndex.save) D.AssetIndex.save();
+        }
+        if (this.refreshDrawerCards) this.refreshDrawerCards();
+        this._incomingPack = null;
+        const kept = plan.conflicts.length && incoming.conflict !== 'replace' ? `; kept your own ${plan.conflicts.length} file(s) that differ` : '';
+        this.showToast(`Brought in "${pack.name}": ${ready.prefabs.length} prefab(s), ${ready.rooms.length} room(s), ${ready.biomes.length} biome(s), ${ready.dress.length} rule(s), ${written.length} file(s)${kept}.`, 'success');
+        this.refreshPacksCard();
+        return { written, ready };
+    },
+
+    pickPackToImport() {
+        if (typeof document === 'undefined') return false;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = DocsDoodads.Packs.extension + ',.json';
+        input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file || !file.path) return;
+            try { this.readPack(file.path); } catch (e) { this.showToast(e.message || String(e), 'error'); }
+            this.refreshPacksCard();
+        };
+        if (typeof input.click === 'function') input.click();
+        return true;
+    },
+
+    // ---- The card ----
+    showPacksCard() {
+        if (typeof document === 'undefined') return null;
+        const D = DocsDoodads, U = D.Ui, sel = this.packSelection;
+        let card = document.getElementById('dd-packs-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-packs-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const src = this.packSources();
+        const groups = [
+            ['prefabs', 'Prefabs', D.Prefabs.ensureLoaded().map(p => [p.id, p.name])],
+            ['rooms', 'Rooms', D.Rooms.ensureLoaded().map(r => [r.id, r.name])],
+            ['biomes', 'Biomes', (src.biomes || []).filter(Boolean).map(b => [b.id, b.name])],
+            ['dress', 'Dressing rules', (src.dress || []).map((r, i) => [i, (r && r.name) || 'Rule ' + (i + 1)])],
+            ['collections', 'Collections', Object.keys(src.collections).map(n => [n, n])]
+        ];
+        const listHtml = (key, items) => items.length
+            ? items.map(([value, label], i) => `<label><input type="checkbox" id="dd-pk-${key}-${i}" ${sel[key].includes(value) ? 'checked' : ''} /> ${escapeHtml(String(label))}</label>`).join('')
+            : '<div class="dd-pack-note">None in this project.</div>';
+        const inc = this._incomingPack;
+        const incoming = inc ? `
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; display: flex; flex-direction: column; gap: 5px;">
+                <b style="font-size: 12px;">${escapeHtml(inc.pack.name)}</b>
+                <div class="dd-pack-note">${inc.plan.prefabs} prefab(s), ${inc.plan.rooms} room(s), ${inc.plan.biomes} biome(s), ${inc.plan.dress} rule(s), ${inc.plan.collections} collection(s);
+                    files: ${inc.plan.newFiles} new, ${inc.plan.sameFiles} already here${inc.plan.conflicts.length ? `, <b>${inc.plan.conflicts.length} different from yours</b>` : ''}.${inc.plan.idClashes ? ' Items with the same id as yours are added as new ones.' : ''}${inc.plan.unsafe.length ? ` ${inc.plan.unsafe.length} file(s) outside the project's folders are left out.` : ''}</div>
+                ${inc.plan.conflicts.length ? `<div class="dd-pack-note" style="max-height: 60px; overflow-y: auto;">${inc.plan.conflicts.map(escapeHtml).join('<br>')}</div>
+                <div style="font-size: 11px;">Files that differ <select id="dd-pk-conflict"><option value="keep"${inc.conflict === 'keep' ? ' selected' : ''}>Keep mine</option><option value="replace"${inc.conflict === 'replace' ? ' selected' : ''}>Use the pack's (mine are backed up)</option></select></div>` : ''}
+                <div style="display: flex; gap: 6px;"><button class="dd-btn dd-btn-primary" id="dd-pk-import" type="button">Bring It In</button>
+                    <button class="dd-btn" id="dd-pk-cancel" type="button">Cancel</button></div>
+            </div>` : '';
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('box', 1)} Doodad Packs</span>
+                <button class="dd-btn dd-fold" id="dd-packs-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div class="dd-pack-note">A pack is one file with the things you pick and the art, sounds and models they use, to bring into another project.</div>
+            ${groups.map(([key, title, items]) => `<div class="dd-pack-group">${title}</div><div class="dd-pack-list">${listHtml(key, items)}</div>`).join('')}
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="text" id="dd-pk-name" value="${escapeHtml(this._packName || 'My Pack')}" style="flex: 1; min-width: 0;" title="The pack's name" />
+                <button class="dd-btn dd-btn-primary" id="dd-pk-export" type="button" title="Saves it in the project's packs folder">Make Pack</button></div>
+            <div style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px;">
+                <button class="dd-btn" id="dd-pk-open" type="button" title="Choose a .ddpack file from another project">${U.icon('folder', 1)} Bring In a Pack...</button></div>
+            ${incoming}`;
+        const byId = id => document.getElementById(id);
+        groups.forEach(([key, , items]) => items.forEach(([value], i) => {
+            const box = byId(`dd-pk-${key}-${i}`);
+            if (box) box.onchange = e => {
+                const list = sel[key].filter(v => v !== value);
+                if (e.target.checked) list.push(value);
+                sel[key] = list;
+            };
+        }));
+        const on = (id, fn) => { const node = byId(id); if (node) node.onclick = fn; };
+        on('dd-packs-close', () => this.closePacksCard());
+        on('dd-pk-export', () => { const name = byId('dd-pk-name'); this._packName = name ? name.value : 'My Pack'; this.exportPack(this._packName); });
+        on('dd-pk-open', () => this.pickPackToImport());
+        on('dd-pk-import', () => this.importPack());
+        on('dd-pk-cancel', () => { this._incomingPack = null; this.refreshPacksCard(); });
+        const conflict = byId('dd-pk-conflict');
+        if (conflict) conflict.onchange = e => { if (this._incomingPack) this._incomingPack.conflict = e.target.value === 'replace' ? 'replace' : 'keep'; };
+        return card;
+    },
+
+    refreshPacksCard() {
+        if (typeof document !== 'undefined' && document.getElementById('dd-packs-card')) this.showPacksCard();
+    },
+
+    closePacksCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-packs-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
     }
 });
 //==========================================================
@@ -32463,6 +33321,267 @@ DocsDoodads.Workspace.toolButtons.region = 'dd-region-btn';
 DocsDoodads.Workspace.toolPopovers.region = 'dd-region-popover';
 DocsDoodads.Workspace.brushSizeSteps.region = ['dd-region-rad', 1, 0, 6];
 //==========================================================
+// SECTION 25p: ROOM STAMPS (TOOL AND CARD)
+//==========================================================
+// More > Rooms: save a rectangle of the map (tiles, doodads, events) as a room stamp by dragging over it,
+// then place it here or on another map with a click. Each placement is one undo step. The stamps
+// themselves are DocsDoodads.Rooms.
+DocsDoodads.Ui.css += `
+#dd-rooms-card { position: fixed; top: 90px; right: 280px; z-index: 10045; width: 300px; max-width: calc(100vw - 32px); max-height: calc(100vh - 120px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#dd-rooms-card .dd-room-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+#dd-rooms-card .dd-room-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px; align-items: center; padding: 4px 6px; border-radius: 8px; font-size: 11px; }
+#dd-rooms-card .dd-room-row.dd-active { background: var(--dd-primary-soft); }
+#dd-rooms-card .dd-room-row small { display: block; color: var(--dd-faint); font-size: 10px; }
+#dd-rooms-card label { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+`;
+
+DocsDoodads.Ui.hints.room = 'Rooms: drag over the map to save that part as a room stamp, or pick a stamp in the Rooms card and click where its top-left corner goes.';
+
+Object.assign(DocsDoodads.Workspace, {
+    roomTool: { mode: 'capture', roomId: null, tiles: true, doodads: true, events: true, keepUnder: true },
+
+    tileSize() {
+        const gm = typeof $gameMap !== 'undefined' ? $gameMap : null;
+        return { tw: gm && gm.tileWidth ? gm.tileWidth() : 48, th: gm && gm.tileHeight ? gm.tileHeight() : 48 };
+    },
+
+    // The map being edited, as the game reads it now.
+    liveMapData() {
+        const m = typeof window !== 'undefined' ? window.$dataMap : null;
+        return m && Array.isArray(m.data) ? m : null;
+    },
+
+    // A tile written into the game's copy and the staged copy (what Save writes), like the Regions tool.
+    setMapTile(mapId, index, value) {
+        const { live, staged } = this.regionTargets(mapId);
+        if (live && Array.isArray(live.data)) live.data[index] = value;
+        if (staged && Array.isArray(staged.data)) staged.data[index] = value;
+        DocsDoodads.Persistence.dirtyMap = true;
+    },
+
+    // After tiles change: the tilemap draws again and caches built from the tiles are let go.
+    afterTileEdit() {
+        const ss = typeof SceneManager !== 'undefined' && SceneManager._scene ? SceneManager._scene._spriteset : null;
+        if (ss) {
+            ss._docsStand = null;
+            if (ss._tilemap && ss._tilemap.refresh) ss._tilemap.refresh();
+        }
+        if (DocsDoodads.Minimap) DocsDoodads.Minimap._map = null;
+        if (this.renderRegionLegend) this.renderRegionLegend();
+    },
+
+    startRoomCapture() {
+        this.roomTool.mode = 'capture';
+        this.roomTool.roomId = null;
+        this.setPlacementTool('room');
+        this.showToast('Drag over the part of the map to save as a room.', 'info');
+        this.refreshRoomsCard();
+    },
+
+    pickRoom(id) {
+        if (!DocsDoodads.Rooms.get(id)) return false;
+        this.roomTool.mode = 'place';
+        this.roomTool.roomId = id;
+        this.setPlacementTool('room');
+        this.refreshRoomsCard();
+        return true;
+    },
+
+    // ---- Capturing ----
+    async saveRoomFromRect(rect) {
+        const map = this.liveMapData();
+        if (!map || !rect || rect.w <= 0 || rect.h <= 0) return null;
+        const staged = DocsDoodads.Persistence.stagedFor();
+        const events = ((staged && staged.events) || []).filter(Boolean);
+        const { tw, th } = this.tileSize();
+        const R = DocsDoodads.Rooms;
+        const values = await DocsDoodads.Ui.form({
+            title: 'Save a room', icon: 'map', ok: 'Save Room',
+            text: `${rect.w} x ${rect.h} tiles from (${rect.x}, ${rect.y}): its tiles, the doodads standing in it and the events on it.`,
+            fields: [{ key: 'name', label: 'Name', value: 'Room ' + (R.ensureLoaded().length + 1) }]
+        });
+        if (!values || !String(values.name || '').trim() || !this.mounted) return null;
+        const room = R.capture(values.name, map, rect, DocsDoodads.doodads() || [], events, tw, th);
+        R.add(room);
+        R.save();
+        this.showToast(`Saved room "${room.name}" (${R.summary(room)}).`, 'success');
+        this.pickRoom(room.id);
+        return room;
+    },
+
+    // ---- Placing ----
+    placeRoom(room, at) {
+        const map = this.liveMapData();
+        if (!room || !map) return null;
+        const R = DocsDoodads.Rooms;
+        const { tw, th } = this.tileSize();
+        const mapId = this.currentMapId();
+        const staged = DocsDoodads.Persistence.stagedFor();
+        const reserved = [];
+        const t = this.roomTool;
+        const plan = R.place(room, map, at, {
+            tiles: t.tiles, doodads: t.doodads, events: t.events && Boolean(staged && staged.events), keepUnder: t.keepUnder,
+            tileWidth: tw, tileHeight: th,
+            allocateEventId: () => {
+                const id = DocsDoodads.Events.allocateSafeId(staged);
+                staged.events[id] = { id, reserved: true };
+                reserved.push(id);
+                return id;
+            }
+        });
+        reserved.forEach(id => { delete staged.events[id]; });
+        if (!plan.changes.length && !plan.doodads.length && !plan.events.length) {
+            this.showToast('Nothing to place there: the room would change nothing.', 'info');
+            return plan;
+        }
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+        DocsDoodads.Undo.execute({
+            type: 'place_room',
+            apply: () => {
+                plan.changes.forEach(c => this.setMapTile(mapId, c.index, c.after));
+                plan.doodads.forEach(d => { if (!list.includes(d)) list.push(d); });
+                plan.events.forEach(e => { staged.events[e.id] = e; });
+                DocsDoodads.Persistence.dirtyDoodads = true;
+                if (plan.events.length) DocsDoodads.Persistence.dirtyMap = true;
+                this.afterTileEdit();
+                this.refreshSpriteset();
+            },
+            revert: () => {
+                plan.changes.forEach(c => this.setMapTile(mapId, c.index, c.before));
+                plan.doodads.forEach(d => { const i = list.indexOf(d); if (i > -1) list.splice(i, 1); });
+                plan.events.forEach(e => { if (staged.events[e.id] === e) staged.events[e.id] = null; });
+                this.afterTileEdit();
+                this.refreshSpriteset();
+            }
+        });
+        this.showToast(`Placed "${room.name}": ${plan.changes.length} tile change${plan.changes.length === 1 ? '' : 's'}, ${plan.doodads.length} doodad(s), ${plan.events.length} event(s).`, 'success');
+        return plan;
+    },
+
+    async renameRoom(id) {
+        const room = DocsDoodads.Rooms.get(id);
+        if (!room) return;
+        const name = await DocsDoodads.Ui.prompt('A new name for this room:', room.name, { title: 'Rename room', ok: 'Rename', icon: 'map' });
+        if (!name || !name.trim() || DocsDoodads.Rooms.get(id) !== room) return;
+        room.name = name.trim();
+        DocsDoodads.Rooms.save();
+        this.refreshRoomsCard();
+    },
+
+    async deleteRoom(id) {
+        const room = DocsDoodads.Rooms.get(id);
+        if (!room) return;
+        if (!(await DocsDoodads.Ui.confirm(`The room "${room.name}" will be deleted. Places where it was put stay as they are.`,
+            { title: 'Delete room?', ok: 'Delete Room', danger: true }))) return;
+        DocsDoodads.Rooms.remove(id);
+        DocsDoodads.Rooms.save();
+        if (this.roomTool.roomId === id) { this.roomTool.roomId = null; this.roomTool.mode = 'capture'; }
+        this.refreshRoomsCard();
+    },
+
+    // ---- The card ----
+    showRoomsCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, R = DocsDoodads.Rooms;
+        let card = document.getElementById('dd-rooms-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'dd-rooms-card';
+            card.className = 'dd-glass';
+            document.body.appendChild(card);
+        }
+        const t = this.roomTool;
+        const rooms = R.ensureLoaded();
+        const check = (id, label, on) => `<label><input type="checkbox" id="${id}" ${on ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
+        card.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">${U.icon('map', 1)} Rooms</span>
+                <button class="dd-btn dd-fold" id="dd-rooms-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <button class="dd-btn${this.placementTool === 'room' && t.mode === 'capture' ? ' dd-btn-primary' : ''}" id="dd-rooms-capture" type="button" title="Drag over the map to save that part as a room">${U.icon('plus', 1)} Save a Room from the Map</button>
+            <div class="dd-room-list">${rooms.length ? rooms.map((r, i) => `
+                <div class="dd-room-row${t.roomId === r.id && this.placementTool === 'room' ? ' dd-active' : ''}">
+                    <span>${escapeHtml(r.name)}<small>${escapeHtml(R.summary(r))}</small></span>
+                    <button class="dd-btn" id="dd-room-place-${i}" type="button" title="Click the map where its top-left corner goes">Place</button>
+                    <button class="dd-btn" id="dd-room-rename-${i}" type="button" title="Rename">${U.icon('wrench', 1)}</button>
+                    <button class="dd-btn" id="dd-room-delete-${i}" type="button" title="Delete">${U.icon('trash', 1)}</button>
+                </div>`).join('') : '<div style="font-size: 11px; color: var(--dd-faint); line-height: 1.4;">No rooms yet. Save one from the map: a house, a shop counter, a camp, then place it again anywhere.</div>'}</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px;">
+                ${check('dd-rooms-tiles', 'Tiles', t.tiles)}${check('dd-rooms-doodads', 'Doodads', t.doodads)}
+                ${check('dd-rooms-events', 'Events', t.events)}${check('dd-rooms-keep', 'Keep tiles under empty ones', t.keepUnder)}
+            </div>
+            <div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">Placing uses these. Rooms are kept in data/DocsDoodadsRooms.json, for every map. Autotile edges are copied as they were, so a room's border may need touching up in MZ.</div>`;
+        const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+        const tick = (id, key) => { const el = document.getElementById(id); if (el) el.onchange = e => { this.roomTool[key] = Boolean(e.target.checked); }; };
+        on('dd-rooms-close', () => this.closeRoomsCard());
+        on('dd-rooms-capture', () => this.startRoomCapture());
+        rooms.forEach((r, i) => {
+            on(`dd-room-place-${i}`, () => this.pickRoom(r.id));
+            on(`dd-room-rename-${i}`, () => this.renameRoom(r.id));
+            on(`dd-room-delete-${i}`, () => this.deleteRoom(r.id));
+        });
+        tick('dd-rooms-tiles', 'tiles');
+        tick('dd-rooms-doodads', 'doodads');
+        tick('dd-rooms-events', 'events');
+        tick('dd-rooms-keep', 'keepUnder');
+        return card;
+    },
+
+    refreshRoomsCard() {
+        if (typeof document !== 'undefined' && document.getElementById('dd-rooms-card')) this.showRoomsCard();
+    },
+
+    closeRoomsCard() {
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-rooms-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+        if (this.placementTool === 'room') this.setPlacementTool(null);
+    }
+});
+
+DocsDoodads.Workspace.toolHooks.room = {
+    down(e) {
+        if (this.roomTool.mode !== 'capture') return false;
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        this._roomDrag = { from: { x: at.tileX, y: at.tileY }, to: { x: at.tileX, y: at.tileY } };
+        return true;
+    },
+    move(e, stroking) {
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        this._roomHover = { x: at.tileX, y: at.tileY };
+        if (stroking && this._roomDrag) this._roomDrag.to = { x: at.tileX, y: at.tileY };
+    },
+    up() {
+        const drag = this._roomDrag;
+        this._roomDrag = null;
+        const map = this.liveMapData();
+        if (!drag || !map) return;
+        this._suppressNextClick = true;
+        this.saveRoomFromRect(DocsDoodads.Rooms.rectBetween(drag.from, drag.to, map.width, map.height));
+    },
+    click(coords) {
+        if (this.roomTool.mode !== 'place') return;
+        this.placeRoom(DocsDoodads.Rooms.get(this.roomTool.roomId), { x: coords.tileX, y: coords.tileY });
+    },
+    // The rectangle being dragged, or where the picked room would go.
+    overlay(g) {
+        if (this.placementTool !== 'room' || typeof $gameMap === 'undefined' || !$gameMap || !g) return;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        let rect = null;
+        if (this._roomDrag) {
+            const map = this.liveMapData();
+            if (map) rect = DocsDoodads.Rooms.rectBetween(this._roomDrag.from, this._roomDrag.to, map.width, map.height);
+        } else if (this.roomTool.mode === 'place' && this._roomHover) {
+            const room = DocsDoodads.Rooms.get(this.roomTool.roomId);
+            if (room) rect = { x: this._roomHover.x, y: this._roomHover.y, w: room.w, h: room.h };
+        }
+        if (!rect) return;
+        const color = DocsDoodads.Ui.mapColor('selection');
+        g.lineStyle(2, color, 0.95);
+        g.beginFill(color, 0.12);
+        g.drawRect($gameMap.adjustX(rect.x) * tw, $gameMap.adjustY(rect.y) * th, rect.w * tw, rect.h * th);
+        g.endFill();
+        g.lineStyle(0);
+    }
+};
+//==========================================================
 // SECTION 25g: WORKSPACE SELECTION EDITING (NUMBER SCRUBBING, HANDLES)
 //==========================================================
 // Numbers in Details change by dragging their label left and right, and step with the arrow keys
@@ -32739,6 +33858,7 @@ Object.assign(DocsDoodads.Workspace, {
             toolHills: tool('terrain'),
             toolRegions: tool('region'),
             toolGrab: tool('eyedropper'),
+            rooms: () => this.showRoomsCard(),
             brushSmaller: () => this.resizeBrush(-1) || false,
             brushBigger: () => this.resizeBrush(1) || false
         };

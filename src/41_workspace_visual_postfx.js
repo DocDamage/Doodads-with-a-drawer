@@ -656,8 +656,14 @@
                 check('motionBlur.enabled', 'Blur moving characters (players can turn it off in Options)'),
                 select('motionBlur.mode', 'Who', D.MotionBlur.modes),
                 range('motionBlur.strength', 'Strength', 0.1, 3, 0.1)
+            ] },
+            { title: 'Minimap', fields: [
+                check('minimap.flat', 'Minimap on flat maps too (3D maps have their own switch; a map can turn it off)'),
+                check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
+                range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
+                range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] }
-        ];
+        ].concat(this.extraWorldSections || []);
     },
 
     renderWorldSections() {
@@ -1024,6 +1030,7 @@
             ${this.renderTerrainPanel()}
             ${this.renderMapSoundPanel(mapSettings)}
             ${this.renderLayersPanel(mapSettings)}
+            ${this.mapSections.map(section => section.render.call(this, mapSettings)).join('')}
             ${this.renderWorldSections()}
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}
@@ -1065,6 +1072,7 @@
         this.bindTerrainPanel();
         this.bindMapSoundPanel(mapSettings);
         this.bindLayersPanel(mapSettings);
+        this.mapSections.forEach(section => { if (section.bind) section.bind.call(this, mapSettings); });
         this.bindWorldSections();
         this.bindMapNavigation();
         this.bindPackingPanel();

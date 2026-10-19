@@ -35,6 +35,7 @@ DocsDoodads.Shortcuts = {
         { id: 'toolHills', label: 'Hills tool', group: 'Tools', keys: '' },
         { id: 'toolRegions', label: 'Regions tool', group: 'Tools', keys: '' },
         { id: 'toolGrab', label: 'Grab tool', group: 'Tools', keys: '' },
+        { id: 'rooms', label: 'Rooms (room stamps)', group: 'Tools', keys: '' },
         { id: 'brushSmaller', label: 'Smaller brush (Scatter, Paint, Hills, Regions)', group: 'Tools', keys: '[' },
         { id: 'brushBigger', label: 'Bigger brush', group: 'Tools', keys: ']' },
         { id: 'pathFinish', label: 'Place props along the path being drawn', group: 'Tools', keys: 'Enter', fixed: true },

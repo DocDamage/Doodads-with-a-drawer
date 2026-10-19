@@ -119,10 +119,10 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.2.7 | **2D weather extras.** Wind that drives sway and leaf fall, drifting fog banks, lightning flashes with a delayed thunder sound during storms. | M |
 | 6.2.8 | **Directional light.** Cones and spot lights with a direction, a flashlight on the player, light presets (torch, neon, candle) and 2D occlusion so walls cast dark edges. | L |
 | 6.2.9 | **2D camera tools.** Follow smoothing, camera bounds per region, and a camera path plugin command for cutscenes, matching Set Camera in 3D. | M |
-| 6.2.10 | **Doodad packs.** Export a bundle of art, prefabs, collections, biomes and dressing rules as one file and import it into another project; nothing like it exists today. | M |
-| 6.2.11 | **Room stamps.** Save a rectangle of map (tiles, doodads, events) as a stamp and place it elsewhere or on another map. | M |
+| 6.2.10 | **Doodad packs.** **Done.** More > Packs: prefabs (with inner prefabs), rooms, biomes, rules and collections with their files and Item Bag entries in one .ddpack; importing keeps or backs up differing files and renames clashing ids. | M |
+| 6.2.11 | **Room stamps.** **Done.** More > Rooms: drag to save tiles (six layers), doodads and events; click to place on any map, one undo step. | M |
 | 6.2.12 | **Reachability check.** **Done.** Check Reach shades what the player can walk to (walls, doodad collision, characters) and lists doors, chests and transfers out of reach, saying when only a character blocks. | M |
-| 6.2.13 | **2D minimap and explored map.** The minimap exists only for 3D maps; add it for flat maps, with an optional fog of war that saves. | M |
+| 6.2.13 | **2D minimap and explored map.** **Done.** World > Minimap for flat maps (each map can choose), fog of war on the minimap and world map kept in the save, Show / Hide Minimap and Explored Map commands. | M |
 | 6.2.14 | **Problems panel.** **Done.** Missing pictures and sounds, doodads off the map, lamps on maps that never get dark, events nobody can step on or under collision; this map or every map; Fix and Go To. | M |
 | 6.2.15 | **Editor translation.** One string table for the editor, with Japanese first; the UI has no language layer today. | M |
 | 6.2.16 | **Gamepad and touch for traversal.** **Done.** Jump and fly on free gamepad buttons (triggers by default, picked in World > Traversal), and on-screen Jump/Dive and Fly/Land buttons on touch screens. | M |

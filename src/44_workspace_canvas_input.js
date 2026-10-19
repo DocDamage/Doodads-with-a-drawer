@@ -86,6 +86,7 @@
         this.drawSoundOverlay(g);
         this.drawReachOverlay(g);
         this.drawRegionOverlay(g);
+        for (const name of Object.keys(this.toolHooks)) if (this.toolHooks[name].overlay) this.toolHooks[name].overlay.call(this, g);
         this.drawTransformHandles(g);
         let heightTiles = [];
         if (this.placementTool === 'terrain' && this._terrainHover && typeof $gameMap !== 'undefined' && $gameMap) {
@@ -540,6 +541,11 @@
             }
             this.closeContextMenu();
             const coords = this.clientToMapCoords(e.clientX, e.clientY);
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.click) {
+                hook.click.call(this, coords, e);
+                return;
+            }
 
             // 1. Eyedropper Tool or Alt held
             if (this.placementTool === 'eyedropper' || e.altKey) {
@@ -582,6 +588,14 @@
 
         this._onCanvasMouseDown = (e) => {
             if (e.button === 1 && this.beginCameraDrag(e)) return;
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.down && e.button === 0) {
+                if (hook.down.call(this, e)) {
+                    this.isBrushActive = true;
+                    this._hookStroke = hook;
+                }
+                return;
+            }
             if (this.placementTool === 'brush' && e.button === 2) {
                 this.beginScatterErase(e.clientX, e.clientY);
                 return;
@@ -677,6 +691,8 @@
                 return;
             }
             if (this.placementTool === 'terrain' && !this.isBrushActive) this.trackTerrainHover(e);
+            const hook = this.toolHooks[this.placementTool];
+            if (hook && hook.move) hook.move.call(this, e, Boolean(this.isBrushActive && this._hookStroke === hook));
             if (this.placementTool === 'region') {
                 this.trackRegionHover(e);
                 if (this.isBrushActive && this._regionStroke) this.regionPaintAt(e.clientX, e.clientY);
@@ -741,6 +757,11 @@
                 if (this._scatterErase) this.endScatterErase();
                 if (this._terrainStroke) this.endTerrainStroke();
                 if (this._regionStroke) this.endRegionStroke();
+                if (this._hookStroke) {
+                    const hook = this._hookStroke;
+                    this._hookStroke = null;
+                    if (hook.up) hook.up.call(this, e);
+                }
                 if (this.currentBrushBatch.length > 0) {
                     const batch = [...this.currentBrushBatch];
                     const cmd = {

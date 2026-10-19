@@ -92,6 +92,11 @@ DocsDoodads.Workspace = {
     // bubble says what to do. No tool (null) is Select.
     toolButtons: { select: 'dd-select-btn', eyedropper: 'dd-eyedropper-btn', stamp: 'dd-stamp-btn', brush: 'dd-brush-btn', path: 'dd-path-btn', biome: 'dd-biome-btn', terrain: 'dd-terrain-btn' },
     toolPopovers: { brush: 'dd-brush-popover', path: 'dd-path-popover', biome: 'dd-biome-popover', terrain: 'dd-terrain-popover' },
+    // Tools added by later parts: { click(coords, e), down(e) (true starts a stroke), move(e, stroking),
+    // up(e), overlay(g) }, called with the workspace as this. The canvas input part calls them.
+    toolHooks: {},
+    // Extra sections of the map's own settings: [{ render(mapSettings) -> html, bind(mapSettings) }].
+    mapSections: [],
 
     setPlacementTool(tool) {
         if (this._tour && this._tour.tool !== tool) this.endTour();
@@ -199,6 +204,9 @@ DocsDoodads.Workspace = {
         this._historyPanel = null;
         this._vfxPanel = null;
         this._postFxPanel = null;
+        if (this.stopShortcutCapture) this.stopShortcutCapture();
+        this.previewRegionLook = 0;
+        this._roomDrag = null;
         this.stopVfxPreview();
         this.postFxCompare = false;
         this.mounted = false;
@@ -450,6 +458,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-palette-btn" title="${escapeHtml(this.shortcutTip('dd-palette-btn'))}">${U.icon('search', 1)} Find a Tool</button>
                     <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
                     <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
+                    <button class="dd-btn" id="dd-rooms-btn" title="Save part of the map (tiles, doodads, events) as a room stamp and place it again">${U.icon('map', 1)} Rooms</button>
+                    <button class="dd-btn" id="dd-packs-btn" title="Put prefabs, rooms, biomes and their art in one file for another project, or bring one in">${U.icon('box', 1)} Packs</button>
                     <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
                     <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
@@ -907,6 +917,8 @@ DocsDoodads.Workspace = {
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
+        on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
+        on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });

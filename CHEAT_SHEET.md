@@ -79,6 +79,8 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Set Doodad State | name, state, mapId | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. |
 | Set Doodad Light | name, light, mapId | Named doodads' lights on, off or back to their own; saved. |
 | Store Doodad State | name, variableId | A named doodad's state number (-1: none here) into a variable. |
+| Show / Hide Minimap | show | The corner minimap off (cutscenes, dark caves) or back on; saved. |
+| Explored Map | action, radius, mapId | With fog of war: reveal a whole map, reveal around the player, or forget a map; saved. |
 
 ## Script calls
 
