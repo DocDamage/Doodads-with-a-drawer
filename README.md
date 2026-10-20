@@ -23,9 +23,23 @@ It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads and has grown into i
 
 ### The character creators
 
-![Rolling the outfit and body dice in the MZ character creator](docs/images/character_creator.gif)
+| RPG Maker MZ's generator parts | The LPC library | The Memao pack |
+| :---: | :---: | :---: |
+| ![Rolling the outfit and body dice in the MZ character creator](docs/images/mz_character_creator.gif) | ![Rolling the outfit and body dice in the LPC character creator, safe-to-encrypt art only](docs/images/lpc_character_creator.gif) | ![Rolling the outfit and body dice in the Memao character creator](docs/images/memao_character_creator.gif) |
 
-Characters from RPG Maker MZ's own generator parts, the LPC library or the Memao pack, in one window, exported straight to your project.
+Characters from RPG Maker MZ's own generator parts, the LPC library or the Memao pack, in one window, exported straight to your project. Each library is read from your computer; none of their art ships with the plugin.
+- The LPC clip shows only art offered under CC0 or OGA-BY; its artists are credited in [CREDITS_lpc_creator.md](docs/images/CREDITS_lpc_creator.md).
+- The Memao clip shows art from the Memao Sprite Sheet Creator's asset pack, by Memao.
+
+#### Getting the libraries
+
+| Library | Where to get it | Cost | What to give the creator |
+| --- | --- | --- | --- |
+| RPG Maker MZ's generator parts | Come with RPG Maker MZ: [Steam](https://store.steampowered.com/app/1096900/RPG_Maker_MZ/) or the [official site](https://www.rpgmakerweb.com/products/rpg-maker-mz) | Part of RPG Maker MZ | Nothing: the editor finds MZ's `generator` folder by itself (**Choose...** if MZ is installed somewhere unusual). |
+| The LPC library | The [Universal LPC Spritesheet Character Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator) on GitHub: **Code → Download ZIP**, or clone it (about 1.5 GB). Browse it first in the [online generator](https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/). | Free; each picture has its own licence, and the editor keeps the credits for you | The downloaded folder. |
+| The Memao pack | The [Memao Sprite Sheet Creator](https://sleeping-robot-games.itch.io/sprite-sheet-creator) by Sleeping Robot Games, on itch.io | Paid | The folder you unpack `memao-assets.zip` into. |
+
+Keep each library outside your project: MZ's Deployment copies everything in the project folder, and the editor warns if a library is inside it. Then More → **Characters** scans it and opens its creator. Each library's own licence says what you may do with the characters you make: the generator parts are for games made with RPG Maker MZ; LPC art needs its artists credited, which the editor writes into `CREDITS_LPC.txt`; Memao's sheets may go into your games but not be shared as assets on their own.
 
 ### The 3D view
 
