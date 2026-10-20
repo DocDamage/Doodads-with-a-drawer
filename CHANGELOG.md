@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixes: Stamp's picture under the mouse no longer stays where the mouse left the map after picking another tool. Screen Looks keeps the preset just applied shown in its list (it went back to the first one).
+- The README shows the editor and the game at work (placing, picking and Find, day to night, Screen Looks, a storm, effects at dusk, flying, the character creator) and lists everything the plugin does.
+
 ## 2.0.0-alpha.1 — 2026-10-19
 
 - Fixes from the release checklist: the top bar fits the window at any editor size (at 125% and 150% in MZ's 816 × 624 window, More, Save and Done were off its edge): the words under the tools go first, then it takes a second row. Games without Aseprite gear no longer log a failed request for `data/DocsDoodadsAseprite.json` on every start (desktop games look for it first).

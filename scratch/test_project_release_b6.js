@@ -128,8 +128,18 @@ assert.strictEqual(img.sets, 1, 'set once');
 ws.showGhost({ path: 'img/doodads/Rock.png' }, 120, 100, true);
 assert.strictEqual(img.sets, 2, 'and again for another picture');
 ws.removeGhost();
+// Stamp's picture under the mouse goes when another tool is picked (it stayed where the mouse left the map).
+ws.ghostEl = { style: {}, parentNode: null, appendChild() {} };
+const realSetTool = ws.setPlacementTool;
+if (typeof realSetTool === 'function') {
+    ws.placementTool = 'stamp';
+    ws.setPlacementTool('stamp');
+    assert.ok(ws.ghostEl, 'still Stamp: the picture stays');
+    ws.setPlacementTool(null);
+    assert.strictEqual(ws.ghostEl, null, 'Select: the picture goes');
+}
 document.getElementById = realGet;
-console.log('✓ The drag ghost loads its picture once.');
+console.log('✓ The drag ghost loads its picture once, and goes with Stamp.');
 
 // 7. Problems: a condition that isn't JavaScript.
 ws.fileExists = () => true;
