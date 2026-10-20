@@ -5,6 +5,7 @@ data/DocsDoodadsRecovery.json
 # What the plugin writes into a project when this folder is used as one (playtests, packs, captures,
 # the character creators); none of it belongs to the plugin's source.
 *.zip
+release/
 *.ddpack
 packs/
 screenshots/

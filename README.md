@@ -281,6 +281,7 @@ npm run build     # join src/ into Docs-Doodads.js
 npm run icons     # redraw the editor's pixel icons (art/ui_icons.png) into src/36_ui_icons.js
 npm run fonts     # embed the editor's font (art/fonts) into src/36_ui_fonts.js
 npm run deploy -- <project folder> <output folder> [--key <text>] [--no-encrypt] [--devtools]
+npm run package -- --ref v2.0.0-alpha.1   # the download zip for a release, in release/
 ```
 
 `npm run deploy` makes a Windows build the way MZ's File > Deployment makes one with image and audio encryption on, for testing the plugin in a real deployed game without opening the editor. See [CONTRIBUTING.md](CONTRIBUTING.md) for how the source is laid out.

@@ -59,6 +59,7 @@ Editor panels use the theme's CSS variables (`--dd-*`) and classes (`dd-btn`, `d
 - `scripts/build.js`: `npm run build`, and `npm run check` (the built file matches `src/` and parses). `npm run verify` (`scratch/verify-project.js`) runs the full preflight.
 - `scripts/icons.js` and `scripts/fonts.js`: the generated UI parts above.
 - `scripts/deploy.js` (`npm run deploy -- <project> <output> [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]`): a Windows build like MZ's File > Deployment with encryption on, for testing a deployed game. It needs MZ's `nwjs-win` runtime (found in the usual Steam and KADOKAWA install folders, or passed with `--runtime`) and never writes inside the project.
+- `scripts/package.js` (`npm run package [-- --ref <tag>] [--out <folder>]`): the download for a release, `release/Docs-Doodads-<version>.zip`. It holds one folder with the plugin as `src/` builds it, a `README.txt` on installing it, the guide (with Your First 3D Map), the cheat sheet, the changelog, the translation template, `tools/deploy.js` and the licences; no art. `--ref` reads every file from that tag or commit through git, whatever is checked out. It refuses versions that differ, and the same version always gives the same bytes (files are dated with the release's day in the changelog).
 
 ## Releasing
 
@@ -67,3 +68,4 @@ Editor panels use the theme's CSS variables (`--dd-*`) and classes (`dd-btn`, `d
 3. Give What's New (`DocsDoodads.WhatsNew` in `src/44_workspace_onboarding.js`) the version as its `id` and seven short items from the top of that changelog section.
 4. `npm run build`, `npm run strings`, `npm run shortcuts`; then `npm run verify` (it checks that the five versions agree) and `npm run coverage`.
 5. Run `MANUAL_TEST_CHECKLIST.md` on a copy of a real project, record it in `docs/QA_<date>.md`, and test a deployed build (`npm run deploy`).
+6. Once it is merged and tagged (`v<version>`), `npm run package -- --ref v<version>` makes the download in `release/`, to attach to the GitHub release and upload to itch.io.
