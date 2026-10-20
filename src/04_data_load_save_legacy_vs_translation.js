@@ -266,6 +266,7 @@ if (typeof DataManager !== 'undefined') {
     DataManager.loadDocsDoodadsAseprite = function() {
         if (typeof XMLHttpRequest === 'undefined') return;
         const AV = DocsDoodads.AsepriteVisuals;
+        if (!AV.shouldRequestManifest()) return;
         this.docsRequest(AV.manifestPath, xhr => {
             if (xhr.status >= 400 || !xhr.responseText) return;
             try {

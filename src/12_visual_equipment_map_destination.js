@@ -974,6 +974,13 @@ DocsDoodads.AsepriteVisuals = {
     timer: null,
     delay: 300,
 
+    // Desktop games (playtests and NW.js builds) look for the manifest first, so a project without one logs no
+    // failed request on every start; browser builds can't look, so they ask.
+    shouldRequestManifest() {
+        const FS = DocsDoodads.FS;
+        return FS && FS.fs ? FS.existsSync(this.manifestPath) : true;
+    },
+
     // { file, layer } for "Hero.aseprite#Sword" (or .ase), else null.
     parseRef(image) {
         const m = /^(.+?\.(?:aseprite|ase))\s*#\s*(.+)$/i.exec(String(image || '').trim());

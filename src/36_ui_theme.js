@@ -149,6 +149,11 @@ DocsDoodads.Ui = {
 .dd-tool b { font-weight: 800; font-size: 10px; }
 .dd-tool.dd-wide { width: 62px; }
 @media (max-width: 900px) { #dd-toolbar .dd-brand span { display: none; } .dd-tool { width: 46px; } .dd-tool.dd-wide { width: 52px; } }
+/* Too narrow for the bar (a small window, or the editor at 125% or 150%): the words under the tools go (their
+   tooltips keep them), then the bar takes a second row, so More, Save and Done can always be reached. */
+#dd-toolbar.dd-tight .dd-brand span, #dd-toolbar.dd-tight .dd-tool b { display: none; }
+#dd-toolbar.dd-tight .dd-tool, #dd-toolbar.dd-tight .dd-tool.dd-wide { width: 42px; height: 42px; }
+#dd-toolbar.dd-wrap { flex-wrap: wrap; row-gap: 4px; }
 /* Save: an orange dot while something isn't saved, a tick-green flash once it is. */
 #dd-save-btn { position: relative; }
 #dd-save-btn.dd-unsaved::after {

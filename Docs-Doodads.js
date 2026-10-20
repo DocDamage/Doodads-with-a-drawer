@@ -1981,6 +1981,7 @@ if (typeof DataManager !== 'undefined') {
     DataManager.loadDocsDoodadsAseprite = function() {
         if (typeof XMLHttpRequest === 'undefined') return;
         const AV = DocsDoodads.AsepriteVisuals;
+        if (!AV.shouldRequestManifest()) return;
         this.docsRequest(AV.manifestPath, xhr => {
             if (xhr.status >= 400 || !xhr.responseText) return;
             try {
@@ -8073,6 +8074,13 @@ DocsDoodads.AsepriteVisuals = {
     pending: new Set(),
     timer: null,
     delay: 300,
+
+    // Desktop games (playtests and NW.js builds) look for the manifest first, so a project without one logs no
+    // failed request on every start; browser builds can't look, so they ask.
+    shouldRequestManifest() {
+        const FS = DocsDoodads.FS;
+        return FS && FS.fs ? FS.existsSync(this.manifestPath) : true;
+    },
 
     // { file, layer } for "Hero.aseprite#Sword" (or .ase), else null.
     parseRef(image) {
@@ -28340,6 +28348,11 @@ DocsDoodads.Ui = {
 .dd-tool b { font-weight: 800; font-size: 10px; }
 .dd-tool.dd-wide { width: 62px; }
 @media (max-width: 900px) { #dd-toolbar .dd-brand span { display: none; } .dd-tool { width: 46px; } .dd-tool.dd-wide { width: 52px; } }
+/* Too narrow for the bar (a small window, or the editor at 125% or 150%): the words under the tools go (their
+   tooltips keep them), then the bar takes a second row, so More, Save and Done can always be reached. */
+#dd-toolbar.dd-tight .dd-brand span, #dd-toolbar.dd-tight .dd-tool b { display: none; }
+#dd-toolbar.dd-tight .dd-tool, #dd-toolbar.dd-tight .dd-tool.dd-wide { width: 42px; height: 42px; }
+#dd-toolbar.dd-wrap { flex-wrap: wrap; row-gap: 4px; }
 /* Save: an orange dot while something isn't saved, a tick-green flash once it is. */
 #dd-save-btn { position: relative; }
 #dd-save-btn.dd-unsaved::after {
@@ -29735,6 +29748,7 @@ DocsDoodads.Workspace = {
         this.applyScale();
         const toolbar = document.getElementById('dd-toolbar');
         if (!toolbar) return;
+        this.fitToolbar(toolbar);
         const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
         for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
             const panel = document.getElementById(id);
@@ -29745,6 +29759,19 @@ DocsDoodads.Workspace = {
             if (pop && pop.style.display === 'block') this.placePopover(pop, this.toolButtons[name]);
         }
         this.placeHint();
+    },
+
+    // The top bar fits the window: without the words under the tools first, then on two rows (the panels go
+    // below it). Returns 'full', 'tight' or 'wrap'.
+    fitToolbar(toolbar) {
+        if (!toolbar || !toolbar.classList) return 'full';
+        const over = () => toolbar.scrollWidth > toolbar.clientWidth + 1;
+        toolbar.classList.remove('dd-tight', 'dd-wrap');
+        if (!over()) return 'full';
+        toolbar.classList.add('dd-tight');
+        if (!over()) return 'tight';
+        toolbar.classList.add('dd-wrap');
+        return 'wrap';
     },
 
     // Where each panel is docked (44_workspace_docking.js moves them): left, right or bottom.
@@ -43978,11 +44005,11 @@ DocsDoodads.WhatsNew = {
     items: [
         'Character Creator: three libraries in one window, a grid of pictures, locks, undo and recipes.',
         'Big maps run faster: off-screen doodads wait, so 3,000 doodads hold 60 frames a second.',
-        'The editor saves less and sooner: a compact library, the crash snapshot only when changed.',
-        'Tab and the arrow keys move through the editor, and the right-click menu works with keys.',
-        'Rebuild Index keeps your tags; packs ask before replacing; Show Hidden Doodads brings them back.',
-        'Sound effects keep their own pitch and volume; turn on variation if you want it.',
-        'Problems lists conditions that don\'t run, beside missing pictures and sounds.'
+        'Find (More) searches every map by picture, name, tag or light; the Outliner lists a map by layer.',
+        'Pick with a lasso (Alt+drag) or a box that touches (Ctrl+drag); Ctrl+arrows move them a tile.',
+        'For events: a calendar on the clock, touches that run once or ask first, ledges and flying events.',
+        'Checkpoints in Steps, Save This Map and Autosave; copy map settings or keep them as presets.',
+        'Rename your event templates, pick many items in the bag with Ctrl and Shift, bring in a zip of art.'
     ]
 };
 

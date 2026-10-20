@@ -114,6 +114,15 @@ XMLHttpRequest.prototype.send = function() { sent.push(this); };
 const reply = (xhr, status, text) => { xhr.status = status; xhr.responseText = text; xhr.onload(); };
 const warn = console.warn;
 console.warn = () => {};
+// On the desktop the Aseprite manifest is only asked for when it is there (no failed request on every start);
+// a browser build can't look, so it asks. Here it is asked for, as in a browser.
+const AV = D.AsepriteVisuals, realShould = AV.shouldRequestManifest;
+assert.strictEqual(AV.shouldRequestManifest(), D.FS.existsSync(AV.manifestPath), 'desktop: only when the file is there');
+const realFs = D.FS.fs;
+D.FS.fs = null;
+assert.strictEqual(AV.shouldRequestManifest(), true, 'browser: asks');
+D.FS.fs = realFs;
+AV.shouldRequestManifest = () => true;
 DataManager.loadDocsDoodadsData();
 assert.strictEqual(DataManager.isDatabaseLoaded(), false, 'not before DocsDoodads.json is in');
 reply(sent[0], 200, '{ "1": [ broken');
@@ -130,6 +139,11 @@ sent.length = 0;
 DataManager.loadDocsDoodadsAseprite();
 reply(sent[0], 200, JSON.stringify({ refs: { 'img/characters/hero.aseprite#sword': 'hero_sword' } }));
 assert.strictEqual(D.AsepriteVisuals._names.size, 0);
+AV.shouldRequestManifest = () => false;
+sent.length = 0;
+DataManager.loadDocsDoodadsAseprite();
+assert.strictEqual(sent.length, 0, 'no manifest: nothing asked');
+AV.shouldRequestManifest = realShould;
 console.log('✓ boot waits for the data; a broken file is survived; late manifests refresh gear');
 
 // 7. Filters: added and removed without copying the list every frame.
