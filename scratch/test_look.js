@@ -280,4 +280,23 @@ assert.deepStrictEqual(U.prefs().detailsPinned, ['3D View (this map)']);
 assert.ok(renders >= 4);
 console.log('✓ details memory: open sections remembered, pins move sections to the top in order');
 
+// The top bar fits MZ's 816-pixel window at every size: the words go first, then it takes a second row.
+const barOf = (need, tightNeed) => {
+    const classes = new Set();
+    return { clientWidth: 600, classes, classList: { add: (...c) => c.forEach(x => classes.add(x)), remove: (...c) => c.forEach(x => classes.delete(x)) },
+        get scrollWidth() { return classes.has('dd-wrap') ? 600 : classes.has('dd-tight') ? tightNeed : need; } };
+};
+const roomy = barOf(560, 400), tight = barOf(760, 590), crowded = barOf(900, 700);
+assert.strictEqual(ws.fitToolbar(roomy), 'full');
+assert.strictEqual(ws.fitToolbar(tight), 'tight');
+assert.deepStrictEqual([...tight.classes], ['dd-tight']);
+assert.strictEqual(ws.fitToolbar(crowded), 'wrap');
+assert.deepStrictEqual([...crowded.classes].sort(), ['dd-tight', 'dd-wrap']);
+crowded.clientWidth = 1000;
+assert.strictEqual(ws.fitToolbar(crowded), 'full', 'room again: back to the full bar');
+assert.strictEqual(crowded.classes.size, 0);
+const barCss = D.Ui.css;
+assert.ok(/#dd-toolbar\.dd-tight[^{]*\.dd-tool b \{ display: none; \}/.test(barCss) && /#dd-toolbar\.dd-wrap \{ flex-wrap: wrap;/.test(barCss));
+console.log('✓ the top bar fits: without words, then on two rows');
+
 console.log('=== Look and details memory passed ===');

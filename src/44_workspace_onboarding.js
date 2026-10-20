@@ -118,11 +118,11 @@ DocsDoodads.WhatsNew = {
     items: [
         'Character Creator: three libraries in one window, a grid of pictures, locks, undo and recipes.',
         'Big maps run faster: off-screen doodads wait, so 3,000 doodads hold 60 frames a second.',
-        'The editor saves less and sooner: a compact library, the crash snapshot only when changed.',
-        'Tab and the arrow keys move through the editor, and the right-click menu works with keys.',
-        'Rebuild Index keeps your tags; packs ask before replacing; Show Hidden Doodads brings them back.',
-        'Sound effects keep their own pitch and volume; turn on variation if you want it.',
-        'Problems lists conditions that don\'t run, beside missing pictures and sounds.'
+        'Find (More) searches every map by picture, name, tag or light; the Outliner lists a map by layer.',
+        'Pick with a lasso (Alt+drag) or a box that touches (Ctrl+drag); Ctrl+arrows move them a tile.',
+        'For events: a calendar on the clock, touches that run once or ask first, ledges and flying events.',
+        'Checkpoints in Steps, Save This Map and Autosave; copy map settings or keep them as presets.',
+        'Rename your event templates, pick many items in the bag with Ctrl and Shift, bring in a zip of art.'
     ]
 };
 

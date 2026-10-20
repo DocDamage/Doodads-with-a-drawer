@@ -602,6 +602,7 @@ DocsDoodads.Workspace = {
         this.applyScale();
         const toolbar = document.getElementById('dd-toolbar');
         if (!toolbar) return;
+        this.fitToolbar(toolbar);
         const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
         for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
             const panel = document.getElementById(id);
@@ -612,6 +613,19 @@ DocsDoodads.Workspace = {
             if (pop && pop.style.display === 'block') this.placePopover(pop, this.toolButtons[name]);
         }
         this.placeHint();
+    },
+
+    // The top bar fits the window: without the words under the tools first, then on two rows (the panels go
+    // below it). Returns 'full', 'tight' or 'wrap'.
+    fitToolbar(toolbar) {
+        if (!toolbar || !toolbar.classList) return 'full';
+        const over = () => toolbar.scrollWidth > toolbar.clientWidth + 1;
+        toolbar.classList.remove('dd-tight', 'dd-wrap');
+        if (!over()) return 'full';
+        toolbar.classList.add('dd-tight');
+        if (!over()) return 'tight';
+        toolbar.classList.add('dd-wrap');
+        return 'wrap';
     },
 
     // Where each panel is docked (44_workspace_docking.js moves them): left, right or bottom.
