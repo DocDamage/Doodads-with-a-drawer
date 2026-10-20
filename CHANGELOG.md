@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Fixes: Stamp's picture under the mouse no longer stays where the mouse left the map after picking another tool. Screen Looks keeps the preset just applied shown in its list (it went back to the first one).
-- The README shows the editor and the game at work (placing, picking and Find, day to night, Screen Looks, a storm, effects at dusk, flying, the MZ and LPC character creators, with the LPC artists credited) and lists everything the plugin does.
+- The README shows the editor and the game at work (placing, picking and Find, day to night, Screen Looks, a storm, effects at dusk, flying, the MZ, LPC and Memao character creators, with the LPC artists credited) and lists everything the plugin does.
 
 ## 2.0.0-alpha.1 — 2026-10-19
 

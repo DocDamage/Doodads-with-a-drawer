@@ -23,11 +23,13 @@ It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads and has grown into i
 
 ### The character creators
 
-| RPG Maker MZ's generator parts | The LPC library |
-| :---: | :---: |
-| ![Rolling the outfit and body dice in the MZ character creator](docs/images/mz_character_creator.gif) | ![Rolling the outfit and body dice in the LPC character creator, safe-to-encrypt art only](docs/images/lpc_character_creator.gif) |
+| RPG Maker MZ's generator parts | The LPC library | The Memao pack |
+| :---: | :---: | :---: |
+| ![Rolling the outfit and body dice in the MZ character creator](docs/images/mz_character_creator.gif) | ![Rolling the outfit and body dice in the LPC character creator, safe-to-encrypt art only](docs/images/lpc_character_creator.gif) | ![Rolling the outfit and body dice in the Memao character creator](docs/images/memao_character_creator.gif) |
 
-Characters from RPG Maker MZ's own generator parts, the LPC library or the Memao pack, in one window, exported straight to your project. Each library is read from your computer; none of their art ships with the plugin. The LPC clip shows only art offered under CC0 or OGA-BY; its artists are credited in [CREDITS_lpc_creator.md](docs/images/CREDITS_lpc_creator.md).
+Characters from RPG Maker MZ's own generator parts, the LPC library or the Memao pack, in one window, exported straight to your project. Each library is read from your computer; none of their art ships with the plugin.
+- The LPC clip shows only art offered under CC0 or OGA-BY; its artists are credited in [CREDITS_lpc_creator.md](docs/images/CREDITS_lpc_creator.md).
+- The Memao clip shows art from the Memao Sprite Sheet Creator's asset pack, by Memao.
 
 ### The 3D view
 
