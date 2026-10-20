@@ -100,6 +100,12 @@ for (const effect of P.effects) assert.ok(panel.innerHTML.includes(effect.label)
 for (const preset of P.presets) assert.ok(panel.innerHTML.includes(preset.label), `${preset.label} preset is offered`);
 assert.ok(panel.innerHTML.includes('dd-pfx-target') && panel.innerHTML.includes('dd-pfx-compare'), "target switch and compare button");
 assert.ok(panel.innerHTML.includes('dd-pfx-export'), "map image export lives here too");
+// Apply keeps the preset it applied shown in the list (the list went back to the first one).
+el('dd-pfx-preset').value = 'noir';
+el('dd-pfx-apply').onclick();
+assert.ok(/<option value="noir" selected>/.test(ws.renderPostFxBuilder()), 'Noir stays picked');
+assert.deepStrictEqual(P.normalizeLook(World.get('postfx.look')), P.presetLook('noir'));
+Undo.undo();
 // Hold to compare hides the effects without changing settings.
 ws.setPostFxCompare(true);
 assert.strictEqual(ws.postFxCompare, true);

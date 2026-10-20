@@ -114,6 +114,8 @@ DocsDoodads.Workspace = {
             if (this.placementTool === name) this.placePopover(pop, this.toolButtons[name]);
         }
         this.showMoreMenu(false);
+        // Stamp's picture under the mouse goes with Stamp (it stayed where the mouse left the map).
+        if (this.placementTool !== 'stamp' && this.ghostEl && !this.activeDragPayload) this.removeGhost();
         if (this.placementTool !== 'listen' && this._listenProbe) this.stopListening();
         DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
         if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);

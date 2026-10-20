@@ -29260,6 +29260,8 @@ DocsDoodads.Workspace = {
             if (this.placementTool === name) this.placePopover(pop, this.toolButtons[name]);
         }
         this.showMoreMenu(false);
+        // Stamp's picture under the mouse goes with Stamp (it stayed where the mouse left the map).
+        if (this.placementTool !== 'stamp' && this.ghostEl && !this.activeDragPayload) this.removeGhost();
         if (this.placementTool !== 'listen' && this._listenProbe) this.stopListening();
         DocsDoodads.Ui.setHint(DocsDoodads.Ui.hints[this.placementTool || 'none'] || DocsDoodads.Ui.hints.none);
         if (this.placementTool && this.mounted) this.maybeStartTour(this.placementTool);
@@ -33788,7 +33790,7 @@ DocsDoodads.Workspace = {
             </div>
             <div style="display: flex; gap: 6px; align-items: flex-end;">
                 <div style="flex: 1; font-size: 10px; color: var(--dd-muted);">Preset
-                    <select id="dd-pfx-preset" style="${selectStyle}">${P.presets.map(p => option(p.id, p.label, '')).join('')}</select></div>
+                    <select id="dd-pfx-preset" style="${selectStyle}">${P.presets.map(p => option(p.id, p.label, this._pfxPreset || '')).join('')}</select></div>
                 <button class="dd-btn dd-btn-primary" id="dd-pfx-apply" ${editable ? '' : 'disabled'}>Apply</button>
                 <button class="dd-btn" id="dd-pfx-compare" title="Hold to see the map without effects">Hold to Compare</button>
             </div>
@@ -33848,7 +33850,8 @@ DocsDoodads.Workspace = {
         });
         on('dd-pfx-target', 'onchange', e => { this.postFxTarget = e.target.value; this.refreshPostFxBuilder(); });
         on('dd-pfx-mapmode', 'onchange', e => { this.setMapPostFxMode(e.target.value); this.refreshPostFxBuilder(); });
-        on('dd-pfx-apply', 'onclick', () => { this.applyPreset(target, byId('dd-pfx-preset').value); this.refreshPostFxBuilder(); });
+        // The preset applied stays shown in the list (it went back to the first).
+        on('dd-pfx-apply', 'onclick', () => { this._pfxPreset = byId('dd-pfx-preset').value; this.applyPreset(target, this._pfxPreset); this.refreshPostFxBuilder(); });
         const compare = byId('dd-pfx-compare');
         if (compare) {
             compare.onmousedown = () => this.setPostFxCompare(true);
