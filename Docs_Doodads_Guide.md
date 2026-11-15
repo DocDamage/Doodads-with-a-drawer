@@ -766,6 +766,8 @@ Everything works on the map the player is on unless a map ID is given. Doodads a
 
 Doodads placed, moved, changed or removed through the API change the game's copy of the map only: they last until the game is closed or reloaded and are never written to the project or to save files. States and lights are kept in the save file.
 
+**Types for your editor.** The download has `types/Docs-Doodads.d.ts`, which tells VS Code (or any editor that reads TypeScript types) every call above, what it takes and what it gives back, the fields of a doodad, and what each `on` event passes. Put it beside your plugin and start your `.js` file with `/// <reference path="Docs-Doodads.d.ts" />` (or list it in your `jsconfig.json`); typing `DocsDoodads.api.` then lists the calls, and a wrong argument is underlined. Plain JavaScript keeps working without it.
+
 ---
 
 ## 16. Direct Physical Collision System
