@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix: crash recovery now keeps unsaved notes on every map and editor bookmarks, including changes that remove either list.
 - More is split into four menus on the top bar: **Map** (map settings, finding, rooms, templates, Problems, Check Reach, saving), **Art** (Cut Up Sheet, Characters, Packs, Effects Maker, File Check), **View** (grid, collision, sounds, speed, Screen Looks, Look, layouts) and a short **More**. The arrow keys move inside and between them; in a narrow window Map, Art and View fold back into More under their names. Every entry is also in Find a Tool (Ctrl+K).
 - Ruler and bookmarks: the **Ruler** (M) measures on the map in tiles across and down, the walk, the straight line and pixels (Shift snaps to tile middles; in 3D on the ground). **Bookmark This View** keeps a place on a map (and the 3D camera) to jump back to from Ctrl+K, the Bookmarks card (View) or Ctrl+1 to Ctrl+9, opening the other map when needed.
 - Map notes: right-click a tile, **Add Note Here**, for a note or to-do pinned there, seen only in the editor. Pins show on flat maps (faded once done) with the words on hover; Map → Notes lists this map's or every map's notes with Go To, done and delete; View → Hide Notes hides the pins. Each change is one undo step; notes are saved with the doodads and never shown in the game or in a Capture.

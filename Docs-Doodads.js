@@ -28011,6 +28011,10 @@ DocsDoodads.Persistence = {
             stagedMaps: this.stagedMaps,
             mapSettings: data.mapSettings,
             world: data.world,
+            // null records a metadata key deliberately removed by the editor. It is distinct from old
+            // snapshots that have no field at all, and from an explicitly empty object or array.
+            notes: Object.prototype.hasOwnProperty.call(data, 'notes') && data.notes !== undefined ? data.notes : null,
+            bookmarks: Object.prototype.hasOwnProperty.call(data, 'bookmarks') && data.bookmarks !== undefined ? data.bookmarks : null,
             stagedMap: gameMap._stagedMapData
         };
         const count = this.changeCount, epoch = this._recoveryEpoch;
@@ -30151,6 +30155,18 @@ DocsDoodads.Workspace = {
             data.world = recovery.world;
             DocsDoodads.World.invalidate();
         }
+        // New snapshots always carry these fields: null means the editor removed the key, while an
+        // empty object/array is a real, recoverable value. Old snapshots lack the fields and leave the
+        // data loaded from disk alone.
+        const restoreMetadata = key => {
+            if (!Object.prototype.hasOwnProperty.call(recovery, key)) return false;
+            if (recovery[key] === null) delete data[key];
+            else data[key] = recovery[key];
+            return true;
+        };
+        const restoredNotes = restoreMetadata('notes');
+        const restoredBookmarks = restoreMetadata('bookmarks');
+        if (restoredNotes || restoredBookmarks) DocsDoodads.Persistence.dirtyDoodads = true;
         if (recovery.stagedMap) {
             if (mapId === this.currentMapId()) {
                 $gameMap._stagedMapData = recovery.stagedMap;
