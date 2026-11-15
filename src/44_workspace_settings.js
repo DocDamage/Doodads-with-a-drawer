@@ -103,7 +103,11 @@ Object.assign(DocsDoodads.Workspace, {
     focusSettingControl(controlId, selector) {
         if (typeof document === 'undefined') return false;
         const el = controlId ? document.getElementById(controlId) : (selector && document.querySelector ? document.querySelector(selector) : null);
-        if (!el) return false;
+        if (!el || el.disabled) return false;
+        if (el.getBoundingClientRect) {
+            const rect = el.getBoundingClientRect();
+            if (!rect || (!(rect.width > 0) && !(rect.height > 0))) return false;
+        }
         let parent = el.parentNode;
         while (parent) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentNode; }
         if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
@@ -133,7 +137,7 @@ Object.assign(DocsDoodads.Workspace, {
             return this.focusSettingControl(null, shortcut && shortcut.fixed ? `[data-setting-key="${id}"]` : `[data-keys="${id}"]`);
         }
         if (row.kind === 'autosave') {
-            if (this.showMenu) this.showMenu('map', true);
+            if (this.showMenu) this.showMenu(this._menusFolded ? 'more' : 'map', true);
             return this.focusSettingControl(row.controlId);
         }
         if (row.kind === 'map') {
