@@ -107,6 +107,8 @@
             }
             items.push({ separator: true });
             items.push(...this.noteMenuItems(coords.tileX, coords.tileY));
+            items.push({ separator: true });
+            items.push({ label: DocsDoodads.Shortcuts.tip('playHere', 'Play From Here'), icon: '▶️', onClick: () => this.playFromHere(coords.tileX, coords.tileY) });
             this.showContextMenu(e.clientX, e.clientY, items);
         };
 

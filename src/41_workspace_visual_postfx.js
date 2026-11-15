@@ -681,6 +681,12 @@
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] },
+            { title: 'Event Labels', fields: [
+                check('labels.enabled', 'Names and icons over events (<docs label: Blacksmith>, <docs icon: 87>; the Show / Hide Event Labels command turns them off)'),
+                range('labels.size', 'Text size', 10, 32, 1),
+                { key: 'labels.colour', label: 'Text colour', type: 'color' },
+                check('labels.fade', 'Fade in and out (with <docs label range: 4>)')
+            ] },
             { title: '3D Models', fields: [
                 check('models3d.gpu', 'Draw models on the graphics card (faster for big or moving models; new: turn it off if a model looks wrong)')
             ] },
