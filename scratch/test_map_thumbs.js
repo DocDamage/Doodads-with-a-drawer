@@ -106,6 +106,23 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     M.clearVolatile([1]);
     assert.strictEqual(M.url(1), '', 'discard or restart shows the saved-state placeholder');
     D.Persistence.dirtyDoodads = false;
+    // Invalidating an in-flight job queues one replacement; the old finalizer cannot erase the new job.
+    let finishOld;
+    renders = 0;
+    M.render = () => {
+        renders++;
+        if (renders === 1) return new Promise(resolve => { finishOld = () => resolve({ toDataURL: () => 'data:image/png;base64,b2xk' }); });
+        return Promise.resolve({ toDataURL: () => 'data:image/png;base64,bmV3' });
+    };
+    const oldJob = ws.mapThumb(1, { force: true });
+    M.invalidate(1);
+    const newJob = ws.mapThumb(1, { force: true });
+    finishOld();
+    assert.strictEqual(await oldJob, false);
+    assert.strictEqual(await newJob, true);
+    assert.strictEqual(renders, 2);
+    assert.strictEqual(M._pending[1], undefined, 'the replacement owns and clears its pending entry');
+    assert.strictEqual(fs.readFileSync(M.cachePath(1), 'utf8'), 'new');
     M.render = realRender;
     console.log('PASS current-only, deduped, guarded, non-blocking work; unsaved pictures stay memory-only');
 
@@ -154,6 +171,8 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     ws.showWorldView();
     assert.ok(canvasCalls.some(call => call[0] === 'drawImage'), 'World View draws a cached picture');
     assert.ok(/Wide Field/.test(byId['dd-world-canvas'].getAttribute('aria-label')), 'World View names maps accessibly');
+    byId['dd-world-close'].onclick();
+    assert.strictEqual(ws._worldThumbRefresh, null, 'closing World View removes its redraw callback');
     D.MapLinks.layout = realLayout; D.MapLinks.bounds = realBounds; M.clearVolatile();
     console.log('PASS tabs, map list, palette and World View pictures with accessible placeholders');
 
@@ -213,6 +232,14 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     assert.strictEqual(fs.existsSync(M.cachePath(2)), false, 'saved cross-map doodad change invalidates that target');
     assert.strictEqual(fs.existsSync(M.cachePath(3)), true, 'unchanged map picture is preserved');
     assert.deepStrictEqual(renderedMaps, [1], 'save refreshes only the loaded map, never every changed target');
+
+    $dataDocsDoodads[2][0].x = 30;
+    D.Persistence._dirtyDoodads = true;
+    const realInvalidateMany = M.invalidateMany;
+    M.invalidateMany = () => { throw new Error('cache is read-only'); };
+    assert.strictEqual(D.Persistence.saveAll(true), true, 'cache invalidation errors cannot turn a successful project save into failure');
+    if (M._pending[1]) await M._pending[1].promise;
+    M.invalidateMany = realInvalidateMany;
 
     fs.writeFileSync(M.cachePath(2), 'keep-2');
     fs.writeFileSync(M.cachePath(3), 'keep-3');

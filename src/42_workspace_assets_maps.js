@@ -339,6 +339,7 @@
     showWorldView() {
         const existing = document.getElementById('dd-world-view');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        this._worldThumbRefresh = null;
         const current = this.currentMapId();
         const layout = DocsDoodads.MapLinks.layout(current, id => this.mapNeighbors(id), id => this.mapSizeLookup(id), 2);
         if (layout.length === 0) return;
@@ -391,16 +392,26 @@
             ctx.font = '11px sans-serif';
             ctx.fillText(`${String(m.mapId).padStart(3, '0')} ${names[m.mapId] || ''}`, toX(m.x) + 4, toY(m.y) + 13);
         };
-        for (const m of layout) {
-            drawMap(m, null);
+        const refreshPicture = mapId => {
+            if (!modal.parentNode) return;
+            const m = layout.find(entry => entry.mapId === Number(mapId));
+            if (!m) return;
             const url = DocsDoodads.MapThumb.url(m.mapId);
             if (url && typeof Image !== 'undefined') {
                 const image = new Image();
-                image.onload = () => { if (modal.parentNode) drawMap(m, image); };
+                image.onload = () => { if (modal.parentNode && this._worldThumbRefresh === refreshPicture) drawMap(m, image); };
                 image.src = url;
             }
+        };
+        this._worldThumbRefresh = refreshPicture;
+        for (const m of layout) {
+            drawMap(m, null);
+            refreshPicture(m.mapId);
         }
-        const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
+        const close = () => {
+            if (this._worldThumbRefresh === refreshPicture) this._worldThumbRefresh = null;
+            if (modal.parentNode) modal.parentNode.removeChild(modal);
+        };
         document.getElementById('dd-world-close').onclick = close;
         canvas.onclick = (e) => {
             const rect = canvas.getBoundingClientRect();

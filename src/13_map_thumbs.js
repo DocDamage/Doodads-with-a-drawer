@@ -39,6 +39,41 @@ DocsDoodads.MapThumb = {
         return stat ? `${Number(stat.mtimeMs) || 0}:${Number(stat.size) || 0}` : '';
     },
 
+    // Map pictures depend on doodads and whether their layers are shown in the game. Canonical copies
+    // avoid invalidating every picture merely because parsed and live objects have different key order.
+    canonical(value) {
+        if (Array.isArray(value)) return value.map(v => this.canonical(v));
+        if (!value || typeof value !== 'object') return value;
+        const out = {};
+        for (const key of Object.keys(value).sort()) {
+            if (value[key] !== undefined) out[key] = this.canonical(value[key]);
+        }
+        return out;
+    },
+
+    layerPictureSettings(data, mapId) {
+        const settings = data && data.mapSettings && data.mapSettings[mapId] || {};
+        const layers = Array.isArray(settings.layers) ? settings.layers.map(layer => ({
+            id: String(layer && layer.id || ''), gameHidden: Boolean(layer && layer.gameHidden)
+        })).sort((a, b) => a.id.localeCompare(b.id)) : [];
+        return { mainHidden: Boolean(settings.mainLayer && settings.mainLayer.gameHidden), layers };
+    },
+
+    changedMapIds(before, after) {
+        before = before || {};
+        after = after || {};
+        const ids = new Set();
+        for (const data of [before, after]) {
+            for (const key of Object.keys(data)) if (/^\d+$/.test(key)) ids.add(Number(key));
+            for (const key of Object.keys(data.mapSettings || {})) if (/^\d+$/.test(key)) ids.add(Number(key));
+        }
+        const signature = (data, id) => {
+            const list = Array.isArray(data[id]) ? data[id].filter(d => !(d && d.temp)) : [];
+            return JSON.stringify([this.canonical(list), this.layerPictureSettings(data, id)]);
+        };
+        return Array.from(ids).filter(id => signature(before, id) !== signature(after, id)).sort((a, b) => a - b);
+    },
+
     pngBytes(dataUrl) {
         const match = /^data:image\/png;base64,(.*)$/i.exec(String(dataUrl || ''));
         if (!match) return null;

@@ -9130,6 +9130,41 @@ DocsDoodads.MapThumb = {
         return stat ? `${Number(stat.mtimeMs) || 0}:${Number(stat.size) || 0}` : '';
     },
 
+    // Map pictures depend on doodads and whether their layers are shown in the game. Canonical copies
+    // avoid invalidating every picture merely because parsed and live objects have different key order.
+    canonical(value) {
+        if (Array.isArray(value)) return value.map(v => this.canonical(v));
+        if (!value || typeof value !== 'object') return value;
+        const out = {};
+        for (const key of Object.keys(value).sort()) {
+            if (value[key] !== undefined) out[key] = this.canonical(value[key]);
+        }
+        return out;
+    },
+
+    layerPictureSettings(data, mapId) {
+        const settings = data && data.mapSettings && data.mapSettings[mapId] || {};
+        const layers = Array.isArray(settings.layers) ? settings.layers.map(layer => ({
+            id: String(layer && layer.id || ''), gameHidden: Boolean(layer && layer.gameHidden)
+        })).sort((a, b) => a.id.localeCompare(b.id)) : [];
+        return { mainHidden: Boolean(settings.mainLayer && settings.mainLayer.gameHidden), layers };
+    },
+
+    changedMapIds(before, after) {
+        before = before || {};
+        after = after || {};
+        const ids = new Set();
+        for (const data of [before, after]) {
+            for (const key of Object.keys(data)) if (/^\d+$/.test(key)) ids.add(Number(key));
+            for (const key of Object.keys(data.mapSettings || {})) if (/^\d+$/.test(key)) ids.add(Number(key));
+        }
+        const signature = (data, id) => {
+            const list = Array.isArray(data[id]) ? data[id].filter(d => !(d && d.temp)) : [];
+            return JSON.stringify([this.canonical(list), this.layerPictureSettings(data, id)]);
+        };
+        return Array.from(ids).filter(id => signature(before, id) !== signature(after, id)).sort((a, b) => a - b);
+    },
+
     pngBytes(dataUrl) {
         const match = /^data:image\/png;base64,(.*)$/i.exec(String(dataUrl || ''));
         if (!match) return null;
@@ -28137,8 +28172,10 @@ DocsDoodads.Persistence = {
             return false;
         }
 
+        const savedDoodads = DocsDoodads.DataFiles.readAll() || {};
+        const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
-        const doodadEntries = DocsDoodads.DataFiles.entriesFor(window.$dataDocsDoodads || {});
+        const doodadEntries = DocsDoodads.DataFiles.entriesFor(liveDoodads);
         const entries = mapEntries.concat(doodadEntries, [
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
         ]);
@@ -28162,6 +28199,14 @@ DocsDoodads.Persistence = {
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);
+        // A map's own JSON does not change when only its doodads do. Forget only pictures whose saved
+        // doodads/layer visibility changed; cache failures never change the successful save result.
+        try {
+            const committed = DocsDoodads.DataFiles.stable(liveDoodads);
+            DocsDoodads.MapThumb.invalidateMany(DocsDoodads.MapThumb.changedMapIds(savedDoodads, committed));
+        } catch (error) {
+            DocsDoodads.Core.log('Changed map pictures could not be invalidated.', error);
+        }
 
         this.lastSavedAt = Date.now();
         this.dirtyMap = false;
@@ -28358,6 +28403,7 @@ Object.assign(DocsDoodads.Persistence, {
         }
         const live = window.$dataDocsDoodads || {};
         const merged = Object.assign({}, DF.readAll() || {});
+        const savedDoodads = cloneJson(merged);
         delete merged._mapFiles;
         if (Array.isArray(live[mapId]) && live[mapId].length) merged[mapId] = live[mapId]; else delete merged[mapId];
         const settings = Object.assign({}, merged.mapSettings || {});
@@ -28381,6 +28427,12 @@ Object.assign(DocsDoodads.Persistence, {
         }
         if (mapEntries.length) this.sessionSnapshots[mapFile] = FS.stat(mapFile);
         DF.removeStale(doodadEntries);
+        try {
+            const mapThumb = DocsDoodads.MapThumb;
+            mapThumb.invalidateMany(mapThumb.changedMapIds(savedDoodads, DF.stable(merged)));
+        } catch (error) {
+            DocsDoodads.Core.log('Changed map pictures could not be invalidated.', error);
+        }
         // Unsaved work is left only if the doodad data still differs from what is now on disk.
         const still = JSON.stringify(DF.stable(live)) !== JSON.stringify(DF.stable(merged));
         this.dirtyMap = Object.keys(this.stagedMaps).length > 0 || (this._dirtyMap && !mapEntries.length);
@@ -36190,6 +36242,7 @@ DocsDoodads.Workspace = {
     showWorldView() {
         const existing = document.getElementById('dd-world-view');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        this._worldThumbRefresh = null;
         const current = this.currentMapId();
         const layout = DocsDoodads.MapLinks.layout(current, id => this.mapNeighbors(id), id => this.mapSizeLookup(id), 2);
         if (layout.length === 0) return;
@@ -36242,16 +36295,26 @@ DocsDoodads.Workspace = {
             ctx.font = '11px sans-serif';
             ctx.fillText(`${String(m.mapId).padStart(3, '0')} ${names[m.mapId] || ''}`, toX(m.x) + 4, toY(m.y) + 13);
         };
-        for (const m of layout) {
-            drawMap(m, null);
+        const refreshPicture = mapId => {
+            if (!modal.parentNode) return;
+            const m = layout.find(entry => entry.mapId === Number(mapId));
+            if (!m) return;
             const url = DocsDoodads.MapThumb.url(m.mapId);
             if (url && typeof Image !== 'undefined') {
                 const image = new Image();
-                image.onload = () => { if (modal.parentNode) drawMap(m, image); };
+                image.onload = () => { if (modal.parentNode && this._worldThumbRefresh === refreshPicture) drawMap(m, image); };
                 image.src = url;
             }
+        };
+        this._worldThumbRefresh = refreshPicture;
+        for (const m of layout) {
+            drawMap(m, null);
+            refreshPicture(m.mapId);
         }
-        const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
+        const close = () => {
+            if (this._worldThumbRefresh === refreshPicture) this._worldThumbRefresh = null;
+            if (modal.parentNode) modal.parentNode.removeChild(modal);
+        };
         document.getElementById('dd-world-close').onclick = close;
         canvas.onclick = (e) => {
             const rect = canvas.getBoundingClientRect();
@@ -44050,12 +44113,14 @@ DocsDoodads.Workspace.mapSections.push({
     MapThumb._tokens = {};
     MapThumb._urlCache = new Map();
     MapThumb._volatile = new Map();
+    MapThumb._invalid = new Set();
     MapThumb.maxUrls = 32;
     MapThumb.maxVolatile = 8;
 
     MapThumb.status = function(mapId) {
         const picturePath = this.cachePath(mapId), sourcePath = this.sourcePath(mapId);
         const state = this.freshness(DocsDoodads.FS.stat(sourcePath), DocsDoodads.FS.stat(picturePath));
+        if (this._invalid.has(Number(mapId))) state.fresh = false;
         return Object.assign(state, { path: picturePath, sourcePath });
     };
 
@@ -44094,13 +44159,44 @@ DocsDoodads.Workspace.mapSections.push({
         if (!DocsDoodads.FS.existsSync(this.cacheDir)) DocsDoodads.FS.mkdirp(this.cacheDir);
         DocsDoodads.FS.atomicWriteFile(this.cachePath(mapId), bytes);
         this._volatile.delete(Number(mapId));
+        this._invalid.delete(Number(mapId));
         for (const key of Array.from(this._urlCache.keys())) if (key.indexOf(mapId + ':') === 0) this._urlCache.delete(key);
         return true;
+    };
+
+    MapThumb.invalidate = function(mapId) {
+        mapId = Number(mapId);
+        this._tokens[mapId] = (this._tokens[mapId] || 0) + 1;
+        this._volatile.delete(mapId);
+        this._invalid.add(mapId);
+        for (const key of Array.from(this._urlCache.keys())) if (key.indexOf(mapId + ':') === 0) this._urlCache.delete(key);
+        const path = this.cachePath(mapId);
+        try {
+            if (DocsDoodads.FS.existsSync(path)) DocsDoodads.FS.fs.unlinkSync(path);
+            return true;
+        } catch (error) {
+            DocsDoodads.Core.log(`Map ${mapId} picture cache could not be invalidated.`, error);
+            return false;
+        }
+    };
+
+    MapThumb.invalidateMany = function(mapIds) {
+        for (const mapId of mapIds || []) this.invalidate(mapId);
     };
 
     MapThumb.clearVolatile = function(mapIds) {
         if (!mapIds) { this._volatile.clear(); return; }
         for (const mapId of mapIds) this._volatile.delete(Number(mapId));
+    };
+
+    MapThumb.shouldStayVolatile = function(mapId) {
+        const persistence = DocsDoodads.Persistence;
+        return Boolean(persistence.dirtyDoodads || persistence.mapHasUnsaved(mapId));
+    };
+
+    MapThumb.stateRevision = function(mapId) {
+        const persistence = DocsDoodads.Persistence;
+        return `${persistence.changeCount}:${persistence.dirtyDoodads ? 1 : 0}:${persistence.mapHasUnsaved(mapId) ? 1 : 0}`;
     };
 
     MapThumb.request = function(mapId, options) {
@@ -44109,35 +44205,38 @@ DocsDoodads.Workspace.mapSections.push({
         try {
             if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || !DocsDoodads.FS.fs) return Promise.resolve(false);
             if (!window.$gameMap || Number(window.$gameMap.mapId()) !== mapId) return Promise.resolve(false);
-            if (!options.force && this.status(mapId).fresh) return Promise.resolve(true);
-            const changeRevision = DocsDoodads.Persistence.changeCount;
+            const volatile = this.shouldStayVolatile(mapId);
+            if (!options.force && !volatile && this.status(mapId).fresh) return Promise.resolve(true);
+            const stateRevision = this.stateRevision(mapId);
             const waiting = this._pending[mapId];
             if (waiting) {
-                if (waiting.revision === changeRevision) return waiting.promise;
+                if (waiting.revision === stateRevision && waiting.token === this._tokens[mapId]) return waiting.promise;
                 return waiting.promise.then(() => this.request(mapId, { force: true }));
             }
             const snapshot = this.snapshotCurrent(mapId);
             if (!snapshot) return Promise.resolve(false);
-            snapshot.unsaved = DocsDoodads.Persistence.mapHasUnsaved(mapId);
+            snapshot.unsaved = volatile;
             const sourceRevision = this.revision(DocsDoodads.FS.stat(this.sourcePath(mapId)));
             const token = this._tokens[mapId] = (this._tokens[mapId] || 0) + 1;
             let rendering;
             try { rendering = this.render(snapshot); } catch (error) { rendering = Promise.reject(error); }
+            const entry = { promise: null, revision: stateRevision, token };
             const promise = Promise.resolve(rendering).then(canvas => {
-                if (this._tokens[mapId] !== token || DocsDoodads.Persistence.changeCount !== changeRevision) return false;
+                if (this._tokens[mapId] !== token || this.stateRevision(mapId) !== stateRevision) return false;
                 if (this.revision(DocsDoodads.FS.stat(this.sourcePath(mapId))) !== sourceRevision) return false;
                 const written = this.write(mapId, canvas, snapshot.unsaved);
                 if (canvas) canvas.width = canvas.height = 1;
-                if (written && Workspace.mounted && Workspace.renderMapTabs) Workspace.renderMapTabs();
+                if (written && Workspace.refreshMapThumbUi) Workspace.refreshMapThumbUi(mapId);
                 return written;
             }).catch(error => {
                 DocsDoodads.Core.log(`Map ${mapId} picture was not made.`, error);
                 return false;
             }).then(result => {
-                delete this._pending[mapId];
+                if (this._pending[mapId] === entry) delete this._pending[mapId];
                 return result;
             });
-            this._pending[mapId] = { promise, revision: changeRevision };
+            entry.promise = promise;
+            this._pending[mapId] = entry;
             return promise;
         } catch (error) {
             DocsDoodads.Core.log(`Map ${mapId} picture was not queued.`, error);
@@ -44173,6 +44272,20 @@ DocsDoodads.Workspace.mapSections.push({
 
         mapThumbMarkup(mapId, name, className) {
             return MapThumb.markup(mapId, name, className);
+        },
+
+        refreshMapThumbUi(mapId) {
+            mapId = Number(mapId);
+            if (this.mounted && this.renderMapTabs) this.renderMapTabs();
+            if (typeof document !== 'undefined') {
+                const select = document.getElementById('dd-map-goto');
+                const preview = document.getElementById('dd-map-goto-preview');
+                if (select && preview && Number(select.value) === mapId) {
+                    const entry = this.mapEntries().find(map => map.id === mapId);
+                    preview.innerHTML = this.mapThumbMarkup(mapId, entry && entry.name);
+                }
+            }
+            if (typeof this._worldThumbRefresh === 'function') this._worldThumbRefresh(mapId);
         }
     });
 })(DocsDoodads.MapThumb, DocsDoodads.Workspace);

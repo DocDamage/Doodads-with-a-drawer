@@ -146,8 +146,10 @@ DocsDoodads.Persistence = {
             return false;
         }
 
+        const savedDoodads = DocsDoodads.DataFiles.readAll() || {};
+        const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
-        const doodadEntries = DocsDoodads.DataFiles.entriesFor(window.$dataDocsDoodads || {});
+        const doodadEntries = DocsDoodads.DataFiles.entriesFor(liveDoodads);
         const entries = mapEntries.concat(doodadEntries, [
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
         ]);
@@ -171,6 +173,14 @@ DocsDoodads.Persistence = {
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);
+        // A map's own JSON does not change when only its doodads do. Forget only pictures whose saved
+        // doodads/layer visibility changed; cache failures never change the successful save result.
+        try {
+            const committed = DocsDoodads.DataFiles.stable(liveDoodads);
+            DocsDoodads.MapThumb.invalidateMany(DocsDoodads.MapThumb.changedMapIds(savedDoodads, committed));
+        } catch (error) {
+            DocsDoodads.Core.log('Changed map pictures could not be invalidated.', error);
+        }
 
         this.lastSavedAt = Date.now();
         this.dirtyMap = false;
