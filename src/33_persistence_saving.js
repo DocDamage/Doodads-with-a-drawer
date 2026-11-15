@@ -109,6 +109,7 @@ Object.assign(DocsDoodads.Persistence, {
         if (!this.hasUnsavedWork()) { this.lastSavedAt = Date.now(); this.clearRecovery(); }
         W.showToast(this.hasUnsavedWork() ? 'Saved this map. Other maps still have unsaved changes.' : 'Saved this map. Everything is saved.');
         if (W.mounted) W.updateSaveState(!this.hasUnsavedWork());
+        if (mapId === Number(gameMap.mapId()) && W.mapThumb) W.mapThumb(mapId, { force: true });
         return true;
     },
 

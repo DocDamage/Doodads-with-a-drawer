@@ -560,6 +560,9 @@ DocsDoodads.Workspace = {
         this.applyScale();
         this.buildStatusBar();
         this.rememberMap(this.currentMapId());
+        // The map may have loaded before the workspace was opened, so this is also its first lazy
+        // picture opportunity. A fresh cache returns immediately.
+        this.mapThumb(this.currentMapId());
 
         this.bindEvents();
         this.updateSaveState();

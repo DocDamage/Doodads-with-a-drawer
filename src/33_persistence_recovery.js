@@ -181,6 +181,8 @@ DocsDoodads.Persistence = {
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateSaveState(true);
+        // Disposable navigation art is best-effort and must never turn a successful save into a failure.
+        if (DocsDoodads.Workspace.mapThumb) DocsDoodads.Workspace.mapThumb($gameMap.mapId(), { force: true });
         return true;
     },
 
@@ -198,6 +200,7 @@ DocsDoodads.Persistence = {
     // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped
     // (events moved on this map go back to their saved tiles), and the crash snapshot is removed.
     discardUnsaved() {
+        if (DocsDoodads.MapThumb && DocsDoodads.MapThumb.clearVolatile) DocsDoodads.MapThumb.clearVolatile();
         const data = DocsDoodads.DataFiles.readAll();
         window.$dataDocsDoodads = data || {};
         DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');

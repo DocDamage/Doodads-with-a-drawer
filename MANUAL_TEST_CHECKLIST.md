@@ -53,6 +53,8 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Show Collision: boxes by preset, red tiles under them, grey tiles where the map blocks; the key lists the presets on the map and updates when one changes; a doodad on a layer hidden in game is faint; reopening the editor keeps it on.
 - [ ] Status bar: tile and pixel follow the mouse; picked count, layer, zoom; "Not saved" after an edit and the save time after saving.
 - [ ] Go to another map, paste, Copy/Move to Map, link neighbours, mirror an edge tree, and open World View.
+- [ ] Map pictures: open an interior, outdoor map, looping map and cave (flat and in 3D). Each opened map gains a tiles-and-doodads picture, about 256 px on its long side, in its tab hover card, Go to Map list, Ctrl+K Go to map row and World View; lights, weather, characters and editor marks are absent.
+- [ ] Before opening another map, its map-picture places show its accessible name on a plain tile and no cache file is made for it. Leave and save an opened map after changing a doodad: its picture refreshes without a pause or camera jump. Restart after Don't Save: the discarded view is not shown as saved.
 - [ ] On a looping map, stand near the seam and confirm doodads and lights stay put while the camera wraps.
 - [ ] Where Used and Rename/Move a character sheet used by events; open the project in MZ and confirm events still show it.
 - [ ] Art → File Check: Find Unused Files and Find Duplicates; check More Like This.

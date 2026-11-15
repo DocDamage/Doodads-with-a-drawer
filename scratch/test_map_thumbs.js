@@ -6,14 +6,14 @@ const fs = require('fs');
 
 console.log('=== Testing Map Pictures ===');
 
-const byId = {};
+const byId = {}, canvasCalls = [];
 function makeNode(tag) {
     const attrs = {};
     const classes = new Set();
     return {
         tagName: String(tag).toUpperCase(), style: {}, childNodes: [], parentNode: null, textContent: '', title: '', value: '', dataset: {},
         get innerHTML() { return this._html || ''; },
-        set innerHTML(v) { this._html = String(v); this.childNodes = []; for (const m of String(v).matchAll(/id="([^"]+)"/g)) { const c = makeNode('div'); c.id = m[1]; this.appendChild(c); } },
+        set innerHTML(v) { this._html = String(v); this.childNodes = []; for (const m of String(v).matchAll(/id="([^"]+)"/g)) { const c = makeNode(m[1] === 'dd-world-canvas' ? 'canvas' : 'div'); c.id = m[1]; this.appendChild(c); } },
         get className() { return Array.from(classes).join(' '); },
         set className(v) { classes.clear(); String(v).split(/\s+/).filter(Boolean).forEach(c => classes.add(c)); },
         classList: { add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c), toggle() {} },
@@ -22,7 +22,11 @@ function makeNode(tag) {
         setAttribute(k, v) { attrs[k] = String(v); }, getAttribute: k => attrs[k] || null,
         hasAttribute: k => Object.prototype.hasOwnProperty.call(attrs, k), removeAttribute(k) { delete attrs[k]; },
         addEventListener() {}, removeEventListener() {}, querySelectorAll: () => [], querySelector: () => null,
-        getBoundingClientRect: () => ({ left: 0, right: 120, top: 0, bottom: 28 }), closest: () => null, focus() {}
+        getBoundingClientRect: () => ({ left: 0, right: 120, top: 0, bottom: 28 }), closest: () => null, focus() {},
+        getContext: String(tag).toLowerCase() === 'canvas' ? () => new Proxy({}, { get: (target, key) => {
+            if (key in target) return target[key];
+            return (...args) => { canvasCalls.push([key, args]); };
+        }, set: (target, key, value) => { target[key] = value; return true; } }) : undefined
     };
 }
 const body = makeNode('body');
@@ -33,6 +37,8 @@ window.innerWidth = 1200;
 window.innerHeight = 800;
 global.document = { body, documentElement: makeNode('html'), createElement: makeNode, getElementById: id => byId[id] || null,
     querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} };
+const store = {};
+global.localStorage = { getItem: key => store[key] || null, setItem: (key, value) => { store[key] = String(value); } };
 let testMode = true;
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: key => key === 'test' && testMode };
 global.PluginManager = { parameters: () => ({ editorMode: 'true' }) };
@@ -42,6 +48,10 @@ global.$dataMap = { width: 20, height: 10, tilesetId: 1, scrollType: 0, data: ne
 global.$dataMapInfos = [null, { id: 1, name: 'Wide Field' }, { id: 2, name: 'Tall Tower' }];
 global.$dataTilesets = [null, { tilesetNames: [], flags: [] }];
 global.$dataDocsDoodads = { 1: [{ uid: 'tree', bit: [3, 'img/doodads/tree.png'], posMode: 1, x: 48, y: 48 }] };
+global.Image = class {
+    set src(value) { this._src = value; if (this.onload) this.onload(); }
+    get src() { return this._src; }
+};
 
 require('../Docs-Doodads.js');
 const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
@@ -86,10 +96,41 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     testMode = false;
     assert.strictEqual(await ws.mapThumb(1, { force: true }), false, 'no generation outside a playtest');
     testMode = true;
+    // An unsaved departing picture is useful in this run, but must not survive a discard/restart as if saved.
+    D.Persistence.dirtyDoodads = true;
+    if (fs.existsSync(M.cachePath(1))) fs.unlinkSync(M.cachePath(1));
+    M.render = async () => ({ toDataURL: () => 'data:image/png;base64,Yg==' });
+    assert.strictEqual(await ws.mapThumb(1, { force: true }), true);
+    assert.strictEqual(fs.existsSync(M.cachePath(1)), false, 'unsaved pixels are not put in the disk cache');
+    assert.ok(/^data:image\/png/.test(M.url(1)), 'the same playtest can still show the departing map');
+    M.clearVolatile([1]);
+    assert.strictEqual(M.url(1), '', 'discard or restart shows the saved-state placeholder');
+    D.Persistence.dirtyDoodads = false;
     M.render = realRender;
-    console.log('PASS current-only, deduped, guarded, non-blocking work');
+    console.log('PASS current-only, deduped, guarded, non-blocking work; unsaved pictures stay memory-only');
 
-    // 4. Tabs identify their picture to the hover card; an uncached map still has an accessible name.
+    // 4. The small renderer owns only thumbnail-sized canvases and its snapshot survives a map transfer.
+    const snapshot = M.snapshotCurrent(1);
+    $dataMap.data[0] = 99;
+    $dataDocsDoodads[1][0].x = 999;
+    assert.strictEqual(snapshot.data[0], 0);
+    assert.strictEqual(snapshot.doodads[0].x, 48, 'departing map doodads were cloned');
+    const bitmap = { isReady: () => true, _canvas: {}, width: 48, height: 48 };
+    global.ImageManager = { loadTileset: () => bitmap, loadSystem: () => bitmap, loadBitmap: () => bitmap, _emptyBitmap: bitmap };
+    global.Tilemap = function() {};
+    Tilemap.prototype._addSpot = function(startX, startY, x, y) {
+        this._lowerLayer.addRect(0, 0, 0, x * this.tileWidth, y * this.tileHeight, this.tileWidth, this.tileHeight);
+        if (x === 0 && y === 0) this._upperLayer.addRect(0, 0, 0, 0, 0, this.tileWidth, this.tileHeight);
+    };
+    snapshot.tilesetNames[0] = 'A1';
+    canvasCalls.length = 0;
+    const rendered = await M.render(snapshot);
+    assert.deepStrictEqual([rendered.width, rendered.height], [256, 128]);
+    assert.ok(canvasCalls.filter(call => call[0] === 'drawImage').length >= snapshot.width * snapshot.height + 3, 'lower tiles, upper tiles and doodad drawn');
+    assert.deepStrictEqual([$gameMap.displayX(), $gameMap.displayY()], [7, 9], 'rendering leaves the live camera alone');
+    console.log('PASS cloned transfer-safe snapshot and bounded tiles-plus-doodads renderer');
+
+    // 5. Tabs identify their picture to the hover card; an uncached map still has an accessible name.
     ws.container = makeNode('div');
     ws.placeReadouts = () => {};
     ws.goToMap = () => {};
@@ -101,7 +142,20 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     assert.ok(/Tall Tower/.test(tabs[1].getAttribute('aria-label')), 'placeholder retains the accessible map name');
     const mapCommands = ws.paletteCommands().filter(c => c.group === 'Map' && c.mapId);
     assert.deepStrictEqual(mapCommands.map(c => c.mapId), [1, 2], 'Go-to-map rows carry picture ids');
-    console.log('PASS tab and palette integration with accessible placeholders');
+    assert.ok(/dd-map-goto-preview/.test(ws.renderMapNavigation()), 'the map list has a picture/placeholder');
+    const tooltip = makeNode('div');
+    M.decorateTooltip(tabs[1], tooltip);
+    assert.ok(tooltip.childNodes.some(n => /Tall Tower/.test(n.getAttribute('aria-label') || '')), 'tab hover card has an accessible placeholder');
+    const realLayout = D.MapLinks.layout, realBounds = D.MapLinks.bounds;
+    D.MapLinks.layout = () => [{ mapId: 1, x: 0, y: 0, w: 960, h: 480 }, { mapId: 2, x: 960, y: 0, w: 480, h: 960 }];
+    D.MapLinks.bounds = () => ({ left: 0, top: 0, right: 1440, bottom: 960 });
+    M._volatile.set(1, 'data:image/png;base64,YQ==');
+    canvasCalls.length = 0;
+    ws.showWorldView();
+    assert.ok(canvasCalls.some(call => call[0] === 'drawImage'), 'World View draws a cached picture');
+    assert.ok(/Wide Field/.test(byId['dd-world-canvas'].getAttribute('aria-label')), 'World View names maps accessibly');
+    D.MapLinks.layout = realLayout; D.MapLinks.bounds = realBounds; M.clearVolatile();
+    console.log('PASS tabs, map list, palette and World View pictures with accessible placeholders');
 
     console.log('\nAll map picture tests passed.');
 })().catch(error => { console.error(error); process.exit(1); });

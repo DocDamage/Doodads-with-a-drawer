@@ -841,7 +841,8 @@ The **Maps** section of the map panel (shown when nothing is selected):
 - **Copy / Paste across maps**: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy, and **Paste in Place** (Ctrl+Shift+V) keeps the position there too.
 - **Copy to Map / Move to Map** (Details): send the selection to any map in one undoable step.
 - **Neighbouring maps**: link maps north/south/east/west. **Mirror Edge Doodads** copies doodads hanging over an edge onto the neighbouring map as locked mirrors, so a tree on a border shows on both sides. Running it again replaces the old mirrors.
-- **World View** draws the map and its linked neighbours to scale with their doodads; edge-crossing doodads are orange. Click a map to go there.
+- **Map pictures**: after a map has been opened, its tabs, Go to Map list, Go to map rows in Find a Tool and World View show a small picture of its tiles and doodads. A map not opened in this playtest has a plain tile with its name until it gets a picture. Pictures are refreshed when the map opens, is saved or is left; they are disposable files under `data/docs_doodads_cache/maps/` and are never added to the game's saved data.
+- **World View** draws the map and its linked neighbours to scale with their map pictures and edge-crossing doodads in orange. Click a map to go there.
 - Looping (world) maps wrap doodads, lights, outlines and clicks with the camera, the same way MZ's characters wrap.
 
 ---

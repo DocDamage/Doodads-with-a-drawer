@@ -834,7 +834,10 @@
             add('Layer: ' + l.name, () => { this.activeLayer = l.id; this.showToast(`New doodads go on ${l.name}.`); }, 'Layer');
             add('Select Layer: ' + l.name, () => this.selectLayer(l.id), 'Layer');
         }
-        for (const m of this.mapEntries()) add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
+        for (const m of this.mapEntries()) {
+            add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
+            out[out.length - 1].mapId = m.id;
+        }
         // Every entry of the top bar's menus ("View → Listen"), from the same list the menus are drawn from,
         // unless the palette already has one starting with its words ("Problems (check the map)").
         const have = out.map(c => String(c.label).toLowerCase());
@@ -870,6 +873,7 @@
                 const parts = this.paletteRowParts(c);
                 return `
                 <div class="dd-palette-row" data-i="${i}" style="display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
+                    ${c.mapId ? this.mapThumbMarkup(c.mapId, parts.name) : ''}
                     <span style="flex: 1; min-width: 0;">${escapeHtml(parts.name)}</span>${parts.keys ? `<kbd>${escapeHtml(parts.keys)}</kbd>` : ''}
                     <span style="color: var(--dd-faint); font-size: 10px;">${c.recent ? 'Recent · ' : ''}${escapeHtml(c.group)}</span>
                 </div>`;

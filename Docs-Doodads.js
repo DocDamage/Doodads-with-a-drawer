@@ -9090,6 +9090,58 @@ DocsDoodads.Destination = {
 };
 
 //==========================================================
+// SECTION 5i: MAP PICTURE RULES
+//==========================================================
+// The editor integration and MZ canvas renderer are later parts. These rules stay plain so cache names,
+// dimensions and source revisions do not depend on a scene, PIXI or the page.
+DocsDoodads.MapThumb = {
+    maxSide: 256,
+    cacheDir: 'data/docs_doodads_cache/maps',
+
+    dimensions(mapWidth, mapHeight, tileWidth, tileHeight, maxSide) {
+        const fullWidth = Math.max(1, Number(mapWidth) * Number(tileWidth) || 1);
+        const fullHeight = Math.max(1, Number(mapHeight) * Number(tileHeight) || 1);
+        const scale = Math.min(1, (Number(maxSide) || this.maxSide) / Math.max(fullWidth, fullHeight));
+        return {
+            width: Math.max(1, Math.round(fullWidth * scale)),
+            height: Math.max(1, Math.round(fullHeight * scale)),
+            scale
+        };
+    },
+
+    padMapId(mapId) {
+        return String(Math.max(0, Number(mapId) || 0)).padStart(3, '0');
+    },
+
+    cachePath(mapId) {
+        return `${this.cacheDir}/Map${this.padMapId(mapId)}.png`;
+    },
+
+    sourcePath(mapId) {
+        return `data/Map${this.padMapId(mapId)}.json`;
+    },
+
+    freshness(sourceStat, pictureStat) {
+        const exists = Boolean(pictureStat);
+        return { exists, fresh: exists && (!sourceStat || pictureStat.mtimeMs >= sourceStat.mtimeMs) };
+    },
+
+    revision(stat) {
+        return stat ? `${Number(stat.mtimeMs) || 0}:${Number(stat.size) || 0}` : '';
+    },
+
+    pngBytes(dataUrl) {
+        const match = /^data:image\/png;base64,(.*)$/i.exec(String(dataUrl || ''));
+        if (!match) return null;
+        if (typeof Buffer !== 'undefined') return Buffer.from(match[1], 'base64');
+        if (typeof atob === 'undefined') return null;
+        const text = atob(match[1]), bytes = new Uint8Array(text.length);
+        for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
+        return bytes;
+    }
+};
+
+//==========================================================
 // SECTION 5I: PERSPECTIVE (3D) MODE
 //==========================================================
 // The flat map (map pixels as drawn by the tilemap, "flat" space) is laid on a ground plane and seen
@@ -11246,6 +11298,192 @@ if (typeof PIXI !== 'undefined') {
         this.texture.frame = new PIXI.Rectangle(frame.x, frame.y, frame.w, frame.h);
     };
 }
+
+//==========================================================
+// SECTION 6k: SMALL MAP PICTURE RENDERER
+//==========================================================
+// Unlike MapExport.capture this never moves the camera or renders the live scene. MZ's Tilemap methods
+// calculate the same normal/autotile source rectangles into two tiny canvas layers; doodads go between
+// lower and upper tiles. Large maps yield every few milliseconds and never allocate a full-map bitmap.
+(function(MapThumb) {
+    const yieldFrame = () => new Promise(resolve => {
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resolve);
+        else setTimeout(resolve, 0);
+    });
+
+    function bitmapSource(bitmap) {
+        return bitmap && (bitmap._canvas || bitmap._image || bitmap.canvas);
+    }
+
+    function waitBitmap(bitmap) {
+        if (!bitmap) return Promise.resolve(null);
+        if (!bitmap.isReady || bitmap.isReady()) return Promise.resolve(bitmap);
+        return new Promise((resolve, reject) => {
+            let done = false;
+            let poll = null, timeout = null;
+            const finish = (value, error) => {
+                if (done) return;
+                done = true;
+                clearInterval(poll);
+                clearTimeout(timeout);
+                if (error) reject(error); else resolve(value);
+            };
+            if (bitmap.addLoadListener) bitmap.addLoadListener(() => finish(bitmap));
+            poll = setInterval(() => {
+                if (bitmap.isError && bitmap.isError()) finish(null, new Error('A map picture asset could not be loaded.'));
+                else if (!bitmap.isReady || bitmap.isReady()) finish(bitmap);
+            }, 50);
+            timeout = setTimeout(() => finish(null, new Error('A map picture asset took too long to load.')), 15000);
+        });
+    }
+
+    function makeCanvas(width, height) {
+        const out = document.createElement('canvas');
+        out.width = width;
+        out.height = height;
+        return out;
+    }
+
+    function layer(context, bitmaps, scale) {
+        return {
+            addRect(setNumber, sx, sy, dx, dy, width, height) {
+                const x = dx * scale, y = dy * scale, w = width * scale, h = height * scale;
+                if (setNumber < 0) {
+                    context.fillStyle = 'rgba(0,0,0,0.5)';
+                    context.fillRect(x, y, w, h);
+                    return;
+                }
+                const source = bitmapSource(bitmaps[setNumber]);
+                if (!source) return;
+                try { context.drawImage(source, sx, sy, width, height, x, y, w, h); } catch (error) {}
+            }
+        };
+    }
+
+    async function tilesetBitmaps(names) {
+        const bitmaps = [];
+        for (let i = 0; i < 9; i++) {
+            const name = names[i];
+            bitmaps[i] = name && typeof ImageManager !== 'undefined' ? ImageManager.loadTileset(name) : null;
+        }
+        await Promise.all(bitmaps.filter(Boolean).map(waitBitmap));
+        return bitmaps;
+    }
+
+    function doodadBitmap(doodad, tileBitmaps) {
+        const bit = doodad && doodad.bit;
+        if (!bit || typeof ImageManager === 'undefined') return null;
+        if (bit[0] === 1) return ImageManager.loadSystem('IconSet');
+        if (bit[0] === 2) return tileBitmaps[Number(bit[1]) || 0] || null;
+        if (bit[0] === 3) return DocsDoodads.loadBitmap(bit[1]);
+        return null;
+    }
+
+    function frameOf(doodad, bitmap) {
+        const bit = doodad.bit || [];
+        if (bit[0] === 1 && doodad.frameW === undefined) {
+            const index = Math.max(0, Number(doodad.index) || 0);
+            return { x: index % 16 * 32, y: Math.floor(index / 16) * 32, w: 32, h: 32 };
+        }
+        return {
+            x: Number(doodad.frameX) || 0,
+            y: Number(doodad.frameY) || 0,
+            w: Math.max(1, Number(doodad.frameW) || bitmap.width || 1),
+            h: Math.max(1, Number(doodad.frameH) || bitmap.height || 1)
+        };
+    }
+
+    async function drawDoodads(context, doodads, bitmaps, scale) {
+        // Only this small map job retains decoded pictures, and no more than 24 distinct ones at once.
+        const retained = new Map();
+        let sliceStarted = Date.now();
+        for (const doodad of doodads) {
+            const key = doodad.bit ? doodad.bit[0] + ':' + doodad.bit[1] : '';
+            let bitmap = retained.get(key);
+            if (!bitmap) {
+                bitmap = await waitBitmap(doodadBitmap(doodad, bitmaps));
+                if (bitmap) {
+                    if (retained.size >= 24) retained.delete(retained.keys().next().value);
+                    retained.set(key, bitmap);
+                }
+            }
+            const source = bitmapSource(bitmap);
+            if (source) {
+                const frame = frameOf(doodad, bitmap);
+                const anchorX = doodad.anchorX !== undefined ? Number(doodad.anchorX) : 0.5;
+                const anchorY = doodad.anchorY !== undefined ? Number(doodad.anchorY) : 1;
+                context.save();
+                context.globalAlpha = Math.max(0, Math.min(1, doodad.opacity !== undefined ? Number(doodad.opacity) : 1));
+                context.translate((Number(doodad.x) || 0) * scale, (Number(doodad.y) || 0) * scale);
+                context.rotate((Number(doodad.rotation) || 0) * Math.PI / 180);
+                context.scale((doodad.scaleX !== undefined ? Number(doodad.scaleX) : 1) * scale,
+                    (doodad.scaleY !== undefined ? Number(doodad.scaleY) : 1) * scale);
+                try { context.drawImage(source, frame.x, frame.y, frame.w, frame.h, -anchorX * frame.w, -anchorY * frame.h, frame.w, frame.h); } catch (error) {}
+                context.restore();
+            }
+            if (Date.now() - sliceStarted >= 5) { await yieldFrame(); sliceStarted = Date.now(); }
+        }
+        retained.clear();
+    }
+
+    MapThumb.snapshotCurrent = function(mapId) {
+        if (typeof window === 'undefined' || !window.$gameMap || Number(window.$gameMap.mapId()) !== Number(mapId) || !window.$dataMap) return null;
+        const live = window.$gameMap;
+        const stagedOwner = live._stagedMapDataId !== undefined ? Number(live._stagedMapDataId) : Number(mapId);
+        const staged = live._stagedMapData && stagedOwner === Number(mapId) ? live._stagedMapData : null;
+        const source = staged && Array.isArray(staged.data) ? staged : window.$dataMap;
+        const tilesetId = Number(source.tilesetId !== undefined ? source.tilesetId : (live.tilesetId ? live.tilesetId() : 0));
+        const tileset = typeof $dataTilesets !== 'undefined' && $dataTilesets ? $dataTilesets[tilesetId] : null;
+        const doodads = DocsDoodads.doodads(Number(mapId)).filter(d => d && d.posMode !== 0 && !d.temp).map(d => cloneJson(d));
+        const settings = window.$dataDocsDoodads && window.$dataDocsDoodads.mapSettings ? cloneJson(window.$dataDocsDoodads.mapSettings[mapId] || null) : null;
+        return {
+            mapId: Number(mapId), width: Number(source.width) || 1, height: Number(source.height) || 1,
+            tileWidth: live.tileWidth ? live.tileWidth() : 48, tileHeight: live.tileHeight ? live.tileHeight() : 48,
+            scrollType: Number(source.scrollType) || 0, data: Array.isArray(source.data) ? source.data.slice() : [],
+            tilesetNames: tileset && tileset.tilesetNames ? tileset.tilesetNames.slice() : [],
+            flags: tileset && tileset.flags ? tileset.flags.slice() : [], doodads, settings
+        };
+    };
+
+    MapThumb.render = async function(snapshot) {
+        if (!snapshot || typeof document === 'undefined' || typeof Tilemap === 'undefined' || typeof ImageManager === 'undefined') throw new Error('The map picture renderer is unavailable.');
+        const size = this.dimensions(snapshot.width, snapshot.height, snapshot.tileWidth, snapshot.tileHeight);
+        const lower = makeCanvas(size.width, size.height), upper = makeCanvas(size.width, size.height), out = makeCanvas(size.width, size.height);
+        const lowerContext = lower.getContext('2d'), upperContext = upper.getContext('2d'), context = out.getContext('2d');
+        lowerContext.imageSmoothingEnabled = upperContext.imageSmoothingEnabled = context.imageSmoothingEnabled = false;
+        const bitmaps = await tilesetBitmaps(snapshot.tilesetNames || []);
+        const tilemap = Object.create(Tilemap.prototype);
+        tilemap.tileWidth = snapshot.tileWidth;
+        tilemap.tileHeight = snapshot.tileHeight;
+        tilemap.flags = snapshot.flags || [];
+        tilemap.animationFrame = 0;
+        tilemap.horizontalWrap = snapshot.scrollType === 2 || snapshot.scrollType === 3;
+        tilemap.verticalWrap = snapshot.scrollType === 1 || snapshot.scrollType === 3;
+        tilemap._mapWidth = snapshot.width;
+        tilemap._mapHeight = snapshot.height;
+        tilemap._mapData = snapshot.data;
+        tilemap._lowerLayer = layer(lowerContext, bitmaps, size.scale);
+        tilemap._upperLayer = layer(upperContext, bitmaps, size.scale);
+        let sliceStarted = Date.now();
+        for (let y = 0; y < snapshot.height; y++) {
+            for (let x = 0; x < snapshot.width; x++) tilemap._addSpot(0, 0, x, y);
+            if (Date.now() - sliceStarted >= 5) { await yieldFrame(); sliceStarted = Date.now(); }
+        }
+        context.drawImage(lower, 0, 0);
+        const visible = (snapshot.doodads || []).filter(d => !d.editorHidden && DocsDoodads.Layers.visibleInGame(d, snapshot.settings));
+        visible.sort((a, b) => {
+            const za = DocsDoodads.Depth.spriteZ(a), zb = DocsDoodads.Depth.spriteZ(b);
+            return za - zb || DocsDoodads.Depth.baseY(a) - DocsDoodads.Depth.baseY(b);
+        });
+        const split = visible.findIndex(d => DocsDoodads.Depth.spriteZ(d) >= 4);
+        const under = split < 0 ? visible : visible.slice(0, split), over = split < 0 ? [] : visible.slice(split);
+        await drawDoodads(context, under, bitmaps, size.scale);
+        context.drawImage(upper, 0, 0);
+        await drawDoodads(context, over, bitmaps, size.scale);
+        lower.width = lower.height = upper.width = upper.height = 1;
+        return out;
+    };
+})(DocsDoodads.MapThumb);
 
 //==========================================================
 // SECTION 7: SPRITESET_MAP DOODAD LAYER HOOKS
@@ -27934,6 +28172,8 @@ DocsDoodads.Persistence = {
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateSaveState(true);
+        // Disposable navigation art is best-effort and must never turn a successful save into a failure.
+        if (DocsDoodads.Workspace.mapThumb) DocsDoodads.Workspace.mapThumb($gameMap.mapId(), { force: true });
         return true;
     },
 
@@ -27951,6 +28191,7 @@ DocsDoodads.Persistence = {
     // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped
     // (events moved on this map go back to their saved tiles), and the crash snapshot is removed.
     discardUnsaved() {
+        if (DocsDoodads.MapThumb && DocsDoodads.MapThumb.clearVolatile) DocsDoodads.MapThumb.clearVolatile();
         const data = DocsDoodads.DataFiles.readAll();
         window.$dataDocsDoodads = data || {};
         DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');
@@ -28148,6 +28389,7 @@ Object.assign(DocsDoodads.Persistence, {
         if (!this.hasUnsavedWork()) { this.lastSavedAt = Date.now(); this.clearRecovery(); }
         W.showToast(this.hasUnsavedWork() ? 'Saved this map. Other maps still have unsaved changes.' : 'Saved this map. Everything is saved.');
         if (W.mounted) W.updateSaveState(!this.hasUnsavedWork());
+        if (mapId === Number(gameMap.mapId()) && W.mapThumb) W.mapThumb(mapId, { force: true });
         return true;
     },
 
@@ -29701,6 +29943,7 @@ Object.assign(DocsDoodads.Ui, {
         const tip = document.createElement('div');
         tip.id = 'dd-tooltip';
         tip.textContent = text;
+        if (DocsDoodads.MapThumb && DocsDoodads.MapThumb.decorateTooltip) DocsDoodads.MapThumb.decorateTooltip(el, tip);
         if (keys) {
             const kbd = document.createElement('kbd');
             kbd.textContent = keys;
@@ -30455,6 +30698,9 @@ DocsDoodads.Workspace = {
         this.applyScale();
         this.buildStatusBar();
         this.rememberMap(this.currentMapId());
+        // The map may have loaded before the workspace was opened, so this is also its first lazy
+        // picture opportunity. A fresh cache returns immediately.
+        this.mapThumb(this.currentMapId());
 
         this.bindEvents();
         this.updateSaveState();
@@ -33523,7 +33769,10 @@ DocsDoodads.Workspace = {
             add('Layer: ' + l.name, () => { this.activeLayer = l.id; this.showToast(`New doodads go on ${l.name}.`); }, 'Layer');
             add('Select Layer: ' + l.name, () => this.selectLayer(l.id), 'Layer');
         }
-        for (const m of this.mapEntries()) add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
+        for (const m of this.mapEntries()) {
+            add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
+            out[out.length - 1].mapId = m.id;
+        }
         // Every entry of the top bar's menus ("View → Listen"), from the same list the menus are drawn from,
         // unless the palette already has one starting with its words ("Problems (check the map)").
         const have = out.map(c => String(c.label).toLowerCase());
@@ -33559,6 +33808,7 @@ DocsDoodads.Workspace = {
                 const parts = this.paletteRowParts(c);
                 return `
                 <div class="dd-palette-row" data-i="${i}" style="display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; ${i === index ? 'background: var(--dd-field); color: var(--dd-text);' : 'color: var(--dd-text);'}">
+                    ${c.mapId ? this.mapThumbMarkup(c.mapId, parts.name) : ''}
                     <span style="flex: 1; min-width: 0;">${escapeHtml(parts.name)}</span>${parts.keys ? `<kbd>${escapeHtml(parts.keys)}</kbd>` : ''}
                     <span style="color: var(--dd-faint); font-size: 10px;">${c.recent ? 'Recent · ' : ''}${escapeHtml(c.group)}</span>
                 </div>`;
@@ -35898,6 +36148,7 @@ DocsDoodads.Workspace = {
                 <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
                     <div>Go to map (keeps the editor open):
                         <select id="dd-map-goto" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
+                        <div id="dd-map-goto-preview" style="margin-top: 4px; min-height: 32px;">${this.mapThumbMarkup(this.currentMapId(), (this.mapEntries().find(m => m.id === this.currentMapId()) || {}).name)}</div>
                         <button class="dd-btn" id="dd-map-goto-btn" style="width: 100%; margin-top: 4px;">Go to Map</button></div>
                     <div style="margin-top: 4px; color: var(--dd-text);">Neighbouring maps (for doodads that cross the edge):</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">${side('north', 'North')}${side('south', 'South')}${side('west', 'West')}${side('east', 'East')}</div>
@@ -35910,6 +36161,13 @@ DocsDoodads.Workspace = {
     bindMapNavigation() {
         const go = document.getElementById('dd-map-goto-btn');
         if (go) go.onclick = () => this.goToMap(parseInt(document.getElementById('dd-map-goto').value, 10));
+        const mapSelect = document.getElementById('dd-map-goto');
+        if (mapSelect) mapSelect.onchange = () => {
+            const id = parseInt(mapSelect.value, 10);
+            const entry = this.mapEntries().find(m => m.id === id);
+            const preview = document.getElementById('dd-map-goto-preview');
+            if (preview) preview.innerHTML = this.mapThumbMarkup(id, entry && entry.name);
+        };
         for (const name of DocsDoodads.MapLinks.sides) {
             const select = document.getElementById(`dd-map-nb-${name}`);
             if (!select) continue;
@@ -35955,10 +36213,21 @@ DocsDoodads.Workspace = {
             <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
         document.body.appendChild(modal);
         const canvas = document.getElementById('dd-world-canvas');
+        canvas.setAttribute('role', 'img');
+        canvas.setAttribute('aria-label', 'World View: ' + layout.map(m => names[m.mapId] || `Map ${m.mapId}`).join(', '));
         const ctx = canvas.getContext('2d');
-        for (const m of layout) {
+        const drawMap = (m, image) => {
             ctx.fillStyle = m.mapId === current ? '#1e3a5f' : '#16213a';
             ctx.fillRect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+            if (image) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+                ctx.clip();
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(image, toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+                ctx.restore();
+            }
             ctx.strokeStyle = m.mapId === current ? '#38bdf8' : '#475569';
             ctx.lineWidth = m.mapId === current ? 2 : 1;
             ctx.strokeRect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
@@ -35972,6 +36241,15 @@ DocsDoodads.Workspace = {
             ctx.fillStyle = '#e2e8f0';
             ctx.font = '11px sans-serif';
             ctx.fillText(`${String(m.mapId).padStart(3, '0')} ${names[m.mapId] || ''}`, toX(m.x) + 4, toY(m.y) + 13);
+        };
+        for (const m of layout) {
+            drawMap(m, null);
+            const url = DocsDoodads.MapThumb.url(m.mapId);
+            if (url && typeof Image !== 'undefined') {
+                const image = new Image();
+                image.onload = () => { if (modal.parentNode) drawMap(m, image); };
+                image.src = url;
+            }
         }
         const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
         document.getElementById('dd-world-close').onclick = close;
@@ -35989,6 +36267,9 @@ DocsDoodads.Workspace = {
     // Transfers the player; the workspace stays open and picks the new map up in onMapLoaded.
     goToMap(mapId) {
         if (!mapId || !window.$gamePlayer || !window.$gameMap || mapId === this.currentMapId()) return;
+        // Snapshot the departing map before transfer setup can replace $dataMap. Picture failures never
+        // delay or cancel navigation.
+        this.mapThumb(this.currentMapId(), { force: true });
         const size = this.mapSizeLookup(mapId);
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
@@ -36016,6 +36297,7 @@ DocsDoodads.Workspace = {
 
     onMapLoaded() {
         if (!this.mounted) return;
+        this.mapThumb(this.currentMapId());
         this.updateCollisionLegend();
         this.applyStagedRegions();
         this.reportStepsBack();
@@ -43761,6 +44043,148 @@ DocsDoodads.Workspace.mapSections.push({
     }
 });
 //==========================================================
+// SECTION 25f: MAP PICTURE CACHE AND UI
+//==========================================================
+(function(MapThumb, Workspace) {
+    MapThumb._pending = {};
+    MapThumb._tokens = {};
+    MapThumb._urlCache = new Map();
+    MapThumb._volatile = new Map();
+    MapThumb.maxUrls = 32;
+    MapThumb.maxVolatile = 8;
+
+    MapThumb.status = function(mapId) {
+        const picturePath = this.cachePath(mapId), sourcePath = this.sourcePath(mapId);
+        const state = this.freshness(DocsDoodads.FS.stat(sourcePath), DocsDoodads.FS.stat(picturePath));
+        return Object.assign(state, { path: picturePath, sourcePath });
+    };
+
+    MapThumb.url = function(mapId) {
+        if (this._volatile.has(Number(mapId))) {
+            const value = this._volatile.get(Number(mapId));
+            this._volatile.delete(Number(mapId));
+            this._volatile.set(Number(mapId), value);
+            return value;
+        }
+        const status = this.status(mapId);
+        if (!status.fresh) return '';
+        const stat = DocsDoodads.FS.stat(status.path);
+        const key = `${mapId}:${this.revision(stat)}`;
+        if (this._urlCache.has(key)) {
+            const value = this._urlCache.get(key);
+            this._urlCache.delete(key);
+            this._urlCache.set(key, value);
+            return value;
+        }
+        const value = encodeURI(status.path.replace(/\\/g, '/')) + '?v=' + encodeURIComponent(this.revision(stat));
+        while (this._urlCache.size >= this.maxUrls) this._urlCache.delete(this._urlCache.keys().next().value);
+        this._urlCache.set(key, value);
+        return value;
+    };
+
+    MapThumb.write = function(mapId, canvas, volatile) {
+        const dataUrl = canvas && canvas.toDataURL ? canvas.toDataURL('image/png') : '';
+        if (volatile && /^data:image\/png;base64,/i.test(dataUrl)) {
+            while (this._volatile.size >= this.maxVolatile) this._volatile.delete(this._volatile.keys().next().value);
+            this._volatile.set(Number(mapId), dataUrl);
+            return true;
+        }
+        const bytes = this.pngBytes(dataUrl);
+        if (!bytes) return false;
+        if (!DocsDoodads.FS.existsSync(this.cacheDir)) DocsDoodads.FS.mkdirp(this.cacheDir);
+        DocsDoodads.FS.atomicWriteFile(this.cachePath(mapId), bytes);
+        this._volatile.delete(Number(mapId));
+        for (const key of Array.from(this._urlCache.keys())) if (key.indexOf(mapId + ':') === 0) this._urlCache.delete(key);
+        return true;
+    };
+
+    MapThumb.clearVolatile = function(mapIds) {
+        if (!mapIds) { this._volatile.clear(); return; }
+        for (const mapId of mapIds) this._volatile.delete(Number(mapId));
+    };
+
+    MapThumb.request = function(mapId, options) {
+        options = options || {};
+        mapId = Number(mapId);
+        try {
+            if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || !DocsDoodads.FS.fs) return Promise.resolve(false);
+            if (!window.$gameMap || Number(window.$gameMap.mapId()) !== mapId) return Promise.resolve(false);
+            if (!options.force && this.status(mapId).fresh) return Promise.resolve(true);
+            const changeRevision = DocsDoodads.Persistence.changeCount;
+            const waiting = this._pending[mapId];
+            if (waiting) {
+                if (waiting.revision === changeRevision) return waiting.promise;
+                return waiting.promise.then(() => this.request(mapId, { force: true }));
+            }
+            const snapshot = this.snapshotCurrent(mapId);
+            if (!snapshot) return Promise.resolve(false);
+            snapshot.unsaved = DocsDoodads.Persistence.mapHasUnsaved(mapId);
+            const sourceRevision = this.revision(DocsDoodads.FS.stat(this.sourcePath(mapId)));
+            const token = this._tokens[mapId] = (this._tokens[mapId] || 0) + 1;
+            let rendering;
+            try { rendering = this.render(snapshot); } catch (error) { rendering = Promise.reject(error); }
+            const promise = Promise.resolve(rendering).then(canvas => {
+                if (this._tokens[mapId] !== token || DocsDoodads.Persistence.changeCount !== changeRevision) return false;
+                if (this.revision(DocsDoodads.FS.stat(this.sourcePath(mapId))) !== sourceRevision) return false;
+                const written = this.write(mapId, canvas, snapshot.unsaved);
+                if (canvas) canvas.width = canvas.height = 1;
+                if (written && Workspace.mounted && Workspace.renderMapTabs) Workspace.renderMapTabs();
+                return written;
+            }).catch(error => {
+                DocsDoodads.Core.log(`Map ${mapId} picture was not made.`, error);
+                return false;
+            }).then(result => {
+                delete this._pending[mapId];
+                return result;
+            });
+            this._pending[mapId] = { promise, revision: changeRevision };
+            return promise;
+        } catch (error) {
+            DocsDoodads.Core.log(`Map ${mapId} picture was not queued.`, error);
+            return Promise.resolve(false);
+        }
+    };
+
+    MapThumb.markup = function(mapId, name, className) {
+        const label = String(name || `Map ${mapId}`);
+        const url = this.url(mapId);
+        if (url) return `<img class="${className || 'dd-map-thumb'}" src="${escapeHtml(url)}" alt="${escapeHtml(label)} map preview" />`;
+        return `<span class="${className || 'dd-map-thumb'} dd-map-thumb-empty" role="img" aria-label="${escapeHtml(label)} has no map preview yet">${escapeHtml(label)}</span>`;
+    };
+
+    MapThumb.decorateTooltip = function(element, tooltip) {
+        if (!element || !tooltip || !element.getAttribute || !tooltip.appendChild) return tooltip;
+        const mapId = Number(element.getAttribute('data-dd-map-thumb'));
+        if (!(mapId > 0)) return tooltip;
+        const name = element.getAttribute('data-dd-map-name') || `Map ${mapId}`;
+        const url = this.url(mapId);
+        const preview = document.createElement(url ? 'img' : 'div');
+        preview.className = url ? 'dd-map-tip-picture' : 'dd-map-tip-picture dd-map-thumb-empty';
+        if (url) { preview.src = url; preview.alt = `${name} map preview`; }
+        else { preview.textContent = name; preview.setAttribute('role', 'img'); preview.setAttribute('aria-label', `${name} has no map preview yet`); }
+        tooltip.insertBefore ? tooltip.insertBefore(preview, tooltip.firstChild || null) : tooltip.appendChild(preview);
+        return tooltip;
+    };
+
+    Object.assign(Workspace, {
+        mapThumb(mapId, options) {
+            return MapThumb.request(mapId, options);
+        },
+
+        mapThumbMarkup(mapId, name, className) {
+            return MapThumb.markup(mapId, name, className);
+        }
+    });
+})(DocsDoodads.MapThumb, DocsDoodads.Workspace);
+
+DocsDoodads.Ui.css += `
+.dd-map-thumb { width: 44px; height: 32px; object-fit: cover; flex: none; border-radius: 4px; border: 1px solid var(--dd-line); image-rendering: pixelated; background: var(--dd-field); }
+.dd-map-thumb-empty { display: inline-flex; align-items: center; justify-content: center; overflow: hidden; padding: 2px; box-sizing: border-box; color: var(--dd-faint); font-size: 8px; line-height: 1.1; text-align: center; }
+.dd-map-tip-picture { display: flex; width: 256px; max-width: 55vw; max-height: 256px; object-fit: contain; margin-bottom: 6px; border-radius: 5px; image-rendering: pixelated; }
+.dd-map-tip-picture.dd-map-thumb-empty { min-height: 72px; align-items: center; justify-content: center; background: var(--dd-field); }
+`;
+
+//==========================================================
 // SECTION 25e: WORKSPACE MAP TOOLS (CLOCK, SOUNDS, PERFORMANCE)
 //==========================================================
 // A clock at the top of the map panel previews any time of day and season (lamps, shadows, the 3D sky,
@@ -44733,7 +45157,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (map && /map|go/i.test(q)) {
             const id = Number(map[1]);
             const entry = this.mapEntries().find(m => m.id === id);
-            if (entry) out.push({ label: `Go to map ${id}: ${entry.name}`, group: 'Map', run: () => this.goToMap(id) });
+            if (entry) out.push({ label: `Go to map ${id}: ${entry.name}`, group: 'Map', mapId: id, run: () => this.goToMap(id) });
         }
         const season = /^season\s+(.+)$/i.exec(q);
         if (season) {
@@ -44812,7 +45236,11 @@ Object.assign(DocsDoodads.Workspace, {
         for (const id of ids) {
             const tab = document.createElement('div');
             tab.className = 'dd-map-tab' + (id === current ? ' dd-current' : '');
-            tab.title = `Map ${id}: ${names.get(id) || ''}`;
+            const name = names.get(id) || `Map ${id}`;
+            tab.title = `Map ${id}: ${name}`;
+            tab.setAttribute('data-dd-map-thumb', String(id));
+            tab.setAttribute('data-dd-map-name', name);
+            tab.setAttribute('aria-label', `Map ${id}: ${name}`);
             if (P.mapHasUnsaved(id)) {
                 const dot = document.createElement('i');
                 dot.className = 'dd-tab-dot';
@@ -44820,7 +45248,7 @@ Object.assign(DocsDoodads.Workspace, {
                 tab.appendChild(dot);
             }
             const label = document.createElement('span');
-            label.textContent = names.get(id) || `Map ${id}`;
+            label.textContent = name;
             tab.appendChild(label);
             if (id !== current) {
                 const x = document.createElement('button');

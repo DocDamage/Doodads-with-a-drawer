@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Map pictures: opened maps get a small tiles-and-doodads picture in map-tab hover cards, the map list, Find a Tool's Go to map rows and World View. Pictures are made lazily at about 256 pixels on their long side and kept in the disposable editor cache; unopened maps keep a named placeholder.
 - Fix: crash recovery now keeps unsaved notes on every map and editor bookmarks, including changes that remove either list.
 - More is split into four menus on the top bar: **Map** (map settings, finding, rooms, templates, Problems, Check Reach, saving), **Art** (Cut Up Sheet, Characters, Packs, Effects Maker, File Check), **View** (grid, collision, sounds, speed, Screen Looks, Look, layouts) and a short **More**. The arrow keys move inside and between them; in a narrow window Map, Art and View fold back into More under their names. Every entry is also in Find a Tool (Ctrl+K).
 - Ruler and bookmarks: the **Ruler** (M) measures on the map in tiles across and down, the walk, the straight line and pixels (Shift snaps to tile middles; in 3D on the ground). **Bookmark This View** keeps a place on a map (and the 3D camera) to jump back to from Ctrl+K, the Bookmarks card (View) or Ctrl+1 to Ctrl+9, opening the other map when needed.
