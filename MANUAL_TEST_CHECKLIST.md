@@ -131,6 +131,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Type a search with several terms: chips appear; × removes one; save it, reopen the editor, click the saved chip; × forgets it.
 - [ ] Open an empty Favourites, Prefabs and Recent tab and a search with no results: each says what to do, and the button works (Bring In Files opens a file picker).
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+- [ ] Ruler (M): drag across a few tiles; the readout's tiles, walk and pixels are right; Shift snaps to tile middles; Esc clears it; the map is unchanged. In 3D the line lies on the ground where the mouse went.
+- [ ] Bookmarks: Bookmark This View on two maps (one in 3D, turned); Ctrl+1 and Ctrl+2 jump between them, opening the other map and putting the camera back; move one up in the card and the keys follow. Save and start again: they are kept.
 
 ## Editor look and layout
 

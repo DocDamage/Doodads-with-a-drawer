@@ -494,6 +494,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             g.lineStyle(1.5, DocsDoodads.Ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
         }
+        // The Ruler's line on the ground (44_workspace_ruler.js).
+        if (ws.placementTool === 'ruler' && ws._ruler && ws.rulerScreenLine) {
+            const line = ws.rulerScreenLine();
+            if (line) ws.drawRulerLine(g, line);
+        }
     };
 
     // ---- Water ----

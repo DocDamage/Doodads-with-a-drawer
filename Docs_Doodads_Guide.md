@@ -485,6 +485,10 @@ Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing 
 - Pick a map backup to see its events.
 - **Restore** puts back a deleted doodad or event, undoes a change, or removes something new. Each restore is a single undo step. Event restores are saved with Save Changes.
 
+### Ruler and bookmarks
+- **Ruler** (**M**, More → Ruler, or Ctrl+K): press on the map, drag and let go. A readout beside the mouse gives the tiles across and down, the **walk** (across plus down: the steps on the grid), the straight line in tiles, and the pixels. Hold **Shift** to snap both ends to tile middles. The measure stays until the next one or another tool; it changes nothing. In 3D it measures on the ground.
+- **Bookmarks** keep places on big maps to jump back to. **Bookmark This View** (More → Bookmarks, or Ctrl+K) asks for a name and keeps the map, the tile in the middle of the view and, in 3D, the camera. Each bookmark is in Ctrl+K as *Go to: name*; the first nine are **Ctrl+1** to **Ctrl+9**. Going to one on another map opens that map first. The Bookmarks card renames (click the name), moves one up (to give it a lower number) and deletes. Bookmarks are saved with the doodads and never read by the game.
+
 ### Searching the map panel
 The map panel has many sections. Type in **Search settings** at its top (for example *fog*, *shadow* or *snow*) to show only the sections that mention every word, opened; clear it to get the panel back as it was.
 
@@ -918,6 +922,16 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | *(no key)* | Show or hide collision | View |
 | *(no key)* | Show or hide sounds | View |
 | *(no key)* | Show or hide speed | View |
+| **Ctrl** + **1** | Go to bookmark 1 | View |
+| **Ctrl** + **2** | Go to bookmark 2 | View |
+| **Ctrl** + **3** | Go to bookmark 3 | View |
+| **Ctrl** + **4** | Go to bookmark 4 | View |
+| **Ctrl** + **5** | Go to bookmark 5 | View |
+| **Ctrl** + **6** | Go to bookmark 6 | View |
+| **Ctrl** + **7** | Go to bookmark 7 | View |
+| **Ctrl** + **8** | Go to bookmark 8 | View |
+| **Ctrl** + **9** | Go to bookmark 9 | View |
+| **M** | Ruler: measure in tiles and pixels | Tools |
 | *(no key)* | Select tool | Tools |
 | *(no key)* | Stamp tool | Tools |
 | *(no key)* | Scatter tool | Tools |

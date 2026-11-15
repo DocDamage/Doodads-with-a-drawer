@@ -6738,6 +6738,92 @@ DocsDoodads.MapCheck = {
     }
 };
 //==========================================================
+// SECTION 5G5: THE RULER AND BOOKMARKS
+//==========================================================
+// The editor's Ruler (44_workspace_ruler.js) measures between two points on the map, and bookmarks
+// (44_workspace_places_bookmarks.js) keep places to jump back to. Both editor only.
+
+// Points are map pixels; tw and th the tile size.
+DocsDoodads.Ruler = {
+    // The middle of the tile a point is on (Shift while measuring).
+    snap(p, tw, th) {
+        return { x: (Math.floor(p.x / tw) + 0.5) * tw, y: (Math.floor(p.y / th) + 0.5) * th };
+    },
+
+    // From a to b: tiles across and down (between the tiles they are on), the walk (across + down: steps on the
+    // grid), the straight line in tiles, and pixels.
+    measure(a, b, tw, th) {
+        const dx = Math.floor(b.x / tw) - Math.floor(a.x / tw), dy = Math.floor(b.y / th) - Math.floor(a.y / th);
+        const px = b.x - a.x, py = b.y - a.y;
+        return {
+            dx, dy, walk: Math.abs(dx) + Math.abs(dy),
+            tiles: Math.round(Math.hypot(px / tw, py / th) * 10) / 10,
+            px: Math.round(px), py: Math.round(py), pixels: Math.round(Math.hypot(px, py))
+        };
+    },
+
+    label(m) {
+        return `${Math.abs(m.dx)} × ${Math.abs(m.dy)} tiles · walk ${m.walk} · straight ${m.tiles} tiles · ${m.pixels} px (${Math.abs(m.px)} × ${Math.abs(m.py)})`;
+    }
+};
+
+// $dataDocsDoodads.bookmarks = [{ id, name, mapId, x, y, camera }]: x and y the tile at the middle of the view,
+// camera the 3D view's camera (null on a flat map). Saved with the doodads, in the main file either way of
+// saving; never read by the game. No bookmarks, no key.
+DocsDoodads.Bookmarks = {
+    list() {
+        const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+        return data && Array.isArray(data.bookmarks) ? data.bookmarks : [];
+    },
+
+    get(id) {
+        return this.list().find(b => b.id === id) || null;
+    },
+
+    put(list) {
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        if (Array.isArray(list) && list.length) data.bookmarks = list;
+        else delete data.bookmarks;
+    },
+
+    add(fields) {
+        const name = String(fields.name || '').trim().slice(0, 60);
+        const mapId = Math.floor(Number(fields.mapId)) || 0;
+        if (!name || !mapId) return null;
+        const camera = fields.camera && typeof fields.camera === 'object' ? JSON.parse(JSON.stringify(fields.camera)) : null;
+        const b = { id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, mapId,
+            x: Math.floor(Number(fields.x)) || 0, y: Math.floor(Number(fields.y)) || 0, camera };
+        this.put(this.list().concat([b]));
+        return b;
+    },
+
+    rename(id, name) {
+        const b = this.get(id);
+        const next = String(name || '').trim().slice(0, 60);
+        if (!b || !next) return false;
+        b.name = next;
+        return true;
+    },
+
+    remove(id) {
+        const list = this.list();
+        const left = list.filter(b => b.id !== id);
+        if (left.length === list.length) return false;
+        this.put(left);
+        return true;
+    },
+
+    // Moves a bookmark up (-1) or down (1): the first nine have Ctrl+1 to Ctrl+9.
+    shift(id, by) {
+        const list = this.list().slice();
+        const i = list.findIndex(b => b.id === id), j = i + by;
+        if (i < 0 || j < 0 || j >= list.length) return false;
+        [list[i], list[j]] = [list[j], list[i]];
+        this.put(list);
+        return true;
+    }
+};
+//==========================================================
 // SECTION 5G2: ONE SHORTCUT TABLE
 //==========================================================
 // Every editor key binding is a row here. The key handler, the Keyboard Shortcuts card (More), button
@@ -6769,6 +6855,16 @@ DocsDoodads.Shortcuts = {
         { id: 'collision', label: 'Show or hide collision', group: 'View', keys: '' },
         { id: 'sounds', label: 'Show or hide sounds', group: 'View', keys: '' },
         { id: 'speed', label: 'Show or hide speed', group: 'View', keys: '' },
+        { id: 'bookmark1', label: 'Go to bookmark 1', group: 'View', keys: 'Ctrl+1' },
+        { id: 'bookmark2', label: 'Go to bookmark 2', group: 'View', keys: 'Ctrl+2' },
+        { id: 'bookmark3', label: 'Go to bookmark 3', group: 'View', keys: 'Ctrl+3' },
+        { id: 'bookmark4', label: 'Go to bookmark 4', group: 'View', keys: 'Ctrl+4' },
+        { id: 'bookmark5', label: 'Go to bookmark 5', group: 'View', keys: 'Ctrl+5' },
+        { id: 'bookmark6', label: 'Go to bookmark 6', group: 'View', keys: 'Ctrl+6' },
+        { id: 'bookmark7', label: 'Go to bookmark 7', group: 'View', keys: 'Ctrl+7' },
+        { id: 'bookmark8', label: 'Go to bookmark 8', group: 'View', keys: 'Ctrl+8' },
+        { id: 'bookmark9', label: 'Go to bookmark 9', group: 'View', keys: 'Ctrl+9' },
+        { id: 'ruler', label: 'Ruler: measure in tiles and pixels', group: 'Tools', keys: 'M' },
         { id: 'toolSelect', label: 'Select tool', group: 'Tools', keys: '' },
         { id: 'toolStamp', label: 'Stamp tool', group: 'Tools', keys: '' },
         { id: 'toolScatter', label: 'Scatter tool', group: 'Tools', keys: '' },
@@ -15291,6 +15387,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (!box) continue;
             g.lineStyle(1.5, DocsDoodads.Ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
+        }
+        // The Ruler's line on the ground (44_workspace_ruler.js).
+        if (ws.placementTool === 'ruler' && ws._ruler && ws.rulerScreenLine) {
+            const line = ws.rulerScreenLine();
+            if (line) ws.drawRulerLine(g, line);
         }
     };
 
@@ -29326,6 +29427,9 @@ DocsDoodads.Workspace = {
         this.endTour();
         this.closeCaptureCard();
         this.closeProblems();
+        if (typeof this.closeBookmarks === 'function') this.closeBookmarks();
+        if (typeof this.hideRulerReadout === 'function') this.hideRulerReadout();
+        this._ruler = null;
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
         this.closeTemplatesCard();
@@ -29635,6 +29739,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-savemap-btn" title="Save this map's doodads, settings and events; other maps' changes wait">${U.icon('save', 1)} Save This Map</button>
                     <button class="dd-btn" id="dd-autosave-btn" title="Save the project every few minutes of unsaved work (on this computer)">${U.icon('history', 1)} <span id="dd-autosave-label">${this.autosaveLabel()}</span></button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
+                    <button class="dd-btn" id="dd-ruler-btn" title="${escapeHtml(DocsDoodads.Shortcuts.tip('ruler', 'Measure on the map in tiles and pixels'))}">📏 Ruler</button>
+                    <button class="dd-btn" id="dd-bookmarks-btn" title="Places on the maps to jump back to (Ctrl+1 to Ctrl+9)">🔖 Bookmarks</button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
                     <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
@@ -30131,6 +30237,8 @@ DocsDoodads.Workspace = {
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
+        on('dd-ruler-btn', () => { this.setPlacementTool('ruler'); });
+        on('dd-bookmarks-btn', () => { this.showMoreMenu(false); this.showBookmarks(); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
@@ -32464,6 +32572,8 @@ DocsDoodads.Workspace = {
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Tool: Ruler (measure)', () => this.setPlacementTool('ruler'), null, K('ruler'));
+        for (const c of this.bookmarkCommands()) add(c.label, c.run, 'Bookmark', c.keys);
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
         add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
         add('Event templates (rename, category, delete)', () => this.showTemplatesCard());
@@ -35003,6 +35113,7 @@ DocsDoodads.Workspace = {
         this.reportStepsBack();
         this.rememberMap(this.currentMapId());
         this.finishPendingGoTo();
+        this.finishPendingBookmark();
         if (this._problemsOpen) this.renderProblems();
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
@@ -44486,6 +44597,179 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25: WORKSPACE: BOOKMARKS
+//==========================================================
+// Places on big maps to jump back to (DocsDoodads.Bookmarks, 11_ruler_bookmarks.js). Bookmark This View
+// (More, Ctrl+K) keeps the map, the tile in the middle of the view and, in 3D, the camera. Each bookmark is a
+// palette entry ("Go to: Inn") and a row in the Bookmarks card; the first nine are Ctrl+1 to Ctrl+9. Going to
+// one on another map opens that map first (as Problems' Go To does), then centres the view there.
+DocsDoodads.Ui.css += `
+#dd-bookmarks { position: fixed; z-index: 10033; width: 320px; max-width: calc(100vw - 32px); max-height: 70vh; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 11px; }
+#dd-bookmarks .dd-bm-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#dd-bookmarks .dd-bm-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 10px; background: var(--dd-panel-2); }
+#dd-bookmarks .dd-bm-name { flex: 1; min-width: 0; color: var(--dd-text); font-weight: 700; overflow-wrap: anywhere; }
+#dd-bookmarks .dd-bm-where { color: var(--dd-muted); white-space: nowrap; }
+#dd-bookmarks .dd-bm-key { color: var(--dd-faint); font-size: 10px; white-space: nowrap; }
+#dd-bookmarks .dd-btn { padding: 3px 7px; font-size: 11px; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // The tile in the middle of the view.
+    viewCentreTile() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return { x: 0, y: 0 };
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const w = typeof Graphics !== 'undefined' ? Graphics.width : 816, h = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const P = DocsDoodads.Perspective;
+        if (P && P.liveCamera && P.liveCamera()) {
+            // The ground point in the middle of the 3D view.
+            const at = DocsDoodads.screenPointToMap(w / 2, h / 2);
+            if (at) return { x: Math.floor(at.x / tw), y: Math.floor(at.y / th) };
+        }
+        return { x: Math.floor($gameMap.displayX() + w / tw / 2), y: Math.floor($gameMap.displayY() + h / th / 2) };
+    },
+
+    async bookmarkView() {
+        const mapId = this.currentMapId();
+        if (!mapId) return null;
+        const at = this.viewCentreTile();
+        const info = typeof window !== 'undefined' && window.$dataMapInfos ? window.$dataMapInfos[mapId] : null;
+        const suggestion = `${info && info.name ? info.name : 'Map ' + mapId} ${at.x}, ${at.y}`;
+        const name = await DocsDoodads.Ui.prompt('A name for this place:', suggestion, { title: 'Bookmark This View', ok: 'Bookmark' });
+        if (name === null || !String(name).trim()) return null;
+        const camera = typeof $gameMap !== 'undefined' && $gameMap && $gameMap._docsCamera && DocsDoodads.Perspective.liveCamera() ? $gameMap._docsCamera : null;
+        const b = DocsDoodads.Bookmarks.add({ name, mapId, x: at.x, y: at.y, camera });
+        if (!b) return null;
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        const n = DocsDoodads.Bookmarks.list().indexOf(b) + 1;
+        this.showToast(`Bookmarked "${b.name}"${n <= 9 ? ` (Ctrl+${n})` : ''}.`);
+        if (this._bookmarksOpen) this.renderBookmarks();
+        return b;
+    },
+
+    goToBookmark(b) {
+        if (!b) return false;
+        if (b.mapId !== this.currentMapId()) {
+            this._pendingBookmark = b;
+            this.goToMap(b.mapId);
+            return true;
+        }
+        this._pendingBookmark = null;
+        this.centerOnTile(b.x, b.y);
+        if (b.camera) this.setCameraView(b.camera);
+        return true;
+    },
+
+    // Ctrl+1 to Ctrl+9.
+    goToBookmarkNumber(n) {
+        const b = DocsDoodads.Bookmarks.list()[n - 1];
+        if (!b) {
+            this.showToast(`No bookmark ${n} yet: More → Bookmarks, or Ctrl+K "Bookmark This View".`);
+            return false;
+        }
+        return this.goToBookmark(b);
+    },
+
+    // Once the other map has loaded (called with Problems' Go To).
+    finishPendingBookmark() {
+        const b = this._pendingBookmark;
+        if (!b || b.mapId !== this.currentMapId()) return false;
+        return this.goToBookmark(b);
+    },
+
+    async renameBookmark(id) {
+        const b = DocsDoodads.Bookmarks.get(id);
+        if (!b) return false;
+        const name = await DocsDoodads.Ui.prompt('A new name:', b.name, { title: 'Rename Bookmark', ok: 'Rename' });
+        if (name === null || !DocsDoodads.Bookmarks.rename(id, name)) return false;
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        if (this._bookmarksOpen) this.renderBookmarks();
+        return true;
+    },
+
+    changeBookmarks(change) {
+        if (!change()) return false;
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        if (this._bookmarksOpen) this.renderBookmarks();
+        return true;
+    },
+
+    // Palette entries: Bookmark This View, and Go to: each one.
+    bookmarkCommands() {
+        const K = id => DocsDoodads.Shortcuts.label(id) || undefined;
+        const out = [{ label: 'Bookmark This View', run: () => this.bookmarkView() }, { label: 'Bookmarks', run: () => this.showBookmarks() }];
+        DocsDoodads.Bookmarks.list().forEach((b, i) => out.push({ label: `Go to: ${b.name}`, run: () => this.goToBookmark(b), keys: i < 9 ? K('bookmark' + (i + 1)) : undefined }));
+        return out;
+    },
+
+    // ---- The card ----
+    showBookmarks() {
+        if (typeof document === 'undefined') return null;
+        this._bookmarksOpen = true;
+        return this.renderBookmarks();
+    },
+
+    closeBookmarks() {
+        this._bookmarksOpen = false;
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-bookmarks') : null;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    },
+
+    renderBookmarks() {
+        if (typeof document === 'undefined' || !this._bookmarksOpen) return null;
+        const U = DocsDoodads.Ui, B = DocsDoodads.Bookmarks;
+        let panel = document.getElementById('dd-bookmarks');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'dd-bookmarks';
+            panel.className = 'dd-glass';
+            document.body.appendChild(panel);
+        }
+        const list = B.list();
+        const here = this.currentMapId();
+        panel.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">🔖 Bookmarks (${list.length})</span>
+                <button class="dd-btn dd-fold" id="dd-bm-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div><button class="dd-btn dd-btn-primary" id="dd-bm-add" type="button">${U.icon('plus', 1)} Bookmark This View</button></div>
+            <div class="dd-bm-list" id="dd-bm-list"></div>`;
+        const rows = document.getElementById('dd-bm-list');
+        if (rows) {
+            if (!list.length) {
+                const empty = document.createElement('div');
+                empty.className = 'dd-empty';
+                empty.textContent = 'No bookmarks yet. Move the view to a place, then Bookmark This View.';
+                rows.appendChild(empty);
+            }
+            list.forEach((b, i) => {
+                const row = document.createElement('div');
+                row.className = 'dd-bm-row';
+                const add = (tag, cls, text, title, run) => {
+                    const el = document.createElement(tag);
+                    if (cls) el.className = cls;
+                    if (tag === 'button') el.type = 'button';
+                    el.textContent = text;
+                    if (title) el.title = title;
+                    if (run) el.onclick = run;
+                    row.appendChild(el);
+                    return el;
+                };
+                add('span', 'dd-bm-name', b.name, 'Rename', () => this.renameBookmark(b.id)).style.cursor = 'pointer';
+                add('span', 'dd-bm-where', (b.mapId === here ? '' : `Map ${b.mapId} · `) + `${b.x}, ${b.y}`);
+                if (i < 9) add('span', 'dd-bm-key', `Ctrl+${i + 1}`);
+                add('button', 'dd-btn', 'Go To', '', () => this.goToBookmark(b));
+                add('button', 'dd-btn', '↑', 'Up (the first nine have Ctrl+1 to Ctrl+9)', () => this.changeBookmarks(() => B.shift(b.id, -1)));
+                const del = add('button', 'dd-btn', '', 'Delete this bookmark', () => this.changeBookmarks(() => B.remove(b.id)));
+                del.innerHTML = U.icon('trash', 1);
+                rows.appendChild(row);
+            });
+        }
+        const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
+        on('dd-bm-close', () => this.closeBookmarks());
+        on('dd-bm-add', () => this.bookmarkView());
+        this.placeReadouts();
+        return panel;
+    }
+});
+//==========================================================
 // SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
 //==========================================================
 // In the Screen Looks card, under the effects: looks that blend in by the clock (game-wide) and while the
@@ -44966,7 +45250,7 @@ Object.assign(DocsDoodads.Workspace, {
             legend.style.top = top + 'px';
         }
         // These two are on the page, outside the (possibly zoomed) workspace: window pixels.
-        for (const id of ['dd-progress-stack', 'dd-toast-history', 'dd-problems']) {
+        for (const id of ['dd-progress-stack', 'dd-toast-history', 'dd-problems', 'dd-bookmarks']) {
             const el = document.getElementById(id);
             if (el && el.style) {
                 el.style.right = Math.round((room - right) * scale) + 'px';
@@ -45519,6 +45803,121 @@ DocsDoodads.Workspace.toolHooks.room = {
         g.drawRect($gameMap.adjustX(rect.x) * tw, $gameMap.adjustY(rect.y) * th, rect.w * tw, rect.h * th);
         g.endFill();
         g.lineStyle(0);
+    }
+};
+//==========================================================
+// SECTION 25: WORKSPACE: THE RULER
+//==========================================================
+// The Ruler tool (M): press, drag and let go to measure on the map, in tiles (across, down, the walk and the
+// straight line) and pixels; Shift snaps both ends to tile middles. The last measure stays until the next one
+// or another tool. It changes nothing, so there is no undo. In 3D it measures on the ground (the editor's
+// picking already finds the ground point under the mouse) and the line is drawn in the view.
+DocsDoodads.Ui.css += `
+#dd-ruler-readout { position: fixed; z-index: 10034; padding: 5px 9px; font-size: 11px; font-weight: 800; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+`;
+DocsDoodads.Ui.hints.ruler = 'Ruler: press and drag to measure (Shift: tile middles). Esc to stop.';
+Object.assign(DocsDoodads.Ui.mapPalettes.standard, { ruler: 0xf472b6 });
+Object.assign(DocsDoodads.Ui.mapPalettes.safe, { ruler: 0xcc79a7 });
+DocsDoodads.Ui.mapColorMeanings.push(['ruler', 'Ruler']);
+
+Object.assign(DocsDoodads.Workspace, {
+    // The point under the mouse for the ruler: map pixels, snapped to a tile middle with Shift.
+    rulerPoint(e) {
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        const p = { x: at.x, y: at.y };
+        if (!e.shiftKey || typeof $gameMap === 'undefined' || !$gameMap) return p;
+        return DocsDoodads.Ruler.snap(p, $gameMap.tileWidth(), $gameMap.tileHeight());
+    },
+
+    // The measure so far, or null.
+    rulerMeasure() {
+        const r = this._ruler;
+        if (!r || typeof $gameMap === 'undefined' || !$gameMap) return null;
+        return DocsDoodads.Ruler.measure(r.from, r.to, $gameMap.tileWidth(), $gameMap.tileHeight());
+    },
+
+    showRulerReadout() {
+        const m = this.rulerMeasure();
+        if (!m || typeof document === 'undefined' || !document.createElement) return;
+        let el = document.getElementById('dd-ruler-readout');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-ruler-readout';
+            el.className = 'dd-glass';
+            document.body.appendChild(el);
+        }
+        const text = DocsDoodads.Ruler.label(m);
+        if (el.textContent !== text) el.textContent = text;
+        const c = this._ruler.client;
+        if (c) {
+            el.style.left = Math.round(c.x + 14) + 'px';
+            el.style.top = Math.round(c.y + 14) + 'px';
+        }
+        el.style.display = '';
+    },
+
+    hideRulerReadout() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-ruler-readout') : null;
+        if (el && el.style.display !== 'none') el.style.display = 'none';
+    },
+
+    // The ruler's line in screen pixels: [from, to], through the 3D camera when there is one.
+    rulerScreenLine() {
+        const r = this._ruler;
+        if (!r) return null;
+        const P = DocsDoodads.Perspective;
+        const cam = P && P.liveCamera ? P.liveCamera() : null;
+        const ends = [r.from, r.to].map(p => {
+            const s = DocsDoodads.mapToScreen(p.x, p.y);
+            return cam ? P.flatToScreen(s.x, s.y) : s;
+        });
+        return ends.every(Boolean) ? ends : null;
+    },
+
+    drawRulerLine(g, line) {
+        const colour = DocsDoodads.Ui.mapColor('ruler');
+        g.lineStyle(4, 0x111111, 0.45);
+        g.moveTo(line[0].x, line[0].y);
+        g.lineTo(line[1].x, line[1].y);
+        g.lineStyle(2, colour, 1);
+        g.moveTo(line[0].x, line[0].y);
+        g.lineTo(line[1].x, line[1].y);
+        g.lineStyle(0);
+        for (const p of line) {
+            g.beginFill(colour, 1);
+            g.drawCircle(p.x, p.y, 4);
+            g.endFill();
+        }
+    }
+});
+
+DocsDoodads.Workspace.toolHooks.ruler = {
+    down(e) {
+        const p = this.rulerPoint(e);
+        this._ruler = { from: p, to: { x: p.x, y: p.y }, client: { x: e.clientX, y: e.clientY } };
+        return true;
+    },
+    move(e, stroking) {
+        if (!stroking || !this._ruler) return;
+        this._ruler.to = this.rulerPoint(e);
+        this._ruler.client = { x: e.clientX, y: e.clientY };
+    },
+    up() {
+        // The measure stays; the click that follows the release doesn't pick anything.
+        this._suppressNextClick = true;
+    },
+    // Flat maps: the line on the editor's overlay. (In 3D, updateDocsGizmos draws it.)
+    overlay(g) {
+        if (this.placementTool !== 'ruler' || !this._ruler) {
+            this.hideRulerReadout();
+            if (this.placementTool !== 'ruler') this._ruler = null;
+            return;
+        }
+        this.showRulerReadout();
+        const P = DocsDoodads.Perspective;
+        if (P && P.liveCamera && P.liveCamera()) return;
+        const line = this.rulerScreenLine();
+        if (line) this.drawRulerLine(g, line);
     }
 };
 //==========================================================
@@ -46610,6 +47009,8 @@ Object.assign(DocsDoodads.Workspace, {
             brushSmaller: () => this.resizeBrush(-1) || false,
             brushBigger: () => this.resizeBrush(1) || false
         };
+        actions.ruler = tool('ruler');
+        for (let n = 1; n <= 9; n++) actions['bookmark' + n] = () => this.goToBookmarkNumber(n);
         const run = actions[id];
         if (!run) return false;
         const result = run();
