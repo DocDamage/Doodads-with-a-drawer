@@ -92,8 +92,10 @@ D.Perspective.liveCamera = () => null;
     assert.strictEqual(ws.previewMinutes, null);
     assert.strictEqual(ws.previewSeason, null);
     assert.strictEqual(byId['dd-clock-season'].value, '-1');
-    // The map panel starts with it.
-    assert.ok(/renderClockBar\(\)/.test(String(ws.renderMapPanel)) && /bindClockBar\(\)/.test(String(ws.renderMapPanel)));
+    // The pure map-panel HTML starts with it; the live renderer uses that HTML and then binds the clock.
+    const panelHtml = ws.renderMapPanelHtml(1, {}, Object.assign({}, D.Lighting.ambientDefaults));
+    assert.ok(/id="dd-clock-bar"/.test(panelHtml), 'the inert map-panel HTML includes the clock');
+    assert.ok(/renderMapPanelHtml/.test(String(ws.renderMapPanel)) && /bindClockBar\(\)/.test(String(ws.renderMapPanel)), 'the live panel uses and binds that HTML');
     console.log('✓ clock: preview a time (wrapping) and season, Play runs the day, Now goes back');
 
     // 2. What a tile hears.

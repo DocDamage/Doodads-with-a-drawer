@@ -132,7 +132,7 @@ global.document = undefined;
 const source = [
     'src/11_shortcuts.js', 'src/37_workspace_menus.js', 'src/39_workspace_map_panel.js',
     'src/41_workspace_visual_postfx.js', 'src/44_workspace_shortcuts.js', 'src/44_workspace_settings.js'
-].map(f => fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '').join('\n');
+].map(f => fs.readFileSync(require.resolve('../' + f), 'utf8')).join('\n');
 assert.match(source, /id:\s*['"]settings['"][\s\S]*keys:\s*['"]Ctrl\+Comma['"]/, 'Ctrl+, is in the canonical shortcut table');
 assert.match(source, /dd-settings-btn/, 'More menu exposes Settings');
 assert.match(source, /Setting:\s*/, 'palette projects settings with the Setting: prefix');
