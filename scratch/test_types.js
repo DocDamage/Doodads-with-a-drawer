@@ -130,4 +130,18 @@ const apiBlock = dts.slice(dts.indexOf('interface DocsDoodadsApi {'), dts.indexO
     console.log('PASS missing or wrong JSDoc is refused');
 }
 
+// TypeScript's own compiler accepts the file, and the right calls in scratch/fixtures/api_types_use.ts, and
+// catches each wrong one there (an @ts-expect-error that isn't needed is an error too).
+{
+    const { spawnSync } = require('child_process');
+    const tsc = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+    assert.ok(fs.existsSync(tsc), 'TypeScript is installed (npm install)');
+    const args = ['--noEmit', '--strict', '--target', 'es2020', '--lib', 'es2020,dom'];
+    for (const file of [types.outPath, path.join(root, 'scratch', 'fixtures', 'api_types_use.ts')]) {
+        const run = spawnSync(process.execPath, [tsc, ...args, file], { cwd: root, encoding: 'utf8', timeout: 120000 });
+        assert.strictEqual(run.status, 0, `tsc accepts ${path.relative(root, file)}:\n${run.stdout}${run.stderr}`);
+    }
+    console.log('PASS TypeScript\'s compiler accepts the types and the calls, and catches the wrong ones');
+}
+
 console.log('\nAll API type tests passed.');
