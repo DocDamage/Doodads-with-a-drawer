@@ -7,6 +7,11 @@ A map editor and doodad engine for RPG Maker MZ that runs inside your playtest. 
 - walk, jump and fly around what you built;
 - see the same map in 3D.
 
+Already tested:
+- **Deployed, encrypted games work.** Built with MZ's own File > Deployment and with `npm run deploy`, image and audio encryption on: doodads, lights, 3D and models show, and the editor stays out ([QA record](docs/QA_2026-10-18.md#part-3-the-30-minute-session-and-mzs-own-deployment)).
+- **Art placed off the grid stands up in the 3D view,** as do tileset objects ([3D view](#3d-view)).
+- **Big maps stay smooth.** A 200 × 200 map with 3,000 doodads and 375 lights runs at 60 frames a second, flat or in 3D ([Deployed games and speed](#deployed-games-and-speed)).
+
 It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads and has grown into its own tool.
 
 ![Picking a bush in the Item Bag, stamping it along a street and dragging one into line](docs/images/editor_place.gif)
