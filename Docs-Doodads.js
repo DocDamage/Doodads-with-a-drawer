@@ -31516,7 +31516,6 @@ DocsDoodads.Workspace = {
             });
         }
     },
-
     // ---- 3D preview in the asset inspector ----
     // Only for images that could stand up as doodads, on maps shown in 3D.
     renderAsset3dPreview(a) {
