@@ -157,5 +157,75 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     D.MapLinks.layout = realLayout; D.MapLinks.bounds = realBounds; M.clearVolatile();
     console.log('PASS tabs, map list, palette and World View pictures with accessible placeholders');
 
+    // 6. Cache correctness across maps: global dirtiness stays volatile, and successful saves invalidate
+    // only map pictures whose doodads/settings changed. Failed saves keep every cache file.
+    const doodad = (uid, x) => ({ uid, bit: [3, 'img/doodads/tree.png'], posMode: 1, x, y: 48 });
+    assert.deepStrictEqual(M.changedMapIds(
+        { 1: [doodad('a', 1)], 2: [doodad('b', 2)], 3: [doodad('c', 3)], mapSettings: { 3: { mainLayer: { gameHidden: false } } } },
+        { 1: [doodad('a', 1)], 2: [doodad('b', 22)], 3: [doodad('c', 3)], mapSettings: { 3: { mainLayer: { gameHidden: true } } } }
+    ), [2, 3], 'numeric doodad entries and picture-affecting map settings are compared per map');
+
+    fs.writeFileSync('data/Map002.json', '{}');
+    fs.writeFileSync(M.cachePath(2), 'saved-2');
+    fs.utimesSync('data/Map002.json', now - 20, now - 20);
+    fs.utimesSync(M.cachePath(2), now - 10, now - 10);
+    mapId = 2;
+    global.$dataMap = { width: 10, height: 20, tilesetId: 1, scrollType: 0, data: new Array(10 * 20 * 6).fill(0) };
+    global.$dataDocsDoodads = { 1: [doodad('a', 1)], 2: [doodad('b', 22)] };
+    D.Persistence._dirtyDoodads = true;
+    D.Persistence.touchedMaps = new Set([1]); // Cross-map edit forgot to touch the current target.
+    renders = 0;
+    M.render = async () => { renders++; return { toDataURL: () => 'data:image/png;base64,dW5zYXZlZA==' }; };
+    const mapSelect = makeNode('select'); mapSelect.id = 'dd-map-goto'; mapSelect.value = '2'; body.appendChild(mapSelect);
+    const mapPreview = makeNode('div'); mapPreview.id = 'dd-map-goto-preview'; mapPreview.innerHTML = '<span>placeholder</span>'; body.appendChild(mapPreview);
+    const worldRefreshes = [];
+    ws._worldThumbRefresh = id => worldRefreshes.push(id);
+    assert.strictEqual(await ws.mapThumb(2), true, 'fresh disk cache is bypassed while any doodad data is dirty');
+    assert.strictEqual(renders, 1);
+    assert.strictEqual(fs.readFileSync(M.cachePath(2), 'utf8'), 'saved-2', 'unsaved target never overwrites its saved PNG');
+    assert.ok(/^data:image\/png/.test(M.url(2)), 'unsaved target is visible from bounded memory');
+    assert.ok(/<img/.test(mapPreview.innerHTML), 'visible selected-map preview refreshes when generation finishes');
+    assert.deepStrictEqual(worldRefreshes, [2], 'an open World View gets a narrow redraw signal');
+    const realReadAll = D.DataFiles.readAll, realCapture = D.Persistence.captureSession, realClearRecovery = D.Persistence.clearRecovery;
+    D.DataFiles.readAll = () => ({ 1: [doodad('a', 1)], 2: [doodad('b', 2)] });
+    D.Persistence.captureSession = () => {};
+    D.Persistence.clearRecovery = () => {};
+    D.Persistence.discardUnsaved();
+    assert.strictEqual(fs.readFileSync(M.cachePath(2), 'utf8'), 'saved-2', 'discard leaves the saved PNG unchanged');
+    assert.ok(!/^data:image\/png/.test(M.url(2)), 'discard reveals the saved PNG instead of unsaved pixels');
+    D.DataFiles.readAll = realReadAll; D.Persistence.captureSession = realCapture; D.Persistence.clearRecovery = realClearRecovery;
+    delete ws._worldThumbRefresh;
+
+    mapId = 1;
+    global.$dataMap = { width: 20, height: 10, tilesetId: 1, scrollType: 0, data: new Array(20 * 10 * 6).fill(0) };
+    const saved = { 1: [doodad('a', 1)], 2: [doodad('b', 2)], 3: [doodad('c', 3)] };
+    assert.ok(D.FS.atomicWriteManyJson(D.DataFiles.entriesFor(saved)).ok);
+    for (const id of [1, 2, 3]) fs.writeFileSync(M.cachePath(id), 'saved-' + id);
+    global.$dataDocsDoodads = { 1: [doodad('a', 1)], 2: [doodad('b', 20)], 3: [doodad('c', 3)] };
+    D.Persistence._dirtyDoodads = true;
+    D.Persistence.touchedMaps = new Set([1]);
+    D.Persistence.stagedMaps = {};
+    $gameMap._stagedMapData = null;
+    const renderedMaps = [];
+    M.render = async snap => { renderedMaps.push(snap.mapId); return { toDataURL: () => 'data:image/png;base64,Y3VycmVudA==' }; };
+    assert.strictEqual(D.Persistence.saveAll(true), true);
+    if (M._pending[1]) await M._pending[1].promise;
+    assert.strictEqual(fs.existsSync(M.cachePath(2)), false, 'saved cross-map doodad change invalidates that target');
+    assert.strictEqual(fs.existsSync(M.cachePath(3)), true, 'unchanged map picture is preserved');
+    assert.deepStrictEqual(renderedMaps, [1], 'save refreshes only the loaded map, never every changed target');
+
+    fs.writeFileSync(M.cachePath(2), 'keep-2');
+    fs.writeFileSync(M.cachePath(3), 'keep-3');
+    $dataDocsDoodads[2][0].x = 200;
+    D.Persistence._dirtyDoodads = true;
+    const realWriteMany = D.FS.atomicWriteManyJson;
+    D.FS.atomicWriteManyJson = () => ({ ok: false, error: 'test failure', rolledBack: true });
+    assert.strictEqual(D.Persistence.saveAll(true), false);
+    assert.strictEqual(fs.readFileSync(M.cachePath(2), 'utf8'), 'keep-2');
+    assert.strictEqual(fs.readFileSync(M.cachePath(3), 'utf8'), 'keep-3');
+    D.FS.atomicWriteManyJson = realWriteMany;
+    M.render = realRender;
+    console.log('PASS global-dirty volatility, discard safety, selective save invalidation and failed-save preservation');
+
     console.log('\nAll map picture tests passed.');
 })().catch(error => { console.error(error); process.exit(1); });
