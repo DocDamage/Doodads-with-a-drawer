@@ -835,6 +835,13 @@
             add('Select Layer: ' + l.name, () => this.selectLayer(l.id), 'Layer');
         }
         for (const m of this.mapEntries()) add(`Go to map: ${m.name}`, () => this.goToMap(m.id), 'Map');
+        // Every entry of the top bar's menus ("View → Listen"), from the same list the menus are drawn from,
+        // unless the palette already has one starting with its words ("Problems (check the map)").
+        const have = out.map(c => String(c.label).toLowerCase());
+        for (const c of this.menuCommands()) {
+            const words = c.text.toLowerCase();
+            if (!have.some(l => l === words || l.startsWith(words + ' ') || l.startsWith(words + ':'))) add(c.label, c.run, 'Menu', c.keys);
+        }
         const assets = D.AssetIndex && D.AssetIndex.list ? D.AssetIndex.list : [];
         for (const a of assets) add('Item: ' + a.fileName, () => this.selectAsset(a), 'Asset');
         return out;

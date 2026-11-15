@@ -2,7 +2,7 @@
 // SECTION 25: WORKSPACE: BOOKMARKS
 //==========================================================
 // Places on big maps to jump back to (DocsDoodads.Bookmarks, 11_ruler_bookmarks.js). Bookmark This View
-// (More, Ctrl+K) keeps the map, the tile in the middle of the view and, in 3D, the camera. Each bookmark is a
+// (View → Bookmarks, Ctrl+K) keeps the map, the tile in the middle of the view and, in 3D, the camera. Each bookmark is a
 // palette entry ("Go to: Inn") and a row in the Bookmarks card; the first nine are Ctrl+1 to Ctrl+9. Going to
 // one on another map opens that map first (as Problems' Go To does), then centres the view there.
 DocsDoodads.Ui.css += `
@@ -65,7 +65,7 @@ Object.assign(DocsDoodads.Workspace, {
     goToBookmarkNumber(n) {
         const b = DocsDoodads.Bookmarks.list()[n - 1];
         if (!b) {
-            this.showToast(`No bookmark ${n} yet: More → Bookmarks, or Ctrl+K "Bookmark This View".`);
+            this.showToast(`No bookmark ${n} yet: View → Bookmarks, or Ctrl+K "Bookmark This View".`);
             return false;
         }
         return this.goToBookmark(b);

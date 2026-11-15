@@ -3,8 +3,8 @@
 //==========================================================
 // Notes pinned to tiles, in the editor only (DocsDoodads.Notes, 11_notes.js). Right-click a tile: Add Note
 // Here, or Edit Note, Mark Done and Delete Note on a tile that has one. A pin is drawn on each note's tile
-// (done ones faded) and its words show while the mouse is over it. More > Notes lists this map's or every
-// map's notes with Go To, Done and Delete; More > Hide Notes hides the pins. Each change is one undo step.
+// (done ones faded) and its words show while the mouse is over it. Map > Notes lists this map's or every
+// map's notes with Go To, Done and Delete; View > Hide Notes hides the pins. Each change is one undo step.
 // Pins are drawn on the editor's overlay, which Capture leaves out.
 DocsDoodads.Ui.css += `
 #dd-notes { position: fixed; z-index: 10033; width: 340px; max-width: calc(100vw - 32px); max-height: 70vh; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 11px; }

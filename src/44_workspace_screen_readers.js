@@ -46,7 +46,7 @@ Object.assign(DocsDoodads.Ui, {
         if (!root || typeof root.querySelectorAll !== 'function') return 0;
         let named = 0;
         const roles = { 'dd-toolbar': ['toolbar', 'Tools'], 'dd-drawer-panel': ['region', 'Item Bag'], 'dd-inspector-panel': ['region', 'Details'],
-            'dd-more-menu': ['menu', 'More'], 'dd-statusbar': ['status', 'Status'] };
+            'dd-more-menu': ['menu', 'More'], 'dd-menu-map': ['menu', 'Map'], 'dd-menu-art': ['menu', 'Art'], 'dd-menu-view': ['menu', 'View'], 'dd-statusbar': ['status', 'Status'] };
         for (const id of Object.keys(roles)) {
             const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
             if (el && el.setAttribute && !el.getAttribute('role')) { el.setAttribute('role', roles[id][0]); el.setAttribute('aria-label', roles[id][1]); }

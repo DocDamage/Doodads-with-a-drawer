@@ -44,7 +44,7 @@ Characters from RPG Maker MZ's own generator parts, the LPC library or the Memao
 | The LPC library | The [Universal LPC Spritesheet Character Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator) on GitHub: **Code → Download ZIP**, or clone it (about 1.5 GB). Browse it first in the [online generator](https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/). | Free; each picture has its own licence, and the editor keeps the credits for you | The downloaded folder. |
 | The Memao pack | The [Memao Sprite Sheet Creator](https://sleeping-robot-games.itch.io/sprite-sheet-creator) by Sleeping Robot Games, on itch.io | Paid | The folder you unpack `memao-assets.zip` into. |
 
-Keep each library outside your project: MZ's Deployment copies everything in the project folder, and the editor warns if a library is inside it. Then More → **Characters** scans it and opens its creator. Each library's own licence says what you may do with the characters you make: the generator parts are for games made with RPG Maker MZ; LPC art needs its artists credited, which the editor writes into `CREDITS_LPC.txt`; Memao's sheets may go into your games but not be shared as assets on their own.
+Keep each library outside your project: MZ's Deployment copies everything in the project folder, and the editor warns if a library is inside it. Then Art → **Characters** scans it and opens its creator. Each library's own licence says what you may do with the characters you make: the generator parts are for games made with RPG Maker MZ; LPC art needs its artists credited, which the editor writes into `CREDITS_LPC.txt`; Memao's sheets may go into your games but not be shared as assets on their own.
 
 ### The 3D view
 
@@ -279,16 +279,11 @@ The original implementation plan is kept in [docs/archive](docs/archive/Docs_Doo
 
 ## The editor at a glance
 
-- **Top bar:** big tools with their names (Select, Stamp, Scatter, Paint, Path, Hills, Regions, Tiles, Mirror, Grab); a tool's options open in a card under its button. Then Undo, Redo, Steps (the undo history and checkpoints), More, Save and Done. In a small window, the words under the tools go and the bar takes a second row.
-- **More**, in this order:
-  - Cut Up Sheet, Screen Looks, Effects Maker, Old Saves, File Check, Info;
-  - Show Grid, Show Collision, Sounds;
-  - Find a Tool (Ctrl+K), Messages, Look (size, theme, map colours);
-  - Rooms, Packs, Characters (the character creators), Keys, Capture;
-  - Find Doodads, Outliner, Templates, Map Settings;
-  - Save This Map, Autosave;
-  - Problems, Show Sounds, Listen, Show Speed, How to Use;
-  - then the layouts.
+- **Top bar:** big tools with their names (Select, Stamp, Scatter, Paint, Path, Hills, Regions, Tiles, Mirror, Grab); a tool's options open in a card under its button. Then Undo, Redo, Steps (the undo history and checkpoints), four menus, Save and Done. In a small window, the words under the tools go, then Map, Art and View fold into More under their names, then the bar takes a second row. The arrow keys move inside a menu and from one menu to the next.
+- **Map:** Map Settings, Find Doodads, Outliner, Rooms, Templates, Problems, Notes, Ruler, Check Reach, Save This Map, Autosave.
+- **Art:** Cut Up Sheet, Characters (the character creators), Packs, Effects Maker, File Check.
+- **View:** Show Grid, Show Collision, Show Sounds, Listen, Show Speed, Screen Looks, Show Notes, Bookmarks, Look (size, theme, map colours), and the panel layouts.
+- **More:** Find a Tool (Ctrl+K), Keys, Capture, Old Saves, Messages, Info, Sounds, How to Use. Every entry of every menu is in Find a Tool too.
 - **Item Bag** (left): search, collections and category tabs. **Details** (right): the settings of whatever is picked. Both fold away to small tabs.
 
 ## Building from source
