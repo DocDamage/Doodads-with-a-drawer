@@ -88,6 +88,7 @@ const classes = new Set();
 const details = { tagName: 'DETAILS', open: false, parentNode: null };
 const live = { parentNode: details, focused: false, scrolled: false,
     classList: { add: c => classes.add(c), remove: c => classes.delete(c) },
+    getBoundingClientRect() { return details.open ? { width: 120, height: 24 } : { width: 0, height: 0 }; },
     focus() { this.focused = true; }, scrollIntoView() { this.scrolled = true; } };
 global.document = { getElementById: id => id === 'live-setting' ? live : null, querySelector: () => null };
 let cleanup = null, delay = 0;
