@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Map notes: right-click a tile, **Add Note Here**, for a note or to-do pinned there, seen only in the editor. Pins show on flat maps (faded once done) with the words on hover; More → Notes lists this map's or every map's notes with Go To, done and delete; More → Hide Notes hides the pins. Each change is one undo step; notes are saved with the doodads and never shown in the game or in a Capture.
 - `npm run package` makes the download for a release (`release/Docs-Doodads-<version>.zip`): the plugin, a README.txt on installing it, the guide, the cheat sheet, the changelog, the translation template, the deploy tool and the licences. `--ref v<version>` packages a tag from git, whatever is checked out.
 - Fixes: Stamp's picture under the mouse no longer stays where the mouse left the map after picking another tool. Screen Looks keeps the preset just applied shown in its list (it went back to the first one).
 - The README shows the editor and the game at work (placing, picking and Find, day to night, Screen Looks, a storm, effects at dusk, flying, the MZ, LPC and Memao character creators, with the LPC artists credited) and lists everything the plugin does. The README and the guide say where to get each character library: RPG Maker MZ (Steam or the official site), the LPC library (free on GitHub) and the Memao pack (itch.io).

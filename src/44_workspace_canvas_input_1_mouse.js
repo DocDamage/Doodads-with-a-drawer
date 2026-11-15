@@ -105,6 +105,8 @@
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
             }
+            items.push({ separator: true });
+            items.push(...this.noteMenuItems(coords.tileX, coords.tileY));
             this.showContextMenu(e.clientX, e.clientY, items);
         };
 

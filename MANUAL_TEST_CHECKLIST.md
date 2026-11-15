@@ -131,6 +131,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Type a search with several terms: chips appear; × removes one; save it, reopen the editor, click the saved chip; × forgets it.
 - [ ] Open an empty Favourites, Prefabs and Recent tab and a search with no results: each says what to do, and the button works (Bring In Files opens a file picker).
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+- [ ] Map notes: right-click a tile, Add Note Here; a pin shows and its words show on hover. Edit, Mark Done (faded), Delete, and undo each. More → Notes, Every map: Go To another map's note opens it there. Save, close the playtest, start again: the notes are back. Hide Notes hides the pins; a Capture has none; the game never shows them.
 
 ## Editor look and layout
 

@@ -775,6 +775,8 @@
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Notes (pinned to tiles)', () => this.showNotesCard());
+        add('Show / Hide Notes', () => this.toggleNotes());
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
         add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
         add('Event templates (rename, category, delete)', () => this.showTemplatesCard());
