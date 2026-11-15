@@ -486,6 +486,13 @@ Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing 
 - Pick a map backup to see its events.
 - **Restore** puts back a deleted doodad or event, undoes a change, or removes something new. Each restore is a single undo step. Event restores are saved with Save Changes.
 
+### Map notes
+Notes and to-dos pinned to tiles ("a chest here", "check this door"), seen only in the editor.
+- **Right-click** an empty tile: **Add Note Here...** (the words and a colour). On a tile with a note: **Edit Note...**, **Mark Done** and **Delete Note**. An edit with no words deletes the note.
+- Each note shows as a pin in its tile's corner, faded once done; rest the mouse on the tile to read it. Pins are drawn on flat maps (not in the 3D view) and are never in a Capture.
+- **More → Notes** lists this map's notes or every map's, with a tick for done, **Go To** (opening the map if needed), delete, and the words to click to edit. **More → Hide Notes** hides the pins (remembered on this computer).
+- Every change is one undo step. Notes are saved with the doodads (in the main `DocsDoodads.json` either way of saving); the game never shows or reads them.
+
 ### Searching the map panel
 The map panel has many sections. Type in **Search settings** at its top (for example *fog*, *shadow* or *snow*) to show only the sections that mention every word, opened; clear it to get the panel back as it was.
 

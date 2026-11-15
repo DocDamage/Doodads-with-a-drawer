@@ -180,6 +180,7 @@ DocsDoodads.Workspace = {
         this.endTour();
         this.closeCaptureCard();
         this.closeProblems();
+        if (typeof this.closeNotes === 'function') this.closeNotes();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
         this.closeTemplatesCard();
@@ -256,6 +257,18 @@ DocsDoodads.Workspace = {
             data.world = recovery.world;
             DocsDoodads.World.invalidate();
         }
+        // New snapshots always carry these fields: null means the editor removed the key, while an
+        // empty object/array is a real, recoverable value. Old snapshots lack the fields and leave the
+        // data loaded from disk alone.
+        const restoreMetadata = key => {
+            if (!Object.prototype.hasOwnProperty.call(recovery, key)) return false;
+            if (recovery[key] === null) delete data[key];
+            else data[key] = recovery[key];
+            return true;
+        };
+        const restoredNotes = restoreMetadata('notes');
+        const restoredBookmarks = restoreMetadata('bookmarks');
+        if (restoredNotes || restoredBookmarks) DocsDoodads.Persistence.dirtyDoodads = true;
         if (recovery.stagedMap) {
             if (mapId === this.currentMapId()) {
                 $gameMap._stagedMapData = recovery.stagedMap;
@@ -489,6 +502,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-savemap-btn" title="Save this map's doodads, settings and events; other maps' changes wait">${U.icon('save', 1)} Save This Map</button>
                     <button class="dd-btn" id="dd-autosave-btn" title="Save the project every few minutes of unsaved work (on this computer)">${U.icon('history', 1)} <span id="dd-autosave-label">${this.autosaveLabel()}</span></button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
+                    <button class="dd-btn" id="dd-notes-btn" title="Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)">📝 Notes</button>
+                    <button class="dd-btn" id="dd-notes-show-btn" title="Show or hide the notes' pins on the map">📌 <span id="dd-notes-show-label">${this.notesShown() ? 'Hide Notes' : 'Show Notes'}</span></button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
                     <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
@@ -985,6 +1000,8 @@ DocsDoodads.Workspace = {
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
+        on('dd-notes-btn', () => { this.showMoreMenu(false); this.showNotesCard(); });
+        on('dd-notes-show-btn', () => { this.toggleNotes(); this.showMoreMenu(false); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
