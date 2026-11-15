@@ -48924,12 +48924,12 @@ Object.assign(DocsDoodads.Workspace, {
         if (typeof document === 'undefined') return false;
         const el = controlId ? document.getElementById(controlId) : (selector && document.querySelector ? document.querySelector(selector) : null);
         if (!el || el.disabled) return false;
+        let parent = el.parentNode;
+        while (parent) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentNode; }
         if (el.getBoundingClientRect) {
             const rect = el.getBoundingClientRect();
             if (!rect || (!(rect.width > 0) && !(rect.height > 0))) return false;
         }
-        let parent = el.parentNode;
-        while (parent) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentNode; }
         if (el.scrollIntoView) el.scrollIntoView({ block: 'center' });
         if (el.focus) el.focus();
         if (el.classList) {
