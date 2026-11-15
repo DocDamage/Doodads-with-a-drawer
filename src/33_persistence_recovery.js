@@ -258,6 +258,10 @@ DocsDoodads.Persistence = {
             stagedMaps: this.stagedMaps,
             mapSettings: data.mapSettings,
             world: data.world,
+            // null records a metadata key deliberately removed by the editor. It is distinct from old
+            // snapshots that have no field at all, and from an explicitly empty object or array.
+            notes: Object.prototype.hasOwnProperty.call(data, 'notes') && data.notes !== undefined ? data.notes : null,
+            bookmarks: Object.prototype.hasOwnProperty.call(data, 'bookmarks') && data.bookmarks !== undefined ? data.bookmarks : null,
             stagedMap: gameMap._stagedMapData
         };
         const count = this.changeCount, epoch = this._recoveryEpoch;
