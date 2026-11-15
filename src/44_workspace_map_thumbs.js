@@ -64,14 +64,15 @@
         this._invalid.add(mapId);
         for (const key of Array.from(this._urlCache.keys())) if (key.indexOf(mapId + ':') === 0) this._urlCache.delete(key);
         const path = this.cachePath(mapId);
+        let removed = true;
         try {
             if (DocsDoodads.FS.existsSync(path)) DocsDoodads.FS.fs.unlinkSync(path);
-            if (Workspace.refreshMapThumbUi) Workspace.refreshMapThumbUi(mapId);
-            return true;
         } catch (error) {
             DocsDoodads.Core.log(`Map ${mapId} picture cache could not be invalidated.`, error);
-            return false;
+            removed = false;
         }
+        if (Workspace.refreshMapThumbUi) Workspace.refreshMapThumbUi(mapId);
+        return removed;
     };
 
     MapThumb.invalidateMany = function(mapIds) {

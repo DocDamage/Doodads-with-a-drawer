@@ -36297,10 +36297,13 @@ DocsDoodads.Workspace = {
             if (!modal.parentNode) return;
             const m = layout.find(entry => entry.mapId === Number(mapId));
             if (!m) return;
+            drawMap(m, null);
             const url = DocsDoodads.MapThumb.url(m.mapId);
             if (url && typeof Image !== 'undefined') {
                 const image = new Image();
-                image.onload = () => { if (modal.parentNode && this._worldThumbRefresh === refreshPicture) drawMap(m, image); };
+                image.onload = () => {
+                    if (modal.parentNode && this._worldThumbRefresh === refreshPicture && DocsDoodads.MapThumb.url(m.mapId) === url) drawMap(m, image);
+                };
                 image.src = url;
             }
         };
@@ -44169,14 +44172,15 @@ DocsDoodads.Workspace.mapSections.push({
         this._invalid.add(mapId);
         for (const key of Array.from(this._urlCache.keys())) if (key.indexOf(mapId + ':') === 0) this._urlCache.delete(key);
         const path = this.cachePath(mapId);
+        let removed = true;
         try {
             if (DocsDoodads.FS.existsSync(path)) DocsDoodads.FS.fs.unlinkSync(path);
-            if (Workspace.refreshMapThumbUi) Workspace.refreshMapThumbUi(mapId);
-            return true;
         } catch (error) {
             DocsDoodads.Core.log(`Map ${mapId} picture cache could not be invalidated.`, error);
-            return false;
+            removed = false;
         }
+        if (Workspace.refreshMapThumbUi) Workspace.refreshMapThumbUi(mapId);
+        return removed;
     };
 
     MapThumb.invalidateMany = function(mapIds) {

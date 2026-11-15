@@ -396,10 +396,13 @@
             if (!modal.parentNode) return;
             const m = layout.find(entry => entry.mapId === Number(mapId));
             if (!m) return;
+            drawMap(m, null);
             const url = DocsDoodads.MapThumb.url(m.mapId);
             if (url && typeof Image !== 'undefined') {
                 const image = new Image();
-                image.onload = () => { if (modal.parentNode && this._worldThumbRefresh === refreshPicture) drawMap(m, image); };
+                image.onload = () => {
+                    if (modal.parentNode && this._worldThumbRefresh === refreshPicture && DocsDoodads.MapThumb.url(m.mapId) === url) drawMap(m, image);
+                };
                 image.src = url;
             }
         };
