@@ -1054,11 +1054,8 @@
         return shown;
     },
 
-    renderMapPanel(content) {
-        const mapId = this.currentMapId();
-        const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
-        const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
-        content.innerHTML = `
+    renderMapPanelHtml(mapId, mapSettings, ambient) {
+        return `
             <div style="color: var(--dd-muted); margin-bottom: 8px; line-height: 1.4;">Nothing is picked, so this is the map's own settings. (Map ${mapId})</div>
             ${this.renderClockBar()}
             <input type="search" id="dd-map-search" placeholder="Find a setting (fog, shadow, snow...)" value="${escapeHtml(this._mapSearch || '')}"
@@ -1094,6 +1091,13 @@
             ${this.renderMapNavigation()}
             ${this.renderPackingPanel()}
             ${this.doodadFilesDatalist()}`;
+    },
+
+    renderMapPanel(content) {
+        const mapId = this.currentMapId();
+        const ambient = Object.assign({}, DocsDoodads.Lighting.ambientDefaults, (DocsDoodads.Lighting.mapSettings(mapId) || {}).ambient);
+        const mapSettings = DocsDoodads.Lighting.mapSettings(mapId) || {};
+        content.innerHTML = this.renderMapPanelHtml(mapId, mapSettings, ambient);
         this.bindDoodadFilesDatalist(content);
 
         const search = document.getElementById('dd-map-search');

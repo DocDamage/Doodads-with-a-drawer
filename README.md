@@ -283,7 +283,7 @@ The original implementation plan is kept in [docs/archive](docs/archive/Docs_Doo
 - **Map:** Map Settings, Find Doodads, Outliner, Rooms, Templates, Problems, Notes, Ruler, Check Reach, Save This Map, Autosave.
 - **Art:** Cut Up Sheet, Characters (the character creators), Packs, Effects Maker, File Check.
 - **View:** Show Grid, Show Collision, Show Sounds, Listen, Show Speed, Screen Looks, Show Notes, Bookmarks, Look (size, theme, map colours), and the panel layouts.
-- **More:** Find a Tool (Ctrl+K), Keys, Capture, Old Saves, Messages, Info, Sounds, How to Use. Every entry of every menu is in Find a Tool too.
+- **More:** Find a Tool (Ctrl+K), Settings (Ctrl+,), Keys, Capture, Old Saves, Messages, Info, Sounds, How to Use. Settings searches every map, world, editor, keyboard and plugin setting; every result is in Find a Tool too.
 - **Item Bag** (left): search, collections and category tabs. **Details** (right): the settings of whatever is picked. Both fold away to small tabs.
 
 ## Building from source

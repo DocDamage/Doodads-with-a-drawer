@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Settings: More → Settings (Ctrl+,) searches map, world, editor, keyboard and all 16 plugin settings in one grouped list; choosing a result opens and briefly highlights its real control. Plugin parameters show their configured and default values read-only, with directions to MZ's Plugin Manager. Every result is also in Find a Tool with a `Setting:` prefix.
 - Map pictures: opened maps get a small tiles-and-doodads picture in map-tab hover cards, the map list, Find a Tool's Go to map rows and World View. Pictures are made lazily at about 256 pixels on their long side and kept in the disposable editor cache; unopened maps keep a named placeholder.
 - Fix: crash recovery now keeps unsaved notes on every map and editor bookmarks, including changes that remove either list.
 - More is split into four menus on the top bar: **Map** (map settings, finding, rooms, templates, Problems, Check Reach, saving), **Art** (Cut Up Sheet, Characters, Packs, Effects Maker, File Check), **View** (grid, collision, sounds, speed, Screen Looks, Look, layouts) and a short **More**. The arrow keys move inside and between them; in a narrow window Map, Art and View fold back into More under their names. Every entry is also in Find a Tool (Ctrl+K).

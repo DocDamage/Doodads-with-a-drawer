@@ -751,6 +751,49 @@ DocsDoodads.SettingsSearch = {
         if (!words.length) return true;
         const hay = String(text || '').toLowerCase().replace(/\s+/g, ' ');
         return words.every(w => hay.includes(w));
+    },
+
+    // Plain registry helpers. Building or searching the index must not mount panels or bind controls.
+    create(rows) {
+        const seen = {};
+        return (rows || []).filter(Boolean).map(row => {
+            const item = Object.assign({}, row);
+            item.id = String(item.id || '');
+            item.label = String(item.label || '');
+            item.words = String(item.words || '');
+            item.where = String(item.where || 'Settings');
+            if (!item.id || seen[item.id]) throw new Error(`Duplicate settings id: ${item.id || '(empty)'}`);
+            seen[item.id] = true;
+            return item;
+        });
+    },
+
+    search(rows, query) {
+        return (rows || []).filter(row => this.matches(`${row.label} ${row.words} ${row.where}`, query));
+    },
+
+    // Read descriptors from inert markup without creating DOM nodes. Extension renderers can therefore
+    // join the index without a hidden map panel rebinding the real panel's controls.
+    controlsFromHtml(html, where, omit) {
+        const text = String(html || '');
+        const out = [];
+        const controls = /<(?:input|select|textarea)\b[^>]*\bid="([^"]+)"[^>]*>/gi;
+        let match;
+        while ((match = controls.exec(text))) {
+            const id = match[1];
+            if (omit && omit.test(id)) continue;
+            const tag = match[0];
+            const attr = name => { const found = new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(tag); return found ? found[1] : ''; };
+            const before = text.slice(Math.max(0, match.index - 260), match.index);
+            const after = text.slice(controls.lastIndex, Math.min(text.length, controls.lastIndex + 220));
+            const summaries = Array.from(before.matchAll(/<summary\b[^>]*>([\s\S]*?)<\/summary>/gi));
+            const clean = value => String(value || '').replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
+            const nearby = clean((before.split(/<(?:div|label)\b[^>]*>/i).pop() || '') + ' ' + after.split(/<\/(?:div|label)>/i)[0]);
+            const label = clean(attr('title') || attr('placeholder') || nearby) || id.replace(/^dd-/, '').replace(/[-_]+/g, ' ');
+            out.push({ id: `control:${id}`, controlId: id, label: label.slice(0, 120),
+                words: clean(summaries.length ? summaries[summaries.length - 1][1] : ''), where });
+        }
+        return out;
     }
 };
 
