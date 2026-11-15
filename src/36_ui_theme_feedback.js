@@ -162,6 +162,7 @@ Object.assign(DocsDoodads.Ui, {
         const tip = document.createElement('div');
         tip.id = 'dd-tooltip';
         tip.textContent = text;
+        if (DocsDoodads.MapThumb && DocsDoodads.MapThumb.decorateTooltip) DocsDoodads.MapThumb.decorateTooltip(el, tip);
         if (keys) {
             const kbd = document.createElement('kbd');
             kbd.textContent = keys;

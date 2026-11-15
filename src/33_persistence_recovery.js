@@ -146,8 +146,10 @@ DocsDoodads.Persistence = {
             return false;
         }
 
+        const savedDoodads = DocsDoodads.DataFiles.readAll() || {};
+        const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
-        const doodadEntries = DocsDoodads.DataFiles.entriesFor(window.$dataDocsDoodads || {});
+        const doodadEntries = DocsDoodads.DataFiles.entriesFor(liveDoodads);
         const entries = mapEntries.concat(doodadEntries, [
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
         ]);
@@ -171,6 +173,14 @@ DocsDoodads.Persistence = {
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);
+        // A map's own JSON does not change when only its doodads do. Forget only pictures whose saved
+        // doodads/layer visibility changed; cache failures never change the successful save result.
+        try {
+            const committed = DocsDoodads.DataFiles.stable(liveDoodads);
+            DocsDoodads.MapThumb.invalidateMany(DocsDoodads.MapThumb.changedMapIds(savedDoodads, committed));
+        } catch (error) {
+            DocsDoodads.Core.log('Changed map pictures could not be invalidated.', error);
+        }
 
         this.lastSavedAt = Date.now();
         this.dirtyMap = false;
@@ -181,6 +191,8 @@ DocsDoodads.Persistence = {
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
         if (DocsDoodads.Workspace.mounted) DocsDoodads.Workspace.updateSaveState(true);
+        // Disposable navigation art is best-effort and must never turn a successful save into a failure.
+        if (DocsDoodads.Workspace.mapThumb) DocsDoodads.Workspace.mapThumb($gameMap.mapId(), { force: true });
         return true;
     },
 
@@ -198,6 +210,7 @@ DocsDoodads.Persistence = {
     // Throws away unsaved work: doodads and settings are read again from disk, event edits are dropped
     // (events moved on this map go back to their saved tiles), and the crash snapshot is removed.
     discardUnsaved() {
+        if (DocsDoodads.MapThumb && DocsDoodads.MapThumb.clearVolatile) DocsDoodads.MapThumb.clearVolatile();
         const data = DocsDoodads.DataFiles.readAll();
         window.$dataDocsDoodads = data || {};
         DocsDoodads.migrateData(window.$dataDocsDoodads, 'doodads');

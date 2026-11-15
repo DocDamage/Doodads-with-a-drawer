@@ -67,7 +67,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (map && /map|go/i.test(q)) {
             const id = Number(map[1]);
             const entry = this.mapEntries().find(m => m.id === id);
-            if (entry) out.push({ label: `Go to map ${id}: ${entry.name}`, group: 'Map', run: () => this.goToMap(id) });
+            if (entry) out.push({ label: `Go to map ${id}: ${entry.name}`, group: 'Map', mapId: id, run: () => this.goToMap(id) });
         }
         const season = /^season\s+(.+)$/i.exec(q);
         if (season) {
@@ -146,7 +146,11 @@ Object.assign(DocsDoodads.Workspace, {
         for (const id of ids) {
             const tab = document.createElement('div');
             tab.className = 'dd-map-tab' + (id === current ? ' dd-current' : '');
-            tab.title = `Map ${id}: ${names.get(id) || ''}`;
+            const name = names.get(id) || `Map ${id}`;
+            tab.title = `Map ${id}: ${name}`;
+            tab.setAttribute('data-dd-map-thumb', String(id));
+            tab.setAttribute('data-dd-map-name', name);
+            tab.setAttribute('aria-label', `Map ${id}: ${name}`);
             if (P.mapHasUnsaved(id)) {
                 const dot = document.createElement('i');
                 dot.className = 'dd-tab-dot';
@@ -154,7 +158,7 @@ Object.assign(DocsDoodads.Workspace, {
                 tab.appendChild(dot);
             }
             const label = document.createElement('span');
-            label.textContent = names.get(id) || `Map ${id}`;
+            label.textContent = name;
             tab.appendChild(label);
             if (id !== current) {
                 const x = document.createElement('button');

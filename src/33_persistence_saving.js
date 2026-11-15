@@ -78,6 +78,7 @@ Object.assign(DocsDoodads.Persistence, {
         }
         const live = window.$dataDocsDoodads || {};
         const merged = Object.assign({}, DF.readAll() || {});
+        const savedDoodads = cloneJson(merged);
         delete merged._mapFiles;
         if (Array.isArray(live[mapId]) && live[mapId].length) merged[mapId] = live[mapId]; else delete merged[mapId];
         const settings = Object.assign({}, merged.mapSettings || {});
@@ -101,6 +102,12 @@ Object.assign(DocsDoodads.Persistence, {
         }
         if (mapEntries.length) this.sessionSnapshots[mapFile] = FS.stat(mapFile);
         DF.removeStale(doodadEntries);
+        try {
+            const mapThumb = DocsDoodads.MapThumb;
+            mapThumb.invalidateMany(mapThumb.changedMapIds(savedDoodads, DF.stable(merged)));
+        } catch (error) {
+            DocsDoodads.Core.log('Changed map pictures could not be invalidated.', error);
+        }
         // Unsaved work is left only if the doodad data still differs from what is now on disk.
         const still = JSON.stringify(DF.stable(live)) !== JSON.stringify(DF.stable(merged));
         this.dirtyMap = Object.keys(this.stagedMaps).length > 0 || (this._dirtyMap && !mapEntries.length);
@@ -109,6 +116,7 @@ Object.assign(DocsDoodads.Persistence, {
         if (!this.hasUnsavedWork()) { this.lastSavedAt = Date.now(); this.clearRecovery(); }
         W.showToast(this.hasUnsavedWork() ? 'Saved this map. Other maps still have unsaved changes.' : 'Saved this map. Everything is saved.');
         if (W.mounted) W.updateSaveState(!this.hasUnsavedWork());
+        if (mapId === Number(gameMap.mapId()) && W.mapThumb) W.mapThumb(mapId, { force: true });
         return true;
     },
 

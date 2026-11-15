@@ -297,6 +297,7 @@
                 <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
                     <div>Go to map (keeps the editor open):
                         <select id="dd-map-goto" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px;">${this.mapOptions(this.currentMapId(), false)}</select>
+                        <div id="dd-map-goto-preview" style="margin-top: 4px; min-height: 32px;">${this.mapThumbMarkup(this.currentMapId(), (this.mapEntries().find(m => m.id === this.currentMapId()) || {}).name)}</div>
                         <button class="dd-btn" id="dd-map-goto-btn" style="width: 100%; margin-top: 4px;">Go to Map</button></div>
                     <div style="margin-top: 4px; color: var(--dd-text);">Neighbouring maps (for doodads that cross the edge):</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">${side('north', 'North')}${side('south', 'South')}${side('west', 'West')}${side('east', 'East')}</div>
@@ -309,6 +310,13 @@
     bindMapNavigation() {
         const go = document.getElementById('dd-map-goto-btn');
         if (go) go.onclick = () => this.goToMap(parseInt(document.getElementById('dd-map-goto').value, 10));
+        const mapSelect = document.getElementById('dd-map-goto');
+        if (mapSelect) mapSelect.onchange = () => {
+            const id = parseInt(mapSelect.value, 10);
+            const entry = this.mapEntries().find(m => m.id === id);
+            const preview = document.getElementById('dd-map-goto-preview');
+            if (preview) preview.innerHTML = this.mapThumbMarkup(id, entry && entry.name);
+        };
         for (const name of DocsDoodads.MapLinks.sides) {
             const select = document.getElementById(`dd-map-nb-${name}`);
             if (!select) continue;
@@ -331,6 +339,7 @@
     showWorldView() {
         const existing = document.getElementById('dd-world-view');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+        this._worldThumbRefresh = null;
         const current = this.currentMapId();
         const layout = DocsDoodads.MapLinks.layout(current, id => this.mapNeighbors(id), id => this.mapSizeLookup(id), 2);
         if (layout.length === 0) return;
@@ -354,10 +363,21 @@
             <div style="font-size: 10px; color: var(--dd-muted); margin-top: 6px;">${layout.length === 1 ? 'No neighbouring maps are linked yet; set them in Maps.' : 'Click a map to go there. Orange doodads cross an edge.'}</div>`;
         document.body.appendChild(modal);
         const canvas = document.getElementById('dd-world-canvas');
+        canvas.setAttribute('role', 'img');
+        canvas.setAttribute('aria-label', 'World View: ' + layout.map(m => names[m.mapId] || `Map ${m.mapId}`).join(', '));
         const ctx = canvas.getContext('2d');
-        for (const m of layout) {
+        const drawMap = (m, image) => {
             ctx.fillStyle = m.mapId === current ? '#1e3a5f' : '#16213a';
             ctx.fillRect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+            if (image) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+                ctx.clip();
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(image, toX(m.x), toY(m.y), m.w * scale, m.h * scale);
+                ctx.restore();
+            }
             ctx.strokeStyle = m.mapId === current ? '#38bdf8' : '#475569';
             ctx.lineWidth = m.mapId === current ? 2 : 1;
             ctx.strokeRect(toX(m.x), toY(m.y), m.w * scale, m.h * scale);
@@ -371,8 +391,30 @@
             ctx.fillStyle = '#e2e8f0';
             ctx.font = '11px sans-serif';
             ctx.fillText(`${String(m.mapId).padStart(3, '0')} ${names[m.mapId] || ''}`, toX(m.x) + 4, toY(m.y) + 13);
+        };
+        const refreshPicture = mapId => {
+            if (!modal.parentNode) return;
+            const m = layout.find(entry => entry.mapId === Number(mapId));
+            if (!m) return;
+            drawMap(m, null);
+            const url = DocsDoodads.MapThumb.url(m.mapId);
+            if (url && typeof Image !== 'undefined') {
+                const image = new Image();
+                image.onload = () => {
+                    if (modal.parentNode && this._worldThumbRefresh === refreshPicture && DocsDoodads.MapThumb.url(m.mapId) === url) drawMap(m, image);
+                };
+                image.src = url;
+            }
+        };
+        this._worldThumbRefresh = refreshPicture;
+        for (const m of layout) {
+            drawMap(m, null);
+            refreshPicture(m.mapId);
         }
-        const close = () => modal.parentNode && modal.parentNode.removeChild(modal);
+        const close = () => {
+            if (this._worldThumbRefresh === refreshPicture) this._worldThumbRefresh = null;
+            if (modal.parentNode) modal.parentNode.removeChild(modal);
+        };
         document.getElementById('dd-world-close').onclick = close;
         canvas.onclick = (e) => {
             const rect = canvas.getBoundingClientRect();
@@ -388,6 +430,9 @@
     // Transfers the player; the workspace stays open and picks the new map up in onMapLoaded.
     goToMap(mapId) {
         if (!mapId || !window.$gamePlayer || !window.$gameMap || mapId === this.currentMapId()) return;
+        // Snapshot the departing map before transfer setup can replace $dataMap. Picture failures never
+        // delay or cancel navigation.
+        this.mapThumb(this.currentMapId(), { force: true });
         const size = this.mapSizeLookup(mapId);
         const tw = $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
         const th = $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
@@ -415,6 +460,7 @@
 
     onMapLoaded() {
         if (!this.mounted) return;
+        this.mapThumb(this.currentMapId());
         this.updateCollisionLegend();
         this.applyStagedRegions();
         this.reportStepsBack();

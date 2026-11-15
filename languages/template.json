@@ -22,6 +22,7 @@
     "{items} things picked: what you do here changes them all.": "",
     "{label} {why}, so it can't be used here.": "",
     "{label} colour": "",
+    "{label} has no map preview yet": "",
     "{label} is under a doodad's collision: the player can't stand there.": "",
     "{label} is used by \"{label}\". Use it for \"{label}\" instead? \"{label}\" will have no key.": "",
     "{label} starts when stepped on, but nobody can walk onto its tile.": "",

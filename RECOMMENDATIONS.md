@@ -187,7 +187,7 @@ Watching a new user (item E under What's left) comes before all of these.
 | 7.2.1 | **Split up More.** **Done.** Map, Art, View and More, drawn from one list with the palette; they fold into More in a narrow window. It had about 30 entries in seven groups without names. A few named menus (Map, Art, View, Project), with More for the rest. | S |
 | 7.2.2 | **Map notes.** **Done** (pins on flat maps only, not in the 3D view). Notes and to-dos pinned to tiles ("a chest here"), listed in a panel, never in the game. | S |
 | 7.2.3 | **A ruler and bookmarks.** **Done.** Measure a distance in tiles and pixels; keep places on a big map to jump back to. | S |
-| 7.2.4 | **Map pictures.** Map tabs and World View show names only; a small picture of each map makes one quicker to find. | S |
+| 7.2.4 | **Map pictures. Done.** Opened maps get a lazy, disposable 256 px tiles-and-doodads picture in tab hover cards, Go to map lists and World View; uncached maps keep named placeholders. Cross-map edits, saving and discard keep pictures consistent. Played in MZ flat and in 3D; see [QA record](docs/QA_2026-11-15.md). | S |
 | 7.2.5 | **Panels in their own window.** Docking stays inside MZ's 816 × 624 window. The Item Bag or Details in a second window leaves the map clear. | M |
 | 7.2.6 | **One Settings page.** There are 16 plugin parameters and many more settings in the editor's panels. One page, with a search, that finds any of them. | M |
 
