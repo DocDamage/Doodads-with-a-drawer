@@ -84,4 +84,3 @@ DocsDoodads.MapThumb = {
         return bytes;
     }
 };
-

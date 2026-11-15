@@ -66,6 +66,7 @@
         const path = this.cachePath(mapId);
         try {
             if (DocsDoodads.FS.existsSync(path)) DocsDoodads.FS.fs.unlinkSync(path);
+            if (Workspace.refreshMapThumbUi) Workspace.refreshMapThumbUi(mapId);
             return true;
         } catch (error) {
             DocsDoodads.Core.log(`Map ${mapId} picture cache could not be invalidated.`, error);
@@ -189,4 +190,3 @@ DocsDoodads.Ui.css += `
 .dd-map-tip-picture { display: flex; width: 256px; max-width: 55vw; max-height: 256px; object-fit: contain; margin-bottom: 6px; border-radius: 5px; image-rendering: pixelated; }
 .dd-map-tip-picture.dd-map-thumb-empty { min-height: 72px; align-items: center; justify-content: center; background: var(--dd-field); }
 `;
-

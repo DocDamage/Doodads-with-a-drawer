@@ -183,4 +183,3 @@
         return out;
     };
 })(DocsDoodads.MapThumb);
-
