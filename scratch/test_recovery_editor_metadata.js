@@ -73,12 +73,24 @@ const readSnapshot = () => JSON.parse(fs.readFileSync('data/DocsDoodadsRecovery.
     assert.ok(!Object.hasOwn($dataDocsDoodads, 'bookmarks'), 'recovery keeps bookmarks deleted');
 
     $dataDocsDoodads.notes = {};
-    $dataDocsDoodads.bookmarks = {};
+    $dataDocsDoodads.bookmarks = [];
     P.dirtyDoodads = true;
     assert.strictEqual(await P.writeRecovery(), true, 'an empty metadata snapshot is written');
     const empty = readSnapshot();
     assert.deepStrictEqual(empty.notes, {}, 'empty notes are not confused with deletion');
-    assert.deepStrictEqual(empty.bookmarks, {}, 'empty bookmarks are not confused with deletion');
+    assert.deepStrictEqual(empty.bookmarks, [], 'empty bookmarks are not confused with deletion');
+    $dataDocsDoodads.notes = { 1: [{ id: 'saved-note' }] };
+    $dataDocsDoodads.bookmarks = [{ id: 'saved-bookmark' }];
+    ws.applyRecovery(empty);
+    assert.deepStrictEqual($dataDocsDoodads.notes, {}, 'recovery restores an explicitly empty notes object');
+    assert.deepStrictEqual($dataDocsDoodads.bookmarks, [], 'recovery restores an explicitly empty bookmarks array');
+
+    // Dirty tracking must come from the metadata itself, even when a snapshot has no doodad payload.
+    P.dirtyDoodads = false;
+    ws.applyRecovery({ mapId: 1, notes, bookmarks });
+    assert.strictEqual(P.dirtyDoodads, true, 'metadata-only recovery is saveable');
+    assert.deepStrictEqual($dataDocsDoodads.notes, notes);
+    assert.deepStrictEqual($dataDocsDoodads.bookmarks, bookmarks);
 
     // Old recovery files have no metadata keys. They still restore their original contents without
     // touching metadata loaded from disk.
