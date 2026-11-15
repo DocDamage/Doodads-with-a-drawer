@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Names and icons over events: `<docs label: Blacksmith>` and `<docs icon: 87>` (in the note or a page comment, or **Name over it** and **Icon** in the event's Details) show over the event, flat and in 3D; `<docs label range: 4>` shows them only near the player. World → Event Labels sets the size, colour and fade, and the Show / Hide Event Labels command turns them off for a playthrough. A map without the tags costs nothing a frame.
 - `npm run package` makes the download for a release (`release/Docs-Doodads-<version>.zip`): the plugin, a README.txt on installing it, the guide, the cheat sheet, the changelog, the translation template, the deploy tool and the licences. `--ref v<version>` packages a tag from git, whatever is checked out.
 - Fixes: Stamp's picture under the mouse no longer stays where the mouse left the map after picking another tool. Screen Looks keeps the preset just applied shown in its list (it went back to the first one).
 - The README shows the editor and the game at work (placing, picking and Find, day to night, Screen Looks, a storm, effects at dusk, flying, the MZ, LPC and Memao character creators, with the LPC artists credited) and lists everything the plugin does. The README and the guide say where to get each character library: RPG Maker MZ (Steam or the official site), the LPC library (free on GitHub) and the Memao pack (itch.io).
