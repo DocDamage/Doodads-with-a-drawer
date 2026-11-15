@@ -31,6 +31,7 @@ Object.assign(DocsDoodads.Workspace, {
             copy: () => this.copySelected(),
             paste: () => this.pasteCopied(false),
             pasteInPlace: () => this.pasteCopied(true),
+            playHere: () => this.playFromCursor(),
             selectAll: () => this.selectAllDoodads(),
             delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
             palette: () => this.showCommandPalette(),
@@ -56,6 +57,8 @@ Object.assign(DocsDoodads.Workspace, {
             brushSmaller: () => this.resizeBrush(-1) || false,
             brushBigger: () => this.resizeBrush(1) || false
         };
+        actions.ruler = tool('ruler');
+        for (let n = 1; n <= 9; n++) actions['bookmark' + n] = () => this.goToBookmarkNumber(n);
         const run = actions[id];
         if (!run) return false;
         const result = run();

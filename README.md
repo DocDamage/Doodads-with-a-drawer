@@ -7,6 +7,11 @@ A map editor and doodad engine for RPG Maker MZ that runs inside your playtest. 
 - walk, jump and fly around what you built;
 - see the same map in 3D.
 
+Already tested:
+- **Deployed, encrypted games work.** Built with MZ's own File > Deployment and with `npm run deploy`, image and audio encryption on: doodads, lights, 3D and models show, and the editor stays out ([QA record](docs/QA_2026-10-18.md#part-3-the-30-minute-session-and-mzs-own-deployment)).
+- **Art placed off the grid stands up in the 3D view,** as do tileset objects ([3D view](#3d-view)).
+- **Big maps stay smooth.** A 200 × 200 map with 3,000 doodads and 375 lights runs at 60 frames a second, flat or in 3D ([Deployed games and speed](#deployed-games-and-speed)).
+
 It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads and has grown into its own tool.
 
 ![Picking a bush in the Item Bag, stamping it along a street and dragging one into line](docs/images/editor_place.gif)
@@ -275,9 +280,9 @@ The original implementation plan is kept in [docs/archive](docs/archive/Docs_Doo
 ## The editor at a glance
 
 - **Top bar:** big tools with their names (Select, Stamp, Scatter, Paint, Path, Hills, Regions, Tiles, Mirror, Grab); a tool's options open in a card under its button. Then Undo, Redo, Steps (the undo history and checkpoints), four menus, Save and Done. In a small window, the words under the tools go, then Map, Art and View fold into More under their names, then the bar takes a second row. The arrow keys move inside a menu and from one menu to the next.
-- **Map:** Map Settings, Find Doodads, Outliner, Rooms, Templates, Problems, Check Reach, Save This Map, Autosave.
+- **Map:** Map Settings, Find Doodads, Outliner, Rooms, Templates, Problems, Notes, Ruler, Check Reach, Save This Map, Autosave.
 - **Art:** Cut Up Sheet, Characters (the character creators), Packs, Effects Maker, File Check.
-- **View:** Show Grid, Show Collision, Show Sounds, Listen, Show Speed, Screen Looks, Look (size, theme, map colours), and the panel layouts.
+- **View:** Show Grid, Show Collision, Show Sounds, Listen, Show Speed, Screen Looks, Show Notes, Bookmarks, Look (size, theme, map colours), and the panel layouts.
 - **More:** Find a Tool (Ctrl+K), Keys, Capture, Old Saves, Messages, Info, Sounds, How to Use. Every entry of every menu is in Find a Tool too.
 - **Item Bag** (left): search, collections and category tabs. **Details** (right): the settings of whatever is picked. Both fold away to small tabs.
 

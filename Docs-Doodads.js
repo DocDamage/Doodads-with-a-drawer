@@ -1509,6 +1509,17 @@
  * @off Hide
  * @default true
  *
+ * @command showEventLabels
+ * @text Show / Hide Event Labels
+ * @desc Hides the names and icons over events (<docs label: ...>, <docs icon: n>) for this playthrough, or shows them again.
+ *
+ * @arg show
+ * @text Event labels
+ * @type boolean
+ * @on Show
+ * @off Hide
+ * @default true
+ *
  * @command exploredMap
  * @text Explored Map
  * @desc With the minimap's fog of war on: reveal a whole map, reveal around the player, or forget what was seen (saved with the game).
@@ -3441,6 +3452,137 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 7L: NAMES AND ICONS OVER EVENTS
+//==========================================================
+// <docs label: Blacksmith> and <docs icon: 87> in an event's note or a comment on its current page put a name,
+// an icon from the IconSet or both over it; <docs label range: 4> shows them only within 4 tiles of the player
+// (without it, always). World > Event Labels sets the size, colour and fade; the Show Event Labels command turns
+// them off and on for a playthrough. The sprites are 15_spriteset_map_labels.js.
+DocsDoodads.EventLabels = {
+    defaults: { enabled: true, size: 16, colour: '#ffffff', fade: true },
+
+    // { label, icon, range } from an event's text, or null when it has neither a label nor an icon.
+    parse(text) {
+        const s = String(text || '');
+        const label = /<\s*docs\s+label\s*:\s*([^>]*?)\s*>/i.exec(s);
+        const icon = /<\s*docs\s+icon\s*:\s*(\d+)\s*>/i.exec(s);
+        const range = /<\s*docs\s+label\s+range\s*:\s*(\d+(?:\.\d+)?)\s*>/i.exec(s);
+        const info = { label: label ? label[1].trim() : '', icon: icon ? Number(icon[1]) : 0, range: range ? Number(range[1]) : 0 };
+        return info.label || info.icon > 0 ? info : null;
+    },
+
+    // An event's label (null for none), kept while its note and page comments stay the same.
+    of(ev) {
+        if (!ev || typeof ev.event !== 'function' || !ev.event()) return null;
+        const VE = DocsDoodads.VisualEquip;
+        const text = VE && VE.eventText ? VE.eventText(ev) : String(ev.event().note || '');
+        const c = this._cache = this._cache || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        const hit = c ? c.get(ev) : null;
+        if (hit && hit.text === text) return hit.info;
+        const info = this.parse(text);
+        if (c) c.set(ev, { text, info });
+        return info;
+    },
+
+    // Whether a map has any label or icon tag at all (kept per map), so a map without them costs nothing a frame.
+    mapHas(dataMap) {
+        if (!dataMap || typeof dataMap !== 'object') return false;
+        const c = this._maps = this._maps || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        if (c && c.has(dataMap)) return c.get(dataMap);
+        const tag = /<\s*docs\s+(label|icon)\s*:/i;
+        let found = false;
+        for (const ev of dataMap.events || []) {
+            if (!ev) continue;
+            if (tag.test(ev.note || '')) { found = true; break; }
+            for (const page of ev.pages || []) {
+                if ((page.list || []).some(cmd => cmd && (cmd.code === 108 || cmd.code === 408) && tag.test(String((cmd.parameters || [])[0] || '')))) { found = true; break; }
+            }
+            if (found) break;
+        }
+        if (c) c.set(dataMap, found);
+        return found;
+    },
+
+    settings() {
+        const s = DocsDoodads.World.settings().labels || {};
+        return Object.assign({}, this.defaults, s);
+    },
+
+    // On for this playthrough: World > Event Labels, unless the Show Event Labels command turned them off.
+    enabled() {
+        if (typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsLabelsHidden) return false;
+        return this.settings().enabled !== false;
+    },
+
+    // Within range tiles (dx, dy from the player); range 0 is always.
+    inRange(range, dx, dy) {
+        return !(range > 0) || Math.hypot(dx, dy) <= range + 1e-9;
+    },
+
+    // Whether an event shows its label now: not erased, on a page, and either drawn or one the player can walk
+    // through (an invisible door or exit). An invisible event that blocks the way has no label.
+    shows(ev, info) {
+        if (!info || !ev || ev._erased) return false;
+        const page = typeof ev.page === 'function' ? ev.page() : null;
+        if (!page) return false;
+        const drawn = Boolean(ev.characterName && ev.characterName()) || (ev.tileId && ev.tileId() > 0);
+        return drawn || Boolean(ev.isThrough && ev.isThrough());
+    },
+
+    // The note with these label and icon tags (others left as they were): label '' and icon 0 take them out.
+    writeNote(note, label, icon) {
+        let s = String(note || '').replace(/<\s*docs\s+label\s*:[^>]*>/gi, '').replace(/<\s*docs\s+icon\s*:[^>]*>/gi, '');
+        s = s.replace(/[ \t]{2,}/g, ' ').trim();
+        const add = [];
+        const name = String(label || '').replace(/[<>]/g, '').trim();
+        if (name) add.push(`<docs label: ${name}>`);
+        if (Number(icon) > 0) add.push(`<docs icon: ${Math.floor(Number(icon))}>`);
+        return [s].concat(add).filter(Boolean).join(s && add.length ? ' ' : '');
+    },
+
+    // The picture for a label: the icon (from IconSet, once it has loaded), then the name, outlined. Kept per
+    // look; null until the icon set has loaded.
+    bitmap(info, settings) {
+        const size = Math.max(8, Math.min(48, Number(settings.size) || 16));
+        const colour = String(settings.colour || '#ffffff');
+        const key = `${info.icon}|${info.label}|${size}|${colour}`;
+        const cache = this._bitmaps = this._bitmaps || new Map();
+        if (cache.has(key)) return cache.get(key);
+        let iconSet = null;
+        if (info.icon > 0) {
+            iconSet = ImageManager.loadSystem('IconSet');
+            if (!iconSet.isReady()) return null;
+        }
+        const pw = ImageManager.iconWidth || 32, ph = ImageManager.iconHeight || 32;
+        const iconSize = iconSet ? Math.round(size * 1.5) : 0;
+        const probe = new Bitmap(1, 1);
+        probe.fontSize = size;
+        if (typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem.mainFontFace) probe.fontFace = $gameSystem.mainFontFace();
+        const textW = info.label ? Math.ceil(probe.measureTextWidth(info.label)) + 8 : 0;
+        const gap = iconSize && textW ? 2 : 0;
+        const w = Math.max(1, iconSize + gap + textW), h = Math.max(iconSize, size + 10);
+        const bmp = new Bitmap(w, h);
+        bmp.fontSize = size;
+        bmp.fontFace = probe.fontFace;
+        if (iconSet) bmp.blt(iconSet, (info.icon % 16) * pw, Math.floor(info.icon / 16) * ph, pw, ph, 0, Math.round((h - iconSize) / 2), iconSize, iconSize);
+        if (info.label) {
+            bmp.textColor = colour;
+            bmp.outlineColor = 'rgba(0, 0, 0, 0.75)';
+            bmp.outlineWidth = 4;
+            bmp.drawText(info.label, iconSize + gap, 0, textW, h, 'center');
+        }
+        if (cache.size > 64) cache.clear();
+        cache.set(key, bmp);
+        return bmp;
+    }
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'showEventLabels', args => {
+        if (typeof $gameSystem !== 'undefined' && $gameSystem) $gameSystem._docsLabelsHidden = String(args.show) === 'false' ? true : undefined;
+    });
+}
+//==========================================================
 // SECTION 5B2: MAP LAYERS (2D), WIND, LIGHTNING
 //==========================================================
 // Flat maps can have several picture layers behind the tiles (backgrounds) or over them (fog, clouds,
@@ -3598,17 +3740,39 @@ DocsDoodads.api = {
     _listeners: {},
 
     // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
+    /**
+     * Listens for one of the plugin's events. Returns a function that stops listening.
+     * @template {keyof DocsDoodadsEvents} K
+     * @param {K} event - 'touch', 'state', 'light', 'animationEnd', 'takeOff', 'land' or 'dive'.
+     * @param {(detail: DocsDoodadsEvents[K]) => void} fn - Called with the event's detail.
+     * @returns {() => void}
+     */
     on(event, fn) {
         if (typeof fn !== 'function') return () => {};
         (this._listeners[event] = this._listeners[event] || []).push(fn);
         return () => this.off(event, fn);
     },
 
+    /**
+     * Stops a listener added with on().
+     * @template {keyof DocsDoodadsEvents} K
+     * @param {K} event
+     * @param {(detail: DocsDoodadsEvents[K]) => void} fn
+     * @returns {void}
+     */
     off(event, fn) {
         const list = this._listeners[event];
         if (list) this._listeners[event] = list.filter(f => f !== fn);
     },
 
+    /**
+     * Tells every listener of an event (the plugin calls this; a listener that throws is logged and skipped).
+     * @internal
+     * @template {keyof DocsDoodadsEvents} K
+     * @param {K} event
+     * @param {DocsDoodadsEvents[K]} detail
+     * @returns {void}
+     */
     emit(event, detail) {
         for (const fn of (this._listeners[event] || []).slice()) {
             try {
@@ -3620,21 +3784,39 @@ DocsDoodads.api = {
     },
 
     // ---- Finding doodads ----
+    /**
+     * The map id the API works on: the one given, or the map the player is on.
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     mapId(mapId) {
         return DocsDoodads.WorldState.mapId(mapId);
     },
 
+    /**
+     * The map's tile size in pixels (48 by 48 when no map is loaded).
+     * @returns {{ w: number, h: number }}
+     */
     tileSize() {
         const ok = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileWidth;
         return { w: ok ? $gameMap.tileWidth() : 48, h: ok ? $gameMap.tileHeight() : 48 };
     },
 
-    // The doodads on a map (the live list; change them through the calls below so the map keeps up).
+    /**
+     * The doodads on a map (the live list; change them through the calls below so the map keeps up).
+     * @param {number} [mapId]
+     * @returns {DocsDoodad[]}
+     */
     doodads(mapId) {
         return (DocsDoodads.doodads(this.mapId(mapId)) || []).filter(Boolean);
     },
 
-    // query: a Name (any case), a doodad, or { name, uid, art, near: { x, y, radius } (tiles), mapId, where(d) }.
+    /**
+     * The doodads that match a query: a name (any case), a doodad, or { name, uid, art, near, mapId, where }.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {DocsDoodad[]}
+     */
     find(query, mapId) {
         if (query && typeof query === 'object' && query.bit) return [query];
         const q = typeof query === 'string' ? { name: query } : Object.assign({}, query);
@@ -3656,11 +3838,21 @@ DocsDoodads.api = {
         });
     },
 
+    /**
+     * The first doodad that matches a query, or null.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {DocsDoodad | null}
+     */
     get(query, mapId) {
         return this.find(query, mapId)[0] || null;
     },
 
-    // Where a doodad stands, in tiles ({ x, y }: the tile its base is on).
+    /**
+     * Where a doodad stands, in tiles: the tile its base is on, or null when none matches.
+     * @param {DocsDoodadQuery} query
+     * @returns {{ x: number, y: number } | null}
+     */
     tileOf(query) {
         const d = this.get(query);
         if (!d) return null;
@@ -3669,20 +3861,30 @@ DocsDoodads.api = {
     },
 
     // ---- Changing the map's doodads (for this run of the game only) ----
+    /**
+     * The map's spriteset when doodads are drawn on it, or null.
+     * @internal
+     * @returns {object | null}
+     */
     spriteset() {
         const scene = typeof SceneManager !== 'undefined' && SceneManager ? SceneManager._scene : null;
         return scene && scene._spriteset && scene._spriteset.addDocsDoodads ? scene._spriteset : null;
     },
 
-    // Rebuilds the doodad sprites (after changing art or many fields at once).
+    /**
+     * Rebuilds the doodad sprites (after changing art or many fields at once).
+     * @returns {void}
+     */
     refresh() {
         const ss = this.spriteset();
         if (ss) ss.addDocsDoodads();
     },
 
-    // spec: { art: 'img/doodads/Rock.png', x, y, tiles: true (x and y are tiles; false = pixels), name,
-    //         transition ('fade', 'pop', 'rise', 'dissolve' or 'crumble': it appears that way), frames (30),
-    //         and any doodad field (light, states, touch, collision, scaleX...) }. Returns the doodad.
+    /**
+     * Places a doodad for this run of the game (never written to the project or the save). Returns the doodad, or null without art.
+     * @param {DocsDoodadPlaceSpec} spec - { art, x, y, tiles, name, transition, frames, mapId } and any doodad field.
+     * @returns {DocsDoodad | null}
+     */
     place(spec) {
         spec = Object.assign({ tiles: true }, spec);
         const appear = spec.transition && spec.transition !== 'none' ? { type: String(spec.transition), frames: Number(spec.frames) > 0 ? Number(spec.frames) : 30 } : null;
@@ -3716,8 +3918,15 @@ DocsDoodads.api = {
         return d;
     },
 
-    // A doodad's frame size: as given, then from the library, then (for either one still missing) from
-    // the picture once it loads.
+    /**
+     * Sets a doodad's frame size: as given, then from the library, then from the picture once it loads.
+     * @internal
+     * @param {DocsDoodad} d
+     * @param {string} art
+     * @param {number} [frameW]
+     * @param {number} [frameH]
+     * @returns {void}
+     */
     sizeFor(d, art, frameW, frameH) {
         const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets;
         const asset = assets ? assets[String(art).toLowerCase()] : null;
@@ -3733,7 +3942,14 @@ DocsDoodads.api = {
         });
     },
 
-    // Moves doodads to (x, y): tiles unless opts.tiles is false; opts.relative moves them by that much.
+    /**
+     * Moves doodads to (x, y): tiles unless opts.tiles is false; opts.relative moves them by that much. Returns how many moved.
+     * @param {DocsDoodadQuery} query
+     * @param {number} x
+     * @param {number} y
+     * @param {{ tiles?: boolean, relative?: boolean }} [opts]
+     * @returns {number}
+     */
     move(query, x, y, opts = {}) {
         const list = this.find(query);
         const ts = this.tileSize();
@@ -3753,8 +3969,12 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new picture redraws them, at its own
-    // size unless frameW and frameH come with it.
+    /**
+     * Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new art redraws them, at its own size unless frameW and frameH come with it. Returns how many changed.
+     * @param {DocsDoodadQuery} query
+     * @param {Partial<DocsDoodad> & { art?: string }} props
+     * @returns {number}
+     */
     set(query, props) {
         const list = this.find(query);
         if (!props || list.length === 0) return 0;
@@ -3777,8 +3997,13 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // opts: { transition ('fade', 'pop'...: it goes that way first), frames (30) }. Only the sprites of the
-    // doodads taken out go; the rest of the map is not built again.
+    /**
+     * Takes doodads off the map, through a transition if opts has one. Only their sprites go; the rest of the map is not built again. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {number | DocsDoodadRemoveOptions} [mapId] - A map id, or the options in its place.
+     * @param {DocsDoodadRemoveOptions} [opts]
+     * @returns {number}
+     */
     remove(query, mapId, opts = {}) {
         if (mapId && typeof mapId === 'object') { opts = mapId; mapId = undefined; }
         const m = this.mapId(query && typeof query === 'object' && query.mapId !== undefined ? query.mapId : mapId);
@@ -3796,7 +4021,13 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // Out of the map's list and off the map (removeSomeDocsDoodads), with collision told.
+    /**
+     * Out of the map's list and off the map at once, with collision told.
+     * @internal
+     * @param {DocsDoodad[]} list
+     * @param {number} [mapId]
+     * @returns {void}
+     */
     takeOut(list, mapId) {
         const m = this.mapId(mapId);
         const data = window.$dataDocsDoodads || {};
@@ -3807,67 +4038,133 @@ DocsDoodads.api = {
     },
 
     // ---- States and lights (kept in the save file) ----
+    /**
+     * A named doodad's state ('' when it has none set). Kept in the save file.
+     * @param {string | DocsDoodad} name
+     * @param {number} [mapId]
+     * @returns {string}
+     */
     state(name, mapId) {
         return DocsDoodads.WorldState.state(name, mapId);
     },
 
+    /**
+     * Sets a named doodad's state: a state's name or number, 'next', or '' (or null) for its first. Returns whether it changed.
+     * @param {string | DocsDoodad} name
+     * @param {string | number | null} state
+     * @param {number} [mapId]
+     * @returns {boolean}
+     */
     setState(name, state, mapId) {
         return DocsDoodads.WorldState.setState(name, state, mapId);
     },
 
+    /**
+     * The names of a doodad's states, in order.
+     * @param {DocsDoodadQuery} query
+     * @returns {string[]}
+     */
     stateNames(query) {
         const d = this.get(query);
         return d ? DocsDoodads.States.list(d).map(s => String(s.name || '')) : [];
     },
 
+    /**
+     * Whether a named doodad's light is on (null when there's no such doodad and nothing saved). Kept in the save file.
+     * @param {string | DocsDoodad} name
+     * @param {number} [mapId]
+     * @returns {boolean | null}
+     */
     light(name, mapId) {
         return DocsDoodads.WorldState.light(name, mapId);
     },
 
+    /**
+     * Turns a named doodad's light on or off, or back to its own setting (null). Returns false for a doodad with no Name.
+     * @param {string | DocsDoodad} name
+     * @param {boolean | null} on
+     * @param {number} [mapId]
+     * @returns {boolean}
+     */
     setLight(name, on, mapId) {
         return DocsDoodads.WorldState.setLight(name, on, mapId);
     },
 
     // ---- What the plugin commands do, for scripts and other plugins ----
-    // A doodad acts as if the player touched it (its next state, its common event); once-only and
-    // cooldowns apply. resetTouch lets a once-only doodad run again.
+    /**
+     * A doodad acts as if the player touched it (its next state, its common event); once-only and cooldowns apply. Returns whether anything ran.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {boolean}
+     */
     touch(query, mapId) {
         const d = this.get(query, mapId);
         return d ? DocsDoodads.Touch.run(d, mapId) : false;
     },
 
+    /**
+     * Lets once-only doodads run again. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     resetTouch(query, mapId) {
         const list = this.find(query, mapId);
         for (const d of list) DocsDoodads.Touch.reset(d, mapId);
         return list.length;
     },
 
-    // Plays the doodads' picture strips once (opts: from, to, hold); 'animationEnd' says when each is done.
+    /**
+     * Plays the doodads' picture strips once; 'animationEnd' says when each is done. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {{ from?: number, to?: number, hold?: boolean }} [opts]
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     playAnimation(query, opts = {}, mapId) {
         const list = this.find(query, mapId);
         for (const d of list) DocsDoodads.AnimPlay.play(d, Object.assign({}, opts, { mapId }));
         return list.length;
     },
 
-    // strength 0-1 (or 'world' for World > Weather's), over frames, direction 'left', 'right' or 'same'.
+    /**
+     * Sets the wind: strength 0-1 (or 'world' for World > Weather's own) over frames, blowing 'left', 'right' or the 'same' way.
+     * @param {number | 'world'} strength
+     * @param {number} [frames]
+     * @param {'left' | 'right' | 'same'} [direction]
+     * @returns {object | null}
+     */
     setWind(strength, frames = 0, direction = 'same') {
         return DocsDoodads.Wind.set(strength === 'world' ? 'world' : Number(strength), Number(frames) || 0, String(direction || 'same'));
     },
 
-    // true, false, or null for World > Lighting's own setting.
+    /**
+     * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
+     * @param {boolean | null} on
+     * @returns {boolean}
+     */
     flashlight(on) {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
         $gameSystem._docsFlashlight = on === null || on === undefined ? undefined : Boolean(on);
         return true;
     },
 
-    // An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
+    /**
+     * An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
+     * @param {DocsTraversalAbility} ability
+     * @param {boolean | null} on
+     * @returns {boolean}
+     */
     traversal(ability, on) {
         DocsDoodads.Traversal.setAbility(String(ability || ''), on === null || on === undefined ? null : Boolean(on));
         return true;
     },
 
-    // The player jumps, takes off, lands or dives ('jump', 'takeOff', 'land', 'dive'), as if they pressed the key.
+    /**
+     * The player jumps, takes off, lands or dives, as if they pressed the key. Returns whether they did.
+     * @param {'jump' | 'takeOff' | 'land' | 'dive'} action
+     * @returns {boolean}
+     */
     traversalAction(action) {
         const X = DocsDoodads.Traversal, a = String(action || '');
         if (a === 'jump') return X.jump();
@@ -3877,8 +4174,12 @@ DocsDoodads.api = {
         return false;
     },
 
-    // An effect from the Effects Maker (or a built-in) at a tile ({ x, y }), or on a character or
-    // 'player' (it follows them).
+    /**
+     * Plays an effect from the Effects Maker (or a built-in) at a tile, or on a character or 'player' (it follows them). Returns the playing effect, or null.
+     * @param {string} id
+     * @param {{ x: number, y: number } | DocsCharacter | 'player'} [at]
+     * @returns {object | null}
+     */
     playVfx(id, at = {}) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return null;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -3889,12 +4190,21 @@ DocsDoodads.api = {
         return DocsDoodads.Vfx.play(spec);
     },
 
-    // The explored map: 'all', 'around' (opts.radius), 'region' (opts.region), 'store' (opts.variableId)
-    // or 'forget'; explored() is how much of a map has been seen, 0-1.
+    /**
+     * The explored map: 'all', 'around' (opts.radius), 'region' (opts.region), 'store' (opts.variableId) or 'forget'.
+     * @param {'all' | 'around' | 'region' | 'store' | 'forget'} [action]
+     * @param {{ radius?: number, region?: number, variableId?: number, mapId?: number }} [opts]
+     * @returns {boolean}
+     */
     reveal(action = 'all', opts = {}) {
         return DocsDoodads.Minimap.exploredCommand(Object.assign({ action }, opts));
     },
 
+    /**
+     * How much of a map has been seen, 0-1.
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     explored(mapId) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return 0;
         const m = this.mapId(mapId);
@@ -3904,8 +4214,12 @@ DocsDoodads.api = {
         return saved ? E.fraction(m, saved.w, saved.h) : 0;
     },
 
-    // An atmosphere effect on or off for this playthrough (characterShadows, motionBlur, reflections,
-    // seeThrough, postfx).
+    /**
+     * An atmosphere effect on or off for this playthrough (characterShadows, motionBlur, reflections, seeThrough, postfx).
+     * @param {string} name
+     * @param {boolean} on
+     * @returns {boolean}
+     */
     feature(name, on) {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
         const off = $gameSystem._docsFeatureOff = $gameSystem._docsFeatureOff || {};
@@ -3914,7 +4228,10 @@ DocsDoodads.api = {
     },
 
     // ---- The flat map's camera ----
-    // The camera stays where it is put (Scroll Map, setDisplayPos) until followCamera(); a character to follow.
+    /**
+     * The flat map's camera stays where it is put (Scroll Map, setDisplayPos) until followCamera().
+     * @returns {boolean}
+     */
     freeCamera() {
         const s = DocsDoodads.Camera2D.state();
         if (!s) return false;
@@ -3922,6 +4239,11 @@ DocsDoodads.api = {
         return true;
     },
 
+    /**
+     * The flat map's camera follows a character again (the player when none is given).
+     * @param {DocsCharacter} [character]
+     * @returns {boolean}
+     */
     followCamera(character) {
         const s = DocsDoodads.Camera2D.state();
         if (!s) return false;
@@ -3930,44 +4252,101 @@ DocsDoodads.api = {
         return true;
     },
 
-    // Zooms in on a tile ({ x, y }) or a character over frames; scale 1 goes back.
+    /**
+     * Zooms the flat map in on a tile ({ x, y }), a character or 'player' over frames; scale 1 goes back.
+     * @param {{ x: number, y: number } | DocsCharacter | 'player'} target
+     * @param {number} [scale]
+     * @param {number} [frames]
+     * @returns {boolean}
+     */
     zoomTo(target, scale = 2, frames = 60) {
         const C = DocsDoodads.Camera2D;
         return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
     },
 
     // ---- The calendar (the running clock's days; World > Day and Night) ----
+    /**
+     * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.
+     * @returns {number}
+     */
     day() { return DocsDoodads.Calendar.day(); },
+    /**
+     * The weekday: 0 for the first of World > Day and Night's list.
+     * @returns {number}
+     */
     weekday() { return DocsDoodads.Calendar.weekday(); },
+    /**
+     * The weekday's name for a day (today when none is given).
+     * @param {number} [day]
+     * @returns {string}
+     */
     weekdayName(day) { return DocsDoodads.Calendar.weekdayName(day); },
+    /**
+     * The named date for a day (today when none is given), or ''.
+     * @param {number} [day]
+     * @returns {string}
+     */
     dateName(day) { return DocsDoodads.Calendar.dateName(day); },
+    /**
+     * Goes to a day (1 or more), keeping the time of day. Returns false when the clock doesn't run.
+     * @param {number} day
+     * @returns {boolean}
+     */
     setDay(day) { return DocsDoodads.Calendar.setDay(day); },
 
     // ---- Clock, season and ambient light ----
-    // The time of day in minutes (0-1439), or null when the clock is off.
+    /**
+     * The time of day in minutes (0-1439), or null when the clock is off.
+     * @returns {number | null}
+     */
     time() {
         const m = DocsDoodads.Atmosphere.minutes();
         return m === null || m === undefined ? null : m;
     },
 
-    // day (optional) sets the clock's day too; without it the day stays as it is.
+    /**
+     * Sets the clock; day (optional) sets its day too.
+     * @param {number} hour
+     * @param {number} [minute]
+     * @param {number | null} [day]
+     * @returns {void}
+     */
     setTime(hour, minute = 0, day = null) {
         DocsDoodads.setTimeOfDay((Number(hour) || 0) * 60 + (Number(minute) || 0), day);
     },
 
+    /**
+     * Moves the clock on.
+     * @param {number} hours
+     * @param {number} [minutes]
+     * @returns {void}
+     */
     addTime(hours, minutes = 0) {
         DocsDoodads.addTimeOfDay((Number(hours) || 0) * 60 + (Number(minutes) || 0));
     },
 
+    /**
+     * The season's number (0 for the first).
+     * @returns {number}
+     */
     season() {
         return DocsDoodads.Atmosphere.season();
     },
 
+    /**
+     * The season's name from World > Seasons.
+     * @returns {string}
+     */
     seasonName() {
         const names = DocsDoodads.World.settings().seasons.names || [];
         return names[this.season()] || '';
     },
 
+    /**
+     * Sets the season by number or name. Returns false for a name that isn't one.
+     * @param {number | string} season
+     * @returns {boolean}
+     */
     setSeason(season) {
         let n = Number(season);
         if (typeof season === 'string' && !/^\d+$/.test(season.trim())) {
@@ -3977,7 +4356,13 @@ DocsDoodads.api = {
         return n >= 0;
     },
 
-    // darkness 0-1, color '#rrggbb', over frames; ambient(null) goes back to the map's own.
+    /**
+     * Ambient light: darkness 0-1 and a colour '#rrggbb' over frames; ambient(null) goes back to the map's own.
+     * @param {number | null} darkness
+     * @param {string} [color]
+     * @param {number} [frames]
+     * @returns {object | null}
+     */
     ambient(darkness, color, frames = 60) {
         if (darkness === null || darkness === undefined) {
             const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
@@ -4044,6 +4429,8 @@ DocsDoodads.World = {
         destination: {},
         // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
         minimap: { flat: false, fog: false, radius: 6, size: 140 },
+        // Names and icons over events (<docs label: ...>, <docs icon: n>; 07_event_labels.js).
+        labels: { enabled: true, size: 16, colour: '#ffffff', fade: true },
         // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
         camera2d: { smooth: 0, lookAhead: 0 },
         // 3D models drawn on the GPU (17_perspective_runtime_models.js): faster, and still new.
@@ -6738,6 +7125,240 @@ DocsDoodads.MapCheck = {
     }
 };
 //==========================================================
+// SECTION 5G4: MAP NOTES
+//==========================================================
+// Notes and to-dos pinned to tiles ("a chest here"), seen only in the editor: $dataDocsDoodads.notes[mapId] =
+// [{ id, x, y, text, done, colour }]. Saved with the doodads (in the main file either way of saving); the game
+// never reads them. A map without notes has no key, and with no notes anywhere there is no notes key at all.
+// The editor's part is 44_workspace_notes.js.
+DocsDoodads.Notes = {
+    colours: ['yellow', 'red', 'green', 'blue'],
+
+    store(write) {
+        const data = typeof window !== 'undefined' ? (window.$dataDocsDoodads = window.$dataDocsDoodads || {}) : {};
+        if (write && (!data.notes || typeof data.notes !== 'object' || Array.isArray(data.notes))) data.notes = {};
+        return data.notes && typeof data.notes === 'object' ? data.notes : {};
+    },
+
+    // A map's notes (the live list; empty when it has none).
+    list(mapId) {
+        const list = this.store(false)[Number(mapId)];
+        return Array.isArray(list) ? list : [];
+    },
+
+    at(mapId, x, y) {
+        return this.list(mapId).find(n => n.x === x && n.y === y) || null;
+    },
+
+    clean(fields) {
+        const out = {};
+        if (fields.text !== undefined) out.text = String(fields.text || '').trim().slice(0, 500);
+        if (fields.done !== undefined) out.done = Boolean(fields.done);
+        if (fields.colour !== undefined) out.colour = this.colours.includes(fields.colour) ? fields.colour : 'yellow';
+        if (fields.x !== undefined) out.x = Math.floor(Number(fields.x)) || 0;
+        if (fields.y !== undefined) out.y = Math.floor(Number(fields.y)) || 0;
+        return out;
+    },
+
+    // Adds a note at a tile; returns it (null without text).
+    add(mapId, fields) {
+        const note = Object.assign({ id: '', x: 0, y: 0, text: '', done: false, colour: 'yellow' }, this.clean(fields || {}));
+        if (!note.text) return null;
+        note.id = 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const list = this.list(mapId).slice();
+        list.push(note);
+        this.put(mapId, list);
+        return note;
+    },
+
+    // Changes a note's fields; returns it, or null when there is no such note. An empty text removes it.
+    update(mapId, id, fields) {
+        const note = this.list(mapId).find(n => n.id === id);
+        if (!note) return null;
+        const next = this.clean(fields || {});
+        if (next.text === '') { this.remove(mapId, id); return null; }
+        Object.assign(note, next);
+        return note;
+    },
+
+    remove(mapId, id) {
+        const list = this.list(mapId);
+        const left = list.filter(n => n.id !== id);
+        if (left.length === list.length) return false;
+        this.put(mapId, left);
+        return true;
+    },
+
+    // A copy of a map's notes, and putting one back (for undo). An empty list takes the key away.
+    copy(mapId) {
+        return JSON.parse(JSON.stringify(this.list(mapId)));
+    },
+
+    put(mapId, list) {
+        const notes = this.store(true);
+        const key = String(Number(mapId));
+        if (Array.isArray(list) && list.length) notes[key] = list;
+        else delete notes[key];
+        if (Object.keys(notes).length === 0 && typeof window !== 'undefined' && window.$dataDocsDoodads) delete window.$dataDocsDoodads.notes;
+    },
+
+    // Every note: [{ mapId, note }], by map then position.
+    all() {
+        const out = [];
+        const notes = this.store(false);
+        for (const key of Object.keys(notes).sort((a, b) => Number(a) - Number(b))) {
+            for (const note of this.list(key).slice().sort((a, b) => a.y - b.y || a.x - b.x)) out.push({ mapId: Number(key), note });
+        }
+        return out;
+    },
+
+    // { open, done } across every map, and per map.
+    counts() {
+        const total = { open: 0, done: 0, maps: {} };
+        for (const { mapId, note } of this.all()) {
+            const m = total.maps[mapId] = total.maps[mapId] || { open: 0, done: 0 };
+            if (note.done) { total.done++; m.done++; } else { total.open++; m.open++; }
+        }
+        return total;
+    }
+};
+//==========================================================
+// SECTION 5G3: PLAY FROM HERE
+//==========================================================
+// The rules behind the editor's Play From Here (44_workspace_play_here.js): whether the player can stand on a
+// tile, the nearest tile they can, and how the editor's previewed time and season read in its question.
+// env: { width, height, passable(x, y, d), blocked(x, y) }; gameEnv() makes one from the running map.
+DocsDoodads.PlayHere = {
+    // Why the player can't start on a tile, or '' when they can.
+    why(x, y, env) {
+        if (!(x >= 0 && y >= 0 && x < env.width && y < env.height)) return 'it is off the map';
+        if (![2, 4, 6, 8].some(d => env.passable(x, y, d))) return "the player can't walk onto or off it (a wall, water or a cliff)";
+        if (env.blocked(x, y)) return "a doodad's collision covers it";
+        return '';
+    },
+
+    // The nearest tile the player can start on, within radius tiles: { x, y }, or null. Nearest first, then
+    // the one above, then the one to the left, so the same map always gives the same tile.
+    nearest(x, y, env, radius = 12) {
+        const spots = [];
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                if ((dx || dy) && dx * dx + dy * dy <= radius * radius) spots.push({ x: x + dx, y: y + dy, d: dx * dx + dy * dy });
+            }
+        }
+        spots.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
+        const hit = spots.find(s => !this.why(s.x, s.y, env));
+        return hit ? { x: hit.x, y: hit.y } : null;
+    },
+
+    // "18:30, Winter", "18:30", "Winter" or '' for what the editor is previewing (null: not previewed).
+    startText(minutes, seasonName) {
+        const parts = [];
+        if (minutes !== null && minutes !== undefined && isFinite(minutes)) {
+            const m = ((Math.round(Number(minutes)) % 1440) + 1440) % 1440;
+            parts.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+        }
+        if (seasonName) parts.push(String(seasonName));
+        return parts.join(', ');
+    },
+
+    // The running map, as why() and nearest() read it.
+    gameEnv() {
+        return {
+            width: $gameMap.width(),
+            height: $gameMap.height(),
+            passable: (x, y, d) => $gameMap.isPassable(x, y, d),
+            blocked: (x, y) => DocsDoodads.Collision.blocksTile(x, y, false, $gamePlayer)
+        };
+    }
+};
+//==========================================================
+// SECTION 5G5: THE RULER AND BOOKMARKS
+//==========================================================
+// The editor's Ruler (44_workspace_ruler.js) measures between two points on the map, and bookmarks
+// (44_workspace_places_bookmarks.js) keep places to jump back to. Both editor only.
+
+// Points are map pixels; tw and th the tile size.
+DocsDoodads.Ruler = {
+    // The middle of the tile a point is on (Shift while measuring).
+    snap(p, tw, th) {
+        return { x: (Math.floor(p.x / tw) + 0.5) * tw, y: (Math.floor(p.y / th) + 0.5) * th };
+    },
+
+    // From a to b: tiles across and down (between the tiles they are on), the walk (across + down: steps on the
+    // grid), the straight line in tiles, and pixels.
+    measure(a, b, tw, th) {
+        const dx = Math.floor(b.x / tw) - Math.floor(a.x / tw), dy = Math.floor(b.y / th) - Math.floor(a.y / th);
+        const px = b.x - a.x, py = b.y - a.y;
+        return {
+            dx, dy, walk: Math.abs(dx) + Math.abs(dy),
+            tiles: Math.round(Math.hypot(px / tw, py / th) * 10) / 10,
+            px: Math.round(px), py: Math.round(py), pixels: Math.round(Math.hypot(px, py))
+        };
+    },
+
+    label(m) {
+        return `${Math.abs(m.dx)} × ${Math.abs(m.dy)} tiles · walk ${m.walk} · straight ${m.tiles} tiles · ${m.pixels} px (${Math.abs(m.px)} × ${Math.abs(m.py)})`;
+    }
+};
+
+// $dataDocsDoodads.bookmarks = [{ id, name, mapId, x, y, camera }]: x and y the tile at the middle of the view,
+// camera the 3D view's camera (null on a flat map). Saved with the doodads, in the main file either way of
+// saving; never read by the game. No bookmarks, no key.
+DocsDoodads.Bookmarks = {
+    list() {
+        const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+        return data && Array.isArray(data.bookmarks) ? data.bookmarks : [];
+    },
+
+    get(id) {
+        return this.list().find(b => b.id === id) || null;
+    },
+
+    put(list) {
+        const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+        if (Array.isArray(list) && list.length) data.bookmarks = list;
+        else delete data.bookmarks;
+    },
+
+    add(fields) {
+        const name = String(fields.name || '').trim().slice(0, 60);
+        const mapId = Math.floor(Number(fields.mapId)) || 0;
+        if (!name || !mapId) return null;
+        const camera = fields.camera && typeof fields.camera === 'object' ? JSON.parse(JSON.stringify(fields.camera)) : null;
+        const b = { id: 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, mapId,
+            x: Math.floor(Number(fields.x)) || 0, y: Math.floor(Number(fields.y)) || 0, camera };
+        this.put(this.list().concat([b]));
+        return b;
+    },
+
+    rename(id, name) {
+        const b = this.get(id);
+        const next = String(name || '').trim().slice(0, 60);
+        if (!b || !next) return false;
+        b.name = next;
+        return true;
+    },
+
+    remove(id) {
+        const list = this.list();
+        const left = list.filter(b => b.id !== id);
+        if (left.length === list.length) return false;
+        this.put(left);
+        return true;
+    },
+
+    // Moves a bookmark up (-1) or down (1): the first nine have Ctrl+1 to Ctrl+9.
+    shift(id, by) {
+        const list = this.list().slice();
+        const i = list.findIndex(b => b.id === id), j = i + by;
+        if (i < 0 || j < 0 || j >= list.length) return false;
+        [list[i], list[j]] = [list[j], list[i]];
+        this.put(list);
+        return true;
+    }
+};
+//==========================================================
 // SECTION 5G2: ONE SHORTCUT TABLE
 //==========================================================
 // Every editor key binding is a row here. The key handler, the Keyboard Shortcuts card (More), button
@@ -6757,6 +7378,7 @@ DocsDoodads.Shortcuts = {
         { id: 'pasteInPlace', label: 'Paste in Place (where they were copied)', group: 'Editing', keys: 'Ctrl+Shift+V' },
         { id: 'selectAll', label: 'Select All', group: 'Editing', keys: 'Ctrl+A' },
         { id: 'delete', label: 'Delete the picked doodads or event', group: 'Editing', keys: 'Delete' },
+        { id: 'playHere', label: 'Play From Here: the player starts on the tile under the mouse', group: 'Editing', keys: 'Ctrl+Enter' },
         { id: 'nudge', label: 'Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile', group: 'Editing', keys: 'Arrow keys', fixed: true },
         { id: 'palette', label: 'Find a Tool (command palette)', group: 'Panels', keys: 'Ctrl+K' },
         { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
@@ -6769,6 +7391,16 @@ DocsDoodads.Shortcuts = {
         { id: 'collision', label: 'Show or hide collision', group: 'View', keys: '' },
         { id: 'sounds', label: 'Show or hide sounds', group: 'View', keys: '' },
         { id: 'speed', label: 'Show or hide speed', group: 'View', keys: '' },
+        { id: 'bookmark1', label: 'Go to bookmark 1', group: 'View', keys: 'Ctrl+1' },
+        { id: 'bookmark2', label: 'Go to bookmark 2', group: 'View', keys: 'Ctrl+2' },
+        { id: 'bookmark3', label: 'Go to bookmark 3', group: 'View', keys: 'Ctrl+3' },
+        { id: 'bookmark4', label: 'Go to bookmark 4', group: 'View', keys: 'Ctrl+4' },
+        { id: 'bookmark5', label: 'Go to bookmark 5', group: 'View', keys: 'Ctrl+5' },
+        { id: 'bookmark6', label: 'Go to bookmark 6', group: 'View', keys: 'Ctrl+6' },
+        { id: 'bookmark7', label: 'Go to bookmark 7', group: 'View', keys: 'Ctrl+7' },
+        { id: 'bookmark8', label: 'Go to bookmark 8', group: 'View', keys: 'Ctrl+8' },
+        { id: 'bookmark9', label: 'Go to bookmark 9', group: 'View', keys: 'Ctrl+9' },
+        { id: 'ruler', label: 'Ruler: measure in tiles and pixels', group: 'Tools', keys: 'M' },
         { id: 'toolSelect', label: 'Select tool', group: 'Tools', keys: '' },
         { id: 'toolStamp', label: 'Stamp tool', group: 'Tools', keys: '' },
         { id: 'toolScatter', label: 'Scatter tool', group: 'Tools', keys: '' },
@@ -10715,7 +11347,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         'updateDocsSkyVideoOnMap',  // a flat map's sky video (17_perspective_runtime_1_view)
         'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
         'updateDocsFlyShadow',      // the flying player's shadow (17_traversal)
-        'updateDocsTouchPrompt'     // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
+        'updateDocsTouchPrompt',    // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
+        'updateDocsEventLabels'     // names and icons over events (15_spriteset_map_labels)
     ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
@@ -13001,6 +13634,106 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 
+//==========================================================
+// SECTION 15L: NAMES AND ICONS OVER EVENTS
+//==========================================================
+// One sprite per labelled event that shows now (DocsDoodads.EventLabels), over its head, flat or where it
+// stands in the 3D view. Hidden while a message shows. A map with no label tags makes nothing and costs one
+// check a frame.
+if (typeof Spriteset_Map !== 'undefined' && typeof Sprite !== 'undefined' && typeof Bitmap !== 'undefined') {
+    // A step of Spriteset_Map.update (DocsDoodads.spritesetSteps).
+    Spriteset_Map.prototype.updateDocsEventLabels = function() {
+        const L = DocsDoodads.EventLabels;
+        const live = this._docsLabels;
+        const on = typeof $gameMap !== 'undefined' && $gameMap && typeof $dataMap !== 'undefined' && L.mapHas($dataMap) && L.enabled();
+        if (!on) {
+            if (live) this.clearDocsEventLabels();
+            return;
+        }
+        const busy = typeof $gameMessage !== 'undefined' && $gameMessage && $gameMessage.isBusy();
+        const settings = L.settings();
+        const labels = live || (this._docsLabels = new Map());
+        if (!this._docsLabelLayer) {
+            this._docsLabelLayer = new Sprite();
+            this._docsLabelLayer.z = 9;
+            this.addChild(this._docsLabelLayer);
+        }
+        const seen = this._docsLabelsSeen || (this._docsLabelsSeen = new Set());
+        seen.clear();
+        const P = DocsDoodads.Perspective;
+        const cam = P && P.liveCamera ? P.liveCamera() : null;
+        const gw = typeof Graphics !== 'undefined' ? Graphics.width : 816, gh = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const th = $gameMap.tileHeight();
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        const events = busy ? [] : $gameMap.events();
+        for (let i = 0; i < events.length; i++) {
+            const ev = events[i];
+            const info = L.of(ev);
+            if (!L.shows(ev, info)) continue;
+            if (info.range > 0 && player && !L.inRange(info.range, $gameMap.deltaX(ev.x, player.x), $gameMap.deltaY(ev.y, player.y))) continue;
+            const bitmap = L.bitmap(info, settings);
+            if (!bitmap) continue;
+            let x = ev.screenX(), y = ev.screenY(), scale = 1;
+            if (cam) {
+                const at = P.flatToScreen(x, y);
+                if (!at || !(at.scale > 0)) continue;
+                x = at.x;
+                y = at.y;
+                scale = at.scale;
+            }
+            y -= (this.docsCharacterHeight(ev) || th) * scale + 2;
+            if (x < -64 || x > gw + 64 || y < -64 || y > gh + 64) continue;
+            let sprite = labels.get(ev);
+            if (!sprite) {
+                sprite = new Sprite();
+                sprite.anchor.x = 0.5;
+                sprite.anchor.y = 1;
+                sprite.opacity = settings.fade ? 0 : 255;
+                this._docsLabelLayer.addChild(sprite);
+                labels.set(ev, sprite);
+            }
+            if (sprite.bitmap !== bitmap) sprite.bitmap = bitmap;
+            sprite.x = Math.round(x);
+            sprite.y = Math.round(y);
+            sprite.visible = true;
+            if (sprite.opacity < 255) sprite.opacity = settings.fade ? Math.min(255, sprite.opacity + 24) : 255;
+            seen.add(ev);
+        }
+        // Gone out of range, off screen, erased or another map: fade out, then free.
+        for (const [ev, sprite] of labels) {
+            if (seen.has(ev)) continue;
+            if (settings.fade && !busy && sprite.opacity > 0 && $gameMap.events().includes(ev)) {
+                sprite.opacity = Math.max(0, sprite.opacity - 24);
+                if (sprite.opacity > 0) continue;
+            }
+            this.removeDocsEventLabel(ev);
+        }
+    };
+
+    Spriteset_Map.prototype.removeDocsEventLabel = function(ev) {
+        const sprite = this._docsLabels ? this._docsLabels.get(ev) : null;
+        if (!sprite) return;
+        if (sprite.parent) sprite.parent.removeChild(sprite);
+        this._docsLabels.delete(ev);
+    };
+
+    Spriteset_Map.prototype.clearDocsEventLabels = function() {
+        for (const ev of Array.from(this._docsLabels ? this._docsLabels.keys() : [])) this.removeDocsEventLabel(ev);
+    };
+
+    // How tall an event is drawn (its character's frame), from its sprite.
+    Spriteset_Map.prototype.docsCharacterHeight = function(ev) {
+        const sprites = this._characterSprites || [];
+        if (!this._docsSpriteOf || this._docsSpriteOfCount !== sprites.length) {
+            this._docsSpriteOf = new Map(sprites.map(s => [s._character, s]));
+            this._docsSpriteOfCount = sprites.length;
+        }
+        const s = this._docsSpriteOf.get(ev);
+        if (!s) return 0;
+        if (typeof s.patternHeight === 'function' && s.bitmap) return s.patternHeight() || 0;
+        return s.height || 0;
+    };
+}
 //==========================================================
 // SECTION 15B: FLAT-MAP LAYERS, BLOWING LEAVES AND LIGHTNING (RUNTIME)
 //==========================================================
@@ -15291,6 +16024,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (!box) continue;
             g.lineStyle(1.5, DocsDoodads.Ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
+        }
+        // The Ruler's line on the ground (44_workspace_ruler.js).
+        if (ws.placementTool === 'ruler' && ws._ruler && ws.rulerScreenLine) {
+            const line = ws.rulerScreenLine();
+            if (line) ws.drawRulerLine(g, line);
         }
     };
 
@@ -29333,6 +30071,10 @@ DocsDoodads.Workspace = {
         this.endTour();
         this.closeCaptureCard();
         this.closeProblems();
+        if (typeof this.closeBookmarks === 'function') this.closeBookmarks();
+        if (typeof this.hideRulerReadout === 'function') this.hideRulerReadout();
+        this._ruler = null;
+        if (typeof this.closeNotes === 'function') this.closeNotes();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
         this.closeTemplatesCard();
@@ -30101,6 +30843,10 @@ DocsDoodads.Workspace = {
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
+        on('dd-ruler-btn', () => { this.setPlacementTool('ruler'); });
+        on('dd-bookmarks-btn', () => { this.showMoreMenu(false); this.showBookmarks(); });
+        on('dd-notes-btn', () => { this.showMoreMenu(false); this.showNotesCard(); });
+        on('dd-notes-show-btn', () => { this.toggleNotes(); this.showMoreMenu(false); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
@@ -30515,6 +31261,8 @@ DocsDoodads.Workspace = {
                 { id: 'dd-rooms-btn', icon: 'map', label: 'Rooms', title: 'Save part of the map (tiles, doodads, events) as a room stamp and place it again', key: 'rooms' },
                 { id: 'dd-templates-btn', icon: 'person', label: 'Templates', title: 'Rename, sort and delete your own event templates' },
                 { id: 'dd-problems-btn', icon: 'help', label: 'Problems', title: 'Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach' },
+                { id: 'dd-notes-btn', icon: 'info', label: 'Notes', title: 'Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)' },
+                { id: 'dd-ruler-btn', icon: 'path', label: 'Ruler', title: () => DocsDoodads.Shortcuts.tip('ruler', 'Measure on the map in tiles and pixels'), key: 'ruler' },
                 { id: 'dd-reach-btn', icon: 'person', label: 'Check Reach', title: 'Where the player can walk from where they stand, and the doors and chests they can\'t get to' },
                 { id: 'dd-savemap-btn', icon: 'save', label: 'Save This Map', title: "Save this map's doodads, settings and events; other maps' changes wait" },
                 { id: 'dd-autosave-btn', icon: 'history', label: () => this.autosaveLabel(), span: 'dd-autosave-label', title: 'Save the project every few minutes of unsaved work (on this computer)' }
@@ -30533,6 +31281,8 @@ DocsDoodads.Workspace = {
                 { id: 'dd-listen-btn', icon: 'music', label: 'Listen', title: 'Click a tile to hear what the player would hear there' },
                 { id: 'dd-perf-btn', icon: 'gear', label: () => (DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'), span: 'dd-perf-label', title: 'Frames a second, draw calls, pictures loaded and lights', key: 'speed' },
                 { id: 'dd-postfx-btn', icon: 'sun', label: 'Screen Looks', title: 'Looks and screen effects for the whole game or this map; save a picture of the map' },
+                { id: 'dd-notes-show-btn', icon: 'info', label: () => (this.notesShown() ? 'Hide Notes' : 'Show Notes'), span: 'dd-notes-show-label', title: "Show or hide the notes' pins on the map" },
+                { id: 'dd-bookmarks-btn', icon: 'star', label: 'Bookmarks', title: 'Places on the maps to jump back to: Bookmark This View, and Ctrl+1 to Ctrl+9' },
                 { id: 'dd-look-btn', icon: 'eye', label: 'Look', title: 'Editor size, theme and map colours' }
             ] },
             { id: 'more', label: 'More', icon: 'more', title: 'Find a Tool, keys, Capture, old saves, messages, info and help', items: [
@@ -30910,6 +31660,7 @@ DocsDoodads.Workspace = {
             const page0 = ev && ev.pages && ev.pages[0] ? ev.pages[0] : {};
             const triggerNames = ["Action Button", "Player Touch", "Event Touch", "Autorun", "Parallel"];
             const priorityNames = ["Below Characters", "Same as Characters", "Above Characters"];
+            const tag = DocsDoodads.EventLabels.parse(ev ? ev.note : '') || { label: '', icon: 0 };
 
             content.innerHTML = `
                 <div style="color: var(--dd-muted); margin-bottom: 6px;">Event ${evId} on this map.</div>
@@ -30936,6 +31687,16 @@ DocsDoodads.Workspace = {
                         ${priorityNames.map((p, idx) => `<option value="${idx}" ${(page0.priorityType === idx) ? 'selected' : ''}>${p}</option>`).join('')}
                     </select>
                 </div>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 6px; margin-top: 6px;">
+                    <div>
+                        <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Name over it:</label>
+                        <input type="text" id="dd-ev-label" value="${DocsDoodads.Security.escapeHtml(tag.label)}" placeholder="none" title="Shown over the event in the game (its note gets <docs label: ...>)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Icon:</label>
+                        <input type="number" id="dd-ev-icon" min="0" value="${tag.icon || 0}" title="An icon from the IconSet over the event (0: none; its note gets <docs icon: n>)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
+                    </div>
+                </div>
                 <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                     <button class="dd-btn dd-btn-primary" id="dd-ev-save-template-btn">💾 Save as Event Template</button>
                     <button class="dd-btn" id="dd-ev-dup-btn">Duplicate Event</button>
@@ -30958,6 +31719,13 @@ DocsDoodads.Workspace = {
             evNumber('dd-ev-y', v => this.editSelectedEvent('move_event', e => { e.y = Math.max(0, Math.min(maxY, v)); }));
             evNumber('dd-ev-trigger', v => this.editSelectedEvent('event_trigger', e => { if (e.pages && e.pages[0]) e.pages[0].trigger = v; }));
             evNumber('dd-ev-priority', v => this.editSelectedEvent('event_priority', e => { if (e.pages && e.pages[0]) e.pages[0].priorityType = v; }));
+            const labelInput = document.getElementById('dd-ev-label'), iconInput = document.getElementById('dd-ev-icon');
+            const writeLabel = () => {
+                this.editEventLabel(labelInput ? labelInput.value : tag.label, iconInput ? parseInt(iconInput.value, 10) || 0 : tag.icon);
+                this.refreshInspector();
+            };
+            if (labelInput) labelInput.onchange = writeLabel;
+            if (iconInput) iconInput.onchange = writeLabel;
             document.getElementById('dd-ev-del-btn').onclick = () => {
                 this.deleteSelectedEvent();
             };
@@ -32681,6 +33449,10 @@ DocsDoodads.Workspace = {
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Tool: Ruler (measure)', () => this.setPlacementTool('ruler'), null, K('ruler'));
+        for (const c of this.bookmarkCommands()) add(c.label, c.run, 'Bookmark', c.keys);
+        add('Notes (pinned to tiles)', () => this.showNotesCard());
+        add('Show / Hide Notes', () => this.toggleNotes());
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
         add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
         add('Event templates (rename, category, delete)', () => this.showTemplatesCard());
@@ -32727,6 +33499,7 @@ DocsDoodads.Workspace = {
         add('Show Hidden Doodads', () => this.showHiddenDoodads());
         add('Select Same Art as Picked', () => this.selectSameArt());
         add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
+        add('Play From Here (the tile under the mouse)', () => this.playFromCursor(), null, K('playHere'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
@@ -34354,6 +35127,12 @@ DocsDoodads.Workspace = {
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
             ] },
+            { title: 'Event Labels', fields: [
+                check('labels.enabled', 'Names and icons over events (<docs label: Blacksmith>, <docs icon: 87>; the Show / Hide Event Labels command turns them off)'),
+                range('labels.size', 'Text size', 10, 32, 1),
+                { key: 'labels.colour', label: 'Text colour', type: 'color' },
+                check('labels.fade', 'Fade in and out (with <docs label range: 4>)')
+            ] },
             { title: '3D Models', fields: [
                 check('models3d.gpu', 'Draw models on the graphics card (faster for big or moving models; new: turn it off if a model looks wrong)')
             ] },
@@ -35227,6 +36006,7 @@ DocsDoodads.Workspace = {
         this.reportStepsBack();
         this.rememberMap(this.currentMapId());
         this.finishPendingGoTo();
+        this.finishPendingBookmark();
         if (this._problemsOpen) this.renderProblems();
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();
@@ -37047,6 +37827,10 @@ DocsDoodads.Workspace = {
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
             }
+            items.push({ separator: true });
+            items.push(...this.noteMenuItems(coords.tileX, coords.tileY));
+            items.push({ separator: true });
+            items.push({ label: DocsDoodads.Shortcuts.tip('playHere', 'Play From Here'), icon: '▶️', onClick: () => this.playFromHere(coords.tileX, coords.tileY) });
             this.showContextMenu(e.clientX, e.clientY, items);
         };
 
@@ -39670,6 +40454,35 @@ Object.assign(DocsDoodads.Workspace, {
         };
     }
 })();
+//==========================================================
+// SECTION 25: WORKSPACE: NAMES AND ICONS OVER EVENTS
+//==========================================================
+// The event's Details write <docs label: ...> and <docs icon: n> into its note (DocsDoodads.EventLabels): one
+// undo step, saved with the map, and shown on the running map at once.
+Object.assign(DocsDoodads.Workspace, {
+    // Resolves whether the note changed.
+    editEventLabel(label, icon) {
+        const ev = this.selectedStagedEvent();
+        if (!ev) return false;
+        const L = DocsDoodads.EventLabels;
+        const before = String(ev.note || '');
+        const after = L.writeNote(before, label, icon);
+        if (after === before) return false;
+        const ge = this.selectedEvent && this.selectedEvent.gameEvent;
+        const set = note => {
+            ev.note = note;
+            // The running event reads its own copy of the map; it follows, and its cached text is read again.
+            const live = ge && typeof ge.event === 'function' ? ge.event() : null;
+            if (live && live !== ev) live.note = note;
+            const VE = DocsDoodads.VisualEquip;
+            if (ge && VE && VE._eventText) VE._eventText.delete(ge);
+            if (L._maps && typeof $dataMap !== 'undefined' && $dataMap) L._maps.delete($dataMap);
+            DocsDoodads.Persistence.dirtyMap = true;
+        };
+        DocsDoodads.Undo.execute({ type: 'event_label', apply: () => set(after), revert: () => set(before) });
+        return true;
+    }
+});
 //==========================================================
 // SECTION 25m: FIND DOODADS, THE MAP OUTLINER, PICKING AND PLACING MANY
 //==========================================================
@@ -44113,6 +44926,262 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25: WORKSPACE: MAP NOTES
+//==========================================================
+// Notes pinned to tiles, in the editor only (DocsDoodads.Notes, 11_notes.js). Right-click a tile: Add Note
+// Here, or Edit Note, Mark Done and Delete Note on a tile that has one. A pin is drawn on each note's tile
+// (done ones faded) and its words show while the mouse is over it. Map > Notes lists this map's or every
+// map's notes with Go To, Done and Delete; View > Hide Notes hides the pins. Each change is one undo step.
+// Pins are drawn on the editor's overlay, which Capture leaves out.
+DocsDoodads.Ui.css += `
+#dd-notes { position: fixed; z-index: 10033; width: 340px; max-width: calc(100vw - 32px); max-height: 70vh; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 11px; }
+#dd-notes .dd-nt-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#dd-notes .dd-nt-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 10px; background: var(--dd-panel-2); }
+#dd-notes .dd-nt-text { flex: 1; min-width: 0; color: var(--dd-text); font-weight: 700; overflow-wrap: anywhere; }
+#dd-notes .dd-nt-done .dd-nt-text { text-decoration: line-through; color: var(--dd-muted); }
+#dd-notes .dd-nt-where { color: var(--dd-muted); white-space: nowrap; }
+#dd-notes .dd-btn { padding: 3px 8px; font-size: 11px; }
+#dd-notes .dd-nt-tools { display: flex; gap: 6px; align-items: center; }
+#dd-note-tip { position: fixed; z-index: 10034; max-width: 260px; padding: 6px 9px; font-size: 11px; font-weight: 700; pointer-events: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+`;
+Object.assign(DocsDoodads.Ui.mapPalettes.standard, { noteYellow: 0xfacc15, noteRed: 0xf87171, noteGreen: 0x4ade80, noteBlue: 0x60a5fa });
+Object.assign(DocsDoodads.Ui.mapPalettes.safe, { noteYellow: 0xf0e442, noteRed: 0xd55e00, noteGreen: 0x009e73, noteBlue: 0x0072b2 });
+DocsDoodads.Ui.mapColorMeanings.push(['noteYellow', 'A map note']);
+
+Object.assign(DocsDoodads.Workspace, {
+    // On unless turned off (remembered on this computer). Read once; drawNotes asks every frame.
+    notesShown() {
+        if (this._notesShown === undefined) this._notesShown = DocsDoodads.Ui.prefs().notesOverlay !== false;
+        return this._notesShown;
+    },
+
+    toggleNotes(on) {
+        const show = this._notesShown = on === undefined ? !this.notesShown() : Boolean(on);
+        DocsDoodads.Ui.setPref('notesOverlay', show);
+        const label = typeof document !== 'undefined' ? document.getElementById('dd-notes-show-label') : null;
+        if (label) label.textContent = show ? 'Hide Notes' : 'Show Notes';
+        if (!show) this.hideNoteTip();
+        return show;
+    },
+
+    // One undo step for a change to a map's notes.
+    notesStep(type, mapId, change) {
+        const N = DocsDoodads.Notes;
+        const before = N.copy(mapId);
+        const result = change();
+        const after = N.copy(mapId);
+        if (JSON.stringify(before) === JSON.stringify(after)) return result;
+        const set = list => {
+            N.put(mapId, JSON.parse(JSON.stringify(list)));
+            DocsDoodads.Persistence.dirtyDoodads = true;
+            if (this._notesOpen) this.renderNotes();
+        };
+        N.put(mapId, JSON.parse(JSON.stringify(before)));
+        DocsDoodads.Undo.execute({ type, apply: () => set(after), revert: () => set(before) });
+        return result;
+    },
+
+    noteFields(note) {
+        const N = DocsDoodads.Notes;
+        return [
+            { key: 'text', label: 'Note', value: note ? note.text : '', placeholder: 'A chest here; check the door...' },
+            { key: 'colour', label: 'Colour', type: 'select', value: note ? note.colour : 'yellow',
+                options: N.colours.map(c => ({ value: c, label: c[0].toUpperCase() + c.slice(1) })) },
+            { key: 'done', label: 'Done', type: 'checkbox', value: note ? note.done : false }
+        ];
+    },
+
+    async addNoteAt(tileX, tileY) {
+        const mapId = this.currentMapId();
+        if (DocsDoodads.Notes.at(mapId, tileX, tileY)) return this.editNoteAt(tileX, tileY);
+        const values = await DocsDoodads.Ui.form({ title: `Note at ${tileX}, ${tileY}`, text: 'Seen only in the editor.', ok: 'Add Note',
+            fields: this.noteFields(null).filter(f => f.key !== 'done') });
+        if (!values || !String(values.text || '').trim()) return null;
+        return this.notesStep('add_note', mapId, () => DocsDoodads.Notes.add(mapId, { x: tileX, y: tileY, text: values.text, colour: values.colour }));
+    },
+
+    async editNoteAt(tileX, tileY, mapId = this.currentMapId()) {
+        const note = DocsDoodads.Notes.at(mapId, tileX, tileY);
+        if (!note) return null;
+        const values = await DocsDoodads.Ui.form({ title: `Note at ${tileX}, ${tileY}`, text: 'An empty note is deleted.', ok: 'Save Note', fields: this.noteFields(note) });
+        if (!values) return null;
+        const id = note.id;
+        return this.notesStep(String(values.text || '').trim() ? 'edit_note' : 'delete_note', mapId,
+            () => DocsDoodads.Notes.update(mapId, id, { text: values.text, colour: values.colour, done: values.done }));
+    },
+
+    markNoteDone(mapId, id, done) {
+        return this.notesStep('note_done', mapId, () => DocsDoodads.Notes.update(mapId, id, { done }));
+    },
+
+    deleteNote(mapId, id) {
+        return this.notesStep('delete_note', mapId, () => DocsDoodads.Notes.remove(mapId, id));
+    },
+
+    // The right-click entries for a tile.
+    noteMenuItems(tileX, tileY) {
+        const mapId = this.currentMapId();
+        const note = DocsDoodads.Notes.at(mapId, tileX, tileY);
+        if (!note) return [{ label: 'Add Note Here...', icon: '📝', onClick: () => this.addNoteAt(tileX, tileY) }];
+        return [
+            { label: 'Edit Note...', icon: '📝', onClick: () => this.editNoteAt(tileX, tileY) },
+            { label: note.done ? 'Mark Not Done' : 'Mark Done', icon: '✔️', onClick: () => this.markNoteDone(mapId, note.id, !note.done) },
+            { label: 'Delete Note', icon: '🗑️', danger: true, onClick: () => this.deleteNote(mapId, note.id) }
+        ];
+    },
+
+    // ---- On the map ----
+    // A pin per note on screen (flat maps), and the hovered note's words beside the mouse.
+    drawNotes(g) {
+        if (typeof $gameMap === 'undefined' || !$gameMap || !this.notesShown()) { this.hideNoteTip(); return; }
+        const P = DocsDoodads.Perspective;
+        if (P && P.liveCamera && P.liveCamera()) { this.hideNoteTip(); return; }
+        const notes = DocsDoodads.Notes.list(this.currentMapId());
+        if (!notes.length) { this.hideNoteTip(); return; }
+        const U = DocsDoodads.Ui, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        for (const n of notes) {
+            const x = $gameMap.adjustX(n.x) * tw, y = $gameMap.adjustY(n.y) * th;
+            const colour = U.mapColor('note' + n.colour[0].toUpperCase() + n.colour.slice(1)) || U.mapColor('noteYellow');
+            const alpha = n.done ? 0.4 : 1;
+            // A pin: a round head on a short stem, in the tile's top-right corner.
+            g.lineStyle(2, 0x111111, 0.7 * alpha);
+            g.moveTo(x + tw - 12, y + 16);
+            g.lineTo(x + tw - 18, y + 26);
+            g.beginFill(colour, alpha);
+            g.drawCircle(x + tw - 11, y + 11, 7);
+            g.endFill();
+            g.lineStyle(0);
+        }
+        const at = this._cursor;
+        const hover = at ? notes.find(n => n.x === at.tileX && n.y === at.tileY) : null;
+        if (hover) this.showNoteTip(hover); else this.hideNoteTip();
+    },
+
+    showNoteTip(note) {
+        if (typeof document === 'undefined' || !document.createElement) return;
+        let tip = document.getElementById('dd-note-tip');
+        if (!tip) {
+            tip = document.createElement('div');
+            tip.id = 'dd-note-tip';
+            tip.className = 'dd-glass';
+            document.body.appendChild(tip);
+        }
+        const text = (note.done ? '✔ ' : '') + note.text;
+        if (tip.textContent !== text) tip.textContent = text;
+        const canvas = DocsDoodads.Compat.getCanvas();
+        const rect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : null;
+        if (rect && typeof $gameMap !== 'undefined') {
+            const sx = rect.width && canvas.width ? rect.width / canvas.width : 1, sy = rect.height && canvas.height ? rect.height / canvas.height : 1;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            tip.style.left = Math.round(rect.left + ($gameMap.adjustX(note.x) + 1) * tw * sx + 4) + 'px';
+            tip.style.top = Math.round(rect.top + $gameMap.adjustY(note.y) * th * sy) + 'px';
+        }
+        tip.style.display = '';
+    },
+
+    hideNoteTip() {
+        const tip = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-note-tip') : null;
+        if (tip && tip.style.display !== 'none') tip.style.display = 'none';
+    },
+
+    // ---- The Notes card ----
+    showNotesCard() {
+        if (typeof document === 'undefined') return null;
+        this._notesOpen = true;
+        this._notesScope = this._notesScope || 'map';
+        return this.renderNotes();
+    },
+
+    closeNotes() {
+        this._notesOpen = false;
+        this.hideNoteTip();
+        for (const id of ['dd-notes', 'dd-note-tip']) {
+            const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById(id) : null;
+            if (el && el.parentNode) el.parentNode.removeChild(el);
+        }
+    },
+
+    goToNote(mapId, note) {
+        this.goToProblem({ mapId, x: note.x, y: note.y });
+    },
+
+    renderNotes() {
+        if (typeof document === 'undefined' || !this._notesOpen) return null;
+        const U = DocsDoodads.Ui, N = DocsDoodads.Notes;
+        let panel = document.getElementById('dd-notes');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'dd-notes';
+            panel.className = 'dd-glass';
+            document.body.appendChild(panel);
+        }
+        const here = this.currentMapId();
+        const rows = this._notesScope === 'all' ? N.all() : N.all().filter(r => r.mapId === here);
+        const open = rows.filter(r => !r.note.done).length;
+        panel.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">📝 Notes (${open} to do${rows.length > open ? `, ${rows.length - open} done` : ''})</span>
+                <button class="dd-btn dd-fold" id="dd-nt-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div class="dd-nt-tools">
+                <select id="dd-nt-scope"><option value="map"${this._notesScope === 'map' ? ' selected' : ''}>This map</option><option value="all"${this._notesScope === 'all' ? ' selected' : ''}>Every map</option></select>
+                <span class="dd-grow"></span>
+            </div>
+            <div class="dd-nt-list" id="dd-nt-list"></div>`;
+        const list = document.getElementById('dd-nt-list');
+        if (list) {
+            if (!rows.length) {
+                const empty = document.createElement('div');
+                empty.className = 'dd-empty';
+                empty.textContent = 'No notes yet. Right-click a tile on the map: Add Note Here.';
+                list.appendChild(empty);
+            }
+            for (const { mapId, note } of rows) {
+                const row = document.createElement('div');
+                row.className = 'dd-nt-row' + (note.done ? ' dd-nt-done' : '');
+                const tick = document.createElement('input');
+                tick.type = 'checkbox';
+                tick.checked = Boolean(note.done);
+                tick.title = 'Done';
+                tick.onchange = () => this.markNoteDone(mapId, note.id, tick.checked);
+                row.appendChild(tick);
+                const text = document.createElement('span');
+                text.className = 'dd-nt-text';
+                text.textContent = note.text;
+                text.title = 'Click to edit';
+                text.style.cursor = 'pointer';
+                text.onclick = () => this.editNoteAt(note.x, note.y, mapId);
+                row.appendChild(text);
+                const where = document.createElement('span');
+                where.className = 'dd-nt-where';
+                where.textContent = (mapId === here ? '' : `Map ${mapId} · `) + `${note.x}, ${note.y}`;
+                row.appendChild(where);
+                const go = document.createElement('button');
+                go.className = 'dd-btn';
+                go.type = 'button';
+                go.textContent = 'Go To';
+                go.onclick = () => this.goToNote(mapId, note);
+                row.appendChild(go);
+                const del = document.createElement('button');
+                del.className = 'dd-btn';
+                del.type = 'button';
+                del.title = 'Delete this note';
+                del.innerHTML = U.icon('trash', 1);
+                del.onclick = () => this.deleteNote(mapId, note.id);
+                row.appendChild(del);
+                list.appendChild(row);
+            }
+        }
+        const close = document.getElementById('dd-nt-close');
+        if (close) close.onclick = () => this.closeNotes();
+        const scope = document.getElementById('dd-nt-scope');
+        if (scope) scope.onchange = () => { this._notesScope = scope.value === 'all' ? 'all' : 'map'; this.renderNotes(); };
+        this.placeReadouts();
+        return panel;
+    }
+});
+
+// Pins are drawn whatever the tool (every tool hook's overlay runs each frame).
+DocsDoodads.Workspace.toolHooks.notes = { overlay(g) { this.drawNotes(g); } };
+//==========================================================
 // SECTION 25h: WORKSPACE ONBOARDING (TOOL TOURS, SAMPLE ITEMS, WHAT'S NEW)
 //==========================================================
 // The first time each tool is picked, a short tour points at its options and the map. How to Use can
@@ -44710,6 +45779,242 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25: WORKSPACE: BOOKMARKS
+//==========================================================
+// Places on big maps to jump back to (DocsDoodads.Bookmarks, 11_ruler_bookmarks.js). Bookmark This View
+// (View → Bookmarks, Ctrl+K) keeps the map, the tile in the middle of the view and, in 3D, the camera. Each bookmark is a
+// palette entry ("Go to: Inn") and a row in the Bookmarks card; the first nine are Ctrl+1 to Ctrl+9. Going to
+// one on another map opens that map first (as Problems' Go To does), then centres the view there.
+DocsDoodads.Ui.css += `
+#dd-bookmarks { position: fixed; z-index: 10033; width: 320px; max-width: calc(100vw - 32px); max-height: 70vh; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 11px; }
+#dd-bookmarks .dd-bm-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#dd-bookmarks .dd-bm-row { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 10px; background: var(--dd-panel-2); }
+#dd-bookmarks .dd-bm-name { flex: 1; min-width: 0; color: var(--dd-text); font-weight: 700; overflow-wrap: anywhere; }
+#dd-bookmarks .dd-bm-where { color: var(--dd-muted); white-space: nowrap; }
+#dd-bookmarks .dd-bm-key { color: var(--dd-faint); font-size: 10px; white-space: nowrap; }
+#dd-bookmarks .dd-btn { padding: 3px 7px; font-size: 11px; }
+`;
+
+Object.assign(DocsDoodads.Workspace, {
+    // The tile in the middle of the view.
+    viewCentreTile() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return { x: 0, y: 0 };
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const w = typeof Graphics !== 'undefined' ? Graphics.width : 816, h = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const P = DocsDoodads.Perspective;
+        if (P && P.liveCamera && P.liveCamera()) {
+            // The ground point in the middle of the 3D view.
+            const at = DocsDoodads.screenPointToMap(w / 2, h / 2);
+            if (at) return { x: Math.floor(at.x / tw), y: Math.floor(at.y / th) };
+        }
+        return { x: Math.floor($gameMap.displayX() + w / tw / 2), y: Math.floor($gameMap.displayY() + h / th / 2) };
+    },
+
+    async bookmarkView() {
+        const mapId = this.currentMapId();
+        if (!mapId) return null;
+        const at = this.viewCentreTile();
+        const info = typeof window !== 'undefined' && window.$dataMapInfos ? window.$dataMapInfos[mapId] : null;
+        const suggestion = `${info && info.name ? info.name : 'Map ' + mapId} ${at.x}, ${at.y}`;
+        const name = await DocsDoodads.Ui.prompt('A name for this place:', suggestion, { title: 'Bookmark This View', ok: 'Bookmark' });
+        if (name === null || !String(name).trim()) return null;
+        const camera = typeof $gameMap !== 'undefined' && $gameMap && $gameMap._docsCamera && DocsDoodads.Perspective.liveCamera() ? $gameMap._docsCamera : null;
+        const b = DocsDoodads.Bookmarks.add({ name, mapId, x: at.x, y: at.y, camera });
+        if (!b) return null;
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        const n = DocsDoodads.Bookmarks.list().indexOf(b) + 1;
+        this.showToast(`Bookmarked "${b.name}"${n <= 9 ? ` (Ctrl+${n})` : ''}.`);
+        if (this._bookmarksOpen) this.renderBookmarks();
+        return b;
+    },
+
+    goToBookmark(b) {
+        if (!b) return false;
+        if (b.mapId !== this.currentMapId()) {
+            this._pendingBookmark = b;
+            this.goToMap(b.mapId);
+            return true;
+        }
+        this._pendingBookmark = null;
+        this.centerOnTile(b.x, b.y);
+        if (b.camera) this.setCameraView(b.camera);
+        return true;
+    },
+
+    // Ctrl+1 to Ctrl+9.
+    goToBookmarkNumber(n) {
+        const b = DocsDoodads.Bookmarks.list()[n - 1];
+        if (!b) {
+            this.showToast(`No bookmark ${n} yet: View → Bookmarks, or Ctrl+K "Bookmark This View".`);
+            return false;
+        }
+        return this.goToBookmark(b);
+    },
+
+    // Once the other map has loaded (called with Problems' Go To).
+    finishPendingBookmark() {
+        const b = this._pendingBookmark;
+        if (!b || b.mapId !== this.currentMapId()) return false;
+        return this.goToBookmark(b);
+    },
+
+    async renameBookmark(id) {
+        const b = DocsDoodads.Bookmarks.get(id);
+        if (!b) return false;
+        const name = await DocsDoodads.Ui.prompt('A new name:', b.name, { title: 'Rename Bookmark', ok: 'Rename' });
+        if (name === null || !DocsDoodads.Bookmarks.rename(id, name)) return false;
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        if (this._bookmarksOpen) this.renderBookmarks();
+        return true;
+    },
+
+    changeBookmarks(change) {
+        if (!change()) return false;
+        DocsDoodads.Persistence.dirtyDoodads = true;
+        if (this._bookmarksOpen) this.renderBookmarks();
+        return true;
+    },
+
+    // Palette entries: Bookmark This View, and Go to: each one.
+    bookmarkCommands() {
+        const K = id => DocsDoodads.Shortcuts.label(id) || undefined;
+        const out = [{ label: 'Bookmark This View', run: () => this.bookmarkView() }, { label: 'Bookmarks', run: () => this.showBookmarks() }];
+        DocsDoodads.Bookmarks.list().forEach((b, i) => out.push({ label: `Go to: ${b.name}`, run: () => this.goToBookmark(b), keys: i < 9 ? K('bookmark' + (i + 1)) : undefined }));
+        return out;
+    },
+
+    // ---- The card ----
+    showBookmarks() {
+        if (typeof document === 'undefined') return null;
+        this._bookmarksOpen = true;
+        return this.renderBookmarks();
+    },
+
+    closeBookmarks() {
+        this._bookmarksOpen = false;
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-bookmarks') : null;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    },
+
+    renderBookmarks() {
+        if (typeof document === 'undefined' || !this._bookmarksOpen) return null;
+        const U = DocsDoodads.Ui, B = DocsDoodads.Bookmarks;
+        let panel = document.getElementById('dd-bookmarks');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'dd-bookmarks';
+            panel.className = 'dd-glass';
+            document.body.appendChild(panel);
+        }
+        const list = B.list();
+        const here = this.currentMapId();
+        panel.innerHTML = `
+            <div class="dd-panel-head"><span class="dd-grow">🔖 Bookmarks (${list.length})</span>
+                <button class="dd-btn dd-fold" id="dd-bm-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
+            <div><button class="dd-btn dd-btn-primary" id="dd-bm-add" type="button">${U.icon('plus', 1)} Bookmark This View</button></div>
+            <div class="dd-bm-list" id="dd-bm-list"></div>`;
+        const rows = document.getElementById('dd-bm-list');
+        if (rows) {
+            if (!list.length) {
+                const empty = document.createElement('div');
+                empty.className = 'dd-empty';
+                empty.textContent = 'No bookmarks yet. Move the view to a place, then Bookmark This View.';
+                rows.appendChild(empty);
+            }
+            list.forEach((b, i) => {
+                const row = document.createElement('div');
+                row.className = 'dd-bm-row';
+                const add = (tag, cls, text, title, run) => {
+                    const el = document.createElement(tag);
+                    if (cls) el.className = cls;
+                    if (tag === 'button') el.type = 'button';
+                    el.textContent = text;
+                    if (title) el.title = title;
+                    if (run) el.onclick = run;
+                    row.appendChild(el);
+                    return el;
+                };
+                add('span', 'dd-bm-name', b.name, 'Rename', () => this.renameBookmark(b.id)).style.cursor = 'pointer';
+                add('span', 'dd-bm-where', (b.mapId === here ? '' : `Map ${b.mapId} · `) + `${b.x}, ${b.y}`);
+                if (i < 9) add('span', 'dd-bm-key', `Ctrl+${i + 1}`);
+                add('button', 'dd-btn', 'Go To', '', () => this.goToBookmark(b));
+                add('button', 'dd-btn', '↑', 'Up (the first nine have Ctrl+1 to Ctrl+9)', () => this.changeBookmarks(() => B.shift(b.id, -1)));
+                const del = add('button', 'dd-btn', '', 'Delete this bookmark', () => this.changeBookmarks(() => B.remove(b.id)));
+                del.innerHTML = U.icon('trash', 1);
+                rows.appendChild(row);
+            });
+        }
+        const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
+        on('dd-bm-close', () => this.closeBookmarks());
+        on('dd-bm-add', () => this.bookmarkView());
+        this.placeReadouts();
+        return panel;
+    }
+});
+//==========================================================
+// SECTION 25: WORKSPACE: PLAY FROM HERE
+//==========================================================
+// Right-click a tile (or Ctrl+Enter over it), Play From Here: the player stands there and the editor closes,
+// asking first about unsaved work (as Done does) and about the time and season being previewed. A tile the
+// player can't stand on is refused with the reason, and the nearest free one offered. The rules are
+// DocsDoodads.PlayHere (11_play_here.js).
+Object.assign(DocsDoodads.Workspace, {
+    // Resolves whether the player was put there (false when cancelled or refused).
+    async playFromHere(tileX, tileY) {
+        if (!this.mounted || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const P = DocsDoodads.PlayHere, Ui = DocsDoodads.Ui;
+        const env = P.gameEnv();
+        let x = Math.floor(Number(tileX)), y = Math.floor(Number(tileY));
+        const why = P.why(x, y, env);
+        if (why) {
+            const near = P.nearest(x, y, env);
+            if (!near) {
+                await Ui.alert(`The player can't start at ${x}, ${y}: ${why}. There is no free tile near it.`, { title: 'Play From Here' });
+                return false;
+            }
+            const ok = await Ui.confirm(`The player can't start at ${x}, ${y}: ${why}. Start at ${near.x}, ${near.y} instead, the nearest free tile?`,
+                { title: 'Play From Here', ok: 'Start There' });
+            if (!ok) return false;
+            x = near.x;
+            y = near.y;
+        }
+
+        // The time and season the editor is previewing, if the game should start with them.
+        const minutes = this.previewMinutes, season = this.previewSeason;
+        const hasSeason = season !== null && season !== undefined;
+        const seasonNames = (DocsDoodads.World.settings().seasons || {}).names || [];
+        const text = P.startText(minutes, hasSeason ? seasonNames[season] || `season ${Number(season) + 1}` : '');
+        let useTime = false;
+        if (text) {
+            const answer = await Ui.choose(`Start at ${text}, as the editor shows it, or at the game's own time?`, [
+                { label: 'Cancel', value: null },
+                { label: "The Game's Time", value: 'game' },
+                { label: `Start at ${text}`, value: 'preview', kind: 'good', main: true }
+            ], { title: 'Play From Here', icon: 'sun' });
+            if (!answer) return false;
+            useTime = answer === 'preview';
+        }
+
+        if (!(await this.requestClose())) return false;
+        const api = DocsDoodads.api;
+        if (useTime && minutes !== null && minutes !== undefined) api.setTime(Math.floor(minutes / 60), Math.round(minutes) % 60);
+        if (useTime && hasSeason) api.setSeason(season);
+        $gamePlayer.locate(x, y);
+        return true;
+    },
+
+    // Ctrl+Enter and the palette: the tile the mouse was last over on the map.
+    playFromCursor() {
+        const at = this._cursor;
+        if (!at) {
+            this.showToast('Point at a tile on the map first.');
+            return false;
+        }
+        this.playFromHere(at.tileX, at.tileY);
+        return true;
+    }
+});
+//==========================================================
 // SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
 //==========================================================
 // In the Screen Looks card, under the effects: looks that blend in by the clock (game-wide) and while the
@@ -45190,7 +46495,7 @@ Object.assign(DocsDoodads.Workspace, {
             legend.style.top = top + 'px';
         }
         // These two are on the page, outside the (possibly zoomed) workspace: window pixels.
-        for (const id of ['dd-progress-stack', 'dd-toast-history', 'dd-problems']) {
+        for (const id of ['dd-progress-stack', 'dd-toast-history', 'dd-problems', 'dd-notes', 'dd-bookmarks']) {
             const el = document.getElementById(id);
             if (el && el.style) {
                 el.style.right = Math.round((room - right) * scale) + 'px';
@@ -45743,6 +47048,121 @@ DocsDoodads.Workspace.toolHooks.room = {
         g.drawRect($gameMap.adjustX(rect.x) * tw, $gameMap.adjustY(rect.y) * th, rect.w * tw, rect.h * th);
         g.endFill();
         g.lineStyle(0);
+    }
+};
+//==========================================================
+// SECTION 25: WORKSPACE: THE RULER
+//==========================================================
+// The Ruler tool (M): press, drag and let go to measure on the map, in tiles (across, down, the walk and the
+// straight line) and pixels; Shift snaps both ends to tile middles. The last measure stays until the next one
+// or another tool. It changes nothing, so there is no undo. In 3D it measures on the ground (the editor's
+// picking already finds the ground point under the mouse) and the line is drawn in the view.
+DocsDoodads.Ui.css += `
+#dd-ruler-readout { position: fixed; z-index: 10034; padding: 5px 9px; font-size: 11px; font-weight: 800; pointer-events: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+`;
+DocsDoodads.Ui.hints.ruler = 'Ruler: press and drag to measure (Shift: tile middles). Esc to stop.';
+Object.assign(DocsDoodads.Ui.mapPalettes.standard, { ruler: 0xf472b6 });
+Object.assign(DocsDoodads.Ui.mapPalettes.safe, { ruler: 0xcc79a7 });
+DocsDoodads.Ui.mapColorMeanings.push(['ruler', 'Ruler']);
+
+Object.assign(DocsDoodads.Workspace, {
+    // The point under the mouse for the ruler: map pixels, snapped to a tile middle with Shift.
+    rulerPoint(e) {
+        const at = this.clientToMapCoords(e.clientX, e.clientY);
+        const p = { x: at.x, y: at.y };
+        if (!e.shiftKey || typeof $gameMap === 'undefined' || !$gameMap) return p;
+        return DocsDoodads.Ruler.snap(p, $gameMap.tileWidth(), $gameMap.tileHeight());
+    },
+
+    // The measure so far, or null.
+    rulerMeasure() {
+        const r = this._ruler;
+        if (!r || typeof $gameMap === 'undefined' || !$gameMap) return null;
+        return DocsDoodads.Ruler.measure(r.from, r.to, $gameMap.tileWidth(), $gameMap.tileHeight());
+    },
+
+    showRulerReadout() {
+        const m = this.rulerMeasure();
+        if (!m || typeof document === 'undefined' || !document.createElement) return;
+        let el = document.getElementById('dd-ruler-readout');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-ruler-readout';
+            el.className = 'dd-glass';
+            document.body.appendChild(el);
+        }
+        const text = DocsDoodads.Ruler.label(m);
+        if (el.textContent !== text) el.textContent = text;
+        const c = this._ruler.client;
+        if (c) {
+            el.style.left = Math.round(c.x + 14) + 'px';
+            el.style.top = Math.round(c.y + 14) + 'px';
+        }
+        el.style.display = '';
+    },
+
+    hideRulerReadout() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-ruler-readout') : null;
+        if (el && el.style.display !== 'none') el.style.display = 'none';
+    },
+
+    // The ruler's line in screen pixels: [from, to], through the 3D camera when there is one.
+    rulerScreenLine() {
+        const r = this._ruler;
+        if (!r) return null;
+        const P = DocsDoodads.Perspective;
+        const cam = P && P.liveCamera ? P.liveCamera() : null;
+        const ends = [r.from, r.to].map(p => {
+            const s = DocsDoodads.mapToScreen(p.x, p.y);
+            return cam ? P.flatToScreen(s.x, s.y) : s;
+        });
+        return ends.every(Boolean) ? ends : null;
+    },
+
+    drawRulerLine(g, line) {
+        const colour = DocsDoodads.Ui.mapColor('ruler');
+        g.lineStyle(4, 0x111111, 0.45);
+        g.moveTo(line[0].x, line[0].y);
+        g.lineTo(line[1].x, line[1].y);
+        g.lineStyle(2, colour, 1);
+        g.moveTo(line[0].x, line[0].y);
+        g.lineTo(line[1].x, line[1].y);
+        g.lineStyle(0);
+        for (const p of line) {
+            g.beginFill(colour, 1);
+            g.drawCircle(p.x, p.y, 4);
+            g.endFill();
+        }
+    }
+});
+
+DocsDoodads.Workspace.toolHooks.ruler = {
+    down(e) {
+        const p = this.rulerPoint(e);
+        this._ruler = { from: p, to: { x: p.x, y: p.y }, client: { x: e.clientX, y: e.clientY } };
+        return true;
+    },
+    move(e, stroking) {
+        if (!stroking || !this._ruler) return;
+        this._ruler.to = this.rulerPoint(e);
+        this._ruler.client = { x: e.clientX, y: e.clientY };
+    },
+    up() {
+        // The measure stays; the click that follows the release doesn't pick anything.
+        this._suppressNextClick = true;
+    },
+    // Flat maps: the line on the editor's overlay. (In 3D, updateDocsGizmos draws it.)
+    overlay(g) {
+        if (this.placementTool !== 'ruler' || !this._ruler) {
+            this.hideRulerReadout();
+            if (this.placementTool !== 'ruler') this._ruler = null;
+            return;
+        }
+        this.showRulerReadout();
+        const P = DocsDoodads.Perspective;
+        if (P && P.liveCamera && P.liveCamera()) return;
+        const line = this.rulerScreenLine();
+        if (line) this.drawRulerLine(g, line);
     }
 };
 //==========================================================
@@ -46809,6 +48229,7 @@ Object.assign(DocsDoodads.Workspace, {
             copy: () => this.copySelected(),
             paste: () => this.pasteCopied(false),
             pasteInPlace: () => this.pasteCopied(true),
+            playHere: () => this.playFromCursor(),
             selectAll: () => this.selectAllDoodads(),
             delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
             palette: () => this.showCommandPalette(),
@@ -46834,6 +48255,8 @@ Object.assign(DocsDoodads.Workspace, {
             brushSmaller: () => this.resizeBrush(-1) || false,
             brushBigger: () => this.resizeBrush(1) || false
         };
+        actions.ruler = tool('ruler');
+        for (let n = 1; n <= 9; n++) actions['bookmark' + n] = () => this.goToBookmarkNumber(n);
         const run = actions[id];
         if (!run) return false;
         const result = run();

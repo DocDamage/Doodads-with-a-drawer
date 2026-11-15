@@ -775,6 +775,10 @@
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Tool: Ruler (measure)', () => this.setPlacementTool('ruler'), null, K('ruler'));
+        for (const c of this.bookmarkCommands()) add(c.label, c.run, 'Bookmark', c.keys);
+        add('Notes (pinned to tiles)', () => this.showNotesCard());
+        add('Show / Hide Notes', () => this.toggleNotes());
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());
         add('Outliner: this map\'s doodads by layer', () => this.showOutliner());
         add('Event templates (rename, category, delete)', () => this.showTemplatesCard());
@@ -821,6 +825,7 @@
         add('Show Hidden Doodads', () => this.showHiddenDoodads());
         add('Select Same Art as Picked', () => this.selectSameArt());
         add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
+        add('Play From Here (the tile under the mouse)', () => this.playFromCursor(), null, K('playHere'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');

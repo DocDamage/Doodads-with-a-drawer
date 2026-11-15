@@ -180,6 +180,10 @@ DocsDoodads.Workspace = {
         this.endTour();
         this.closeCaptureCard();
         this.closeProblems();
+        if (typeof this.closeBookmarks === 'function') this.closeBookmarks();
+        if (typeof this.hideRulerReadout === 'function') this.hideRulerReadout();
+        this._ruler = null;
+        if (typeof this.closeNotes === 'function') this.closeNotes();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
         this.closeTemplatesCard();
@@ -948,6 +952,10 @@ DocsDoodads.Workspace = {
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
+        on('dd-ruler-btn', () => { this.setPlacementTool('ruler'); });
+        on('dd-bookmarks-btn', () => { this.showMoreMenu(false); this.showBookmarks(); });
+        on('dd-notes-btn', () => { this.showMoreMenu(false); this.showNotesCard(); });
+        on('dd-notes-show-btn', () => { this.toggleNotes(); this.showMoreMenu(false); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });

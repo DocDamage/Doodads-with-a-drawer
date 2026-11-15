@@ -420,6 +420,7 @@
         this.reportStepsBack();
         this.rememberMap(this.currentMapId());
         this.finishPendingGoTo();
+        this.finishPendingBookmark();
         if (this._problemsOpen) this.renderProblems();
         const persistence = DocsDoodads.Persistence;
         if (!persistence.sessionSnapshots[persistence.mapFilePath(this.currentMapId())]) persistence.captureSession();

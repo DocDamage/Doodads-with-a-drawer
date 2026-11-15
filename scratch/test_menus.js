@@ -53,12 +53,14 @@ const OLD = ['dd-slicer-btn', 'dd-postfx-btn', 'dd-vfx-btn', 'dd-history-btn', '
     const ids = menus.flatMap(m => m.items.map(i => i.id));
     for (const id of OLD) assert.strictEqual(ids.filter(x => x === id).length, 1, `${id} is in exactly one menu`);
     assert.strictEqual(new Set(ids).size, ids.length, 'no entry twice');
-    assert.deepStrictEqual(ids.filter(id => !OLD.includes(id)), ['dd-reach-btn'], 'only Check Reach is new');
+    assert.deepStrictEqual(ids.filter(id => !OLD.includes(id)).sort(), ['dd-bookmarks-btn', 'dd-notes-btn', 'dd-notes-show-btn', 'dd-reach-btn', 'dd-ruler-btn'],
+        'new since the split: Check Reach, and Notes, Show Notes, Ruler and Bookmarks (from their own PRs)');
     const where = id => menus.find(m => m.items.some(i => i.id === id)).id;
     assert.strictEqual(where('dd-problems-btn'), 'map');
     assert.strictEqual(where('dd-lpc-btn'), 'art');
     assert.strictEqual(where('dd-grid-btn'), 'view');
     assert.strictEqual(where('dd-palette-btn'), 'more');
+    assert.deepStrictEqual(['dd-notes-btn', 'dd-ruler-btn', 'dd-notes-show-btn', 'dd-bookmarks-btn'].map(where), ['map', 'map', 'view', 'view']);
     assert.ok(menus.find(m => m.id === 'view').layouts, 'the layouts are in View');
     for (const m of menus) for (const item of m.items) assert.ok(ws.menuItemText(item) && item.icon, `${item.id} has words and an icon`);
     for (const c of ws.menuCommands()) assert.strictEqual(typeof c.run, 'function', c.label);

@@ -18,6 +18,8 @@
                 { id: 'dd-rooms-btn', icon: 'map', label: 'Rooms', title: 'Save part of the map (tiles, doodads, events) as a room stamp and place it again', key: 'rooms' },
                 { id: 'dd-templates-btn', icon: 'person', label: 'Templates', title: 'Rename, sort and delete your own event templates' },
                 { id: 'dd-problems-btn', icon: 'help', label: 'Problems', title: 'Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach' },
+                { id: 'dd-notes-btn', icon: 'info', label: 'Notes', title: 'Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)' },
+                { id: 'dd-ruler-btn', icon: 'path', label: 'Ruler', title: () => DocsDoodads.Shortcuts.tip('ruler', 'Measure on the map in tiles and pixels'), key: 'ruler' },
                 { id: 'dd-reach-btn', icon: 'person', label: 'Check Reach', title: 'Where the player can walk from where they stand, and the doors and chests they can\'t get to' },
                 { id: 'dd-savemap-btn', icon: 'save', label: 'Save This Map', title: "Save this map's doodads, settings and events; other maps' changes wait" },
                 { id: 'dd-autosave-btn', icon: 'history', label: () => this.autosaveLabel(), span: 'dd-autosave-label', title: 'Save the project every few minutes of unsaved work (on this computer)' }
@@ -36,6 +38,8 @@
                 { id: 'dd-listen-btn', icon: 'music', label: 'Listen', title: 'Click a tile to hear what the player would hear there' },
                 { id: 'dd-perf-btn', icon: 'gear', label: () => (DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'), span: 'dd-perf-label', title: 'Frames a second, draw calls, pictures loaded and lights', key: 'speed' },
                 { id: 'dd-postfx-btn', icon: 'sun', label: 'Screen Looks', title: 'Looks and screen effects for the whole game or this map; save a picture of the map' },
+                { id: 'dd-notes-show-btn', icon: 'info', label: () => (this.notesShown() ? 'Hide Notes' : 'Show Notes'), span: 'dd-notes-show-label', title: "Show or hide the notes' pins on the map" },
+                { id: 'dd-bookmarks-btn', icon: 'star', label: 'Bookmarks', title: 'Places on the maps to jump back to: Bookmark This View, and Ctrl+1 to Ctrl+9' },
                 { id: 'dd-look-btn', icon: 'eye', label: 'Look', title: 'Editor size, theme and map colours' }
             ] },
             { id: 'more', label: 'More', icon: 'more', title: 'Find a Tool, keys, Capture, old saves, messages, info and help', items: [
