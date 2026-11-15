@@ -98,7 +98,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         'updateDocsSkyVideoOnMap',  // a flat map's sky video (17_perspective_runtime_1_view)
         'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
         'updateDocsFlyShadow',      // the flying player's shadow (17_traversal)
-        'updateDocsTouchPrompt'     // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
+        'updateDocsTouchPrompt',    // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
+        'updateDocsEventLabels'     // names and icons over events (15_spriteset_map_labels)
     ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {

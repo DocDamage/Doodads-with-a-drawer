@@ -1509,6 +1509,17 @@
  * @off Hide
  * @default true
  *
+ * @command showEventLabels
+ * @text Show / Hide Event Labels
+ * @desc Hides the names and icons over events (<docs label: ...>, <docs icon: n>) for this playthrough, or shows them again.
+ *
+ * @arg show
+ * @text Event labels
+ * @type boolean
+ * @on Show
+ * @off Hide
+ * @default true
+ *
  * @command exploredMap
  * @text Explored Map
  * @desc With the minimap's fog of war on: reveal a whole map, reveal around the player, or forget what was seen (saved with the game).
@@ -3441,6 +3452,137 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 7L: NAMES AND ICONS OVER EVENTS
+//==========================================================
+// <docs label: Blacksmith> and <docs icon: 87> in an event's note or a comment on its current page put a name,
+// an icon from the IconSet or both over it; <docs label range: 4> shows them only within 4 tiles of the player
+// (without it, always). World > Event Labels sets the size, colour and fade; the Show Event Labels command turns
+// them off and on for a playthrough. The sprites are 15_spriteset_map_labels.js.
+DocsDoodads.EventLabels = {
+    defaults: { enabled: true, size: 16, colour: '#ffffff', fade: true },
+
+    // { label, icon, range } from an event's text, or null when it has neither a label nor an icon.
+    parse(text) {
+        const s = String(text || '');
+        const label = /<\s*docs\s+label\s*:\s*([^>]*?)\s*>/i.exec(s);
+        const icon = /<\s*docs\s+icon\s*:\s*(\d+)\s*>/i.exec(s);
+        const range = /<\s*docs\s+label\s+range\s*:\s*(\d+(?:\.\d+)?)\s*>/i.exec(s);
+        const info = { label: label ? label[1].trim() : '', icon: icon ? Number(icon[1]) : 0, range: range ? Number(range[1]) : 0 };
+        return info.label || info.icon > 0 ? info : null;
+    },
+
+    // An event's label (null for none), kept while its note and page comments stay the same.
+    of(ev) {
+        if (!ev || typeof ev.event !== 'function' || !ev.event()) return null;
+        const VE = DocsDoodads.VisualEquip;
+        const text = VE && VE.eventText ? VE.eventText(ev) : String(ev.event().note || '');
+        const c = this._cache = this._cache || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        const hit = c ? c.get(ev) : null;
+        if (hit && hit.text === text) return hit.info;
+        const info = this.parse(text);
+        if (c) c.set(ev, { text, info });
+        return info;
+    },
+
+    // Whether a map has any label or icon tag at all (kept per map), so a map without them costs nothing a frame.
+    mapHas(dataMap) {
+        if (!dataMap || typeof dataMap !== 'object') return false;
+        const c = this._maps = this._maps || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        if (c && c.has(dataMap)) return c.get(dataMap);
+        const tag = /<\s*docs\s+(label|icon)\s*:/i;
+        let found = false;
+        for (const ev of dataMap.events || []) {
+            if (!ev) continue;
+            if (tag.test(ev.note || '')) { found = true; break; }
+            for (const page of ev.pages || []) {
+                if ((page.list || []).some(cmd => cmd && (cmd.code === 108 || cmd.code === 408) && tag.test(String((cmd.parameters || [])[0] || '')))) { found = true; break; }
+            }
+            if (found) break;
+        }
+        if (c) c.set(dataMap, found);
+        return found;
+    },
+
+    settings() {
+        const s = DocsDoodads.World.settings().labels || {};
+        return Object.assign({}, this.defaults, s);
+    },
+
+    // On for this playthrough: World > Event Labels, unless the Show Event Labels command turned them off.
+    enabled() {
+        if (typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsLabelsHidden) return false;
+        return this.settings().enabled !== false;
+    },
+
+    // Within range tiles (dx, dy from the player); range 0 is always.
+    inRange(range, dx, dy) {
+        return !(range > 0) || Math.hypot(dx, dy) <= range + 1e-9;
+    },
+
+    // Whether an event shows its label now: not erased, on a page, and either drawn or one the player can walk
+    // through (an invisible door or exit). An invisible event that blocks the way has no label.
+    shows(ev, info) {
+        if (!info || !ev || ev._erased) return false;
+        const page = typeof ev.page === 'function' ? ev.page() : null;
+        if (!page) return false;
+        const drawn = Boolean(ev.characterName && ev.characterName()) || (ev.tileId && ev.tileId() > 0);
+        return drawn || Boolean(ev.isThrough && ev.isThrough());
+    },
+
+    // The note with these label and icon tags (others left as they were): label '' and icon 0 take them out.
+    writeNote(note, label, icon) {
+        let s = String(note || '').replace(/<\s*docs\s+label\s*:[^>]*>/gi, '').replace(/<\s*docs\s+icon\s*:[^>]*>/gi, '');
+        s = s.replace(/[ \t]{2,}/g, ' ').trim();
+        const add = [];
+        const name = String(label || '').replace(/[<>]/g, '').trim();
+        if (name) add.push(`<docs label: ${name}>`);
+        if (Number(icon) > 0) add.push(`<docs icon: ${Math.floor(Number(icon))}>`);
+        return [s].concat(add).filter(Boolean).join(s && add.length ? ' ' : '');
+    },
+
+    // The picture for a label: the icon (from IconSet, once it has loaded), then the name, outlined. Kept per
+    // look; null until the icon set has loaded.
+    bitmap(info, settings) {
+        const size = Math.max(8, Math.min(48, Number(settings.size) || 16));
+        const colour = String(settings.colour || '#ffffff');
+        const key = `${info.icon}|${info.label}|${size}|${colour}`;
+        const cache = this._bitmaps = this._bitmaps || new Map();
+        if (cache.has(key)) return cache.get(key);
+        let iconSet = null;
+        if (info.icon > 0) {
+            iconSet = ImageManager.loadSystem('IconSet');
+            if (!iconSet.isReady()) return null;
+        }
+        const pw = ImageManager.iconWidth || 32, ph = ImageManager.iconHeight || 32;
+        const iconSize = iconSet ? Math.round(size * 1.5) : 0;
+        const probe = new Bitmap(1, 1);
+        probe.fontSize = size;
+        if (typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem.mainFontFace) probe.fontFace = $gameSystem.mainFontFace();
+        const textW = info.label ? Math.ceil(probe.measureTextWidth(info.label)) + 8 : 0;
+        const gap = iconSize && textW ? 2 : 0;
+        const w = Math.max(1, iconSize + gap + textW), h = Math.max(iconSize, size + 10);
+        const bmp = new Bitmap(w, h);
+        bmp.fontSize = size;
+        bmp.fontFace = probe.fontFace;
+        if (iconSet) bmp.blt(iconSet, (info.icon % 16) * pw, Math.floor(info.icon / 16) * ph, pw, ph, 0, Math.round((h - iconSize) / 2), iconSize, iconSize);
+        if (info.label) {
+            bmp.textColor = colour;
+            bmp.outlineColor = 'rgba(0, 0, 0, 0.75)';
+            bmp.outlineWidth = 4;
+            bmp.drawText(info.label, iconSize + gap, 0, textW, h, 'center');
+        }
+        if (cache.size > 64) cache.clear();
+        cache.set(key, bmp);
+        return bmp;
+    }
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'showEventLabels', args => {
+        if (typeof $gameSystem !== 'undefined' && $gameSystem) $gameSystem._docsLabelsHidden = String(args.show) === 'false' ? true : undefined;
+    });
+}
+//==========================================================
 // SECTION 5B2: MAP LAYERS (2D), WIND, LIGHTNING
 //==========================================================
 // Flat maps can have several picture layers behind the tiles (backgrounds) or over them (fog, clouds,
@@ -4287,6 +4429,8 @@ DocsDoodads.World = {
         destination: {},
         // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
         minimap: { flat: false, fog: false, radius: 6, size: 140 },
+        // Names and icons over events (<docs label: ...>, <docs icon: n>; 07_event_labels.js).
+        labels: { enabled: true, size: 16, colour: '#ffffff', fade: true },
         // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
         camera2d: { smooth: 0, lookAhead: 0 },
         // 3D models drawn on the GPU (17_perspective_runtime_models.js): faster, and still new.
@@ -11009,7 +11153,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         'updateDocsSkyVideoOnMap',  // a flat map's sky video (17_perspective_runtime_1_view)
         'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
         'updateDocsFlyShadow',      // the flying player's shadow (17_traversal)
-        'updateDocsTouchPrompt'     // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
+        'updateDocsTouchPrompt',    // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
+        'updateDocsEventLabels'     // names and icons over events (15_spriteset_map_labels)
     ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
@@ -13295,6 +13440,106 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 
+//==========================================================
+// SECTION 15L: NAMES AND ICONS OVER EVENTS
+//==========================================================
+// One sprite per labelled event that shows now (DocsDoodads.EventLabels), over its head, flat or where it
+// stands in the 3D view. Hidden while a message shows. A map with no label tags makes nothing and costs one
+// check a frame.
+if (typeof Spriteset_Map !== 'undefined' && typeof Sprite !== 'undefined' && typeof Bitmap !== 'undefined') {
+    // A step of Spriteset_Map.update (DocsDoodads.spritesetSteps).
+    Spriteset_Map.prototype.updateDocsEventLabels = function() {
+        const L = DocsDoodads.EventLabels;
+        const live = this._docsLabels;
+        const on = typeof $gameMap !== 'undefined' && $gameMap && typeof $dataMap !== 'undefined' && L.mapHas($dataMap) && L.enabled();
+        if (!on) {
+            if (live) this.clearDocsEventLabels();
+            return;
+        }
+        const busy = typeof $gameMessage !== 'undefined' && $gameMessage && $gameMessage.isBusy();
+        const settings = L.settings();
+        const labels = live || (this._docsLabels = new Map());
+        if (!this._docsLabelLayer) {
+            this._docsLabelLayer = new Sprite();
+            this._docsLabelLayer.z = 9;
+            this.addChild(this._docsLabelLayer);
+        }
+        const seen = this._docsLabelsSeen || (this._docsLabelsSeen = new Set());
+        seen.clear();
+        const P = DocsDoodads.Perspective;
+        const cam = P && P.liveCamera ? P.liveCamera() : null;
+        const gw = typeof Graphics !== 'undefined' ? Graphics.width : 816, gh = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const th = $gameMap.tileHeight();
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        const events = busy ? [] : $gameMap.events();
+        for (let i = 0; i < events.length; i++) {
+            const ev = events[i];
+            const info = L.of(ev);
+            if (!L.shows(ev, info)) continue;
+            if (info.range > 0 && player && !L.inRange(info.range, $gameMap.deltaX(ev.x, player.x), $gameMap.deltaY(ev.y, player.y))) continue;
+            const bitmap = L.bitmap(info, settings);
+            if (!bitmap) continue;
+            let x = ev.screenX(), y = ev.screenY(), scale = 1;
+            if (cam) {
+                const at = P.flatToScreen(x, y);
+                if (!at || !(at.scale > 0)) continue;
+                x = at.x;
+                y = at.y;
+                scale = at.scale;
+            }
+            y -= (this.docsCharacterHeight(ev) || th) * scale + 2;
+            if (x < -64 || x > gw + 64 || y < -64 || y > gh + 64) continue;
+            let sprite = labels.get(ev);
+            if (!sprite) {
+                sprite = new Sprite();
+                sprite.anchor.x = 0.5;
+                sprite.anchor.y = 1;
+                sprite.opacity = settings.fade ? 0 : 255;
+                this._docsLabelLayer.addChild(sprite);
+                labels.set(ev, sprite);
+            }
+            if (sprite.bitmap !== bitmap) sprite.bitmap = bitmap;
+            sprite.x = Math.round(x);
+            sprite.y = Math.round(y);
+            sprite.visible = true;
+            if (sprite.opacity < 255) sprite.opacity = settings.fade ? Math.min(255, sprite.opacity + 24) : 255;
+            seen.add(ev);
+        }
+        // Gone out of range, off screen, erased or another map: fade out, then free.
+        for (const [ev, sprite] of labels) {
+            if (seen.has(ev)) continue;
+            if (settings.fade && !busy && sprite.opacity > 0 && $gameMap.events().includes(ev)) {
+                sprite.opacity = Math.max(0, sprite.opacity - 24);
+                if (sprite.opacity > 0) continue;
+            }
+            this.removeDocsEventLabel(ev);
+        }
+    };
+
+    Spriteset_Map.prototype.removeDocsEventLabel = function(ev) {
+        const sprite = this._docsLabels ? this._docsLabels.get(ev) : null;
+        if (!sprite) return;
+        if (sprite.parent) sprite.parent.removeChild(sprite);
+        this._docsLabels.delete(ev);
+    };
+
+    Spriteset_Map.prototype.clearDocsEventLabels = function() {
+        for (const ev of Array.from(this._docsLabels ? this._docsLabels.keys() : [])) this.removeDocsEventLabel(ev);
+    };
+
+    // How tall an event is drawn (its character's frame), from its sprite.
+    Spriteset_Map.prototype.docsCharacterHeight = function(ev) {
+        const sprites = this._characterSprites || [];
+        if (!this._docsSpriteOf || this._docsSpriteOfCount !== sprites.length) {
+            this._docsSpriteOf = new Map(sprites.map(s => [s._character, s]));
+            this._docsSpriteOfCount = sprites.length;
+        }
+        const s = this._docsSpriteOf.get(ev);
+        if (!s) return 0;
+        if (typeof s.patternHeight === 'function' && s.bitmap) return s.patternHeight() || 0;
+        return s.height || 0;
+    };
+}
 //==========================================================
 // SECTION 15B: FLAT-MAP LAYERS, BLOWING LEAVES AND LIGHTNING (RUNTIME)
 //==========================================================
@@ -30987,6 +31232,7 @@ DocsDoodads.Workspace = {
             const page0 = ev && ev.pages && ev.pages[0] ? ev.pages[0] : {};
             const triggerNames = ["Action Button", "Player Touch", "Event Touch", "Autorun", "Parallel"];
             const priorityNames = ["Below Characters", "Same as Characters", "Above Characters"];
+            const tag = DocsDoodads.EventLabels.parse(ev ? ev.note : '') || { label: '', icon: 0 };
 
             content.innerHTML = `
                 <div style="color: var(--dd-muted); margin-bottom: 6px;">Event ${evId} on this map.</div>
@@ -31013,6 +31259,16 @@ DocsDoodads.Workspace = {
                         ${priorityNames.map((p, idx) => `<option value="${idx}" ${(page0.priorityType === idx) ? 'selected' : ''}>${p}</option>`).join('')}
                     </select>
                 </div>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 6px; margin-top: 6px;">
+                    <div>
+                        <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Name over it:</label>
+                        <input type="text" id="dd-ev-label" value="${DocsDoodads.Security.escapeHtml(tag.label)}" placeholder="none" title="Shown over the event in the game (its note gets <docs label: ...>)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Icon:</label>
+                        <input type="number" id="dd-ev-icon" min="0" value="${tag.icon || 0}" title="An icon from the IconSet over the event (0: none; its note gets <docs icon: n>)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
+                    </div>
+                </div>
                 <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                     <button class="dd-btn dd-btn-primary" id="dd-ev-save-template-btn">💾 Save as Event Template</button>
                     <button class="dd-btn" id="dd-ev-dup-btn">Duplicate Event</button>
@@ -31035,6 +31291,13 @@ DocsDoodads.Workspace = {
             evNumber('dd-ev-y', v => this.editSelectedEvent('move_event', e => { e.y = Math.max(0, Math.min(maxY, v)); }));
             evNumber('dd-ev-trigger', v => this.editSelectedEvent('event_trigger', e => { if (e.pages && e.pages[0]) e.pages[0].trigger = v; }));
             evNumber('dd-ev-priority', v => this.editSelectedEvent('event_priority', e => { if (e.pages && e.pages[0]) e.pages[0].priorityType = v; }));
+            const labelInput = document.getElementById('dd-ev-label'), iconInput = document.getElementById('dd-ev-icon');
+            const writeLabel = () => {
+                this.editEventLabel(labelInput ? labelInput.value : tag.label, iconInput ? parseInt(iconInput.value, 10) || 0 : tag.icon);
+                this.refreshInspector();
+            };
+            if (labelInput) labelInput.onchange = writeLabel;
+            if (iconInput) iconInput.onchange = writeLabel;
             document.getElementById('dd-ev-del-btn').onclick = () => {
                 this.deleteSelectedEvent();
             };
@@ -34424,6 +34687,12 @@ DocsDoodads.Workspace = {
                 check('minimap.fog', 'Fog of war: show only what the player has been near (kept in the save)'),
                 range('minimap.radius', 'How far the player sees (tiles)', 1, 20, 1),
                 range('minimap.size', 'Minimap size (pixels)', 80, 260, 10)
+            ] },
+            { title: 'Event Labels', fields: [
+                check('labels.enabled', 'Names and icons over events (<docs label: Blacksmith>, <docs icon: 87>; the Show / Hide Event Labels command turns them off)'),
+                range('labels.size', 'Text size', 10, 32, 1),
+                { key: 'labels.colour', label: 'Text colour', type: 'color' },
+                check('labels.fade', 'Fade in and out (with <docs label range: 4>)')
             ] },
             { title: '3D Models', fields: [
                 check('models3d.gpu', 'Draw models on the graphics card (faster for big or moving models; new: turn it off if a model looks wrong)')
@@ -39743,6 +40012,35 @@ Object.assign(DocsDoodads.Workspace, {
         };
     }
 })();
+//==========================================================
+// SECTION 25: WORKSPACE: NAMES AND ICONS OVER EVENTS
+//==========================================================
+// The event's Details write <docs label: ...> and <docs icon: n> into its note (DocsDoodads.EventLabels): one
+// undo step, saved with the map, and shown on the running map at once.
+Object.assign(DocsDoodads.Workspace, {
+    // Resolves whether the note changed.
+    editEventLabel(label, icon) {
+        const ev = this.selectedStagedEvent();
+        if (!ev) return false;
+        const L = DocsDoodads.EventLabels;
+        const before = String(ev.note || '');
+        const after = L.writeNote(before, label, icon);
+        if (after === before) return false;
+        const ge = this.selectedEvent && this.selectedEvent.gameEvent;
+        const set = note => {
+            ev.note = note;
+            // The running event reads its own copy of the map; it follows, and its cached text is read again.
+            const live = ge && typeof ge.event === 'function' ? ge.event() : null;
+            if (live && live !== ev) live.note = note;
+            const VE = DocsDoodads.VisualEquip;
+            if (ge && VE && VE._eventText) VE._eventText.delete(ge);
+            if (L._maps && typeof $dataMap !== 'undefined' && $dataMap) L._maps.delete($dataMap);
+            DocsDoodads.Persistence.dirtyMap = true;
+        };
+        DocsDoodads.Undo.execute({ type: 'event_label', apply: () => set(after), revert: () => set(before) });
+        return true;
+    }
+});
 //==========================================================
 // SECTION 25m: FIND DOODADS, THE MAP OUTLINER, PICKING AND PLACING MANY
 //==========================================================

@@ -183,6 +183,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Show Speed on a map with 3,000 doodads (flat and 3D): about 60 frames a second and a few hundred draw calls; walk to the map's far side: doodads appear as they come on screen, lamps light the edge before they do.
 - [ ] Problems: a doodad whose condition isn't JavaScript (`$gameSwitches.value(`) is listed under Conditions that don't run; Remove Condition fixes it.
 
+- [ ] Event labels: give an NPC **Name over it** and an **Icon** in Details; it shows at once, and in the game after Save. An invisible exit with `<docs label: To Town>` shows; an invisible blocker doesn't. `<docs label range: 3>` fades in near the player and out away from it. A message hides labels; Erase Event takes one away. Check on an outdoor map, a looping map and a cave, flat and in 3D, and Show / Hide Event Labels off and on.
+
 ## Traversal, zoom and sound focus
 
 Test on an exterior map with water, a looping world map and a map with terrain height.
