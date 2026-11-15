@@ -361,7 +361,7 @@ DocsDoodads.Workspace = {
             ${tool('dd-undo-list-btn', 'history', 'Steps', 'Every step you took: jump back to any of them')}
             <div class="dd-spacer"></div>
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
-            ${tool('dd-more-btn', 'more', 'More', 'More tools and settings')}
+            ${this.renderMenuButtons(tool)}
             ${tool('dd-save-btn', 'save', 'Save', DocsDoodads.Shortcuts.tip('save', 'Save everything'), 'dd-btn-good')}
             ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
@@ -462,45 +462,7 @@ DocsDoodads.Workspace = {
                     <div style="display: flex; gap: 6px; margin-top: 4px;"><button class="dd-btn dd-btn-primary" id="dd-path-place" style="flex: 1;">Lay the Path</button><button class="dd-btn" id="dd-path-clear">Start Over</button></div>
                 </div>
             </div>
-            <div id="dd-more-menu" class="dd-glass dd-pop" style="display: none;">
-                <div class="dd-pop-title">${U.icon('more', 1)} More</div>
-                <div class="dd-more-grid">
-                    <button class="dd-btn" id="dd-slicer-btn" title="Cut a picked sprite sheet into pieces">${U.icon('scissors', 1)} Cut Up Sheet</button>
-                    <button class="dd-btn" id="dd-postfx-btn" title="Looks and screen effects for the whole game or this map; save a picture of the map">${U.icon('sun', 1)} Screen Looks</button>
-                    <button class="dd-btn" id="dd-vfx-btn" title="Make sparkles, smoke, fire and other effects">${U.icon('sparkle', 1)} Effects Maker</button>
-                    <button class="dd-btn" id="dd-history-btn" title="Compare with earlier saves and bring single things back">${U.icon('folder', 1)} Old Saves</button>
-                    <button class="dd-btn" id="dd-tools-btn" title="Find copies of the same file and files nothing uses">${U.icon('wrench', 1)} File Check</button>
-                    <button class="dd-btn" id="dd-diag-btn" title="Numbers, cache and backups">${U.icon('info', 1)} Info</button>
-                    <button class="dd-btn" id="dd-grid-btn" title="${escapeHtml(this.shortcutTip('dd-grid-btn'))}">${U.icon('grid', 1)} <span id="dd-grid-label">Show Grid</span></button>
-                    <button class="dd-btn" id="dd-collision-btn" title="Show every doodad's collision and the tiles you can't walk on">${U.icon('lock', 1)} <span id="dd-collision-label">${this.showCollision ? 'Hide Collision' : 'Show Collision'}</span></button>
-                    <button class="dd-btn" id="dd-sound-btn" title="Little sounds when you use the tools">${U.icon('sound', 1)} <span id="dd-sound-label">Sounds</span></button>
-                    <button class="dd-btn" id="dd-palette-btn" title="${escapeHtml(this.shortcutTip('dd-palette-btn'))}">${U.icon('search', 1)} Find a Tool</button>
-                    <button class="dd-btn" id="dd-messages-btn" title="Read the editor's recent messages again">${U.icon('history', 1)} Messages</button>
-                    <button class="dd-btn" id="dd-look-btn" title="Editor size, theme and map colours">${U.icon('eye', 1)} Look</button>
-                    <button class="dd-btn" id="dd-rooms-btn" title="Save part of the map (tiles, doodads, events) as a room stamp and place it again">${U.icon('map', 1)} Rooms</button>
-                    <button class="dd-btn" id="dd-packs-btn" title="Put prefabs, rooms, biomes and their art in one file for another project, or bring one in">${U.icon('box', 1)} Packs</button>
-                    <button class="dd-btn" id="dd-lpc-btn" title="Character creators: RPG Maker MZ's generator parts, the LPC library and the Memao assets on this computer">${U.icon('person', 1)} Characters</button>
-                    <button class="dd-btn" id="dd-keys-btn" title="${escapeHtml(this.shortcutTip('dd-keys-btn'))}">${U.icon('gear', 1)} Keys</button>
-                    <button class="dd-btn" id="dd-capture-btn" title="Save a picture of the view, or a 3D orbit GIF">${U.icon('picture', 1)} Capture</button>
-                    <button class="dd-btn" id="dd-find-btn" title="Find doodads on this map or every map, by picture, name, tag, layer, light, sound...">${U.icon('search', 1)} Find Doodads</button>
-                    <button class="dd-btn" id="dd-outliner-btn" title="This map's doodads by layer: hide, lock, pick, solo a layer">${U.icon('grid', 1)} Outliner</button>
-                    <button class="dd-btn" id="dd-templates-btn" title="Rename, sort and delete your own event templates">${U.icon('person', 1)} Templates</button>
-                    <button class="dd-btn" id="dd-mapset-btn" title="Copy another map's settings to this one, or keep them as a preset">${U.icon('map', 1)} Map Settings</button>
-                    <button class="dd-btn" id="dd-savemap-btn" title="Save this map's doodads, settings and events; other maps' changes wait">${U.icon('save', 1)} Save This Map</button>
-                    <button class="dd-btn" id="dd-autosave-btn" title="Save the project every few minutes of unsaved work (on this computer)">${U.icon('history', 1)} <span id="dd-autosave-label">${this.autosaveLabel()}</span></button>
-                    <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
-                    <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
-                    <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
-                    <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
-                    <button class="dd-btn" id="dd-help-btn" title="How to use the editor">${U.icon('help', 1)} How to Use</button>
-                </div>
-                <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
-                <div style="display: flex; gap: 4px; margin-top: 4px;">
-                    <select id="dd-layout-select" style="flex: 1; min-width: 0;"></select>
-                    <button class="dd-btn" id="dd-save-layout-btn" title="Remember the panel sizes as a new layout">${U.icon('plus', 1)}</button>
-                    <button class="dd-btn" id="dd-del-layout-btn" title="Delete this layout" style="display: none;">${U.icon('trash', 1)}</button>
-                </div>
-            </div>
+            ${this.renderMenus()}
         `;
         while (pops.firstChild) wrap.appendChild(pops.firstChild);
 
@@ -617,17 +579,27 @@ DocsDoodads.Workspace = {
         this.placeHint();
     },
 
-    // The top bar fits the window: without the words under the tools first, then on two rows (the panels go
-    // below it). Returns 'full', 'tight' or 'wrap'.
+    // The top bar fits the window: without the words under the tools first, then with Map, Art and View folded
+    // into More, then on two rows (the panels go below it). Returns 'full', 'tight', 'folded' or 'wrap'.
     fitToolbar(toolbar) {
         if (!toolbar || !toolbar.classList) return 'full';
         const over = () => toolbar.scrollWidth > toolbar.clientWidth + 1;
-        toolbar.classList.remove('dd-tight', 'dd-wrap');
-        if (!over()) return 'full';
-        toolbar.classList.add('dd-tight');
-        if (!over()) return 'tight';
-        toolbar.classList.add('dd-wrap');
-        return 'wrap';
+        toolbar.classList.remove('dd-tight', 'dd-folded', 'dd-wrap');
+        let fit = 'full';
+        if (over()) {
+            fit = 'tight';
+            toolbar.classList.add('dd-tight');
+            if (over()) {
+                fit = 'folded';
+                toolbar.classList.add('dd-folded');
+                if (over()) {
+                    fit = 'wrap';
+                    toolbar.classList.add('dd-wrap');
+                }
+            }
+        }
+        this.foldMenus(fit === 'folded' || fit === 'wrap');
+        return fit;
     },
 
     // Where each panel is docked (44_workspace_docking.js moves them): left, right or bottom.
@@ -677,19 +649,9 @@ DocsDoodads.Workspace = {
         pop.style.left = Math.round(Math.max(8, Math.min(room - width - 8, at.left + at.width / 2 - width / 2))) + 'px';
     },
 
+    // Opens More, or (false) closes whichever of the top bar's menus is open: the entries call it once used.
     showMoreMenu(open) {
-        const menu = document.getElementById('dd-more-menu');
-        if (!menu) return;
-        menu.style.display = open ? 'block' : 'none';
-        const btn = document.getElementById('dd-more-btn');
-        if (btn && btn.classList) btn.classList.toggle('dd-btn-active', Boolean(open));
-        if (open) {
-            this.placePopover(menu, 'dd-more-btn');
-            const grid = document.getElementById('dd-grid-label');
-            if (grid) grid.textContent = this.gridSnapShow ? 'Hide Grid' : 'Show Grid';
-            const sound = document.getElementById('dd-sound-label');
-            if (sound) sound.textContent = DocsDoodads.Ui.prefs().sounds === false ? 'Sounds: Off' : 'Sounds: On';
-        }
+        this.showMenu(open ? 'more' : null, Boolean(open));
     },
 
     // The bag and the details panel fold away to a narrow strip (remembered on this computer).
@@ -968,7 +930,8 @@ DocsDoodads.Workspace = {
         const U = DocsDoodads.Ui;
         const on = (id, handler) => { const node = document.getElementById(id); if (node) node.onclick = handler; };
         on('dd-select-btn', () => { U.sound('ok'); this.setPlacementTool(null); });
-        on('dd-more-btn', () => { U.sound('cursor'); this.showMoreMenu(document.getElementById('dd-more-menu').style.display !== 'block'); });
+        this.bindMenus();
+        on('dd-reach-btn', () => { this.showMoreMenu(false); this.checkReach(); });
         on('dd-grid-btn', () => { this.toggleGrid(); this.showMoreMenu(false); });
         on('dd-collision-btn', () => { this.toggleCollisionOverlay(); this.showMoreMenu(false); });
         on('dd-sound-btn', () => {
@@ -1007,21 +970,12 @@ DocsDoodads.Workspace = {
                 const el = document.getElementById(id), btn = document.getElementById(buttonId);
                 return (el && el.contains && el.contains(e.target)) || (btn && btn.contains && btn.contains(e.target));
             };
-            const more = document.getElementById('dd-more-menu');
-            if (more && more.style.display === 'block' && !inside('dd-more-menu', 'dd-more-btn')) this.showMoreMenu(false);
+            const open = this.openMenu();
+            if (open && !inside(this.menuPopId(open), this.menuButtonId(open))) this.showMoreMenu(false);
             const sym = document.getElementById('dd-sym-popover');
             if (sym && sym.style.display === 'block' && !inside('dd-sym-popover', 'dd-sym-btn')) sym.style.display = 'none';
         };
         document.addEventListener('pointerdown', this._onOutsidePointer, true);
-        // The More menu closes once one of its tools opens (the layout buttons keep it open).
-        const more = document.getElementById('dd-more-menu');
-        if (more) more.addEventListener('click', e => {
-            const btn = e.target && e.target.closest ? e.target.closest('button') : null;
-            if (btn && /^(dd-slicer-btn|dd-postfx-btn|dd-vfx-btn|dd-history-btn|dd-tools-btn|dd-diag-btn)$/.test(btn.id)) {
-                U.sound('ok');
-                this.showMoreMenu(false);
-            }
-        });
 
         document.getElementById('dd-slicer-btn').onclick = () => {
             if (this.selectedAsset) DocsDoodads.Slicing.Editor.open(this.selectedAsset);

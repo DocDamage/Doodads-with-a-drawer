@@ -184,7 +184,7 @@ Watching a new user (item E under What's left) comes before all of these.
 
 | # | Suggestion | Size |
 |---|---|---|
-| 7.2.1 | **Split up More.** It has about 30 entries in seven groups without names. A few named menus (Map, Art, View, Project), with More for the rest. | S |
+| 7.2.1 | **Split up More.** **Done.** Map, Art, View and More, drawn from one list with the palette; they fold into More in a narrow window. It had about 30 entries in seven groups without names. A few named menus (Map, Art, View, Project), with More for the rest. | S |
 | 7.2.2 | **Map notes.** Notes and to-dos pinned to tiles ("a chest here"), listed in a panel, never in the game. | S |
 | 7.2.3 | **A ruler and bookmarks.** Measure a distance in tiles and pixels; keep places on a big map to jump back to. | S |
 | 7.2.4 | **Map pictures.** Map tabs and World View show names only; a small picture of each map makes one quicker to find. | S |

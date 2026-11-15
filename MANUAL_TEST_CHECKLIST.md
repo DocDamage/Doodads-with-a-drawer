@@ -55,7 +55,7 @@ Test these on an exterior map and on a looping world map, not only on interiors.
 - [ ] Go to another map, paste, Copy/Move to Map, link neighbours, mirror an edge tree, and open World View.
 - [ ] On a looping map, stand near the seam and confirm doodads and lights stay put while the camera wraps.
 - [ ] Where Used and Rename/Move a character sheet used by events; open the project in MZ and confirm events still show it.
-- [ ] More → File Check: Find Unused Files and Find Duplicates; check More Like This.
+- [ ] Art → File Check: Find Unused Files and Find Duplicates; check More Like This.
 - [ ] Edit an image in another program while the editor is open; the Item Bag and placed doodad update. Replace it with a smaller image and confirm the game keeps running.
 - [ ] Pack a map's art, preview it in Playtest, change a source image, and confirm the stale warning.
 
@@ -76,7 +76,7 @@ Test these on an exterior map and on a looping world map.
 
 ## Post-processing
 
-- [ ] Open More → Screen Looks, apply each preset, and adjust sliders; undo a slider drag in one step. Hold to Compare.
+- [ ] Open View → Screen Looks, apply each preset, and adjust sliders; undo a slider drag in one step. Hold to Compare.
 - [ ] Give one map its own look and another No effects; walk between them. Confirm battles use the game-wide look.
 - [ ] Turn Affect pictures off and show a picture; it stays crisp. Message windows are never affected.
 - [ ] Use Set Post-Processing Look with a fade, then Back to the map's look. Play each screen effect centred on the player and on an event.
@@ -102,7 +102,7 @@ Test these on an exterior map and on a looping world map.
 
 - [ ] Give doodads each particle preset; check Above/Below, Amount and offsets; delete and undo one.
 - [ ] Turn on Bend when walked through for a grass patch; walk, dash and stand in it; Drop leaves.
-- [ ] In More → Effects Maker, duplicate Explosion, add a sprite-sheet layer, change values with Replay on change, rename and delete; undo.
+- [ ] In Art → Effects Maker, duplicate Explosion, add a sprite-sheet layer, change values with Replay on change, rename and delete; undo.
 - [ ] Play VFX on the player (following), an event, a tile and the screen centre, with and without wait. Open the menu mid-effect.
 - [ ] Use a [f8] walking sheet, Name_idle and Name_run variants (Add All Detected), and dash; no blinking when switching.
 - [ ] Turn on diagonal movement with a [d8] sheet; walk diagonally and into corners.
@@ -131,6 +131,7 @@ Test these on an exterior map and on a looping world map.
 - [ ] Type a search with several terms: chips appear; × removes one; save it, reopen the editor, click the saved chip; × forgets it.
 - [ ] Open an empty Favourites, Prefabs and Recent tab and a search with no results: each says what to do, and the button works (Bring In Files opens a file picker).
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+- [ ] The top bar's menus: Map, Art, View and More each open under their button, one at a time, and close when an entry is used or on a click elsewhere. Arrow keys: down into a menu from its button, up and down inside, left and right to the next menu, Esc back to the button. At 100, 125 and 150% (Look) in MZ's 816 × 624 window the bar fits: the words go, then Map, Art and View fold into More under their names, and come back when there is room.
 
 ## Editor look and layout
 
@@ -249,7 +250,7 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 
 ## Characters (LPC library and creator)
 
-- [ ] More > Characters: choose the library folder (Choose...), Scan the Library, and check the part count and version. A folder inside the project shows the warning.
+- [ ] Art > Characters: choose the library folder (Choose...), Scan the Library, and check the part count and version. A folder inside the project shows the warning.
 - [ ] Try it: Shuffle a few times and turn the character; with Less motion on it stands still.
 - [ ] Open the Creator in MZ's own window size (816 x 624): one card at a time with the Body & face / Outfit switch, nothing overlapping. Make the window big: both cards and the stage side by side.
 - [ ] Change every row with the mouse, the keyboard (arrows, Shift+arrows, Q/E, Tab, X/Y, Esc) and a gamepad (d-pad, A, LB/RB, Back, X/Y, Start, B). Arrow keys must not move the map behind.

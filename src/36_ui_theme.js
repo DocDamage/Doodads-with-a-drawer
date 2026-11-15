@@ -150,10 +150,17 @@ DocsDoodads.Ui = {
 .dd-tool.dd-wide { width: 62px; }
 @media (max-width: 900px) { #dd-toolbar .dd-brand span { display: none; } .dd-tool { width: 46px; } .dd-tool.dd-wide { width: 52px; } }
 /* Too narrow for the bar (a small window, or the editor at 125% or 150%): the words under the tools go (their
-   tooltips keep them), then the bar takes a second row, so More, Save and Done can always be reached. */
+   tooltips keep them), then Map, Art and View fold into More, then the bar takes a second row, so More, Save and
+   Done can always be reached. */
 #dd-toolbar.dd-tight .dd-brand span, #dd-toolbar.dd-tight .dd-tool b { display: none; }
 #dd-toolbar.dd-tight .dd-tool, #dd-toolbar.dd-tight .dd-tool.dd-wide { width: 42px; height: 42px; }
 #dd-toolbar.dd-wrap { flex-wrap: wrap; row-gap: 4px; }
+/* Narrower still: Map, Art and View fold into More, each under its heading. */
+#dd-toolbar.dd-folded .dd-menu-btn:not(#dd-more-btn) { display: none; }
+.dd-menu-head { display: none; }
+#dd-more-menu.dd-menus-folded .dd-menu-head { display: block; font-weight: 900; color: var(--dd-muted); margin: 8px 0 4px; }
+#dd-more-menu.dd-menus-folded .dd-menu-section:first-child .dd-menu-head { margin-top: 0; }
+#dd-more-menu.dd-menus-folded { max-height: calc(100vh - 100px); overflow-y: auto; }
 /* Save: an orange dot while something isn't saved, a tick-green flash once it is. */
 #dd-save-btn { position: relative; }
 #dd-save-btn.dd-unsaved::after {
@@ -165,7 +172,7 @@ DocsDoodads.Ui = {
 /* Pop-up option cards (brush settings, path, mirror, More). */
 .dd-pop { position: absolute; z-index: 10015; width: 270px; padding: 12px 14px; animation: dd-rise 0.18s ease; }
 .dd-pop-title { display: flex; align-items: center; gap: 6px; font-weight: 900; font-size: 13px; color: var(--dd-text) !important; margin-bottom: 8px; }
-#dd-more-menu { width: 300px; }
+.dd-menu-pop { width: 300px; }
 .dd-more-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .dd-more-grid .dd-btn { justify-content: flex-start; padding: 6px 8px; height: 40px; }
 

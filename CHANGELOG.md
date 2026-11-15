@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- More is split into four menus on the top bar: **Map** (map settings, finding, rooms, templates, Problems, Check Reach, saving), **Art** (Cut Up Sheet, Characters, Packs, Effects Maker, File Check), **View** (grid, collision, sounds, speed, Screen Looks, Look, layouts) and a short **More**. The arrow keys move inside and between them; in a narrow window Map, Art and View fold back into More under their names. Every entry is also in Find a Tool (Ctrl+K).
 - `npm run package` makes the download for a release (`release/Docs-Doodads-<version>.zip`): the plugin, a README.txt on installing it, the guide, the cheat sheet, the changelog, the translation template, the deploy tool and the licences. `--ref v<version>` packages a tag from git, whatever is checked out.
 - Fixes: Stamp's picture under the mouse no longer stays where the mouse left the map after picking another tool. Screen Looks keeps the preset just applied shown in its list (it went back to the first one).
 - The README shows the editor and the game at work (placing, picking and Find, day to night, Screen Looks, a storm, effects at dusk, flying, the MZ, LPC and Memao character creators, with the LPC artists credited) and lists everything the plugin does. The README and the guide say where to get each character library: RPG Maker MZ (Steam or the official site), the LPC library (free on GitHub) and the Memao pack (itch.io).

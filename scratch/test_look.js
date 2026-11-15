@@ -280,23 +280,33 @@ assert.deepStrictEqual(U.prefs().detailsPinned, ['3D View (this map)']);
 assert.ok(renders >= 4);
 console.log('✓ details memory: open sections remembered, pins move sections to the top in order');
 
-// The top bar fits MZ's 816-pixel window at every size: the words go first, then it takes a second row.
-const barOf = (need, tightNeed) => {
+// The top bar fits MZ's 816-pixel window at every size: the words go first, then Map, Art and View fold into
+// More, then it takes a second row.
+const barOf = (need, tightNeed, foldNeed) => {
     const classes = new Set();
     return { clientWidth: 600, classes, classList: { add: (...c) => c.forEach(x => classes.add(x)), remove: (...c) => c.forEach(x => classes.delete(x)) },
-        get scrollWidth() { return classes.has('dd-wrap') ? 600 : classes.has('dd-tight') ? tightNeed : need; } };
+        get scrollWidth() { return classes.has('dd-wrap') ? 600 : classes.has('dd-folded') ? foldNeed : classes.has('dd-tight') ? tightNeed : need; } };
 };
-const roomy = barOf(560, 400), tight = barOf(760, 590), crowded = barOf(900, 700);
+const folds = [];
+const foldMenus = ws.foldMenus;
+ws.foldMenus = f => folds.push(f);
+const roomy = barOf(560, 400, 300), tight = barOf(760, 590, 500), folding = barOf(860, 650, 560), crowded = barOf(1000, 800, 700);
 assert.strictEqual(ws.fitToolbar(roomy), 'full');
 assert.strictEqual(ws.fitToolbar(tight), 'tight');
 assert.deepStrictEqual([...tight.classes], ['dd-tight']);
+assert.strictEqual(ws.fitToolbar(folding), 'folded');
+assert.deepStrictEqual([...folding.classes].sort(), ['dd-folded', 'dd-tight']);
 assert.strictEqual(ws.fitToolbar(crowded), 'wrap');
-assert.deepStrictEqual([...crowded.classes].sort(), ['dd-tight', 'dd-wrap']);
-crowded.clientWidth = 1000;
+assert.deepStrictEqual([...crowded.classes].sort(), ['dd-folded', 'dd-tight', 'dd-wrap']);
+assert.deepStrictEqual(folds, [false, false, true, true], 'the menus fold into More from "folded" on');
+crowded.clientWidth = 1100;
 assert.strictEqual(ws.fitToolbar(crowded), 'full', 'room again: back to the full bar');
 assert.strictEqual(crowded.classes.size, 0);
+assert.strictEqual(folds[folds.length - 1], false);
+ws.foldMenus = foldMenus;
 const barCss = D.Ui.css;
 assert.ok(/#dd-toolbar\.dd-tight[^{]*\.dd-tool b \{ display: none; \}/.test(barCss) && /#dd-toolbar\.dd-wrap \{ flex-wrap: wrap;/.test(barCss));
-console.log('✓ the top bar fits: without words, then on two rows');
+assert.ok(/#dd-toolbar\.dd-folded \.dd-menu-btn:not\(#dd-more-btn\) \{ display: none; \}/.test(barCss), 'folded: only More stays');
+console.log('✓ the top bar fits: without words, then the menus in More, then on two rows');
 
 console.log('=== Look and details memory passed ===');
