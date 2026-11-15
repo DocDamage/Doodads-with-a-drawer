@@ -8519,10 +8519,21 @@ DocsDoodads.SettingsSearch = {
             const tag = match[0];
             const attr = name => { const found = new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(tag); return found ? found[1] : ''; };
             const before = text.slice(Math.max(0, match.index - 260), match.index);
-            const after = text.slice(controls.lastIndex, Math.min(text.length, controls.lastIndex + 220));
             const summaries = Array.from(before.matchAll(/<summary\b[^>]*>([\s\S]*?)<\/summary>/gi));
-            const clean = value => String(value || '').replace(/<[^>]+>/g, ' ').replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
-            const nearby = clean((before.split(/<(?:div|label)\b[^>]*>/i).pop() || '') + ' ' + after.split(/<\/(?:div|label)>/i)[0]);
+            const clean = value => String(value || '')
+                .replace(/<option\b[\s\S]*?<\/option>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/<[^>]*$/g, ' ')
+                .replace(/&(amp|lt|gt|quot|#39|nbsp);/gi, entity => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' ' })[entity.toLowerCase()] || ' ')
+                .replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
+            const containers = Array.from(before.matchAll(/<(label|div)\b[^>]*>/gi));
+            const container = containers.length ? containers[containers.length - 1] : null;
+            const prefix = container ? before.slice(container.index + container[0].length) : '';
+            let nearby = clean(prefix);
+            // A checkbox/radio label commonly puts its words after the input. Read only to that label's
+            // real closing tag; selects never look forward, so their options cannot become the caption.
+            if (!nearby && container && container[1].toLowerCase() === 'label' && !/^<select\b/i.test(tag)) {
+                const closeAt = text.toLowerCase().indexOf('</label>', controls.lastIndex);
+                if (closeAt >= controls.lastIndex && closeAt - controls.lastIndex <= 512) nearby = clean(text.slice(controls.lastIndex, closeAt));
+            }
             const label = clean(attr('title') || attr('placeholder') || nearby) || id.replace(/^dd-/, '').replace(/[-_]+/g, ' ');
             out.push({ id: `control:${id}`, controlId: id, label: label.slice(0, 120),
                 words: clean(summaries.length ? summaries[summaries.length - 1][1] : ''), where });
