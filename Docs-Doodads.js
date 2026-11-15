@@ -6981,6 +6981,56 @@ DocsDoodads.MapCheck = {
     }
 };
 //==========================================================
+// SECTION 5G3: PLAY FROM HERE
+//==========================================================
+// The rules behind the editor's Play From Here (44_workspace_play_here.js): whether the player can stand on a
+// tile, the nearest tile they can, and how the editor's previewed time and season read in its question.
+// env: { width, height, passable(x, y, d), blocked(x, y) }; gameEnv() makes one from the running map.
+DocsDoodads.PlayHere = {
+    // Why the player can't start on a tile, or '' when they can.
+    why(x, y, env) {
+        if (!(x >= 0 && y >= 0 && x < env.width && y < env.height)) return 'it is off the map';
+        if (![2, 4, 6, 8].some(d => env.passable(x, y, d))) return "the player can't walk onto or off it (a wall, water or a cliff)";
+        if (env.blocked(x, y)) return "a doodad's collision covers it";
+        return '';
+    },
+
+    // The nearest tile the player can start on, within radius tiles: { x, y }, or null. Nearest first, then
+    // the one above, then the one to the left, so the same map always gives the same tile.
+    nearest(x, y, env, radius = 12) {
+        const spots = [];
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                if ((dx || dy) && dx * dx + dy * dy <= radius * radius) spots.push({ x: x + dx, y: y + dy, d: dx * dx + dy * dy });
+            }
+        }
+        spots.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
+        const hit = spots.find(s => !this.why(s.x, s.y, env));
+        return hit ? { x: hit.x, y: hit.y } : null;
+    },
+
+    // "18:30, Winter", "18:30", "Winter" or '' for what the editor is previewing (null: not previewed).
+    startText(minutes, seasonName) {
+        const parts = [];
+        if (minutes !== null && minutes !== undefined && isFinite(minutes)) {
+            const m = ((Math.round(Number(minutes)) % 1440) + 1440) % 1440;
+            parts.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+        }
+        if (seasonName) parts.push(String(seasonName));
+        return parts.join(', ');
+    },
+
+    // The running map, as why() and nearest() read it.
+    gameEnv() {
+        return {
+            width: $gameMap.width(),
+            height: $gameMap.height(),
+            passable: (x, y, d) => $gameMap.isPassable(x, y, d),
+            blocked: (x, y) => DocsDoodads.Collision.blocksTile(x, y, false, $gamePlayer)
+        };
+    }
+};
+//==========================================================
 // SECTION 5G2: ONE SHORTCUT TABLE
 //==========================================================
 // Every editor key binding is a row here. The key handler, the Keyboard Shortcuts card (More), button
@@ -7000,6 +7050,7 @@ DocsDoodads.Shortcuts = {
         { id: 'pasteInPlace', label: 'Paste in Place (where they were copied)', group: 'Editing', keys: 'Ctrl+Shift+V' },
         { id: 'selectAll', label: 'Select All', group: 'Editing', keys: 'Ctrl+A' },
         { id: 'delete', label: 'Delete the picked doodads or event', group: 'Editing', keys: 'Delete' },
+        { id: 'playHere', label: 'Play From Here: the player starts on the tile under the mouse', group: 'Editing', keys: 'Ctrl+Enter' },
         { id: 'nudge', label: 'Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile', group: 'Editing', keys: 'Arrow keys', fixed: true },
         { id: 'palette', label: 'Find a Tool (command palette)', group: 'Panels', keys: 'Ctrl+K' },
         { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
@@ -32753,6 +32804,7 @@ DocsDoodads.Workspace = {
         add('Show Hidden Doodads', () => this.showHiddenDoodads());
         add('Select Same Art as Picked', () => this.selectSameArt());
         add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
+        add('Play From Here (the tile under the mouse)', () => this.playFromCursor(), null, K('playHere'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
@@ -37066,6 +37118,8 @@ DocsDoodads.Workspace = {
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
             }
+            items.push({ separator: true });
+            items.push({ label: DocsDoodads.Shortcuts.tip('playHere', 'Play From Here'), icon: '▶️', onClick: () => this.playFromHere(coords.tileX, coords.tileY) });
             this.showContextMenu(e.clientX, e.clientY, items);
         };
 
@@ -44729,6 +44783,69 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25: WORKSPACE: PLAY FROM HERE
+//==========================================================
+// Right-click a tile (or Ctrl+Enter over it), Play From Here: the player stands there and the editor closes,
+// asking first about unsaved work (as Done does) and about the time and season being previewed. A tile the
+// player can't stand on is refused with the reason, and the nearest free one offered. The rules are
+// DocsDoodads.PlayHere (11_play_here.js).
+Object.assign(DocsDoodads.Workspace, {
+    // Resolves whether the player was put there (false when cancelled or refused).
+    async playFromHere(tileX, tileY) {
+        if (!this.mounted || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const P = DocsDoodads.PlayHere, Ui = DocsDoodads.Ui;
+        const env = P.gameEnv();
+        let x = Math.floor(Number(tileX)), y = Math.floor(Number(tileY));
+        const why = P.why(x, y, env);
+        if (why) {
+            const near = P.nearest(x, y, env);
+            if (!near) {
+                await Ui.alert(`The player can't start at ${x}, ${y}: ${why}. There is no free tile near it.`, { title: 'Play From Here' });
+                return false;
+            }
+            const ok = await Ui.confirm(`The player can't start at ${x}, ${y}: ${why}. Start at ${near.x}, ${near.y} instead, the nearest free tile?`,
+                { title: 'Play From Here', ok: 'Start There' });
+            if (!ok) return false;
+            x = near.x;
+            y = near.y;
+        }
+
+        // The time and season the editor is previewing, if the game should start with them.
+        const minutes = this.previewMinutes, season = this.previewSeason;
+        const hasSeason = season !== null && season !== undefined;
+        const seasonNames = (DocsDoodads.World.settings().seasons || {}).names || [];
+        const text = P.startText(minutes, hasSeason ? seasonNames[season] || `season ${Number(season) + 1}` : '');
+        let useTime = false;
+        if (text) {
+            const answer = await Ui.choose(`Start at ${text}, as the editor shows it, or at the game's own time?`, [
+                { label: 'Cancel', value: null },
+                { label: "The Game's Time", value: 'game' },
+                { label: `Start at ${text}`, value: 'preview', kind: 'good', main: true }
+            ], { title: 'Play From Here', icon: 'sun' });
+            if (!answer) return false;
+            useTime = answer === 'preview';
+        }
+
+        if (!(await this.requestClose())) return false;
+        const api = DocsDoodads.api;
+        if (useTime && minutes !== null && minutes !== undefined) api.setTime(Math.floor(minutes / 60), Math.round(minutes) % 60);
+        if (useTime && hasSeason) api.setSeason(season);
+        $gamePlayer.locate(x, y);
+        return true;
+    },
+
+    // Ctrl+Enter and the palette: the tile the mouse was last over on the map.
+    playFromCursor() {
+        const at = this._cursor;
+        if (!at) {
+            this.showToast('Point at a tile on the map first.');
+            return false;
+        }
+        this.playFromHere(at.tileX, at.tileY);
+        return true;
+    }
+});
+//==========================================================
 // SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
 //==========================================================
 // In the Screen Looks card, under the effects: looks that blend in by the clock (game-wide) and while the
@@ -46828,6 +46945,7 @@ Object.assign(DocsDoodads.Workspace, {
             copy: () => this.copySelected(),
             paste: () => this.pasteCopied(false),
             pasteInPlace: () => this.pasteCopied(true),
+            playHere: () => this.playFromCursor(),
             selectAll: () => this.selectAllDoodads(),
             delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
             palette: () => this.showCommandPalette(),

@@ -169,7 +169,8 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Right-Click Canvas Context Menu**:
   - *On Doodad*: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Move to Layer, Select Same Art, Select Everything on its layer, Replace Art..., Delete (Del). Right-clicking one of several picked doodads keeps them all picked, and every item acts on all of them (the Z order too).
   - *On MZ Event*: Save as Event Template..., Duplicate Event, Delete Event.
-  - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Show Hidden Doodads (when some are hidden), Stamp Asset Here.
+  - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Show Hidden Doodads (when some are hidden), Stamp Asset Here, Play From Here (Ctrl+Enter).
+- **Play From Here** (right-click an empty tile, or **Ctrl+Enter** with the mouse over one, or Ctrl+K): the editor closes and the player stands on that tile, flat or in 3D, to try what you just built. Unsaved work is asked about first, as Done does. If the clock bar is previewing a time or a season, it asks whether to start then or at the game's own time. A tile the player can't stand on (off the map, a wall or water with no way on or off, or a doodad's collision) is refused with the reason, and the nearest free tile is offered.
   - *Duplicate Event* puts the copy one tile to the right, or on the nearest free tile inside the map when that one is off the edge or has an event.
 - **Select All, Same Art, Layer, Invert**: these pick only what Select can reach (not doodads hidden in the editor or on hidden or locked layers). Same Art matches the picture however its path is written.
 - **Hidden doodads**: a doodad hidden in the editor (Hide) can't be clicked or boxed. **Show Hidden Doodads** (right-click the empty map, Ctrl+K, or the button under Layers in the map's Details) shows them all again and picks them, in one step to undo. Layers counts them in brackets beside each layer.
@@ -908,6 +909,7 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | **Ctrl** + **Shift** + **V** | Paste in Place (where they were copied) | Editing |
 | **Ctrl** + **A** | Select All | Editing |
 | **Delete** | Delete the picked doodads or event | Editing |
+| **Ctrl** + **Enter** | Play From Here: the player starts on the tile under the mouse | Editing |
 | **Arrow keys** | Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile *(fixed)* | Editing |
 | **Ctrl** + **K** | Find a Tool (command palette) | Panels |
 | **H** | Fold or open Details | Panels |

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Play From Here: right-click an empty tile (or Ctrl+Enter over one, or Ctrl+K) and the editor closes with the player standing there, flat or in 3D. It asks about unsaved work as Done does, offers to start at the time and season the clock bar is previewing, and refuses a tile the player can't stand on, saying why and offering the nearest free one.
 - Types for `DocsDoodads.api`: `types/Docs-Doodads.d.ts`, in the release download, gives other plugins' authors completion and checking in their editor (every call, a doodad's fields, the `on` events). `npm run types` writes it from the JSDoc in `src/07_public_api.js`, and `npm run verify` fails when it is out of date or a call has no JSDoc. TypeScript's own compiler (a new dev dependency) checks the file, and that it accepts right calls and catches wrong ones.
 - `npm run package` makes the download for a release (`release/Docs-Doodads-<version>.zip`): the plugin, a README.txt on installing it, the guide, the cheat sheet, the changelog, the translation template, the deploy tool and the licences. `--ref v<version>` packages a tag from git, whatever is checked out.
 - Fixes: Stamp's picture under the mouse no longer stays where the mouse left the map after picking another tool. Screen Looks keeps the preset just applied shown in its list (it went back to the first one).
