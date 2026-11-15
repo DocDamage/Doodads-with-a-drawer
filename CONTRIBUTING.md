@@ -56,6 +56,7 @@ Editor panels use the theme's CSS variables (`--dd-*`) and classes (`dd-btn`, `d
 ## Scripts
 
 - `scripts/shortcuts.js`: `npm run shortcuts` builds and writes the guide's keyboard table from `src/11_shortcuts.js`; `--check` only reports whether it is current.
+- `scripts/types.js`: `npm run types` writes `types/Docs-Doodads.d.ts` from the JSDoc above each method in `src/07_public_api.js` (`@param`, `@returns`, `@template`, `@internal`) and a doodad's fields from `standardStructData`; `--check` (run by verify) fails when it is out of date or a method's JSDoc is missing or doesn't match its arguments. A new API method needs its JSDoc, then `npm run types`. `scratch/test_types.js` runs TypeScript's compiler (`typescript`, a dev dependency) on the file and on `scratch/fixtures/api_types_use.ts`, which holds right calls and wrong ones marked `@ts-expect-error`; add a line there for a new call.
 - `scripts/build.js`: `npm run build`, and `npm run check` (the built file matches `src/` and parses). `npm run verify` (`scratch/verify-project.js`) runs the full preflight.
 - `scripts/icons.js` and `scripts/fonts.js`: the generated UI parts above.
 - `scripts/deploy.js` (`npm run deploy -- <project> <output> [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]`): a Windows build like MZ's File > Deployment with encryption on, for testing a deployed game. It needs MZ's `nwjs-win` runtime (found in the usual Steam and KADOKAWA install folders, or passed with `--runtime`) and never writes inside the project.
@@ -66,6 +67,6 @@ Editor panels use the theme's CSS variables (`--dd-*`) and classes (`dd-btn`, `d
 1. Pick the version and put it in `package.json`, the header's `@plugindesc` (`[V…]`) and `pluginVersion` in `src/01_core_constants_parameters.js`.
 2. In `CHANGELOG.md`, turn "Unreleased — X" into "X — <date>" and start a new Unreleased section above it when work goes on.
 3. Give What's New (`DocsDoodads.WhatsNew` in `src/44_workspace_onboarding.js`) the version as its `id` and seven short items from the top of that changelog section.
-4. `npm run build`, `npm run strings`, `npm run shortcuts`; then `npm run verify` (it checks that the five versions agree) and `npm run coverage`.
+4. `npm run build`, `npm run strings`, `npm run shortcuts`, `npm run types`; then `npm run verify` (it checks that the five versions agree) and `npm run coverage`.
 5. Run `MANUAL_TEST_CHECKLIST.md` on a copy of a real project, record it in `docs/QA_<date>.md`, and test a deployed build (`npm run deploy`).
 6. Once it is merged and tagged (`v<version>`), `npm run package -- --ref v<version>` makes the download in `release/`, to attach to the GitHub release and upload to itch.io.
