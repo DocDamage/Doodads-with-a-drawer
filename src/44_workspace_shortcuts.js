@@ -57,6 +57,8 @@ Object.assign(DocsDoodads.Workspace, {
             brushSmaller: () => this.resizeBrush(-1) || false,
             brushBigger: () => this.resizeBrush(1) || false
         };
+        actions.ruler = tool('ruler');
+        for (let n = 1; n <= 9; n++) actions['bookmark' + n] = () => this.goToBookmarkNumber(n);
         const run = actions[id];
         if (!run) return false;
         const result = run();

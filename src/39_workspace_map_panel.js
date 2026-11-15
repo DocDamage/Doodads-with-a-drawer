@@ -775,6 +775,8 @@
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
         add('Problems (check the map)', () => this.showProblems());
+        add('Tool: Ruler (measure)', () => this.setPlacementTool('ruler'), null, K('ruler'));
+        for (const c of this.bookmarkCommands()) add(c.label, c.run, 'Bookmark', c.keys);
         add('Notes (pinned to tiles)', () => this.showNotesCard());
         add('Show / Hide Notes', () => this.toggleNotes());
         add('Find doodads (by picture, name, tag, layer...)', () => this.showFind());

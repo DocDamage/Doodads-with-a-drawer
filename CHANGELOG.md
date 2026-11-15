@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Ruler and bookmarks: the **Ruler** (M) measures on the map in tiles across and down, the walk, the straight line and pixels (Shift snaps to tile middles; in 3D on the ground). **Bookmark This View** keeps a place on a map (and the 3D camera) to jump back to from Ctrl+K, the Bookmarks card (More) or Ctrl+1 to Ctrl+9, opening the other map when needed.
 - Map notes: right-click a tile, **Add Note Here**, for a note or to-do pinned there, seen only in the editor. Pins show on flat maps (faded once done) with the words on hover; More → Notes lists this map's or every map's notes with Go To, done and delete; More → Hide Notes hides the pins. Each change is one undo step; notes are saved with the doodads and never shown in the game or in a Capture.
 - Fix: crash recovery now keeps unsaved notes on every map and editor bookmarks, including changes that remove either list.
 - Names and icons over events: `<docs label: Blacksmith>` and `<docs icon: 87>` (in the note or a page comment, or **Name over it** and **Icon** in the event's Details) show over the event, flat and in 3D; `<docs label range: 4>` shows them only near the player. World → Event Labels sets the size, colour and fade, and the Show / Hide Event Labels command turns them off for a playthrough. A map without the tags costs nothing a frame.

@@ -180,6 +180,9 @@ DocsDoodads.Workspace = {
         this.endTour();
         this.closeCaptureCard();
         this.closeProblems();
+        if (typeof this.closeBookmarks === 'function') this.closeBookmarks();
+        if (typeof this.hideRulerReadout === 'function') this.hideRulerReadout();
+        this._ruler = null;
         if (typeof this.closeNotes === 'function') this.closeNotes();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
@@ -502,6 +505,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-savemap-btn" title="Save this map's doodads, settings and events; other maps' changes wait">${U.icon('save', 1)} Save This Map</button>
                     <button class="dd-btn" id="dd-autosave-btn" title="Save the project every few minutes of unsaved work (on this computer)">${U.icon('history', 1)} <span id="dd-autosave-label">${this.autosaveLabel()}</span></button>
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
+                    <button class="dd-btn" id="dd-ruler-btn" title="${escapeHtml(DocsDoodads.Shortcuts.tip('ruler', 'Measure on the map in tiles and pixels'))}">📏 Ruler</button>
+                    <button class="dd-btn" id="dd-bookmarks-btn" title="Places on the maps to jump back to (Ctrl+1 to Ctrl+9)">🔖 Bookmarks</button>
                     <button class="dd-btn" id="dd-notes-btn" title="Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)">📝 Notes</button>
                     <button class="dd-btn" id="dd-notes-show-btn" title="Show or hide the notes' pins on the map">📌 <span id="dd-notes-show-label">${this.notesShown() ? 'Hide Notes' : 'Show Notes'}</span></button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
@@ -1000,6 +1005,8 @@ DocsDoodads.Workspace = {
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
+        on('dd-ruler-btn', () => { this.setPlacementTool('ruler'); });
+        on('dd-bookmarks-btn', () => { this.showMoreMenu(false); this.showBookmarks(); });
         on('dd-notes-btn', () => { this.showMoreMenu(false); this.showNotesCard(); });
         on('dd-notes-show-btn', () => { this.toggleNotes(); this.showMoreMenu(false); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });

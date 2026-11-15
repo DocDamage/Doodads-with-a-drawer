@@ -131,6 +131,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Type a search with several terms: chips appear; × removes one; save it, reopen the editor, click the saved chip; × forgets it.
 - [ ] Open an empty Favourites, Prefabs and Recent tab and a search with no results: each says what to do, and the button works (Bring In Files opens a file picker).
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+- [ ] Ruler (M): drag across a few tiles; the readout's tiles, walk and pixels are right; Shift snaps to tile middles; Esc clears it; the map is unchanged. In 3D the line lies on the ground where the mouse went.
+- [ ] Bookmarks: Bookmark This View on two maps (one in 3D, turned); Ctrl+1 and Ctrl+2 jump between them, opening the other map and putting the camera back; move one up in the card and the keys follow. Save and start again: they are kept.
 - [ ] Map notes: right-click a tile, Add Note Here; a pin shows and its words show on hover. Edit, Mark Done (faded), Delete, and undo each. More → Notes, Every map: Go To another map's note opens it there. Save, close the playtest, start again: the notes are back. Hide Notes hides the pins; a Capture has none; the game never shows them.
 - [ ] Play From Here: right-click an empty tile on an outdoor map, a looping map and a cave; the editor closes and the player stands there, the camera on them (and followers beside them). Ctrl+Enter over a tile does the same; in 3D, the tile under the mouse.
 - [ ] Play From Here on a wall, on water and on a doodad with collision: the reason is given and Start There goes to the nearest free tile. With unsaved work, Keep Editing leaves the player where they were.
