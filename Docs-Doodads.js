@@ -3740,17 +3740,39 @@ DocsDoodads.api = {
     _listeners: {},
 
     // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
+    /**
+     * Listens for one of the plugin's events. Returns a function that stops listening.
+     * @template {keyof DocsDoodadsEvents} K
+     * @param {K} event - 'touch', 'state', 'light', 'animationEnd', 'takeOff', 'land' or 'dive'.
+     * @param {(detail: DocsDoodadsEvents[K]) => void} fn - Called with the event's detail.
+     * @returns {() => void}
+     */
     on(event, fn) {
         if (typeof fn !== 'function') return () => {};
         (this._listeners[event] = this._listeners[event] || []).push(fn);
         return () => this.off(event, fn);
     },
 
+    /**
+     * Stops a listener added with on().
+     * @template {keyof DocsDoodadsEvents} K
+     * @param {K} event
+     * @param {(detail: DocsDoodadsEvents[K]) => void} fn
+     * @returns {void}
+     */
     off(event, fn) {
         const list = this._listeners[event];
         if (list) this._listeners[event] = list.filter(f => f !== fn);
     },
 
+    /**
+     * Tells every listener of an event (the plugin calls this; a listener that throws is logged and skipped).
+     * @internal
+     * @template {keyof DocsDoodadsEvents} K
+     * @param {K} event
+     * @param {DocsDoodadsEvents[K]} detail
+     * @returns {void}
+     */
     emit(event, detail) {
         for (const fn of (this._listeners[event] || []).slice()) {
             try {
@@ -3762,21 +3784,39 @@ DocsDoodads.api = {
     },
 
     // ---- Finding doodads ----
+    /**
+     * The map id the API works on: the one given, or the map the player is on.
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     mapId(mapId) {
         return DocsDoodads.WorldState.mapId(mapId);
     },
 
+    /**
+     * The map's tile size in pixels (48 by 48 when no map is loaded).
+     * @returns {{ w: number, h: number }}
+     */
     tileSize() {
         const ok = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileWidth;
         return { w: ok ? $gameMap.tileWidth() : 48, h: ok ? $gameMap.tileHeight() : 48 };
     },
 
-    // The doodads on a map (the live list; change them through the calls below so the map keeps up).
+    /**
+     * The doodads on a map (the live list; change them through the calls below so the map keeps up).
+     * @param {number} [mapId]
+     * @returns {DocsDoodad[]}
+     */
     doodads(mapId) {
         return (DocsDoodads.doodads(this.mapId(mapId)) || []).filter(Boolean);
     },
 
-    // query: a Name (any case), a doodad, or { name, uid, art, near: { x, y, radius } (tiles), mapId, where(d) }.
+    /**
+     * The doodads that match a query: a name (any case), a doodad, or { name, uid, art, near, mapId, where }.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {DocsDoodad[]}
+     */
     find(query, mapId) {
         if (query && typeof query === 'object' && query.bit) return [query];
         const q = typeof query === 'string' ? { name: query } : Object.assign({}, query);
@@ -3798,11 +3838,21 @@ DocsDoodads.api = {
         });
     },
 
+    /**
+     * The first doodad that matches a query, or null.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {DocsDoodad | null}
+     */
     get(query, mapId) {
         return this.find(query, mapId)[0] || null;
     },
 
-    // Where a doodad stands, in tiles ({ x, y }: the tile its base is on).
+    /**
+     * Where a doodad stands, in tiles: the tile its base is on, or null when none matches.
+     * @param {DocsDoodadQuery} query
+     * @returns {{ x: number, y: number } | null}
+     */
     tileOf(query) {
         const d = this.get(query);
         if (!d) return null;
@@ -3811,20 +3861,30 @@ DocsDoodads.api = {
     },
 
     // ---- Changing the map's doodads (for this run of the game only) ----
+    /**
+     * The map's spriteset when doodads are drawn on it, or null.
+     * @internal
+     * @returns {object | null}
+     */
     spriteset() {
         const scene = typeof SceneManager !== 'undefined' && SceneManager ? SceneManager._scene : null;
         return scene && scene._spriteset && scene._spriteset.addDocsDoodads ? scene._spriteset : null;
     },
 
-    // Rebuilds the doodad sprites (after changing art or many fields at once).
+    /**
+     * Rebuilds the doodad sprites (after changing art or many fields at once).
+     * @returns {void}
+     */
     refresh() {
         const ss = this.spriteset();
         if (ss) ss.addDocsDoodads();
     },
 
-    // spec: { art: 'img/doodads/Rock.png', x, y, tiles: true (x and y are tiles; false = pixels), name,
-    //         transition ('fade', 'pop', 'rise', 'dissolve' or 'crumble': it appears that way), frames (30),
-    //         and any doodad field (light, states, touch, collision, scaleX...) }. Returns the doodad.
+    /**
+     * Places a doodad for this run of the game (never written to the project or the save). Returns the doodad, or null without art.
+     * @param {DocsDoodadPlaceSpec} spec - { art, x, y, tiles, name, transition, frames, mapId } and any doodad field.
+     * @returns {DocsDoodad | null}
+     */
     place(spec) {
         spec = Object.assign({ tiles: true }, spec);
         const appear = spec.transition && spec.transition !== 'none' ? { type: String(spec.transition), frames: Number(spec.frames) > 0 ? Number(spec.frames) : 30 } : null;
@@ -3858,8 +3918,15 @@ DocsDoodads.api = {
         return d;
     },
 
-    // A doodad's frame size: as given, then from the library, then (for either one still missing) from
-    // the picture once it loads.
+    /**
+     * Sets a doodad's frame size: as given, then from the library, then from the picture once it loads.
+     * @internal
+     * @param {DocsDoodad} d
+     * @param {string} art
+     * @param {number} [frameW]
+     * @param {number} [frameH]
+     * @returns {void}
+     */
     sizeFor(d, art, frameW, frameH) {
         const assets = DocsDoodads.AssetIndex && DocsDoodads.AssetIndex.data && DocsDoodads.AssetIndex.data.assets;
         const asset = assets ? assets[String(art).toLowerCase()] : null;
@@ -3875,7 +3942,14 @@ DocsDoodads.api = {
         });
     },
 
-    // Moves doodads to (x, y): tiles unless opts.tiles is false; opts.relative moves them by that much.
+    /**
+     * Moves doodads to (x, y): tiles unless opts.tiles is false; opts.relative moves them by that much. Returns how many moved.
+     * @param {DocsDoodadQuery} query
+     * @param {number} x
+     * @param {number} y
+     * @param {{ tiles?: boolean, relative?: boolean }} [opts]
+     * @returns {number}
+     */
     move(query, x, y, opts = {}) {
         const list = this.find(query);
         const ts = this.tileSize();
@@ -3895,8 +3969,12 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new picture redraws them, at its own
-    // size unless frameW and frameH come with it.
+    /**
+     * Changes fields on doodads ({ opacity: 0.5, light: {...} }); a new art redraws them, at its own size unless frameW and frameH come with it. Returns how many changed.
+     * @param {DocsDoodadQuery} query
+     * @param {Partial<DocsDoodad> & { art?: string }} props
+     * @returns {number}
+     */
     set(query, props) {
         const list = this.find(query);
         if (!props || list.length === 0) return 0;
@@ -3919,8 +3997,13 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // opts: { transition ('fade', 'pop'...: it goes that way first), frames (30) }. Only the sprites of the
-    // doodads taken out go; the rest of the map is not built again.
+    /**
+     * Takes doodads off the map, through a transition if opts has one. Only their sprites go; the rest of the map is not built again. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {number | DocsDoodadRemoveOptions} [mapId] - A map id, or the options in its place.
+     * @param {DocsDoodadRemoveOptions} [opts]
+     * @returns {number}
+     */
     remove(query, mapId, opts = {}) {
         if (mapId && typeof mapId === 'object') { opts = mapId; mapId = undefined; }
         const m = this.mapId(query && typeof query === 'object' && query.mapId !== undefined ? query.mapId : mapId);
@@ -3938,7 +4021,13 @@ DocsDoodads.api = {
         return list.length;
     },
 
-    // Out of the map's list and off the map (removeSomeDocsDoodads), with collision told.
+    /**
+     * Out of the map's list and off the map at once, with collision told.
+     * @internal
+     * @param {DocsDoodad[]} list
+     * @param {number} [mapId]
+     * @returns {void}
+     */
     takeOut(list, mapId) {
         const m = this.mapId(mapId);
         const data = window.$dataDocsDoodads || {};
@@ -3949,67 +4038,133 @@ DocsDoodads.api = {
     },
 
     // ---- States and lights (kept in the save file) ----
+    /**
+     * A named doodad's state ('' when it has none set). Kept in the save file.
+     * @param {string | DocsDoodad} name
+     * @param {number} [mapId]
+     * @returns {string}
+     */
     state(name, mapId) {
         return DocsDoodads.WorldState.state(name, mapId);
     },
 
+    /**
+     * Sets a named doodad's state: a state's name or number, 'next', or '' (or null) for its first. Returns whether it changed.
+     * @param {string | DocsDoodad} name
+     * @param {string | number | null} state
+     * @param {number} [mapId]
+     * @returns {boolean}
+     */
     setState(name, state, mapId) {
         return DocsDoodads.WorldState.setState(name, state, mapId);
     },
 
+    /**
+     * The names of a doodad's states, in order.
+     * @param {DocsDoodadQuery} query
+     * @returns {string[]}
+     */
     stateNames(query) {
         const d = this.get(query);
         return d ? DocsDoodads.States.list(d).map(s => String(s.name || '')) : [];
     },
 
+    /**
+     * Whether a named doodad's light is on (null when there's no such doodad and nothing saved). Kept in the save file.
+     * @param {string | DocsDoodad} name
+     * @param {number} [mapId]
+     * @returns {boolean | null}
+     */
     light(name, mapId) {
         return DocsDoodads.WorldState.light(name, mapId);
     },
 
+    /**
+     * Turns a named doodad's light on or off, or back to its own setting (null). Returns false for a doodad with no Name.
+     * @param {string | DocsDoodad} name
+     * @param {boolean | null} on
+     * @param {number} [mapId]
+     * @returns {boolean}
+     */
     setLight(name, on, mapId) {
         return DocsDoodads.WorldState.setLight(name, on, mapId);
     },
 
     // ---- What the plugin commands do, for scripts and other plugins ----
-    // A doodad acts as if the player touched it (its next state, its common event); once-only and
-    // cooldowns apply. resetTouch lets a once-only doodad run again.
+    /**
+     * A doodad acts as if the player touched it (its next state, its common event); once-only and cooldowns apply. Returns whether anything ran.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {boolean}
+     */
     touch(query, mapId) {
         const d = this.get(query, mapId);
         return d ? DocsDoodads.Touch.run(d, mapId) : false;
     },
 
+    /**
+     * Lets once-only doodads run again. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     resetTouch(query, mapId) {
         const list = this.find(query, mapId);
         for (const d of list) DocsDoodads.Touch.reset(d, mapId);
         return list.length;
     },
 
-    // Plays the doodads' picture strips once (opts: from, to, hold); 'animationEnd' says when each is done.
+    /**
+     * Plays the doodads' picture strips once; 'animationEnd' says when each is done. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {{ from?: number, to?: number, hold?: boolean }} [opts]
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     playAnimation(query, opts = {}, mapId) {
         const list = this.find(query, mapId);
         for (const d of list) DocsDoodads.AnimPlay.play(d, Object.assign({}, opts, { mapId }));
         return list.length;
     },
 
-    // strength 0-1 (or 'world' for World > Weather's), over frames, direction 'left', 'right' or 'same'.
+    /**
+     * Sets the wind: strength 0-1 (or 'world' for World > Weather's own) over frames, blowing 'left', 'right' or the 'same' way.
+     * @param {number | 'world'} strength
+     * @param {number} [frames]
+     * @param {'left' | 'right' | 'same'} [direction]
+     * @returns {object | null}
+     */
     setWind(strength, frames = 0, direction = 'same') {
         return DocsDoodads.Wind.set(strength === 'world' ? 'world' : Number(strength), Number(frames) || 0, String(direction || 'same'));
     },
 
-    // true, false, or null for World > Lighting's own setting.
+    /**
+     * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
+     * @param {boolean | null} on
+     * @returns {boolean}
+     */
     flashlight(on) {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
         $gameSystem._docsFlashlight = on === null || on === undefined ? undefined : Boolean(on);
         return true;
     },
 
-    // An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
+    /**
+     * An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
+     * @param {DocsTraversalAbility} ability
+     * @param {boolean | null} on
+     * @returns {boolean}
+     */
     traversal(ability, on) {
         DocsDoodads.Traversal.setAbility(String(ability || ''), on === null || on === undefined ? null : Boolean(on));
         return true;
     },
 
-    // The player jumps, takes off, lands or dives ('jump', 'takeOff', 'land', 'dive'), as if they pressed the key.
+    /**
+     * The player jumps, takes off, lands or dives, as if they pressed the key. Returns whether they did.
+     * @param {'jump' | 'takeOff' | 'land' | 'dive'} action
+     * @returns {boolean}
+     */
     traversalAction(action) {
         const X = DocsDoodads.Traversal, a = String(action || '');
         if (a === 'jump') return X.jump();
@@ -4019,8 +4174,12 @@ DocsDoodads.api = {
         return false;
     },
 
-    // An effect from the Effects Maker (or a built-in) at a tile ({ x, y }), or on a character or
-    // 'player' (it follows them).
+    /**
+     * Plays an effect from the Effects Maker (or a built-in) at a tile, or on a character or 'player' (it follows them). Returns the playing effect, or null.
+     * @param {string} id
+     * @param {{ x: number, y: number } | DocsCharacter | 'player'} [at]
+     * @returns {object | null}
+     */
     playVfx(id, at = {}) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return null;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -4031,12 +4190,21 @@ DocsDoodads.api = {
         return DocsDoodads.Vfx.play(spec);
     },
 
-    // The explored map: 'all', 'around' (opts.radius), 'region' (opts.region), 'store' (opts.variableId)
-    // or 'forget'; explored() is how much of a map has been seen, 0-1.
+    /**
+     * The explored map: 'all', 'around' (opts.radius), 'region' (opts.region), 'store' (opts.variableId) or 'forget'.
+     * @param {'all' | 'around' | 'region' | 'store' | 'forget'} [action]
+     * @param {{ radius?: number, region?: number, variableId?: number, mapId?: number }} [opts]
+     * @returns {boolean}
+     */
     reveal(action = 'all', opts = {}) {
         return DocsDoodads.Minimap.exploredCommand(Object.assign({ action }, opts));
     },
 
+    /**
+     * How much of a map has been seen, 0-1.
+     * @param {number} [mapId]
+     * @returns {number}
+     */
     explored(mapId) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return 0;
         const m = this.mapId(mapId);
@@ -4046,8 +4214,12 @@ DocsDoodads.api = {
         return saved ? E.fraction(m, saved.w, saved.h) : 0;
     },
 
-    // An atmosphere effect on or off for this playthrough (characterShadows, motionBlur, reflections,
-    // seeThrough, postfx).
+    /**
+     * An atmosphere effect on or off for this playthrough (characterShadows, motionBlur, reflections, seeThrough, postfx).
+     * @param {string} name
+     * @param {boolean} on
+     * @returns {boolean}
+     */
     feature(name, on) {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
         const off = $gameSystem._docsFeatureOff = $gameSystem._docsFeatureOff || {};
@@ -4056,7 +4228,10 @@ DocsDoodads.api = {
     },
 
     // ---- The flat map's camera ----
-    // The camera stays where it is put (Scroll Map, setDisplayPos) until followCamera(); a character to follow.
+    /**
+     * The flat map's camera stays where it is put (Scroll Map, setDisplayPos) until followCamera().
+     * @returns {boolean}
+     */
     freeCamera() {
         const s = DocsDoodads.Camera2D.state();
         if (!s) return false;
@@ -4064,6 +4239,11 @@ DocsDoodads.api = {
         return true;
     },
 
+    /**
+     * The flat map's camera follows a character again (the player when none is given).
+     * @param {DocsCharacter} [character]
+     * @returns {boolean}
+     */
     followCamera(character) {
         const s = DocsDoodads.Camera2D.state();
         if (!s) return false;
@@ -4072,44 +4252,101 @@ DocsDoodads.api = {
         return true;
     },
 
-    // Zooms in on a tile ({ x, y }) or a character over frames; scale 1 goes back.
+    /**
+     * Zooms the flat map in on a tile ({ x, y }), a character or 'player' over frames; scale 1 goes back.
+     * @param {{ x: number, y: number } | DocsCharacter | 'player'} target
+     * @param {number} [scale]
+     * @param {number} [frames]
+     * @returns {boolean}
+     */
     zoomTo(target, scale = 2, frames = 60) {
         const C = DocsDoodads.Camera2D;
         return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
     },
 
     // ---- The calendar (the running clock's days; World > Day and Night) ----
+    /**
+     * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.
+     * @returns {number}
+     */
     day() { return DocsDoodads.Calendar.day(); },
+    /**
+     * The weekday: 0 for the first of World > Day and Night's list.
+     * @returns {number}
+     */
     weekday() { return DocsDoodads.Calendar.weekday(); },
+    /**
+     * The weekday's name for a day (today when none is given).
+     * @param {number} [day]
+     * @returns {string}
+     */
     weekdayName(day) { return DocsDoodads.Calendar.weekdayName(day); },
+    /**
+     * The named date for a day (today when none is given), or ''.
+     * @param {number} [day]
+     * @returns {string}
+     */
     dateName(day) { return DocsDoodads.Calendar.dateName(day); },
+    /**
+     * Goes to a day (1 or more), keeping the time of day. Returns false when the clock doesn't run.
+     * @param {number} day
+     * @returns {boolean}
+     */
     setDay(day) { return DocsDoodads.Calendar.setDay(day); },
 
     // ---- Clock, season and ambient light ----
-    // The time of day in minutes (0-1439), or null when the clock is off.
+    /**
+     * The time of day in minutes (0-1439), or null when the clock is off.
+     * @returns {number | null}
+     */
     time() {
         const m = DocsDoodads.Atmosphere.minutes();
         return m === null || m === undefined ? null : m;
     },
 
-    // day (optional) sets the clock's day too; without it the day stays as it is.
+    /**
+     * Sets the clock; day (optional) sets its day too.
+     * @param {number} hour
+     * @param {number} [minute]
+     * @param {number | null} [day]
+     * @returns {void}
+     */
     setTime(hour, minute = 0, day = null) {
         DocsDoodads.setTimeOfDay((Number(hour) || 0) * 60 + (Number(minute) || 0), day);
     },
 
+    /**
+     * Moves the clock on.
+     * @param {number} hours
+     * @param {number} [minutes]
+     * @returns {void}
+     */
     addTime(hours, minutes = 0) {
         DocsDoodads.addTimeOfDay((Number(hours) || 0) * 60 + (Number(minutes) || 0));
     },
 
+    /**
+     * The season's number (0 for the first).
+     * @returns {number}
+     */
     season() {
         return DocsDoodads.Atmosphere.season();
     },
 
+    /**
+     * The season's name from World > Seasons.
+     * @returns {string}
+     */
     seasonName() {
         const names = DocsDoodads.World.settings().seasons.names || [];
         return names[this.season()] || '';
     },
 
+    /**
+     * Sets the season by number or name. Returns false for a name that isn't one.
+     * @param {number | string} season
+     * @returns {boolean}
+     */
     setSeason(season) {
         let n = Number(season);
         if (typeof season === 'string' && !/^\d+$/.test(season.trim())) {
@@ -4119,7 +4356,13 @@ DocsDoodads.api = {
         return n >= 0;
     },
 
-    // darkness 0-1, color '#rrggbb', over frames; ambient(null) goes back to the map's own.
+    /**
+     * Ambient light: darkness 0-1 and a colour '#rrggbb' over frames; ambient(null) goes back to the map's own.
+     * @param {number | null} darkness
+     * @param {string} [color]
+     * @param {number} [frames]
+     * @returns {object | null}
+     */
     ambient(darkness, color, frames = 60) {
         if (darkness === null || darkness === undefined) {
             const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
@@ -6882,6 +7125,56 @@ DocsDoodads.MapCheck = {
     }
 };
 //==========================================================
+// SECTION 5G3: PLAY FROM HERE
+//==========================================================
+// The rules behind the editor's Play From Here (44_workspace_play_here.js): whether the player can stand on a
+// tile, the nearest tile they can, and how the editor's previewed time and season read in its question.
+// env: { width, height, passable(x, y, d), blocked(x, y) }; gameEnv() makes one from the running map.
+DocsDoodads.PlayHere = {
+    // Why the player can't start on a tile, or '' when they can.
+    why(x, y, env) {
+        if (!(x >= 0 && y >= 0 && x < env.width && y < env.height)) return 'it is off the map';
+        if (![2, 4, 6, 8].some(d => env.passable(x, y, d))) return "the player can't walk onto or off it (a wall, water or a cliff)";
+        if (env.blocked(x, y)) return "a doodad's collision covers it";
+        return '';
+    },
+
+    // The nearest tile the player can start on, within radius tiles: { x, y }, or null. Nearest first, then
+    // the one above, then the one to the left, so the same map always gives the same tile.
+    nearest(x, y, env, radius = 12) {
+        const spots = [];
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                if ((dx || dy) && dx * dx + dy * dy <= radius * radius) spots.push({ x: x + dx, y: y + dy, d: dx * dx + dy * dy });
+            }
+        }
+        spots.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
+        const hit = spots.find(s => !this.why(s.x, s.y, env));
+        return hit ? { x: hit.x, y: hit.y } : null;
+    },
+
+    // "18:30, Winter", "18:30", "Winter" or '' for what the editor is previewing (null: not previewed).
+    startText(minutes, seasonName) {
+        const parts = [];
+        if (minutes !== null && minutes !== undefined && isFinite(minutes)) {
+            const m = ((Math.round(Number(minutes)) % 1440) + 1440) % 1440;
+            parts.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+        }
+        if (seasonName) parts.push(String(seasonName));
+        return parts.join(', ');
+    },
+
+    // The running map, as why() and nearest() read it.
+    gameEnv() {
+        return {
+            width: $gameMap.width(),
+            height: $gameMap.height(),
+            passable: (x, y, d) => $gameMap.isPassable(x, y, d),
+            blocked: (x, y) => DocsDoodads.Collision.blocksTile(x, y, false, $gamePlayer)
+        };
+    }
+};
+//==========================================================
 // SECTION 5G2: ONE SHORTCUT TABLE
 //==========================================================
 // Every editor key binding is a row here. The key handler, the Keyboard Shortcuts card (More), button
@@ -6901,6 +7194,7 @@ DocsDoodads.Shortcuts = {
         { id: 'pasteInPlace', label: 'Paste in Place (where they were copied)', group: 'Editing', keys: 'Ctrl+Shift+V' },
         { id: 'selectAll', label: 'Select All', group: 'Editing', keys: 'Ctrl+A' },
         { id: 'delete', label: 'Delete the picked doodads or event', group: 'Editing', keys: 'Delete' },
+        { id: 'playHere', label: 'Play From Here: the player starts on the tile under the mouse', group: 'Editing', keys: 'Ctrl+Enter' },
         { id: 'nudge', label: 'Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile', group: 'Editing', keys: 'Arrow keys', fixed: true },
         { id: 'palette', label: 'Find a Tool (command palette)', group: 'Panels', keys: 'Ctrl+K' },
         { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
@@ -32773,6 +33067,7 @@ DocsDoodads.Workspace = {
         add('Show Hidden Doodads', () => this.showHiddenDoodads());
         add('Select Same Art as Picked', () => this.selectSameArt());
         add('Paste in Place', () => this.pasteCopied(true), null, K('pasteInPlace'));
+        add('Play From Here (the tile under the mouse)', () => this.playFromCursor(), null, K('playHere'));
         add('Replace Art of Picked Doodads', () => this.showReplaceArt());
         for (const m of D.Symmetry.modes) add(m.value === 'off' ? 'Mirror: Off' : 'Mirror: ' + m.label.replace('Mirror left/right', 'Mirror Left/Right').replace('Mirror top/bottom', 'Mirror Top/Bottom').replace('Mirror four ways', 'Mirror Four Ways'), () => this.setSymmetry(m.value));
         for (const p of D.PostFX.presets) add('Screen Look: ' + p.label, () => this.applyPreset('world', p.id), 'Look');
@@ -37092,6 +37387,8 @@ DocsDoodads.Workspace = {
             if (this.selectedAsset) {
                 items.push({ label: `Stamp ${this.selectedAsset.fileName} Here`, icon: '📌', onClick: () => this.commitPlacement(this.selectedAsset, coords) });
             }
+            items.push({ separator: true });
+            items.push({ label: DocsDoodads.Shortcuts.tip('playHere', 'Play From Here'), icon: '▶️', onClick: () => this.playFromHere(coords.tileX, coords.tileY) });
             this.showContextMenu(e.clientX, e.clientY, items);
         };
 
@@ -44784,6 +45081,69 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 //==========================================================
+// SECTION 25: WORKSPACE: PLAY FROM HERE
+//==========================================================
+// Right-click a tile (or Ctrl+Enter over it), Play From Here: the player stands there and the editor closes,
+// asking first about unsaved work (as Done does) and about the time and season being previewed. A tile the
+// player can't stand on is refused with the reason, and the nearest free one offered. The rules are
+// DocsDoodads.PlayHere (11_play_here.js).
+Object.assign(DocsDoodads.Workspace, {
+    // Resolves whether the player was put there (false when cancelled or refused).
+    async playFromHere(tileX, tileY) {
+        if (!this.mounted || typeof $gamePlayer === 'undefined' || !$gamePlayer || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const P = DocsDoodads.PlayHere, Ui = DocsDoodads.Ui;
+        const env = P.gameEnv();
+        let x = Math.floor(Number(tileX)), y = Math.floor(Number(tileY));
+        const why = P.why(x, y, env);
+        if (why) {
+            const near = P.nearest(x, y, env);
+            if (!near) {
+                await Ui.alert(`The player can't start at ${x}, ${y}: ${why}. There is no free tile near it.`, { title: 'Play From Here' });
+                return false;
+            }
+            const ok = await Ui.confirm(`The player can't start at ${x}, ${y}: ${why}. Start at ${near.x}, ${near.y} instead, the nearest free tile?`,
+                { title: 'Play From Here', ok: 'Start There' });
+            if (!ok) return false;
+            x = near.x;
+            y = near.y;
+        }
+
+        // The time and season the editor is previewing, if the game should start with them.
+        const minutes = this.previewMinutes, season = this.previewSeason;
+        const hasSeason = season !== null && season !== undefined;
+        const seasonNames = (DocsDoodads.World.settings().seasons || {}).names || [];
+        const text = P.startText(minutes, hasSeason ? seasonNames[season] || `season ${Number(season) + 1}` : '');
+        let useTime = false;
+        if (text) {
+            const answer = await Ui.choose(`Start at ${text}, as the editor shows it, or at the game's own time?`, [
+                { label: 'Cancel', value: null },
+                { label: "The Game's Time", value: 'game' },
+                { label: `Start at ${text}`, value: 'preview', kind: 'good', main: true }
+            ], { title: 'Play From Here', icon: 'sun' });
+            if (!answer) return false;
+            useTime = answer === 'preview';
+        }
+
+        if (!(await this.requestClose())) return false;
+        const api = DocsDoodads.api;
+        if (useTime && minutes !== null && minutes !== undefined) api.setTime(Math.floor(minutes / 60), Math.round(minutes) % 60);
+        if (useTime && hasSeason) api.setSeason(season);
+        $gamePlayer.locate(x, y);
+        return true;
+    },
+
+    // Ctrl+Enter and the palette: the tile the mouse was last over on the map.
+    playFromCursor() {
+        const at = this._cursor;
+        if (!at) {
+            this.showToast('Point at a tile on the map first.');
+            return false;
+        }
+        this.playFromHere(at.tileX, at.tileY);
+        return true;
+    }
+});
+//==========================================================
 // SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
 //==========================================================
 // In the Screen Looks card, under the effects: looks that blend in by the clock (game-wide) and while the
@@ -46883,6 +47243,7 @@ Object.assign(DocsDoodads.Workspace, {
             copy: () => this.copySelected(),
             paste: () => this.pasteCopied(false),
             pasteInPlace: () => this.pasteCopied(true),
+            playHere: () => this.playFromCursor(),
             selectAll: () => this.selectAllDoodads(),
             delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
             palette: () => this.showCommandPalette(),
