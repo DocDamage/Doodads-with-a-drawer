@@ -131,6 +131,9 @@ Test these on an exterior map and on a looping world map.
 - [ ] Type a search with several terms: chips appear; × removes one; save it, reopen the editor, click the saved chip; × forgets it.
 - [ ] Open an empty Favourites, Prefabs and Recent tab and a search with no results: each says what to do, and the button works (Bring In Files opens a file picker).
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
+- [ ] Play From Here: right-click an empty tile on an outdoor map, a looping map and a cave; the editor closes and the player stands there, the camera on them (and followers beside them). Ctrl+Enter over a tile does the same; in 3D, the tile under the mouse.
+- [ ] Play From Here on a wall, on water and on a doodad with collision: the reason is given and Start There goes to the nearest free tile. With unsaved work, Keep Editing leaves the player where they were.
+- [ ] Preview 18:30 and Winter in the clock bar, then Play From Here: Start at 18:30, Winter sets them; The Game's Time leaves the game's own.
 
 ## Editor look and layout
 
