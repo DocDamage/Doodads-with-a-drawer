@@ -1,6 +1,6 @@
 # Doc's Doodads: Recommendations
 
-Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is at the bottom.
+Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas, none started, was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026).
 
 **S** = an afternoon, **M** = a PR like terrain or water, **L** = several PRs.
 
@@ -156,3 +156,66 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 | 6.3.18 | **Details memory.** **Done.** Each section's open or closed state is remembered, and ☆ pins sections to the top. | S |
 | 6.3.19 | **Progress pills.** **Done.** Indexing, packing, Auto-Slice and import show a non-blocking pill with a bar and Cancel at the map's top right. | S |
 | 6.3.20 | **Sample content and What's New.** **Done.** Add Sample Items draws four pictures and adds two prefabs and a biome (once); What's New shows once after an update. | S |
+
+---
+
+## 7. Backlog: next steps (15 November 2026)
+
+Ideas gathered after PR #86, from a read of the plugin and of what users of other MZ mapping, lighting and 3D plugins ask for. None is committed to and none is started; sizes use the scale at the top. Each was checked against `Docs-Doodads.js` and is not there today.
+
+**How to build each one** (where in `src/`, the data it keeps, the steps in order, the tests, and when it is done) is in [docs/BACKLOG_7_PLAN.md](docs/BACKLOG_7_PLAN.md), under the same numbers, with a suggested order.
+
+### 7.1 Features
+
+| # | Suggestion | Size |
+|---|---|---|
+| 7.1.1 | **A game-only build.** `Docs-Doodads.js` is 2.6 MB and about half of it is the editor, which never runs in a deployed game. `npm run deploy` (and the release zip) could put in a build without it: a smaller download, a quicker start, and the editor's code kept out of shipped games. The parts don't split by number: the game uses some things defined among the editor's parts (collision, art packing, the file reader), so those move first. | M |
+| 7.1.2 | **Editing what an event does.** The editor makes events from templates and changes their position, trigger and priority, but not their commands. An editor for the common ones (Show Text, Transfer Player, switches, self switches, pages and their conditions) would save most trips back to MZ. | L |
+| 7.1.3 | **Play From Here.** Right-click a tile to put the player there and close the editor, with the time, season, weather and switches to start with. | S |
+| 7.1.4 | **Schedules for events.** The clock, the calendar and weekdays are there; nothing puts an event at the shop by day and at the inn by night. A schedule per event: where to be, by hour and weekday, walking there or appearing there. | M |
+| 7.1.5 | **Normal maps on flat maps.** Normal maps only work on 3D models. On doodads and characters they would let the lights there already shade the art by its shape. | L |
+| 7.1.6 | **Bringing in Tiled and LDtk maps.** There is no importer. Tiles, object layers as doodads, and collision shapes. | M |
+| 7.1.7 | **Types for `DocsDoodads.api`.** A `.d.ts` written by the build, so other plugins' authors get completion and checking. | S |
+| 7.1.8 | **A sample project.** Add Sample Items gives four pictures. A small town with lights, states, touchable doodads, traversal, weather and a 3D map would show what the plugin does. | M |
+
+### 7.2 UI and UX
+
+Watching a new user (item E under What's left) comes before all of these.
+
+| # | Suggestion | Size |
+|---|---|---|
+| 7.2.1 | **Split up More.** It has about 30 entries in seven groups without names. A few named menus (Map, Art, View, Project), with More for the rest. | S |
+| 7.2.2 | **Map notes.** Notes and to-dos pinned to tiles ("a chest here"), listed in a panel, never in the game. | S |
+| 7.2.3 | **A ruler and bookmarks.** Measure a distance in tiles and pixels; keep places on a big map to jump back to. | S |
+| 7.2.4 | **Map pictures.** Map tabs and World View show names only; a small picture of each map makes one quicker to find. | S |
+| 7.2.5 | **Panels in their own window.** Docking stays inside MZ's 816 × 624 window. The Item Bag or Details in a second window leaves the map clear. | M |
+| 7.2.6 | **One Settings page.** There are 16 plugin parameters and many more settings in the editor's panels. One page, with a search, that finds any of them. | M |
+
+### 7.3 Bigger features
+
+| # | Suggestion | Size |
+|---|---|---|
+| 7.3.1 | **Walking from map to map without a transfer.** Neighbouring maps and World View are there, but the player still transfers. Load the neighbours in the background and let the player walk over the edge with no fade, for open worlds. | L |
+| 7.3.2 | **A collision brush.** Collision is set per doodad (presets, Trace from Art, a box). A brush that paints walls of any shape on the map, for parallax-style maps. | M |
+| 7.3.3 | **Movement off the grid.** The player and events moving by pixels against doodad and painted collision, as an option. | L |
+| 7.3.4 | **Baking for phones.** At deploy time, draw each map's still doodads and their shadows into a few big pictures. Drawing only what is on screen took a 3,000-doodad map from 12,000 draw calls to 150; baking is the next step for phones. Needs item B's test on real hardware, and an Android device, to measure. | L |
+| 7.3.5 | **Generated maps.** Dressing rules, biomes, room stamps and prefabs are the parts of a dungeon or wilderness generator: in the editor (generate, then tidy by hand) or in the game from a seed. | L |
+| 7.3.6 | **A cutscene timeline.** Tracks for camera paths, doodad states, lights, weather, screen looks and character actions, played by one plugin command. Each is its own command today. | L |
+| 7.3.7 | **Light you can see in the air.** Rays through trees and windows, and shafts in fog, from the lightmap and the walls that already stop light. | M |
+| 7.3.8 | **A first-person 3D camera.** The 3D view has none. (VR, also asked for by users of other 3D plugins, would come after it.) | M |
+
+### 7.4 Asked for by users
+
+From the comment pages and forum threads of other MZ plugins. Two larger wishlist threads could not be read, so this list is short and is not a count of demand. Requests that match a row above name it.
+
+| # | Request | Where it was asked | Here today | Size |
+|---|---|---|---|---|
+| 7.4.1 | **Painting collision on parallax art.** | [Prlx](https://guild.rpgmakerofficial.com/t/topic/2309?tl=en) and the [Realtime Parallax Map Builder](https://sanghendrix.itch.io/realtime-parallax-map-builder-rpg-maker-mz-plugin) both added it. | Not as a brush: 7.3.2. | — |
+| 7.4.2 | **Something that can stand in for Tiled.** | [A thread on the Parallax Map Builder](https://itch.io/t/5349931/does-your-plugin-work-with-tiled-plugin-for-colisions-and-all). | Mostly; the importer (7.1.6) would finish it. | — |
+| 7.4.3 | **Maps joined without a break.** | [A forum request](https://forums.rpgmakerweb.com/threads/continuous-map-plugin.182540/) for an open world. | No: 7.3.1. | — |
+| 7.4.4 | **Speed on Android and slow machines.** Maps over 50 × 50 are said to lag on phones. | [Forum threads](https://forums.rpgmakerweb.com/threads/fps-drop-on-android.144492/). | Not tested: item B, then 7.3.4. | — |
+| 7.4.5 | **A list of plugins it works with.** The most common question on the [MZ3D page](https://cutievirus.itch.io/mz3d/comments?after=80) (VisuStella, action-battle plugins, other tilesets). Test beside the most used ones and publish the list, with what clashes. | MZ3D comments. | No list. | M |
+| 7.4.6 | **Names or icons over events.** | MZ3D comments. | No. A `<docs label>` notetag, flat and in 3D. | S |
+| 7.4.7 | **Other tile sizes and screen sizes.** | Prlx lists it. | The tile size is read from the game, but a project that isn't 48 pixels has not been played through. Play one and fix what shows. | S |
+| 7.4.8 | **More tabs and parts in the character generator.** | [A request on the official forum](https://guild.rpgmakerofficial.com/t/topic/2357?tl=en). | Partly, through the three creators. Let a creator take a folder of the user's own parts as a tab. | M |
+| 7.4.9 | **Say what already works.** Deployed, encrypted games that hang on loading are the most common MZ3D complaint; parallax-style art in 3D is asked for there; [VisuStella's lighting](https://www.yanfly.moe/wiki/Lighting_VisuStella_MZ) suggests maps under 72 × 72. All three are tested here (deployed builds, doodads standing in 3D, 200 × 200 with 375 lights). Put them at the top of the README. | Above. | Done in the plugin, not said up front. | S |
