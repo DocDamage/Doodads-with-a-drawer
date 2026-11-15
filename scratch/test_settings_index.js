@@ -93,6 +93,27 @@ let settingsOptions = null;
 W.showSettingsCard = options => { settingsOptions = options; };
 W.openSetting(params[0]);
 assert.deepStrictEqual(settingsOptions, { query: '', focusId: params[0].id }, 'plugin navigation clears an old query and reveals its row');
+
+// Autosave lives in Map on a wide toolbar, but that whole section is moved into More when the toolbar folds.
+let openedMenu = null;
+const autosave = { parentNode: null, disabled: false, focused: false,
+    getBoundingClientRect() { return openedMenu === (W._menusFolded ? 'more' : 'map') ? { width: 90, height: 24 } : { width: 0, height: 0 }; },
+    focus() { this.focused = true; }, scrollIntoView() {} };
+global.document = { getElementById: id => id === 'dd-autosave-btn' ? autosave : null, querySelector: () => null };
+W.showMenu = id => { openedMenu = id; return true; };
+for (const folded of [true, false]) {
+    W._menusFolded = folded;
+    openedMenu = null;
+    autosave.focused = false;
+    assert.strictEqual(W.openSetting({ kind: 'autosave', controlId: 'dd-autosave-btn' }), true);
+    assert.strictEqual(openedMenu, folded ? 'more' : 'map', `Autosave opens the visible ${folded ? 'More' : 'Map'} menu`);
+    assert.ok(autosave.focused, 'the visible Autosave button receives focus');
+}
+openedMenu = 'wrong';
+assert.strictEqual(W.focusSettingControl('dd-autosave-btn'), false, 'a hidden control does not report successful focus');
+autosave.disabled = true;
+openedMenu = W._menusFolded ? 'more' : 'map';
+assert.strictEqual(W.focusSettingControl('dd-autosave-btn'), false, 'a disabled control does not report successful focus');
 global.document = undefined;
 
 const source = [
