@@ -3,6 +3,7 @@
 *.json text eol=lf
 *.md text eol=lf
 *.yml text eol=lf
+*.ts text eol=lf
 
 # Qiu Jiu's original upstream plugin, kept byte-for-byte (committed with CRLF)
 QJ-Doodads.original.js -text

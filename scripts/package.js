@@ -6,7 +6,7 @@
 //   npm run package -- --out <dir>           writes it into another folder
 // The zip holds one folder, Docs-Doodads-<version>/, with the plugin, a README.txt on installing it, the guide
 // (and Your First 3D Map with its pictures), the cheat sheet, the changelog, the translation template,
-// tools/deploy.js (for --restore after MZ's Deployment) and the licences. No art from any library is in it.
+// tools/deploy.js (for --restore after MZ's Deployment), the API's types and the licences. No art from any library is in it.
 // Files are dated with the release's date in CHANGELOG.md, so the same version gives the same zip.
 'use strict';
 
@@ -74,7 +74,7 @@ function releaseDate(version, changelog) {
     return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)) : null;
 }
 
-function readmeText(version, commit) {
+function readmeText(version, commit, hasTypes) {
     return [
         `Doc's Doodads ${version}`,
         'A map editor and doodad engine for RPG Maker MZ.',
@@ -95,6 +95,7 @@ function readmeText(version, commit) {
         '  CHANGELOG.md             what changed',
         "  languages/template.json  the editor's words, to translate (the guide: Editor language)",
         "  tools/deploy.js          a deployment like MZ's, and --restore (Node.js needed)",
+        hasTypes ? "  types/Docs-Doodads.d.ts  types for DocsDoodads.api, for other plugins' authors (the guide: Scripts and other plugins)" : null,
         '  LICENSE                  MIT',
         "  licenses/Nunito-OFL.txt  the editor's font, Nunito (SIL Open Font License)",
         '',
@@ -109,14 +110,16 @@ function readmeText(version, commit) {
         'More: https://github.com/DocDamage/Doodads-with-a-drawer',
         commit ? `Built from commit ${commit}.` : '',
         ''
-    ].join('\r\n');
+    ].filter(line => line !== null).join('\r\n');
 }
 
 // What goes in the zip: [{ name, data }], names inside the release's folder.
 function contents(src, version, pluginText) {
+    // Releases before 7.1.7 have no types.
+    const hasTypes = src.list('types').includes('Docs-Doodads.d.ts');
     const out = [
         { name: 'Docs-Doodads.js', data: Buffer.from(pluginText) },
-        { name: 'README.txt', data: Buffer.from(readmeText(version, src.commit())) }
+        { name: 'README.txt', data: Buffer.from(readmeText(version, src.commit(), hasTypes)) }
     ];
     for (const file of ['Docs_Doodads_Guide.md', 'CHEAT_SHEET.md', 'CHANGELOG.md', 'LICENSE', 'docs/FIRST_3D_MAP.md', 'languages/template.json']) {
         out.push({ name: file, data: src.read(file) });
@@ -125,6 +128,7 @@ function contents(src, version, pluginText) {
         out.push({ name: 'docs/images/' + pic, data: src.read('docs/images/' + pic) });
     }
     out.push({ name: 'tools/deploy.js', data: src.read('scripts/deploy.js') });
+    if (hasTypes) out.push({ name: 'types/Docs-Doodads.d.ts', data: src.read('types/Docs-Doodads.d.ts') });
     out.push({ name: 'licenses/Nunito-OFL.txt', data: src.read('art/fonts/Nunito-OFL.txt') });
     return out;
 }

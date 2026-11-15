@@ -35,7 +35,7 @@ const names = read.files.map(f => f.name);
 assert.ok(names.every(n => n.startsWith(folder)), 'everything in one folder');
 const inside = names.map(n => n.slice(folder.length));
 for (const want of ['Docs-Doodads.js', 'README.txt', 'Docs_Doodads_Guide.md', 'CHEAT_SHEET.md', 'CHANGELOG.md', 'LICENSE',
-    'docs/FIRST_3D_MAP.md', 'languages/template.json', 'tools/deploy.js', 'licenses/Nunito-OFL.txt']) assert.ok(inside.includes(want), want + ' is in it');
+    'docs/FIRST_3D_MAP.md', 'languages/template.json', 'tools/deploy.js', 'types/Docs-Doodads.d.ts', 'licenses/Nunito-OFL.txt']) assert.ok(inside.includes(want), want + ' is in it');
 assert.ok(inside.some(n => /^docs\/images\/first3d_.*\.jpg$/.test(n)), "Your First 3D Map's pictures come with it");
 assert.ok(!inside.some(n => /\.gif$|^src\/|^scratch\/|^img\/|^audio\//.test(n)), 'no README clips, sources, tests or art');
 console.log('✓ One folder per version, with the plugin, the docs, the template, the deploy tool and the licences.');

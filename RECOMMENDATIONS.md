@@ -175,7 +175,7 @@ Ideas gathered after PR #86, from a read of the plugin and of what users of othe
 | 7.1.4 | **Schedules for events.** The clock, the calendar and weekdays are there; nothing puts an event at the shop by day and at the inn by night. A schedule per event: where to be, by hour and weekday, walking there or appearing there. | M |
 | 7.1.5 | **Normal maps on flat maps.** Normal maps only work on 3D models. On doodads and characters they would let the lights there already shade the art by its shape. | L |
 | 7.1.6 | **Bringing in Tiled and LDtk maps.** There is no importer. Tiles, object layers as doodads, and collision shapes. | M |
-| 7.1.7 | **Types for `DocsDoodads.api`.** A `.d.ts` written by the build, so other plugins' authors get completion and checking. | S |
+| 7.1.7 | **Types for `DocsDoodads.api`.** **Done.** `types/Docs-Doodads.d.ts`, written by `npm run types` from the JSDoc and checked by verify, is in the release zip. A `.d.ts` written by the build, so other plugins' authors get completion and checking. | S |
 | 7.1.8 | **A sample project.** Add Sample Items gives four pictures. A small town with lights, states, touchable doodads, traversal, weather and a 3D map would show what the plugin does. | M |
 
 ### 7.2 UI and UX
@@ -218,4 +218,4 @@ From the comment pages and forum threads of other MZ plugins. Two larger wishlis
 | 7.4.6 | **Names or icons over events.** | MZ3D comments. | No. A `<docs label>` notetag, flat and in 3D. | S |
 | 7.4.7 | **Other tile sizes and screen sizes.** | Prlx lists it. | The tile size is read from the game, but a project that isn't 48 pixels has not been played through. Play one and fix what shows. | S |
 | 7.4.8 | **More tabs and parts in the character generator.** | [A request on the official forum](https://guild.rpgmakerofficial.com/t/topic/2357?tl=en). | Partly, through the three creators. Let a creator take a folder of the user's own parts as a tab. | M |
-| 7.4.9 | **Say what already works.** Deployed, encrypted games that hang on loading are the most common MZ3D complaint; parallax-style art in 3D is asked for there; [VisuStella's lighting](https://www.yanfly.moe/wiki/Lighting_VisuStella_MZ) suggests maps under 72 × 72. All three are tested here (deployed builds, doodads standing in 3D, 200 × 200 with 375 lights). Put them at the top of the README. | Above. | Done in the plugin, not said up front. | S |
+| 7.4.9 | **Say what already works.** **Done.** Three lines under the README's first paragraph. Deployed, encrypted games that hang on loading are the most common MZ3D complaint; parallax-style art in 3D is asked for there; [VisuStella's lighting](https://www.yanfly.moe/wiki/Lighting_VisuStella_MZ) suggests maps under 72 × 72. All three are tested here (deployed builds, doodads standing in 3D, 200 × 200 with 375 lights). Put them at the top of the README. | Above. | Done in the plugin, not said up front. | S |
