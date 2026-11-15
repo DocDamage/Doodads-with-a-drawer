@@ -171,6 +171,21 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     ws.showWorldView();
     assert.ok(canvasCalls.some(call => call[0] === 'drawImage'), 'World View draws a cached picture');
     assert.ok(/Wide Field/.test(byId['dd-world-canvas'].getAttribute('aria-label')), 'World View names maps accessibly');
+    const loadedImage = global.Image, deferredImages = [];
+    global.Image = class {
+        set src(value) { this._src = value; deferredImages.push(this); }
+        get src() { return this._src; }
+    };
+    ws.showWorldView();
+    assert.ok(deferredImages.length > 0, 'a cached World View picture is loading');
+    M._volatile.delete(1);
+    M._invalid.add(1);
+    canvasCalls.length = 0;
+    ws._worldThumbRefresh(1);
+    assert.ok(canvasCalls.some(call => call[0] === 'fillRect'), 'invalidation clears already-painted World View pixels');
+    for (const image of deferredImages) image.onload();
+    assert.strictEqual(canvasCalls.filter(call => call[0] === 'drawImage').length, 0, 'late image loads cannot repaint invalidated pixels');
+    global.Image = loadedImage;
     byId['dd-world-close'].onclick();
     assert.strictEqual(ws._worldThumbRefresh, null, 'closing World View removes its redraw callback');
     D.MapLinks.layout = realLayout; D.MapLinks.bounds = realBounds; M.clearVolatile();
@@ -251,6 +266,17 @@ const D = DocsDoodads, M = D.MapThumb, ws = D.Workspace;
     assert.strictEqual(D.Persistence.saveAll(true), true, 'cache invalidation errors cannot turn a successful project save into failure');
     if (M._pending[1]) await M._pending[1].promise;
     M.invalidateMany = realInvalidateMany;
+
+    fs.writeFileSync(M.cachePath(2), 'protected-target');
+    mapSelect.value = '2';
+    mapPreview.innerHTML = '<img src="saved-target.png" />';
+    const realUnlink = D.FS.fs.unlinkSync;
+    D.FS.fs.unlinkSync = () => { throw new Error('cache file is in use'); };
+    try {
+        assert.strictEqual(M.invalidate(2), false, 'a cache deletion failure is reported');
+        assert.ok(/dd-map-thumb-empty/.test(mapPreview.innerHTML), 'a file-lock failure still clears stale visible pixels');
+    } finally { D.FS.fs.unlinkSync = realUnlink; }
+    assert.strictEqual(fs.readFileSync(M.cachePath(2), 'utf8'), 'protected-target');
 
     fs.writeFileSync(M.cachePath(2), 'keep-2');
     fs.writeFileSync(M.cachePath(3), 'keep-3');
