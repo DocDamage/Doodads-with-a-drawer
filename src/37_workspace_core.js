@@ -183,6 +183,7 @@ DocsDoodads.Workspace = {
         if (typeof this.closeBookmarks === 'function') this.closeBookmarks();
         if (typeof this.hideRulerReadout === 'function') this.hideRulerReadout();
         this._ruler = null;
+        if (typeof this.closeNotes === 'function') this.closeNotes();
         if (this._findOpen) this.closeFind();
         if (this._outlinerOpen) this.closeOutliner();
         this.closeTemplatesCard();
@@ -494,6 +495,8 @@ DocsDoodads.Workspace = {
                     <button class="dd-btn" id="dd-problems-btn" title="Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach">${U.icon('help', 1)} Problems</button>
                     <button class="dd-btn" id="dd-ruler-btn" title="${escapeHtml(DocsDoodads.Shortcuts.tip('ruler', 'Measure on the map in tiles and pixels'))}">📏 Ruler</button>
                     <button class="dd-btn" id="dd-bookmarks-btn" title="Places on the maps to jump back to (Ctrl+1 to Ctrl+9)">🔖 Bookmarks</button>
+                    <button class="dd-btn" id="dd-notes-btn" title="Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)">📝 Notes</button>
+                    <button class="dd-btn" id="dd-notes-show-btn" title="Show or hide the notes' pins on the map">📌 <span id="dd-notes-show-label">${this.notesShown() ? 'Hide Notes' : 'Show Notes'}</span></button>
                     <button class="dd-btn" id="dd-sounds-btn" title="Show where each sound on this map can be heard">${U.icon('sound', 1)} <span id="dd-sounds-label">${this.showSounds ? 'Hide Sounds' : 'Show Sounds'}</span></button>
                     <button class="dd-btn" id="dd-listen-btn" title="Click a tile to hear what the player would hear there">${U.icon('music', 1)} Listen</button>
                     <button class="dd-btn" id="dd-perf-btn" title="Frames a second, draw calls, pictures loaded and lights">${U.icon('gear', 1)} <span id="dd-perf-label">${DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'}</span></button>
@@ -992,6 +995,8 @@ DocsDoodads.Workspace = {
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
         on('dd-ruler-btn', () => { this.setPlacementTool('ruler'); });
         on('dd-bookmarks-btn', () => { this.showMoreMenu(false); this.showBookmarks(); });
+        on('dd-notes-btn', () => { this.showMoreMenu(false); this.showNotesCard(); });
+        on('dd-notes-show-btn', () => { this.toggleNotes(); this.showMoreMenu(false); });
         on('dd-find-btn', () => { this.showMoreMenu(false); this.showFind(); });
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });

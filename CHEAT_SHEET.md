@@ -17,6 +17,9 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `<no variance>` | Its sound effects keep their authored pitch and volume (no random variation). | 11 |
 | `<sound: River, 80, 8>` | A looping background sound heard within 8 tiles, at volume 80. | 11 |
 | `<sound: se/Bird1, 60, 10, 5>` | A sound effect repeated about every 5 seconds, heard within 10 tiles. | 11 |
+| `<docs label: Blacksmith>` | A name over the event (flat and 3D); Details: **Name over it**. | 15 |
+| `<docs icon: 87>` | An IconSet icon over the event, beside its name if it has one; Details: **Icon**. | 15 |
+| `<docs label range: 4>` | Its name and icon show only within 4 tiles of the player (without it, always). | 15 |
 | `<visual actor: 4>` | Wears actor 4's look (layers and all). | 13 |
 | `<visual: ...>` and the other visual tags below | Visual equipment drawn on the event. | 13 |
 
@@ -91,6 +94,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Set Doodad Light | name, light, mapId | Named doodads' lights on, off or back to their own; saved. |
 | Store Doodad State | name, variableId, mapId | A named doodad's state number (-1: none there) into a variable. |
 | Show / Hide Minimap | show | The corner minimap off (cutscenes, dark caves) or back on; saved. |
+| Show / Hide Event Labels | show | Names and icons over events (`<docs label>`, `<docs icon>`) off or back on; saved. |
 | Explored Map | action, radius, region, variable, mapId | With fog of war: reveal a whole map, around the player or a region; how much is seen into a variable; or forget a map; saved. |
 
 ## Script calls

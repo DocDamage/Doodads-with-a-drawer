@@ -56,6 +56,8 @@ DocsDoodads.World = {
         destination: {},
         // The corner minimap: on flat maps too, its fog of war (12_explored_map.js), how far the player sees.
         minimap: { flat: false, fog: false, radius: 6, size: 140 },
+        // Names and icons over events (<docs label: ...>, <docs icon: n>; 07_event_labels.js).
+        labels: { enabled: true, size: 16, colour: '#ffffff', fade: true },
         // The flat-map camera (07_camera_2d.js): easing after the player (0 = MZ's own), looking ahead (tiles).
         camera2d: { smooth: 0, lookAhead: 0 },
         // 3D models drawn on the GPU (17_perspective_runtime_models.js): faster, and still new.

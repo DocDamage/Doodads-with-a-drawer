@@ -157,6 +157,7 @@
             const page0 = ev && ev.pages && ev.pages[0] ? ev.pages[0] : {};
             const triggerNames = ["Action Button", "Player Touch", "Event Touch", "Autorun", "Parallel"];
             const priorityNames = ["Below Characters", "Same as Characters", "Above Characters"];
+            const tag = DocsDoodads.EventLabels.parse(ev ? ev.note : '') || { label: '', icon: 0 };
 
             content.innerHTML = `
                 <div style="color: var(--dd-muted); margin-bottom: 6px;">Event ${evId} on this map.</div>
@@ -183,6 +184,16 @@
                         ${priorityNames.map((p, idx) => `<option value="${idx}" ${(page0.priorityType === idx) ? 'selected' : ''}>${p}</option>`).join('')}
                     </select>
                 </div>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 6px; margin-top: 6px;">
+                    <div>
+                        <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Name over it:</label>
+                        <input type="text" id="dd-ev-label" value="${DocsDoodads.Security.escapeHtml(tag.label)}" placeholder="none" title="Shown over the event in the game (its note gets <docs label: ...>)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 10px; color: var(--dd-muted); margin-bottom: 2px;">Icon:</label>
+                        <input type="number" id="dd-ev-icon" min="0" value="${tag.icon || 0}" title="An icon from the IconSet over the event (0: none; its note gets <docs icon: n>)" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 2px 4px;" />
+                    </div>
+                </div>
                 <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
                     <button class="dd-btn dd-btn-primary" id="dd-ev-save-template-btn">💾 Save as Event Template</button>
                     <button class="dd-btn" id="dd-ev-dup-btn">Duplicate Event</button>
@@ -205,6 +216,13 @@
             evNumber('dd-ev-y', v => this.editSelectedEvent('move_event', e => { e.y = Math.max(0, Math.min(maxY, v)); }));
             evNumber('dd-ev-trigger', v => this.editSelectedEvent('event_trigger', e => { if (e.pages && e.pages[0]) e.pages[0].trigger = v; }));
             evNumber('dd-ev-priority', v => this.editSelectedEvent('event_priority', e => { if (e.pages && e.pages[0]) e.pages[0].priorityType = v; }));
+            const labelInput = document.getElementById('dd-ev-label'), iconInput = document.getElementById('dd-ev-icon');
+            const writeLabel = () => {
+                this.editEventLabel(labelInput ? labelInput.value : tag.label, iconInput ? parseInt(iconInput.value, 10) || 0 : tag.icon);
+                this.refreshInspector();
+            };
+            if (labelInput) labelInput.onchange = writeLabel;
+            if (iconInput) iconInput.onchange = writeLabel;
             document.getElementById('dd-ev-del-btn').onclick = () => {
                 this.deleteSelectedEvent();
             };

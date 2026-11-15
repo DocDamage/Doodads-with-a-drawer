@@ -1509,6 +1509,17 @@
  * @off Hide
  * @default true
  *
+ * @command showEventLabels
+ * @text Show / Hide Event Labels
+ * @desc Hides the names and icons over events (<docs label: ...>, <docs icon: n>) for this playthrough, or shows them again.
+ *
+ * @arg show
+ * @text Event labels
+ * @type boolean
+ * @on Show
+ * @off Hide
+ * @default true
+ *
  * @command exploredMap
  * @text Explored Map
  * @desc With the minimap's fog of war on: reveal a whole map, reveal around the player, or forget what was seen (saved with the game).

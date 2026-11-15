@@ -169,7 +169,8 @@ The workspace features a multi-tiered slicing engine that segments composite she
 - **Right-Click Canvas Context Menu**:
   - *On Doodad*: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Move to Layer, Select Same Art, Select Everything on its layer, Replace Art..., Delete (Del). Right-clicking one of several picked doodads keeps them all picked, and every item acts on all of them (the Z order too).
   - *On MZ Event*: Save as Event Template..., Duplicate Event, Delete Event.
-  - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Show Hidden Doodads (when some are hidden), Stamp Asset Here.
+  - *On Empty Map*: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Show Hidden Doodads (when some are hidden), Stamp Asset Here, Play From Here (Ctrl+Enter).
+- **Play From Here** (right-click an empty tile, or **Ctrl+Enter** with the mouse over one, or Ctrl+K): the editor closes and the player stands on that tile, flat or in 3D, to try what you just built. Unsaved work is asked about first, as Done does. If the clock bar is previewing a time or a season, it asks whether to start then or at the game's own time. A tile the player can't stand on (off the map, a wall or water with no way on or off, or a doodad's collision) is refused with the reason, and the nearest free tile is offered.
   - *Duplicate Event* puts the copy one tile to the right, or on the nearest free tile inside the map when that one is off the edge or has an event.
 - **Select All, Same Art, Layer, Invert**: these pick only what Select can reach (not doodads hidden in the editor or on hidden or locked layers). Same Art matches the picture however its path is written.
 - **Hidden doodads**: a doodad hidden in the editor (Hide) can't be clicked or boxed. **Show Hidden Doodads** (right-click the empty map, Ctrl+K, or the button under Layers in the map's Details) shows them all again and picks them, in one step to undo. Layers counts them in brackets beside each layer.
@@ -489,6 +490,13 @@ Make rules in the map panel under **Dressing Rules**, or with **Add to Dressing 
 - **Ruler** (**M**, More → Ruler, or Ctrl+K): press on the map, drag and let go. A readout beside the mouse gives the tiles across and down, the **walk** (across plus down: the steps on the grid), the straight line in tiles, and the pixels. Hold **Shift** to snap both ends to tile middles. The measure stays until the next one or another tool; it changes nothing. In 3D it measures on the ground.
 - **Bookmarks** keep places on big maps to jump back to. **Bookmark This View** (More → Bookmarks, or Ctrl+K) asks for a name and keeps the map, the tile in the middle of the view and, in 3D, the camera. Each bookmark is in Ctrl+K as *Go to: name*; the first nine are **Ctrl+1** to **Ctrl+9**. Going to one on another map opens that map first. The Bookmarks card renames (click the name), moves one up (to give it a lower number) and deletes. Bookmarks are saved with the doodads and never read by the game.
 
+### Map notes
+Notes and to-dos pinned to tiles ("a chest here", "check this door"), seen only in the editor.
+- **Right-click** an empty tile: **Add Note Here...** (the words and a colour). On a tile with a note: **Edit Note...**, **Mark Done** and **Delete Note**. An edit with no words deletes the note.
+- Each note shows as a pin in its tile's corner, faded once done; rest the mouse on the tile to read it. Pins are drawn on flat maps (not in the 3D view) and are never in a Capture.
+- **More → Notes** lists this map's notes or every map's, with a tick for done, **Go To** (opening the map if needed), delete, and the words to click to edit. **More → Hide Notes** hides the pins (remembered on this computer).
+- Every change is one undo step. Notes are saved with the doodads (in the main `DocsDoodads.json` either way of saving); the game never shows or reads them.
+
 ### Searching the map panel
 The map panel has many sections. Type in **Search settings** at its top (for example *fog*, *shadow* or *snow*) to show only the sections that mention every word, opened; clear it to get the panel back as it was.
 
@@ -741,6 +749,7 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 ### Map Event Inspection & Custom Template Saving
 - **Select Map Event**: Clicking any tile containing an MZ Event selects it and populates Details.
 - **Inspect & Edit**: See the event's name and ID; edit its Tile X/Y, Trigger type (Action Button, Player Touch, Event Touch, Autorun, Parallel) and Priority (first page). Edits are undoable and saved with the map.
+- **Names and icons over events**: **Name over it** and **Icon** in an event's Details put a name, an icon from your IconSet (its number, as in the database's icon picker) or both over the event in the game, flat and in 3D; they write `<docs label: Blacksmith>` and `<docs icon: 87>` into its note, so you can also type them there or in a comment on one page (that page only). Add `<docs label range: 4>` to show it only when the player is within 4 tiles; without it, it always shows. Labels hide while a message is on screen, go when the event is erased, and aren't shown for an event with no picture that blocks the way (an invisible event the player walks through, like a door or an exit, keeps its label). **World → Event Labels** sets the text size and colour and whether labels fade in and out; **Show / Hide Event Labels** turns them all off or on for a playthrough (saved).
 - **Save Event as Template**: Click **💾 Save as Event Template** in Details (or right-click the event) to capture all pages, movement routes, script calls, and conditions into `data/DocsDoodadsEventTemplates.json` for reuse across any map in your project.
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 - **Managing templates**: More → **Templates** lists your own templates by category, with **Rename**, **Category** (pick one or type a new one) and **Delete** (events made from a template stay as they are). The built-in ones can't be changed. Saving a template under a name already used asks before replacing it. Packs can carry your templates to another project (an identical one is not added twice; a different one with the same name comes in as "Name 2").
@@ -769,6 +778,8 @@ Everything works on the map the player is on unless a map ID is given. Doodads a
 | `on('touch' / 'state' / 'light' / 'animationEnd', fn)` | Calls `fn` with `{ doodad }`, `{ name, state }`, `{ name, on }` or `{ doodad, name }` (and `mapId`); returns a function that stops it. |
 
 Doodads placed, moved, changed or removed through the API change the game's copy of the map only: they last until the game is closed or reloaded and are never written to the project or to save files. States and lights are kept in the save file.
+
+**Types for your editor.** The download has `types/Docs-Doodads.d.ts`, which tells VS Code (or any editor that reads TypeScript types) every call above, what it takes and what it gives back, the fields of a doodad, and what each `on` event passes. Put it beside your plugin and start your `.js` file with `/// <reference path="Docs-Doodads.d.ts" />` (or list it in your `jsconfig.json`); typing `DocsDoodads.api.` then lists the calls, and a wrong argument is underlined. Plain JavaScript keeps working without it.
 
 ---
 
@@ -910,6 +921,7 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | **Ctrl** + **Shift** + **V** | Paste in Place (where they were copied) | Editing |
 | **Ctrl** + **A** | Select All | Editing |
 | **Delete** | Delete the picked doodads or event | Editing |
+| **Ctrl** + **Enter** | Play From Here: the player starts on the tile under the mouse | Editing |
 | **Arrow keys** | Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile *(fixed)* | Editing |
 | **Ctrl** + **K** | Find a Tool (command palette) | Panels |
 | **H** | Fold or open Details | Panels |

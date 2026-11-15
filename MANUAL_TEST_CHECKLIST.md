@@ -133,6 +133,10 @@ Test these on an exterior map and on a looping world map.
 - [ ] Ctrl+K: run a tool, a preset, Go to map, and pick an asset.
 - [ ] Ruler (M): drag across a few tiles; the readout's tiles, walk and pixels are right; Shift snaps to tile middles; Esc clears it; the map is unchanged. In 3D the line lies on the ground where the mouse went.
 - [ ] Bookmarks: Bookmark This View on two maps (one in 3D, turned); Ctrl+1 and Ctrl+2 jump between them, opening the other map and putting the camera back; move one up in the card and the keys follow. Save and start again: they are kept.
+- [ ] Map notes: right-click a tile, Add Note Here; a pin shows and its words show on hover. Edit, Mark Done (faded), Delete, and undo each. More → Notes, Every map: Go To another map's note opens it there. Save, close the playtest, start again: the notes are back. Hide Notes hides the pins; a Capture has none; the game never shows them.
+- [ ] Play From Here: right-click an empty tile on an outdoor map, a looping map and a cave; the editor closes and the player stands there, the camera on them (and followers beside them). Ctrl+Enter over a tile does the same; in 3D, the tile under the mouse.
+- [ ] Play From Here on a wall, on water and on a doodad with collision: the reason is given and Start There goes to the nearest free tile. With unsaved work, Keep Editing leaves the player where they were.
+- [ ] Preview 18:30 and Winter in the clock bar, then Play From Here: Start at 18:30, Winter sets them; The Game's Time leaves the game's own.
 
 ## Editor look and layout
 
@@ -181,6 +185,8 @@ Test these on an exterior map and on a looping world map.
 - [ ] Capture with Show Grid and Show Collision on: neither is in the picture; Capture at 2× gives a picture twice the size.
 - [ ] Show Speed on a map with 3,000 doodads (flat and 3D): about 60 frames a second and a few hundred draw calls; walk to the map's far side: doodads appear as they come on screen, lamps light the edge before they do.
 - [ ] Problems: a doodad whose condition isn't JavaScript (`$gameSwitches.value(`) is listed under Conditions that don't run; Remove Condition fixes it.
+
+- [ ] Event labels: give an NPC **Name over it** and an **Icon** in Details; it shows at once, and in the game after Save. An invisible exit with `<docs label: To Town>` shows; an invisible blocker doesn't. `<docs label range: 3>` fades in near the player and out away from it. A message hides labels; Erase Event takes one away. Check on an outdoor map, a looping map and a cave, flat and in 3D, and Show / Hide Event Labels off and on.
 
 ## Traversal, zoom and sound focus
 
