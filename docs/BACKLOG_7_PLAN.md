@@ -1,6 +1,6 @@
 # Backlog 7: How to Build Each Item
 
-**Status:** written 15 November 2026. Nothing here is started. This is the working detail for
+**Status:** written 15 November 2026. Progress is tracked in RECOMMENDATIONS.md. This is the working detail for
 [section 7 of RECOMMENDATIONS.md](../RECOMMENDATIONS.md#7-backlog-next-steps-15-november-2026): for each row, what
 to build, where in `src/`, what data it keeps, the steps in order, the tests, and when it is done.
 
