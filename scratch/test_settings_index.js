@@ -35,6 +35,18 @@ assert.deepStrictEqual(D.SettingsSearch.search(entries, 'shadow').map(x => x.id)
 assert.deepStrictEqual(D.SettingsSearch.search(entries, 'shadow character').map(x => x.id), ['map-character-shadows']);
 assert.throws(() => D.SettingsSearch.create(entries.concat(entries[0])), /duplicate/i, 'ids are unique');
 
+const manyOptions = Array.from({ length: 30 }, (_, i) => `<option value="style-${i}">Long marker style ${i}</option>`).join('');
+const selectFixture = `<div>Click marker on this map
+    <select id="fixture-marker"><option value="">As World &gt; Destination</option><option value="square">MZ square</option>${manyOptions}</select></div>
+    <div>Corner minimap when this map is flat<select id="fixture-minimap"><option value="auto">As World &gt; Minimap (off)</option><option>On</option><option>Off</option></select></div>
+    <label><input type="checkbox" id="fixture-shadows" /> Character shadows on this map</label>`;
+const fixtureControls = D.SettingsSearch.controlsFromHtml(selectFixture, 'Fixture');
+const fixtureLabel = id => fixtureControls.find(row => row.controlId === id).label;
+assert.strictEqual(fixtureLabel('fixture-marker'), 'Click marker on this map', 'long select options do not leak into its caption');
+assert.strictEqual(fixtureLabel('fixture-minimap'), 'Corner minimap when this map is flat', 'select values do not become its caption');
+assert.strictEqual(fixtureLabel('fixture-shadows'), 'Character shadows on this map', 'text after a checkbox remains its caption');
+assert.ok(fixtureControls.every(row => !/<|option|value=|Long marker style|MZ square/.test(row.label)), 'labels contain no raw or option fragments');
+
 const before = JSON.stringify({ selected: W.selectedDoodad, dirty: W.dirty, undo: D.Undo && D.Undo.stack });
 const index = W.refreshSettingsIndex();
 assert.ok(Array.isArray(W.settingsIndex) && W.settingsIndex === index);
