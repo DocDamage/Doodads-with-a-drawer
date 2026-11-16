@@ -73,9 +73,26 @@ if (gitWorks) {
     assert.ok(head.list('src').some(f => /^\d{2}_.*\.js$/.test(f)), 'the commit\'s parts are listed');
     assert.ok(head.read('package.json').length > 0);
     assert.ok(/pluginVersion = '/.test(P.buildFrom(head)), 'the commit\'s plugin builds');
-    assert.strictEqual(P.buildFrom(head, { game: true }), null, 'a historical ref without editor markers remains full-only');
-    const oldResult = P.makePackage({ ref: 'HEAD', out: path.join(out, 'historical') });
-    assert.ok(!oldResult.files.some(n => /Docs-Doodads\.game\.js$/.test(n)), 'historical package does not mislabel the full plugin as game-only');
+    const headHasMarkers = head.list('src').some(file => head.read('src/' + file).toString('utf8').split(/\r?\n/, 1)[0] === '// @editor-only');
+    const headGame = P.buildFrom(head, { game: true });
+    assert.strictEqual(Boolean(headGame), headHasMarkers, 'a marked commit supports the game-only build and an unmarked one does not');
+    const headResult = P.makePackage({ ref: 'HEAD', out: path.join(out, 'head') });
+    assert.strictEqual(headResult.files.some(n => /Docs-Doodads\.game\.js$/.test(n)), headHasMarkers, 'the ref package includes the game variant exactly when its source marks editor parts');
+
+    // Deterministic stand-in for a tag from before // @editor-only existed, independent of git history depth.
+    const legacy = {
+        list: dir => head.list(dir),
+        read(file) {
+            const data = head.read(file);
+            if (!file.startsWith('src/')) return data;
+            return Buffer.from(data.toString('utf8').replace(/^\/\/ @editor-only\r?\n/, ''));
+        },
+        commit: () => head.commit()
+    };
+    const legacyFull = P.buildFrom(legacy);
+    assert.ok(P.buildFrom(legacy, { game: true }) === null, 'a legacy source without editor markers remains full-only');
+    const legacyFiles = P.contents(legacy, version, legacyFull, null).map(file => file.name);
+    assert.ok(!legacyFiles.includes('Docs-Doodads.game.js'), 'a legacy archive does not mislabel the full plugin as game-only');
 }
 console.log('✓ Versions checked; a missing ref named; a commit packaged from git.');
 
