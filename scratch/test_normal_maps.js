@@ -113,6 +113,16 @@ for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
 const edgeNormal = N.make(edge, 3, 3, 2);
 assert.notStrictEqual(edgeNormal[16], 128, 'a horizontal height edge tilts the generated normal');
 assert.strictEqual(edgeNormal[(2 * 3 + 2) * 4 + 3], 0);
+const vertical = new Uint8ClampedArray(3 * 3 * 4);
+for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
+    const at = (y * 3 + x) * 4;
+    vertical[at] = vertical[at + 1] = vertical[at + 2] = y * 127;
+    vertical[at + 3] = 255;
+}
+const verticalNormal = N.make(vertical, 3, 3, 2);
+const encodedGreen = verticalNormal[(1 * 3 + 1) * 4 + 1];
+assert.ok(encodedGreen > 128, 'height rising down the image encodes positive tangent-space Y');
+assert.ok(-(encodedGreen / 255 * 2 - 1) < 0, 'the shader green conversion points the screen normal uphill');
 assert.throws(() => N.make(new Uint8Array(4), 100000, 100000), /size|large|pixels/i);
 
 // The editor index records hand-authored companions, hides auxiliaries, and writes the same manifest.

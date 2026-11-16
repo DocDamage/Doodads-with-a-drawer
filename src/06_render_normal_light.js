@@ -212,7 +212,9 @@ DocsDoodads.NormalLight = {
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
             const gx = -sample(x - 1, y - 1) + sample(x + 1, y - 1) - 2 * sample(x - 1, y) + 2 * sample(x + 1, y) - sample(x - 1, y + 1) + sample(x + 1, y + 1);
             const gy = -sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1) + sample(x - 1, y + 1) + 2 * sample(x, y + 1) + sample(x + 1, y + 1);
-            const nx0 = -gx * strength, ny0 = -gy * strength, length = Math.hypot(nx0, ny0, 1);
+            // The shader flips an OpenGL-style green-up normal into screen-down coordinates. A height
+            // that increases down the source therefore encodes +Y, which the shader turns uphill (-Y).
+            const nx0 = -gx * strength, ny0 = gy * strength, length = Math.hypot(nx0, ny0, 1);
             const at = (y * width + x) * 4;
             out[at] = Math.round((nx0 / length * 0.5 + 0.5) * 255);
             out[at + 1] = Math.round((ny0 / length * 0.5 + 0.5) * 255);
