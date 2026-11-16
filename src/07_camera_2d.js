@@ -10,7 +10,7 @@ DocsDoodads.Camera2D = {
     eases: [{ value: 'smooth', label: 'Smooth (ease in and out)' }, { value: 'linear', label: 'Even speed' }],
 
     settings() {
-        return Object.assign({}, this.defaults, DocsDoodads.World.settings().camera2d || {});
+        return DocsDoodads.Comfort.camera(Object.assign({}, this.defaults, DocsDoodads.World.settings().camera2d || {}));
     },
 
     // "10,5; 20,8 | 3,4" -> [{ x: 10, y: 5 }, { x: 20, y: 8 }, { x: 3, y: 4 }]

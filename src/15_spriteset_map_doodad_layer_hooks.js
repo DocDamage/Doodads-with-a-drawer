@@ -785,11 +785,15 @@ DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off'];
 if (typeof ConfigManager !== 'undefined') {
     ConfigManager.docsMotionBlur = true;
     ConfigManager.docsFxQuality = 0;
+    ConfigManager.docsReduceFlashes = false;
+    ConfigManager.docsLessCameraMotion = false;
     $.ConfigManager_makeData = ConfigManager.makeData;
     ConfigManager.makeData = function() {
         const config = $.ConfigManager_makeData.call(this);
         config.docsMotionBlur = this.docsMotionBlur;
         config.docsFxQuality = this.docsFxQuality;
+        config.docsReduceFlashes = this.docsReduceFlashes;
+        config.docsLessCameraMotion = this.docsLessCameraMotion;
         return config;
     };
     $.ConfigManager_applyData = ConfigManager.applyData;
@@ -797,10 +801,13 @@ if (typeof ConfigManager !== 'undefined') {
         $.ConfigManager_applyData.call(this, config);
         this.docsMotionBlur = config && 'docsMotionBlur' in config ? Boolean(config.docsMotionBlur) : true;
         this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(3, Number(config.docsFxQuality) || 0)) : 0;
+        this.docsReduceFlashes = Boolean(config && config.docsReduceFlashes === true);
+        this.docsLessCameraMotion = Boolean(config && config.docsLessCameraMotion === true);
     };
 }
 DocsDoodads.extraOptionCount = function() {
-    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.fxQualityOffered() ? 1 : 0);
+    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.fxQualityOffered() ? 1 : 0)
+        + (DocsDoodads.Comfort.offered() ? 2 : 0);
 };
 if (typeof Window_Options !== 'undefined') {
     $.Window_Options_addGeneralOptions = Window_Options.prototype.addGeneralOptions;
@@ -808,6 +815,10 @@ if (typeof Window_Options !== 'undefined') {
         $.Window_Options_addGeneralOptions.call(this);
         if (DocsDoodads.World.settings().motionBlur.enabled) this.addCommand('Motion Blur', 'docsMotionBlur');
         if (DocsDoodads.fxQualityOffered()) this.addCommand('Effects Quality', 'docsFxQuality');
+        if (DocsDoodads.Comfort.offered()) {
+            this.addCommand('Reduce Flashes', 'docsReduceFlashes');
+            this.addCommand('Less Camera Motion', 'docsLessCameraMotion');
+        }
     };
     // Effects Quality cycles High > Medium > Low > Off.
     $.Window_Options_statusText = Window_Options.prototype.statusText;

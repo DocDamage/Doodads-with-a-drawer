@@ -319,6 +319,22 @@
  * @default 0
  * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
+ * @param comfortOptions
+ * @text Comfort options
+ * @type select
+ * @option When used by the project
+ * @value auto
+ * @option Always
+ * @value always
+ * @default auto
+ * @desc Show Reduce Flashes and Less Camera Motion in the player's Options.
+ *
+ * @param softenMZEffects
+ * @text Also soften MZ flashes and shakes
+ * @type boolean
+ * @default false
+ * @desc Apply the player's comfort choices to MZ's Flash Screen and Shake Screen commands too.
+ *
  * @param devDiagnostics
  * @text Developer Diagnostics
  * @type boolean

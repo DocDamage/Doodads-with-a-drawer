@@ -11,6 +11,11 @@
 DocsDoodads.api = {
     version: 1,
 
+    /** Returns the player's Reduce Flashes and Less Camera Motion choices.
+     * @returns {{reduceFlashes: boolean, lessCameraMotion: boolean}}
+     */
+    comfort() { return DocsDoodads.Comfort.choices(); },
+
     _listeners: {},
 
     // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----

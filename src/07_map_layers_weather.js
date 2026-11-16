@@ -130,10 +130,10 @@ DocsDoodads.Lightning = {
     },
 
     // A strike: how bright, and when the thunder is heard (frames; nearer strikes are brighter and sooner).
-    strike(s, rand) {
+    strike(s, rand, opts) {
         const near = Number(rand) || 0;
         return {
-            flash: Math.round(Math.max(0, Math.min(255, Number(s.flash) || 0)) * (0.55 + 0.45 * near)),
+            flash: DocsDoodads.Comfort.flash(Math.round(Math.max(0, Math.min(255, Number(s.flash) || 0)) * (0.55 + 0.45 * near)), opts),
             thunderIn: Math.round((1 - near) * Math.max(0, Number(s.delay) || 0) * 60),
             volume: Math.round(Math.max(0, Math.min(100, Number(s.volume) || 0)) * (0.6 + 0.4 * near)),
             pan: Math.round(((Number(rand) * 7919) % 1 - 0.5) * 80)

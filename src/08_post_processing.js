@@ -307,14 +307,15 @@ DocsDoodads.PostFX = {
                 const fall = (1 - t) * (1 - t);
                 if (a.type === 'zoomPunch') {
                     const env = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
-                    out.zoom *= 1 + a.strength * env * env * (3 - 2 * env);
+                    out.zoom *= 1 + DocsDoodads.Comfort.motion(a.strength) * env * env * (3 - 2 * env);
                     out.zoomCenter = a.center;
                 } else if (a.type === 'shockwave') {
-                    out.shock = [a.center[0], a.center[1], t * 0.9, a.strength * 0.06 * (1 - t)];
+                    out.shock = [a.center[0], a.center[1], t * 0.9, DocsDoodads.Comfort.motion(a.strength) * 0.06 * (1 - t)];
                 } else if (a.type === 'chromaticPunch') {
-                    out.aberration += a.strength * 3 * fall;
+                    out.aberration += DocsDoodads.Comfort.motion(a.strength) * 3 * fall;
                 } else if (a.type === 'bloomFlash') {
-                    out.bloom += a.strength * 2 * fall;
+                    const opts = Object.assign(DocsDoodads.Comfort.choices(), { age: frame - a.start, duration: a.duration });
+                    out.bloom += DocsDoodads.Comfort.flash(a.strength * 255, opts) / 255 * 2 * fall;
                 }
             }
             return out;
