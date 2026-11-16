@@ -196,6 +196,7 @@ if (typeof nw !== 'undefined' && nw && nw.Window && typeof nw.Window.get === 'fu
         const win = nw.Window.get();
         if (typeof win.removeAllListeners === 'function') win.removeAllListeners('close');
         win.on('close', () => DocsDoodads.leaveGuard.request('close the game', () => {
+            if (DocsDoodads.EditWindow) DocsDoodads.EditWindow.onClose();
             if (nw.App && typeof nw.App.quit === 'function') nw.App.quit(); else win.close(true);
         }));
     } catch (e) {}
@@ -203,7 +204,10 @@ if (typeof nw !== 'undefined' && nw && nw.Window && typeof nw.Window.get === 'fu
 if (typeof SceneManager !== 'undefined' && typeof SceneManager.reloadGame === 'function') {
     $.SceneManager_reloadGame = SceneManager.reloadGame;
     SceneManager.reloadGame = function() {
-        DocsDoodads.leaveGuard.request('reload the game', () => $.SceneManager_reloadGame.call(SceneManager));
+        DocsDoodads.leaveGuard.request('reload the game', () => {
+            if (DocsDoodads.EditWindow) DocsDoodads.EditWindow.onClose();
+            $.SceneManager_reloadGame.call(SceneManager);
+        });
     };
 }
 

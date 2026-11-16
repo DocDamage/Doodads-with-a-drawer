@@ -183,9 +183,7 @@ const env = extra => Object.assign({ enabled: true, inner: { w: 816, h: 624 }, g
     box.onchange({ target: { checked: true } });
     assert.strictEqual(E.enabled(), true);
     D.Workspace.closeLookCard();
-    const rows = D.SettingsSearch.search(D.Workspace.refreshSettingsIndex ? (() => {
-        try { return D.Workspace.refreshSettingsIndex(); } catch (e) { return D.SettingsSearch.create([{ id: 'look:dd-look-bigwin', controlId: 'dd-look-bigwin', label: 'Bigger window while editing', words: '', where: 'Editor / Look', kind: 'look' }]); }
-    })() : [], 'bigger window');
+    const rows = D.SettingsSearch.search(D.Workspace.refreshSettingsIndex(), 'bigger window');
     assert.ok(rows.some(r => r.controlId === 'dd-look-bigwin'), 'Settings finds "Bigger window while editing"');
 }
 

@@ -145,6 +145,7 @@ DocsDoodads.Workspace = {
         this._onWindowResize = () => this.layoutPanels();
         window.addEventListener('resize', this._onWindowResize);
         this.mounted = true;
+        DocsDoodads.EditWindow.onOpen();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }
@@ -228,6 +229,7 @@ DocsDoodads.Workspace = {
         this.stopVfxPreview();
         this.postFxCompare = false;
         this.mounted = false;
+        DocsDoodads.EditWindow.onClose();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = false;
         }
