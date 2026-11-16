@@ -84,13 +84,14 @@ DocsDoodads.DataFiles = {
         const clean = this.stable(data || {});
         delete clean._mapFiles;
         if (clean.walls && Object.keys(clean.walls).length === 0) delete clean.walls;
+        if (clean.trace && Object.keys(clean.trace).length === 0) delete clean.trace;
         if (!split) return [{ path: this.mainPath(), data: clean, indent }];
         const main = {};
         const mapIds = new Set();
         const out = [];
         for (const key of Object.keys(clean)) {
-            if (key === 'walls') {
-                for (const id of Object.keys(clean.walls || {})) if (this.isMapKey(id) && clean.walls[id]) mapIds.add(Number(id));
+            if (key === 'walls' || key === 'trace') {
+                for (const id of Object.keys(clean[key] || {})) if (this.isMapKey(id) && clean[key][id]) mapIds.add(Number(id));
             } else if (!this.isMapKey(key)) {
                 main[key] = clean[key];
             } else if (Array.isArray(clean[key]) && clean[key].length > 0) {
@@ -101,8 +102,9 @@ DocsDoodads.DataFiles = {
         for (const id of maps) {
             const doodads = Array.isArray(clean[id]) && clean[id].length ? clean[id] : null;
             const walls = clean.walls && clean.walls[id];
+            const trace = clean.trace && clean.trace[id];
             // Old split files are arrays. Only maps that need extra per-map data use the extensible object form.
-            const mapData = walls ? this.stable(Object.assign({}, doodads ? { doodads } : {}, { walls })) : doodads;
+            const mapData = walls || trace ? this.stable(Object.assign({}, doodads ? { doodads } : {}, walls ? { walls } : {}, trace ? { trace } : {})) : doodads;
             out.push({ path: this.mapPath(id), data: mapData, indent });
         }
         main._mapFiles = maps;
@@ -125,10 +127,15 @@ DocsDoodads.DataFiles = {
                         data.walls = data.walls || {};
                         data.walls[id] = mapData.walls;
                     }
+                    if (mapData.trace) {
+                        data.trace = data.trace || {};
+                        data.trace[id] = mapData.trace;
+                    }
                 }
             }
         }
         if (data.walls && Object.keys(data.walls).length === 0) delete data.walls;
+        if (data.trace && Object.keys(data.trace).length === 0) delete data.trace;
         return data;
     },
 

@@ -2,7 +2,7 @@
 DocsDoodads.Help = {
     panels: [
         ['item bag', '4. The Item Bag'], ['details', '7. Depth'], ['collision', '16. Direct Physical'],
-        ['map settings', 'Map settings: copying'], ['moods', 'Looks and presets'],
+        ['map settings', 'Map settings: copying'], ['moods', 'Looks and presets'], ['trace', 'Trace a picture'],
         ['regions', 'Regions'], ['tiles', 'Tiles (painting'], ['hills', 'Terrain height'],
         ['terrain', 'Terrain height'], ['world view', '19. Maps:'], ['screen looks', '9. Post-Processing'],
         ['capture', 'Export Map Image'], ['effects maker', 'Effects Maker (VFX)'], ['characters', 'Character creators and My parts'],

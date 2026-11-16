@@ -88,6 +88,9 @@ Object.assign(DocsDoodads.Persistence, {
         const walls = Object.assign({}, merged.walls || {});
         if (live.walls && live.walls[mapId]) walls[mapId] = live.walls[mapId]; else delete walls[mapId];
         if (Object.keys(walls).length) merged.walls = walls; else delete merged.walls;
+        const trace = Object.assign({}, merged.trace || {});
+        if (live.trace && live.trace[mapId]) trace[mapId] = live.trace[mapId]; else delete trace[mapId];
+        if (Object.keys(trace).length) merged.trace = trace; else delete merged.trace;
 
         const owner = gameMap._stagedMapData && (gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : gameMap.mapId());
         const mapEntries = gameMap._stagedMapData && Number(owner) === mapId ? [{ path: mapFile, data: gameMap._stagedMapData, indent: 2 }] : [];

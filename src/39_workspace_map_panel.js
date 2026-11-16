@@ -764,6 +764,8 @@
         for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
         add('Screen Looks (post-processing)', () => this.showPostFxBuilder());
         add('Moods (light, look, weather and ambience)', () => this.showMoods(), 'Map');
+        add('Trace a Picture', () => this.showTraceCard(), 'Map');
+        add('Show / Hide Trace', () => this.toggleTrace(), 'View');
         add('Effects Maker (VFX)', () => this.showVfxBuilder());
         add('File Check (duplicates, unused files)', () => this.showAssetTools());
         add('Old Saves (history)', () => this.showHistoryPanel());

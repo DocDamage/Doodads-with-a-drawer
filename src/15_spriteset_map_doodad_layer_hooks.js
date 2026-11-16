@@ -1062,6 +1062,7 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
             spriteset.x = 0;
             spriteset.y = 0;
             if (spriteset._docsSelectionOutline) spriteset._docsSelectionOutline.visible = false;
+            if (spriteset._docsTraceSprite) spriteset._docsTraceSprite.visible = false;
             if (spriteset._docsSilhouette) spriteset._docsSilhouette.visible = false;
             if (spriteset._weather) spriteset._weather.visible = false;
             if (!options.includeEffects) {

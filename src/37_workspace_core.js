@@ -102,6 +102,8 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if (tool !== 'traceFit') this._traceFit = null;
+        if (tool !== 'trace' && this._traceDrag) this.endTraceDrag();
         if (DocsDoodads.SimpleMode.enabled()) {
             DocsDoodads.SimpleMode.reveal(tool);
             this.updateSimpleView();
@@ -186,6 +188,7 @@ DocsDoodads.Workspace = {
         this.closeToastHistory();
         this.closeLookCard();
         this.closeMoods();
+        this.closeTraceCard(true);
         this.closeMapTools();
         this.endTour();
         this.closeCaptureCard();
@@ -1007,6 +1010,8 @@ DocsDoodads.Workspace = {
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
         on('dd-mapset-btn', () => { this.showMoreMenu(false); this.showMapSettingsCard(); });
         on('dd-moods-btn', () => { this.showMoreMenu(false); this.showMoods(); });
+        on('dd-trace-btn', () => { this.showMoreMenu(false); this.showTraceCard(); });
+        on('dd-trace-show-btn', () => this.toggleTrace());
         on('dd-simple-btn', () => this.setSimpleMode(!DocsDoodads.SimpleMode.enabled()));
         on('dd-savemap-btn', () => { this.showMoreMenu(false); this.saveThisMap(); });
         on('dd-autosave-btn', () => { this.cycleAutosave(); });

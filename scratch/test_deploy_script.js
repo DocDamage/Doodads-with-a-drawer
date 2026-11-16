@@ -139,6 +139,7 @@ try {
     fs.unlinkSync(path.join(project, 'data', 'DocsDoodadsRequired.json'));
     console.log('✓ --restore puts back what a deployment left out, encrypted');
 } finally {
+    assert.strictEqual(path.dirname(fs.realpathSync(root)), fs.realpathSync(os.tmpdir()), 'cleanup stays in the dedicated temp root');
     fs.rmSync(root, { recursive: true, force: true });
 }
 console.log('=== Deploy script passed ===');

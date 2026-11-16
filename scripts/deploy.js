@@ -66,12 +66,13 @@ function gameBuildText(options = {}) {
     throw new Error('The game-only plugin is unavailable. Use the release package or run npm run build:game first.');
 }
 
-function copyDir(from, to, skip) {
+function copyDir(from, to, skip, relative = '') {
     fs.mkdirSync(to, { recursive: true });
     for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-        if (skip && skip(e.name)) continue;
+        const child = relative ? relative + '/' + e.name : e.name;
+        if (skip && skip(e.name, child)) continue;
         const a = path.join(from, e.name), b = path.join(to, e.name);
-        if (e.isDirectory()) copyDir(a, b);
+        if (e.isDirectory()) copyDir(a, b, skip, child);
         else fs.copyFileSync(a, b);
     }
 }
@@ -107,14 +108,32 @@ function encryptTree(dir, test, keyHex) {
     return count;
 }
 
+function canonicalDestination(value) {
+    const rest = [];
+    let existing = path.resolve(value);
+    while (!fs.existsSync(existing)) {
+        const parent = path.dirname(existing);
+        if (parent === existing) throw new Error('The output folder has no existing parent.');
+        rest.unshift(path.basename(existing)); existing = parent;
+    }
+    if (rest.length && !fs.statSync(existing).isDirectory()) throw new Error('The output parent must be a folder.');
+    return path.resolve(fs.realpathSync(existing), ...rest);
+}
+function containsDirectory(parent, child) {
+    const relative = path.relative(parent, child);
+    return !relative || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
+}
 function deploy(options) {
-    const project = path.resolve(options.project), out = path.resolve(options.out);
+    const project = fs.realpathSync(path.resolve(options.project)), out = canonicalDestination(options.out);
     if (!fs.existsSync(path.join(project, 'index.html')) || !fs.existsSync(path.join(project, 'data', 'System.json'))) {
         throw new Error(`${project} is not an MZ project (no index.html or data/System.json).`);
     }
-    if (out === project || out.startsWith(project + path.sep)) throw new Error('The output folder must be outside the project.');
-    const runtime = options.runtime || DEFAULT_RUNTIMES.find(r => fs.existsSync(path.join(r, 'nw.exe')));
-    if (!runtime || !fs.existsSync(path.join(runtime, 'nw.exe'))) throw new Error('No MZ nwjs-win runtime found; pass --runtime <folder with nw.exe>.');
+    if (containsDirectory(project, out) || containsDirectory(out, project)) throw new Error('The output folder must be outside the project and cannot contain it.');
+    const runtimeFolder = options.runtime || DEFAULT_RUNTIMES.find(r => fs.existsSync(path.join(r, 'nw.exe')));
+    if (!runtimeFolder || !fs.existsSync(path.join(runtimeFolder, 'nw.exe'))) throw new Error('No MZ nwjs-win runtime found; pass --runtime <folder with nw.exe>.');
+    const runtime = fs.realpathSync(runtimeFolder);
+    if (containsDirectory(runtime, out) || containsDirectory(out, runtime)) throw new Error('The output folder must not overlap the NW.js runtime.');
+    if (fs.existsSync(out) && !fs.statSync(out).isDirectory()) throw new Error('The output must be a folder.');
     let gameBuffer = null;
     if (options.gameBuild) {
         const pluginDir = path.join(project, 'js', 'plugins');
@@ -131,9 +150,12 @@ function deploy(options) {
     }
 
     fs.rmSync(out, { recursive: true, force: true });
-    copyDir(runtime, out, name => RUNTIME_SKIP.has(name));
+    copyDir(runtime, out, (name, relative) => !relative.includes('/') && RUNTIME_SKIP.has(name));
     fs.renameSync(path.join(out, 'nw.exe'), path.join(out, 'Game.exe'));
-    copyDir(project, out, name => name === 'save' || name.endsWith('.rmmzproject'));
+    copyDir(project, out, (name, relative) => {
+        const key = process.platform === 'win32' ? relative.toLowerCase() : relative;
+        return key === 'save' || key === 'data/docs_doodads_cache' || (!key.includes('/') && name.endsWith('.rmmzproject'));
+    });
     if (options.gameBuild) {
         const plugin = path.join(out, 'js', 'plugins', 'Docs-Doodads.js');
         fs.writeFileSync(plugin, gameBuffer);
