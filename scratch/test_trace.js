@@ -111,6 +111,12 @@ fs.writeFileSync(image, encodePng(4, 2, new Uint8Array(32).fill(255), zlib.defla
     W.moveTraceDrag({ clientX: 28, clientY: 4 }); W.endTraceDrag();
     assert.strictEqual(W.traceHere().x, 460);
     assert.strictEqual(W.traceHere().y, 460, 'crossing both seams moves twenty pixels, not almost a map');
+    W.changeTrace(Object.assign({}, imported, { x: 0, y: 0, scale: 24, turn: 0, locked: true }));
+    W.beginTraceFit(); t = W.traceHere();
+    W.traceFitClick(T.point(t, { x: 0, y: 0 })); W.traceFitClick(T.point(t, { x: 4, y: 0 }));
+    W.traceFitClick({ tileX: 9, tileY: 1 }); W.traceFitClick({ tileX: 0, tileY: 1 });
+    assert.strictEqual(W.traceHere().scale, 12, 'two-point fitting uses the adjacent tile across a looping seam');
+    assert.strictEqual(W.traceHere().turn, 0);
     $gameMap.isLoopHorizontal = $gameMap.isLoopVertical = () => false;
     W.changeTrace(Object.assign({}, imported, { scale: 24, locked: true }));
     const display = new Spriteset_Map();
