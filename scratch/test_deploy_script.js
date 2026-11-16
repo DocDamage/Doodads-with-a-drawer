@@ -77,6 +77,23 @@ try {
     assert.throws(() => deploy({ project, out, runtime: path.join(root, 'nothing'), encrypt: true, key: 'k' }), /runtime/);
     console.log('✓ unencrypted builds, arguments and refusals');
 
+    // A game-only preflight failure must not remove an existing deployment.
+    const sentinel = path.join(out, 'keep-this-build.txt');
+    write(sentinel, 'known good deployment');
+    const standaloneTools = path.join(root, 'standalone', 'tools');
+    fs.mkdirSync(standaloneTools, { recursive: true });
+    fs.copyFileSync(path.join(__dirname, '..', 'scripts', 'deploy.js'), path.join(standaloneTools, 'deploy.js'));
+    const standaloneDeploy = require(path.join(standaloneTools, 'deploy.js')).deploy;
+    assert.throws(() => standaloneDeploy({ project, out, runtime, encrypt: false, gameBuild: true }), /game-only plugin is unavailable/);
+    assert.strictEqual(fs.readFileSync(sentinel, 'utf8'), 'known good deployment', 'a missing packaged game build preserves the existing output');
+
+    const invalidProject = path.join(root, 'project-without-plugins');
+    write(path.join(invalidProject, 'index.html'), '<html></html>');
+    write(path.join(invalidProject, 'data', 'System.json'), JSON.stringify({ gameTitle: 'Invalid' }));
+    write(sentinel, 'known good deployment');
+    assert.throws(() => deploy({ project: invalidProject, out, runtime, encrypt: false, gameBuild: true, gameBuildText: 'runtime' }), /no js\/plugins folder/);
+    assert.strictEqual(fs.readFileSync(sentinel, 'utf8'), 'known good deployment', 'an invalid plugin destination preserves the existing output');
+
     // --game-build keeps the plugin's deployed basename (MZ's parameter/command identity) and leaves the source alone.
     const gameOnly = '/* game-only */\nvar runtime = true;\n';
     deploy({ project, out, runtime, encrypt: false, devtools: true, gameBuild: true, gameBuildText: gameOnly });
