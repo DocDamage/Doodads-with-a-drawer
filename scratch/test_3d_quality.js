@@ -70,6 +70,7 @@ assert.strictEqual(DocsDoodads.PostFX.offeredInOptions(), false);
 assert.strictEqual(DocsDoodads.Perspective.usedInProject(), true);
 assert.strictEqual(DocsDoodads.fxQualityOffered(), true);
 const base = DocsDoodads.extraOptionCount();
+assert.strictEqual(DocsDoodads.Comfort.offered(), false, 'a 3D view alone does not offer flash options');
 $dataDocsDoodads.mapSettings[1] = { perspective: { enabled: false } };
 assert.strictEqual(DocsDoodads.fxQualityOffered(), false);
 assert.strictEqual(DocsDoodads.extraOptionCount(), base - 1, "the Options window makes room for it");
