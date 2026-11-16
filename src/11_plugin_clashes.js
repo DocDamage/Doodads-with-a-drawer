@@ -21,18 +21,22 @@ DocsDoodads.Clash = {
         if (!object || typeof object[key] !== 'function') return null;
         const descriptor = Object.getOwnPropertyDescriptor(object, key);
         if (descriptor && (descriptor.configurable === false || descriptor.writable === false || descriptor.get || descriptor.set)) return null;
-        const original = object[key], state = { label, calls: 0, replaced: false, observed: false };
+        const original = object[key], state = { label, object, key, calls: 0, generation: 0, samples: 0, delegated: false };
         const own = function(...args) { state.calls++; return original.apply(this, args); };
         let current = own;
+        const getter = () => current;
+        state.getter = getter;
         Object.defineProperty(object, key, { configurable: true, enumerable: descriptor ? descriptor.enumerable : true,
-            get() { return current; },
+            get: getter,
             set(next) {
-                if (typeof next !== 'function') { current = next; state.replaced = true; state.observed = true; return; }
                 if (next === current) return;
+                const generation = ++state.generation;
+                state.samples = 0; state.delegated = false;
+                if (typeof next !== 'function') { current = next; state.samples = 8; return; }
                 current = function(...args) {
                     const before = state.calls;
                     try { return next.apply(this, args); }
-                    finally { state.observed = true; state.replaced = state.calls === before; }
+                    finally { if (generation === state.generation) { state.samples++; if (state.calls > before) state.delegated = true; } }
                 };
             }
         });
@@ -42,8 +46,13 @@ DocsDoodads.Clash = {
     hookFindings(plugins) {
         const active = this.enabledPlugins(plugins), own = active.findIndex(p => p.name === pluginName);
         const later = own < 0 ? [] : active.slice(own + 1).map(p => p.name);
-        return this.hooks.filter(hook => hook.observed && hook.replaced).map(hook => ({ kind: 'plugins', global: true, level: 'clash', hook: hook.label,
-            text: hook.label + ' ran without the Docs-Doodads hook. Plugins loaded later: ' + (later.join(', ') || '(none listed)') + '. Check these plugins and their order; the replacing plugin is not identified.' }));
+        return this.hooks.filter(hook => {
+            const descriptor = Object.getOwnPropertyDescriptor(hook.object, hook.key);
+            hook.observerRemoved = !descriptor || descriptor.get !== hook.getter;
+            return hook.observerRemoved || hook.samples >= 8 && !hook.delegated;
+        }).map(hook => ({ kind: 'plugins', global: true, level: hook.observerRemoved ? 'order' : 'clash', hook: hook.label,
+            text: hook.label + (hook.observerRemoved ? ': its diagnostic observer was replaced; hook delegation cannot be verified. ' : ' ran at least eight times without the Docs-Doodads hook. ')
+                + 'Plugins loaded later: ' + (later.join(', ') || '(none listed)') + '. Check these plugins and their order; the replacing plugin is not identified.' }));
     },
     record(level, args) {
         const values = Array.from(args || []).map(value => {

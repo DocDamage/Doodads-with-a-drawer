@@ -2,7 +2,6 @@
 if (DocsDoodads.Compat.isTest()) {
     const clash = DocsDoodads.Clash;
     if (typeof Game_Map !== 'undefined') clash.watch(Game_Map.prototype, 'update', 'Game_Map.update');
-    if (typeof Game_Player !== 'undefined') clash.watch(Game_Player.prototype, 'canPass', 'Game_Player.canPass');
     if (typeof Spriteset_Map !== 'undefined') clash.watch(Spriteset_Map.prototype, 'update', 'Spriteset_Map.update');
     for (const level of ['warn', 'error']) {
         const previous = console[level];
