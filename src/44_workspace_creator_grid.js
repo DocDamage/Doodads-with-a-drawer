@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25s2: CHARACTER CREATOR GRID PICKER (TILES, FILTER, THUMBNAILS)
 //==========================================================

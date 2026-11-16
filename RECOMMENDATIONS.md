@@ -169,7 +169,7 @@ Ideas gathered after PR #86, from a read of the plugin and of what users of othe
 
 | # | Suggestion | Size |
 |---|---|---|
-| 7.1.1 | **A game-only build.** `Docs-Doodads.js` is 2.6 MB and about half of it is the editor, which never runs in a deployed game. `npm run deploy` (and the release zip) could put in a build without it: a smaller download, a quicker start, and the editor's code kept out of shipped games. The parts don't split by number: the game uses some things defined among the editor's parts (collision, art packing, the file reader), so those move first. | M |
+| 7.1.1 | **A game-only build. Done.** `npm run build:game` writes a 908,489-byte runtime plugin (32.9% of the full build). Release packages include it; deploy `--game-build` installs it under the usual plugin name. Shared collision, layers and packed-image helpers remain while the editor is absent. Encrypted MZ playtests passed; see [QA](docs/QA_2026-11-15.md#game-only-build-711). | M |
 | 7.1.2 | **Editing what an event does.** The editor makes events from templates and changes their position, trigger and priority, but not their commands. An editor for the common ones (Show Text, Transfer Player, switches, self switches, pages and their conditions) would save most trips back to MZ. | L |
 | 7.1.3 | **Play From Here.** **Done** for the time and season (weather and switches to start with are not in it). Right-click a tile to put the player there and close the editor, with the time, season, weather and switches to start with. | S |
 | 7.1.4 | **Schedules for events.** The clock, the calendar and weekdays are there; nothing puts an event at the shop by day and at the inn by night. A schedule per event: where to be, by hour and weekday, walking there or appearing there. | M |

@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 12E: LPC CREATOR SLOTS (PICKERS, COLOURS, DICE, SAVED CHARACTERS)
 //==========================================================

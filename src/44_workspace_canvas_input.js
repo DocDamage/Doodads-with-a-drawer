@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Dragging doodads with smart guides ----
     activeGuides: [],
 

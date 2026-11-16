@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25c: WORKSPACE ITEM BAG EXTRAS (SORTING, SEARCH CHIPS, HOVER CARD, EMPTY TABS)
 //==========================================================

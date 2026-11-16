@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Info, backups, recovery notices, messages and the undo buttons; DocsDoodads.Workspace ends here ----
     openDiagnosticsModal() {
         const diag = document.createElement('div');

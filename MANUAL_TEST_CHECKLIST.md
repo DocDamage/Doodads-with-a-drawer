@@ -283,6 +283,7 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Cancel analysis of a very large atlas and confirm work stops promptly.
 - [ ] Run a 30-minute editing session and check that thumbnail memory stabilizes; close the editor and confirm its panels and listeners are gone.
 - [ ] Build a deployment (File > Deployment, or `npm run deploy`) and confirm F10/editor UI/filesystem authoring are unavailable outside Playtest.
+- [ ] Run `npm run deploy -- <project> <output> --game-build` with encryption and no `test` argument. Confirm the source project still has the full plugin, the output has only `js/plugins/Docs-Doodads.js` (not a second `.game.js` plugin), F10 creates no editor, and doodads, collision, lights, spatial sounds, touch/state changes, traversal, packed art, transfers, save/load, minimap and 3D all work without console errors.
 - [ ] Deploy once with **Exclude unused files** on: the game keeps running, missing doodads are skipped, and the console names them.
 
 Record the RPG Maker version, NW.js version, test project copy, failures, screenshots, and console logs with the release candidate.

@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25h: WORKSPACE ONBOARDING (TOOL TOURS, SAMPLE ITEMS, WHAT'S NEW)
 //==========================================================

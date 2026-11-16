@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 12M: RPG MAKER MZ GENERATOR SLOTS (PICKERS, COLOUR SLOTS, DICE, SAVED CHARACTERS)
 //==========================================================

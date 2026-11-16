@@ -1,3 +1,4 @@
+// @editor-only
     // ---- The mouse on the map: listeners, camera drags, scatter, the eyedropper, hit tests and picking ----
     attachCanvasListeners() {
         const canvas = DocsDoodads.Compat.getCanvas();

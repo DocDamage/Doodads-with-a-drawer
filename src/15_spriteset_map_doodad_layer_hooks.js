@@ -359,7 +359,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const world = DocsDoodads.World.settings();
         let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
             override: fade ? fade.current : null, switchValue });
-        if (workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
+        if (workspace && workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
         // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.
         const visibleData = [];
@@ -445,18 +445,22 @@ if (typeof Spriteset_Map !== 'undefined') {
     // Editor-only overlay above the doodad layer: placement grid, selection outlines and guides.
     Spriteset_Map.prototype.updateDocsEditorOverlay = function() {
         if (!this._docsDoodadsContainer || typeof PIXI === 'undefined' || !PIXI.Graphics) return;
+        const workspace = DocsDoodads.Workspace;
+        if (!workspace || !workspace.mounted) {
+            if (this._docsSelectionOutline) this._docsSelectionOutline.clear();
+            return;
+        }
         if (!this._docsSelectionOutline) {
             this._docsSelectionOutline = new PIXI.Graphics();
             this._baseSprite.addChild(this._docsSelectionOutline);
         }
         const outline = this._docsSelectionOutline;
+        const ui = DocsDoodads.Ui;
         outline.clear();
-        if (!DocsDoodads.Workspace.mounted) return;
         // Keep the outline above the doodad layer even after the layer is rebuilt.
         if (outline.parent && outline.parent.children[outline.parent.children.length - 1] !== outline) {
             outline.parent.addChild(outline);
         }
-        const workspace = DocsDoodads.Workspace;
         if (workspace.gridSnapShow) {
             const size = this._docs3dSize;
             const width = size ? size.width : typeof Graphics !== 'undefined' ? Graphics.width : 816;
@@ -467,7 +471,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             for (const y of grid.ys) { outline.moveTo(0, y); outline.lineTo(width, y); }
         }
         for (const rect of this._docs3d ? [] : workspace.selectionScreenRects()) {
-            outline.lineStyle(2, DocsDoodads.Ui.mapColor('selection'), 1);
+            outline.lineStyle(2, ui.mapColor('selection'), 1);
             outline.drawRect(rect.x, rect.y, rect.w, rect.h);
         }
         if (typeof workspace.drawEditorOverlayExtras === 'function') workspace.drawEditorOverlayExtras(outline);

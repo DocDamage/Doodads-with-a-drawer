@@ -250,7 +250,8 @@ Each heading links to its part of the [user guide](Docs_Doodads_Guide.md). [CHEA
 
 ### Deployed games and speed
 - **Deployed games:** doodads, lights, sounds, effects and the 3D view all work there. The editor and its file writing are not there.
-- **`npm run deploy`:** makes an encrypted Windows build like MZ's, and `--restore` puts back art that "Exclude unused files" left out.
+- **Game-only plugin:** release downloads include `Docs-Doodads.game.js`, a smaller build for the finished game. Rename it to `Docs-Doodads.js` in the deployed game's `js/plugins/` folder and enable only that variant; the usual name keeps plugin parameters and commands attached to it.
+- **`npm run deploy`:** makes an encrypted Windows build like MZ's. Add `--game-build` to put the smaller plugin in the output without changing the source project; `--restore` puts back art that "Exclude unused files" left out.
 - **Speed:** doodads off screen wait. A 200 × 200 map with 3,000 doodads and 375 lights runs at 60 frames a second, flat or in 3D.
 
 ## Install
@@ -292,13 +293,14 @@ The plugin ships as one file, `Docs-Doodads.js`, built from the parts in `src/`:
 
 ```powershell
 npm run build     # join src/ into Docs-Doodads.js
+npm run build:game # write the runtime-only release/Docs-Doodads.game.js
 npm run icons     # redraw the editor's pixel icons (art/ui_icons.png) into src/36_ui_icons.js
 npm run fonts     # embed the editor's font (art/fonts) into src/36_ui_fonts.js
-npm run deploy -- <project folder> <output folder> [--key <text>] [--no-encrypt] [--devtools]
+npm run deploy -- <project folder> <output folder> [--game-build] [--key <text>] [--no-encrypt] [--devtools]
 npm run package -- --ref v2.0.0-alpha.1   # the download zip for a release, in release/
 ```
 
-`npm run deploy` makes a Windows build the way MZ's File > Deployment makes one with image and audio encryption on, for testing the plugin in a real deployed game without opening the editor. See [CONTRIBUTING.md](CONTRIBUTING.md) for how the source is laid out.
+`npm run deploy` makes a Windows build the way MZ's File > Deployment makes one with image and audio encryption on, for testing the plugin in a real deployed game without opening the editor. `--game-build` changes only the deployed copy: all play features remain, while F10 and the editor code are left out. See [CONTRIBUTING.md](CONTRIBUTING.md) for how the source is laid out.
 
 ## Verification
 

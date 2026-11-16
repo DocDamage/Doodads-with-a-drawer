@@ -2,7 +2,7 @@
 // "Encrypt image files" and "Encrypt audio files" on, for testing the plugin in a real deployed game
 // without opening the editor:
 //
-//   npm run deploy -- <project folder> <output folder> [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]
+//   npm run deploy -- <project folder> <output folder> [--game-build] [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]
 //   npm run deploy -- --restore <project folder> <MZ's deployed folder>
 //
 // --restore: after MZ's own Deployment with "Exclude unused files", copies back the files the plugin draws
@@ -25,6 +25,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const vm = require('vm');
 
 const HEADER = Buffer.from([0x52, 0x50, 0x47, 0x4d, 0x56, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0]);
 const DEFAULT_RUNTIMES = [
@@ -36,10 +37,11 @@ const DEFAULT_RUNTIMES = [
 const RUNTIME_SKIP = new Set(['chromedriver.exe', 'nwjc.exe', 'payload.exe', 'nacl_irt_x86_64.nexe', 'pnacl']);
 
 function parseArgs(argv) {
-    const options = { encrypt: true, key: 'docs-doodads', runtime: null, devtools: false, project: null, out: null, restore: false };
+    const options = { encrypt: true, key: 'docs-doodads', runtime: null, devtools: false, project: null, out: null, restore: false, gameBuild: false };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--restore') options.restore = true;
+        else if (a === '--game-build') options.gameBuild = true;
         else if (a === '--no-encrypt') options.encrypt = false;
         else if (a === '--key') options.key = argv[++i];
         else if (a === '--runtime') options.runtime = argv[++i];
@@ -48,8 +50,20 @@ function parseArgs(argv) {
         else if (!options.out) options.out = a;
         else throw new Error(`Unexpected argument: ${a}`);
     }
-    if (!options.project || !options.out) throw new Error('Usage: npm run deploy -- <project folder> <output folder> [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]');
+    if (!options.project || !options.out) throw new Error('Usage: npm run deploy -- <project folder> <output folder> [--game-build] [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]');
     return options;
+}
+
+// Kept lazy so the packaged tools/deploy.js can still run --restore without scripts/build.js beside it.
+// In the release zip the already-built variant is one folder above tools/; in this repository build it
+// from current src/ so a deploy never silently uses a stale release artifact.
+function gameBuildText(options = {}) {
+    if (options.gameBuildText !== undefined) return Buffer.from(options.gameBuildText);
+    const localBuilder = path.join(__dirname, 'build.js');
+    if (fs.existsSync(localBuilder)) return Buffer.from(require(localBuilder).build({ game: true }).text);
+    const packaged = path.resolve(__dirname, '..', 'Docs-Doodads.game.js');
+    if (fs.existsSync(packaged)) return fs.readFileSync(packaged);
+    throw new Error('The game-only plugin is unavailable. Use the release package or run npm run build:game first.');
 }
 
 function copyDir(from, to, skip) {
@@ -101,11 +115,29 @@ function deploy(options) {
     if (out === project || out.startsWith(project + path.sep)) throw new Error('The output folder must be outside the project.');
     const runtime = options.runtime || DEFAULT_RUNTIMES.find(r => fs.existsSync(path.join(r, 'nw.exe')));
     if (!runtime || !fs.existsSync(path.join(runtime, 'nw.exe'))) throw new Error('No MZ nwjs-win runtime found; pass --runtime <folder with nw.exe>.');
+    let gameBuffer = null;
+    if (options.gameBuild) {
+        const pluginDir = path.join(project, 'js', 'plugins');
+        if (!fs.existsSync(pluginDir) || !fs.statSync(pluginDir).isDirectory()) {
+            throw new Error('The project has no js/plugins folder for Docs-Doodads.js.');
+        }
+        gameBuffer = gameBuildText(options);
+        if (!gameBuffer.length) throw new Error('The game-only plugin is empty.');
+        try {
+            new vm.Script(gameBuffer.toString('utf8'), { filename: 'Docs-Doodads.game.js' });
+        } catch (error) {
+            throw new Error(`The game-only plugin is not valid JavaScript: ${error.message}`);
+        }
+    }
 
     fs.rmSync(out, { recursive: true, force: true });
     copyDir(runtime, out, name => RUNTIME_SKIP.has(name));
     fs.renameSync(path.join(out, 'nw.exe'), path.join(out, 'Game.exe'));
     copyDir(project, out, name => name === 'save' || name.endsWith('.rmmzproject'));
+    if (options.gameBuild) {
+        const plugin = path.join(out, 'js', 'plugins', 'Docs-Doodads.js');
+        fs.writeFileSync(plugin, gameBuffer);
+    }
 
     // Players don't get developer tools (MZ adds this flag to the game's chromium-args).
     const pkgPath = path.join(out, 'package.json');
@@ -160,7 +192,7 @@ function restore(options) {
     return result;
 }
 
-module.exports = { deploy, restore, encryptBytes, decryptBytes, parseArgs, HEADER };
+module.exports = { deploy, restore, encryptBytes, decryptBytes, parseArgs, gameBuildText, HEADER };
 
 if (require.main === module) {
     try {

@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 24: DocsDoodads.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
 //==========================================================

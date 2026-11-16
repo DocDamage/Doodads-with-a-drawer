@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 12H: MEMAO COMPOSITOR (ANIMATIONS, DEPTH PER FACING, COLOURS)
 //==========================================================

@@ -41,13 +41,19 @@ function source(ref) {
 }
 
 // The plugin as src/ builds it (the same rule as scripts/build.js: the NN_name.js parts in name order).
-function buildFrom(src) {
+function buildFrom(src, options = {}) {
     const files = src.list('src').filter(f => f.endsWith('.js'));
     const parts = files.filter(f => /^\d{2}_.*\.js$/.test(f)).sort();
     if (!parts.length) throw new Error('No parts in src/.');
     const stray = files.filter(f => !parts.includes(f));
     if (stray.length) throw new Error(`Not built (parts are named NN_name.js): ${stray.map(f => 'src/' + f).join(', ')}`);
-    return parts.map(f => src.read('src/' + f).toString('utf8')).join('');
+    const sources = new Map(parts.map(f => [f, src.read('src/' + f).toString('utf8')]));
+    const editorParts = parts.filter(f => sources.get(f).split(/\r?\n/, 1)[0] === '// @editor-only');
+    // Older tags predate this build boundary. They still package exactly as before, without claiming
+    // that their full plugin is a game-only variant.
+    if (options.game && !editorParts.length) return null;
+    const included = options.game ? parts.filter(f => !editorParts.includes(f)) : parts;
+    return included.map(f => sources.get(f)).join('');
 }
 
 // The version in package.json, the header's @plugindesc and pluginVersion (the plugin as built).
@@ -74,7 +80,7 @@ function releaseDate(version, changelog) {
     return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)) : null;
 }
 
-function readmeText(version, commit, hasTypes) {
+function readmeText(version, commit, hasTypes, hasGameBuild) {
     return [
         `Doc's Doodads ${version}`,
         'A map editor and doodad engine for RPG Maker MZ.',
@@ -83,6 +89,11 @@ function readmeText(version, commit, hasTypes) {
         "1. Copy Docs-Doodads.js into your RPG Maker MZ project's js/plugins folder.",
         '2. Turn on Docs-Doodads in Plugin Manager.',
         '3. Start a playtest and press F10 to open the editor.',
+        hasGameBuild ? '' : null,
+        hasGameBuild ? 'SMALLER GAME-ONLY PLUGIN' : null,
+        hasGameBuild ? 'For a finished deployment, Docs-Doodads.game.js removes the editor but keeps every game feature.' : null,
+        hasGameBuild ? 'Rename it to Docs-Doodads.js in the deployed game\'s js/plugins folder, replacing the full file.' : null,
+        hasGameBuild ? 'Enable only that one variant: its Docs-Doodads.js basename keeps plugin parameters and commands working.' : null,
         '',
         'The editor only runs in a playtest. A deployed game draws the doodads, lights, sounds and 3D view without it.',
         'If you deploy with "Exclude unused files", put back the art the plugin draws with (Node.js needed):',
@@ -90,6 +101,7 @@ function readmeText(version, commit, hasTypes) {
         '',
         'IN THIS DOWNLOAD',
         '  Docs-Doodads.js          the plugin',
+        hasGameBuild ? '  Docs-Doodads.game.js     smaller deployment-only variant; rename to Docs-Doodads.js' : null,
         '  Docs_Doodads_Guide.md    the user guide; docs/FIRST_3D_MAP.md walks through a first 3D map',
         '  CHEAT_SHEET.md           every notetag and plugin command on one page',
         '  CHANGELOG.md             what changed',
@@ -114,13 +126,14 @@ function readmeText(version, commit, hasTypes) {
 }
 
 // What goes in the zip: [{ name, data }], names inside the release's folder.
-function contents(src, version, pluginText) {
+function contents(src, version, pluginText, gameText) {
     // Releases before 7.1.7 have no types.
     const hasTypes = src.list('types').includes('Docs-Doodads.d.ts');
     const out = [
         { name: 'Docs-Doodads.js', data: Buffer.from(pluginText) },
-        { name: 'README.txt', data: Buffer.from(readmeText(version, src.commit(), hasTypes)) }
+        { name: 'README.txt', data: Buffer.from(readmeText(version, src.commit(), hasTypes, Boolean(gameText))) }
     ];
+    if (gameText) out.splice(1, 0, { name: 'Docs-Doodads.game.js', data: Buffer.from(gameText) });
     for (const file of ['Docs_Doodads_Guide.md', 'CHEAT_SHEET.md', 'CHANGELOG.md', 'LICENSE', 'docs/FIRST_3D_MAP.md', 'languages/template.json']) {
         out.push({ name: file, data: src.read(file) });
     }
@@ -182,10 +195,11 @@ function zip(files, date) {
 function makePackage(options = {}) {
     const src = source(options.ref);
     const text = buildFrom(src);
+    const gameText = buildFrom(src, { game: true });
     const version = checkVersions(versions(text, src.read('package.json').toString('utf8')));
     const folder = `Docs-Doodads-${version}`;
     const date = releaseDate(version, src.read('CHANGELOG.md').toString('utf8')) || new Date(Date.UTC(1980, 0, 1, 12));
-    const files = contents(src, version, text).map(f => ({ name: folder + '/' + f.name, data: f.data }));
+    const files = contents(src, version, text, gameText).map(f => ({ name: folder + '/' + f.name, data: f.data }));
     const outDir = path.resolve(options.out || path.join(root, 'release'));
     fs.mkdirSync(outDir, { recursive: true });
     const file = path.join(outDir, folder + '.zip');

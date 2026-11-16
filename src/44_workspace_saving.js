@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25n: TEMPLATES, MAP SETTINGS, PICKING MANY IN THE BAG, CHECKPOINTS, SAVING
 //==========================================================

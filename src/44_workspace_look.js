@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25d: WORKSPACE LOOK (SIZE, THEME, MAP COLOURS) AND DETAILS MEMORY
 //==========================================================

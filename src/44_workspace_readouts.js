@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25b: WORKSPACE READOUTS (COLLISION OVERLAY, DRAG READOUT, STATUS BAR)
 //==========================================================

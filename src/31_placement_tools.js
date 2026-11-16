@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 19B: PLACEMENT TOOLS (PATHS, SCATTER, GUIDES, PREFABS, MAP LINKS)
 //==========================================================

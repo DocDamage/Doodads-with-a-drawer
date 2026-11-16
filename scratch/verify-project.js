@@ -6,6 +6,7 @@ const { spawnSync } = require('child_process');
 
 const projectRoot = path.resolve(__dirname, '..');
 let failures = 0;
+const { build } = require(path.join(projectRoot, 'scripts', 'build.js'));
 
 // --skip-tests: everything but the regression suites (CI's Linux job runs them under coverage instead).
 const skipTests = process.argv.includes('--skip-tests');
@@ -23,6 +24,39 @@ function run(label, command, args) {
 
 run('Built from src/', process.execPath, [path.join('scripts', 'build.js'), '--check']);
 run('JavaScript syntax', process.execPath, ['--check', 'Docs-Doodads.js']);
+
+// Game parts may refer to editor objects only through a guard (or copy the optional object to a local
+// and test it before use). Direct property access is what crashes a deployed game when Workspace, Ui,
+// AssetIndex, Persistence or Undo is absent. Strings and comments are stripped so documentation does
+// not become a false positive; the runtime execution regression is the second, behavioral gate.
+console.log('\n===== Game-only editor guards =====');
+{
+    const game = build({ game: true });
+    const withoutStringsAndComments = game.text
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1')
+        .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, "''");
+    const editorObjects = ['Workspace', 'Ui', 'AssetIndex', 'Persistence', 'Undo'];
+    const unguarded = [];
+    for (const name of editorObjects) {
+        const direct = new RegExp(`DocsDoodads\\.${name}\\.`, 'g');
+        let hit;
+        while ((hit = direct.exec(withoutStringsAndComments))) {
+            const lineStart = withoutStringsAndComments.lastIndexOf('\n', hit.index) + 1;
+            const before = withoutStringsAndComments.slice(lineStart, hit.index);
+            if (!before.includes(`DocsDoodads.${name} &&`) && !before.includes(`DocsDoodads.${name} ||`)) {
+                const line = withoutStringsAndComments.slice(0, hit.index).split('\n').length;
+                unguarded.push(`${name} at game-build line ${line}`);
+            }
+        }
+    }
+    if (unguarded.length) {
+        failures++;
+        console.error(`FAIL unguarded editor access: ${unguarded.join(', ')}`);
+    } else {
+        console.log(`PASS ${game.parts.length} game parts have no direct unguarded editor-object access`);
+    }
+}
 run('Guide shortcut table', process.execPath, [path.join('scripts', 'shortcuts.js'), '--check']);
 run('Translation template', process.execPath, [path.join('scripts', 'strings.js'), '--check']);
 run('API types', process.execPath, [path.join('scripts', 'types.js'), '--check']);

@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Map sound: echo and region background sounds ----
     mapRegionSounds() {
         const list = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).regionSounds;
