@@ -30,6 +30,8 @@ assert.strictEqual(textCommands.length, 5, 'four text lines are grouped under on
 assert.deepStrictEqual(textCommands.map(command => command.code), [101, 401, 401, 401, 401]);
 assert.ok(textCommands.every(command => command.indent === 2));
 assert.strictEqual(C.describe(textCommands.concat([{ code: 0, indent: 0, parameters: [] }])).length, 1, 'Show Text is one editable row');
+const insertedInsideText = C.insert(textCommands.concat([{ code: 0, indent: 0, parameters: [] }]), 2, 'wait', { frames: 10 }, 2);
+assert.deepStrictEqual(C.describe(insertedInsideText).map(row => [row.code, row.length]), [[230, 1], [101, 5]], 'inserting at a continuation line snaps before the whole Show Text group');
 
 const unknown = { code: 111, indent: 0, parameters: [0, 2, 0] };
 const nestedUnknown = { code: 355, indent: 1, parameters: ['custom();'], extra: { untouched: true } };
@@ -92,8 +94,8 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     // Database-backed pickers show names while retaining numeric MZ ids.
     $dataSystem.switches = ['', 'Gate Open', 'Night'];
     $dataSystem.variables = ['', 'Gold', 'Visits', 'Trust'];
-    $dataCommonEvents = [null, { id: 1, name: 'Greeting' }];
-    $dataMapInfos = [null, { id: 1, name: 'Town' }, { id: 2, name: 'House' }];
+    global.$dataCommonEvents = [null, { id: 1, name: 'Greeting' }];
+    global.$dataMapInfos = [null, { id: 1, name: 'Town' }, { id: 2, name: 'House' }];
     assert.deepStrictEqual(W.eventCommandOptions('switch').map(option => option.label), ['1: Gate Open', '2: Night']);
     assert.deepStrictEqual(W.eventCommandOptions('variable').map(option => option.label), ['1: Gold', '2: Visits', '3: Trust']);
     assert.strictEqual(W.eventCommandOptions('map')[1].label, '2: House');
@@ -101,6 +103,7 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     // Transfer picking visits the destination, takes a tile, then returns and applies through the same undo flow.
     const page = W.selectedStagedEvent().pages[0];
     page.list = C.insert(page.list, 0, 'transfer', samples.transfer, 0);
+    $gameMap._stagedMapData = $dataMap;
     W._eventCommandPage = 0;
     let currentMap = 1;
     W.currentMapId = () => currentMap;
