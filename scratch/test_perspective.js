@@ -16,7 +16,8 @@ global.document = {
 };
 global.Utils = { RPGMAKER_NAME: "MZ", isNwjs: () => true, isOptionValid: (opt) => opt === "test" };
 global.PluginManager = { parameters: () => ({}) };
-global.$gameMap = { mapId: () => 1, displayX: () => 0, displayY: () => 0, tileWidth: () => 48, tileHeight: () => 48 };
+let tileSize = 48;
+global.$gameMap = { mapId: () => 1, displayX: () => 0, displayY: () => 0, tileWidth: () => tileSize, tileHeight: () => tileSize };
 global.$dataDocsDoodads = { 1: [] };
 
 require('../Docs-Doodads.js');
@@ -127,4 +128,16 @@ const box = P.gizmoBox(cam, { x: 976, y: 904, w: 48, h: 96 }, { x: 1000, y: 1000
 assert.strictEqual(box.length, 12, "twelve edges");
 assert.ok(box.every(e => e.length === 2 && e.every(p => Number.isFinite(p.x) && Number.isFinite(p.y))));
 
-console.log("✓ Settings, camera, projection and unprojection, horizon, billboards and sorting, fog, turning, easing and gizmos verified.");
+// 7. Projection remains reversible when map-space pixels come from 32px and 16px tiles.
+for (const size of [32, 16]) {
+    tileSize = size;
+    const sizedCam = P.camera({ target: { x: 10 * size, y: 8 * size }, pitch: 55, yaw: 30, fov: 50, zoom: 1, width: 1280, height: 720 });
+    const ground = { x: 12 * $gameMap.tileWidth(), y: 5 * $gameMap.tileHeight() };
+    const screen = P.project(sizedCam, ground.x, ground.y, 0);
+    const back = P.unproject(sizedCam, screen.x, screen.y);
+    assert.ok(near(back.x, ground.x, 1e-3) && near(back.y, ground.y, 1e-3), `${size}px tile-space projection round trip`);
+    assert.ok(P.fitRadius(30, $gameMap.tileWidth()) > 0, `${size}px curved-map radius`);
+}
+tileSize = 48;
+
+console.log("✓ Settings, camera, projection and unprojection, horizon, billboards and sorting, fog, turning, easing, gizmos, and 16/32px map-space geometry verified.");

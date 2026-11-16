@@ -2,6 +2,7 @@
 
 **Plugin:** `Docs-Doodads.js` (v2.0)  
 **Compatibility:** RPG Maker MZ. MV is untested since 2.0 and unsupported (see the README).  
+**Map dimensions:** map/editor geometry reads MZ's live tile and screen sizes. Automated tests cover 16- and 32-pixel tiles (including flat/3D projection, collision, lights, terrain, minimap and editor tools); a real-MZ 32-pixel, 1280 × 720 playtest is pending final QA. Art sizes and effect distances remain pixels by design.
 **License:** MIT License. Based on QJ-Doodads by Qiu Jiu.  
 **Quick reference:** every notetag, image name tag and plugin command is listed in the [Cheat Sheet](CHEAT_SHEET.md).  
 

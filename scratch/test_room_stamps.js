@@ -25,6 +25,7 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: opt => opt === 'test' };
 global.PluginManager = { parameters: () => ({}) };
 const W = 10, H = 8;
+let tileSize = 48;
 const mapData = () => {
     const data = new Array(W * H * 6).fill(0);
     for (let i = 0; i < W * H; i++) data[i] = 2816; // ground everywhere on layer 0
@@ -32,7 +33,7 @@ const mapData = () => {
 };
 global.$dataMap = { width: W, height: H, data: mapData(), events: [] };
 let mapId = 1;
-global.$gameMap = { mapId: () => mapId, displayX: () => 0, displayY: () => 0, tileWidth: () => 48, tileHeight: () => 48, width: () => W, height: () => H,
+global.$gameMap = { mapId: () => mapId, displayX: () => 0, displayY: () => 0, tileWidth: () => tileSize, tileHeight: () => tileSize, width: () => W, height: () => H,
     adjustX: x => x, adjustY: y => y };
 global.$dataDocsDoodads = { 1: [] };
 
@@ -96,6 +97,11 @@ assert.ok(edge.changes.every(c => c.index % (W * H) === 9 + 7 * W), 'only the co
 assert.strictEqual(edge.events.length, 0, 'the event would be off the map');
 const none = R.place(room, $dataMap, { x: 6, y: 5 }, { tiles: false, doodads: false, events: false });
 assert.deepStrictEqual(none, { changes: [], doodads: [], events: [] });
+const smallLamp = Object.assign(D.standardStruct(), { bit: [3, 'img/doodads/lamp.png'], x: 3 * 32 + 16, y: 4 * 32 });
+const smallRoom = R.capture('Small tiles', $dataMap, rect, [smallLamp], [], 32, 32);
+assert.deepStrictEqual([smallRoom.tileWidth, smallRoom.tileHeight, smallRoom.doodads[0].x, smallRoom.doodads[0].y], [32, 32, 48, 64]);
+const scaled = R.place(smallRoom, $dataMap, { x: 1, y: 1 }, { tiles: false, events: false, tileWidth: 16, tileHeight: 16 });
+assert.deepStrictEqual([scaled.doodads[0].x, scaled.doodads[0].y], [40, 48], 'a 32px room keeps its tile-relative position when placed on 16px tiles');
 console.log('✓ place: changes only, keeps the map under empty layers, clipped, parts left out');
 
 // 3. Through the workspace: one undo step for tiles, doodads and events, into the staged map too.
@@ -122,7 +128,7 @@ console.log('✓ placing through the workspace: tiles, doodads, events, one undo
 
 // 4. The tool: drag to capture (asks a name), click to place; the card; saved to its own file.
 D.Ui.form = () => Promise.resolve({ name: 'Shop Corner' });
-ws.clientToMapCoords = (x, y) => ({ tileX: x, tileY: y, x: x * 48, y: y * 48 });
+ws.clientToMapCoords = (x, y) => ({ tileX: x, tileY: y, x: x * tileSize, y: y * tileSize });
 (async () => {
     ws.startRoomCapture();
     assert.strictEqual(ws.placementTool, 'room');
@@ -145,6 +151,13 @@ ws.clientToMapCoords = (x, y) => ({ tileX: x, tileY: y, x: x * 48, y: y * 48 });
     ws._roomHover = { x: 1, y: 1 };
     hook.overlay.call(ws, { lineStyle() {}, beginFill() {}, endFill() {}, drawRect(...a) { drawn.push(a); } });
     assert.deepStrictEqual(drawn[drawn.length - 1], [48, 48, 3 * 48, 2 * 48]);
+    for (const size of [32, 16]) {
+        tileSize = size;
+        const sized = [];
+        hook.overlay.call(ws, { lineStyle() {}, beginFill() {}, endFill() {}, drawRect(...a) { sized.push(a); } });
+        assert.deepStrictEqual(sized[sized.length - 1], [size, size, 3 * size, 2 * size], `${size}px room outline`);
+    }
+    tileSize = 48;
     // Another map: the room places there too.
     mapId = 2;
     $dataDocsDoodads[2] = [];

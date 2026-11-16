@@ -38,6 +38,9 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 Test these on an exterior map and on a looping world map, not only on interiors.
 
+- [ ] In a disposable project configured for 32-pixel tiles and a 1280 × 720 game window, repeat placement, grid/snap, collision and traversal checks. Confirm lights keep their configured pixel radius, the minimap stays in bounds, and flat/3D map clicks round-trip to the same tile. (Automated coverage also runs these coordinate paths with 16-pixel tiles.)
+- [ ] On the 32-pixel project, visit an interior, outdoor map, looping map and cave in flat and 3D modes; confirm tile painting, terrain, characters/doodads, weather and the camera use the live tile and screen dimensions without seams, clipping or errors.
+
 - [ ] Walk the player behind and in front of a tree set to *Sorted with characters*; check below/above layers with a rug and a canopy.
 - [ ] Give doodads sway, flicker and shimmer, a shadow, and a light; set map ambient darkness and fade it with Set/Reset Ambient Light.
 - [ ] Hide a doodad behind a switch and a condition; toggle the switch during play.
