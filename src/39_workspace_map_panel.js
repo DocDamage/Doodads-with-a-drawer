@@ -761,6 +761,7 @@
         add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
         for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
         add('Screen Looks (post-processing)', () => this.showPostFxBuilder());
+        add('Moods (light, look, weather and ambience)', () => this.showMoods(), 'Map');
         add('Effects Maker (VFX)', () => this.showVfxBuilder());
         add('File Check (duplicates, unused files)', () => this.showAssetTools());
         add('Old Saves (history)', () => this.showHistoryPanel());

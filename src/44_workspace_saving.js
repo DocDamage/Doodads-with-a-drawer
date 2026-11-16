@@ -72,13 +72,19 @@ DocsDoodads.MapPresets = {
     },
 
     // Keeps the settings without the parts tied to one map's tiles. Replaces a preset of the same name.
-    save(name, settings) {
+    save(name, settings, mood) {
         name = String(name || '').trim();
         if (!name) return null;
         const C = DocsDoodads.MapSettingsCopy;
         const keep = C.apply({}, settings, C.parts.filter(p => !p.off).map(p => p.id));
         const presets = this.list().filter(p => p.name !== name);
         const preset = { name, settings: keep };
+        if (mood && mood.mood) {
+            preset.mood = true;
+            preset.time = mood.time;
+            preset.weather = DocsDoodads.Moods.normalizeWeather(mood.weather);
+            preset.wind = mood.wind;
+        }
         presets.push(preset);
         presets.sort((a, b) => a.name.localeCompare(b.name));
         this.data.presets = presets;

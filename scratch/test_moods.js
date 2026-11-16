@@ -25,6 +25,7 @@ $gameSystem._docsWind = { from: 0.1, to: 0.2, frames: 30, elapsed: 10 };
 const wind = D.Moods.clone($gameSystem._docsWind);
 assert.strictEqual(W.previewMood('rainy-forest'), true);
 assert.strictEqual($gameScreen._weatherType, 'rain');
+assert.deepStrictEqual($dataDocsDoodads.mapSettings[1], original, 'autosave only sees the original map data');
 assert.strictEqual(D.Persistence.dirtyDoodads, false, 'hover is not an unsaved edit');
 assert.strictEqual(D.Undo.undoStack.length, 0);
 W.previewMood('cave');

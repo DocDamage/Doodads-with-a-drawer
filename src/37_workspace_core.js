@@ -178,6 +178,7 @@ DocsDoodads.Workspace = {
         DocsDoodads.Ui.removeTooltips();
         this.closeToastHistory();
         this.closeLookCard();
+        this.closeMoods();
         this.closeMapTools();
         this.endTour();
         this.closeCaptureCard();
@@ -979,6 +980,7 @@ DocsDoodads.Workspace = {
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
         on('dd-mapset-btn', () => { this.showMoreMenu(false); this.showMapSettingsCard(); });
+        on('dd-moods-btn', () => { this.showMoreMenu(false); this.showMoods(); });
         on('dd-savemap-btn', () => { this.showMoreMenu(false); this.saveThisMap(); });
         on('dd-autosave-btn', () => { this.cycleAutosave(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });

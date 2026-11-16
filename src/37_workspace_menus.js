@@ -14,6 +14,7 @@
         return [
             { id: 'map', label: 'Map', icon: 'map', title: 'This map: its settings, finding things, rooms, templates, problems, saving it', items: [
                 { id: 'dd-mapset-btn', icon: 'map', label: 'Map Settings', title: "Copy another map's settings to this one, or keep them as a preset" },
+                { id: 'dd-moods-btn', icon: 'sun', label: 'Moods', title: 'Try light, a screen look, weather and ambience together' },
                 { id: 'dd-find-btn', icon: 'search', label: 'Find Doodads', title: 'Find doodads on this map or every map, by picture, name, tag, layer, light, sound...' },
                 { id: 'dd-outliner-btn', icon: 'grid', label: 'Outliner', title: "This map's doodads by layer: hide, lock, pick, solo a layer" },
                 { id: 'dd-rooms-btn', icon: 'map', label: 'Rooms', title: 'Save part of the map (tiles, doodads, events) as a room stamp and place it again', key: 'rooms' },
