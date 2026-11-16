@@ -34,7 +34,7 @@ Generated icon paths and the generated font were excluded because their numbers 
 | `21_assetindex_metadata_cache.js` (2), `22_zip.js` (1), `23_lpc_compositor.js` (2), `23_memao_index.js` (3) | Binary header lengths, byte offsets and bit shifts. |
 | `22_asset_management.js` (2) | Bit operation and doodad-frame art pixels. |
 | `23_lpc_export.js` (2) | Native LPC image scan rows/radius. |
-| `23_memao_compositor.js` (5), `23_memao_export.js` (5), `23_memao_index.js` (3) | Memao's fixed 48-pixel source/export frame format and PNG metadata. |
+| `23_memao_compositor.js` (5), `23_memao_export.js` (5) | Memao's fixed 48-pixel source/export frame format. Index metadata is counted in the binary-format row above. |
 | `23_mzgen_compositor.js` (3), `23_mzgen_index.js` (3) | RPG Maker generator asset formats and a creator snap distance; not map geometry. |
 | `25_slicing.js` (1) | Confidence decimals (`0.24`). |
 | `27_slicing_editor.js` (3) | Initial 48 × 48 image slice in source-image pixels. |
