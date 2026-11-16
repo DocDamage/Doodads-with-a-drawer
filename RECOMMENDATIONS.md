@@ -1,6 +1,6 @@
 # Doc's Doodads: Recommendations
 
-Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas, none started, was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026).
+Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas, none started, was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026). A second, [section 8](#8-backlog-easier-better-looking-and-things-no-one-else-does-15-november-2026), was added the same day: ease of use, look and feel, things no one else does, and maps made from a picture or a real place.
 
 **S** = an afternoon, **M** = a PR like terrain or water, **L** = several PRs.
 
@@ -219,3 +219,72 @@ From the comment pages and forum threads of other MZ plugins. Two larger wishlis
 | 7.4.7 | **Other tile sizes and screen sizes. Done.** | Prlx lists it. | Audited live dimensions and added 16/32-pixel automated cases. Played 32-pixel maps at 1280 × 720 in MZ, flat and in 3D; see [QA](docs/QA_2026-11-15.md#other-tile-and-screen-sizes-747). The [water-edge renderer follow-up is fixed](docs/QA_2026-11-15.md#water-outside-the-3d-ground-capture). 16-pixel tiles remain automated coverage only. | S |
 | 7.4.8 | **More tabs and parts in the character generator.** | [A request on the official forum](https://guild.rpgmakerofficial.com/t/topic/2357?tl=en). | Partly, through the three creators. Let a creator take a folder of the user's own parts as a tab. | M |
 | 7.4.9 | **Say what already works.** **Done.** Three lines under the README's first paragraph. Deployed, encrypted games that hang on loading are the most common MZ3D complaint; parallax-style art in 3D is asked for there; [VisuStella's lighting](https://www.yanfly.moe/wiki/Lighting_VisuStella_MZ) suggests maps under 72 × 72. All three are tested here (deployed builds, doodads standing in 3D, 200 × 200 with 375 lights). Put them at the top of the README. | Above. | Done in the plugin, not said up front. | S |
+
+---
+
+## 8. Backlog: easier, better looking, and things no one else does (15 November 2026)
+
+Ideas gathered the same day as section 7, after a second read of the README, section 7 and `Docs-Doodads.js`. None is committed to and none is started; sizes use the scale at the top. Each was searched for in `Docs-Doodads.js` and is not there today. Rows that build on a section 7 row name it. Whether other plugins have the rows in 8.4 and 8.5 was not surveyed.
+
+**How to build each one** is in [docs/BACKLOG_8_PLAN.md](docs/BACKLOG_8_PLAN.md), under the same numbers, with a suggested order.
+
+Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
+
+**Suggested order:** 8.1.1, 8.1.2 and 8.2.1 first (small, and they change how the editor feels on the first day); then 8.4.4 (small and showy), 8.4.1 (the headline feature) and 8.5.1 to 8.5.3.
+
+### 8.1 Easy to use
+
+| # | Suggestion | Size |
+|---|---|---|
+| 8.1.1 | **Simple mode.** The top bar has ten tools and four menus. Open with Select, Stamp, Scatter and Tiles and a short Details panel, with a Show Everything switch. Find a Tool (Ctrl+K) still reaches the rest. | M |
+| 8.1.2 | **Moods.** One button sets light, look, weather and ambience together (Cosy Night Village, Rainy Forest, Cave), shown on the map while the pointer is on it. The parts are all there; the bundle is not. | S |
+| 8.1.3 | **Good settings on drop.** Guess from the file's name and shape: "lamp" gets a lantern light that comes on after dark; "tree" gets sway, see-through and a box round the trunk. One Undo puts it back. | M |
+| 8.1.4 | **A first-map quest.** In place of the welcome card, five steps that tick themselves off (place three trees, add a lamp, make it night, press Play). Goes with the sample project (7.1.8). | S |
+| 8.1.5 | **Help where you are.** A ? on each panel that opens its part of the guide, and the guide's headings in Find a Tool. | S |
+
+### 8.2 Look and feel
+
+| # | Suggestion | Size |
+|---|---|---|
+| 8.2.1 | **A bigger window while editing.** Grow the Playtest window to fill the screen when the editor opens and put it back on Done. Much less work than panels in their own window (7.2.5), for most of the gain. | S |
+| 8.2.2 | **A truer ghost of what will be placed.** There is a ghost today: a small picture that follows the pointer, over everything. Draw the item in the map as it will land instead, with its own size, shadow, light and depth, before the click. | S |
+| 8.2.3 | **Moving tooltips.** A tool's tooltip plays a two-second clip of the tool in use. | S |
+| 8.2.4 | **Details that starts short.** The three most used settings for the kind of thing picked, with the rest under More. | M |
+
+### 8.3 Features
+
+| # | Suggestion | Size |
+|---|---|---|
+| 8.3.1 | **Normal maps made for you.** With 7.1.5: make a normal map from a picture's shape, so lights shade the art without the user drawing anything. | M |
+| 8.3.2 | **Bounced light and soft shadows.** A distance pass over the walls that already stop light, for soft shadow edges and light that comes round corners. Several passes in GLSL ES 1.00. Goes with 7.3.7. | L |
+| 8.3.3 | **More like this.** Lasso an area you like; the tool learns what sits next to what and fills a region in the same way. A form of 7.3.5 with no rules to write. | L |
+| 8.3.4 | **A ground brush.** Paint dirt, grass and stone with soft edges, off the grid. With the collision brush (7.3.2), this is parallax-style mapping inside the editor. | M |
+| 8.3.5 | **The playtest on a phone.** Serve the playtest on the local network, opened from a QR code, with edits showing as they are made. Also gives the Android numbers that item B and 7.3.4 wait for. | M |
+| 8.3.6 | **A photo mode for players.** Pause, move the camera, pick a Screen Look, save a picture. Capture is in the editor only. | S |
+| 8.3.7 | **Playtest trails.** Record where testers walk, stop and die, and draw it over the map in the editor, beside Check Reach. | M |
+| 8.3.8 | **Plain words in Find a Tool.** "Make it a rainy night", turned into `DocsDoodads.api` calls. Needs the user's own key for a language service and sends words off the computer, so it is off unless turned on. | M |
+
+### 8.4 Things no one else does
+
+| # | Suggestion | Size |
+|---|---|---|
+| 8.4.1 | **Decorate mode for players.** A small, safe part of the editor in the finished game: the player opens a bag of things the maker chose, places and moves them where the maker allows, and it is kept in the save. Housing, farms, bases, shop floors. Placement, snapping, collision, undo and saved states are there; it needs a player's UI and the limits. | L |
+| 8.4.2 | **A world that remembers.** Grass wears to a path where the player walks often, snow keeps trails, saplings grow into trees over calendar days, broken things stay broken. On the calendar, seasons and saved states. | L |
+| 8.4.3 | **Elements that spread.** Fire catches on dry grass and moves with the wind; rain puts it out and leaves puddles; water runs downhill on Hills. Lights, wind, weather and height are there apart; this makes them act on each other. | L |
+| 8.4.4 | **Maps that move to the music.** Lights pulse, plants sway and particles burst in time with the BGM, per doodad, with a strength. | S |
+| 8.4.5 | **Map eras.** One map in several versions (whole, burning, ruined; or now and ten years on), shown one over another in the editor and crossfaded in the game by a switch. | L |
+| 8.4.6 | **Rewind in a playtest.** Hold a key to take the game back up to 30 seconds, change the map, and play the same moment again. | L |
+| 8.4.7 | **A robot tester.** It walks every tile it can reach, touches every doodad and event and takes every transfer, then lists places with no way out, dead ends and errors. A step past Check Reach. | M |
+| 8.4.8 | **The 3D map as a file.** Write the ground and standing doodads as glTF, for Blender, trailers or a 3D print. | M |
+
+### 8.5 Maps from a picture or a real place
+
+A drawing, a scan or a real-world map, made into a map in the game. The result is drawn with the project's tileset and doodads, so it matches the layout, not the look; to show the drawing itself, use it as a background layer with painted collision (7.3.2).
+
+| # | Suggestion | Size |
+|---|---|---|
+| 8.5.1 | **Trace over a picture.** Load a picture as a see-through layer under the grid; scale, turn and slide it to fit; paint and place on top. Never in the game. Works for any picture, a pencil sketch included. | S |
+| 8.5.2 | **A picture into a map.** The tool reads the picture's colours and asks the user to agree a key ("this blue is water, this green is forest, this brown is road"), then makes tiles (autotile edges included), hills from shading or from a second grey height picture, and trees, rocks and houses from biomes and dressing rules. One undo step; tidy by hand after. Flat colours work well; photos of paper, line drawings and maps with words on them need cleaning first, or 8.5.1. | L |
+| 8.5.3 | **What kind of map.** Asked first, because it sets the scale, the key and the rules. **Overworld:** a tile is a long way; coast, mountains, forests, rivers, and a marker for each town, castle and dungeon. **Town or castle:** streets, walls, gates, building outlines with roofs and doors, yards and water. **Dungeon or cave:** a floor plan read as walls, floors, doors and stairs, from lines as well as colours. **Room:** walls, floor, doors and windows, then furniture from room stamps and prefabs. The user can add kinds of their own. | M |
+| 8.5.4 | **Maps inside maps.** A marker on the overworld makes or opens that town's map; a door in the town makes or opens that building's rooms; stairs join a dungeon's floors. Transfers both ways are made from the event templates. A tree of the project's maps (world, place, room) to move around in. A picture bigger than MZ's 256 × 256 tiles is cut into neighbouring maps for World View; walking between them with no fade is 7.3.1. | L |
+| 8.5.5 | **A real place.** Pick an area of the world: roads, rivers, coast, forests and building outlines from OpenStreetMap, and heights for Hills. Works at each scale in 8.5.3: a country as an overworld, a town as a town. Needs a download, so it is off unless asked for, and OpenStreetMap's credit must go in the game; the tool writes it. | L |
