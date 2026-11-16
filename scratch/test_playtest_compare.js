@@ -189,6 +189,10 @@ assert.strictEqual(destroyed, true);
         fs.symlinkSync(inside, alias, process.platform === 'win32' ? 'junction' : 'dir');
         assert.throws(() => writeReport(prepared, { cases: [], errors: [] }, { out: alias, baseline }), /outside/,
             'a junction cannot make an in-project report folder look external');
+        const baselineAlias = path.join(fixtureRoot, 'baseline-alias');
+        fs.symlinkSync(baseline, baselineAlias, process.platform === 'win32' ? 'junction' : 'dir');
+        assert.throws(() => writeReport(prepared, { cases: [], errors: [] }, { out: path.join(baselineAlias, 'nested'), baseline }), /separate/,
+            'a junction cannot hide that the report folder is inside the baseline');
     } catch (error) {
         if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) throw error;
     }

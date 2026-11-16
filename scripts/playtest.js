@@ -74,6 +74,17 @@ function containsPath(parent, child) {
     const rel = path.relative(path.resolve(parent), path.resolve(child));
     return !rel || (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep));
 }
+function canonicalPath(target) {
+    let cursor = path.resolve(target), suffix = [];
+    while (!fs.existsSync(cursor)) {
+        const parent = path.dirname(cursor);
+        if (parent === cursor) break;
+        suffix.unshift(path.basename(cursor));
+        cursor = parent;
+    }
+    const base = fs.existsSync(cursor) ? fs.realpathSync(cursor) : cursor;
+    return path.resolve(base, ...suffix);
+}
 function safeRemoveTemp(target) {
     const temp = fs.realpathSync(os.tmpdir());
     const resolved = path.resolve(target || '');
@@ -143,10 +154,11 @@ function prepare(options) {
     }
 }
 function ensureDestinations(prepared, baseline, out) {
-    for (const destination of [out, baseline]) if (containsPath(prepared.project, destination)) {
+    const project = canonicalPath(prepared.project), realBaseline = canonicalPath(baseline), realOut = canonicalPath(out);
+    for (const destination of [realOut, realBaseline]) if (containsPath(project, destination)) {
         throw new Error('Report and reference folders must be outside the original test project.');
     }
-    if (containsPath(out, baseline) || containsPath(baseline, out)) {
+    if (containsPath(realOut, realBaseline) || containsPath(realBaseline, realOut)) {
         throw new Error('Report and reference folders must be separate, disjoint folders.');
     }
 }
@@ -262,10 +274,11 @@ function writeReport(prepared, result, options) {
 }
 async function terminateSpawned(child, deps = {}) {
     const grace = Number.isFinite(deps.terminateGraceMs) ? deps.terminateGraceMs : 1500;
+    const platform = deps.platform || process.platform;
     let closed = false;
     const close = new Promise(resolve => child.once('close', () => { closed = true; resolve(true); }));
     const wait = () => Promise.race([close, new Promise(resolve => setTimeout(() => resolve(false), grace))]);
-    if (child.pid && process.platform === 'win32') {
+    if (child.pid && platform === 'win32') {
         try { (deps.forceKill || cp.spawnSync)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); } catch (_) {}
     } else if (child.pid) {
         try { process.kill(-child.pid, 'SIGTERM'); } catch (_) { try { child.kill(); } catch (_) {} }
@@ -273,7 +286,10 @@ async function terminateSpawned(child, deps = {}) {
         try { child.kill(); } catch (_) {}
     }
     if (await wait()) return true;
-    if (child.pid && process.platform !== 'win32') {
+    if (child.pid && platform === 'win32') {
+        try { (deps.forceKill || cp.spawnSync)('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); } catch (_) {}
+        try { child.kill('SIGKILL'); } catch (_) {}
+    } else if (child.pid) {
         try { process.kill(-child.pid, 'SIGKILL'); } catch (_) { try { child.kill('SIGKILL'); } catch (_) {} }
     } else if (!child.pid) {
         try { child.kill('SIGKILL'); } catch (_) {}
@@ -287,7 +303,7 @@ async function run(options, deps = {}) {
     const runtime = options.runtime || DEFAULT_RUNTIMES.find(dir => fs.existsSync(path.join(dir, 'nw.exe')));
     const executable = runtime && path.join(path.resolve(runtime), process.platform === 'win32' ? 'nw.exe' : 'nw');
     if (!executable || !fs.existsSync(executable)) throw new Error('No MZ NW.js runtime found. Pass --runtime <folder containing nw.exe>.');
-    let prepared;
+    let prepared, preserveCopy = false;
     try {
         prepared = prepare(options);
         const child = (deps.spawn || cp.spawn)(executable, [prepared.copy, 'test'], { cwd: prepared.copy, windowsHide: true,
@@ -300,7 +316,9 @@ async function run(options, deps = {}) {
             const timer = setTimeout(async () => {
                 timingOut = true;
                 const closed = await terminateSpawned(child, deps);
-                done({ error: 'Playtest timed out; the spawned runtime ' + (closed ? 'closed.' : 'did not confirm closure.'), errors: [] });
+                preserveCopy = !closed;
+                const processName = child.pid ? 'PID ' + child.pid : 'the spawned runtime';
+                done({ error: 'Playtest timed out; ' + processName + (closed ? ' closed.' : ' did not confirm closure; temporary project retained at ' + prepared.copy + '.'), errors: [] });
             }, options.timeout * 1000);
             child.on('error', error => done({ error: error.message, errors: [] }));
             child.on('close', code => {
@@ -314,9 +332,9 @@ async function run(options, deps = {}) {
                 } catch (error) { done({ error: 'Cannot read runtime report: ' + error.message, errors: [] }); }
             });
         });
-        return writeReport(prepared, result, Object.assign({}, options, { runtimeLog }));
+        return writeReport(prepared, result, Object.assign({}, options, { runtimeLog, keepCopy: options.keepCopy || preserveCopy }));
     } finally {
-        if (prepared && !options.keepCopy) safeRemoveTemp(prepared.copy);
+        if (prepared && !options.keepCopy && !preserveCopy) safeRemoveTemp(prepared.copy);
     }
 }
 if (require.main === module) {
