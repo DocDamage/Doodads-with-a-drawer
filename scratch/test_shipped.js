@@ -35,6 +35,10 @@ assert.strictEqual(D.States.index(renamed, 1), 0, 'numbers from older saves stil
 const numericNamed = { states: { list: [{ name: '2' }, { name: 'Other' }] } };
 assert.strictEqual(D.States.find(numericNamed, '2'), 0, 'a stored numeric-looking state name is still a name');
 assert.strictEqual(D.States.find(numericNamed, 1), 1, 'a number still selects an index');
+numericNamed.name = 'Numeric'; $dataDocsDoodads[1].push(numericNamed);
+assert.strictEqual(W.setState('Numeric', 2, 1), false, 'invalid numeric indices do not accidentally select a numeric-looking name');
+assert.strictEqual(W.setState('Numeric', '2', 1), true);
+assert.strictEqual(D.States.index(numericNamed, 1), 0);
 assert.strictEqual(S.resolveName({ 1: { a: 'B', b: 'A' } }, 1, 'A'), 'a', 'cyclic author aliases terminate safely');
 for (const split of [false, true]) {
     const entries = D.DataFiles.entriesFor($dataDocsDoodads, split), files = Object.fromEntries(entries.map(entry => [entry.path, entry.data]));

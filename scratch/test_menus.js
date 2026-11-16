@@ -53,7 +53,7 @@ const OLD = ['dd-slicer-btn', 'dd-postfx-btn', 'dd-vfx-btn', 'dd-history-btn', '
     const ids = menus.flatMap(m => m.items.map(i => i.id));
     for (const id of OLD) assert.strictEqual(ids.filter(x => x === id).length, 1, `${id} is in exactly one menu`);
     assert.strictEqual(new Set(ids).size, ids.length, 'no entry twice');
-    assert.deepStrictEqual(ids.filter(id => !OLD.includes(id)).sort(), ['dd-bookmarks-btn', 'dd-moods-btn', 'dd-notes-btn', 'dd-notes-show-btn', 'dd-reach-btn', 'dd-ruler-btn', 'dd-settings-btn', 'dd-trace-btn', 'dd-trace-show-btn'],
+    assert.deepStrictEqual(ids.filter(id => !OLD.includes(id)).sort(), ['dd-bookmarks-btn', 'dd-markreleased-btn', 'dd-moods-btn', 'dd-notes-btn', 'dd-notes-show-btn', 'dd-reach-btn', 'dd-ruler-btn', 'dd-settings-btn', 'dd-trace-btn', 'dd-trace-show-btn'],
         'new since the split: Moods, Check Reach, Settings, Notes, Show Notes, Ruler and Bookmarks');
     const where = id => menus.find(m => m.items.some(i => i.id === id)).id;
     assert.strictEqual(where('dd-problems-btn'), 'map');

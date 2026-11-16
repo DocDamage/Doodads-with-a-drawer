@@ -1050,6 +1050,7 @@ DocsDoodads.Workspace = {
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
+        document.getElementById('dd-markreleased-btn').onclick = () => this.markAsReleased();
         document.getElementById('dd-tools-btn').onclick = () => this.showAssetTools();
         document.getElementById('dd-postfx-btn').onclick = () => this.showPostFxBuilder();
         document.getElementById('dd-vfx-btn').onclick = () => this.showVfxBuilder();

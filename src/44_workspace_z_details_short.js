@@ -143,7 +143,9 @@
     W.setDoodadProperty = function(items, key, value) {
         const before = items.map(item => JSON.stringify(this.getDoodadProperty(item, key)));
         const result = set.call(this, items, key, value);
-        if (items.some((item, index) => JSON.stringify(this.getDoodadProperty(item, key)) !== before[index])) R.record(items.map(item => R.kind(item)), key);
+        const record = () => { if (items.some((item, index) => JSON.stringify(this.getDoodadProperty(item, key)) !== before[index])) R.record(items.map(item => R.kind(item)), key); };
+        if (result && typeof result.then === 'function') return result.then(value => { record(); return value; });
+        record();
         return result;
     };
     const editEvent = W.editSelectedEvent;

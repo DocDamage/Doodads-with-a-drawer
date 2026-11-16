@@ -123,6 +123,27 @@ function containsDirectory(parent, child) {
     const relative = path.relative(parent, child);
     return !relative || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
 }
+function releasedChanges(project) {
+    const marker = path.join(project, 'data/DocsDoodadsShipped.json');
+    if (!fs.existsSync(marker)) return [];
+    let history;
+    try { history = JSON.parse(fs.readFileSync(marker, 'utf8')); }
+    catch (error) { return ['release snapshot could not be read']; }
+    const release = Array.isArray(history.releases) ? history.releases[history.releases.length - 1] : history;
+    const changed = [], canonicalProject = fs.realpathSync(project);
+    for (const [relative, expected] of Object.entries(release && release.fileHashes || {}).sort((a, b) => a[0].localeCompare(b[0]))) {
+        if (!/^data\/[a-zA-Z0-9_./-]+\.json$/.test(relative) || relative.split('/').includes('..')) continue;
+        const file = path.join(canonicalProject, relative);
+        let actual = null;
+        if (fs.existsSync(file)) {
+            const real = fs.realpathSync(file);
+            if (!containsDirectory(canonicalProject, real) || !fs.statSync(real).isFile()) { changed.push(relative); continue; }
+            actual = crypto.createHash('sha256').update(fs.readFileSync(real)).digest('hex');
+        }
+        if (actual !== expected) changed.push(relative);
+    }
+    return changed;
+}
 function deploy(options) {
     const project = fs.realpathSync(path.resolve(options.project)), out = canonicalDestination(options.out);
     if (!fs.existsSync(path.join(project, 'index.html')) || !fs.existsSync(path.join(project, 'data', 'System.json'))) {
@@ -149,6 +170,8 @@ function deploy(options) {
         }
     }
 
+    const releaseWarnings = releasedChanges(project);
+    if (releaseWarnings.length) console.warn('Released-data reminder: review Released saves in Problems before distributing this changed data: ' + releaseWarnings.join(', '));
     fs.rmSync(out, { recursive: true, force: true });
     copyDir(runtime, out, (name, relative) => !relative.includes('/') && RUNTIME_SKIP.has(name));
     fs.renameSync(path.join(out, 'nw.exe'), path.join(out, 'Game.exe'));
@@ -214,7 +237,7 @@ function restore(options) {
     return result;
 }
 
-module.exports = { deploy, restore, encryptBytes, decryptBytes, parseArgs, gameBuildText, HEADER };
+module.exports = { deploy, restore, encryptBytes, decryptBytes, parseArgs, gameBuildText, releasedChanges, HEADER };
 
 if (require.main === module) {
     try {

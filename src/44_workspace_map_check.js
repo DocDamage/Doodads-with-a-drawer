@@ -164,6 +164,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (typeof this.lpcProblems === 'function') out = out.concat(this.lpcProblems());
         const clash = DocsDoodads.Clash, plugins = window.$plugins || [];
         if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
+        if (this.shippedProblems && this.shippedRelease()) out = out.concat(this.shippedProblems());
         return out;
     },
 

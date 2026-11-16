@@ -54,6 +54,7 @@
                 { id: 'dd-history-btn', icon: 'folder', label: 'Old Saves', title: 'Compare with earlier saves and bring single things back' },
                 { id: 'dd-messages-btn', icon: 'history', label: 'Messages', title: "Read the editor's recent messages again" },
                 { id: 'dd-diag-btn', icon: 'info', label: 'Info', title: 'Numbers, cache and backups' },
+                { id: 'dd-markreleased-btn', icon: 'history', label: 'Mark as Released', title: 'Remember the names, states and map sizes players\' saves know' },
                 { id: 'dd-sound-btn', icon: 'sound', label: () => (DocsDoodads.Ui.prefs().sounds === false ? 'Sounds: Off' : 'Sounds: On'), span: 'dd-sound-label', title: 'Little sounds when you use the tools' },
                 { id: 'dd-help-btn', icon: 'help', label: 'How to Use', title: 'How to use the editor' }
             ] }
