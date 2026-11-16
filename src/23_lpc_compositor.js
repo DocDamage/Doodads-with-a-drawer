@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 12D: LPC COMPOSITOR (LAYERS, Z-ORDER, BODY TYPES, PALETTES, CACHE)
 //==========================================================

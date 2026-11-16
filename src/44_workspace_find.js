@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25m: FIND DOODADS, THE MAP OUTLINER, PICKING AND PLACING MANY
 //==========================================================

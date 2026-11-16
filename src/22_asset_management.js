@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 11B: ASSET MANAGEMENT (USAGE, FINGERPRINTS, LIVE RELOAD, PACKING)
 //==========================================================
@@ -469,25 +470,7 @@ DocsDoodads.LiveReload = {
 
 // Optional per-map texture packing: every image region a map's doodads use is copied into a few
 // sheets so the deployed game loads and draws fewer textures. Playtests keep using the originals.
-DocsDoodads.Packer = {
-    manifestPath: 'data/DocsDoodadsPacked.json',
-    sheetDirectory: 'img/doodads/_packed',
-    data: { version: 1, maps: {} },
-    previewInTest: false,
-
-    shouldUse() {
-        return !DocsDoodads.Compat.isTest() || this.previewInTest;
-    },
-
-    regionOf(d) {
-        const xf = Math.max(1, d.xFrame || 1), yf = Math.max(1, d.yFrame || 1);
-        return { x: d.frameX || 0, y: d.frameY || 0, w: (d.frameW || 48) * xf, h: (d.frameH || 48) * yf };
-    },
-
-    keyFor(d) {
-        const r = this.regionOf(d);
-        return `${String(d.bit[1]).replace(/\\/g, '/')}|${r.x}|${r.y}|${r.w}|${r.h}`;
-    },
+Object.assign(DocsDoodads.Packer, {
 
     regionsFor(doodads) {
         const seen = new Map();
@@ -550,29 +533,9 @@ DocsDoodads.Packer = {
         return { mapId: Number(mapId), builtAt: Date.now(), sheets: packed.sheets.map((s, i) => name(i)), sizes: packed.sheets.map(s => ({ w: s.w, h: s.h })), frames, sources };
     },
 
-    forMap(mapId) {
-        return this.data && this.data.maps ? this.data.maps[mapId] || null : null;
-    },
-
-    resolve(manifest, d) {
-        if (!manifest || !d || !d.bit || d.bit[0] !== 3) return null;
-        const entry = manifest.frames[this.keyFor(d)];
-        return entry ? { sheet: manifest.sheets[entry.sheet], x: entry.x, y: entry.y, w: entry.w, h: entry.h } : null;
-    },
-
     staleSources(manifest, mtimeOf) {
         if (!manifest) return [];
         return Object.keys(manifest.sources || {}).filter(p => mtimeOf(p) !== manifest.sources[p]);
-    },
-
-    manifestExists() {
-        return Boolean(DocsDoodads.FS.fs && DocsDoodads.FS.existsSync(this.manifestPath));
-    },
-
-    // Desktop builds check the file directly; browser builds only ask when the doodads file says packing is used.
-    shouldRequestManifest() {
-        if (DocsDoodads.FS.fs) return this.manifestExists();
-        return Boolean(typeof window !== 'undefined' && window.$dataDocsDoodads && window.$dataDocsDoodads.usesPacking);
     },
 
     clampRegions(regions, sizeOf) {
@@ -581,5 +544,5 @@ DocsDoodads.Packer = {
             return size ? Object.assign({}, r, { rect: DocsDoodads.safeFrame(r.rect, size.w, size.h) }) : r;
         });
     }
-};
+});
 

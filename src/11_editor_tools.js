@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 5G: EDITOR TOOLS (LAYERS, SYMMETRY, BIOMES, DRESSING, HISTORY, PALETTE, THUMBNAILS)
 //==========================================================
@@ -52,51 +53,6 @@ DocsDoodads.KeyChord = {
         const key = /^Key[A-Z]$/.test(chord.code) ? chord.code.slice(3) : /^Digit\d$/.test(chord.code) ? chord.code.slice(5)
             : symbol || chord.code;
         return [chord.ctrl ? 'Ctrl' : '', chord.alt ? 'Alt' : '', chord.shift ? 'Shift' : '', key].filter(Boolean).join('+');
-    }
-};
-
-DocsDoodads.Layers = {
-    main: { id: 'main', name: 'Main', hidden: false, locked: false, gameHidden: false },
-
-    list(mapSettings) {
-        const own = mapSettings && Array.isArray(mapSettings.layers) ? mapSettings.layers.filter(l => l && l.id && l.id !== 'main') : [];
-        return [Object.assign({}, this.main, mapSettings && mapSettings.mainLayer)].concat(own);
-    },
-
-    of(d) {
-        return d && d.layer ? d.layer : 'main';
-    },
-
-    find(d, mapSettings) {
-        const id = this.of(d);
-        return this.list(mapSettings).find(l => l.id === id) || this.list(mapSettings)[0];
-    },
-
-    visibleInEditor(d, mapSettings) {
-        return !this.find(d, mapSettings).hidden;
-    },
-
-    // Every doodad asks each frame: the layers by id, built once a frame for the map's settings (the
-    // editor changes a layer's flags in place, so the table never outlives the frame or an edit).
-    byId(mapSettings) {
-        const frame = DocsDoodads.frameCount ? DocsDoodads.frameCount() : 0;
-        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
-        const c = this._table;
-        if (c && !editing && frame !== 0 && c.settings === mapSettings && c.frame === frame) return c;
-        const list = this.list(mapSettings);
-        const ids = new Map();
-        for (const l of list) if (!ids.has(l.id)) ids.set(l.id, l);
-        this._table = { settings: mapSettings, frame, ids, first: list[0] };
-        return this._table;
-    },
-
-    visibleInGame(d, mapSettings) {
-        const t = this.byId(mapSettings);
-        return !(t.ids.get(this.of(d)) || t.first).gameHidden;
-    },
-
-    isLocked(d, mapSettings) {
-        return Boolean(this.find(d, mapSettings).locked);
     }
 };
 

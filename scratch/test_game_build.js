@@ -11,8 +11,10 @@ console.log('=== Testing Game-only Build ===');
 
 const full = build();
 const game = build({ game: true });
+const fullBytes = Buffer.byteLength(full.text, 'utf8');
+const gameBytes = Buffer.byteLength(game.text, 'utf8');
 assert.ok(game.parts.length < full.parts.length, 'game build leaves out marked editor parts');
-assert.ok(game.text.length <= full.text.length / 2, `game build is at most half the full plugin (${game.text.length}/${full.text.length} bytes)`);
+assert.ok(gameBytes <= fullBytes / 2, `game build is at most half the full plugin (${gameBytes}/${fullBytes} bytes)`);
 assert.ok(game.text.includes('@target MZ') && game.text.includes('@param editorMode'), 'the complete MZ plugin header remains');
 assert.doesNotThrow(() => new vm.Script(game.text, { filename: 'Docs-Doodads.game.js' }), 'game build parses');
 
@@ -69,4 +71,4 @@ assert.ok(spriteset._docs3d && spriteset._docsTerrainTopo, '3D terrain runs');
 assert.ok(spriteset._docsLightOverlay, 'lights run');
 assert.ok(spriteset._docsMinimap && spriteset._docsMinimap.visible, 'minimap runs');
 
-console.log(`✓ Game-only build: ${game.parts.length}/${full.parts.length} parts, ${game.text.length}/${full.text.length} bytes; runtime systems work without Workspace.`);
+console.log(`✓ Game-only build: ${game.parts.length}/${full.parts.length} parts, ${gameBytes}/${fullBytes} bytes; runtime systems work without Workspace.`);

@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 12L: RPG MAKER MZ GENERATOR COMPOSITOR (VIEWS, ORDER, COLOUR SLOTS)
 //==========================================================

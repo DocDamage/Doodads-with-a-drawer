@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 12I: MEMAO CREATOR SLOTS (PICKERS, COLOURS, DICE, SAVED CHARACTERS)
 //==========================================================

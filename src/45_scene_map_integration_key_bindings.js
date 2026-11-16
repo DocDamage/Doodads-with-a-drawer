@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25: SCENE_MAP INTEGRATION & KEY BINDINGS
 //==========================================================
@@ -223,5 +224,3 @@ if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
         recoveryTimer.unref();
     }
 }
-
-})(DocsDoodads.reWrite);

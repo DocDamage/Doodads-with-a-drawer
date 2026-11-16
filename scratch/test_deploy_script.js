@@ -18,6 +18,7 @@ try {
     write(path.join(project, 'index.html'), '<html></html>');
     write(path.join(project, 'package.json'), JSON.stringify({ name: 'rmmz-game', main: 'index.html', 'chromium-args': '--force-color-profile=srgb' }, null, 4));
     write(path.join(project, 'data', 'System.json'), JSON.stringify({ gameTitle: 'Test' }));
+    write(path.join(project, 'js', 'plugins', 'Docs-Doodads.js'), 'full editor plugin');
     write(path.join(project, 'img', 'doodads', 'Tree.png'), png);
     write(path.join(project, 'img', 'system', 'Window.png'), png);
     write(path.join(project, 'audio', 'se', 'Step.ogg'), ogg);
@@ -67,13 +68,22 @@ try {
     assert.strictEqual(plain.key, null);
     assert.strictEqual(JSON.parse(fs.readFileSync(path.join(out, 'package.json'), 'utf8'))['chromium-args'], '--force-color-profile=srgb', '--devtools keeps them');
     assert.ok(fs.existsSync(path.join(out, 'img', 'doodads', 'Tree.png')), 'replaced, not encrypted');
-    assert.deepStrictEqual(parseArgs(['a', 'b', '--key', 'k', '--no-encrypt', '--devtools']), { encrypt: false, key: 'k', runtime: null, devtools: true, project: 'a', out: 'b', restore: false });
+    assert.deepStrictEqual(parseArgs(['a', 'b', '--key', 'k', '--no-encrypt', '--devtools']), { encrypt: false, key: 'k', runtime: null, devtools: true, project: 'a', out: 'b', restore: false, gameBuild: false });
+    assert.strictEqual(parseArgs(['a', 'b', '--game-build']).gameBuild, true);
     assert.strictEqual(parseArgs(['--restore', 'a', 'b']).restore, true);
     assert.throws(() => parseArgs(['a']), /Usage/);
     assert.throws(() => deploy({ project, out: path.join(project, 'deploy'), runtime, encrypt: true, key: 'k' }), /outside the project/);
     assert.throws(() => deploy({ project: root, out, runtime, encrypt: true, key: 'k' }), /not an MZ project/);
     assert.throws(() => deploy({ project, out, runtime: path.join(root, 'nothing'), encrypt: true, key: 'k' }), /runtime/);
     console.log('✓ unencrypted builds, arguments and refusals');
+
+    // --game-build keeps the plugin's deployed basename (MZ's parameter/command identity) and leaves the source alone.
+    const gameOnly = '/* game-only */\nvar runtime = true;\n';
+    deploy({ project, out, runtime, encrypt: false, devtools: true, gameBuild: true, gameBuildText: gameOnly });
+    assert.strictEqual(fs.readFileSync(path.join(out, 'js', 'plugins', 'Docs-Doodads.js'), 'utf8'), gameOnly);
+    assert.strictEqual(fs.readFileSync(path.join(project, 'js', 'plugins', 'Docs-Doodads.js'), 'utf8'), 'full editor plugin');
+    assert.ok(!fs.existsSync(path.join(out, 'js', 'plugins', 'Docs-Doodads.game.js')), 'only one plugin variant is deployed');
+    console.log('✓ --game-build swaps only the deployed Docs-Doodads.js');
 
     // --restore: an MZ deployment that left out the plugin's pictures gets them back, encrypted with its key.
     const built = deploy({ project, out, runtime, encrypt: true, key: 'k' });

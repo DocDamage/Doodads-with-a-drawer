@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Events, the right-click menu, sounds on events and bringing in files ----
     showAskEventModal(payload, coords, isAlt) {
         const modal = document.createElement('div');

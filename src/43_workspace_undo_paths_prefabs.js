@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Undo history panel ----
     toggleUndoHistory() {
         const existing = document.getElementById('dd-undo-history');

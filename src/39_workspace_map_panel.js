@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Map settings (lighting) ----
     currentMapId() {
         return window.$gameMap && typeof window.$gameMap.mapId === 'function' ? window.$gameMap.mapId() : 0;

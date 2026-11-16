@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Visual equipment try-on and notetag builder ----
     visualItems() {
         const out = [];

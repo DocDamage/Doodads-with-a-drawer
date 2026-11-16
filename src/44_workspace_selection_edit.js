@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25g: WORKSPACE SELECTION EDITING (NUMBER SCRUBBING, HANDLES)
 //==========================================================

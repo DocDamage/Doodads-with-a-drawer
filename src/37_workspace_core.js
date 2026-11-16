@@ -1,3 +1,4 @@
+// @editor-only
 //==========================================================
 // SECTION 25: DocsDoodads.WORKSPACE (GLASSMORPHIC WORKSPACE UI & TOOLS)
 //==========================================================

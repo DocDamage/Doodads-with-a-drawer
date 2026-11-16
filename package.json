@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/build.js",
+    "build:game": "node scripts/build.js --game",
     "shortcuts": "npm run build && node scripts/shortcuts.js",
     "strings": "node scripts/strings.js",
     "types": "node scripts/types.js",

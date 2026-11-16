@@ -1,3 +1,4 @@
+// @editor-only
     // ---- Collision traced from the art ----
     loadPixels(path) {
         return new Promise((resolve, reject) => {

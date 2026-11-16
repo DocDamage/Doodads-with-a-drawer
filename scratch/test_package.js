@@ -34,7 +34,7 @@ const folder = `Docs-Doodads-${version}/`;
 const names = read.files.map(f => f.name);
 assert.ok(names.every(n => n.startsWith(folder)), 'everything in one folder');
 const inside = names.map(n => n.slice(folder.length));
-for (const want of ['Docs-Doodads.js', 'README.txt', 'Docs_Doodads_Guide.md', 'CHEAT_SHEET.md', 'CHANGELOG.md', 'LICENSE',
+for (const want of ['Docs-Doodads.js', 'Docs-Doodads.game.js', 'README.txt', 'Docs_Doodads_Guide.md', 'CHEAT_SHEET.md', 'CHANGELOG.md', 'LICENSE',
     'docs/FIRST_3D_MAP.md', 'languages/template.json', 'tools/deploy.js', 'types/Docs-Doodads.d.ts', 'licenses/Nunito-OFL.txt']) assert.ok(inside.includes(want), want + ' is in it');
 assert.ok(inside.some(n => /^docs\/images\/first3d_.*\.jpg$/.test(n)), "Your First 3D Map's pictures come with it");
 assert.ok(!inside.some(n => /\.gif$|^src\/|^scratch\/|^img\/|^audio\//.test(n)), 'no README clips, sources, tests or art');
@@ -43,10 +43,12 @@ console.log('✓ One folder per version, with the plugin, the docs, the template
 // 2. The plugin in it is what src/ builds, and the readme says how to install it and where the libraries are.
 const file = n => Buffer.from(read.files.find(f => f.name === folder + n).data);
 assert.strictEqual(file('Docs-Doodads.js').toString('utf8'), P.buildFrom(P.source()), 'the plugin as src/ builds it');
+assert.strictEqual(file('Docs-Doodads.game.js').toString('utf8'), P.buildFrom(P.source(), { game: true }), 'the game-only plugin as marked src/ builds it');
 const readme = file('README.txt').toString('utf8');
 assert.ok(readme.startsWith(`Doc's Doodads ${version}`));
 assert.ok(/js\/plugins/.test(readme) && /F10/.test(readme) && /tools\/deploy\.js --restore/.test(readme));
 assert.ok(/LiberatedPixelCup/.test(readme) && /sleeping-robot-games\.itch\.io/.test(readme) && /store\.steampowered\.com/.test(readme));
+assert.ok(/Rename it to Docs-Doodads\.js/.test(readme) && /Enable only that one variant/.test(readme), 'game-only install keeps the plugin basename and one enabled variant');
 assert.ok(file('tools/deploy.js').equals(fs.readFileSync(path.join(root, 'scripts/deploy.js'))));
 console.log('✓ The plugin as built, a readme on installing it, the libraries\' links.');
 
@@ -71,6 +73,9 @@ if (gitWorks) {
     assert.ok(head.list('src').some(f => /^\d{2}_.*\.js$/.test(f)), 'the commit\'s parts are listed');
     assert.ok(head.read('package.json').length > 0);
     assert.ok(/pluginVersion = '/.test(P.buildFrom(head)), 'the commit\'s plugin builds');
+    assert.strictEqual(P.buildFrom(head, { game: true }), null, 'a historical ref without editor markers remains full-only');
+    const oldResult = P.makePackage({ ref: 'HEAD', out: path.join(out, 'historical') });
+    assert.ok(!oldResult.files.some(n => /Docs-Doodads\.game\.js$/.test(n)), 'historical package does not mislabel the full plugin as game-only');
 }
 console.log('✓ Versions checked; a missing ref named; a commit packaged from git.');
 
