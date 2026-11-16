@@ -78,4 +78,71 @@ for (let i = 1; i < wilderness.paths.length; i++) {
         'path tiles are contiguous within each marked-point leg');
 }
 
+// Room-stamp openings are explicit edge coordinates. Invalid/interior entries are ignored, and the
+// same small notation is used by the room capture/edit form.
+assert.deepStrictEqual(D.Rooms.parseDoors('N 2, east 1; south 3; W1; north 99', 5, 5), [
+    { x: 2, y: 0, side: 'north' }, { x: 4, y: 1, side: 'east' },
+    { x: 3, y: 4, side: 'south' }, { x: 0, y: 1, side: 'west' }
+]);
+assert.strictEqual(D.Rooms.formatDoors(stamp.doors), 'N2, E2, S2, W2');
+
+const roomWithContents = Object.assign({}, stamp, {
+    tiles: new Array(5 * 5 * 6).fill(0), tileWidth: 48, tileHeight: 48,
+    doodads: [{ bit: [3, 'img/doodads/Chest.png'], x: 72, y: 96 }],
+    events: [{ id: 1, name: 'Guard', dx: 2, dy: 2, pages: [] }]
+});
+for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) roomWithContents.tiles[(y * 5) + x] = 2816;
+
+// Runtime requests keep only the recipe and resolved seed. The same record is regenerated when the
+// target map is set up; generated arrays never enter $gameSystem/save contents.
+assert.ok(D.GenerateRuntime && typeof D.GenerateRuntime.queue === 'function', 'runtime generator exists in the ordinary game build');
+D.GenerateRuntime.setRooms([roomWithContents]);
+$gameVariables.setValue(7, 123456);
+const queued = D.GenerateRuntime.command({
+    mapId: 1, kind: 'dungeon', seedVariable: 7, w: 24, h: 18, count: 3,
+    roomIds: 'cross-room', floorTile: 2816, wallTile: 4352
+});
+assert.strictEqual(queued.seed, 123456, 'the seed variable is resolved when the command runs');
+assert.deepStrictEqual(Object.keys($gameSystem._docsGeneratedMaps[1]).sort(), ['recipe', 'seed']);
+assert.ok(!JSON.stringify($gameSystem._docsGeneratedMaps).includes('biomeIds'));
+$gameMap.setup(1);
+assert.ok($dataMap.data.some(id => id === 4352), 'setup applies the generated walls before the map is shown');
+assert.ok(($dataMap.events || []).some(e => e && e._docsGeneratedMap === 1), 'room events are materialized');
+assert.ok((D.doodads(1) || []).some(d => d && d._docsGeneratedMap === 1), 'room doodads are materialized');
+
+const apiRecord = D.api.generateMap({ mapId: 1, kind: 'wilderness', seed: 'api-seed', w: 16, h: 12,
+    biomes: [{ id: 'forest', weight: 1 }], floorTile: 2816, pathTile: 1536 });
+assert.strictEqual(apiRecord.seed, G.seed('api-seed'));
+assert.ok(PluginManager._commands['Docs-Doodads:generateMap'], 'Generate Map plugin command is registered');
+
+// The editor owns one preview at a time. Apply delegates all map, doodad and event mutations to one
+// Undo command, so Undo returns the exact map snapshot.
+assert.ok(typeof D.Workspace.showGenerateCard === 'function' && typeof D.Workspace.previewGeneratedMap === 'function');
+const editorMap = { width: 16, height: 12, data: new Array(16 * 12 * 6).fill(0), events: [null] };
+const editorDoodads = [];
+const beforeEditor = JSON.stringify(editorMap);
+const oldDoodads = global.$dataDocsDoodads;
+global.$dataDocsDoodads = { 1: editorDoodads, mapSettings: {} };
+D.Workspace.liveMapData = () => editorMap;
+D.Workspace.currentMapId = () => 1;
+D.Workspace.regionTargets = () => ({ live: editorMap, staged: editorMap });
+D.Workspace.tileSize = () => ({ tw: 48, th: 48 });
+D.Workspace.afterTileEdit = () => {};
+D.Workspace.refreshSpriteset = () => {};
+D.Workspace.updateUndoButtons = () => {};
+D.Workspace.mounted = true;
+D.Workspace.generateOptions = { kind: 'dungeon', w: 16, h: 12, count: 2, seed: 'editor', roomIds: ['cross-room'], floorTile: 2816, wallTile: 4352 };
+D.GenerateRuntime.setRooms([roomWithContents]);
+const preview = D.Workspace.previewGeneratedMap(false);
+assert.ok(preview && preview.layout.rooms.length, 'preview creates an overlay-only layout');
+D.Workspace.applyGeneratedMap();
+assert.notStrictEqual(JSON.stringify(editorMap), beforeEditor, 'Apply changes the staged map');
+assert.strictEqual(D.Undo.undoStack[D.Undo.undoStack.length - 1].type, 'generate_map');
+D.Undo.undo();
+assert.strictEqual(JSON.stringify(editorMap), beforeEditor, 'one Undo restores tiles and events exactly');
+global.$dataDocsDoodads = oldDoodads;
+
+const required = D.RequiredAssets.collect({ doodads: {}, rooms: [roomWithContents] });
+assert.ok(required.includes('img/doodads/Chest.png'), 'room-stamp art is kept by Exclude unused files deployment');
+
 console.log('Generated maps: deterministic BSP rooms, stamp doors, reachability, limits, wilderness noise and paths passed.');
