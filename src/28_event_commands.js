@@ -76,7 +76,7 @@
     const finalList = list => {
         const out = clone(Array.isArray(list) ? list : []);
         let end = { code: 0, indent: 0, parameters: [] };
-        while (out.length && out[out.length - 1] && out[out.length - 1].code === 0) end = out.pop();
+        if (out.length && out[out.length - 1] && out[out.length - 1].code === 0) end = out.pop();
         out.push(end);
         return out;
     };
@@ -95,14 +95,15 @@
             const source = Array.isArray(list) ? list : [], rows = [];
             for (let index = 0; index < source.length;) {
                 const item = source[index];
-                if (!item || item.code === 0) break;
+                if (!item) { index++; continue; }
+                if (item.code === 0 && index === source.length - 1) break;
                 const def = byCode[item.code], length = this.span(source, index) || 1;
                 if (def) {
                     const values = def.read(source, index);
                     rows.push({ index, length, code: item.code, indent: Number(item.indent) || 0, id: def.id, label: def.label,
-                        editable: true, values, summary: def.summary ? def.summary(values) : def.label });
+                        editable: true, structural: false, values, summary: def.summary ? def.summary(values) : def.label });
                 } else rows.push({ index, length: 1, code: item.code, indent: Number(item.indent) || 0, label: 'Command ' + item.code,
-                    editable: false, values: null, summary: 'Edit in MZ (command ' + item.code + ')' });
+                    editable: false, structural: true, values: null, summary: 'Edit in MZ (command ' + item.code + ')' });
                 index += length;
             }
             return rows;
@@ -113,13 +114,14 @@
             if (!def) return out;
             let at = Math.max(0, Math.min(out.length - 1, integer(index, out.length - 1, 0, out.length - 1)));
             const containing = this.rowAt(out, at);
+            if (containing && containing.structural) return out;
             if (containing && at > containing.index) at = containing.index;
             out.splice(at, 0, ...def.write(values || {}, indent || 0));
             return finalList(out);
         },
         remove(list, index) {
             const out = finalList(list), row = this.rowAt(out, Number(index));
-            if (row) out.splice(row.index, row.length);
+            if (row && row.editable) out.splice(row.index, row.length);
             return finalList(out);
         },
         replace(list, index, values) {
@@ -132,6 +134,7 @@
             const out = finalList(list), rows = this.describe(out), rowIndex = rows.findIndex(row => Number(index) >= row.index && Number(index) < row.index + row.length);
             const otherIndex = rowIndex + (Number(direction) < 0 ? -1 : 1);
             if (rowIndex < 0 || otherIndex < 0 || otherIndex >= rows.length) return out;
+            if (!rows[rowIndex].editable || !rows[otherIndex].editable || rows[rowIndex].indent !== rows[otherIndex].indent) return out;
             const groups = rows.map(row => out.slice(row.index, row.index + row.length));
             const swap = groups[rowIndex]; groups[rowIndex] = groups[otherIndex]; groups[otherIndex] = swap;
             return finalList([].concat(...groups));

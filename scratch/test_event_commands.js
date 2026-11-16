@@ -73,6 +73,10 @@ assert.strictEqual(JSON.stringify(conditionalEdited.slice(0, 7)), branchBefore, 
 assert.strictEqual(C.get('wait').read(conditionalEdited, 7).frames, 30);
 assert.deepStrictEqual(C.move(conditionalEdited, 7, -1), conditionalEdited, 'a command cannot move across a structural branch marker or indent boundary');
 assert.deepStrictEqual(C.remove(conditionalEdited, 0), conditionalEdited, 'unknown structural rows cannot be removed in this editor');
+const flat = C.insert(C.insert([{ code: 0, indent: 0, parameters: [] }], 0, 'wait', { frames: 10 }, 0), 1, 'wait', { frames: 20 }, 0);
+const flatMoved = C.move(flat, 1, -1);
+assert.deepStrictEqual(C.describe(flatMoved).map(row => row.values.frames), [20, 10], 'ordinary commands at the same indent can move');
+assert.deepStrictEqual(C.describe(C.remove(flatMoved, 0)).map(row => row.values.frames), [10], 'supported rows can be removed');
 
 // The event card mutates staged pages through editSelectedEvent, so each operation remains one ordinary undo step.
 $dataMap.events[1] = D.Events.createEventObject(1, 2, 3, { list: C.get('showText').write(samples.showText, 0) });
@@ -144,6 +148,7 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     $gameMap._stagedMapData = $dataMap;
     W._eventCommandPage = 0;
     let currentMap = 1;
+    W.mounted = true;
     W.currentMapId = () => currentMap;
     const visits = [];
     W.goToMap = mapId => { visits.push(mapId); };
