@@ -103,10 +103,13 @@ if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(npc);
 S.invalidate(npc);
 
 // A restored map has no WeakMap state: current clock state is derived again even if its saved key matches.
-npc.locate(7, 7); npc.setTransparent(true); npc.setThrough(true); npc._docsScheduleKey = S.parse(scheduleNote, weekdays)[2].key;
-R.reset(); now = 10 * 60; R.updateMap($gameMap, true);
+npc.setTransparent(true); npc.setThrough(false);
 now = 11 * 60; R.updateMap($gameMap, false);
-assert.deepStrictEqual([npc.isTransparent(), npc.isThrough()], [false, true], 'load while hidden still restores page visibility later');
+now = 10 * 60; R.updateMap($gameMap, false);
+R.reset(); R.updateMap($gameMap, true);
+now = 11 * 60; R.updateMap($gameMap, false);
+assert.deepStrictEqual([npc.isTransparent(), npc.isThrough()], [true, false], 'load while hidden restores the exact pre-schedule flags');
+npc.setTransparent(false); npc.setThrough(true);
 npc.locate(99, 99); npc._docsScheduleKey = S.of(npc, weekdays)[3].key;
 R.reset(); R.updateMap($gameMap, true);
 assert.deepStrictEqual([npc.x, npc.y], [8, 8]);
