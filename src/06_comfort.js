@@ -27,7 +27,7 @@ DocsDoodads.Comfort = {
         if (mode === 'always') return true;
         const world = DocsDoodads.World.settings();
         return Boolean((world.weather2d || {}).lightning && world.weather2d.lightning.enabled)
-            || Number((world.camera2d || {}).lookAhead) > 0 || DocsDoodads.fxQualityOffered();
+            || Number((world.camera2d || {}).lookAhead) > 0 || DocsDoodads.PostFX.offeredInOptions();
     },
     beginFlash(screen, colour, duration) {
         if (!screen || typeof screen.startFlash !== 'function') return;
