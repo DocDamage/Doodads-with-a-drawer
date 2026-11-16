@@ -455,6 +455,17 @@
  * @type variable
  * @default 0
  *
+ * @command pauseSchedules
+ * @text Pause Schedules
+ * @desc Turns scheduled event movement on or off for cutscenes. The pause is not kept in the save.
+ *
+ * @arg on
+ * @text Schedules
+ * @type boolean
+ * @on On
+ * @off Off
+ * @default true
+ *
  * @command clockControl
  * @text Clock Control
  * @desc Pause, resume or change the speed of the running clock.

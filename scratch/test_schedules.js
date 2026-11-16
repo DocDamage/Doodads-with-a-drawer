@@ -26,7 +26,7 @@ Monday 09:00 nope
 </docs schedule>`, weekdays);
 assert.strictEqual(parsed.length, 3);
 assert.strictEqual(parsed.errors.length, 2, 'bad schedule lines are reported, not thrown');
-assert.deepStrictEqual(parsed[1], Object.assign({}, parsed[1], { walk: true, face: 4 }));
+assert.strictEqual(parsed[1].walk, true); assert.strictEqual(parsed[1].face, 4);
 assert.deepStrictEqual(parsed[2].days, ['Sat', 'Sun']);
 assert.strictEqual(S.current(parsed, 11 * 60, 5, weekdays), parsed[2], 'weekday prefixes use the configured names');
 assert.strictEqual(S.current(parsed, 19 * 60, 0, weekdays), parsed[1], 'latest applicable entry today wins');
@@ -137,13 +137,19 @@ staged.pages[0].list = [
 ];
 W.selectedEvent = { gameEvent: npc, stagedEvent: staged };
 W.selectedStagedEvent = () => staged;
-let undoSteps = 0;
+const undoCommands = [];
 const execute = D.Undo.execute;
-D.Undo.execute = command => { undoSteps++; command.apply(); };
+D.Undo.execute = command => { undoCommands.push(command); command.apply(); };
 assert.strictEqual(W.editEventSchedule(S.parse('<docs schedule>\n12:00 6,6 walk\n</docs schedule>', weekdays)), true);
-assert.strictEqual(undoSteps, 1);
+assert.strictEqual(undoCommands.length, 1);
 assert.ok(staged.note.includes('<docs schedule>'));
 assert.ok(!staged.pages[0].list.some(c => /docs schedule/i.test(String((c.parameters || [])[0] || ''))), 'comment block was migrated, not duplicated');
+undoCommands[0].revert();
+assert.ok(!staged.note.includes('<docs schedule>'));
+assert.ok(staged.pages[0].list.some(c => /docs schedule/i.test(String((c.parameters || [])[0] || ''))));
+undoCommands[0].apply();
+const invalidEdit = S.parse('<docs schedule>\nbad line\n</docs schedule>', weekdays);
+assert.strictEqual(W.editEventSchedule(invalidEdit), false, 'invalid text is kept in the field instead of dropping its line');
 
 W.beginScheduleTilePick(0);
 W.toolHooks.scheduleTile.click.call(W, { tileX: 9, tileY: 4 });
@@ -151,6 +157,12 @@ assert.ok(staged.note.includes('12:00 9,4 walk'));
 assert.strictEqual(W.placementTool, null);
 const overlay = W.scheduleOverlayEntries();
 assert.deepStrictEqual(overlay.map(e => [e.x, e.y, e.label]), [[9, 4, '12:00']]);
+const graphics = new PIXI.Graphics();
+PIXI.Text = function(text, style) { this.text = text; this.style = style; this.anchor = { set() {} }; this.visible = true; };
+const liveCamera = D.Perspective.liveCamera; D.Perspective.liveCamera = () => false;
+W.drawScheduleOverlay(graphics);
+D.Perspective.liveCamera = liveCamera;
+assert.strictEqual(graphics._ddScheduleLabels[0].text, '12:00');
 assert.ok(String(W.renderScheduleDetails).includes('Use this tile'));
 D.Undo.execute = execute;
 

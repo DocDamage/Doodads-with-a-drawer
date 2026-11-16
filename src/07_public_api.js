@@ -580,6 +580,13 @@ DocsDoodads.api = {
      */
     setDay(day) { return DocsDoodads.Calendar.setDay(day); },
 
+    /**
+     * Turns scheduled event movement on or off for a cutscene. This pause is not kept in the save.
+     * @param {boolean} [on]
+     * @returns {boolean} Whether schedules are now on.
+     */
+    schedules(on = true) { return DocsDoodads.Schedules.setEnabled(on); },
+
     // ---- Clock, season and ambient light ----
     /**
      * The time of day in minutes (0-1439), or null when the clock is off.

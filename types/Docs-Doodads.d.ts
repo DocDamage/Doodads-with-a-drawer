@@ -380,6 +380,11 @@ interface DocsDoodadsApi {
     setDay(day: number): boolean;
 
     /**
+     * Turns scheduled event movement on or off for a cutscene. This pause is not kept in the save.
+     */
+    schedules(on?: boolean): boolean;
+
+    /**
      * The time of day in minutes (0-1439), or null when the clock is off.
      */
     time(): number | null;
