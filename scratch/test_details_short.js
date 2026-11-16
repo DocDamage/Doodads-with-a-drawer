@@ -44,7 +44,7 @@ assert.ok(W._effectSections.some(s => s.title === 'Particles'));
 // A small DOM fixture checks the actual controls, including selection classification and More.
 function node(tag, text = '') {
     return { tagName: tag.toUpperCase(), textContent: text, style: {}, children: [], id: '', value: '',
-        appendChild(child) { this.children.push(child); child.parentNode = this; },
+        appendChild(child) { if (child.parentNode) child.parentNode.children = child.parentNode.children.filter(c => c !== child); this.children.push(child); child.parentNode = this; },
         insertBefore(child, before) { if (child.parentNode) child.parentNode.children = child.parentNode.children.filter(c => c !== child); const index = this.children.indexOf(before); this.children.splice(index < 0 ? 0 : index, 0, child); child.parentNode = this; },
         setAttribute(key, value) { this[key] = value; },
         closest(selector) { let current = this; while (current) { if (current.tagName.toLowerCase() === selector) return current; current = current.parentNode; } return null; },
@@ -78,4 +78,22 @@ assert.strictEqual(position.style.display, '', 'top-level fields are also search
 search.value = ''; search.oninput();
 assert.strictEqual(particleSection.style.display, 'none', 'clearing search restores the shortlist');
 assert.ok(!JSON.stringify(D.Ui.prefs()).includes('Emitter amount'), 'query text is never written to preferences');
+root.children = [];
+for (const [id, label] of [['dd-ev-x', 'Tile X'], ['dd-ev-trigger', 'Trigger'], ['dd-ev-label', 'Name over it']]) {
+    const row = node('div', label), control = node('input'); control.id = id; row.appendChild(control); root.appendChild(row);
+}
+const commands = node('button', 'Edit Commands'); commands.id = 'dd-ev-commands-btn'; root.appendChild(commands);
+W.selectedEvent = { stagedEvent: { id: 1, x: 2, pages: [] } };
+W.bindShortDetails();
+const labels = root.querySelector('#dd-details-event-labels');
+assert.strictEqual(labels.style.display, 'none', 'event extras start under More');
+assert.strictEqual(root.querySelector('#dd-details-event-commands').style.display, '', 'event commands start in the shortlist');
+root.querySelector('#dd-details-more').onclick();
+assert.strictEqual(labels.style.display, '');
+root.querySelector('#dd-details-more').onclick();
+root.querySelector('#dd-details-search').value = 'name'; root.querySelector('#dd-details-search').oninput();
+assert.strictEqual(labels.style.display, '', 'event hidden settings are searchable');
+W.selectedStagedEvent = () => W.selectedEvent.stagedEvent;
+W.editSelectedEvent('event_label', event => { event.note = '<docs label: Shop>'; });
+assert.strictEqual(D.Ui.prefs().detailsUsage.event.event_label, 1);
 console.log('Short Details: defaults, pins, mixed kinds, hidden search and local usage passed.');

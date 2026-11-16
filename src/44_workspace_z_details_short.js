@@ -13,9 +13,36 @@
             const items = Array.isArray(this.selectedDoodads) && this.selectedDoodads.length ? this.selectedDoodads : this.selectedDoodad ? [this.selectedDoodad] : [];
             return Array.from(new Set(items.map(item => R.kind(item))));
         },
+        groupEventDetails(root) {
+            if (!this.selectedEvent || root.querySelector('#dd-details-event-position')) return;
+            const definitions = [
+                ['position', 'Position', ['dd-ev-x', 'dd-ev-y'], ['move_event']],
+                ['trigger', 'Trigger', ['dd-ev-trigger'], ['event_trigger']],
+                ['priority', 'Priority', ['dd-ev-priority'], ['event_priority']],
+                ['commands', 'Commands', ['dd-ev-commands-btn'], ['edit_event_command', 'insert_event_command', 'remove_event_command', 'move_event_command', 'edit_event_page', 'add_event_page', 'copy_event_page', 'delete_event_page']],
+                ['schedule', 'Schedule', ['dd-event-schedule'], ['event_schedule']],
+                ['labels', 'Name and icon', ['dd-ev-label', 'dd-ev-icon'], ['event_label']],
+                ['templates', 'Templates and event actions', ['dd-ev-save-template-btn', 'dd-ev-dup-btn', 'dd-ev-del-btn'], ['event_template']]
+            ];
+            for (const [id, title, ids, keys] of definitions) {
+                const picked = ids.map(key => document.getElementById(key)).filter(element => element && (!root.contains || root.contains(element)));
+                if (!picked.length) continue;
+                const details = document.createElement('details'), summary = document.createElement('summary');
+                details.id = 'dd-details-event-' + id; summary.textContent = title; details.appendChild(summary);
+                details.style.cssText = 'border-top:1px solid var(--dd-line-soft);padding-top:6px;margin-top:6px;';
+                details._ddUsageKeys = keys;
+                const moved = new Set();
+                for (const element of picked) {
+                    const control = /^(INPUT|SELECT|TEXTAREA)$/.test(element.tagName) ? element.parentNode : element;
+                    if (control && !moved.has(control)) { details.appendChild(control); moved.add(control); }
+                }
+                root.appendChild(details);
+            }
+        },
         bindShortDetails() {
             const root = typeof document !== 'undefined' ? document.getElementById('dd-inspector-content') : null;
             if (!root || !root.querySelectorAll || !document.createElement || !root.insertBefore) return;
+            this.groupEventDetails(root);
             const sections = Array.from(root.querySelectorAll('details')).filter(node => {
                 const parent = node.parentNode;
                 return !(parent && parent.closest && parent.closest('details'));
@@ -27,6 +54,10 @@
                     if (row && row.tagName !== 'LABEL' && row.tagName !== 'DIV') row = input;
                     return { key: input.id || '', label: row.textContent || '', input, row };
                 });
+                if (node._ddUsageKeys) {
+                    const label = String(node.textContent || title);
+                    node._ddUsageKeys.forEach(key => fields.push({ key, label, input: null, row: null }));
+                }
                 return { node, title, fields };
             });
             const loose = new Map();
@@ -77,7 +108,7 @@
                     const visible = query ? Boolean(found) : !simple || this._detailsMore || short.some(s => s.node === section.node);
                     section.node.style.display = visible ? '' : 'none';
                     if (query && visible) section.node.open = true;
-                    for (const field of section.fields) field.row.style.display = !query || found && found.fields.some(f => f.input === field.input) ? '' : 'none';
+                    for (const field of section.fields) if (field.row) field.row.style.display = !query || found && found.fields.some(f => f.input === field.input) ? '' : 'none';
                 }
                 const words = query.toLowerCase().split(/\s+/).filter(Boolean);
                 for (const [row, label] of loose) row.style.display = words.every(word => label.toLowerCase().includes(word)) ? '' : 'none';
@@ -120,6 +151,19 @@
         const event = this.selectedStagedEvent(), before = JSON.stringify(event);
         const result = editEvent.call(this, type, mutate);
         if (event && JSON.stringify(event) !== before) R.record(['event'], String(type || 'event').replace(/[^a-zA-Z0-9_.]/g, '.'));
+        return result;
+    };
+    const editSchedule = W.editEventSchedule;
+    W.editEventSchedule = function(entries) {
+        const event = this.selectedStagedEvent(), before = JSON.stringify(event);
+        const result = editSchedule.call(this, entries);
+        if (event && JSON.stringify(event) !== before) R.record(['event'], 'event_schedule');
+        return result;
+    };
+    const editLabel = W.editEventLabel;
+    W.editEventLabel = function(label, icon) {
+        const result = editLabel.call(this, label, icon);
+        if (result) R.record(['event'], 'event_label');
         return result;
     };
     const preview = W.previewDoodadProperty;
