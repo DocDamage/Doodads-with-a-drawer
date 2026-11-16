@@ -10,10 +10,21 @@ DocsDoodads.Help = {
         ['old saves', 'Save history'], ['steps', 'Undo history'], ['notes', 'Map notes'], ['bookmarks', 'Ruler and bookmarks'],
         ['look', '21. Workspace Layouts'], ['settings', '3. Plugin Parameters'], ['path', '6. Drag-and-Drop'],
         ['scatter', 'Biome brush'], ['biome', 'Biome brush'], ['paint', 'Biome brush'], ['mirror', 'Symmetry'],
-        ['template', '15. Genuine'], ['rooms', '12. Editor Tools'], ['find', 'Command palette']
-    ].map(row => ({ words: row[0], anchor: (DocsDoodads.HelpIndex.find(h => h.title.indexOf(row[1]) === 0) || DocsDoodads.HelpIndex[0]).anchor })),
+        ['template', '15. Genuine'], ['rooms', '12. Editor Tools'], ['find', 'Command palette'],
+        ["this map's doodads", '6. Drag-and-Drop'], ['file check', '20. Asset Management'], ['doodad or event', '15. Genuine'],
+        ['add files', '18. Windows Explorer'], ['info', '24. Troubleshooting'], ['bring back a backup', '22. Project Safety'],
+        ['tile ', '11. Spatial Sound'], ['problems', '22. Project Safety'], ['packs', '20. Asset Management'],
+        ['messages', '24. Troubleshooting'], ['keyboard shortcuts', '23. Complete Keyboard'],
+        ['map', '12. Editor Tools', true], ['art', '20. Asset Management', true],
+        ['view', '21. Workspace Layouts', true], ['more', '12. Editor Tools', true]
+    ].map(row => ({ words: row[0], exact: Boolean(row[2]), anchor: (DocsDoodads.HelpIndex.find(h => h.title.indexOf(row[1]) === 0) || {}).anchor })),
 
     entry(anchor) { return DocsDoodads.HelpIndex.find(h => h.anchor === anchor) || null; },
+    anchorFor(title) {
+        const text = String(title || '').toLowerCase().trim();
+        const panel = this.panels.find(p => p.exact ? text === p.words : text.includes(p.words));
+        return panel ? panel.anchor : null;
+    },
 
     decorate(root) {
         if (!root || !root.querySelectorAll) return;
@@ -23,8 +34,7 @@ DocsDoodads.Help = {
         for (const head of heads) {
             if (!head.querySelector || head.querySelector('.dd-context-help') || head.id === 'dd-context-help-head') continue;
             const title = String(head.textContent || head.title || '').toLowerCase();
-            const panel = this.panels.find(p => title.includes(p.words));
-            const anchor = head.getAttribute('data-dd-help') || (panel ? panel.anchor : DocsDoodads.HelpIndex[0].anchor);
+            const anchor = head.getAttribute('data-dd-help') || this.anchorFor(title);
             if (!this.entry(anchor)) continue;
             head.setAttribute('data-dd-help', anchor);
             const button = document.createElement('button');

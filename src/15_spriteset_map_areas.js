@@ -3,7 +3,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gamePlayer === 'undefined' || !$gamePlayer) return;
         if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) { this._docsAreaState = null; return; }
         const mapId = $gameMap.mapId(), settings = DocsDoodads.Lighting.mapSettings(mapId);
-        if (!settings || !Array.isArray(settings.areas) || !settings.areas.length) return;
+        if (!settings || !Array.isArray(settings.areas) || !settings.areas.length) { this._docsAreaState = null; return; }
         let state = this._docsAreaState;
         if (!state || state.mapId !== mapId || state.settings !== settings) {
             const system = typeof $gameSystem !== 'undefined' ? $gameSystem : null;
@@ -28,6 +28,7 @@ if (typeof Window_MapName !== 'undefined' && typeof Window_MapName.prototype.ref
         if (this._docsAreaName === undefined) return refreshMapNameBeforeAreas.call(this);
         this.contents.clear();
         const text = this._docsAreaName, width = this.innerWidth;
+        delete this._docsAreaName;
         this.drawBackground(0, 0, width, this.lineHeight());
         const size = this.textSizeEx(text);
         this.drawTextEx(text, Math.max(0, (width - size.width) / 2), 0, width);

@@ -76,6 +76,7 @@ Object.assign(DocsDoodads.Workspace, {
         card.className = 'dd-glass';
         card.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);z-index:10045;padding:14px;width:360px;max-height:75vh;overflow:auto;display:flex;flex-wrap:wrap;gap:8px;';
         const heading = document.createElement('div');
+        heading.className = 'dd-panel-head';
         heading.textContent = 'Moods — point to try; click to keep. Weather and wind are previews only.';
         card.appendChild(heading);
         for (const mood of DocsDoodads.Moods.list()) {
