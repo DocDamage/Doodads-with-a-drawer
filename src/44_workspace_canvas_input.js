@@ -85,6 +85,7 @@
     drawEditorOverlayExtras(g) {
         this.drawCollisionOverlay(g);
         this.drawSoundOverlay(g);
+        this.drawNearOverlay(g);
         this.drawReachOverlay(g);
         this.drawRegionOverlay(g);
         for (const name of Object.keys(this.toolHooks)) if (this.toolHooks[name].overlay) this.toolHooks[name].overlay.call(this, g);

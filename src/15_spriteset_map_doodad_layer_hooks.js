@@ -100,7 +100,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         'updateDocsFlyShadow',      // the flying player's shadow (17_traversal)
         'updateDocsTouchPrompt',    // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
         'updateDocsEventLabels',    // names and icons over events (15_spriteset_map_labels)
-        'updateDocsAreas'           // named regions, in MZ's map-name window (15_spriteset_map_areas)
+        'updateDocsAreas',          // named regions, in MZ's map-name window (15_spriteset_map_areas)
+        'updateDocsNear'            // doodad enter/leave ranges (15_spriteset_map_near)
     ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {

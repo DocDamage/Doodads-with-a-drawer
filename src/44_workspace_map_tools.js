@@ -135,6 +135,19 @@ Object.assign(DocsDoodads.Workspace, {
         return { emitters, regionTiles };
     },
 
+    drawNearOverlay(g) {
+        const map = window.$gameMap;
+        if (!map || (DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera())) return;
+        const items = this.showSounds ? DocsDoodads.doodads() : (this.selectedDoodads || []);
+        for (const d of items || []) {
+            if (!d || !d.near || !(Number(d.near.range) > 0)) continue;
+            const at = DocsDoodads.mapToScreen(d.x, d.y - map.tileHeight() / 2);
+            g.lineStyle(2, DocsDoodads.Ui.mapColor('sound'), 0.8);
+            g.drawCircle(at.x, at.y, Math.min(100, Number(d.near.range)) * map.tileWidth());
+        }
+        g.lineStyle(0);
+    },
+
     drawSoundOverlay(g) {
         const gameMap = window.$gameMap;
         if (!gameMap || (!this.showSounds && !this._listenProbe)) return;
