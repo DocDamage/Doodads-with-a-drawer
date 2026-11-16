@@ -341,6 +341,15 @@
  * @default false
  * @desc Enable diagnostics logging in Developer Tools console.
  *
+ * @command storeAreaName
+ * @text Store Area Name
+ * @desc Put the current region's area name into a game variable (empty outside a named area).
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 1
+ *
  * @command setAmbient
  * @text Set Ambient Light
  * @desc Fades the map's darkness (for night, caves, storms). Doodad lights shine through it.

@@ -80,12 +80,24 @@ DocsDoodads.Regions = {
         ((world && world.ambience && world.ambience.layers) || []).filter(l => l && l.kind === 'region').forEach(l => add(l.id, 'ambience: ' + (l.sound || l.name || 'sound')));
         ((world && world.footsteps && world.footsteps.rows) || []).filter(r => r && r.kind === 'region').forEach(r => add(r.id, 'footsteps: ' + (r.sound || '')));
         ((mapSettings && mapSettings.regionSounds) || []).forEach(r => add(r && r.regionId, 'background sound: ' + ((r && r.name) || '')));
+        ((mapSettings && mapSettings.areas) || []).forEach(a => add(a && a.region, 'area: ' + ((a && a.name) || '')));
         return out;
     }
 };
 
 Object.assign(DocsDoodads.Workspace, {
     regionBrush: { id: 1, radius: 0, showTags: false },
+
+    setAreaName(region, name, once) {
+        const id = Math.max(1, Math.min(255, Math.round(Number(region) || 1)));
+        const settings = DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {};
+        const areas = (Array.isArray(settings.areas) ? settings.areas : []).filter(a => a && Number(a.region) !== id);
+        name = String(name || '').trim();
+        if (name) areas.push({ region: id, name, once: Boolean(once) });
+        this.setMapSetting('areas', areas.length ? areas : undefined);
+        this.renderRegionLegend();
+        return name;
+    },
 
     // The map's data while editing: what the game reads now ($dataMap) and what Save writes (staged).
     regionTargets(mapId) {
@@ -201,9 +213,20 @@ Object.assign(DocsDoodads.Workspace, {
             : ids.map(id => `<div class="dd-region-row${id === this.regionBrush.id ? ' dd-active' : ''}" data-region="${id}" title="Paint region ${id}">
                 <span class="dd-swatch" style="background: ${hex(R.color(id))};"></span>
                 <b>${id}</b>
-                <span>${counts[id] || 0} tile${counts[id] === 1 ? '' : 's'}${uses[id] ? `<div class="dd-region-uses">${escapeHtml(uses[id].join(', '))}</div>` : ''}</span>
+                <span>${counts[id] || 0} tile${counts[id] === 1 ? '' : 's'}${uses[id] ? `<div class="dd-region-uses">${escapeHtml(uses[id].join(', '))}</div>` : ''}
+                <input class="dd-area-name" data-area="${id}" aria-label="Area name for region ${id}" placeholder="Area name" value="${escapeHtml((DocsDoodads.Areas.at(DocsDoodads.Lighting.mapSettings(this.currentMapId()), id) || {}).name || '')}" style="width:100%;min-width:0;" />
+                <label><input type="checkbox" class="dd-area-once" data-area="${id}" ${((DocsDoodads.Areas.at(DocsDoodads.Lighting.mapSettings(this.currentMapId()), id) || {}).once) ? 'checked' : ''} /> Show once per save</label></span>
             </div>`).join('');
         if (box.querySelectorAll) for (const row of box.querySelectorAll('.dd-region-row')) row.onclick = () => this.setRegionBrushId(row.getAttribute('data-region'));
+        if (box.querySelectorAll) for (const field of box.querySelectorAll('.dd-area-name, .dd-area-once')) {
+            field.onclick = e => e.stopPropagation();
+            field.onchange = () => {
+                const id = Number(field.getAttribute('data-area'));
+                const name = box.querySelector('.dd-area-name[data-area="' + id + '"]');
+                const once = box.querySelector('.dd-area-once[data-area="' + id + '"]');
+                this.setAreaName(id, name.value, once.checked);
+            };
+        }
     },
 
     bindRegionTool() {

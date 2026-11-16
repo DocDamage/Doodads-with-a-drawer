@@ -16,6 +16,11 @@ DocsDoodads.api = {
      */
     comfort() { return DocsDoodads.Comfort.choices(); },
 
+    /** The name of the area under the player, or an empty string.
+     * @returns {string}
+     */
+    area() { const area = DocsDoodads.Areas.current(); return area ? String(area.name) : ''; },
+
     _listeners: {},
 
     // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
