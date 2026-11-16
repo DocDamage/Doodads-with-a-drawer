@@ -751,6 +751,9 @@
         add('Undo', () => D.Undo.undo(), null, K('undo'));
         add('Redo', () => D.Undo.redo(), null, K('redo'));
         add('Keyboard Shortcuts (see and change keys)', () => this.showShortcutsCard(), null, K('shortcuts'));
+        add('Settings', () => this.showSettingsCard(), 'View', K('settings'));
+        const settings = this.refreshSettingsIndex ? this.refreshSettingsIndex() : (this.settingsIndex || []);
+        for (const setting of settings) add('Setting: ' + setting.label, () => setting.open(), setting.where);
         add('Toggle Grid', () => this.toggleGrid(), null, K('grid'));
         add('Show / Hide Collision', () => this.toggleCollisionOverlay(), null, K('collision'));
         for (const s of this.bagSorts) add('Sort Item Bag: ' + s.label, () => this.setBagSort(s.value), 'Item Bag');

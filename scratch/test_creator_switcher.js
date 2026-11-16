@@ -131,10 +131,13 @@ const snap = () => JSON.stringify(cr().state);
     ws.closeLpcCard();
     console.log('✓ Characters card: a group per library, folded as left');
 
-    // 2. The palette has two entries: the card, and the creator of the library used last.
+    // 2. The palette has two creator commands, plus separate Setting: rows from the settings index.
     ws.mapEntries = () => [];
-    const labels = ws.paletteCommands().map(c => c.label).filter(l => /Charact/.test(l));
-    assert.deepStrictEqual(labels.filter(l => !/CREDITS/.test(l)), ['Characters (MZ, LPC and Memao libraries)', 'Character Creator...']);
+    const labels = ws.paletteCommands().map(c => c.label).filter(l => /Charact/.test(l) && !/CREDITS/.test(l));
+    assert.deepStrictEqual(labels.filter(l => !l.startsWith('Setting: ')), ['Characters (MZ, LPC and Memao libraries)', 'Character Creator...']);
+    assert.deepStrictEqual(labels.filter(l => l.startsWith('Setting: ')), [
+        'Setting: Character shadows on this map', 'Setting: Characters: height in 3D', 'Setting: Characters cast shadows'
+    ], 'character settings remain searchable without becoming creator commands');
     assert.strictEqual(ws.lastCreatorKit(), 'lpc', 'only LPC is scanned');
     ws.setMzGenLibraryFolder(gen);
     ws.scanMzGenLibrary(gen);

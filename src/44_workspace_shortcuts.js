@@ -35,6 +35,7 @@ Object.assign(DocsDoodads.Workspace, {
             selectAll: () => this.selectAllDoodads(),
             delete: () => (this.selectedEvent ? this.deleteSelectedEvent() : this.deleteSelectedDoodad()),
             palette: () => this.showCommandPalette(),
+            settings: () => this.showSettingsCard(),
             details: () => this.toggleInspector(),
             find: () => this.focusSearch(),
             shortcuts: () => this.showShortcutsCard(),
@@ -72,6 +73,7 @@ Object.assign(DocsDoodads.Workspace, {
         'dd-undo-btn': ['undo', 'Undo'],
         'dd-redo-btn': ['redo', 'Redo'],
         'dd-palette-btn': ['palette', 'Type the name of any tool or setting'],
+        'dd-settings-btn': ['settings', 'Find every setting'],
         'dd-grid-btn': ['grid', 'Show the snapping grid'],
         'dd-keys-btn': ['shortcuts', 'See and change the keyboard shortcuts'],
         'dd-select-btn': ['toolSelect', 'Select: click things on the map to change them, drag to move'],
@@ -122,8 +124,8 @@ Object.assign(DocsDoodads.Workspace, {
             return label ? escapeHtml(label) : 'No key';
         };
         const row = s => s.fixed
-            ? `<div class="dd-keys-row"><span>${escapeHtml(s.label)}</span><kbd class="dd-keys-fixed">${escapeHtml(s.keys)}</kbd><span style="flex: none; width: 54px;"></span></div>`
-            : `<div class="dd-keys-row"><span class="${S.isChanged(s.id) ? 'dd-keys-changed' : ''}">${escapeHtml(s.label)}</span>
+            ? `<div class="dd-keys-row" data-setting-key="${s.id}" tabindex="-1"><span>${escapeHtml(s.label)}</span><kbd class="dd-keys-fixed">${escapeHtml(s.keys)}</kbd><span style="flex: none; width: 54px;"></span></div>`
+            : `<div class="dd-keys-row" data-setting-key="${s.id}"><span class="${S.isChanged(s.id) ? 'dd-keys-changed' : ''}">${escapeHtml(s.label)}</span>
                 <button class="dd-btn dd-keys-key${S.label(s.id) ? '' : ' dd-keys-none'}" type="button" data-keys="${s.id}" title="Click, then press the new keys (Esc keeps these)">${keyCap(s.id)}</button>
                 <button class="dd-btn dd-keys-mini" type="button" data-clear="${s.id}" title="No key"${S.label(s.id) ? '' : ' disabled'}>×</button>
                 <button class="dd-btn dd-keys-mini" type="button" data-reset="${s.id}" title="Back to ${escapeHtml(s.keys || 'no key')}"${S.isChanged(s.id) ? '' : ' disabled'}>↺</button></div>`;

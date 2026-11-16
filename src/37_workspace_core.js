@@ -959,6 +959,7 @@ DocsDoodads.Workspace = {
             this.showMoreMenu(true);
         });
         on('dd-palette-btn', () => { this.showMoreMenu(false); this.showCommandPalette(); });
+        on('dd-settings-btn', () => { this.showMoreMenu(false); this.showSettingsCard(); });
         on('dd-messages-btn', () => { this.showMoreMenu(false); this.showToastHistory(); });
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });

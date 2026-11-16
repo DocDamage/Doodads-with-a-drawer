@@ -751,6 +751,60 @@ DocsDoodads.SettingsSearch = {
         if (!words.length) return true;
         const hay = String(text || '').toLowerCase().replace(/\s+/g, ' ');
         return words.every(w => hay.includes(w));
+    },
+
+    // Plain registry helpers. Building or searching the index must not mount panels or bind controls.
+    create(rows) {
+        const seen = {};
+        return (rows || []).filter(Boolean).map(row => {
+            const item = Object.assign({}, row);
+            item.id = String(item.id || '');
+            item.label = String(item.label || '');
+            item.words = String(item.words || '');
+            item.where = String(item.where || 'Settings');
+            if (!item.id || seen[item.id]) throw new Error(`Duplicate settings id: ${item.id || '(empty)'}`);
+            seen[item.id] = true;
+            return item;
+        });
+    },
+
+    search(rows, query) {
+        return (rows || []).filter(row => this.matches(`${row.label} ${row.words} ${row.where}`, query));
+    },
+
+    // Read descriptors from inert markup without creating DOM nodes. Extension renderers can therefore
+    // join the index without a hidden map panel rebinding the real panel's controls.
+    controlsFromHtml(html, where, omit) {
+        const text = String(html || '');
+        const out = [];
+        const controls = /<(?:input|select|textarea)\b[^>]*\bid="([^"]+)"[^>]*>/gi;
+        let match;
+        while ((match = controls.exec(text))) {
+            const id = match[1];
+            if (omit && omit.test(id)) continue;
+            const tag = match[0];
+            const attr = name => { const found = new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(tag); return found ? found[1] : ''; };
+            const before = text.slice(Math.max(0, match.index - 260), match.index);
+            const summaries = Array.from(before.matchAll(/<summary\b[^>]*>([\s\S]*?)<\/summary>/gi));
+            const clean = value => String(value || '')
+                .replace(/<option\b[\s\S]*?<\/option>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/<[^>]*$/g, ' ')
+                .replace(/&(amp|lt|gt|quot|#39|nbsp);/gi, entity => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' ' })[entity.toLowerCase()] || ' ')
+                .replace(/&[^;]+;/g, ' ').replace(/\s+/g, ' ').trim();
+            const containers = Array.from(before.matchAll(/<(label|div)\b[^>]*>/gi));
+            const container = containers.length ? containers[containers.length - 1] : null;
+            const prefix = container ? before.slice(container.index + container[0].length) : '';
+            let nearby = clean(prefix);
+            // A checkbox/radio label commonly puts its words after the input. Read only to that label's
+            // real closing tag; selects never look forward, so their options cannot become the caption.
+            if (!nearby && container && container[1].toLowerCase() === 'label' && !/^<select\b/i.test(tag)) {
+                const closeAt = text.toLowerCase().indexOf('</label>', controls.lastIndex);
+                if (closeAt >= controls.lastIndex && closeAt - controls.lastIndex <= 512) nearby = clean(text.slice(controls.lastIndex, closeAt));
+            }
+            const label = clean(attr('title') || attr('placeholder') || nearby) || id.replace(/^dd-/, '').replace(/[-_]+/g, ' ');
+            out.push({ id: `control:${id}`, controlId: id, label: label.slice(0, 120),
+                words: clean(summaries.length ? summaries[summaries.length - 1][1] : ''), where });
+        }
+        return out;
     }
 };
 

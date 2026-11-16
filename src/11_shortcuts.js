@@ -21,6 +21,7 @@ DocsDoodads.Shortcuts = {
         { id: 'playHere', label: 'Play From Here: the player starts on the tile under the mouse', group: 'Editing', keys: 'Ctrl+Enter' },
         { id: 'nudge', label: 'Nudge the picked doodads 1 pixel (Shift: 16) or the event 1 tile', group: 'Editing', keys: 'Arrow keys', fixed: true },
         { id: 'palette', label: 'Find a Tool (command palette)', group: 'Panels', keys: 'Ctrl+K' },
+        { id: 'settings', label: 'Settings', group: 'Panels', keys: 'Ctrl+Comma' },
         { id: 'details', label: 'Fold or open Details', group: 'Panels', keys: 'H' },
         { id: 'find', label: 'Search the Item Bag', group: 'Panels', keys: 'F' },
         { id: 'shortcuts', label: 'Keyboard Shortcuts (this list)', group: 'Panels', keys: 'Shift+/' },

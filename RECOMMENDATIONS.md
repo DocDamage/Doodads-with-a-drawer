@@ -189,7 +189,7 @@ Watching a new user (item E under What's left) comes before all of these.
 | 7.2.3 | **A ruler and bookmarks.** **Done.** Measure a distance in tiles and pixels; keep places on a big map to jump back to. | S |
 | 7.2.4 | **Map pictures. Done.** Opened maps get a lazy, disposable 256 px tiles-and-doodads picture in tab hover cards, Go to map lists and World View; uncached maps keep named placeholders. Cross-map edits, saving and discard keep pictures consistent. Played in MZ flat and in 3D; see [QA record](docs/QA_2026-11-15.md). | S |
 | 7.2.5 | **Panels in their own window.** Docking stays inside MZ's 816 × 624 window. The Item Bag or Details in a second window leaves the map clear. | M |
-| 7.2.6 | **One Settings page.** There are 16 plugin parameters and many more settings in the editor's panels. One page, with a search, that finds any of them. | M |
+| 7.2.6 | **One Settings page. Done.** More → Settings (Ctrl+,) searches grouped map, world, editor, keyboard and plugin settings, opens the live control, and exposes each row to Find a Tool. Plugin parameters are read-only with configured/default values. Validated in MZ; see [QA record](docs/QA_2026-11-15.md). | M |
 
 ### 7.3 Bigger features
 

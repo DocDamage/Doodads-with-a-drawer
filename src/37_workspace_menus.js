@@ -44,6 +44,7 @@
             ] },
             { id: 'more', label: 'More', icon: 'more', title: 'Find a Tool, keys, Capture, old saves, messages, info and help', items: [
                 { id: 'dd-palette-btn', icon: 'search', label: 'Find a Tool', title: () => tip('dd-palette-btn'), key: 'palette' },
+                { id: 'dd-settings-btn', icon: 'gear', label: 'Settings', title: 'Find every map, world and editor setting', key: 'settings' },
                 { id: 'dd-keys-btn', icon: 'gear', label: 'Keys', title: () => tip('dd-keys-btn'), key: 'shortcuts' },
                 { id: 'dd-capture-btn', icon: 'picture', label: 'Capture', title: 'Save a picture of the view, or a 3D orbit GIF' },
                 { id: 'dd-history-btn', icon: 'folder', label: 'Old Saves', title: 'Compare with earlier saves and bring single things back' },
