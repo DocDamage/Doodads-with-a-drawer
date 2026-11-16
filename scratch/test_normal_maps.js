@@ -12,7 +12,7 @@ process.chdir(projectRoot);
 E.install();
 E.setupWorld({ width: 24, height: 18, px: 10, py: 9 });
 const target = E.doodad(11, 9, { uid: 'normal-target', bit: [3, 'img/doodads/Stone.png'], xFrame: 2, frameW: 48, frameH: 96, frameUpdate: 0 });
-const plain = E.doodad(13, 9, { uid: 'plain-target', bit: [3, 'img/doodads/Plain.png'] });
+const plain = E.doodad(11, 9, { uid: 'plain-target', bit: [3, 'img/doodads/Plain.png'], z: 6 });
 const lamp = E.doodad(9, 9, { uid: 'normal-lamp', bit: [3, 'img/doodads/Lamp.png'], light: {
     enabled: true, when: 'always', switchId: 7, radius: 260, intensity: 0.8, color: '#ff8040',
     shape: 'cone', angle: 0, spread: 70, flicker: 0
@@ -65,10 +65,20 @@ assert.deepStrictEqual(Array.from(uniforms.uAmbient), [0.2, 0.3, 0.4]);
 assert.strictEqual(uniforms.uLightCone[3], 1, 'cone flag is packed');
 assert.ok(/for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*8/.test(N.fragment));
 assert.ok(!/#version\s+300|\bin\s+vec|\bout\s+vec|texture\s*\(/.test(N.fragment), 'shader stays GLSL ES 1.00');
+assert.deepStrictEqual(N.alphaWhite(0.25), [0.25, 0.25, 0.25, 0.25], 'white coverage is premultiplied for PIXI NORMAL blending');
+assert.match(N.alphaFragment, /vec4\s*\(\s*vec3\s*\(\s*alpha\s*\)\s*,\s*alpha\s*\)/);
+assert.strictEqual(N.coverageOver(1, 1, false), 0, 'an opaque ordinary foreground sprite removes normal ownership behind it');
+assert.strictEqual(N.coverageOver(0, 1, true), 1, 'a foreground normal sprite owns its visible pixel');
 
 // The frame rectangle, including an animated frame, addresses the same region in the normal sheet.
 assert.deepStrictEqual(N.frameUv({ x: 48, y: 0, width: 48, height: 96 }, 96, 96), [0.5, 0, 0.5, 1]);
 assert.deepStrictEqual(N.frameUv({ x: -5, y: 0, width: 500, height: 10 }, 96, 96), [0, 0, 1, 10 / 96]);
+const transformed = N.transformUniforms({ a: 0, b: -2, c: 3, d: 1, tx: 100, ty: 50 }, { width: 40, height: 20 }, { x: 0.5, y: 1 });
+const transformedUv = N.localUv({ x: 85, y: 25 }, transformed);
+assert.ok(Math.abs(transformedUv[0] - 0.75) < 1e-9 && Math.abs(transformedUv[1] - 0.75) < 1e-9, 'inverse screen mapping follows rotation, flip and skew');
+const asymmetricNormals = [11, 22, 33, 44];
+assert.strictEqual(asymmetricNormals[Math.min(1, Math.floor(transformedUv[1] * 2)) * 2 + Math.min(1, Math.floor(transformedUv[0] * 2))], 44,
+    'a transformed asymmetric normal sheet samples the sprite-local texel');
 
 // Sobel generation is neutral on flat art, follows a brightness edge, preserves alpha, and caps allocation.
 const flat = new Uint8ClampedArray(3 * 3 * 4).fill(255);
@@ -128,9 +138,11 @@ assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uLightCone[3], 1, 'di
 targetSprite.showFrame(1);
 ss.updateDocsNormalSprites();
 assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uNormalUv[0], 0.5, 'animation moves the normal-map frame too');
-assert.ok(ss._docsNormalMasks.some(s => s.visible && s.texture === targetSprite.texture), 'normal-lit pixels are exempted from the ordinary multiply');
-const visibleMasks = ss._docsNormalMasks.filter(s => s.visible);
-assert.ok(visibleMasks.every(s => ss._docsLightScene.children.indexOf(s) > ss._docsLightScene.children.indexOf(ss._docsLightSprites[0])), 'exemptions render after ordinary lights');
+assert.ok(ss._docsNormalMasks.some(s => s.visible && s._docsSource === targetSprite && s._docsNormalWhite), 'normal-lit pixels enter the ownership coverage');
+const targetCoverage = ss._docsNormalMasks.find(s => s._docsSource === targetSprite);
+const plainCoverage = ss._docsNormalMasks.find(s => s._docsSource === plainSprite);
+assert.ok(plainCoverage && !plainCoverage._docsNormalWhite && ss._docsNormalCoverageScene.children.indexOf(plainCoverage) > ss._docsNormalCoverageScene.children.indexOf(targetCoverage),
+    'a later ordinary sprite paints black ownership over the normal sprite behind it');
 
 ConfigManager.docsFxQuality = 3;
 E.frames(ss, 1);
