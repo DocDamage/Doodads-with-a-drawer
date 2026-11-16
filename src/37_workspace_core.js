@@ -181,6 +181,8 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        this.closeEventCommandEditor();
+        this.cancelEventTransferPick(false);
         if (DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         this.stopStatusBar();
         DocsDoodads.Ui.removeTooltips();

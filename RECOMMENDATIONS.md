@@ -170,9 +170,9 @@ Ideas gathered after PR #86, from a read of the plugin and of what users of othe
 | # | Suggestion | Size |
 |---|---|---|
 | 7.1.1 | **A game-only build. Done.** `npm run build:game` writes a runtime plugin about one third the full build's size. Release packages include it; deploy `--game-build` installs it under the usual plugin name. Shared collision, layers and packed-image helpers remain while the editor is absent. Encrypted MZ playtests passed; see [QA](docs/QA_2026-11-15.md#game-only-build-711). | M |
-| 7.1.2 | **Editing what an event does.** The editor makes events from templates and changes their position, trigger and priority, but not their commands. An editor for the common ones (Show Text, Transfer Player, switches, self switches, pages and their conditions) would save most trips back to MZ. | L |
+| 7.1.2 | **Built; MZ playtest pending.** **Editing what an event does.** The editor makes events from templates and changes their position, trigger and priority, but not their commands. An editor for the common ones (Show Text, Transfer Player, switches, self switches, pages and their conditions) would save most trips back to MZ. | L |
 | 7.1.3 | **Play From Here.** **Done** for the time and season (weather and switches to start with are not in it). Right-click a tile to put the player there and close the editor, with the time, season, weather and switches to start with. | S |
-| 7.1.4 | **Schedules for events.** The clock, the calendar and weekdays are there; nothing puts an event at the shop by day and at the inn by night. A schedule per event: where to be, by hour and weekday, walking there or appearing there. | M |
+| 7.1.4 | **Built; MZ playtest pending.** **Schedules for events.** The clock, the calendar and weekdays are there; nothing puts an event at the shop by day and at the inn by night. A schedule per event: where to be, by hour and weekday, walking there or appearing there. | M |
 | 7.1.5 | **Normal maps on flat maps.** Normal maps only work on 3D models. On doodads and characters they would let the lights there already shade the art by its shape. | L |
 | 7.1.6 | **Bringing in Tiled and LDtk maps.** There is no importer. Tiles, object layers as doodads, and collision shapes. | M |
 | 7.1.7 | **Types for `DocsDoodads.api`.** **Done.** `types/Docs-Doodads.d.ts`, written by `npm run types` from the JSDoc and checked by verify, is in the release zip. A `.d.ts` written by the build, so other plugins' authors get completion and checking. | S |
@@ -249,7 +249,7 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | 8.2.1 | **Built; MZ playtest pending.** **A bigger window while editing.** Grow the Playtest window to fill the screen when the editor opens and put it back on Done. Much less work than panels in their own window (7.2.5), for most of the gain. | S |
 | 8.2.2 | **A truer ghost of what will be placed.** There is a ghost today: a small picture that follows the pointer, over everything. Draw the item in the map as it will land instead, with its own size, shadow, light and depth, before the click. | S |
 | 8.2.3 | **Moving tooltips.** A tool's tooltip plays a two-second clip of the tool in use. | S |
-| 8.2.4 | **Details that starts short.** The three most used settings for the kind of thing picked, with the rest under More. | M |
+| 8.2.4 | **Built; MZ playtest pending.** **Details that starts short.** The three most used settings for the kind of thing picked, with the rest under More. | M |
 
 ### 8.3 Features
 
@@ -283,7 +283,7 @@ A drawing, a scan or a real-world map, made into a map in the game. The result i
 
 | # | Suggestion | Size |
 |---|---|---|
-| 8.5.1 | **Trace over a picture.** Load a picture as a see-through layer under the grid; scale, turn and slide it to fit; paint and place on top. Never in the game. Works for any picture, a pencil sketch included. | S |
+| 8.5.1 | **Built; MZ playtest pending.** **Trace over a picture.** Load a picture as a see-through layer under the grid; scale, turn and slide it to fit; paint and place on top. Never in the game. Works for any picture, a pencil sketch included. | S |
 | 8.5.2 | **A picture into a map.** The tool reads the picture's colours and asks the user to agree a key ("this blue is water, this green is forest, this brown is road"), then makes tiles (autotile edges included), hills from shading or from a second grey height picture, and trees, rocks and houses from biomes and dressing rules. One undo step; tidy by hand after. Flat colours work well; photos of paper, line drawings and maps with words on them need cleaning first, or 8.5.1. | L |
 | 8.5.3 | **What kind of map.** Asked first, because it sets the scale, the key and the rules. **Overworld:** a tile is a long way; coast, mountains, forests, rivers, and a marker for each town, castle and dungeon. **Town or castle:** streets, walls, gates, building outlines with roofs and doors, yards and water. **Dungeon or cave:** a floor plan read as walls, floors, doors and stairs, from lines as well as colours. **Room:** walls, floor, doors and windows, then furniture from room stamps and prefabs. The user can add kinds of their own. | M |
 | 8.5.4 | **Maps inside maps.** A marker on the overworld makes or opens that town's map; a door in the town makes or opens that building's rooms; stairs join a dungeon's floors. Transfers both ways are made from the event templates. A tree of the project's maps (world, place, room) to move around in. A picture bigger than MZ's 256 × 256 tiles is cut into neighbouring maps for World View; walking between them with no fade is 7.3.1. | L |

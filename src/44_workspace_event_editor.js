@@ -287,8 +287,6 @@
     };
     const loaded = W.onMapLoaded;
     W.onMapLoaded = function() { this.closeEventCommandEditor(); const result = loaded.call(this); this.resumeEventTransferPick(); return result; };
-    const closeWorkspace = W.close;
-    W.close = function() { this.closeEventCommandEditor(); this.cancelEventTransferPick(false); return closeWorkspace.call(this); };
     const renderInspector = W.renderInspector;
     W.renderInspector = function() {
         renderInspector.call(this);

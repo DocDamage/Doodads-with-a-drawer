@@ -69,6 +69,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Pass Time | hours, minutes | Moves the clock forward. |
 | Calendar | action, value, variable | Go to a day, move days on, or put the day, weekday or named date in a variable. |
 | Clock Control | action, speed | Pause, resume or change the clock's speed. |
+| Pause Schedules | on | Allow scheduled event movement when on; pause it for a cutscene when off. Not saved. |
 | Set Season | season | Changes the season. |
 | Set Atmosphere Effect | feature, enabled | Turns an effect on or off for this playthrough. |
 | Set Post-Processing Look | look, duration | Fades to a look, to none, or back to the map's. |

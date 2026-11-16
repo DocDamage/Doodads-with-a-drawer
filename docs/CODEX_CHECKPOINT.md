@@ -23,7 +23,8 @@ Keep those worktrees until their useful changes are recovered and verified.
 These rows have source and automated tests. Each still needs its MZ checks before being
 called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 8.1.2 Moods; 8.1.5 context help; 8.2.1 editing window; 9.1.1 comfort options;
-9.1.5 area names; 9.2.1 nearness triggers.
+9.1.5 area names; 9.2.1 nearness triggers; 7.1.4 NPC schedules; 8.5.1 tracing pictures;
+7.1.2 event pages and commands; 8.2.4 short searchable Details.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -34,8 +35,14 @@ the water bug are still pending. Do not claim this row is Done.
 | Lane | Owner | Write surface | Verification |
 | --- | --- | --- | --- |
 | First integration wave | Complete locally | Nine features and screenshot tooling | Full suites, coverage and static gate passed |
-| Next item: 7.1.4 schedules | Ready to implement | New pure/runtime/editor schedule parts and targeted API/header hooks | Read-only investigation complete; no schedule source written yet |
+| NPC schedules: 7.1.4 | Complete locally | Pure/runtime/editor schedule parts and targeted API/header hooks | Reviewed; walking continuity, page scope, save flags and targeted suites passed |
+| Picture tracing: 8.5.1 | Complete locally | Trace parts, data codec, menu/capture/export and deploy cache hooks | Independent review fixes and fit/drag/import/capture/export/persistence/deploy tests passed |
+| Event commands: 7.1.2 | Complete locally | New command logic and event editor parts | Reviewed; internal branch terminators, string choices and dialog identity fixed; targeted suites passed |
+| Short Details: 8.2.4 | Complete locally | Simple mode rules and inspector display | Event grouping review fixed; pure rules, DOM More/search, usage, mixed-selection and related suites passed |
+| Normal maps: 7.1.5 | Specialist | Plan and rendering-path investigation | Next implementation after integration gate |
+| Plugin report: 9.5.2 | Coordinator | New clash/report parts and narrow Info/Problems hooks | Next implementation |
 
+The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
 specialists, with disjoint files while both are editing. Do not run the full test
 runner during edits: it checks that the entire repository stays unchanged.
@@ -52,6 +59,12 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Latest verification
 
+- Continuation static gate passed with 169 editor parts and 53 runtime parts. Coverage ran all
+  168 suites: 161 passed; seven old source-inspection checks failed after a close-method wrapper
+  and capture declaration changes. Integration moved the close hooks directly into the original
+  method and reordered capture setup; all seven failed suites plus event commands and trace
+  passed on targeted rerun. Full rerun is pending the next bounded batch. Coverage thresholds
+  passed: lines/statements 91.39%, branches 78.39%, functions 85.63%.
 - `npm audit --audit-level=moderate`: zero vulnerabilities (16 November 2026).
 - Red/green runtime tests exist for each row listed above.
 - Adjacent menus, weather/camera, postfx, inspector, regions, API and creator suites passed.
@@ -73,11 +86,10 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Resume first-wave rows 7.1.2,
-7.1.4, 7.1.5, 7.3.5, 7.3.8, 8.3.6, 8.4.4 and 8.5.1. Then follow the
+Resume first-wave rows 7.1.5, 7.3.5, 7.3.8, 8.3.6 and 8.4.4. Then follow the
 dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 57 other buildable rows still open, plus the external-plugin compatibility
+There are 53 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

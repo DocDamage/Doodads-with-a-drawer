@@ -23,9 +23,9 @@ Object.assign(DocsDoodads.Workspace, {
         if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
         const outline = spriteset._docsSelectionOutline;
         const wasVisible = outline ? outline.visible : null;
+        if (outline) outline.visible = false;
         const trace = spriteset._docsTraceSprite;
         const traceVisible = trace ? trace.visible : null;
-        if (outline) outline.visible = false;
         if (trace) trace.visible = false;
         const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
         try {

@@ -76,6 +76,9 @@ panel. **Show Everything** on the top bar brings back the full editor; **Keep It
 shortens it again. The same switch is in View → Look and Find a Tool. Ctrl+K and the keys
 still reach every tool. A hidden tool used that way stays on the bar until Done. Existing
 saved editor preferences keep the full editor on the first run after an update.
+
+**Find a setting** at the top of Details searches every field, including settings under **More**. The short list fits pictures, lights, sounds, models or events; mixed selections keep their shared sections. **More** opens the rest, **Less** shortens it again, and ☆ pins a section so it always shows. After enough edits, frequently used sections rise in the list. Those counts stay in this computer's editor preferences.
+
 Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**. From the card (More > How to Use) you can also **Add Sample Items** (four small pictures in `img/doodads/samples`, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), **Replay Tool Tours**, and read **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
 
 - **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Regions** (region numbers), **Collision** (fine blocked cells), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), the menus **Map**, **Art**, **View** and **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
@@ -464,7 +467,21 @@ Tick **Footsteps** and add footstep sounds by ground: a region, a terrain tag, s
 ### Map settings: copying and presets
 Map → **Map Settings** says which settings this map has of its own. **Copy from Another Map...** picks a map, then what to take from it: light, shadows and reflections; the screen look; layers; camera, 3D and the minimap; echo and region sounds; everything else; and (unticked at first) that map's ground: its heights, surfaces, neighbouring maps and where it leads. This map's settings of the kinds you tick are replaced, as one undo step. **Save as Preset** keeps this map's settings, without its ground, under a name in `data/DocsDoodadsMapPresets.json`; **Use Here** puts a preset on the map you are on (one undo step).
 
+### Trace a picture
+
+**Map → Trace a Picture** keeps a drawing under the editor's grid on a flat map. Choose or
+drop a PNG, JPEG or WebP (up to 4096 pixels on either side). Fit to Map centres it; unlock it
+to drag, pull the square corner to scale, or use the round handle to turn (Shift snaps to
+15 degrees). Two-point Fit asks for two places on the picture, then the two tiles they
+should match. Each fit or drag is one undo step. Lock it to paint and place through it.
+Opacity and Show picture are in the card; View → Show / Hide Trace also toggles it.
+The copy stays in the disposable editor cache. It never appears in play, Capture, map
+exports or the required-art list, and the deploy script leaves the cache out. If the cache
+is cleared, choose the source picture again. In 3D the tracing layer is hidden; use a flat
+view for fitting and painting.
+
 ### Layers
+
 Every map has a **Main** layer. Add layers in the map panel under **Layers** (for example Ground Decor, Props, Canopy, Lights, Markers).
 - The layer selected with the round button receives new doodads.
 - **Ed** shows or hides a layer in the editor only, to work underneath a canopy.
@@ -777,6 +794,24 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 - **Managing templates**: Map → **Templates** lists your own templates by category, with **Rename**, **Category** (pick one or type a new one) and **Delete** (events made from a template stay as they are). The built-in ones can't be changed. Saving a template under a name already used asks before replacing it. Packs can carry your templates to another project (an identical one is not added twice; a different one with the same name comes in as "Name 2").
 
+### Editing what an event does
+
+Pick an event and choose **Edit Commands** in Details. Page tabs switch between its pages; **+ Page**, **Copy Page** and **Delete Page** are undoable, and deleting asks first. **Conditions & Page** edits switches, variables, self switches, item/actor conditions, trigger and priority. Switches and variables are listed by their database names.
+
+Edit or insert Show Text (write `\n` for a new line), Transfer Player, switches, self switches, common events, waits, sound effects and plugin commands. **Pick Map & Tile** beside a transfer visits the destination map, takes a tile click and returns to the source event; Escape cancels and returns. Unknown commands and branch markers stay untouched for editing in MZ. Text lines move as a group, and movement cannot cross branch boundaries. Each edit is one undo step, saved through the usual MZ conflict check.
+
+### NPC schedules
+
+Pick an event and open **Schedule** in Details. Each line gives optional comma-separated weekdays, a time and a tile, followed by `walk`, `hide` or `face:2/4/6/8` if needed. **Use this tile** takes the next map click. Scheduled tiles show their times in the editor.
+
+```text
+08:00 12,5
+18:00 20,9 walk
+Sat,Sun 10:00 3,3 hide
+```
+
+Schedules live in a `<docs schedule>` block in the event note or a page's comments. Details says which one it edits: the active page's block when present, otherwise the note. Other pages are preserved. The latest matching entry today applies; before it, the last matching entry yesterday carries over. With neither, the event uses its authored position. Walking waits for busy events and moves to its destination after 600 eligible blocked frames. Hiding restores the event's original transparency and passability when it ends. Loading derives the position from the clock. **Pause Schedules** or `DocsDoodads.api.schedules(false)` pauses movement for a cutscene; `true` resumes it. The pause is not saved.
+
 ### Scripts and other plugins (`DocsDoodads.api`)
 
 Everything works on the map the player is on unless a map ID is given. Doodads are found by the **Name** given in Details (any case), or by a query object.
@@ -796,6 +831,7 @@ Everything works on the map the player is on unless a map ID is given. Doodads a
 | `state(name)`, `setState(name, state)`, `stateNames(name)` | States, as Set Doodad State (kept in the save). |
 | `light(name)`, `setLight(name, true / false / null)` | Lights, as Set Doodad Light (kept in the save). |
 | `time()`, `setTime(h, m, day)`, `addTime(h, m)` | The time of day in minutes (`null` with the clock off). `day` is optional; without it the day stays. |
+| `schedules(false / true)` | Pause or resume scheduled events for a cutscene; the pause is not saved. |
 | `season()`, `seasonName()`, `setSeason(n or name)` | The season. |
 | `ambient(darkness, color, frames)`, `ambient(null)` | Fades the ambient light (0 to 1), or back to the map's own. |
 | `on('touch' / 'state' / 'light' / 'animationEnd', fn)` | Calls `fn` with `{ doodad }`, `{ name, state }`, `{ name, on }` or `{ doodad, name }` (and `mapId`); returns a function that stops it. |

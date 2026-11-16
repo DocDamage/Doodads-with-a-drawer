@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Event Details edits pages, conditions and common commands, including sign text and door destinations picked on another map. Unknown commands and branch markers are preserved; each change is undoable.
+- Details offers a short list for pictures, lights, sounds, models and events, with More and a search across hidden settings. Pins stay visible; settings used often rise in the list using counts kept on this computer.
+- Events can follow clock and weekday schedules, walk to a destination, hide between visits and pause for cutscenes. Details edits note or active-page schedules with undo and a tile picker.
+- Trace a Picture fits an editor-only image under the grid, with move, scale, turn, opacity, locking and a two-point fit to tiles. Fits and drags undo in one step; the picture stays out of play, captures, map exports and deployed art.
 - Simple mode starts new installs with Select, Stamp, Scatter, Tiles and shorter Details. Show Everything restores the full editor, while Ctrl+K and shortcuts reach every tool in either mode; existing editor preferences keep the full view.
 - Collision brush: paint or erase fine cells, join lines, fill an enclosed space, or read collision from a picture layer. Each stroke is one undo step; walls travel with split map data.
 - Character creators accept a My parts folder, keep clashing names separately and offer unknown families in an Extra tab. Recipes remember which folder supplied a part.

@@ -4,6 +4,11 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 ## Preflight
 
+- [ ] In event Details, edit a sign's text, switch letter, page conditions and a door's destination on another map; check return/cancel and undo. Preserve a conditional/else list and unknown commands when saving and reopening in MZ. Switch events/maps while a dialog is open without applying to the new selection.
+- [ ] In Simple mode, inspect pictures, lights, sounds, models, events and mixed selections. More reaches every setting, search finds hidden controls, pins stay visible, repeated edits promote sections, and clearing search restores the shortlist.
+- [ ] Schedule NPCs on outdoor, looping, cave and interior maps, flat and 3D. Check midnight/day carry, blocked walking, busy events, hide flags after load, pause/resume, page-specific blocks, tile picking and undo.
+- [ ] Trace a Picture: choose/drop art, fit to the map and to two tiles, drag, scale, turn and undo each; lock and paint through it. Hide/show, reopen, save both data modes, test looping maps, and confirm Capture, map export and deployment omit it. Switching to 3D hides it. Clear the cache and choose the source again without a game error.
+
 - [ ] With fresh editor preferences, find Stamp and Save in Simple mode; Show Everything restores all tools. Existing preferences start in the full view. In Simple mode, use a hidden tool through Ctrl+K and its key, check its temporary toolbar button and tour, and navigate menus with the keyboard.
 
 - [ ] Before a release or drawing change, close other playtests and run `npm run playtest` on the copied fixture. Review the PNG/reference/difference HTML report, create local references with `--update`, and pass twice without updating. Reintroducing the old water-capture bug must fail the water probe. Real GPU validation of this tool is still pending.

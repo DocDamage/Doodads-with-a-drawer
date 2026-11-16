@@ -29,7 +29,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "The editor at a glance",
         "anchor": "the-editor-at-a-glance",
-        "firstParagraph": "New installs start in Simple mode: Select, Stamp, Scatter and Tiles, with a short Details panel. Show Everything on the top bar brings back the full editor; Keep It Simple shortens it again. The same switch is in View → Look and Find a Tool. Ctrl+K and the keys still reach every tool. A hidden tool used that way stays on the bar until Done. Existing saved editor preferences keep the full editor on the first run after an update. Press F10 in a playtest. The first time, a short welcome card shows the three steps: pick something from the Item Bag, click the map to put it there, then Save and Done. From the card (More > How to Use) you can also Add Sample Items (four small pictures in img/doodads/samples, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), Replay Tool Tours, and read What's New. The first time you pick each tool, a short tour shows how it works; \"No more tours\" turns them off. After an update, What's New shows once."
+        "firstParagraph": "New installs start in Simple mode: Select, Stamp, Scatter and Tiles, with a short Details panel. Show Everything on the top bar brings back the full editor; Keep It Simple shortens it again. The same switch is in View → Look and Find a Tool. Ctrl+K and the keys still reach every tool. A hidden tool used that way stays on the bar until Done. Existing saved editor preferences keep the full editor on the first run after an update."
     },
     {
         "title": "Navigation & Views",
@@ -242,6 +242,11 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Map → Map Settings says which settings this map has of its own. Copy from Another Map... picks a map, then what to take from it: light, shadows and reflections; the screen look; layers; camera, 3D and the minimap; echo and region sounds; everything else; and (unticked at first) that map's ground: its heights, surfaces, neighbouring maps and where it leads. This map's settings of the kinds you tick are replaced, as one undo step. Save as Preset keeps this map's settings, without its ground, under a name in data/DocsDoodadsMapPresets.json; Use Here puts a preset on the map you are on (one undo step)."
     },
     {
+        "title": "Trace a picture",
+        "anchor": "trace-a-picture",
+        "firstParagraph": "Map → Trace a Picture keeps a drawing under the editor's grid on a flat map. Choose or drop a PNG, JPEG or WebP (up to 4096 pixels on either side). Fit to Map centres it; unlock it to drag, pull the square corner to scale, or use the round handle to turn (Shift snaps to 15 degrees). Two-point Fit asks for two places on the picture, then the two tiles they should match. Each fit or drag is one undo step. Lock it to paint and place through it. Opacity and Show picture are in the card; View → Show / Hide Trace also toggles it. The copy stays in the disposable editor cache. It never appears in play, Capture, map exports or the required-art list, and the deploy script leaves the cache out. If the cache is cleared, choose the source picture again. In 3D the tracing layer is hidden; use a flat view for fitting and painting."
+    },
+    {
         "title": "Layers",
         "anchor": "layers",
         "firstParagraph": "Every map has a Main layer. Add layers in the map panel under Layers (for example Ground Decor, Props, Canopy, Lights, Markers). - The layer selected with the round button receives new doodads. - Ed shows or hides a layer in the editor only, to work underneath a canopy. - Lk locks a layer so its doodads can't be clicked, box-selected or dragged. - Gm shows or hides a layer in the game. Use it for markers and notes you only want while editing. - Move doodads between layers with Editor layer in their details (Depth section), or right-click one on the map: Move to Layer. Deleting a layer moves its doodads to Main. - Everything is undoable."
@@ -380,6 +385,16 @@ DocsDoodads.HelpIndex = [
         "title": "Map Event Inspection & Custom Template Saving",
         "anchor": "map-event-inspection--custom-template-saving",
         "firstParagraph": "- Select Map Event: Clicking any tile containing an MZ Event selects it and populates Details. - Inspect & Edit: See the event's name and ID; edit its Tile X/Y, Trigger type (Action Button, Player Touch, Event Touch, Autorun, Parallel) and Priority (first page). Edits are undoable and saved with the map. - Names and icons over events: Name over it and Icon in an event's Details put a name, an icon from your IconSet (its number, as in the database's icon picker) or both over the event in the game, flat and in 3D; they write <docs label: Blacksmith> and <docs icon: 87> into its note, so you can also type them there or in a comment on one page (that page only). Add <docs label range: 4> to show it only when the player is within 4 tiles; without it, it always shows. Labels hide while a message is on screen, go when the event is erased, and aren't shown for an event with no picture that blocks the way (an invisible event the player walks through, like a door or an exit, keeps its label). World → Event Labels sets the text size and colour and whether labels fade in and out; Show / Hide Event Labels turns them all off or on for a playthrough (saved). - Save Event as Template: Click 💾 Save as Event Template in Details (or right-click the event) to capture all pages, movement routes, script calls, and conditions into data/DocsDoodadsEventTemplates.json for reuse across any map in your project. - Duplicate & Delete: Press Duplicate Event to duplicate with automatic safe ID allocation and tile offset, or Delete Event (with full undo/redo). - Managing templates: Map → Templates lists your own templates by category, with Rename, Category (pick one or type a new one) and Delete (events made from a template stay as they are). The built-in ones can't be changed. Saving a template under a name already used asks before replacing it. Packs can carry your templates to another project (an identical one is not added twice; a different one with the same name comes in as \"Name 2\")."
+    },
+    {
+        "title": "Editing what an event does",
+        "anchor": "editing-what-an-event-does",
+        "firstParagraph": "Pick an event and choose Edit Commands in Details. Page tabs switch between its pages; + Page, Copy Page and Delete Page are undoable, and deleting asks first. Conditions & Page edits switches, variables, self switches, item/actor conditions, trigger and priority. Switches and variables are listed by their database names."
+    },
+    {
+        "title": "NPC schedules",
+        "anchor": "npc-schedules",
+        "firstParagraph": "Pick an event and open Schedule in Details. Each line gives optional comma-separated weekdays, a time and a tile, followed by walk, hide or face:2/4/6/8 if needed. Use this tile takes the next map click. Scheduled tiles show their times in the editor."
     },
     {
         "title": "Scripts and other plugins (DocsDoodads.api)",
