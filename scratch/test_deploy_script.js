@@ -21,15 +21,20 @@ try {
     write(path.join(project, 'js', 'plugins', 'Docs-Doodads.js'), 'full editor plugin');
     write(path.join(project, 'img', 'doodads', 'Tree.png'), png);
     write(path.join(project, 'img', 'system', 'Window.png'), png);
+    write(path.join(project, 'img', 'save', 'HUD.png'), png);
     write(path.join(project, 'audio', 'se', 'Step.ogg'), ogg);
     write(path.join(project, 'icon', 'icon.png'), png);
     write(path.join(project, 'save', 'file1.rmmzsave'), 'save');
+    write(path.join(project, 'data', 'docs_doodads_cache', 'trace', 'private.png'), png);
     write(path.join(project, 'game.rmmzproject'), 'RPGMZ');
     for (const f of ['nw.exe', 'nw.dll', 'notification_helper.exe', 'chromedriver.exe', 'payload.exe', 'nacl_irt_x86_64.nexe', 'pnacl/x.nexe']) write(path.join(runtime, f), f);
     write(path.join(runtime, 'locales', 'en-US.pak'), 'pak');
 
     const r = deploy({ project, out, runtime, encrypt: true, key: 'secret' });
-    assert.deepStrictEqual([r.images, r.sounds], [2, 1], 'img and audio files only (icon/ stays as it is)');
+    assert.ok(!fs.existsSync(path.join(out, 'data', 'docs_doodads_cache')), 'editor tracing pictures never enter deployment');
+    assert.ok(fs.existsSync(path.join(out, 'img', 'save', 'HUD.png_')), 'an art folder called save is preserved');
+    assert.ok(fs.readFileSync(path.join(project, 'data', 'docs_doodads_cache', 'trace', 'private.png')).equals(png), 'source cache is preserved');
+    assert.deepStrictEqual([r.images, r.sounds], [3, 1], 'img and audio files only (icon/ stays as it is)');
     assert.ok(fs.existsSync(path.join(out, 'Game.exe')) && !fs.existsSync(path.join(out, 'nw.exe')), 'nw.exe becomes Game.exe');
     assert.ok(fs.existsSync(path.join(out, 'nw.dll')) && fs.existsSync(path.join(out, 'locales', 'en-US.pak')) && fs.existsSync(path.join(out, 'notification_helper.exe')));
     for (const f of ['chromedriver.exe', 'payload.exe', 'nacl_irt_x86_64.nexe', 'pnacl', 'save', 'game.rmmzproject']) assert.ok(!fs.existsSync(path.join(out, f)), f + ' is left out (as MZ does)');
@@ -73,6 +78,23 @@ try {
     assert.strictEqual(parseArgs(['--restore', 'a', 'b']).restore, true);
     assert.throws(() => parseArgs(['a']), /Usage/);
     assert.throws(() => deploy({ project, out: path.join(project, 'deploy'), runtime, encrypt: true, key: 'k' }), /outside the project/);
+    const alias = path.join(root, 'project-alias');
+    let hasAlias = false;
+    try { fs.symlinkSync(project, alias, process.platform === 'win32' ? 'junction' : 'dir'); hasAlias = true; }
+    catch (error) { if (!['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) throw error; }
+    if (hasAlias) {
+        const originalRemove = fs.rmSync;
+        fs.rmSync = (target, options) => {
+            if (path.resolve(target) !== path.resolve(out)) throw new Error('Unsafe input deletion attempted');
+            return originalRemove(target, options);
+        };
+        try {
+            assert.throws(() => deploy({ project: alias, out: path.join(project, 'inner-output'), runtime, encrypt: false }), /outside the project/);
+            assert.throws(() => deploy({ project, out: path.join(alias, 'inner-output'), runtime, encrypt: false }), /outside the project/);
+            assert.throws(() => deploy({ project, out: root, runtime, encrypt: false }), /outside the project/);
+            assert.throws(() => deploy({ project, out: runtime, runtime, encrypt: false }), /runtime/);
+        } finally { fs.rmSync = originalRemove; }
+    }
     assert.throws(() => deploy({ project: root, out, runtime, encrypt: true, key: 'k' }), /not an MZ project/);
     assert.throws(() => deploy({ project, out, runtime: path.join(root, 'nothing'), encrypt: true, key: 'k' }), /runtime/);
     console.log('✓ unencrypted builds, arguments and refusals');
