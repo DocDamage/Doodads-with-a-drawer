@@ -169,6 +169,7 @@ assert.strictEqual(destroyed, true);
     assert.ok(kept.projectCopy && fs.existsSync(kept.projectCopy));
     safeRemoveTemp(kept.projectCopy);
     safeRemoveTemp(prepared.copy);
+    assert.strictEqual(path.dirname(fs.realpathSync(fixtureRoot)), fs.realpathSync(os.tmpdir()), 'fixture cleanup remains inside the temp root');
     fs.rmSync(fixtureRoot, { recursive: true, force: true });
     console.log('Self-running playtest helpers: all tests passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
