@@ -13,7 +13,7 @@ DocsDoodads.MemaoSlots = {
     // card -> tabs -> slots. folder: the pack's folder; required: no "None"; prop: a prop of its own animation, shown
     // only when the pack has more than one (shown(index, slot, body)); follows: the slot whose colour it
     // takes ('body' for the skin); link: the slot whose colour it takes until it is given its own (ownColour).
-    cards: [
+    baseCards: [
         { key: 'body', label: 'Body', tabs: [
             { key: 'body', label: 'Body', slots: [
                 { key: 'body', label: 'Skin', folder: 'Body', required: true },
@@ -73,17 +73,42 @@ DocsDoodads.MemaoSlots = {
         ] }
     ],
 
+    extraPrefix: 'x_',
+    _extra: { folders: [], label: 'Extra' },
+
+    useIndex(index) {
+        if (index === this._extraFor) return this._extra;
+        const known = new Set(this.baseCards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => s.folder))));
+        const folders = [...new Set(((index && index.parts) || []).map(p => p.folder).filter(f => !known.has(f)))].sort();
+        this._extraFor = index;
+        this._extra = { folders, label: index && index.mine && folders.some(f => index.parts.some(p => p.mine && p.folder === f)) ? index.mine.label : 'Extra' };
+        this._cards = null;
+        return this._extra;
+    },
+
+    get cards() {
+        if (this._cards) return this._cards;
+        if (!this._extra.folders.length) return (this._cards = this.baseCards);
+        const tab = { key: 'extra', label: this._extra.label, slots: this._extra.folders.map(folder => ({ key: this.extraPrefix + folder, label: folder.replace(/([a-z])([A-Z])/g, '$1 $2'), folder, extra: true })) };
+        return (this._cards = this.baseCards.map(c => c.key === 'outfit' ? Object.assign({}, c, { tabs: c.tabs.concat([tab]) }) : c));
+    },
+
     allSlots() {
         return this.cards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => Object.assign({ card: c.key, tab: t.key }, s))));
     },
 
     slot(key) {
-        return this.allSlots().find(s => s.key === key) || null;
+        const found = this.allSlots().find(s => s.key === key);
+        if (found) return found;
+        const k = String(key || '');
+        if (!k.startsWith(this.extraPrefix) || k.length <= this.extraPrefix.length) return null;
+        const folder = k.slice(this.extraPrefix.length);
+        return { key: k, label: folder, folder, extra: true, gone: true, card: 'outfit', tab: 'extra' };
     },
 
     // Parts that fit: the slot's folder, with a file for these arms. By the tool's own order.
     options(index, slot, body) {
-        if (!index || !slot) return [];
+        if (!index || !slot || slot.gone) return [];
         const M = DocsDoodads.Memao;
         return index.parts.filter(p => p.folder === slot.folder && M.fileFor(p, body) !== null)
             .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
@@ -108,12 +133,12 @@ DocsDoodads.MemaoSlots = {
         if (!part || channel !== 0) return [];
         const slot = this.slotOfPart(part);
         if (slot && slot.follows) return [];
-        const info = index && index.folders && index.folders[part.folder];
+        const info = part.mine && index && index.mine ? index.mine.folders[part.folder] : index && index.folders && index.folders[part.folder];
         return DocsDoodads.MemaoCompose.colourNames(info ? info.channel : '');
     },
 
     swatch(index, part, name) {
-        const info = part && index && index.folders && index.folders[part.folder];
+        const info = part && part.mine && index && index.mine ? index.mine.folders[part.folder] : part && index && index.folders && index.folders[part.folder];
         return info ? DocsDoodads.MemaoCompose.swatch(info.channel, name) : '';
     },
 
@@ -121,7 +146,7 @@ DocsDoodads.MemaoSlots = {
         const list = this.colours(index, part, channel);
         if (!list.length) return '';
         if (keep && list.includes(keep)) return keep;
-        const info = index.folders[part.folder];
+        const info = part.mine && index.mine ? index.mine.folders[part.folder] : index.folders[part.folder];
         const prefer = DocsDoodads.MemaoCompose.defaults[info.channel];
         return list.includes(prefer) ? prefer : list[0];
     },
@@ -130,7 +155,14 @@ DocsDoodads.MemaoSlots = {
         if (!part) { delete state.slots[key]; return state; }
         const was = state.slots[key] || {};
         state.slots[key] = { id: part.id, colour: this.defaultColour(index, part, 0, was.colour) };
+        if (part.mine) state.slots[key].from = part.source || (index.mine && index.mine.label) || 'My parts';
         return state;
+    },
+
+    goneNote(picks, gone) {
+        const names = [...new Set(gone.map(k => picks && picks[k] && picks[k].from).filter(Boolean))];
+        if (!names.length) return 'the asset folder changed';
+        return names.length === 1 && gone.every(k => picks[k] && picks[k].from) ? `${names[0]} changed` : `the asset folder or ${names.join(', ')} changed`;
     },
 
     // A first character: skin, head, eyes, hair and brows, a shirt with sleeves, a bottom and shoes.
@@ -282,7 +314,8 @@ DocsDoodads.MemaoSlots = {
             if (pick) {
                 const part = index.parts.find(p => p.id === pick.id);
                 const colours = this.colours(index, part, 0);
-                const channel = part && index.folders[part.folder] ? index.folders[part.folder].channel : '';
+                const info = part && part.mine && index.mine ? index.mine.folders[part.folder] : part && index.folders[part.folder];
+                const channel = info ? info.channel : '';
                 if (channel === 'hair' && hairColour && colours.includes(hairColour)) pick.colour = hairColour;
                 else if (colours.length) pick.colour = colours[Math.floor(rand() * colours.length)];
             }

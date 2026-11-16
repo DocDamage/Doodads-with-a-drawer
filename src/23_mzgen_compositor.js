@@ -40,6 +40,14 @@ DocsDoodads.MzGenCompose = {
 
     // ---- Which layers ----
 
+    knownFamily(family) {
+        if (!this._known) {
+            this._known = new Set();
+            for (const list of Object.values(DocsDoodads.MzGen.order)) for (const o of list) this._known.add(o.replace(/\d$/, ''));
+        }
+        return this._known.has(family);
+    },
+
     // recipe: { body (the base), picks: [{ id }], colours: { slot: ramp name } }.
     resolve(index, recipe, animation, exists) {
         const M = DocsDoodads.MzGen;
@@ -48,7 +56,13 @@ DocsDoodads.MzGenCompose = {
         if (!anim) return { animation, layers: [], warnings: [`There is no ${animation} animation.`], used: [] };
         const byId = new Map((index && index.parts || []).map(p => [p.id, p]));
         const order = M.order[anim.view];
-        const rank = (family, layer) => { const i = order.indexOf(family + (layer || '')); return i >= 0 ? i : order.indexOf(family); };
+        const rank = (family, layer) => {
+            const i = order.indexOf(family + (layer || ''));
+            if (i >= 0) return i;
+            const plain = order.indexOf(family);
+            if (plain >= 0 || this.knownFamily(family)) return plain;
+            return layer === 2 ? order.indexOf('Body') - 0.5 : order.length;
+        };
         const layers = [];
         (recipe && recipe.picks || []).forEach((pick, n) => {
             const part = byId.get(pick.id);

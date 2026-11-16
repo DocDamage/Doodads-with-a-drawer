@@ -42,6 +42,9 @@ Object.assign(DocsDoodads.Workspace, {
         return clean;
     },
 
+    mzgenMineFolder() { const v = DocsDoodads.Ui.prefs().mzgenMine; return typeof v === 'string' ? v : ''; },
+    setMzGenMineFolder(folder) { const clean = String(folder || '').trim(); DocsDoodads.Ui.setPref('mzgenMine', clean || undefined); return clean; },
+
     mzgenIndex() {
         if (this._mzgenIndex === undefined) {
             const D = DocsDoodads;
@@ -61,8 +64,15 @@ Object.assign(DocsDoodads.Workspace, {
             return null;
         }
         const zlib = typeof require !== 'undefined' ? require('zlib') : null;
-        const index = M.scan(FS.fs, FS.path, FS.path.resolve(folder), data => zlib.inflateSync(data));
-        if (!index) return null;
+        const base = M.scan(FS.fs, FS.path, FS.path.resolve(folder), data => zlib.inflateSync(data));
+        if (!base) return null;
+        const mineFolder = this.mzgenMineFolder();
+        let mine = null;
+        if (mineFolder) {
+            if (!M.isPartsFolder(FS.fs, FS.path, mineFolder)) { this.showToast('The MZ My parts folder needs a TV or Face folder.', 'error'); return null; }
+            mine = M.scan(FS.fs, FS.path, FS.path.resolve(mineFolder), data => zlib.inflateSync(data), undefined, { mine: true });
+        }
+        const index = mine ? M.mergeIndexes(base, mine, FS.path.basename(FS.path.resolve(mineFolder))) : base;
         if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the generator index.', 'error'); return null; }
         this._mzgenIndex = index;
         this.resetCreatorImageCaches('mz');
@@ -80,7 +90,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     mzgenSheetPath(file, index = this.mzgenIndex()) {
         const FS = DocsDoodads.FS;
-        return index && FS.path ? FS.path.join(index.library, file) : '';
+        return index && FS.path ? DocsDoodads.MzGen.filePath(FS.path, index, file) : '';
     },
 
     mzgenLoadImage(file) {
@@ -178,10 +188,11 @@ Object.assign(DocsDoodads.Workspace, {
 
     mzgenCardHtml() {
         const D = DocsDoodads, U = D.Ui, M = D.MzGen;
-        const folder = this.mzgenLibraryFolder();
+        const folder = this.mzgenLibraryFolder(), mine = this.mzgenMineFolder(), FS = D.FS;
         const index = this.mzgenIndex();
         const s = index ? M.summary(index) : null;
         const missing = index ? this.mzgenIndexMissing(index) : false;
+        const mineInside = mine && FS.path ? D.Lpc.insideProject(FS.path, mine, '.') : false;
         const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
         return `
             <div class="dd-lpc-row">
@@ -189,10 +200,15 @@ Object.assign(DocsDoodads.Workspace, {
                 <button class="dd-btn" id="dd-mzgen-choose" type="button" title="Pick the folder">${U.icon('folder', 1)} Choose...</button>
             </div>
             <div class="dd-lpc-row">
+                <input type="text" id="dd-mzgen-mine-folder" value="${escapeHtml(mine)}" placeholder="My MZ generator parts (optional)" aria-label="My MZ parts folder" />
+                <button class="dd-btn" id="dd-mzgen-mine-choose" type="button" title="Pick your parts folder">${U.icon('folder', 1)} Choose...</button>
+            </div>
+            ${mineInside ? '<div class="dd-lpc-warn" id="dd-mzgen-mine-inside"><b>My parts is inside the project.</b> Deployment would copy the source sheets. Keep this folder somewhere else.</div>' : ''}
+            <div class="dd-lpc-row">
                 <button class="dd-btn dd-btn-primary" id="dd-mzgen-scan" type="button" title="Read the generator's parts">${index ? 'Scan Again' : 'Scan the Parts'}</button>
                 ${index && !missing ? `<button class="dd-btn dd-btn-good" id="dd-mzgen-creator" type="button" title="Make a character from MZ's generator parts">${U.icon('person', 1)} Open the MZ Creator</button>` : ''}
             </div>
-            ${s ? `<div class="dd-lpc-box" id="dd-mzgen-status"><b>${s.parts} parts</b> · ${escapeHtml(s.bases.join(', '))} · scanned ${escapeHtml(day(s.built))}${s.warnings.length ? `<br><span style="color: var(--dd-warn);">${s.warnings.map(w => escapeHtml(w)).join('<br>')}</span>` : ''}</div>` : '<div class="dd-lpc-box" id="dd-mzgen-status">Not scanned yet.</div>'}
+            ${s ? `<div class="dd-lpc-box" id="dd-mzgen-status"><b>${s.parts} parts</b>${s.mine ? ` · ${s.mine} from My parts` : ''} · ${escapeHtml(s.bases.join(', '))} · scanned ${escapeHtml(day(s.built))}${s.warnings.length ? `<br><span style="color: var(--dd-warn);">${s.warnings.map(w => escapeHtml(w)).join('<br>')}</span>` : ''}</div>` : '<div class="dd-lpc-box" id="dd-mzgen-status">Not scanned yet.</div>'}
             ${missing ? `<div class="dd-lpc-warn" id="dd-mzgen-missing">The generator isn't at ${escapeHtml(index.library)} any more. Choose where it is now.</div>` : ''}
             <div class="dd-lpc-note">The parts that come with RPG Maker MZ (the editor's own Character Generator), read where they are and never copied into the project. Characters made from them may be used in games made with RPG Maker MZ.</div>`;
     },
@@ -200,7 +216,16 @@ Object.assign(DocsDoodads.Workspace, {
     bindMzGenCard() {
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         const field = document.getElementById('dd-mzgen-folder');
+        const mineField = document.getElementById('dd-mzgen-mine-folder');
         if (field) field.onchange = e => { this.setMzGenLibraryFolder(e.target.value); this.refreshLpcCard(); };
+        if (mineField) mineField.onchange = e => { this.setMzGenMineFolder(e.target.value); this.refreshLpcCard(); };
+        const pick = (setter) => {
+            if (typeof document === 'undefined') return;
+            const input = document.createElement('input'); input.type = 'file';
+            if (typeof input.setAttribute === 'function') input.setAttribute('nwdirectory', '');
+            input.onchange = () => { const chosen = input.value || (input.files && input.files[0] && input.files[0].path) || ''; if (chosen) { setter.call(this, chosen); this.refreshLpcCard(); } };
+            if (typeof input.click === 'function') input.click();
+        };
         on('dd-mzgen-choose', () => {
             if (typeof document === 'undefined') return;
             const input = document.createElement('input');
@@ -209,9 +234,11 @@ Object.assign(DocsDoodads.Workspace, {
             input.onchange = () => { const chosen = input.value || (input.files && input.files[0] && input.files[0].path) || ''; if (chosen) { this.setMzGenLibraryFolder(chosen); this.refreshLpcCard(); } };
             if (typeof input.click === 'function') input.click();
         });
+        on('dd-mzgen-mine-choose', () => pick(this.setMzGenMineFolder));
         on('dd-mzgen-scan', () => {
             const typed = field ? field.value : this.mzgenLibraryFolder();
             if (typed && typed !== this.mzgenLibraryFolder()) this.setMzGenLibraryFolder(typed);
+            if (mineField && mineField.value !== this.mzgenMineFolder()) this.setMzGenMineFolder(mineField.value);
             const button = document.getElementById('dd-mzgen-scan');
             if (button) { button.disabled = true; button.textContent = 'Scanning...'; }
             return new Promise(resolve => setTimeout(() => {

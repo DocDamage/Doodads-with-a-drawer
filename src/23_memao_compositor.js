@@ -96,9 +96,10 @@ DocsDoodads.MemaoCompose = {
         const byId = new Map((index.parts || []).map(p => [p.id, p]));
         const arm = recipe && recipe.body || 'average';
         const add = (folder, num, colour, part, order) => {
-            const info = index.folders[folder];
+            const own = Boolean(part && part.mine);
+            const info = own && index.mine && index.mine.folders ? index.mine.folders[folder] : index.folders[folder];
             if (!info || num === null || num === undefined) return;
-            const file = this.fileOf(meta.set, folder, num);
+            const file = (own ? M.minePrefix : '') + this.fileOf(meta.set, folder, num);
             if (!exists(file)) return;
             layers.push({ file, folder, num, z: info.z, channel: info.channel, colour: info.channel ? colour || this.defaults[info.channel] : '', part, order });
         };

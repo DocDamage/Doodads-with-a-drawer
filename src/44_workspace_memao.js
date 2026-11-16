@@ -22,6 +22,9 @@ Object.assign(DocsDoodads.Workspace, {
         return clean;
     },
 
+    memaoMineFolder() { const v = DocsDoodads.Ui.prefs().memaoMine; return typeof v === 'string' ? v : ''; },
+    setMemaoMineFolder(folder) { const clean = String(folder || '').trim(); DocsDoodads.Ui.setPref('memaoMine', clean || undefined); return clean; },
+
     memaoIndex() {
         if (this._memaoIndex === undefined) {
             const D = DocsDoodads;
@@ -40,8 +43,15 @@ Object.assign(DocsDoodads.Workspace, {
             this.showToast(`That folder has no Main folder and ${M.zFile}. Choose the unpacked memao-assets folder.`, 'error');
             return null;
         }
-        const index = M.scan(FS.fs, FS.path, FS.path.resolve(folder));
-        if (!index) return null;
+        const base = M.scan(FS.fs, FS.path, FS.path.resolve(folder));
+        if (!base) return null;
+        const mineFolder = this.memaoMineFolder();
+        let mine = null;
+        if (mineFolder) {
+            if (!M.isLibrary(FS.fs, FS.path, mineFolder)) { this.showToast(`The Memao My parts folder needs Main and ${M.zFile}.`, 'error'); return null; }
+            mine = M.scan(FS.fs, FS.path, FS.path.resolve(mineFolder), undefined, { mine: true });
+        }
+        const index = mine ? M.mergeIndexes(base, mine, FS.path.basename(FS.path.resolve(mineFolder))) : base;
         if (!FS.atomicWriteJson(M.indexFile, index, 0)) { this.showToast('Could not save the Memao index.', 'error'); return null; }
         this._memaoIndex = index;
         this.resetCreatorImageCaches('memao');
@@ -60,7 +70,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     memaoSheetPath(file, index = this.memaoIndex()) {
         const FS = DocsDoodads.FS;
-        return index && FS.path ? FS.path.join(index.library, file) : '';
+        return index && FS.path ? DocsDoodads.Memao.filePath(FS.path, index, file) : '';
     },
 
     memaoLoadImage(file) {
@@ -188,10 +198,11 @@ Object.assign(DocsDoodads.Workspace, {
 
     memaoCardHtml() {
         const D = DocsDoodads, U = D.Ui, M = D.Memao, FS = D.FS;
-        const folder = this.memaoLibraryFolder();
+        const folder = this.memaoLibraryFolder(), mine = this.memaoMineFolder();
         const index = this.memaoIndex();
         const s = index ? M.summary(index) : null;
         const inside = folder && FS.path ? M.insideProject(FS.path, folder, '.') : false;
+        const mineInside = mine && FS.path ? M.insideProject(FS.path, mine, '.') : false;
         const missing = index ? this.memaoIndexMissing(index) : false;
         const day = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(); };
         return `
@@ -201,10 +212,15 @@ Object.assign(DocsDoodads.Workspace, {
             </div>
             ${inside ? `<div class="dd-lpc-warn" id="dd-memao-inside"><b>This folder is inside the project.</b> MZ's Deployment would copy the whole asset pack into the game, and its licence forbids sharing the pack. Keep it somewhere else.</div>` : ''}
             <div class="dd-lpc-row">
+                <input type="text" id="dd-memao-mine-folder" value="${escapeHtml(mine)}" placeholder="My Memao parts (optional)" aria-label="My Memao parts folder" />
+                <button class="dd-btn" id="dd-memao-mine-choose" type="button" title="Pick your parts folder">${U.icon('folder', 1)} Choose...</button>
+            </div>
+            ${mineInside ? '<div class="dd-lpc-warn" id="dd-memao-mine-inside"><b>My parts is inside the project.</b> Deployment would copy the source sheets. Keep this folder somewhere else.</div>' : ''}
+            <div class="dd-lpc-row">
                 <button class="dd-btn dd-btn-primary" id="dd-memao-scan" type="button" title="Read the pack's parts and names">${index ? 'Scan Again' : 'Scan the Assets'}</button>
                 ${index && !missing ? `<button class="dd-btn dd-btn-good" id="dd-memao-creator" type="button" title="Make a character from the Memao assets">${U.icon('person', 1)} Open the Memao Creator</button>` : ''}
             </div>
-            ${s ? `<div class="dd-lpc-box" id="dd-memao-status"><b>${s.parts} parts</b> · ${escapeHtml(s.sets.join(', '))} · scanned ${escapeHtml(day(s.built))}${s.warnings.length ? `<br><span style="color: var(--dd-warn);">${s.warnings.map(w => escapeHtml(w)).join('<br>')}</span>` : ''}</div>` : '<div class="dd-lpc-box" id="dd-memao-status">Not scanned yet.</div>'}
+            ${s ? `<div class="dd-lpc-box" id="dd-memao-status"><b>${s.parts} parts</b>${s.mine ? ` · ${s.mine} from My parts` : ''} · ${escapeHtml(s.sets.join(', '))} · scanned ${escapeHtml(day(s.built))}${s.warnings.length ? `<br><span style="color: var(--dd-warn);">${s.warnings.map(w => escapeHtml(w)).join('<br>')}</span>` : ''}</div>` : '<div class="dd-lpc-box" id="dd-memao-status">Not scanned yet.</div>'}
             ${missing ? `<div class="dd-lpc-warn" id="dd-memao-missing">The assets aren't at ${escapeHtml(index.library)} any more. Choose where they are now.</div>` : ''}
             <div class="dd-lpc-note">The pack is read where it is and never copied into the project: its licence lets the sheets you make go into your games, but not the pack, or the sheets on their own. Credit to "Memao" is appreciated.</div>`;
     },
@@ -212,11 +228,15 @@ Object.assign(DocsDoodads.Workspace, {
     bindMemaoCard() {
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         const field = document.getElementById('dd-memao-folder');
+        const mineField = document.getElementById('dd-memao-mine-folder');
         if (field) field.onchange = e => { this.setMemaoLibraryFolder(e.target.value); this.refreshLpcCard(); };
+        if (mineField) mineField.onchange = e => { this.setMemaoMineFolder(e.target.value); this.refreshLpcCard(); };
         on('dd-memao-choose', () => this.pickMemaoLibraryFolder());
+        on('dd-memao-mine-choose', () => this.pickMemaoLibraryFolder(true));
         on('dd-memao-scan', () => {
             const typed = field ? field.value : this.memaoLibraryFolder();
             if (typed !== this.memaoLibraryFolder()) this.setMemaoLibraryFolder(typed);
+            if (mineField && mineField.value !== this.memaoMineFolder()) this.setMemaoMineFolder(mineField.value);
             const button = document.getElementById('dd-memao-scan');
             if (button) { button.disabled = true; button.textContent = 'Scanning...'; }
             return new Promise(resolve => setTimeout(() => {
@@ -228,7 +248,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-memao-creator', () => this.openMemaoCreator());
     },
 
-    pickMemaoLibraryFolder() {
+    pickMemaoLibraryFolder(mine = false) {
         if (typeof document === 'undefined') return false;
         const input = document.createElement('input');
         input.type = 'file';
@@ -236,7 +256,7 @@ Object.assign(DocsDoodads.Workspace, {
         input.onchange = () => {
             const chosen = input.value || (input.files && input.files[0] && input.files[0].path) || '';
             if (!chosen) return;
-            this.setMemaoLibraryFolder(chosen);
+            if (mine) this.setMemaoMineFolder(chosen); else this.setMemaoLibraryFolder(chosen);
             this.refreshLpcCard();
         };
         if (typeof input.click === 'function') input.click();

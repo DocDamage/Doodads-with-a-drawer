@@ -268,6 +268,9 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 ## Characters (LPC library and creator)
 
 - [ ] Art > Characters: choose the library folder (Choose...), Scan the Library, and check the part count and version. A folder inside the project shows the warning.
+- [ ] For MZ, LPC and Memao, choose a **My parts** folder in that creator's native layout and scan again. Its part count is included, a source folder inside the project warns, and its art draws from that folder without copying it into the project.
+- [ ] Put one custom part at the same identity as a built-in part and another in an unknown family/type/folder. Both clashing choices remain available, and the unknown one appears in an Extra tab named for the My parts folder at the expected layer depth.
+- [ ] Save and export a recipe wearing a custom part, then remove or move that source part and scan again. Load leaves the missing part out and names the My parts folder that changed.
 - [ ] Try it: Shuffle a few times and turn the character; with Less motion on it stands still.
 - [ ] Open the Creator in MZ's own window size (816 x 624): one card at a time with the Body & face / Outfit switch, nothing overlapping. Make the window big: both cards and the stage side by side.
 - [ ] Change every row with the mouse, the keyboard (arrows, Shift+arrows, Q/E, Tab, X/Y, Esc) and a gamepad (d-pad, A, LB/RB, Back, X/Y, Start, B). Arrow keys must not move the map behind.

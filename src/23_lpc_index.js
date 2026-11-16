@@ -160,7 +160,7 @@ DocsDoodads.Lpc = {
     },
 
     // Reads the library into an index. now: an ISO time for 'built' (passed in for tests).
-    scan(fsLike, pathLib, root, now) {
+    scan(fsLike, pathLib, root, now, opts = {}) {
         if (!this.isLibrary(fsLike, pathLib, root)) return null;
         const parts = [], skipped = [], newFields = new Set();
         const defs = this.listJson(fsLike, pathLib, pathLib.join(root, 'sheet_definitions'))
@@ -198,6 +198,36 @@ DocsDoodads.Lpc = {
         };
     },
 
+    minePrefix: 'mine:',
+
+    isMine(value) { return String(value || '').indexOf(this.minePrefix) === 0; },
+
+    mergeIndexes(a, b, label) {
+        if (!this.validIndex(a)) return null;
+        if (!this.validIndex(b)) return a;
+        const P = this.minePrefix, name = String(label || '').trim() || 'My parts';
+        const ids = new Set(a.parts.map(p => p.id));
+        const own = b.parts.map(p => {
+            const layers = (p.layers || []).map(l => Object.assign({}, l, { paths: Object.fromEntries(Object.entries(l.paths || {}).map(([body, file]) => [body, P + file])) }));
+            const credits = (p.credits || []).map(c => Object.assign({}, c, { file: P + c.file }));
+            const clash = ids.has(p.id);
+            return Object.assign({}, p, { id: P + p.id, name: p.name + (clash ? ` (${name})` : ''), layers, credits, mine: true, source: name, clash });
+        });
+        return Object.assign({}, a, {
+            parts: a.parts.filter(p => !p.mine).concat(own),
+            palettes: Object.assign({}, b.palettes || {}, a.palettes || {}),
+            mine: { library: b.library, label: name, parts: b.parts.length, built: b.built },
+            skipped: (a.skipped || []).concat((b.skipped || []).map(x => Object.assign({}, x, { source: name }))),
+            newFields: [...new Set((a.newFields || []).concat(b.newFields || []))].sort()
+        });
+    },
+
+    filePath(pathLib, index, file) {
+        if (!index || !pathLib) return '';
+        if (this.isMine(file)) return index.mine && index.mine.library ? pathLib.join(index.mine.library, 'spritesheets', String(file).slice(this.minePrefix.length)) : '';
+        return index.library ? pathLib.join(index.library, 'spritesheets', file) : '';
+    },
+
     // A saved index this version can use, or null.
     validIndex(index) {
         return index && index.format === this.indexFormat && index.version === this.indexVersion && Array.isArray(index.parts) ? index : null;
@@ -209,7 +239,7 @@ DocsDoodads.Lpc = {
         const categories = {};
         for (const p of index.parts) if (!safeOnly || p.safeToEncrypt) categories[p.category] = (categories[p.category] || 0) + 1;
         return { parts: index.parts.length, safe, usable: safeOnly ? safe : index.parts.length, skipped: (index.skipped || []).length,
-            materials: Object.keys(index.palettes || {}).length, categories, commit: index.commit || '', built: index.built || '', newFields: index.newFields || [] };
+            materials: Object.keys(index.palettes || {}).length, categories, commit: index.commit || '', built: index.built || '', newFields: index.newFields || [], mine: index.mine ? index.mine.parts : 0 };
     },
 
     // Whether a folder is inside the project, where MZ's Deployment would copy all of it into the game.

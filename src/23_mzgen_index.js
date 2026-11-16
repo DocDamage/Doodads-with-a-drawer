@@ -97,12 +97,17 @@ DocsDoodads.MzGen = {
         return out;
     },
 
-    // Reads the folder into an index. now: an ISO time for 'built' (for tests).
-    scan(fsLike, pathLib, root, inflate, now) {
-        if (!this.isLibrary(fsLike, pathLib, root)) return null;
+    isPartsFolder(fsLike, pathLib, root) {
+        try { return Boolean(root) && (fsLike.existsSync(pathLib.join(root, 'TV')) || fsLike.existsSync(pathLib.join(root, 'Face'))); } catch (e) { return false; }
+    },
+
+    // opts.mine scans a second generator-layout folder. It uses the main generator's colour ramps.
+    scan(fsLike, pathLib, root, inflate, now, opts = {}) {
+        const mine = Boolean(opts.mine);
+        if (!(mine ? this.isPartsFolder(fsLike, pathLib, root) : this.isLibrary(fsLike, pathLib, root))) return null;
         const warnings = [];
         const ramps = {};
-        for (const g of this.gradients) {
+        for (const g of mine ? [] : this.gradients) {
             let image = null;
             try { image = DocsDoodads.LpcCompose.decodePng(fsLike.readFileSync(pathLib.join(root, `grad_${g}.png`)), inflate); } catch (e) { image = null; }
             if (!image) warnings.push(`grad_${g}.png could not be read: its colours are left as drawn.`);
@@ -114,7 +119,7 @@ DocsDoodads.MzGen = {
             for (const view of this.views) {
                 const dir = pathLib.join(root, view, base);
                 let files = [];
-                try { files = fsLike.readdirSync(dir).filter(f => /\.png$/i.test(f)).sort(); } catch (e) { if (view === 'TV') warnings.push(`There is no ${base} base.`); continue; }
+                try { files = fsLike.readdirSync(dir).filter(f => /\.png$/i.test(f)).sort(); } catch (e) { if (view === 'TV' && !mine) warnings.push(`There is no ${base} base.`); continue; }
                 const have = new Set(files);
                 for (const file of files) {
                     const info = this.parseName(view, file);
@@ -173,13 +178,46 @@ DocsDoodads.MzGen = {
         return { AccA: 'Accessory A', AccB: 'Accessory B', FacialMark: 'Facial mark', BeastEars: 'Beast ears', FrontHair: 'Front hair', RearHair: 'Rear hair' }[family] || family;
     },
 
+    minePrefix: 'mine:',
+
+    isMine(value) { return String(value || '').indexOf(this.minePrefix) === 0; },
+
+    mergeIndexes(a, b, label) {
+        if (!this.validIndex(a)) return null;
+        if (!this.validIndex(b)) return a;
+        const P = this.minePrefix, mark = f => f ? P + f : f;
+        const clashes = new Set(a.parts.map(p => `${p.base}/${p.family}/${p.num}`));
+        const name = String(label || '').trim() || 'My parts';
+        const own = b.parts.map(p => {
+            const files = {};
+            for (const view of Object.keys(p.files || {})) files[view] = p.files[view].map(f => Object.assign({}, f, { file: mark(f.file), mask: mark(f.mask) }));
+            const clash = clashes.has(`${p.base}/${p.family}/${p.num}`);
+            const out = Object.assign({}, p, { id: P + p.id, files, mine: true, source: name, name: p.name + (clash ? ` (${name})` : '') });
+            if (p.icon) out.icon = mark(p.icon);
+            if (clash) out.clash = true;
+            return out;
+        });
+        return Object.assign({}, a, {
+            bases: this.bases.filter(x => (a.bases || []).includes(x) || (b.bases || []).includes(x)),
+            parts: a.parts.filter(p => !p.mine).concat(own),
+            mine: { library: b.library, label: name, parts: b.parts.length, built: b.built },
+            warnings: (a.warnings || []).concat((b.warnings || []).map(w => `${name}: ${w}`))
+        });
+    },
+
+    filePath(pathLib, index, file) {
+        if (!index || !pathLib) return '';
+        if (this.isMine(file)) return index.mine && index.mine.library ? pathLib.join(index.mine.library, String(file).slice(this.minePrefix.length)) : '';
+        return index.library ? pathLib.join(index.library, file) : '';
+    },
+
     validIndex(index) {
         return index && index.format === this.indexFormat && index.version === this.indexVersion && Array.isArray(index.parts) ? index : null;
     },
 
     summary(index) {
         if (!this.validIndex(index)) return null;
-        return { parts: index.parts.length, bases: index.bases || [], built: index.built || '', warnings: index.warnings || [] };
+        return { parts: index.parts.length, bases: index.bases || [], built: index.built || '', warnings: index.warnings || [], mine: index.mine ? index.mine.parts : 0 };
     },
 
     // The slot a mask key colour stands for ('' when it is fixed). Called for every pixel of a layer, so the

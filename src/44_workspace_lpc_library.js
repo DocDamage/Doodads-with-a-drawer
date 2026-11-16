@@ -42,6 +42,9 @@ Object.assign(DocsDoodads.Workspace, {
         return clean;
     },
 
+    lpcMineFolder() { const v = DocsDoodads.Ui.prefs().lpcMine; return typeof v === 'string' ? v : ''; },
+    setLpcMineFolder(folder) { const clean = String(folder || '').trim(); DocsDoodads.Ui.setPref('lpcMine', clean || undefined); return clean; },
+
     lpcSafeOnly() {
         return DocsDoodads.World.get('lpc.safeOnly') !== false;
     },
@@ -71,8 +74,15 @@ Object.assign(DocsDoodads.Workspace, {
             this.showToast('That folder has no sheet_definitions and spritesheets folders. Choose the top folder of the LPC character generator.', 'error');
             return null;
         }
-        const index = L.scan(FS.fs, FS.path, FS.path.resolve(folder));
-        if (!index) return null;
+        const base = L.scan(FS.fs, FS.path, FS.path.resolve(folder));
+        if (!base) return null;
+        const mineFolder = this.lpcMineFolder();
+        let mine = null;
+        if (mineFolder) {
+            if (!L.isLibrary(FS.fs, FS.path, mineFolder)) { this.showToast('The LPC My parts folder needs sheet_definitions and spritesheets.', 'error'); return null; }
+            mine = L.scan(FS.fs, FS.path, FS.path.resolve(mineFolder), undefined, { mine: true });
+        }
+        const index = mine ? L.mergeIndexes(base, mine, FS.path.basename(FS.path.resolve(mineFolder))) : base;
         if (!FS.atomicWriteJson(L.indexFile, index, 0)) { this.showToast('Could not save the library index.', 'error'); return null; }
         this._lpcIndex = index;
         this.resetCreatorImageCaches('lpc');
@@ -156,7 +166,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     lpcSheetPath(file, index = this.lpcIndex()) {
         const FS = DocsDoodads.FS;
-        return index && FS.path ? FS.path.join(index.library, 'spritesheets', file) : '';
+        return index && FS.path ? DocsDoodads.Lpc.filePath(FS.path, index, file) : '';
     },
 
     // A library image, decoded once (or null). The recoloured layers are cached by the compositor.
@@ -275,12 +285,13 @@ Object.assign(DocsDoodads.Workspace, {
             card.className = 'dd-glass';
             document.body.appendChild(card);
         }
-        const folder = this.lpcLibraryFolder();
+        const folder = this.lpcLibraryFolder(), mine = this.lpcMineFolder();
         const index = this.lpcIndex();
         const safeOnly = this.lpcSafeOnly();
         const s = index ? L.summary(index, safeOnly) : null;
         const stale = index ? this.lpcIndexStale(index) : '';
         const inside = folder && FS.path ? L.insideProject(FS.path, folder, '.') : false;
+        const mineInside = mine && FS.path ? L.insideProject(FS.path, mine, '.') : false;
         const credits = this.lpcCredits();
         const images = Object.keys(credits.images).filter(img => this.lpcImageExists(img));
         const unsafe = L.unsafeImages(credits, img => this.lpcImageExists(img)).length;
@@ -299,12 +310,18 @@ Object.assign(DocsDoodads.Workspace, {
                 <button class="dd-btn" id="dd-lpc-choose" type="button" title="Pick the folder">${U.icon('folder', 1)} Choose...</button>
             </div>
             ${inside ? `<div class="dd-lpc-warn"><b>This folder is inside the project.</b> MZ's Deployment copies every file in the project folder into the game, so the whole library (over a gigabyte) would ship with it. Keep the library somewhere else.</div>` : ''}
+            <div class="dd-lpc-group">My parts folder (optional)</div>
+            <div class="dd-lpc-row">
+                <input type="text" id="dd-lpc-mine-folder" value="${escapeHtml(mine)}" placeholder="My LPC parts" aria-label="My LPC parts folder" />
+                <button class="dd-btn" id="dd-lpc-mine-choose" type="button" title="Pick your parts folder">${U.icon('folder', 1)} Choose...</button>
+            </div>
+            ${mineInside ? '<div class="dd-lpc-warn" id="dd-lpc-mine-inside"><b>My parts is inside the project.</b> Deployment would copy the source sheets. Keep this folder somewhere else.</div>' : ''}
             <div class="dd-lpc-row">
                 <button class="dd-btn dd-btn-primary" id="dd-lpc-scan" type="button" title="Read the library's parts and colours">${index ? 'Scan Again' : 'Scan the Library'}</button>
                 <span class="dd-lpc-note">Reads its parts, colours and credits. The library itself is never copied into the project.</span>
             </div>
             ${s ? `<div class="dd-lpc-box" id="dd-lpc-status">
-                <b>${s.parts} parts</b>, ${s.safe} safe to encrypt · ${s.materials} colour set${s.materials === 1 ? "" : "s"}<br>
+                <b>${s.parts} parts</b>${s.mine ? ` · ${s.mine} from My parts` : ''}, ${s.safe} safe to encrypt · ${s.materials} colour set${s.materials === 1 ? "" : "s"}<br>
                 Scanned ${escapeHtml(day(s.built))}${s.commit ? ' · version ' + escapeHtml(s.commit.slice(0, 7)) : ''}<br>
                 <span style="color: var(--dd-muted);">${categories}</span>
                 ${s.skipped ? `<br><span style="color: var(--dd-warn);">${s.skipped} skipped (a format this version doesn't know):</span> ${skipped.slice(0, 6).map(k => escapeHtml(k.id + ' (' + k.why + ')')).join(', ')}${skipped.length > 6 ? ', ...' : ''}` : ''}
@@ -337,13 +354,17 @@ Object.assign(DocsDoodads.Workspace, {
             ${this.charactersGroup('memao', 'Memao Sprite Sheet Creator assets', this.memaoIndex() ? `${(D.Memao.summary(this.memaoIndex()) || { parts: 0 }).parts} parts` : 'not scanned', this.memaoCardHtml())}`;
         const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
         const field = document.getElementById('dd-lpc-folder');
+        const mineField = document.getElementById('dd-lpc-mine-folder');
         if (field) field.onchange = e => { this.setLpcLibraryFolder(e.target.value); this.refreshLpcCard(); };
+        if (mineField) mineField.onchange = e => { this.setLpcMineFolder(e.target.value); this.refreshLpcCard(); };
         on('dd-lpc-close', () => this.closeLpcCard());
         on('dd-lpc-choose', () => this.pickLpcLibraryFolder());
+        on('dd-lpc-mine-choose', () => this.pickLpcLibraryFolder(true));
         // A big library takes a second or so: say so first, then scan once the page has drawn it.
         on('dd-lpc-scan', () => {
             const typed = field ? field.value : folder;
             if (typed !== folder) this.setLpcLibraryFolder(typed);
+            if (mineField && mineField.value !== this.lpcMineFolder()) this.setLpcMineFolder(mineField.value);
             const button = document.getElementById('dd-lpc-scan');
             if (button) { button.disabled = true; button.textContent = 'Scanning...'; }
             return new Promise(resolve => setTimeout(() => {
@@ -404,7 +425,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     // NW.js picks a folder with an <input type="file" nwdirectory>.
-    pickLpcLibraryFolder() {
+    pickLpcLibraryFolder(mine = false) {
         if (typeof document === 'undefined') return false;
         const input = document.createElement('input');
         input.type = 'file';
@@ -412,7 +433,7 @@ Object.assign(DocsDoodads.Workspace, {
         input.onchange = () => {
             const chosen = input.value || (input.files && input.files[0] && input.files[0].path) || '';
             if (!chosen) return;
-            this.setLpcLibraryFolder(chosen);
+            if (mine) this.setLpcMineFolder(chosen); else this.setLpcLibraryFolder(chosen);
             this.refreshLpcCard();
         };
         if (typeof input.click === 'function') input.click();
