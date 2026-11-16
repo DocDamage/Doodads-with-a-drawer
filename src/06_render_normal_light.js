@@ -131,6 +131,55 @@ DocsDoodads.NormalLight = {
         return [x / width, y / height, (right - x) / width, (bottom - y) / height];
     },
 
+    // PIXI's NORMAL blend is premultiplied (ONE, ONE_MINUS_SRC_ALPHA).
+    alphaWhite(alpha) {
+        alpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+        return [alpha, alpha, alpha, alpha];
+    },
+
+    // One-channel ownership compositing: white means a normal-lit top pixel, black an ordinary one.
+    coverageOver(previous, alpha, normal) {
+        previous = Math.max(0, Math.min(1, Number(previous) || 0));
+        alpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+        return (normal ? alpha : 0) + previous * (1 - alpha);
+    },
+
+    // The ordinary lightmap already contains each wall mask. Reapply that reachable fraction only to
+    // the normal-directed lamp contribution, never to ambient darkness.
+    occludedLight(ambient, directional, flat, lightmap) {
+        return [0, 1, 2].map(i => {
+            const base = Number(ambient && ambient[i]) || 0;
+            const possible = Math.max(0.00001, (Number(flat && flat[i]) || 0) - base);
+            const reached = Math.max(0, (Number(lightmap && lightmap[i]) || 0) - base);
+            const ratio = Math.max(0, Math.min(1, reached / possible));
+            return base + ((Number(directional && directional[i]) || 0) - base) * ratio;
+        });
+    },
+
+    transformUniforms(matrix, frame, anchor, into = {}) {
+        matrix = matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        const a = Number(matrix.a) || 0, b = Number(matrix.b) || 0, c = Number(matrix.c) || 0, d = Number(matrix.d) || 0;
+        const det = a * d - b * c;
+        const inv = Math.abs(det) > 0.0000001 ? [d / det, -b / det, -c / det, a / det] : [1, 0, 0, 1];
+        const ax = Math.hypot(a, b) || 1, ay = Math.hypot(c, d) || 1;
+        into.uScreenToLocal = inv;
+        into.uSpriteOrigin = [Number(matrix.tx) || 0, Number(matrix.ty) || 0];
+        into.uSpriteSize = [Math.max(1, Number(frame && frame.width) || 1), Math.max(1, Number(frame && frame.height) || 1)];
+        into.uAnchor = [Number(anchor && anchor.x) || 0, Number(anchor && anchor.y) || 0];
+        into.uNormalBasis = [a / ax, b / ax, c / ay, d / ay];
+        return into;
+    },
+
+    // Testable counterpart of the fragment's screen-to-sprite mapping.
+    localUv(point, uniforms) {
+        const deltaX = (Number(point && point.x) || 0) - uniforms.uSpriteOrigin[0];
+        const deltaY = (Number(point && point.y) || 0) - uniforms.uSpriteOrigin[1];
+        const inverse = uniforms.uScreenToLocal;
+        const x = inverse[0] * deltaX + inverse[2] * deltaY;
+        const y = inverse[1] * deltaX + inverse[3] * deltaY;
+        return [x / uniforms.uSpriteSize[0] + uniforms.uAnchor[0], y / uniforms.uSpriteSize[1] + uniforms.uAnchor[1]];
+    },
+
     // A simple height map from alpha and luminance, then Sobel X/Y into a tangent-space normal.
     make(pixels, width, height, strength = 2) {
         width = Number(width); height = Number(height);
@@ -167,6 +216,13 @@ uniform vec4 inputSize;
 uniform vec4 outputFrame;
 uniform vec4 uNormalUv;
 uniform vec4 uNormalBasis;
+uniform vec4 uScreenToLocal;
+uniform vec2 uSpriteOrigin;
+uniform vec2 uSpriteSize;
+uniform vec2 uAnchor;
+uniform sampler2D uLightMap;
+uniform vec2 uLightMapSize;
+uniform float uUseOcclusion;
 uniform vec3 uAmbient;
 uniform float uLightCount;
 uniform vec4 uLightPosRadius[8];
@@ -174,13 +230,17 @@ uniform vec4 uLightColorIntensity[8];
 uniform vec4 uLightCone[8];
 void main(void) {
     vec4 base = texture2D(uSampler, vTextureCoord);
-    vec2 localUv = clamp(vTextureCoord * inputSize.xy / max(outputFrame.zw, vec2(1.0)), 0.0, 1.0);
+    vec2 fragmentPixel = outputFrame.xy + vTextureCoord * inputSize.xy;
+    vec2 delta = fragmentPixel - uSpriteOrigin;
+    vec2 localUv = vec2(uScreenToLocal.x * delta.x + uScreenToLocal.z * delta.y,
+        uScreenToLocal.y * delta.x + uScreenToLocal.w * delta.y) / uSpriteSize + uAnchor;
+    localUv = clamp(localUv, 0.0, 1.0);
     vec3 raw = texture2D(uNormalMap, uNormalUv.xy + localUv * uNormalUv.zw).rgb * 2.0 - 1.0;
     vec2 tangent = vec2(raw.x, -raw.y);
     vec2 screenNormal = tangent.x * uNormalBasis.xy + tangent.y * uNormalBasis.zw;
     vec3 normal = normalize(vec3(screenNormal, max(0.001, raw.z)));
-    vec2 fragmentPixel = outputFrame.xy + localUv * outputFrame.zw;
     vec3 lightValue = uAmbient;
+    vec3 flatLightValue = uAmbient;
     for (int i = 0; i < 8; i++) {
         if (float(i) < uLightCount) {
             vec2 fromLight = fragmentPixel - uLightPosRadius[i].xy;
@@ -190,10 +250,19 @@ void main(void) {
             if (uLightCone[i].w > 0.5 && distanceToLight > 0.001) cone = step(uLightCone[i].z, dot(normalize(fromLight), uLightCone[i].xy));
             vec3 direction = normalize(vec3(-fromLight, uLightPosRadius[i].z * 0.35));
             float diffuse = max(dot(normal, direction), 0.0);
-            lightValue += uLightColorIntensity[i].rgb * uLightColorIntensity[i].a * diffuse * falloff * cone;
+            vec3 energy = uLightColorIntensity[i].rgb * uLightColorIntensity[i].a * falloff * cone;
+            flatLightValue += energy;
+            lightValue += energy * diffuse;
         }
     }
-    gl_FragColor = vec4(base.rgb * clamp(lightValue, 0.0, 1.0), base.a);
+    lightValue = clamp(lightValue, 0.0, 1.0);
+    if (uUseOcclusion > 0.5) {
+        vec3 reached = max(texture2D(uLightMap, fragmentPixel / uLightMapSize).rgb - uAmbient, vec3(0.0));
+        vec3 possible = max(flatLightValue - uAmbient, vec3(0.00001));
+        vec3 reachRatio = clamp(reached / possible, 0.0, 1.0);
+        lightValue = uAmbient + (lightValue - uAmbient) * reachRatio;
+    }
+    gl_FragColor = vec4(base.rgb * lightValue, base.a);
 }`,
 
     // Draws source alpha as white into the ordinary lightmap: multiplying that result over the map leaves
@@ -204,6 +273,26 @@ varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 void main(void) {
     float alpha = texture2D(uSampler, vTextureCoord).a;
-    gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+    gl_FragColor = vec4(vec3(alpha), alpha);
+}`,
+
+    blackAlphaFragment: `
+precision mediump float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+void main(void) {
+    float alpha = texture2D(uSampler, vTextureCoord).a;
+    gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+}`,
+
+    ownershipFragment: `
+precision mediump float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform sampler2D uCoverage;
+void main(void) {
+    vec4 light = texture2D(uSampler, vTextureCoord);
+    float owned = texture2D(uCoverage, vTextureCoord).r;
+    gl_FragColor = vec4(mix(light.rgb, vec3(1.0), owned), light.a);
 }`
 };

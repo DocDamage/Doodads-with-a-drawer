@@ -440,8 +440,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         });
         // Masks left over from lights that went out.
         for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i]._docsOutline = null; this._docsLightMasks[i].visible = false; }
-        if (this.updateDocsNormalMasks) this.updateDocsNormalMasks(true);
-        renderer.render(this._docsLightScene, this._docsLightTexture, true);
+        const normalCount = this.updateDocsNormalMasks ? this.updateDocsNormalMasks(true, renderer, w, h) : 0;
+        if (normalCount && this.renderDocsNormalLightmap) this.renderDocsNormalLightmap(renderer, this._docsLightTexture, w, h);
+        else renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
         const parent = this._docsLightOverlay.parent;

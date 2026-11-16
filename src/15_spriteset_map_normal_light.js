@@ -48,12 +48,6 @@
         return { x: (Number(sprite.x) || 0) + dx * c - dy * s, y: (Number(sprite.y) || 0) + dx * s + dy * c };
     };
 
-    N.normalBasis = function(sprite) {
-        const turn = Number(sprite.rotation) || 0, c = Math.cos(turn), s = Math.sin(turn);
-        const sx = sprite.scale && sprite.scale.x < 0 ? -1 : 1, sy = sprite.scale && sprite.scale.y < 0 ? -1 : 1;
-        return [c * sx, s * sx, -s * sy, c * sy];
-    };
-
     N.textureFor = function(bitmap) {
         if (!bitmap || !bitmap._baseTexture) return null;
         if (!bitmap._docsNormalTexture || bitmap._docsNormalTexture.baseTexture !== bitmap._baseTexture) {
@@ -86,9 +80,17 @@
                 const uniforms = this.uniforms([], [1, 1, 1]);
                 uniforms.uNormalMap = texture;
                 uniforms.uNormalUv = [0, 0, 1, 1];
-                uniforms.uNormalBasis = [1, 0, 0, 1];
+                uniforms.uLightMap = PIXI.Texture.WHITE;
+                uniforms.uLightMapSize = [1, 1];
+                uniforms.uUseOcclusion = 0;
+                N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, uniforms);
                 sprite._docsNormalFilter = new PIXI.Filter(undefined, this.fragment, uniforms);
                 sprite._docsNormalFilter.padding = 0;
+                const apply = sprite._docsNormalFilter.apply;
+                sprite._docsNormalFilter.apply = function() {
+                    N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, this.uniforms);
+                    return apply.apply(this, arguments);
+                };
             } catch (error) {
                 DocsDoodads.Core.log('Normal-map filter could not be built; drawing without it.', error);
                 return false;
@@ -127,7 +129,7 @@
             return (Number(light.intensity) || 0) * flicker;
         });
         filter.uniforms.uNormalUv = this.frameUv(frame, sprite._docsNormalBitmap.width, sprite._docsNormalBitmap.height);
-        filter.uniforms.uNormalBasis = this.normalBasis(sprite);
+        this.transformUniforms(sprite.worldTransform, frame, sprite.anchor, filter.uniforms);
         DocsDoodads.toggleFilter(sprite, filter, true);
         sprite._docsNormalActive = true;
         return true;
@@ -154,36 +156,117 @@
         return count;
     };
 
-    N.copyMaskTransform = function(mask, source) {
+    N.copyMaskTransform = function(mask, source, normal) {
         mask.texture = source.texture;
         mask.x = source.x; mask.y = source.y;
         mask.anchor.set(source.anchor ? source.anchor.x : 0, source.anchor ? source.anchor.y : 0);
         mask.scale.set(source.scale ? source.scale.x : 1, source.scale ? source.scale.y : 1);
         mask.skew.set(source.skew ? source.skew.x : 0, source.skew ? source.skew.y : 0);
         mask.rotation = source.rotation || 0;
-        mask.alpha = source.alpha === undefined ? 1 : source.alpha;
+        mask.alpha = Number.isFinite(source.worldAlpha) ? source.worldAlpha : source.alpha === undefined ? 1 : source.alpha;
         mask.visible = true; mask.renderable = true; mask.blendMode = PIXI.BLEND_MODES.NORMAL;
+        mask._docsSource = source;
+        mask._docsNormalWhite = Boolean(normal);
+        if (!N._alphaFilter) N._alphaFilter = new PIXI.Filter(undefined, N.alphaFragment, {});
+        if (!N._blackAlphaFilter) N._blackAlphaFilter = new PIXI.Filter(undefined, N.blackAlphaFragment, {});
+        mask.filters = [normal ? N._alphaFilter : N._blackAlphaFilter];
     };
 
-    Spriteset_Map.prototype.updateDocsNormalMasks = function(show) {
+    N.isDrawableSprite = function(sprite) {
+        const frame = sprite && sprite.texture && sprite.texture.frame;
+        return Boolean(sprite && sprite.visible && sprite.renderable !== false && sprite.alpha !== 0 && frame && frame.width > 0 && frame.height > 0);
+    };
+
+    Spriteset_Map.prototype.docsNormalOrderedSources = function() {
+        if (!this._tilemap || !this._tilemap.children) return [];
+        const children = this._tilemap.children.slice();
+        if (typeof this._tilemap._compareChildOrder === 'function') children.sort(this._tilemap._compareChildOrder.bind(this._tilemap));
+        return children;
+    };
+
+    Spriteset_Map.prototype.updateDocsNormalMasks = function(show, renderer, width, height) {
         const pool = this._docsNormalMasks = this._docsNormalMasks || [];
-        if (!show || !this._docsLightScene) { for (const mask of pool) mask.visible = false; return 0; }
-        const sources = this.docsNormalSprites().filter(sprite => sprite && sprite._docsNormalActive && sprite.visible && sprite.renderable !== false
-            && sprite.texture && sprite.texture.frame && sprite.texture.frame.width > 0 && sprite.texture.frame.height > 0);
-        while (pool.length < sources.length) {
-            const mask = new PIXI.Sprite(PIXI.Texture.EMPTY);
-            if (!N._alphaFilter) N._alphaFilter = new PIXI.Filter(undefined, N.alphaFragment, {});
-            mask.filters = [N._alphaFilter];
-            pool.push(mask); this._docsLightScene.addChild(mask);
+        if (!show || !this._docsLightScene || !renderer) {
+            for (const mask of pool) mask.visible = false;
+            if (this._docsNormalCoverageScene) this._docsNormalCoverageScene.visible = false;
+            return 0;
         }
-        for (let i = 0; i < pool.length; i++) {
-            const mask = pool[i], source = sources[i];
-            if (!source) { mask.visible = false; continue; }
-            N.copyMaskTransform(mask, source);
-            // Light sprites can be added to their pool later; exemptions always return to the top.
-            this._docsLightScene.addChild(mask);
+        const normalSources = new Set(this.docsNormalSprites().filter(sprite => sprite && sprite._docsNormalActive));
+        if (!normalSources.size) {
+            for (const mask of pool) mask.visible = false;
+            if (this._docsNormalCoverageScene) this._docsNormalCoverageScene.visible = false;
+            return 0;
         }
-        return sources.length;
+        const coverage = this._docsNormalCoverageScene = this._docsNormalCoverageScene || new PIXI.Container();
+        coverage.visible = true;
+        coverage.removeChildren();
+        const ordered = this.docsNormalOrderedSources();
+        const layers = this._docsNormalTileLayers = this._docsNormalTileLayers || [];
+        let count = 0, layerCount = 0;
+        for (const source of ordered) {
+            const isLayer = source === this._tilemap._lowerLayer || source === this._tilemap._upperLayer;
+            if (isLayer) {
+                if (!source.visible || source.renderable === false) continue;
+                let item = layers[layerCount++];
+                if (!item) {
+                    item = layers[layers.length] = { sprite: new PIXI.Sprite(PIXI.Texture.EMPTY), texture: null };
+                    if (!N._blackAlphaFilter) N._blackAlphaFilter = new PIXI.Filter(undefined, N.blackAlphaFragment, {});
+                    item.sprite.filters = [N._blackAlphaFilter];
+                    item.sprite._docsNormalWhite = false;
+                }
+                if (!item.texture || item.texture.width !== width || item.texture.height !== height) {
+                    if (item.texture) item.texture.destroy(true);
+                    item.texture = PIXI.RenderTexture.create({ width, height });
+                    item.sprite.texture = item.texture;
+                }
+                renderer.render(source, item.texture, true);
+                item.sprite.x = 0; item.sprite.y = 0; item.sprite.alpha = 1; item.sprite.visible = true;
+                item.sprite._docsSource = source;
+                coverage.addChild(item.sprite);
+                continue;
+            }
+            if (!N.isDrawableSprite(source)) continue;
+            const use = pool[count] || (pool[count] = new PIXI.Sprite(PIXI.Texture.EMPTY));
+            N.copyMaskTransform(use, source, normalSources.has(source));
+            coverage.addChild(use);
+            count++;
+        }
+        for (let i = count; i < pool.length; i++) pool[i].visible = false;
+        for (let i = layerCount; i < layers.length; i++) layers[i].sprite.visible = false;
+        return normalSources.size;
+    };
+
+    Spriteset_Map.prototype.renderDocsNormalLightmap = function(renderer, target, width, height) {
+        const ensureTexture = (key) => {
+            let texture = this[key];
+            if (!texture || texture.width !== width || texture.height !== height) {
+                if (texture) texture.destroy(true);
+                texture = this[key] = PIXI.RenderTexture.create({ width, height });
+            }
+            return texture;
+        };
+        const raw = ensureTexture('_docsNormalRawLightTexture');
+        const coverage = ensureTexture('_docsNormalCoverageTexture');
+        renderer.render(this._docsLightScene, raw, true);
+        const useOcclusion = (this._docsLightMasks || []).some(mask => mask && mask.visible);
+        for (const sprite of this.docsNormalSprites()) {
+            if (!sprite || !sprite._docsNormalActive || !sprite._docsNormalFilter) continue;
+            const uniforms = sprite._docsNormalFilter.uniforms;
+            uniforms.uLightMap = raw;
+            uniforms.uLightMapSize = [width, height];
+            uniforms.uUseOcclusion = useOcclusion ? 1 : 0;
+        }
+        renderer.render(this._docsNormalCoverageScene, coverage, true);
+        if (!this._docsNormalMixScene) {
+            this._docsNormalMixScene = new PIXI.Container();
+            this._docsNormalMixSprite = new PIXI.Sprite(raw);
+            this._docsNormalMixFilter = new PIXI.Filter(undefined, N.ownershipFragment, { uCoverage: coverage });
+            this._docsNormalMixSprite.filters = [this._docsNormalMixFilter];
+            this._docsNormalMixScene.addChild(this._docsNormalMixSprite);
+        }
+        this._docsNormalMixSprite.texture = raw;
+        this._docsNormalMixFilter.uniforms.uCoverage = coverage;
+        renderer.render(this._docsNormalMixScene, target, true);
     };
 
 })();

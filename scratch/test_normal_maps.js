@@ -18,7 +18,10 @@ const lamp = E.doodad(9, 9, { uid: 'normal-lamp', bit: [3, 'img/doodads/Lamp.png
     shape: 'cone', angle: 0, spread: 70, flicker: 0
 } });
 $dataDocsDoodads[1] = [target, plain, lamp];
-$dataDocsDoodads.world = { normalLight: { enabled: true, maxLights: 8 } };
+$dataDocsDoodads.world = {
+    normalLight: { enabled: true, maxLights: 8 },
+    lighting2d: { occlusion: true, wallRegions: '', rays: 40 }
+};
 $gamePlayer._characterName = '$Hero';
 require('../Docs-Doodads.js');
 
@@ -67,8 +70,14 @@ assert.ok(/for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*8/.test(N.fragment));
 assert.ok(!/#version\s+300|\bin\s+vec|\bout\s+vec|texture\s*\(/.test(N.fragment), 'shader stays GLSL ES 1.00');
 assert.deepStrictEqual(N.alphaWhite(0.25), [0.25, 0.25, 0.25, 0.25], 'white coverage is premultiplied for PIXI NORMAL blending');
 assert.match(N.alphaFragment, /vec4\s*\(\s*vec3\s*\(\s*alpha\s*\)\s*,\s*alpha\s*\)/);
+assert.match(N.blackAlphaFragment, /vec4\s*\(\s*0\.0\s*,\s*0\.0\s*,\s*0\.0\s*,\s*alpha\s*\)/);
+assert.match(N.ownershipFragment, /mix\s*\(\s*light\.rgb\s*,\s*vec3\s*\(\s*1\.0\s*\)\s*,\s*owned\s*\)/);
 assert.strictEqual(N.coverageOver(1, 1, false), 0, 'an opaque ordinary foreground sprite removes normal ownership behind it');
 assert.strictEqual(N.coverageOver(0, 1, true), 1, 'a foreground normal sprite owns its visible pixel');
+assert.deepStrictEqual(N.occludedLight([0.2, 0.3, 0.4], [0.8, 0.7, 0.6], [1, 0.9, 0.8], [0.2, 0.3, 0.4]), [0.2, 0.3, 0.4],
+    'a wall that leaves only ambient also blocks the normal-map lamp');
+assert.deepStrictEqual(N.occludedLight([0.2, 0.3, 0.4], [0.5, 0.5, 0.5], [0.8, 0.7, 0.6], [0.5, 0.5, 0.5]), [0.35, 0.4, 0.45],
+    'partial per-channel reach scales only the lamp contribution');
 
 // The frame rectangle, including an animated frame, addresses the same region in the normal sheet.
 assert.deepStrictEqual(N.frameUv({ x: 48, y: 0, width: 48, height: 96 }, 96, 96), [0.5, 0, 0.5, 1]);
@@ -135,6 +144,15 @@ $gameSwitches.setValue(7, true);
 E.frames(ss, 2);
 assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uLightCount, 1);
 assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uLightCone[3], 1, 'directional light reaches the runtime filter');
+assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uUseOcclusion, 1, 'the normal filter consumes the same wall-masked lightmap as ordinary sprites');
+assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uLightMap, ss._docsNormalRawLightTexture);
+targetSprite.worldTransform.set(0, -2, 3, 1, 100, 50);
+targetSprite.anchor.set(0.5, 1);
+targetSprite.texture.frame.width = 40; targetSprite.texture.frame.height = 20;
+targetSprite._docsNormalFilter.apply();
+assert.deepStrictEqual(targetSprite._docsNormalFilter.uniforms.uScreenToLocal, [1 / 6, 1 / 3, -1 / 2, 0],
+    'the filter refreshes its inverse from the rendered world transform, including rotation, flip and skew');
+assert.deepStrictEqual(targetSprite._docsNormalFilter.uniforms.uAnchor, [0.5, 1]);
 targetSprite.showFrame(1);
 ss.updateDocsNormalSprites();
 assert.strictEqual(targetSprite._docsNormalFilter.uniforms.uNormalUv[0], 0.5, 'animation moves the normal-map frame too');
