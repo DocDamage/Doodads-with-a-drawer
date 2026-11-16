@@ -2,7 +2,7 @@
 
 **Plugin:** `Docs-Doodads.js` (v2.0)  
 **Compatibility:** RPG Maker MZ. MV is untested since 2.0 and unsupported (see the README).  
-**Map dimensions:** map/editor geometry reads MZ's live tile and screen sizes. Played in MZ with 32-pixel tiles at 1280 × 720 on an interior, town, looping field and cave, flat and in 3D; the earlier QA uses 48-pixel tiles. Automated tests also cover 16-pixel tiles, which have not been played in MZ. Art sizes and effect distances remain pixels by design. See the [tile-size QA record](docs/QA_2026-11-15.md#other-tile-and-screen-sizes-747) for checks and a pre-existing 3D water-edge artifact.
+**Map dimensions:** map/editor geometry reads MZ's live tile and screen sizes. Played in MZ with 32-pixel tiles at 1280 × 720 on an interior, town, looping field and cave, flat and in 3D; the earlier QA uses 48-pixel tiles. Automated tests also cover 16-pixel tiles, which have not been played in MZ. Art sizes and effect distances remain pixels by design. See the [tile-size QA record](docs/QA_2026-11-15.md#other-tile-and-screen-sizes-747) for the checks.
 **License:** MIT License. Based on QJ-Doodads by Qiu Jiu.  
 **Quick reference:** every notetag, image name tag and plugin command is listed in the [Cheat Sheet](CHEAT_SHEET.md).  
 
@@ -618,7 +618,7 @@ Tileset tiles lie flat by default, including tree tops and roofs from the B–E 
 | World radius | How tight the curve is, in tiles. 0 sizes a planet so one lap is the map's width: on a looping world map, walking all the way round brings you back. |
 | Things lean with the curve | Standing things lean outwards with the ground. Turn it off to keep them upright. |
 | Q / W turn the camera 90° | Players can turn the view. The arrow keys follow the camera (up walks away from it), and characters show the side facing it. |
-| Rippling water | Water tiles move with gentle waves that bend what shows through them (including water reflections) and catch the light. Shores stay dry. |
+| Rippling water | Water tiles move with gentle waves that bend what shows through them (including water reflections) and catch the light. Shores stay dry, and the waves stop at the 3D ground capture instead of repeating over the void outside it. |
 | Ripple strength / speed / sparkle | How far the waves bend the water, how fast they move, and how bright the glints are. Glints dim at night. |
 | Wakes behind boats and waders | Boats, ships and anything moving through water leave spreading rings with a little foam. |
 | Tileset objects (B–E tiles) | *Lie flat* (default). *Objects with ☆ tiles*: anything with a ☆ (above characters) tile, like a tree top, stands up with the tile under it (the trunk); side-by-side columns of the same height stand as one wide object. *Every B–E tile*: also lifts every other B–E tile (barrels, signs, fences) as one-tile billboards. The map itself isn't changed: in 2D, or with this off, the tiles lie on the ground as before. They use the standing doodads' height setting. Objects drawn entirely on roofs and walls (A3/A4: eaves, chimneys, windows) stay flat; a tree in front of a house still stands. **Keep tileset objects flat in region** keeps anything in that region flat. |
