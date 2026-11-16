@@ -19,8 +19,9 @@ global.document = {
 global.Utils = { RPGMAKER_NAME: 'MZ', isNwjs: () => true, isOptionValid: opt => opt === 'test' };
 global.PluginManager = { parameters: () => ({}) };
 const W = 6, H = 5;
+let tileSize = 48;
 global.$dataMap = { width: W, height: H, data: new Array(W * H * 6).fill(0), events: [] };
-global.$gameMap = { mapId: () => 1, tileWidth: () => 48, tileHeight: () => 48, width: () => W, height: () => H, adjustX: x => x, adjustY: y => y,
+global.$gameMap = { mapId: () => 1, tileWidth: () => tileSize, tileHeight: () => tileSize, width: () => W, height: () => H, adjustX: x => x, adjustY: y => y,
     isLoopHorizontal: () => false, isLoopVertical: () => false, tileset: () => ({ tilesetNames: ['A1', 'A2', 'A3', 'A4', 'A5', 'B', 'C', '', ''] }) };
 global.$gameMap._stagedMapData = { width: W, height: H, data: $dataMap.data.slice(), events: [null] };
 global.$gameMap._stagedMapDataId = 1;
@@ -131,7 +132,7 @@ console.log('✓ painting: joining up, the map edge, upper layers, blocks, the e
 $dataMap.data.fill(0);
 $gameMap._stagedMapData.data.fill(0);
 ws.tileBrush = { sheet: 1, ids: [[grass]], layer: 'auto', erase: false, scale: 0.5 };
-ws.clientToMapCoords = (x, y) => ({ tileX: x, tileY: y, x: x * 48, y: y * 48 });
+ws.clientToMapCoords = (x, y) => ({ tileX: x, tileY: y, x: x * tileSize, y: y * tileSize });
 const hook = ws.toolHooks.tiles;
 assert.ok(hook.down.call(ws, { clientX: 1, clientY: 1 }));
 hook.move.call(ws, { clientX: 2, clientY: 1 }, true);
@@ -166,6 +167,14 @@ ws.placementTool = 'tiles';
 ws._tileHover = { x: 1, y: 1 };
 hook.overlay.call(ws, { lineStyle() {}, drawRect(...a) { drawn.push(a); } });
 assert.deepStrictEqual(drawn[0], [48, 48, 48, 48]);
+for (const size of [32, 16]) {
+    tileSize = size;
+    const sized = [];
+    hook.overlay.call(ws, { lineStyle() {}, drawRect(...a) { sized.push(a); } });
+    assert.deepStrictEqual(sized[0], [size, size, size, size], `${size}px brush outline uses map pixels`);
+    assert.deepStrictEqual(ws.clientToMapCoords(2, 3), { tileX: 2, tileY: 3, x: 2 * size, y: 3 * size });
+}
+tileSize = 48;
 console.log('✓ the Tiles tool: strokes into the map and the staged map, undo, picking up, the palette');
 
 console.log('=== Tile painting passed ===');

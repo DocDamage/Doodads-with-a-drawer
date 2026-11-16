@@ -200,7 +200,7 @@ function install() {
         isReady() { return true; } isError() { return false; } addLoadListener(cb) { cb(this); }
         blt() {} clear() {} fillRect() {} fillAll() {} clearRect() {} drawText() {} measureTextWidth(t) { return String(t).length * 6; } destroy() {}
         static load(url) { const b = new Bitmap(96, 96); b._url = url; return b; }
-        static snap() { return new Bitmap(816, 624); }
+        static snap() { return new Bitmap(g.Graphics.width, g.Graphics.height); }
     }
     g.Bitmap = Bitmap;
     const cache = {};
@@ -238,7 +238,7 @@ function install() {
     g.ScreenSprite = ScreenSprite;
     class Tilemap extends Container {
         constructor() { super(); this._mapData = null; this._mapWidth = 0; this._mapHeight = 0; this.horizontalWrap = false; this.verticalWrap = false; this.tileWidth = 48; this.tileHeight = 48;
-            this.width = 816; this.height = 624; this.origin = new Point(); this.flags = []; this._bitmaps = []; this.animationCount = 0;
+            this.width = g.Graphics.width; this.height = g.Graphics.height; this.origin = new Point(); this.flags = []; this._bitmaps = []; this.animationCount = 0;
             this._lowerLayer = new Container(); this._upperLayer = new Container(); this._lowerLayer.z = 0; this._upperLayer.z = 4; this.addChild(this._lowerLayer); this.addChild(this._upperLayer); this.refreshes = 0; }
         setData(w, h, data) { this._mapWidth = w; this._mapHeight = h; this._mapData = data; }
         setBitmaps(b) { this._bitmaps = b; }
@@ -293,8 +293,8 @@ function install() {
         get x() { return this._x; } get y() { return this._y; }
         locate(x, y) { this._x = this._realX = x; this._y = this._realY = y; }
         pos(x, y) { return this._x === x && this._y === y; }
-        screenX() { return Math.round($gameMap.adjustX(this._realX) * 48 + 24); }
-        screenY() { return Math.round($gameMap.adjustY(this._realY) * 48 + 48 - this.shiftY() - this.jumpHeight()); }
+        screenX() { const tw = $gameMap.tileWidth(); return Math.round($gameMap.adjustX(this._realX) * tw + tw / 2); }
+        screenY() { const th = $gameMap.tileHeight(); return Math.round($gameMap.adjustY(this._realY) * th + th - this.shiftY() - this.jumpHeight()); }
         screenZ() { return this._priorityType * 2 + 1; }
         shiftY() { return 6; }
         direction() { return this._direction; } setDirection(d) { this._direction = d; }
@@ -339,14 +339,14 @@ function install() {
         setup(mapId) { this._mapId = mapId; this._events = []; }
         mapId() { return this._mapId; } tilesetId() { return $dataMap ? $dataMap.tilesetId : 1; } tileset() { return $dataTilesets[this.tilesetId()]; }
         width() { return $dataMap ? $dataMap.width : 0; } height() { return $dataMap ? $dataMap.height : 0; } data() { return $dataMap.data; }
-        tileWidth() { return 48; } tileHeight() { return 48; }
+        tileWidth() { return Number($dataSystem && $dataSystem.tileSize) || 48; } tileHeight() { return Number($dataSystem && $dataSystem.tileSize) || 48; }
         displayX() { return this._displayX; } displayY() { return this._displayY; } setDisplayPos(x, y) { this._displayX = x; this._displayY = y; } isScrolling() { return this._scrollRest > 0; }
         // As MZ: looping axes wrap, others stop at the map's edge.
         scrollRight(d) { this._displayX = this.isLoopHorizontal() ? (this._displayX + d) % this.width() : Math.min(this._displayX + d, Math.max(0, this.width() - this.screenTileX())); }
         scrollLeft(d) { this._displayX = this.isLoopHorizontal() ? (this._displayX + this.width() - d) % this.width() : Math.max(this._displayX - d, 0); }
         scrollDown(d) { this._displayY = this.isLoopVertical() ? (this._displayY + d) % this.height() : Math.min(this._displayY + d, Math.max(0, this.height() - this.screenTileY())); }
         scrollUp(d) { this._displayY = this.isLoopVertical() ? (this._displayY + this.height() - d) % this.height() : Math.max(this._displayY - d, 0); }
-        screenTileX() { return 17; } screenTileY() { return 13; }
+        screenTileX() { return g.Graphics.width / this.tileWidth(); } screenTileY() { return g.Graphics.height / this.tileHeight(); }
         isLoopHorizontal() { return $dataMap && ($dataMap.scrollType === 2 || $dataMap.scrollType === 3); } isLoopVertical() { return $dataMap && ($dataMap.scrollType === 1 || $dataMap.scrollType === 3); }
         adjustX(x) { if (this.isLoopHorizontal() && x < this._displayX - (this.width() - this.screenTileX()) / 2) return x - this._displayX + this.width(); return x - this._displayX; }
         adjustY(y) { if (this.isLoopVertical() && y < this._displayY - (this.height() - this.screenTileY()) / 2) return y - this._displayY + this.height(); return y - this._displayY; }
@@ -369,7 +369,8 @@ function install() {
         deltaY(y1, y2) { let r = y1 - y2; if (this.isLoopVertical() && Math.abs(r) > this.height() / 2) r += r < 0 ? this.height() : -this.height(); return r; }
         distance(x1, y1, x2, y2) { return Math.abs(this.deltaX(x1, x2)) + Math.abs(this.deltaY(y1, y2)); }
         isOverworld() { return this.tileset() && this.tileset().mode === 0; } displayName() { return ''; } tilesetFlags() { return (this.tileset() || {}).flags || []; }
-        canvasToMapX(x) { return Math.floor(x / 48); } canvasToMapY(y) { return Math.floor(y / 48); } isEventRunning() { return false; }
+        canvasToMapX(x) { return this.roundX(Math.floor(this._displayX + x / this.tileWidth())); }
+        canvasToMapY(y) { return this.roundY(Math.floor(this._displayY + y / this.tileHeight())); } isEventRunning() { return false; }
         update() {} refresh() {} requestRefresh() {}
     }
     g.Game_Map = Game_Map;
@@ -392,10 +393,10 @@ function install() {
         setCharacter(c) { this._character = c; }
     }
     g.Sprite_Character = Sprite_Character;
-    class Sprite_Destination extends MzSprite { constructor() { super(); this.z = 0.5; this._frameCount = 0; this.bitmap = new Bitmap(48, 48); this.anchor.set(0.5, 0.5); }
+    class Sprite_Destination extends MzSprite { constructor() { super(); this.z = 0.5; this._frameCount = 0; this.bitmap = new Bitmap($gameMap.tileWidth(), $gameMap.tileHeight()); this.anchor.set(0.5, 0.5); }
         // As MZ: the marker grows and fades over 20 frames while there is a destination.
         update() { if ($gameTemp.isDestinationValid()) { this.updatePosition(); this.updateAnimation(); this.visible = true; } else { this._frameCount = 0; this.visible = false; } }
-        updatePosition() { const tw = 48, th = 48; this.x = ($gameMap.adjustX($gameTemp.destinationX()) + 0.5) * tw; this.y = ($gameMap.adjustY($gameTemp.destinationY()) + 0.5) * th; }
+        updatePosition() { const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(); this.x = ($gameMap.adjustX($gameTemp.destinationX()) + 0.5) * tw; this.y = ($gameMap.adjustY($gameTemp.destinationY()) + 0.5) * th; }
         updateAnimation() {} createBitmap() {} destroy(o) { super.destroy(o); } }
     g.Sprite_Destination = Sprite_Destination;
     class Sprite_Animation extends MzSprite { constructor() { super(); this._targets = []; this._animation = { scale: 100, alignBottom: false }; } targetSpritePosition(s) { return new Point(s.x, s.y); } updateEffectGeometry() {} }
@@ -406,7 +407,7 @@ function install() {
     class Weather extends Container { constructor() { super(); this.type = 'none'; this.power = 0; this.origin = new Point(); } update() {} }
     g.Weather = Weather;
     class Spriteset_Base extends MzSprite {
-        constructor() { super(); this.setFrame(0, 0, 816, 624); this.loadSystemImages && this.loadSystemImages(); this.createLowerLayer(); this.createUpperLayer(); this._effectsContainer = this._baseSprite; }
+        constructor() { super(); this.setFrame(0, 0, g.Graphics.width, g.Graphics.height); this.loadSystemImages && this.loadSystemImages(); this.createLowerLayer(); this.createUpperLayer(); this._effectsContainer = this._baseSprite; }
         createLowerLayer() { this._baseSprite = new MzSprite(); this.addChild(this._baseSprite); }
         createUpperLayer() { this._pictureContainer = new MzSprite(); this.addChild(this._pictureContainer); this._timerSprite = new MzSprite(); this.addChild(this._timerSprite); }
         update() { MzSprite.prototype.update.call(this); }
@@ -416,7 +417,7 @@ function install() {
         createLowerLayer() { super.createLowerLayer(); this.createParallax(); this.createTilemap(); this.createCharacters(); this.createShadow(); this.createDestination(); this.createWeather(); }
         createParallax() { this._parallax = new TilingSprite(); this._baseSprite.addChild(this._parallax); }
         loadTileset() { this._tileset = $gameMap.tileset(); if (this._tileset) { this._tilemap.setBitmaps(this._tileset.tilesetNames.map(n => ImageManager.loadTileset(n))); this._tilemap.flags = this._tileset.flags || []; } }
-        createTilemap() { const t = this._tilemap = new Tilemap(); t.setData($gameMap.width(), $gameMap.height(), $gameMap.data()); t.horizontalWrap = $gameMap.isLoopHorizontal(); t.verticalWrap = $gameMap.isLoopVertical();
+        createTilemap() { const t = this._tilemap = new Tilemap(); t.tileWidth = $gameMap.tileWidth(); t.tileHeight = $gameMap.tileHeight(); t.setData($gameMap.width(), $gameMap.height(), $gameMap.data()); t.horizontalWrap = $gameMap.isLoopHorizontal(); t.verticalWrap = $gameMap.isLoopVertical();
             const tileset = $gameMap.tileset(); t.setBitmaps(((tileset && tileset.tilesetNames) || []).map(n => ImageManager.loadTileset(n))); t.flags = (tileset && tileset.flags) || []; this._baseSprite.addChild(t); }
         createCharacters() { this._characterSprites = []; for (const e of $gameMap.events()) this._characterSprites.push(new Sprite_Character(e));
             for (const v of $gameMap.vehicles()) this._characterSprites.push(new Sprite_Character(v));
@@ -426,7 +427,7 @@ function install() {
         createDestination() { this._destinationSprite = new Sprite_Destination(); this._tilemap.addChild(this._destinationSprite); }
         createWeather() { this._weather = new Weather(); this.addChild(this._weather); }
         update() { super.update(); this.updateTileset && this.updateTileset(); this.updateParallax(); this.updateTilemap(); this.updateShadow(); this.updateWeather(); }
-        updateParallax() {} updateTilemap() { this._tilemap.origin.x = $gameMap.displayX() * 48; this._tilemap.origin.y = $gameMap.displayY() * 48; }
+        updateParallax() {} updateTilemap() { this._tilemap.origin.x = $gameMap.displayX() * $gameMap.tileWidth(); this._tilemap.origin.y = $gameMap.displayY() * $gameMap.tileHeight(); }
         updateShadow() {} updateWeather() {}
         destroy(options) { super.destroy(options); }
         findTargetSprite(target) { return this._characterSprites.find(s => s._character === target); }
@@ -440,7 +441,7 @@ function install() {
     g.Scene_MenuBase = class extends Scene_Base { create() {} update() {} };
     g.Scene_Battle = class extends Scene_Base { terminate() {} };
     g.Scene_Options = class extends Scene_Base { maxCommands() { return 7; } };
-    g.SceneManager = { _scene: null, push() {}, goto() {}, pop() {}, isNextScene: () => false, snapForBackground() {}, backgroundBitmap: () => new Bitmap(816, 624) };
+    g.SceneManager = { _scene: null, push() {}, goto() {}, pop() {}, isNextScene: () => false, snapForBackground() {}, backgroundBitmap: () => new Bitmap(g.Graphics.width, g.Graphics.height) };
     g.Window_Base = class extends Container {};
     g.Window_Options = class extends g.Window_Base { addGeneralOptions() {} statusText() { return ''; } processOk() {} cursorRight() {} cursorLeft() {} commandSymbol() { return ''; } };
     g.Window_StatusBase = class extends g.Window_Base { drawActorCharacter() {} };
@@ -453,6 +454,8 @@ function install() {
 function setupWorld(options = {}) {
     const g = global;
     const w = options.width || 30, h = options.height || 24;
+    const tileSize = Number(options.tileSize) || 48;
+    const screenWidth = Number(options.screenWidth) || 816, screenHeight = Number(options.screenHeight) || 624;
     const data = new Array(w * h * 6).fill(0);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = options.ground || 2816;
     if (options.tiles) for (const [x, y, z, id] of options.tiles) data[(z * h + y) * w + x] = id;
@@ -460,7 +463,7 @@ function setupWorld(options = {}) {
     const flags = new Array(8192).fill(0);
     if (options.flags) for (const [id, f] of Object.entries(options.flags)) flags[id] = f;
     g.$dataTilesets = [null, { id: 1, mode: options.tilesetMode === undefined ? 1 : options.tilesetMode, flags, tilesetNames: ['Outside_A1', 'Outside_A2', '', '', '', 'Outside_B', 'Outside_C', '', ''] }];
-    g.$dataSystem = { advanced: { screenWidth: 816, screenHeight: 624 }, optSideView: false };
+    g.$dataSystem = { tileSize, advanced: { screenWidth, screenHeight }, optSideView: false };
     g.$dataActors = [null, { id: 1, name: 'Reid', note: '', characterName: 'Actor1', characterIndex: 0 }];
     g.$dataWeapons = [null]; g.$dataArmors = [null]; g.$dataStates = [null]; g.$dataClasses = [null, { id: 1, note: '' }];
     g.$dataAnimations = [null];
@@ -481,13 +484,22 @@ function setupWorld(options = {}) {
     g.$gameMessage = { isBusy: () => false };
     g.$gameTroop = { members: () => [] };
     g.$dataDocsDoodads = Object.assign({ mapSettings: {} }, options.doodads || {});
+    g.Graphics.width = g.Graphics.boxWidth = screenWidth;
+    g.Graphics.height = g.Graphics.boxHeight = screenHeight;
+    g.Graphics._canvas.width = screenWidth;
+    g.Graphics._canvas.height = screenHeight;
+    g.Graphics.app.renderer.view.width = screenWidth;
+    g.Graphics.app.renderer.view.height = screenHeight;
+    g.Graphics.app.renderer.screen.width = screenWidth;
+    g.Graphics.app.renderer.screen.height = screenHeight;
     g.Graphics.frameCount = 0;
-    return { width: w, height: h };
+    return { width: w, height: h, tileSize, screenWidth, screenHeight };
 }
 
 // A doodad picture at tile (tx, ty), standing on the tile's bottom edge.
 function doodad(tx, ty, extra = {}) {
-    return Object.assign({ bit: [3, 'img/doodads/Tree.png'], index: 0, anchorX: 0.5, anchorY: 1, posMode: 1, x: tx * 48 + 24, y: ty * 48 + 48, z: 0, depth: 'sorted',
+    const tw = global.$gameMap ? $gameMap.tileWidth() : 48, th = global.$gameMap ? $gameMap.tileHeight() : 48;
+    return Object.assign({ bit: [3, 'img/doodads/Tree.png'], index: 0, anchorX: 0.5, anchorY: 1, posMode: 1, x: tx * tw + tw / 2, y: ty * th + th, z: 0, depth: 'sorted',
         sortOffsetY: 0, scaleX: 1, scaleY: 1, blend: 0, opacity: 1, rotation: 0, rotateSpeed: 0, r: 0, g: 0, b: 0, grey: 0, xFrame: 1, yFrame: 1, frameUpdate: 0,
         frameX: 0, frameY: 0, frameW: 96, frameH: 96, switch: [], condition: '', blur: 0, contrast: 0, sepia: false, hue: 0, bright: false,
         collision: { preset: 'none', shape: null }, uid: 'dd_' + tx + '_' + ty }, extra);
