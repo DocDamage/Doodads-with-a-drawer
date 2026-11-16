@@ -54,6 +54,26 @@ assert.strictEqual(movedRows.find(row => row.code === 101).length, 5, 'moving ne
 assert.strictEqual(moved[moved.length - 1].code, 0, 'all list operations retain the final terminator');
 assert.ok(!C.remove(moved, 0).some((command, index, all) => command.code === 0 && index !== all.length - 1));
 
+// MZ can place indented terminators inside a branch. Only the list's final code 0 is the list terminator.
+const conditional = [
+    { code: 111, indent: 0, parameters: [0, 2, 0] },
+    { code: 121, indent: 1, parameters: [1, 1, 0] },
+    { code: 0, indent: 1, parameters: [] },
+    { code: 411, indent: 0, parameters: [] },
+    { code: 230, indent: 1, parameters: [10] },
+    { code: 0, indent: 1, parameters: [] },
+    { code: 412, indent: 0, parameters: [] },
+    { code: 230, indent: 0, parameters: [20] },
+    { code: 0, indent: 0, parameters: [] }
+];
+assert.deepStrictEqual(C.describe(conditional).map(row => row.code), [111, 121, 0, 411, 230, 0, 412, 230], 'internal branch terminators and the tail remain visible');
+const branchBefore = JSON.stringify(conditional.slice(0, 7));
+const conditionalEdited = C.replace(conditional, 7, { frames: 30 });
+assert.strictEqual(JSON.stringify(conditionalEdited.slice(0, 7)), branchBefore, 'editing after a branch preserves its structure byte for byte');
+assert.strictEqual(C.get('wait').read(conditionalEdited, 7).frames, 30);
+assert.deepStrictEqual(C.move(conditionalEdited, 7, -1), conditionalEdited, 'a command cannot move across a structural branch marker or indent boundary');
+assert.deepStrictEqual(C.remove(conditionalEdited, 0), conditionalEdited, 'unknown structural rows cannot be removed in this editor');
+
 // The event card mutates staged pages through editSelectedEvent, so each operation remains one ordinary undo step.
 $dataMap.events[1] = D.Events.createEventObject(1, 2, 3, { list: C.get('showText').write(samples.showText, 0) });
 const gameEvent = new Game_Event(1, 1);
@@ -99,6 +119,24 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     assert.deepStrictEqual(W.eventCommandOptions('switch').map(option => option.label), ['1: Gate Open', '2: Night']);
     assert.deepStrictEqual(W.eventCommandOptions('variable').map(option => option.label), ['1: Gold', '2: Visits', '3: Trust']);
     assert.strictEqual(W.eventCommandOptions('map')[1].label, '2: House');
+    assert.strictEqual(W.eventCommandFormValues(C.get('selfSwitch'), { letter: 'C', value: '1' }, samples.selfSwitch).letter, 'C', 'string choice values are not coerced to zero');
+
+    // A dialog that resolves after selection/page identity changes is stale and cannot mutate either event.
+    W._eventCommandPage = 0;
+    const originalEvent = W.selectedStagedEvent();
+    originalEvent.pages[0].list = C.get('showText').write(samples.showText, 0).concat([{ code: 0, indent: 0, parameters: [] }]);
+    const otherEvent = D.Events.createEventObject(2, 4, 4, { list: [{ code: 0, indent: 0, parameters: [] }] });
+    const form = D.Ui.form;
+    let answerForm;
+    D.Ui.form = () => new Promise(resolve => { answerForm = resolve; });
+    const staleEdit = W.editEventCommand(0);
+    W.selectedEvent = { gameEvent: null, stagedEvent: otherEvent };
+    answerForm({ faceName: '', faceIndex: '0', background: '0', positionType: '2', speakerName: '', text: 'Wrong event' });
+    assert.strictEqual(await staleEdit, false);
+    assert.strictEqual(C.get('showText').read(originalEvent.pages[0].list, 0).text, samples.showText.text);
+    assert.deepStrictEqual(otherEvent.pages[0].list, [{ code: 0, indent: 0, parameters: [] }]);
+    D.Ui.form = form;
+    W.selectedEvent = { gameEvent, stagedEvent: originalEvent };
 
     // Transfer picking visits the destination, takes a tile, then returns and applies through the same undo flow.
     const page = W.selectedStagedEvent().pages[0];
@@ -109,7 +147,6 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     W.currentMapId = () => currentMap;
     const visits = [];
     W.goToMap = mapId => { visits.push(mapId); };
-    W.setPlacementTool = tool => { W.placementTool = tool || null; };
     assert.strictEqual(W.beginEventTransferPick(0, 2), true);
     assert.deepStrictEqual(visits, [2]);
     currentMap = 2; W.resumeEventTransferPick();
@@ -122,6 +159,12 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     const transfer = C.get('transfer').read(W.selectedStagedEvent().pages[0].list, 0);
     assert.deepStrictEqual([transfer.mapId, transfer.x, transfer.y], [2, 6, 7]);
     assert.strictEqual(W._eventTransferPick, null);
+    assert.strictEqual(W.beginEventTransferPick(0, 2), true);
+    currentMap = 2; W.resumeEventTransferPick();
+    W.setPlacementTool(null);
+    assert.strictEqual(W._eventTransferPick, null, 'Escape/tool switching cancels a destination pick');
+    assert.strictEqual(visits[visits.length - 1], 1, 'cancelling on the destination safely returns to the source map');
+    currentMap = 1; W.selectedEvent = { gameEvent, stagedEvent: originalEvent };
     assert.ok(String(W.renderEventCommandEditor).includes('Edit in MZ'));
     assert.ok(String(W.editEventCommand).includes('DocsDoodads.Ui.form'));
     assert.ok(W.toolHooks.eventTransferTile);
