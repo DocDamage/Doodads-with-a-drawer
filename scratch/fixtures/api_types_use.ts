@@ -4,6 +4,8 @@
 
 const api = DocsDoodads.api;
 const v: number = api.version;
+const beat: { low: number; mid: number; high: number; kick: boolean } = api.beat();
+const bass: number = beat.low;
 
 // Finding doodads.
 const all: DocsDoodad[] = api.doodads();

@@ -334,6 +334,7 @@ if (typeof PIXI !== 'undefined') {
         this.updateDissolve(fx);
         if (this._shimmerFilter) {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
+            this._shimmerFilter.uniforms.amount = this._motion.amount * DocsDoodads.Beat.factor(this._motion.musicBand, this._motion.musicStrength);
         }
         // Far away in 3D (the map's "Plain beyond"): drawn without its shadow, and its effects wait.
         if (this.docsFar()) {

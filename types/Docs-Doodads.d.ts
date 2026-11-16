@@ -162,6 +162,11 @@ interface DocsDoodadsApi {
     comfort(): {reduceFlashes: boolean, lessCameraMotion: boolean};
 
     /**
+     * The shared BGM spectrum bands (0-1) and whether this frame starts a kick. Silent without audio.
+     */
+    beat(): {low: number, mid: number, high: number, kick: boolean};
+
+    /**
      * The name of the area under the player, or an empty string.
      */
     area(): string;

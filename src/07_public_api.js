@@ -18,6 +18,12 @@ DocsDoodads.api = {
     comfort() { return DocsDoodads.Comfort.choices(); },
 
     /**
+     * The shared BGM spectrum bands (0-1) and whether this frame starts a kick. Silent without audio.
+     * @returns {{low: number, mid: number, high: number, kick: boolean}}
+     */
+    beat() { return DocsDoodads.Beat.snapshot(); },
+
+    /**
      * The name of the area under the player, or an empty string.
      * @returns {string}
      */

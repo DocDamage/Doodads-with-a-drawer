@@ -200,7 +200,9 @@ DocsDoodads.Motion = {
         const type = m && this.types.some(t => t.value === m.type) ? m.type : 'none';
         const amount = m && m.amount !== undefined ? Math.max(0, Math.min(1, Number(m.amount) || 0)) : 0.5;
         const speed = m && m.speed !== undefined ? Math.max(0.05, Math.min(5, Number(m.speed) || 1)) : 1;
-        return { type, amount, speed, phase: m && m.phase !== undefined ? Number(m.phase) || 0 : null };
+        const result = { type, amount, speed, phase: m && m.phase !== undefined ? Number(m.phase) || 0 : null };
+        if (m && ['low', 'mid', 'high'].includes(m.musicBand)) { result.musicBand = m.musicBand; result.musicStrength = m.musicStrength; }
+        return result;
     },
 
     // Smooth 1D value noise in [0, 1].
@@ -216,13 +218,14 @@ DocsDoodads.Motion = {
     sample(m, time, seed, wind) {
         const out = { skewX: 0, offsetY: 0, alphaMul: 1, scaleMul: 1 };
         if (!m || m.type === 'none' || !m.type) return out;
+        const amount = m.amount * DocsDoodads.Beat.factor(m.musicBand, m.musicStrength);
         const phase = m.phase !== null && m.phase !== undefined ? m.phase : (Number(seed) || 0) * 0.013;
         const wave = Math.sin(Math.PI * 2 * m.speed * 0.5 * time + phase);
         const w = Number(wind) || 0;
-        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12 * (1 + 0.8 * Math.abs(w)) + w * m.amount * 0.1;
-        else if (m.type === 'bob') out.offsetY = wave * m.amount * 6;
-        else if (m.type === 'pulse') out.scaleMul = 1 + wave * m.amount * 0.06;
-        else if (m.type === 'flicker') out.alphaMul = 1 - m.amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);
+        if (m.type === 'sway') out.skewX = wave * amount * 0.12 * (1 + 0.8 * Math.abs(w)) + w * amount * 0.1;
+        else if (m.type === 'bob') out.offsetY = wave * amount * 6;
+        else if (m.type === 'pulse') out.scaleMul = 1 + wave * amount * 0.06;
+        else if (m.type === 'flicker') out.alphaMul = 1 - amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);
         return out;
     },
 
@@ -397,7 +400,7 @@ DocsDoodads.Lighting = {
                 occlude: l.occlude,
                 radius: Math.max(8, Number(l.radius) || 144),
                 color: this.parseColor(l.color, 0xffd27f),
-                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level,
+                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level * DocsDoodads.Beat.factor(l.musicBand, l.musicStrength),
                 flicker: Number(l.flicker) || 0,
                 glow: Math.max(0, Math.min(1, Number(l.glow) || 0)),
                 seed: (d.x || 0) + (d.y || 0)

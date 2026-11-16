@@ -44,5 +44,14 @@ assert.strictEqual(config.musicTrigger, 'kick');
 const state = D.Particles.createState(config, 1);
 D.Particles.step(state, 1 / 60, true);
 assert.strictEqual(state.particles.length, 0, 'Kick emitters stay quiet without audio');
+AudioManager._bgmBuffer = { _gainNode: gain, isPlaying: () => true };
+level = 0;
+for (let i = 0; i < 24; i++) { Graphics.frameCount++; B.snapshot(); }
+level = 255; Graphics.frameCount++;
+D.Particles.step(state, 1 / 60, true);
+assert.ok(state.particles.length > 0, 'a bass onset emits a kick burst');
+const burstCount = state.particles.length;
+D.Particles.step(state, 1 / 60, true);
+assert.strictEqual(state.particles.length, burstCount, 'a duplicate update never repeats the same kick');
 assert.ok(D.Workspace.effectSections().find(s => s.title === 'Motion').fields.some(f => f.key === 'motion.musicBand'));
 console.log('BGM beat: lazy audio tap, easing, kicks, shared reads, silence, motion, lights and particles passed.');
