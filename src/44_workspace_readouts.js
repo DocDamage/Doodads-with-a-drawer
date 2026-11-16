@@ -127,7 +127,7 @@ Object.assign(DocsDoodads.Workspace, {
         const hex = c => '#' + c.toString(16).padStart(6, '0');
         const row = (color, text) => `<div><span class="dd-swatch" style="background: ${color};"></span>${escapeHtml(text)}</div>`;
         const html = `<div class="dd-pop-title" style="margin-bottom: 2px;">${DocsDoodads.Ui.icon('grid', 1)} Collision</div>` +
-            row(hex(DocsDoodads.Ui.mapColor('blocked')), 'Tile a doodad blocks') + row('rgba(47, 42, 67, 0.45)', 'Tile the map blocks') +
+            row(hex(DocsDoodads.Ui.mapColor('blocked')), 'Doodad or painted collision') + row('rgba(47, 42, 67, 0.45)', 'Tile the map blocks') +
             Object.keys(this.collisionNames).filter(p => presets.has(p)).map(p => row(hex(DocsDoodads.Ui.mapColor(p)), this.collisionNames[p])).join('') +
             (presets.size ? '' : '<div>No doodads with collision on this map.</div>');
         if (legend && legend._ddHtml === html) return;

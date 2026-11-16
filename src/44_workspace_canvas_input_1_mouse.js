@@ -38,8 +38,9 @@
         this._onCanvasContextMenu = (e) => {
             if (!this.mounted) return;
             e.preventDefault();
-            // With Scatter out, the right button erases instead.
-            if (this.placementTool === 'brush') return;
+            // Some brushes reserve the right button for erasing instead of opening this menu.
+            const activeHook = this.toolHooks[this.placementTool];
+            if (this.placementTool === 'brush' || (activeHook && activeHook.buttons && activeHook.buttons.includes(2))) return;
             const coords = this.clientToMapCoords(e.clientX, e.clientY);
             const items = [];
 
@@ -169,7 +170,8 @@
         this._onCanvasMouseDown = (e) => {
             if (e.button === 1 && this.beginCameraDrag(e)) return;
             const hook = this.toolHooks[this.placementTool];
-            if (hook && hook.down && e.button === 0) {
+            const hookButton = hook && hook.buttons ? hook.buttons.includes(e.button) : e.button === 0;
+            if (hook && hook.down && hookButton) {
                 if (hook.down.call(this, e)) {
                     this.isBrushActive = true;
                     this._hookStroke = hook;

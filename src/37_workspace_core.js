@@ -372,6 +372,7 @@ DocsDoodads.Workspace = {
             ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
             ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
             ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
+            ${tool('dd-walls-btn', 'lock', 'Collision', 'Paint fine blocked cells; right-drag erases, [ and ] change size')}
             ${tool('dd-tiles-btn', 'tiles', 'Tiles', this.shortcutTip('dd-tiles-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
             ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
@@ -444,6 +445,22 @@ DocsDoodads.Workspace = {
                     <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="dd-region-tags" /> Show terrain tags (set in MZ's Tilesets)</label>
                     <div id="dd-region-legend"></div>
                     <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step and is saved with the map. Alt+click picks up a tile's region.</div>
+                </div>
+            </div>
+            <div id="dd-walls-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('lock', 1)} Collision</div>
+                <div style="display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: var(--dd-muted);">
+                    <label>Brush<select id="dd-walls-mode" style="width: 100%;"><option value="paint">Paint / erase</option><option value="fill">Fill a closed area</option></select></label>
+                    <label>Shape<select id="dd-walls-shape" style="width: 100%;"><option value="round">Round</option><option value="square">Square</option></select></label>
+                    <div>Size ([ and ]): <b id="dd-walls-size-value" style="color: var(--dd-text);">1</b> cells across<input type="range" id="dd-walls-size" min="0" max="16" step="1" value="0" style="width: 100%;" /></div>
+                    <div id="dd-walls-count">No painted collision on this map</div>
+                    <div style="border-top: 1px solid var(--dd-line); padding-top: 7px; display: flex; flex-direction: column; gap: 5px;">
+                        <b style="color: var(--dd-text);">From Picture</b>
+                        <select id="dd-walls-picture" style="width: 100%;"></select>
+                        <label>Opaque at alpha <input type="number" id="dd-walls-alpha" min="0" max="255" step="1" value="48" style="width: 64px;" /></label>
+                        <button class="dd-btn" id="dd-walls-from-picture">Replace from picture layer</button>
+                    </div>
+                    <div style="line-height: 1.4;">Left-drag blocks; right-drag erases. Shift joins from the last point. Each stroke is one undo step.</div>
                 </div>
             </div>
             <div id="dd-tiles-popover" class="dd-glass dd-pop" style="display: none;">

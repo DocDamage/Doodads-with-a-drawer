@@ -72,9 +72,11 @@ DocsDoodads.Collision.stops = function(dData, mover, d) {
 };
 
 DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles, mover, d) {
+    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+    const walls = DocsDoodads.Walls.get($gameMap.mapId());
+    if (DocsDoodads.Walls.blocksTile(walls, tx, ty, tw, th)) return true;
     const doodads = DocsDoodads.doodads();
     if (!doodads || doodads.length === 0) return false;
-    const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
     const here = this.grid(doodads, tw, th).tiles.get(this.tileKey(tx, ty));
     if (!here) return false;
     const mapSettings = DocsDoodads.Lighting.mapSettings($gameMap.mapId());

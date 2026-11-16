@@ -43,6 +43,7 @@ const W = D.Walls;
     assert.deepStrictEqual(W.encode(W.decode(saved)), saved, 'encode/decode round trip');
     assert.strictEqual(W.cellAt(W.decode(saved), 12, 0), true);
     assert.strictEqual(W.cellAt(W.decode(saved), 24, 0), false);
+    assert.deepStrictEqual([W.blank(1e9, 1e9, 12).w, W.blank(Infinity, NaN, -4).h], [0, 0], 'damaged dimensions cannot allocate an enormous grid');
     console.log('PASS walls encode/decode round trip');
 }
 
@@ -108,6 +109,7 @@ const W = D.Walls;
     D.Undo.clear();
     ws.currentMapId = () => mapId;
     ws.wallBrush = { radius: 0, shape: 'round', mode: 'paint' };
+    W.set(1, W.blank(MAP_W * 4, MAP_H * 4, 12));
     let at = { x: 18, y: 18 };
     ws.clientToMapCoords = () => ({ x: at.x, y: at.y, tileX: 0, tileY: 0 });
     const depth = D.Undo.undoStack.length;
@@ -152,4 +154,33 @@ assert.ok(D.Workspace.toolHooks.walls && D.Workspace.toolHooks.walls.buttons.inc
 assert.strictEqual(D.Workspace.toolButtons.walls, 'dd-walls-btn');
 assert.strictEqual(D.Workspace.brushSizeSteps.walls[0], 'dd-walls-size');
 console.log('PASS collision wall tool is registered');
-console.log('All collision wall tests passed.');
+
+(async () => {
+    // 8. Overlay work is bounded to the viewport, and an async picture import cannot land on a new map.
+    const ws = D.Workspace;
+    const large = W.blank(200, 200, 12);
+    let reads = 0;
+    for (let y = 0; y < large.h; y++) {
+        large.cells[y].fill(1);
+        large.cells[y] = new Proxy(large.cells[y], { get(target, key) { if (/^\d+$/.test(String(key))) reads++; return target[key]; } });
+    }
+    ws._wallStroke = { grid: large, erase: false };
+    ws.placementTool = 'walls';
+    ws._wallHover = null;
+    const graphics = { rects: 0, beginFill() {}, drawRect() { this.rects++; }, endFill() {}, lineStyle() {} };
+    ws.drawWallsOverlay(graphics);
+    assert.ok(reads > 0 && reads < 1000, `only visible cells inspected (${reads})`);
+    assert.ok(graphics.rects > 0);
+    ws._wallStroke = null;
+
+    ws.mounted = true;
+    mapId = 1;
+    const pixels = { data: new Uint8ClampedArray([0, 0, 0, 255]), width: 1, height: 1 };
+    const importing = ws.wallsFromPicture({ image: 'cliff', zoom: 1, loopX: true, loopY: true }, 48, async () => pixels);
+    mapId = 2;
+    assert.strictEqual(await importing, false, 'map changed while the picture decoded');
+    assert.ok(!$dataDocsDoodads.walls || !$dataDocsDoodads.walls[2], 'nothing painted onto the new map');
+    mapId = 1;
+    console.log('PASS viewport-bounded overlay and transfer-safe picture import');
+    console.log('All collision wall tests passed.');
+})().catch(error => { console.error(error); process.exitCode = 1; });
