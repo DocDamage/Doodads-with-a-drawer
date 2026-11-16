@@ -4,6 +4,10 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 ## Preflight
 
+- [ ] Normal Maps: side-light stone with moving/switched round and cone lamps; put ordinary sprites/upper tiles in front, and test walls, alpha edges, rotation, flips, skew and screen zoom. Check animated/state/season frames, `$Name_n` characters, day/night and all quality levels. Generate/rename/move companions and restore excluded deployment art. Confirm 3D unchanged; measure 200 mapped pictures and 20 lights on the real GPU.
+- [ ] With fresh preferences and no art, follow the first-map quest: add samples, place three objects, add a lamp, preview night, Play From Here, reopen and Save. Test Show Me, map changes, closing/reopening, failed/cancelled saves, Not Now, Skip and replay. Finishing must suppress automatic repeats.
+- [ ] Choose music bands for sway and lights, and Kick for particles. Start, change, pause, mute and stop BGM; SE must not drive them. Change maps and confirm one tap is released without stopping the BGM. Compare flat and 3D views.
+- [ ] Put an advised plugin on either side of Docs-Doodads, inspect Plugins in Problems, then test an alias and an update replacement. Save a Report from Info; review versions/map/GPU/logs, omission of other parameters, outside paths and credentials, and confirm deployment excludes the report.
 - [ ] In event Details, edit a sign's text, switch letter, page conditions and a door's destination on another map; check return/cancel and undo. Preserve a conditional/else list and unknown commands when saving and reopening in MZ. Switch events/maps while a dialog is open without applying to the new selection.
 - [ ] In Simple mode, inspect pictures, lights, sounds, models, events and mixed selections. More reaches every setting, search finds hidden controls, pins stay visible, repeated edits promote sections, and clearing search restores the shortlist.
 - [ ] Schedule NPCs on outdoor, looping, cave and interior maps, flat and 3D. Check midnight/day carry, blocked walking, busy events, hide flags after load, pause/resume, page-specific blocks, tile picking and undo.

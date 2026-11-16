@@ -79,7 +79,7 @@ saved editor preferences keep the full editor on the first run after an update.
 
 **Find a setting** at the top of Details searches every field, including settings under **More**. The short list fits pictures, lights, sounds, models or events; mixed selections keep their shared sections. **More** opens the rest, **Less** shortens it again, and ☆ pins a section so it always shows. After enough edits, frequently used sections rise in the list. Those counts stay in this computer's editor preferences.
 
-Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**. From the card (More > How to Use) you can also **Add Sample Items** (four small pictures in `img/doodads/samples`, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), **Replay Tool Tours**, and read **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
+Press **F10** in a playtest. A new install starts the five-step **Your first map** quest. **More → How to Use** can replay the quest or tool tours, **Add Sample Items** (four pictures, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), and show **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
 
 - **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Regions** (region numbers), **Collision** (fine blocked cells), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), the menus **Map**, **Art**, **View** and **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
 - With unsaved changes, **Done**, the toggle key, closing the Playtest window and **F5** ask first: **Save**, **Don't Save** (the doodads and events go back to how they were last saved) or **Keep Editing**.
@@ -124,6 +124,10 @@ The left panel is the **Item Bag**, providing virtualized access to all graphics
   - *Play Audio Preview* / *Stop Audio*
 - **Picking several**: **Ctrl+click** cards to pick them one by one, **Shift+click** to pick the run from the last one clicked (the item shown in Details counts as the first). A bar above the cards then acts on all of them: **Tag** (adds tags), **★** (favourites; again to take the star off), **Collection**, **Move** (to another folder, updating every map, event and prefab that uses them, as Rename/Move does; save your changes first) and **Delete** (only files nothing uses: they go to `data/docs_doodads_cache/deleted/`, from where you can put them back by hand). A plain click picks none again.
 - **Thumbnail Slider**: Zoom cards smoothly between 48px and 160px.
+
+### Your first map
+
+The small corner card ticks off five steps as you do them: place three things, add a lamp, make it night with the preview clock, **Play From Here**, then reopen the editor and **Save**. **Show me** points at the next control and explains what to do. With no art, **Add Sample Items** supplies some. **Not now** hides the quest until the next editor open; **Skip** is remembered. Finished quests stay finished. How to Use and Find a Tool can replay it, starting fresh steps on the current map without changing its content.
 
 ### Tokenized Search Syntax
 Type directly into the search bar (press **F** to focus). Search is evaluated dynamically in under 30ms across 25,000+ assets:
@@ -272,6 +276,16 @@ When the player walks behind a tall doodad (a tree, a roof, a tower), it fades s
 - Add a **region** to treat painted areas (ponds drawn with B-E tiles) as water.
 - **Shore margin** keeps a strip along the waterline clear, because MZ water tiles draw their own sand or grass edge. Reflections start where the water visibly begins.
 - Turn it off per map, per doodad (**Reflect in water**), or per event with `<no reflection>`.
+
+### Normal maps on flat maps
+
+Enable **World → Normal Maps** to shade pictures and characters with nearby lamps. Put `Tree_n.png` beside `Tree.png`, with the same dimensions, or pick the art and choose **Make Normal Map** in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together.
+
+Up to eight nearby lights contribute, including switched lamps and cones; Effects Quality caps this at eight, four, two or zero. Animation, state and seasonal art use their matching companions; character sheets can use `$Name_n.png`. Foreground sprites and upper tiles keep their own lighting, and wall masks limit lamp contribution. This first version is flat-map only. Real GPU checks with 200 mapped pictures and 20 lights are pending; the automated benchmark measures the stand-in engine.
+
+### With the music
+
+In a doodad's **Motion** or **Light** section, **With the music** chooses Bass, Middle or Treble. **Music strength** blends between its usual amount and the music's energy. Plants can sway and lamps can pulse together. In **Particles**, **Emits → On a music kick** sends a burst at a bass onset. Only BGM drives these effects; sound effects do not. Silent or muted BGM gives zero energy. Scripts can read `DocsDoodads.api.beat()` for `low`, `mid`, `high` (0–1) and `kick` for this frame. One analyser is shared and released when unused.
 
 ### Motion Blur
 Moving characters blur along their direction, more when dashing; transfers and jumps never smear. Choose everyone or events tagged `<motion blur>` (`<no motion blur>` opts out). When it is on, players get a **Motion Blur** switch in the Options menu.
@@ -832,6 +846,7 @@ Everything works on the map the player is on unless a map ID is given. Doodads a
 | `light(name)`, `setLight(name, true / false / null)` | Lights, as Set Doodad Light (kept in the save). |
 | `time()`, `setTime(h, m, day)`, `addTime(h, m)` | The time of day in minutes (`null` with the clock off). `day` is optional; without it the day stays. |
 | `schedules(false / true)` | Pause or resume scheduled events for a cutscene; the pause is not saved. |
+| `beat()` | BGM energy: `{ low, mid, high, kick }`; silent or muted audio gives zeros. |
 | `season()`, `seasonName()`, `setSeason(n or name)` | The season. |
 | `ambient(darkness, color, frames)`, `ambient(null)` | Fades the ambient light (0 to 1), or back to the map's own. |
 | `on('touch' / 'state' / 'light' / 'animationEnd', fn)` | Calls `fn` with `{ doodad }`, `{ name, state }`, `{ name, on }` or `{ doodad, name }` (and `mapId`); returns a function that stops it. |
@@ -1064,6 +1079,12 @@ With the mouse:
 ---
 
 ## 24. Troubleshooting & FAQ
+
+### Plugins and local reports
+
+**Map → Problems** has a **Plugins** group for known order advisories and hooks a later plugin appears to bypass. The check observes normal map updates without running gameplay as a probe. It waits for repeated calls before flagging a hook that never delegates; a removed observer is labelled as an unverified change. Listed later plugins are candidates to investigate. The generated [plugin notes](docs/PLUGIN_COMPATIBILITY.md) distinguish order advice from compatibility playtests, which are still pending.
+
+**More → Info → Save a Report** writes a text file in `data/docs_doodads_cache/reports` and opens its folder. It includes version, graphics and map details, enabled plugin names/order, this plugin's parameters, Problems and the last 200 warnings/errors. Other plugins' parameters are omitted; credentials and paths outside the project are redacted. Read the file before attaching it to an issue. Nothing is uploaded, and reports stay out of deployment. `npm run clashes` keeps the in-editor table and published notes together from their one data file.
 
 ### Q: Why isn't the editor opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).

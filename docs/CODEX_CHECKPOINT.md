@@ -24,7 +24,8 @@ These rows have source and automated tests. Each still needs its MZ checks befor
 called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 8.1.2 Moods; 8.1.5 context help; 8.2.1 editing window; 9.1.1 comfort options;
 9.1.5 area names; 9.2.1 nearness triggers; 7.1.4 NPC schedules; 8.5.1 tracing pictures;
-7.1.2 event pages and commands; 8.2.4 short searchable Details.
+7.1.2 event pages and commands; 8.2.4 short searchable Details; 9.5.2 plugin checks and local reports;
+7.1.5 flat-map normal lighting; 8.4.4 BGM-reactive motion/lights/particles; 8.1.4 first-map quest.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -39,8 +40,11 @@ the water bug are still pending. Do not claim this row is Done.
 | Picture tracing: 8.5.1 | Complete locally | Trace parts, data codec, menu/capture/export and deploy cache hooks | Independent review fixes and fit/drag/import/capture/export/persistence/deploy tests passed |
 | Event commands: 7.1.2 | Complete locally | New command logic and event editor parts | Reviewed; internal branch terminators, string choices and dialog identity fixed; targeted suites passed |
 | Short Details: 8.2.4 | Complete locally | Simple mode rules and inspector display | Event grouping review fixed; pure rules, DOM More/search, usage, mixed-selection and related suites passed |
-| Normal maps: 7.1.5 | Specialist | Plan and rendering-path investigation | Next implementation after integration gate |
-| Plugin report: 9.5.2 | Coordinator | New clash/report parts and narrow Info/Problems hooks | Next implementation |
+| Normal maps: 7.1.5 | Complete locally | New normal lighting parts and companion manifest hooks | Review fixes passed: alpha/depth ownership, rotated UVs, wall-mask contribution, shader precision and base-sprite zoom; real GPU pending |
+| Plugin report: 9.5.2 | Complete locally | New clash/report parts and Info/Problems hooks | Reviewed; conditional-alias and removed-observer fixes pass regression tests |
+| With the music: 8.4.4 | Complete locally | Beat game parts, Motion/Lighting, particles and API | Review fixes passed: real-emitter initial kick burst, read failures, stop/replacement and map-terminate cleanup |
+| First-map quest: 8.1.4 | Complete locally | Pure steps, corner card, first-run hook and save/play observation | Review fixes passed: temporary Not Now, blocked storage fallback, async play, failed saves and map identity |
+| Generated maps: 7.3.5 | Specialist | Seeded pure/runtime/editor generator and room openings | Architecture investigated; implementation starts after integration gate |
 
 The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
@@ -59,6 +63,18 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Latest verification
 
+- Latest continuation gate: static verify PASS (181 editor parts, 57 runtime parts, 1,507 strings).
+  Coverage ran 173 suites with 172 passing; the one failure was a legacy source-inspection assertion
+  hidden by the plugin-report wrapper. Plugin findings now join the original Problems collector;
+  LPC library, plugin reports and map-check suites pass after that integration. No repository files
+  changed during the full run. Coverage passed: lines/statements 91.59%, branches 78.37%, functions 85.95%.
+- Normal-test isolation fixed: `DD_REPO_ROOT` is for source reads; the new normal test now always
+  creates its own temporary project. Confirmed fake-art/data artifacts were removed and the tracked
+  library fixture restored. The corrected test passed with explicit checks that repository data/art
+  stayed untouched. No user assets/configuration were intentionally changed.
+- Beat and quest review regressions pass, including actual emitter burst suppression, throwing/closed
+  audio, stop/map termination, blocked preferences, async Play From Here, unsuccessful saves and
+  saving a different map. Next full run is after the next bounded implementation batch.
 - Continuation static gate passed with 169 editor parts and 53 runtime parts. Coverage ran all
   168 suites: 161 passed; seven old source-inspection checks failed after a close-method wrapper
   and capture declaration changes. Integration moved the close hooks directly into the original
@@ -86,10 +102,10 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Resume first-wave rows 7.1.5, 7.3.5, 7.3.8, 8.3.6 and 8.4.4. Then follow the
+Resume first-wave rows 7.3.5, 7.3.8 and 8.3.6. Then follow the
 dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 53 other buildable rows still open, plus the external-plugin compatibility
+There are 49 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

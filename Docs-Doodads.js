@@ -2230,6 +2230,66 @@ DocsDoodads.Comfort = {
         start.call(screen, softened, frames);
     }
 };
+// One passive analyser tap on the BGM gain, shared by all music-reactive effects.
+DocsDoodads.Beat = {
+    node: null, source: null, context: null, bytes: null, frame: -1, requestedFrame: -1,
+    low: 0, mid: 0, high: 0, kick: false, lastKick: -100,
+    release() {
+        if (this.source && this.node) { try { this.source.disconnect(this.node); } catch (error) {} }
+        if (this.node) { try { this.node.disconnect(); } catch (error) {} }
+        this.node = this.source = this.context = this.bytes = null;
+        this.low = this.mid = this.high = 0; this.kick = false;
+    },
+    idle() {
+        const frame = DocsDoodads.frameCount();
+        if (frame < this.frame || frame - this.requestedFrame > 1) { this.release(); this.frame = -1; }
+    },
+    update() {
+        const frame = DocsDoodads.frameCount();
+        this.requestedFrame = frame;
+        if (this.frame === frame) return;
+        if (frame < this.frame) { this.release(); this.lastKick = -100; }
+        this.frame = frame; this.kick = false;
+        const audio = typeof AudioManager !== 'undefined' ? AudioManager : null;
+        const web = typeof WebAudio !== 'undefined' ? WebAudio : null;
+        const bgm = audio && audio._bgmBuffer, context = web && web._context;
+        const source = bgm && bgm._gainNode;
+        const muted = audio && Number(audio.bgmVolume) === 0 || source && source.gain && source.gain.value === 0
+            || web && web._masterGainNode && web._masterGainNode.gain && web._masterGainNode.gain.value === 0;
+        if (!source || !context || context.state && context.state !== 'running' || muted || bgm.isPlaying && !bgm.isPlaying()) { this.release(); return; }
+        if (this.source !== source || this.context !== context) {
+            this.release();
+            try {
+                const node = context.createAnalyser(); node.fftSize = 512; node.smoothingTimeConstant = 0;
+                this.bytes = new Uint8Array(node.frequencyBinCount);
+                source.connect(node); this.node = node; this.source = source; this.context = context;
+            } catch (error) { this.release(); return; }
+        }
+        try { this.node.getByteFrequencyData(this.bytes); }
+        catch (error) { this.release(); return; }
+        const binHz = (Number(context.sampleRate) || 48000) / this.node.fftSize;
+        const band = (from, to) => {
+            const first = Math.max(0, Math.min(this.bytes.length - 1, Math.ceil(from / binHz)));
+            const end = Math.max(first + 1, Math.min(this.bytes.length, Math.ceil(to / binHz)));
+            let total = 0;
+            for (let i = first; i < end; i++) total += this.bytes[i];
+            return total / ((end - first) * 255);
+        };
+        const old = this.low;
+        for (const [name, from, to] of [['low', 20, 250], ['mid', 250, 2000], ['high', 2000, 10000]]) {
+            const value = band(from, to);
+            this[name] += (value - this[name]) * (value > this[name] ? 0.25 : 0.1);
+        }
+        if (this.low > 0.18 && this.low - old > 0.12 && frame - this.lastKick >= 6) { this.kick = true; this.lastKick = frame; }
+    },
+    snapshot() { this.update(); return { low: this.low, mid: this.mid, high: this.high, kick: this.kick }; },
+    factor(band, strength) {
+        if (!['low', 'mid', 'high'].includes(band)) return 1;
+        this.update();
+        const amount = strength === undefined ? 1 : Math.max(0, Math.min(1, Number(strength) || 0));
+        return 1 - amount + amount * this[band];
+    }
+};
 //==========================================================
 // SECTION 5B: RENDER EFFECTS (DEPTH, APPEARANCE, MOTION, SHADOWS, LIGHTS)
 //==========================================================
@@ -2432,7 +2492,9 @@ DocsDoodads.Motion = {
         const type = m && this.types.some(t => t.value === m.type) ? m.type : 'none';
         const amount = m && m.amount !== undefined ? Math.max(0, Math.min(1, Number(m.amount) || 0)) : 0.5;
         const speed = m && m.speed !== undefined ? Math.max(0.05, Math.min(5, Number(m.speed) || 1)) : 1;
-        return { type, amount, speed, phase: m && m.phase !== undefined ? Number(m.phase) || 0 : null };
+        const result = { type, amount, speed, phase: m && m.phase !== undefined ? Number(m.phase) || 0 : null };
+        if (m && ['low', 'mid', 'high'].includes(m.musicBand)) { result.musicBand = m.musicBand; result.musicStrength = m.musicStrength; }
+        return result;
     },
 
     // Smooth 1D value noise in [0, 1].
@@ -2448,13 +2510,14 @@ DocsDoodads.Motion = {
     sample(m, time, seed, wind) {
         const out = { skewX: 0, offsetY: 0, alphaMul: 1, scaleMul: 1 };
         if (!m || m.type === 'none' || !m.type) return out;
+        const amount = m.amount * DocsDoodads.Beat.factor(m.musicBand, m.musicStrength);
         const phase = m.phase !== null && m.phase !== undefined ? m.phase : (Number(seed) || 0) * 0.013;
         const wave = Math.sin(Math.PI * 2 * m.speed * 0.5 * time + phase);
         const w = Number(wind) || 0;
-        if (m.type === 'sway') out.skewX = wave * m.amount * 0.12 * (1 + 0.8 * Math.abs(w)) + w * m.amount * 0.1;
-        else if (m.type === 'bob') out.offsetY = wave * m.amount * 6;
-        else if (m.type === 'pulse') out.scaleMul = 1 + wave * m.amount * 0.06;
-        else if (m.type === 'flicker') out.alphaMul = 1 - m.amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);
+        if (m.type === 'sway') out.skewX = wave * amount * 0.12 * (1 + 0.8 * Math.abs(w)) + w * amount * 0.1;
+        else if (m.type === 'bob') out.offsetY = wave * amount * 6;
+        else if (m.type === 'pulse') out.scaleMul = 1 + wave * amount * 0.06;
+        else if (m.type === 'flicker') out.alphaMul = 1 - amount * 0.35 * this.noise(time * m.speed * 8 + phase * 10);
         return out;
     },
 
@@ -2629,7 +2692,7 @@ DocsDoodads.Lighting = {
                 occlude: l.occlude,
                 radius: Math.max(8, Number(l.radius) || 144),
                 color: this.parseColor(l.color, 0xffd27f),
-                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level,
+                intensity: Math.max(0, Math.min(1, Number(l.intensity) || 0)) * level * DocsDoodads.Beat.factor(l.musicBand, l.musicStrength),
                 flicker: Number(l.flicker) || 0,
                 glow: Math.max(0, Math.min(1, Number(l.glow) || 0)),
                 seed: (d.x || 0) + (d.y || 0)
@@ -2835,6 +2898,328 @@ DocsDoodads.Flashlight = {
         if (Math.abs(d) <= step) return target;
         return (current + Math.sign(d) * step + 360) % 360;
     }
+};
+//==========================================================
+// SECTION 4E: NORMAL-MAP LIGHTING FOR FLAT MAPS
+//==========================================================
+// Pure rules shared by the runtime and editor. The runtime reads a manifest instead of trying `_n`
+// URLs: absent companions therefore never become failed MZ image-cache requests.
+DocsDoodads.NormalLight = {
+    maxLights: 8,
+    manifestPath: 'data/DocsDoodadsNormals.json',
+    manifest: { version: 1, normals: {} },
+
+    cleanPath(value) {
+        const path = String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
+        if (!path || path.startsWith('/') || /^[a-z]:/i.test(path) || path.split('/').includes('..')) return null;
+        return path;
+    },
+
+    normalPath(value) {
+        const path = this.cleanPath(value);
+        if (!path || /_n\.png$/i.test(path) || !/\.(png|jpe?g|webp)$/i.test(path)) return null;
+        return path.replace(/\.(png|jpe?g|webp)$/i, '_n.png');
+    },
+
+    manifestFromAssets(assets) {
+        const byPath = new Map();
+        for (const asset of Object.values(assets || {})) {
+            const path = asset && this.cleanPath(asset.path);
+            if (path && /\.(png|jpe?g|webp)$/i.test(path)) byPath.set(path.toLowerCase(), asset);
+        }
+        const normals = {};
+        const companions = Array.from(byPath.values()).filter(asset => /_n\.png$/i.test(asset.path || ''));
+        companions.sort((a, b) => String(a.path).localeCompare(String(b.path)));
+        for (const normal of companions) {
+            const stem = String(normal.path).replace(/_n\.png$/i, '');
+            let base = null;
+            for (const ext of ['.png', '.webp', '.jpg', '.jpeg']) {
+                base = byPath.get((stem + ext).toLowerCase());
+                if (base) break;
+            }
+            if (base) normals[String(base.path).toLowerCase()] = String(normal.path);
+        }
+        return { version: 1, normals };
+    },
+
+    setManifest(value) {
+        const clean = {};
+        const rows = value && value.normals && typeof value.normals === 'object' ? value.normals : {};
+        for (const [base, normal] of Object.entries(rows)) {
+            const b = this.cleanPath(base), n = this.cleanPath(normal);
+            if (b && n && /_n\.png$/i.test(n)) clean[b.toLowerCase()] = n;
+        }
+        this.manifest = { version: 1, normals: clean };
+        return this.manifest;
+    },
+
+    pathFor(value, manifest = this.manifest) {
+        const path = this.cleanPath(value);
+        const rows = manifest && manifest.normals;
+        return path && rows && typeof rows === 'object' ? (rows[path.toLowerCase()] || null) : null;
+    },
+
+    effectiveMax(settings, quality = 0) {
+        if (!settings || settings.enabled !== true) return 0;
+        const wanted = Math.max(1, Math.min(this.maxLights, Math.floor(Number(settings.maxLights) || this.maxLights)));
+        const caps = [this.maxLights, 4, 2, 0];
+        const cap = caps[Math.max(0, Math.min(3, Math.floor(Number(quality) || 0)))];
+        return Math.min(wanted, cap);
+    },
+
+    contribution(light, x, y) {
+        const radius = Math.max(0, Number(light && light.radius) || 0);
+        const intensity = Math.max(0, Number(light && light.intensity) || 0);
+        if (!radius || !intensity) return null;
+        const dx = (Number(light.x) || 0) - x, dy = (Number(light.y) || 0) - y;
+        const distance = Math.hypot(dx, dy);
+        if (distance >= radius) return null;
+        return { light, distance, score: intensity * (1 - distance / radius) };
+    },
+
+    // Highest actual contribution first; distance and original order make ties deterministic.
+    pick(lights, x, y, max = this.maxLights) {
+        max = Math.max(0, Math.min(this.maxLights, Math.floor(Number(max) || 0)));
+        if (!max) return [];
+        const candidates = [];
+        (lights || []).forEach((light, index) => {
+            const row = this.contribution(light, Number(x) || 0, Number(y) || 0);
+            if (row) { row.index = index; candidates.push(row); }
+        });
+        candidates.sort((a, b) => b.score - a.score || a.distance - b.distance || a.index - b.index);
+        return candidates.slice(0, max).map(row => row.light);
+    },
+
+    channels(color) {
+        color = Number(color) || 0;
+        return [((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255];
+    },
+
+    // Reuses an existing object/arrays when supplied: normal-mapped scenes do not allocate 200 uniform
+    // blocks every frame.
+    uniforms(lights, ambient, into = null, intensityFor = null) {
+        const out = into || {};
+        const pos = out.uLightPosRadius || new Array(this.maxLights * 4).fill(0);
+        const color = out.uLightColorIntensity || new Array(this.maxLights * 4).fill(0);
+        const cone = out.uLightCone || new Array(this.maxLights * 4).fill(0);
+        pos.fill(0); color.fill(0); cone.fill(0);
+        const selected = (lights || []).slice(0, this.maxLights);
+        selected.forEach((light, i) => {
+            const at = i * 4, rgb = this.channels(light.color);
+            pos[at] = Number(light.x) || 0; pos[at + 1] = Number(light.y) || 0; pos[at + 2] = Math.max(1, Number(light.radius) || 1);
+            color[at] = rgb[0]; color[at + 1] = rgb[1]; color[at + 2] = rgb[2];
+            color[at + 3] = Math.max(0, Number(intensityFor ? intensityFor(light) : light.intensity) || 0);
+            const angle = (Number(light.angle) || 0) * Math.PI / 180;
+            cone[at] = Math.cos(angle); cone[at + 1] = Math.sin(angle);
+            cone[at + 2] = Math.cos(Math.max(1, Math.min(359, Number(light.spread) || 60)) * Math.PI / 360);
+            cone[at + 3] = light.shape === 'cone' ? 1 : 0;
+        });
+        out.uLightCount = selected.length;
+        out.uLightPosRadius = pos;
+        out.uLightColorIntensity = color;
+        out.uLightCone = cone;
+        out.uAmbient = Array.isArray(out.uAmbient) ? out.uAmbient : [1, 1, 1];
+        for (let i = 0; i < 3; i++) out.uAmbient[i] = Math.max(0, Math.min(1, Number(ambient && ambient[i]) || 0));
+        return out;
+    },
+
+    frameUv(frame, width, height) {
+        width = Math.max(1, Number(width) || 1); height = Math.max(1, Number(height) || 1);
+        const x = Math.max(0, Math.min(width, Number(frame && frame.x) || 0));
+        const y = Math.max(0, Math.min(height, Number(frame && frame.y) || 0));
+        const right = Math.max(x, Math.min(width, (Number(frame && frame.x) || 0) + Math.max(0, Number(frame && frame.width) || 0)));
+        const bottom = Math.max(y, Math.min(height, (Number(frame && frame.y) || 0) + Math.max(0, Number(frame && frame.height) || 0)));
+        return [x / width, y / height, (right - x) / width, (bottom - y) / height];
+    },
+
+    // PIXI's NORMAL blend is premultiplied (ONE, ONE_MINUS_SRC_ALPHA).
+    alphaWhite(alpha) {
+        alpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+        return [alpha, alpha, alpha, alpha];
+    },
+
+    // One-channel ownership compositing: white means a normal-lit top pixel, black an ordinary one.
+    coverageOver(previous, alpha, normal) {
+        previous = Math.max(0, Math.min(1, Number(previous) || 0));
+        alpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+        return (normal ? alpha : 0) + previous * (1 - alpha);
+    },
+
+    // The ordinary lightmap already contains each wall mask. Reapply that reachable fraction only to
+    // the normal-directed lamp contribution, never to ambient darkness.
+    occludedLight(ambient, directional, flat, lightmap) {
+        return [0, 1, 2].map(i => {
+            const base = Number(ambient && ambient[i]) || 0;
+            const possible = Math.max(0.00001, (Number(flat && flat[i]) || 0) - base);
+            const reached = Math.max(0, (Number(lightmap && lightmap[i]) || 0) - base);
+            const ratio = Math.max(0, Math.min(1, reached / possible));
+            return base + ((Number(directional && directional[i]) || 0) - base) * ratio;
+        });
+    },
+
+    transformUniforms(matrix, frame, anchor, into = {}, lightMatrix = null) {
+        matrix = matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        const a = Number(matrix.a) || 0, b = Number(matrix.b) || 0, c = Number(matrix.c) || 0, d = Number(matrix.d) || 0;
+        const det = a * d - b * c;
+        const inv = Math.abs(det) > 0.0000001 ? [d / det, -b / det, -c / det, a / det] : [1, 0, 0, 1];
+        const light = lightMatrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        const la = Number(light.a) || 0, lb = Number(light.b) || 0, lc = Number(light.c) || 0, ld = Number(light.d) || 0;
+        const lightDet = la * ld - lb * lc;
+        const lightInv = Math.abs(lightDet) > 0.0000001 ? [ld / lightDet, -lb / lightDet, -lc / lightDet, la / lightDet] : [1, 0, 0, 1];
+        const ra = lightInv[0] * a + lightInv[2] * b, rb = lightInv[1] * a + lightInv[3] * b;
+        const rc = lightInv[0] * c + lightInv[2] * d, rd = lightInv[1] * c + lightInv[3] * d;
+        const ax = Math.hypot(ra, rb) || 1, ay = Math.hypot(rc, rd) || 1;
+        into.uScreenToLocal = inv;
+        into.uSpriteOrigin = [Number(matrix.tx) || 0, Number(matrix.ty) || 0];
+        into.uSpriteSize = [Math.max(1, Number(frame && frame.width) || 1), Math.max(1, Number(frame && frame.height) || 1)];
+        into.uAnchor = [Number(anchor && anchor.x) || 0, Number(anchor && anchor.y) || 0];
+        into.uScreenToLight = lightInv;
+        into.uLightOrigin = [Number(light.tx) || 0, Number(light.ty) || 0];
+        into.uNormalBasis = [ra / ax, rb / ax, rc / ay, rd / ay];
+        return into;
+    },
+
+    // Testable counterpart of the fragment's screen-to-sprite mapping.
+    localUv(point, uniforms) {
+        const deltaX = (Number(point && point.x) || 0) - uniforms.uSpriteOrigin[0];
+        const deltaY = (Number(point && point.y) || 0) - uniforms.uSpriteOrigin[1];
+        const inverse = uniforms.uScreenToLocal;
+        const x = inverse[0] * deltaX + inverse[2] * deltaY;
+        const y = inverse[1] * deltaX + inverse[3] * deltaY;
+        return [x / uniforms.uSpriteSize[0] + uniforms.uAnchor[0], y / uniforms.uSpriteSize[1] + uniforms.uAnchor[1]];
+    },
+
+    lightPoint(point, uniforms) {
+        const deltaX = (Number(point && point.x) || 0) - uniforms.uLightOrigin[0];
+        const deltaY = (Number(point && point.y) || 0) - uniforms.uLightOrigin[1];
+        const inverse = uniforms.uScreenToLight;
+        return [inverse[0] * deltaX + inverse[2] * deltaY, inverse[1] * deltaX + inverse[3] * deltaY];
+    },
+
+    // A simple height map from alpha and luminance, then Sobel X/Y into a tangent-space normal.
+    make(pixels, width, height, strength = 2) {
+        width = Number(width); height = Number(height);
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > 16777216) {
+            throw new Error('Normal-map image size is invalid or too large.');
+        }
+        if (!pixels || pixels.length < width * height * 4) throw new Error('Normal-map source pixels are incomplete.');
+        strength = Math.max(0.05, Math.min(20, Number(strength) || 2));
+        const heights = new Float32Array(width * height), out = new Uint8ClampedArray(width * height * 4);
+        for (let i = 0; i < heights.length; i++) {
+            const at = i * 4, a = pixels[at + 3] / 255;
+            heights[i] = a * (0.25 + 0.75 * (pixels[at] * 0.2126 + pixels[at + 1] * 0.7152 + pixels[at + 2] * 0.0722) / 255);
+        }
+        const sample = (x, y) => heights[Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))];
+        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+            const gx = -sample(x - 1, y - 1) + sample(x + 1, y - 1) - 2 * sample(x - 1, y) + 2 * sample(x + 1, y) - sample(x - 1, y + 1) + sample(x + 1, y + 1);
+            const gy = -sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1) + sample(x - 1, y + 1) + 2 * sample(x, y + 1) + sample(x + 1, y + 1);
+            const nx0 = -gx * strength, ny0 = -gy * strength, length = Math.hypot(nx0, ny0, 1);
+            const at = (y * width + x) * 4;
+            out[at] = Math.round((nx0 / length * 0.5 + 0.5) * 255);
+            out[at + 1] = Math.round((ny0 / length * 0.5 + 0.5) * 255);
+            out[at + 2] = Math.round((1 / length * 0.5 + 0.5) * 255);
+            out[at + 3] = pixels[at + 3];
+        }
+        return out;
+    },
+
+    fragment: `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform sampler2D uNormalMap;
+uniform vec4 inputSize;
+uniform vec4 outputFrame;
+uniform vec4 uNormalUv;
+uniform vec4 uNormalBasis;
+uniform vec4 uScreenToLocal;
+uniform vec2 uSpriteOrigin;
+uniform vec2 uSpriteSize;
+uniform vec2 uAnchor;
+uniform vec4 uScreenToLight;
+uniform vec2 uLightOrigin;
+uniform sampler2D uLightMap;
+uniform vec2 uLightMapSize;
+uniform float uUseOcclusion;
+uniform vec3 uAmbient;
+uniform float uLightCount;
+uniform vec4 uLightPosRadius[8];
+uniform vec4 uLightColorIntensity[8];
+uniform vec4 uLightCone[8];
+void main(void) {
+    vec4 base = texture2D(uSampler, vTextureCoord);
+    vec2 fragmentPixel = outputFrame.xy + vTextureCoord * inputSize.xy;
+    vec2 lightDelta = fragmentPixel - uLightOrigin;
+    vec2 lightPixel = vec2(uScreenToLight.x * lightDelta.x + uScreenToLight.z * lightDelta.y,
+        uScreenToLight.y * lightDelta.x + uScreenToLight.w * lightDelta.y);
+    vec2 delta = fragmentPixel - uSpriteOrigin;
+    vec2 localUv = vec2(uScreenToLocal.x * delta.x + uScreenToLocal.z * delta.y,
+        uScreenToLocal.y * delta.x + uScreenToLocal.w * delta.y) / uSpriteSize + uAnchor;
+    localUv = clamp(localUv, 0.0, 1.0);
+    vec3 raw = texture2D(uNormalMap, uNormalUv.xy + localUv * uNormalUv.zw).rgb * 2.0 - 1.0;
+    vec2 tangent = vec2(raw.x, -raw.y);
+    vec2 screenNormal = tangent.x * uNormalBasis.xy + tangent.y * uNormalBasis.zw;
+    vec3 normal = normalize(vec3(screenNormal, max(0.001, raw.z)));
+    vec3 lightValue = uAmbient;
+    vec3 flatLightValue = uAmbient;
+    for (int i = 0; i < 8; i++) {
+        if (float(i) < uLightCount) {
+            vec2 fromLight = lightPixel - uLightPosRadius[i].xy;
+            float distanceToLight = length(fromLight);
+            float falloff = max(0.0, 1.0 - distanceToLight / uLightPosRadius[i].z);
+            float cone = 1.0;
+            if (uLightCone[i].w > 0.5 && distanceToLight > 0.001) cone = step(uLightCone[i].z, dot(normalize(fromLight), uLightCone[i].xy));
+            vec3 direction = normalize(vec3(-fromLight, uLightPosRadius[i].z * 0.35));
+            float diffuse = max(dot(normal, direction), 0.0);
+            vec3 energy = uLightColorIntensity[i].rgb * uLightColorIntensity[i].a * falloff * cone;
+            flatLightValue += energy;
+            lightValue += energy * diffuse;
+        }
+    }
+    lightValue = clamp(lightValue, 0.0, 1.0);
+    if (uUseOcclusion > 0.5) {
+        vec3 reached = max(texture2D(uLightMap, lightPixel / uLightMapSize).rgb - uAmbient, vec3(0.0));
+        vec3 possible = max(flatLightValue - uAmbient, vec3(0.00001));
+        vec3 reachRatio = clamp(reached / possible, 0.0, 1.0);
+        lightValue = uAmbient + (lightValue - uAmbient) * reachRatio;
+    }
+    gl_FragColor = vec4(base.rgb * lightValue, base.a);
+}`,
+
+    // Draws source alpha as white into the ordinary lightmap: multiplying that result over the map leaves
+    // the normal filter's pixels untouched instead of lighting them a second time.
+    alphaFragment: `
+precision mediump float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+void main(void) {
+    float alpha = texture2D(uSampler, vTextureCoord).a;
+    gl_FragColor = vec4(vec3(alpha), alpha);
+}`,
+
+    blackAlphaFragment: `
+precision mediump float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+void main(void) {
+    float alpha = texture2D(uSampler, vTextureCoord).a;
+    gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+}`,
+
+    ownershipFragment: `
+precision mediump float;
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform sampler2D uCoverage;
+void main(void) {
+    vec4 light = texture2D(uSampler, vTextureCoord);
+    float owned = texture2D(uCoverage, vTextureCoord).r;
+    gl_FragColor = vec4(mix(light.rgb, vec3(1.0), owned), light.a);
+}`
 };
 //==========================================================
 // SECTION 6C: FINE-CELL COLLISION WALLS
@@ -4364,6 +4749,12 @@ DocsDoodads.api = {
     comfort() { return DocsDoodads.Comfort.choices(); },
 
     /**
+     * The shared BGM spectrum bands (0-1) and whether this frame starts a kick. Silent without audio.
+     * @returns {{low: number, mid: number, high: number, kick: boolean}}
+     */
+    beat() { return DocsDoodads.Beat.snapshot(); },
+
+    /**
      * The name of the area under the player, or an empty string.
      * @returns {string}
      */
@@ -5079,6 +5470,8 @@ DocsDoodads.World = {
         // note or a page comment (doors) stop it where they stand.
         lighting2d: { occlusion: false, wallRegions: '', rays: 160, blockDoodads: false, blockEvents: false,
             flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },
+        // Per-pixel normals beside doodad/character art (`Tree_n.png`); flat maps only.
+        normalLight: { enabled: false, maxLights: 8 },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
             wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
@@ -6586,6 +6979,7 @@ DocsDoodads.Particles = {
         const color = (v, def) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : def);
         return {
             preset: preset ? preset.id : null,
+            ...(src.musicTrigger === 'kick' ? { musicTrigger: 'kick' } : {}),
             rate: num(merged.rate, d.rate, 0, 500),
             burst: Math.round(num(merged.burst, 0, 0, 1000)),
             max: Math.round(num(merged.max, d.max, 1, 1000)),
@@ -7885,6 +8279,17 @@ DocsDoodads.MapCheck = {
     }
 };
 // @editor-only
+DocsDoodads.Quest = {
+    steps: [
+        { id: 'place', text: 'Place three things', at: 'dd-drawer-panel', done: s => Number(s.placed) >= 3 },
+        { id: 'lamp', text: 'Add a lamp', at: 'dd-inspector-panel', done: s => Number(s.lights) > 0 },
+        { id: 'night', text: 'Make it night', at: 'dd-clock-bar', done: s => s.minutes !== null && s.minutes !== undefined && (Number(s.minutes) >= 1080 || Number(s.minutes) < 360) },
+        { id: 'played', text: 'Play From Here', at: 'map', done: s => s.played === true },
+        { id: 'saved', text: 'Save your map', at: 'dd-save-btn', done: s => s.saved === true }
+    ],
+    progress(state) { return this.steps.map(step => Object.assign({}, step, { done: Boolean(step.done(state || {})) })); }
+};
+// @editor-only
 // Guide headings and the first paragraph of each section. Run npm run help after editing the guide.
 DocsDoodads.HelpIndex = [
     {
@@ -7921,6 +8326,11 @@ DocsDoodads.HelpIndex = [
         "title": "Navigation & Views",
         "anchor": "navigation--views",
         "firstParagraph": "- Category Tabs: icon tabs for Doodads, People, Tiles, Pictures, Prefabs, Sounds, Favourites, Recently used, Everything, Faces, Battlers, Backdrops and System (hover for the name; the bag's title shows the open one). - Virtual Collections: Group assets into custom collections (e.g., \"Castle Set\", \"Dungeon Props\") without duplicating files on disk. Pick one in the collection list under the bag's search box or type collection:\"Castle Set\"; the ✕ beside the list deletes the shown collection (its assets stay). - Right-Click Card Context Menu: Right-click any asset card to open an instant action menu: - Place as Doodad / Place as Real MZ Event... - Add to Favorites / Remove from Favorites - Add to Collection... / Remove from \"Castle Set\" (one item per collection the asset is in) - Open in Slicing Modal / Export Slices to PNGs - Play Audio Preview / Stop Audio - Picking several: Ctrl+click cards to pick them one by one, Shift+click to pick the run from the last one clicked (the item shown in Details counts as the first). A bar above the cards then acts on all of them: Tag (adds tags), ★ (favourites; again to take the star off), Collection, Move (to another folder, updating every map, event and prefab that uses them, as Rename/Move does; save your changes first) and Delete (only files nothing uses: they go to data/docsdoodadscache/deleted/, from where you can put them back by hand). A plain click picks none again. - Thumbnail Slider: Zoom cards smoothly between 48px and 160px."
+    },
+    {
+        "title": "Your first map",
+        "anchor": "your-first-map",
+        "firstParagraph": "The small corner card ticks off five steps as you do them: place three things, add a lamp, make it night with the preview clock, Play From Here, then reopen the editor and Save. Show me points at the next control and explains what to do. With no art, Add Sample Items supplies some. Not now hides the quest until the next editor open; Skip is remembered. Finished quests stay finished. How to Use and Find a Tool can replay it, starting fresh steps on the current map without changing its content."
     },
     {
         "title": "Tokenized Search Syntax",
@@ -7986,6 +8396,16 @@ DocsDoodads.HelpIndex = [
         "title": "Water Reflections",
         "anchor": "water-reflections",
         "firstParagraph": "- Characters and standing doodads get a rippling mirrored copy on the water tiles below them. Bridges over water are left alone. - Add a region to treat painted areas (ponds drawn with B-E tiles) as water. - Shore margin keeps a strip along the waterline clear, because MZ water tiles draw their own sand or grass edge. Reflections start where the water visibly begins. - Turn it off per map, per doodad (Reflect in water), or per event with <no reflection>."
+    },
+    {
+        "title": "Normal maps on flat maps",
+        "anchor": "normal-maps-on-flat-maps",
+        "firstParagraph": "Enable World → Normal Maps to shade pictures and characters with nearby lamps. Put Treen.png beside Tree.png, with the same dimensions, or pick the art and choose Make Normal Map in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together."
+    },
+    {
+        "title": "With the music",
+        "anchor": "with-the-music",
+        "firstParagraph": "In a doodad's Motion or Light section, With the music chooses Bass, Middle or Treble. Music strength blends between its usual amount and the music's energy. Plants can sway and lamps can pulse together. In Particles, Emits → On a music kick sends a burst at a bass onset. Only BGM drives these effects; sound effects do not. Silent or muted BGM gives zero energy. Scripts can read DocsDoodads.api.beat() for low, mid, high (0–1) and kick for this frame. One analyser is shared and released when unused."
     },
     {
         "title": "Motion Blur",
@@ -8348,6 +8768,11 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": ""
     },
     {
+        "title": "Plugins and local reports",
+        "anchor": "plugins-and-local-reports",
+        "firstParagraph": "Map → Problems has a Plugins group for known order advisories and hooks a later plugin appears to bypass. The check observes normal map updates without running gameplay as a probe. It waits for repeated calls before flagging a hook that never delegates; a removed observer is labelled as an unverified change. Listed later plugins are candidates to investigate. The generated plugin notes distinguish order advice from compatibility playtests, which are still pending."
+    },
+    {
         "title": "Q: Why isn't the editor opening when I press F10?",
         "anchor": "q-why-isnt-the-editor-opening-when-i-press-f10",
         "firstParagraph": "- Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access). - Verify in Plugin Manager that Docs-Doodads is turned ON and Editor Enabled is set to true. - Check if another plugin intercepts F10; you can change the editKey parameter to another key or a chord such as Ctrl+F10."
@@ -8656,6 +9081,105 @@ DocsDoodads.PlayHere = {
             passable: (x, y, d) => $gameMap.isPassable(x, y, d),
             blocked: (x, y) => DocsDoodads.Collision.blocksTile(x, y, false, $gamePlayer)
         };
+    }
+};
+// @editor-only
+// Generated by npm run clashes from data/DocsDoodadsPluginCompatibility.json.
+DocsDoodads.PluginClashTable = [
+    {
+        "match": "UltraMode7",
+        "level": "order",
+        "before": "Docs-Doodads",
+        "note": "Load UltraMode7 before Docs-Doodads, as in the manual preflight. This is an order advisory; no compatibility playtest is recorded."
+    }
+];
+// @editor-only
+DocsDoodads.Clash = {
+    table: DocsDoodads.PluginClashTable || [],
+    hooks: [], messages: [],
+    enabledPlugins(plugins) { return (Array.isArray(plugins) ? plugins : []).filter(p => p && p.status !== false && p.enabled !== false).map(p => ({ name: String(p.name || '') })); },
+    check(plugins, table) {
+        const active = this.enabledPlugins(plugins), out = [];
+        for (const row of table || this.table) {
+            const index = active.findIndex(plugin => plugin.name.toLowerCase() === String(row.match).toLowerCase());
+            if (index < 0 || row.level === 'works') continue;
+            const other = active.findIndex(plugin => plugin.name.toLowerCase() === String(row.before || row.after || '').toLowerCase());
+            if (row.level === 'order' && (other < 0 || row.before && index < other || row.after && index > other)) continue;
+            const direction = row.before ? ' before ' + row.before : row.after ? ' after ' + row.after : '';
+            out.push({ kind: 'plugins', global: true, level: row.level, text: active[index].name + (row.level === 'order' ? ': move' + direction + '. ' : ': ') + row.note });
+        }
+        return out;
+    },
+    // Observe ordinary engine calls rather than executing a gameplay method as a diagnostic probe.
+    // A later alias that delegates to us increments calls; a replacement which skips us does not.
+    watch(object, key, label) {
+        if (!object || typeof object[key] !== 'function') return null;
+        const descriptor = Object.getOwnPropertyDescriptor(object, key);
+        if (descriptor && (descriptor.configurable === false || descriptor.writable === false || descriptor.get || descriptor.set)) return null;
+        const original = object[key], state = { label, object, key, calls: 0, generation: 0, samples: 0, delegated: false };
+        const own = function(...args) { state.calls++; return original.apply(this, args); };
+        let current = own;
+        const getter = () => current;
+        state.getter = getter;
+        Object.defineProperty(object, key, { configurable: true, enumerable: descriptor ? descriptor.enumerable : true,
+            get: getter,
+            set(next) {
+                if (next === current) return;
+                const generation = ++state.generation;
+                state.samples = 0; state.delegated = false;
+                if (typeof next !== 'function') { current = next; state.samples = 8; return; }
+                current = function(...args) {
+                    const before = state.calls;
+                    try { return next.apply(this, args); }
+                    finally { if (generation === state.generation) { state.samples++; if (state.calls > before) state.delegated = true; } }
+                };
+            }
+        });
+        this.hooks.push(state);
+        return state;
+    },
+    hookFindings(plugins) {
+        const active = this.enabledPlugins(plugins), own = active.findIndex(p => p.name === pluginName);
+        const later = own < 0 ? [] : active.slice(own + 1).map(p => p.name);
+        return this.hooks.filter(hook => {
+            const descriptor = Object.getOwnPropertyDescriptor(hook.object, hook.key);
+            hook.observerRemoved = !descriptor || descriptor.get !== hook.getter;
+            return hook.observerRemoved || hook.samples >= 8 && !hook.delegated;
+        }).map(hook => ({ kind: 'plugins', global: true, level: hook.observerRemoved ? 'order' : 'clash', hook: hook.label,
+            text: hook.label + (hook.observerRemoved ? ': its diagnostic observer was replaced; hook delegation cannot be verified. ' : ' ran at least eight times without the Docs-Doodads hook. ')
+                + 'Plugins loaded later: ' + (later.join(', ') || '(none listed)') + '. Check these plugins and their order; the replacing plugin is not identified.' }));
+    },
+    record(level, args) {
+        const values = Array.from(args || []).map(value => {
+            if (value instanceof Error) return value.stack || value.message;
+            if (typeof value === 'string') return value;
+            try { return JSON.stringify(value); } catch (error) { return String(value); }
+        });
+        this.messages.push({ level, text: values.join(' ').slice(0, 8000) });
+        if (this.messages.length > 200) this.messages.splice(0, this.messages.length - 200);
+    },
+    clean(value, projectRoot) {
+        let text = String(value === undefined ? '' : value).replace(/\\/g, '/');
+        const root = String(projectRoot || '').replace(/\\/g, '/').replace(/\/$/, '');
+        if (root) text = text.replace(new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=/|$)', 'gi'), '.');
+        text = text.replace(/file:\/\//gi, '');
+        text = text.replace(/(^|[\s("'=])\/\/[^\r\n"'<>]*/g, '$1[outside project]');
+        text = text.replace(/[a-zA-Z]:\/[^\r\n"'<>]*/g, '[outside project]');
+        text = text.replace(/(^|[\s("'=])\/(?!\/)[^\s"'<>]*/g, '$1[outside project]');
+        return text.replace(/((?:password|secret|token|api[_ -]?key|authorization)["']?\s*[:=]\s*)[^\r\n,}]+/gi, '$1[redacted]');
+    },
+    report(input) {
+        const clean = value => this.clean(value, input.projectRoot);
+        const params = {};
+        for (const key of Object.keys(input.parameters || {}).sort()) params[key] = /password|secret|token|key|authorization/i.test(key) ? '[redacted]' : clean(input.parameters[key]);
+        const report = { version: clean(input.version), system: input.system || {}, map: input.map || {},
+            plugins: this.enabledPlugins(input.plugins).map((plugin, index) => ({ order: index + 1, name: clean(plugin.name) })),
+            parameters: params, problems: (input.problems || []).map(problem => clean(problem.text)),
+            messages: this.messages.slice(-200).map(message => ({ level: message.level, text: clean(message.text) })) };
+        // System and map metadata are supplied through the fixed gatherer, and sanitized again for callers.
+        const sanitize = value => Array.isArray(value) ? value.map(sanitize) : value && typeof value === 'object'
+            ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitize(item)])) : typeof value === 'string' ? clean(value) : value;
+        return 'Doc\'s Doodads local diagnostic report\n' + JSON.stringify(sanitize(report), null, 2) + '\n';
     }
 };
 // @editor-only
@@ -12661,7 +13185,10 @@ if (typeof PIXI !== 'undefined') {
             this._stateArtKey = this._stateArt ? this._stateArt.path : '';
             const path = this.seasonPath();
             this._loadedPath = path;
-            const packed = path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
+            // A packed region has different UVs from its full-size `_n` companion. Keep mapped normal art on
+            // its original sheet so both samplers use the same frame.
+            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.pathFor(path);
+            const packed = !normalMapped && path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
                 ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
             this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;
             this._regionSize = packed ? { w: packed.w, h: packed.h } : null;
@@ -12897,6 +13424,7 @@ if (typeof PIXI !== 'undefined') {
         this.updateDissolve(fx);
         if (this._shimmerFilter) {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
+            this._shimmerFilter.uniforms.amount = this._motion.amount * DocsDoodads.Beat.factor(this._motion.musicBand, this._motion.musicStrength);
         }
         // Far away in 3D (the map's "Plain beyond"): drawn without its shadow, and its effects wait.
         if (this.docsFar()) {
@@ -13738,6 +14266,12 @@ if (typeof Spriteset_Map !== 'undefined') {
         }
         if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
+        const base = Lighting.lightmapBase(ambient);
+        // Normal filters still need live lamps in daylight, when the ordinary multiply is not drawn.
+        this._docsNormalLightInfo = { base, lights, time };
+        // Resolve filters before the ordinary lightmap is rendered, so its white exemption pool describes
+        // this frame (including a quality switch to Off), not the previous one.
+        if (this.updateDocsNormalSprites) this.updateDocsNormalSprites();
 
         const glowing = lights.filter(l => l.glow > 0);
         this.docsSpritePool(this._docsGlowSprites, this._docsGlowLayer, glowing.length);
@@ -13761,6 +14295,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (ambient.darkness <= 0.001 || !renderer) {
             this._docsLightOverlay.visible = false;
             this._docsLightInfo = null;
+            if (this.updateDocsNormalMasks) this.updateDocsNormalMasks(false);
             return;
         }
         const size = this._docs3dSize;
@@ -13771,7 +14306,6 @@ if (typeof Spriteset_Map !== 'undefined') {
             this._docsLightTexture = PIXI.RenderTexture.create({ width: w, height: h });
             this._docsLightOverlay.texture = this._docsLightTexture;
         }
-        const base = Lighting.lightmapBase(ambient);
         this._docsLightInfo = { base, lights };
         this._docsLightBase.width = w;
         this._docsLightBase.height = h;
@@ -13795,7 +14329,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         });
         // Masks left over from lights that went out.
         for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i]._docsOutline = null; this._docsLightMasks[i].visible = false; }
-        renderer.render(this._docsLightScene, this._docsLightTexture, true);
+        const normalCount = this.updateDocsNormalMasks ? this.updateDocsNormalMasks(true, renderer, w, h) : 0;
+        if (normalCount && this.renderDocsNormalLightmap) this.renderDocsNormalLightmap(renderer, this._docsLightTexture, w, h);
+        else renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
         const parent = this._docsLightOverlay.parent;
@@ -14139,7 +14675,8 @@ DocsDoodads.Perspective.usedInProject = function() {
 };
 
 DocsDoodads.fxQualityOffered = function() {
-    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject();
+    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject()
+        || Boolean(DocsDoodads.World.settings().normalLight.enabled);
 };
 
 // Options menu: players can switch motion blur off and lower the effects quality
@@ -14567,7 +15104,7 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         const P = DocsDoodads.Particles;
         if (emitting && !this._bursted) {
             this._bursted = true;
-            if (this._config.burst) this.burstNow();
+            if (this._config.burst && this._config.musicTrigger !== 'kick') this.burstNow();
         }
         P.step(this._state, dt, emitting);
         const views = P.view(this._state);
@@ -16294,6 +16831,284 @@ if (typeof Spriteset_Map !== 'undefined') {
     };
 }
 //==========================================================
+// SECTION 7E: FLAT-MAP NORMAL LIGHT RUNTIME
+//==========================================================
+(function() {
+    const N = DocsDoodads.NormalLight;
+
+    N.requestManifest = function() {
+        if (typeof DataManager === 'undefined' || typeof DataManager.docsRequest !== 'function') return;
+        DataManager.docsRequest(this.manifestPath, xhr => {
+            if (xhr.status >= 400 || !xhr.responseText) { this.setManifest(null); return; }
+            try { this.setManifest(JSON.parse(xhr.responseText)); }
+            catch (error) {
+                this.setManifest(null);
+                console.warn('[DocsDoodads] Normal-map manifest could not be read:', error);
+            }
+        });
+    };
+
+    if (typeof DataManager !== 'undefined' && typeof DataManager.loadDatabase === 'function') {
+        $.DataManager_loadDatabase_normal_light = DataManager.loadDatabase;
+        DataManager.loadDatabase = function() {
+            $.DataManager_loadDatabase_normal_light.call(this);
+            N.requestManifest();
+        };
+    }
+
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined' || !PIXI.Filter) return;
+
+    N.sourceFor = function(sprite) {
+        if (!sprite) return null;
+        if (typeof Sprite_DocsDoodad !== 'undefined' && sprite instanceof Sprite_DocsDoodad) return sprite._loadedPath || null;
+        if (typeof Sprite_Character !== 'undefined' && sprite instanceof Sprite_Character) {
+            const character = sprite._character;
+            if (!character || !character.characterName || (character.tileId && character.tileId() > 0)) return null;
+            const sheet = sprite._docsAnim && sprite._docsAnim.sheet ? sprite._docsAnim.sheet : character.characterName();
+            return sheet ? 'img/characters/' + String(sheet).replace(/\.png$/i, '') + '.png' : null;
+        }
+        return null;
+    };
+
+    N.spritePoint = function(sprite) {
+        const frame = sprite.texture && sprite.texture.frame;
+        const w = frame ? frame.width : 0, h = frame ? frame.height : 0;
+        const anchor = sprite.anchor || { x: 0, y: 0 };
+        const sx = sprite.scale ? sprite.scale.x : 1, sy = sprite.scale ? sprite.scale.y : 1;
+        const dx = (0.5 - anchor.x) * w * sx, dy = (0.5 - anchor.y) * h * sy;
+        const turn = Number(sprite.rotation) || 0, c = Math.cos(turn), s = Math.sin(turn);
+        return { x: (Number(sprite.x) || 0) + dx * c - dy * s, y: (Number(sprite.y) || 0) + dx * s + dy * c };
+    };
+
+    N.textureFor = function(bitmap) {
+        if (!bitmap || !bitmap._baseTexture) return null;
+        if (!bitmap._docsNormalTexture || bitmap._docsNormalTexture.baseTexture !== bitmap._baseTexture) {
+            bitmap._docsNormalTexture = new PIXI.Texture(bitmap._baseTexture);
+        }
+        return bitmap._docsNormalTexture;
+    };
+
+    N.detach = function(sprite) {
+        if (!sprite) return;
+        DocsDoodads.toggleFilter(sprite, sprite._docsNormalFilter, false);
+        sprite._docsNormalActive = false;
+    };
+
+    N.finishLoad = function(sprite, request, normalBitmap) {
+        if (!sprite || sprite._docsNormalRequest !== request || !request.base || sprite.bitmap !== request.base && sprite._bmp !== request.base) return false;
+        if (!normalBitmap || !normalBitmap._baseTexture || normalBitmap.width !== request.base.width || normalBitmap.height !== request.base.height) {
+            this.detach(sprite);
+            if (!sprite._docsNormalSizeWarned) {
+                sprite._docsNormalSizeWarned = true;
+                DocsDoodads.Core.log(`Normal map ${request.normalPath} must match ${request.source} (${request.base.width}×${request.base.height}).`);
+            }
+            return false;
+        }
+        const texture = this.textureFor(normalBitmap);
+        if (!texture) return false;
+        sprite._docsNormalBitmap = normalBitmap;
+        if (!sprite._docsNormalFilter) {
+            try {
+                const uniforms = this.uniforms([], [1, 1, 1]);
+                uniforms.uNormalMap = texture;
+                uniforms.uNormalUv = [0, 0, 1, 1];
+                uniforms.uLightMap = PIXI.Texture.WHITE;
+                uniforms.uLightMapSize = [1, 1];
+                uniforms.uUseOcclusion = 0;
+                const base = sprite._docsNormalBase;
+                N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, uniforms, base && base.worldTransform);
+                sprite._docsNormalFilter = new PIXI.Filter(undefined, this.fragment, uniforms);
+                sprite._docsNormalFilter.padding = 0;
+                const apply = sprite._docsNormalFilter.apply;
+                sprite._docsNormalFilter.apply = function() {
+                    const base = sprite._docsNormalBase;
+                    N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, this.uniforms, base && base.worldTransform);
+                    return apply.apply(this, arguments);
+                };
+            } catch (error) {
+                DocsDoodads.Core.log('Normal-map filter could not be built; drawing without it.', error);
+                return false;
+            }
+        }
+        sprite._docsNormalFilter.uniforms.uNormalMap = texture;
+        return true;
+    };
+
+    N.ensure = function(sprite, source) {
+        const base = sprite && (sprite._bmp || sprite.bitmap), normalPath = this.pathFor(source);
+        if (!sprite || !base || !normalPath) { this.detach(sprite); return false; }
+        const old = sprite._docsNormalRequest;
+        if (old && old.source === source && old.base === base && old.normalPath === normalPath) return Boolean(sprite._docsNormalBitmap && sprite._docsNormalFilter);
+        this.detach(sprite);
+        sprite._docsNormalBitmap = null;
+        const request = sprite._docsNormalRequest = { source, normalPath, base };
+        const bitmap = DocsDoodads.loadBitmap(normalPath);
+        if (!bitmap) return false;
+        const finish = () => this.finishLoad(sprite, request, bitmap);
+        if (!bitmap.isReady || bitmap.isReady()) return finish();
+        if (bitmap.addLoadListener) bitmap.addLoadListener(finish);
+        return false;
+    };
+
+    N.updateSprite = function(sprite, source, info, max) {
+        if (!sprite || !source || !sprite.visible || sprite.renderable === false || !this.ensure(sprite, source)) {
+            this.detach(sprite);
+            return false;
+        }
+        const filter = sprite._docsNormalFilter, frame = sprite.texture && sprite.texture.frame;
+        if (!filter || !frame || frame.width <= 0 || frame.height <= 0) { this.detach(sprite); return false; }
+        const point = this.spritePoint(sprite), lights = this.pick(info.lights, point.x, point.y, max);
+        this.uniforms(lights, info.base, filter.uniforms, light => {
+            const flicker = DocsDoodads.Lighting.flicker(info.time, light.seed, light.flicker);
+            return (Number(light.intensity) || 0) * flicker;
+        });
+        filter.uniforms.uNormalUv = this.frameUv(frame, sprite._docsNormalBitmap.width, sprite._docsNormalBitmap.height);
+        const base = sprite._docsNormalBase;
+        this.transformUniforms(sprite.worldTransform, frame, sprite.anchor, filter.uniforms, base && base.worldTransform);
+        DocsDoodads.toggleFilter(sprite, filter, true);
+        sprite._docsNormalActive = true;
+        return true;
+    };
+
+    Spriteset_Map.prototype.docsNormalMax = function() {
+        if (this._docs3d || DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active()) return 0;
+        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        return N.effectiveMax(DocsDoodads.World.settings().normalLight, option);
+    };
+
+    Spriteset_Map.prototype.docsNormalSprites = function() {
+        const out = (this._docsDoodadSprites || []).slice();
+        for (const sprite of this._characterSprites || []) out.push(sprite);
+        return out;
+    };
+
+    Spriteset_Map.prototype.updateDocsNormalSprites = function() {
+        const sprites = this.docsNormalSprites(), max = this.docsNormalMax();
+        if (!max) { for (const sprite of sprites) N.detach(sprite); return 0; }
+        const info = this._docsNormalLightInfo || { base: [1, 1, 1], lights: [], time: DocsDoodads.frameCount() / 60 };
+        let count = 0;
+        for (const sprite of sprites) {
+            sprite._docsNormalBase = this._baseSprite || null;
+            if (N.updateSprite(sprite, N.sourceFor(sprite), info, max)) count++;
+        }
+        return count;
+    };
+
+    N.copyMaskTransform = function(mask, source, normal) {
+        mask.texture = source.texture;
+        mask.x = source.x; mask.y = source.y;
+        mask.anchor.set(source.anchor ? source.anchor.x : 0, source.anchor ? source.anchor.y : 0);
+        mask.scale.set(source.scale ? source.scale.x : 1, source.scale ? source.scale.y : 1);
+        mask.skew.set(source.skew ? source.skew.x : 0, source.skew ? source.skew.y : 0);
+        mask.rotation = source.rotation || 0;
+        mask.alpha = Number.isFinite(source.worldAlpha) ? source.worldAlpha : source.alpha === undefined ? 1 : source.alpha;
+        mask.visible = true; mask.renderable = true; mask.blendMode = PIXI.BLEND_MODES.NORMAL;
+        mask._docsSource = source;
+        mask._docsNormalWhite = Boolean(normal);
+        if (!N._alphaFilter) N._alphaFilter = new PIXI.Filter(undefined, N.alphaFragment, {});
+        if (!N._blackAlphaFilter) N._blackAlphaFilter = new PIXI.Filter(undefined, N.blackAlphaFragment, {});
+        mask.filters = [normal ? N._alphaFilter : N._blackAlphaFilter];
+    };
+
+    N.isDrawableSprite = function(sprite) {
+        const frame = sprite && sprite.texture && sprite.texture.frame;
+        return Boolean(sprite && sprite.visible && sprite.renderable !== false && sprite.alpha !== 0 && frame && frame.width > 0 && frame.height > 0);
+    };
+
+    Spriteset_Map.prototype.docsNormalOrderedSources = function() {
+        if (!this._tilemap || !this._tilemap.children) return [];
+        const children = this._tilemap.children.slice();
+        if (typeof this._tilemap._compareChildOrder === 'function') children.sort(this._tilemap._compareChildOrder.bind(this._tilemap));
+        return children;
+    };
+
+    Spriteset_Map.prototype.updateDocsNormalMasks = function(show, renderer, width, height) {
+        const pool = this._docsNormalMasks = this._docsNormalMasks || [];
+        if (!show || !this._docsLightScene || !renderer) {
+            for (const mask of pool) mask.visible = false;
+            if (this._docsNormalCoverageScene) this._docsNormalCoverageScene.visible = false;
+            return 0;
+        }
+        const normalSources = new Set(this.docsNormalSprites().filter(sprite => sprite && sprite._docsNormalActive));
+        if (!normalSources.size) {
+            for (const mask of pool) mask.visible = false;
+            if (this._docsNormalCoverageScene) this._docsNormalCoverageScene.visible = false;
+            return 0;
+        }
+        const coverage = this._docsNormalCoverageScene = this._docsNormalCoverageScene || new PIXI.Container();
+        coverage.visible = true;
+        coverage.removeChildren();
+        const ordered = this.docsNormalOrderedSources();
+        const layers = this._docsNormalTileLayers = this._docsNormalTileLayers || [];
+        let count = 0, layerCount = 0;
+        for (const source of ordered) {
+            const isLayer = source === this._tilemap._lowerLayer || source === this._tilemap._upperLayer;
+            if (isLayer) {
+                if (!source.visible || source.renderable === false) continue;
+                let item = layers[layerCount++];
+                if (!item) {
+                    item = layers[layers.length] = { sprite: new PIXI.Sprite(PIXI.Texture.EMPTY), texture: null };
+                    if (!N._blackAlphaFilter) N._blackAlphaFilter = new PIXI.Filter(undefined, N.blackAlphaFragment, {});
+                    item.sprite.filters = [N._blackAlphaFilter];
+                    item.sprite._docsNormalWhite = false;
+                }
+                if (!item.texture || item.texture.width !== width || item.texture.height !== height) {
+                    if (item.texture) item.texture.destroy(true);
+                    item.texture = PIXI.RenderTexture.create({ width, height });
+                    item.sprite.texture = item.texture;
+                }
+                renderer.render(source, item.texture, true);
+                item.sprite.x = 0; item.sprite.y = 0; item.sprite.alpha = 1; item.sprite.visible = true;
+                item.sprite._docsSource = source;
+                coverage.addChild(item.sprite);
+                continue;
+            }
+            if (!N.isDrawableSprite(source)) continue;
+            const use = pool[count] || (pool[count] = new PIXI.Sprite(PIXI.Texture.EMPTY));
+            N.copyMaskTransform(use, source, normalSources.has(source));
+            coverage.addChild(use);
+            count++;
+        }
+        for (let i = count; i < pool.length; i++) pool[i].visible = false;
+        for (let i = layerCount; i < layers.length; i++) layers[i].sprite.visible = false;
+        return normalSources.size;
+    };
+
+    Spriteset_Map.prototype.renderDocsNormalLightmap = function(renderer, target, width, height) {
+        const ensureTexture = (key) => {
+            let texture = this[key];
+            if (!texture || texture.width !== width || texture.height !== height) {
+                if (texture) texture.destroy(true);
+                texture = this[key] = PIXI.RenderTexture.create({ width, height });
+            }
+            return texture;
+        };
+        const raw = ensureTexture('_docsNormalRawLightTexture');
+        const coverage = ensureTexture('_docsNormalCoverageTexture');
+        renderer.render(this._docsLightScene, raw, true);
+        const useOcclusion = (this._docsLightMasks || []).some(mask => mask && mask.visible);
+        for (const sprite of this.docsNormalSprites()) {
+            if (!sprite || !sprite._docsNormalActive || !sprite._docsNormalFilter) continue;
+            const uniforms = sprite._docsNormalFilter.uniforms;
+            uniforms.uLightMap = raw;
+            uniforms.uLightMapSize = [width, height];
+            uniforms.uUseOcclusion = useOcclusion ? 1 : 0;
+        }
+        renderer.render(this._docsNormalCoverageScene, coverage, true);
+        if (!this._docsNormalMixScene) {
+            this._docsNormalMixScene = new PIXI.Container();
+            this._docsNormalMixSprite = new PIXI.Sprite(raw);
+            this._docsNormalMixFilter = new PIXI.Filter(undefined, N.ownershipFragment, { uCoverage: coverage });
+            this._docsNormalMixSprite.filters = [this._docsNormalMixFilter];
+            this._docsNormalMixScene.addChild(this._docsNormalMixSprite);
+        }
+        this._docsNormalMixSprite.texture = raw;
+        this._docsNormalMixFilter.uniforms.uCoverage = coverage;
+        renderer.render(this._docsNormalMixScene, target, true);
+    };
+
+})();
+//==========================================================
 // SECTION 15D: THE TOUCH PROMPT
 //==========================================================
 // A doodad with Touch > Prompt shows it in a small bubble over its top while the player faces it (or
@@ -17344,6 +18159,33 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         s.follow = target === 'event' ? Math.max(0, Number(args.eventId) || 0) : target === 'this' && this && this._eventId ? this._eventId : 0;
     });
 }
+if (typeof Game_Map !== 'undefined') {
+    Game_Map.prototype.updateDocsBeat = function() { DocsDoodads.Beat.idle(); };
+    DocsDoodads.mapSteps.push('updateDocsBeat');
+}
+(function() {
+    if (typeof AudioManager !== 'undefined') for (const name of ['stopBgm', 'playBgm']) {
+        const original = AudioManager[name];
+        if (typeof original === 'function') AudioManager[name] = function(...args) { DocsDoodads.Beat.release(); return original.apply(this, args); };
+    }
+    if (typeof Scene_Map !== 'undefined' && Scene_Map.prototype.terminate) {
+        const terminate = Scene_Map.prototype.terminate;
+        Scene_Map.prototype.terminate = function() { DocsDoodads.Beat.release(); return terminate.call(this); };
+    }
+    const P = DocsDoodads.Particles, step = P.step;
+    P.step = function(state, dt, emitting) {
+        if (state.config.musicTrigger === 'kick') {
+            const B = DocsDoodads.Beat;
+            B.update();
+            if (emitting && B.kick && state._docsKickFrame !== B.frame) {
+                state._docsKickFrame = B.frame;
+                this.burst(state, Math.max(1, Math.round(state.config.rate / 4)));
+            }
+            emitting = false;
+        }
+        return step.call(this, state, dt, emitting);
+    };
+})();
 //==========================================================
 // SECTION 7I: PERSPECTIVE (3D) RUNTIME
 //==========================================================
@@ -21972,7 +22814,7 @@ DocsDoodads.AssetIndex = {
     },
     list: [],
     // Bump when indexFile derives new fields so unchanged files are re-indexed once.
-    entryRevision: 4,
+    entryRevision: 5,
 
     // Reads the library file, unless it is unchanged since it was last read or written here (opening the
     // editor again keeps the same objects). True when it was read.
@@ -21987,7 +22829,7 @@ DocsDoodads.AssetIndex = {
             this.data = loaded;
         }
         this.noteLoaded(stat);
-        this.rebuildList();
+        this.linkNormalMaps();
         return true;
     },
 
@@ -22014,7 +22856,35 @@ DocsDoodads.AssetIndex = {
     },
 
     rebuildList() {
-        this.list = Object.values(this.data.assets);
+        this.list = Object.values(this.data.assets).filter(asset => asset && !asset.auxiliary);
+    },
+
+    // Links hand-authored or generated `_n.png` files after a scan has seen both sides. The small runtime
+    // manifest is the only source used in-game, so a missing companion is never requested speculatively.
+    linkNormalMaps() {
+        const assets = this.data.assets || {};
+        for (const asset of Object.values(assets)) {
+            if (!asset) continue;
+            delete asset.normalMap;
+            if (asset.normalFor) { delete asset.normalFor; delete asset.auxiliary; }
+        }
+        const manifest = DocsDoodads.NormalLight.manifestFromAssets(assets);
+        const byPath = new Map(Object.values(assets).filter(Boolean).map(asset => [String(asset.path || '').toLowerCase(), asset]));
+        for (const [basePath, normalPath] of Object.entries(manifest.normals)) {
+            const base = byPath.get(basePath), normal = byPath.get(String(normalPath).toLowerCase());
+            if (!base || !normal) continue;
+            base.normalMap = normal.path;
+            normal.normalFor = base.path;
+            normal.auxiliary = true;
+        }
+        this.rebuildList();
+        return manifest;
+    },
+
+    writeNormalManifest(target = DocsDoodads.NormalLight.manifestPath, manifest = this.linkNormalMaps()) {
+        const ok = DocsDoodads.FS.atomicWriteJson(target, manifest, 2);
+        if (ok && target === DocsDoodads.NormalLight.manifestPath) DocsDoodads.NormalLight.setManifest(manifest);
+        return ok;
     },
 
     isEntryCurrent(existing, stat) {
@@ -22142,12 +23012,14 @@ DocsDoodads.AssetIndex = {
         }
 
         this.data.generatedAt = Date.now();
-        this.rebuildList();
+        const normalManifest = this.linkNormalMaps();
         if (options.save !== false) {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
             if (DocsDoodads.FS.atomicWriteJson(target, this.data, 0) && target === this.libraryPath) this.noteLoaded();
+            const normalTarget = options.projectRoot ? path.join(projectRoot, DocsDoodads.NormalLight.manifestPath) : DocsDoodads.NormalLight.manifestPath;
+            this.writeNormalManifest(normalTarget, normalManifest);
         }
         return result;
     },
@@ -22173,7 +23045,7 @@ DocsDoodads.AssetIndex = {
         }
         if (indexed) {
             this.data.generatedAt = Date.now();
-            this.rebuildList();
+            this.linkNormalMaps();
             if (options.save !== false) this.save();
         }
         return indexed;
@@ -22295,8 +23167,10 @@ DocsDoodads.AssetIndex = {
     // wait a moment (saveSoon) and are written by flushUsage on Save, on closing the editor and the game.
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
+        const manifest = this.linkNormalMaps();
         const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data, 0);
         if (ok) this.noteLoaded();
+        if (ok) this.writeNormalManifest(DocsDoodads.NormalLight.manifestPath, manifest);
         return ok;
     },
 
@@ -23212,6 +24086,12 @@ DocsDoodads.RequiredAssets = {
                 if (name && base !== name && base.toLowerCase().startsWith(name.toLowerCase() + '_')) add('img/characters/' + file);
             }
         }
+        // The runtime manifest is authoritative: restore only known companions, never guessed `_n` names.
+        const normalManifest = sources.normalManifest || (DocsDoodads.NormalLight && DocsDoodads.NormalLight.manifest) || { normals: {} };
+        const normalFor = base => DocsDoodads.NormalLight ? DocsDoodads.NormalLight.pathFor(base, normalManifest) : null;
+        for (const file of Array.from(out)) add(normalFor(file));
+        // MZ already knows the base actor/event sheet, so it may not be in `out`; its normal is still plugin art.
+        for (const name of sheetNames) add(normalFor('img/characters/' + name + '.png'));
         return Array.from(out).sort();
     },
 
@@ -23227,7 +24107,8 @@ DocsDoodads.RequiredAssets = {
         }
         let characters = [];
         try { characters = FS.fs.readdirSync('img/characters').filter(f => /\.png$/i.test(f)); } catch (e) { characters = []; }
-        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters });
+        const normalManifest = FS.readJson(DocsDoodads.NormalLight.manifestPath) || DocsDoodads.NormalLight.manifest;
+        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters, normalManifest });
         const ok = FS.atomicWriteJson(this.path, { note: 'Files Doc\'s Doodads draws that MZ\'s "Exclude unused files" can\'t see. npm run deploy -- --restore <project> <deployed folder> puts them back.', files }, 2);
         return ok ? files : null;
     }
@@ -32731,6 +33612,7 @@ DocsDoodads.Workspace = {
         this.closeLookCard();
         this.closeMoods();
         this.closeTraceCard(true);
+        this.stopQuestUi();
         this.closeMapTools();
         this.endTour();
         this.closeCaptureCard();
@@ -33150,8 +34032,8 @@ DocsDoodads.Workspace = {
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
-        if (!prefs.welcomed) this.showWelcome();
-        else this.maybeShowWhatsNew();
+        if (!prefs.welcomed && !this.questData()) this.startQuest();
+        else { this.resumeQuest(); this.maybeShowWhatsNew(); }
     },
 
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
@@ -33292,6 +34174,7 @@ DocsDoodads.Workspace = {
             <div class="dd-welcome-more">
                 <button class="dd-btn" id="dd-welcome-samples" type="button" title="Draws a few pictures into img/doodads/samples and adds two prefabs and a biome to try">${U.icon('box', 1)} Add Sample Items</button>
                 <button class="dd-btn" id="dd-welcome-tours" type="button">${U.icon('help', 1)} Replay Tool Tours</button>
+                <button class="dd-btn" id="dd-welcome-quest" type="button">Replay First Map Quest</button>
                 <button class="dd-btn" id="dd-welcome-new" type="button">${U.icon('sparkle', 1)} What's New</button>
             </div>
             <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
@@ -33309,6 +34192,8 @@ DocsDoodads.Workspace = {
         if (samples) samples.onclick = () => { dismiss(); this.addSampleContent(); };
         const tours = document.getElementById('dd-welcome-tours');
         if (tours) tours.onclick = () => { dismiss(); this.replayTours(); };
+        const quest = document.getElementById('dd-welcome-quest');
+        if (quest) quest.onclick = () => { dismiss(); this.startQuest(true); };
         const whatsNew = document.getElementById('dd-welcome-new');
         if (whatsNew) whatsNew.onclick = () => { dismiss(); this.showWhatsNew(); };
     },
@@ -36179,6 +37064,7 @@ DocsDoodads.Workspace = {
         add('Keep It Simple', () => this.setSimpleMode(true), 'View');
         add('How to Use (welcome card)', () => this.showWelcome());
         add('Replay Tool Tours', () => this.replayTours());
+        add('Replay First Map Quest', () => this.startQuest(true));
         add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
@@ -38882,7 +39768,7 @@ DocsDoodads.Workspace = {
         return index.get(DocsDoodads.Usage.keyOf(asset.path)) || [];
     },
 
-    // Files that move with an image or sound: atlas metadata, and the other audio format.
+    // Files that move with an image or sound: atlas metadata, a normal map, and the other audio format.
     companionFiles(oldPath, newPath) {
         const FS = DocsDoodads.FS;
         const out = [];
@@ -38892,6 +39778,8 @@ DocsDoodads.Workspace = {
         for (const extra of extras) {
             if (FS.existsSync(oldBase + extra)) out.push({ from: oldBase + extra, to: newBase + extra });
         }
+        const oldNormal = DocsDoodads.NormalLight.normalPath(oldPath), newNormal = DocsDoodads.NormalLight.normalPath(newPath);
+        if (oldNormal && newNormal && FS.existsSync(oldNormal)) out.push({ from: oldNormal, to: newNormal });
         return out;
     },
 
@@ -38946,10 +39834,26 @@ DocsDoodads.Workspace = {
         entry.fileName = newPath.split('/').pop();
         entry.category = DocsDoodads.AssetIndex.detectCategory(newPath);
         library.assets[newId] = entry;
+        const oldNormal = DocsDoodads.NormalLight.normalPath(oldPath), newNormal = DocsDoodads.NormalLight.normalPath(newPath);
+        const oldNormalId = oldNormal ? oldNormal.toLowerCase() : '', newNormalId = newNormal ? newNormal.toLowerCase() : '';
+        if (oldNormalId && newNormalId && library.assets[oldNormalId]) {
+            const normalEntry = library.assets[oldNormalId];
+            delete library.assets[oldNormalId];
+            normalEntry.id = newNormalId;
+            normalEntry.path = newNormal;
+            normalEntry.fileName = newNormal.split('/').pop();
+            normalEntry.category = DocsDoodads.AssetIndex.detectCategory(newNormal);
+            library.assets[newNormalId] = normalEntry;
+        }
         for (const members of Object.values(library.collections || {})) {
-            if (Array.isArray(members)) members.forEach((id, i) => { if (id === oldId) members[i] = newId; });
+            if (Array.isArray(members)) members.forEach((id, i) => {
+                if (id === oldId) members[i] = newId;
+                else if (id === oldNormalId) members[i] = newNormalId;
+            });
         }
         entries.push({ path: DocsDoodads.AssetIndex.libraryPath, data: library, indent: 2 });
+        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets);
+        entries.push({ path: DocsDoodads.NormalLight.manifestPath, data: normalManifest, indent: 2 });
 
         // Move the files first: undoing a rename is easy, undoing half-written data is not.
         const moves = [{ from: oldPath, to: newPath }].concat(this.companionFiles(oldPath, newPath));
@@ -38989,7 +39893,8 @@ DocsDoodads.Workspace = {
         }
         for (const e of entries) if (/data\/Map\d+\.json$/.test(e.path)) persistence.sessionSnapshots[e.path] = FS.stat(e.path);
         DocsDoodads.AssetIndex.data = library;
-        DocsDoodads.AssetIndex.rebuildList();
+        DocsDoodads.AssetIndex.linkNormalMaps();
+        DocsDoodads.NormalLight.setManifest(normalManifest);
         DocsDoodads.Thumbnail.invalidate(oldId);
         DocsDoodads.Usage.lastIndex = null;
         if (this.selectedAsset === asset) this.selectedAsset = library.assets[newId];
@@ -41903,8 +42808,10 @@ DocsDoodads.Workspace = {
                 <button class="dd-btn" id="dd-close-diag-btn">Close</button>
             </div>
             <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: var(--dd-warn); color: var(--dd-warn);">Restore Project Backup…</button>
+            <button class="dd-btn" id="dd-save-report-btn" style="width:100%;margin-top:8px;">Save a Report</button>
         `;
         document.body.appendChild(diag);
+        document.getElementById('dd-save-report-btn').onclick = () => this.savePluginReport();
 
         document.getElementById('dd-rebuild-idx-btn').onclick = async () => {
             if (diag.parentNode) diag.parentNode.removeChild(diag);
@@ -46654,6 +47561,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (this._reach && this._reach.mapId === here) out = out.concat(this._reach.flagged);
         // Project-wide: LPC pictures and their credits (no map to go to).
         if (typeof this.lpcProblems === 'function') out = out.concat(this.lpcProblems());
+        const clash = DocsDoodads.Clash, plugins = window.$plugins || [];
+        if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
         return out;
     },
 
@@ -48029,6 +48938,23 @@ Object.assign(DocsDoodads.Workspace, {
     };
 })();
 // @editor-only
+(function() {
+    const W = DocsDoodads.Workspace, sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this);
+        const bands = [{ value: 'none', label: 'Off' }, { value: 'low', label: 'Bass' }, { value: 'mid', label: 'Middle' }, { value: 'high', label: 'Treble' }];
+        for (const [title, prefix] of [['Motion', 'motion'], ['Light', 'light']]) {
+            const section = all.find(s => s.title === title);
+            if (section) section.fields.push({ key: prefix + '.musicBand', label: 'With the music', type: 'select', options: bands },
+                { key: prefix + '.musicStrength', label: 'Music strength', type: 'range', min: 0, max: 1, step: 0.05 });
+        }
+        const particles = all.find(s => s.title === 'Particles');
+        if (particles) particles.fields.push({ key: 'particles.musicTrigger', label: 'Emits', type: 'select', options: [{ value: 'always', label: 'Continuously' }, { value: 'kick', label: 'On a music kick' }] });
+        return all;
+    };
+    Object.assign(W.propertyFallbacks, { 'motion.musicBand': 'none', 'motion.musicStrength': 1, 'light.musicBand': 'none', 'light.musicStrength': 1, 'particles.musicTrigger': 'always' });
+})();
+// @editor-only
 //==========================================================
 // SECTION 25v: MZ GENERATOR CHARACTERS (FOLDER, SCAN, DRAWING, EXPORT)
 //==========================================================
@@ -48561,6 +49487,83 @@ Object.assign(DocsDoodads.Workspace, {
         return tree;
     }
 });
+// @editor-only
+//==========================================================
+// SECTION 25C: NORMAL-MAP SETTINGS AND GENERATOR
+//==========================================================
+(function() {
+    const D = DocsDoodads, W = D.Workspace, N = D.NormalLight;
+
+    W.extraWorldSections = W.extraWorldSections || [];
+    if (!W.extraWorldSections.some(section => section.title === 'Normal Maps')) {
+        W.extraWorldSections.push({ title: 'Normal Maps', fields: [
+            { key: 'normalLight.enabled', label: 'Shade doodads and characters with _n.png companions (flat maps)', type: 'checkbox' },
+            { key: 'normalLight.maxLights', label: 'Nearby lights per picture', type: 'range', min: 1, max: 8, step: 1 }
+        ] });
+    }
+
+    Object.assign(W, {
+        normalMapEligible(asset) {
+            const path = asset && N.cleanPath(asset.path);
+            return Boolean(path && /^img\//i.test(path) && /\.(png|jpe?g|webp)$/i.test(path) && N.normalPath(path));
+        },
+
+        async makeAssetNormalMap(asset, loader = path => this.loadPixels(path), strength = 2) {
+            if (!this.normalMapEligible(asset)) { this.showToast('Choose a picture, not a normal map.', 'error'); return null; }
+            const target = N.normalPath(asset.path), F = D.FS;
+            if (!target || !F.fs || !F.path) { this.showToast('Normal maps can only be written in a playtest.', 'error'); return null; }
+            const root = F.path.resolve('.'), absolute = F.path.resolve(root, target), relative = F.path.relative(root, absolute).replace(/\\/g, '/');
+            if (relative !== target || relative.startsWith('../') || F.path.isAbsolute(relative)) {
+                this.showToast('The normal map must stay beside its picture inside the project.', 'error');
+                return null;
+            }
+            if (F.existsSync(target)) {
+                const replace = await D.Ui.confirm(`${target} already exists. Replace it with a generated normal map?`,
+                    { title: 'Replace Normal Map', ok: 'Replace', danger: true });
+                if (!replace) return null;
+            }
+            try {
+                const source = await loader(asset.path);
+                const pixels = N.make(source.data, source.width, source.height, strength);
+                const canvas = document.createElement('canvas');
+                canvas.width = source.width; canvas.height = source.height;
+                const context = canvas.getContext('2d'), image = context.createImageData(source.width, source.height);
+                image.data.set(pixels); context.putImageData(image, 0, 0);
+                const encoded = canvas.toDataURL('image/png').split(',')[1];
+                if (!encoded) throw new Error('The generated PNG was empty.');
+                F.atomicWriteFile(target, Buffer.from(encoded, 'base64'));
+                await D.AssetIndex.indexPaths([target], { save: false });
+                D.AssetIndex.save();
+                this.showToast(`Made ${target}. Side lighting will show its generated bumps.`, 3500);
+                this.refreshDrawerCards(); this.refreshInspector(); this.refreshSpriteset();
+                return target;
+            } catch (error) {
+                this.showToast(`Could not make the normal map: ${error.message || error}`, 'error');
+                return null;
+            }
+        }
+    });
+
+    const renderUsage = W.renderUsagePanel;
+    W.renderUsagePanel = function(asset) {
+        const html = renderUsage.call(this, asset);
+        if (!this.normalMapEligible(asset)) return html;
+        const existing = asset.normalMap ? `Using ${D.Security.escapeHtml(asset.normalMap)}` : 'Makes a rough _n.png from brightness and edges; paint it by hand for best results.';
+        return html + `<div style="border-top:1px solid var(--dd-line-soft);padding-top:8px;margin-top:8px;">
+            <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Normal Map</div>
+            <div style="font-size:10px;color:var(--dd-muted);margin-bottom:5px;">${existing}</div>
+            <button class="dd-btn" id="dd-asset-make-normal" type="button" style="width:100%;">Make Normal Map</button>
+        </div>`;
+    };
+
+    const bindUsage = W.bindUsagePanel;
+    W.bindUsagePanel = function(asset) {
+        const result = bindUsage.call(this, asset);
+        const button = typeof document !== 'undefined' ? document.getElementById('dd-asset-make-normal') : null;
+        if (button) button.onclick = () => this.makeAssetNormalMap(asset);
+        return result;
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25: WORKSPACE: MAP NOTES
@@ -49657,6 +50660,37 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 // @editor-only
+(function() {
+    const W = DocsDoodads.Workspace, C = DocsDoodads.Clash;
+    W.problemGroups.push(['plugins', 'Plugins']);
+    W.pluginReportText = function() {
+        const renderer = DocsDoodads.Compat.getRenderer(), gl = renderer && renderer.gl;
+        let gpu = 'Unavailable';
+        try { const ext = gl && gl.getExtension('WEBGL_debug_renderer_info'); if (ext) gpu = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)); } catch (error) {}
+        const versions = typeof process !== 'undefined' ? process.versions || {} : {};
+        const map = window.$gameMap;
+        return C.report({ version: pluginVersion, projectRoot: typeof process !== 'undefined' ? process.cwd() : '',
+            plugins: window.$plugins || [], parameters,
+            system: { mz: typeof Utils !== 'undefined' ? Utils.RPGMAKER_VERSION || 'Unknown' : 'Unknown', nw: versions.nw || 'Unavailable', chromium: versions.chrome || 'Unavailable', gpu,
+                screen: [Graphics.width, Graphics.height], tile: map ? [map.tileWidth(), map.tileHeight()] : [] },
+            map: map ? { id: map.mapId(), width: map.width(), height: map.height(), doodads: DocsDoodads.doodads(map.mapId()).length, events: map.events().length } : {},
+            problems: this.collectProblems('map') });
+    };
+    W.savePluginReport = function() {
+        const FS = DocsDoodads.FS;
+        if (!DocsDoodads.Compat.isTest() || !FS.fs) { this.showToast('Save a Report needs a desktop playtest.', 'error'); return false; }
+        try {
+            const folder = 'data/docs_doodads_cache/reports';
+            const file = folder + '/Docs-Doodads-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
+            const report = this.pluginReportText();
+            FS.mkdirp(folder); FS.writeFileSync(file, report);
+            this.showToast('Saved ' + file + '. Review it and attach it to your report.', 'success');
+            try { if (typeof nw !== 'undefined' && nw.Shell && FS.path) nw.Shell.showItemInFolder(FS.path.resolve(file)); } catch (error) {}
+            return file;
+        } catch (error) { this.showToast('Could not save the report: ' + error.message, 'error'); return false; }
+    };
+})();
+// @editor-only
 //==========================================================
 // SECTION 25n: SCREEN LOOKS BY TIME AND BY REGION
 //==========================================================
@@ -49819,6 +50853,118 @@ Object.assign(DocsDoodads.Workspace, {
         });
     }
 });
+// @editor-only
+(function() {
+    const W = DocsDoodads.Workspace, Q = DocsDoodads.Quest, U = DocsDoodads.Ui;
+    Object.assign(W, {
+        questData() { return this._questMemory || U.prefs().quest || null; },
+        setQuestData(quest) { this._questMemory = quest; U.setPref('quest', quest); },
+        startQuest(replay = false) {
+            const previous = this.questData();
+            if (!replay && previous && previous.status !== 'active') return false;
+            const mapId = this.currentMapId();
+            const quest = !replay && previous ? previous : { status: 'active', mapId, baseline: DocsDoodads.doodads(mapId).length, completed: [], played: false, saved: false };
+            this.setQuestData(quest); U.setPref('welcomed', true); U.setPref('whatsNewSeen', DocsDoodads.WhatsNew.id);
+            this.stopQuestUi(); this.updateQuest();
+            if (this.mounted && this.questData() && this.questData().status === 'active') {
+                this._questTimer = setInterval(() => this.updateQuest(), 500);
+                if (this._questTimer && this._questTimer.unref) this._questTimer.unref();
+            }
+            return true;
+        },
+        resumeQuest() {
+            const quest = this.questData();
+            if (quest && quest.status === 'paused') this.setQuestData(Object.assign({}, quest, { status: 'active' }));
+            return quest && ['active', 'paused'].includes(quest.status) ? this.startQuest() : false;
+        },
+        questState(quest) {
+            const items = DocsDoodads.doodads(quest.mapId);
+            const sameMap = Number(quest.mapId) === Number(this.currentMapId());
+            return { placed: Math.max(0, items.length - quest.baseline), lights: items.filter(d => d && d.light && d.light.enabled).length,
+                minutes: sameMap ? this.previewMinutes !== null && this.previewMinutes !== undefined ? this.previewMinutes : DocsDoodads.api.time() : null,
+                played: quest.played, saved: quest.saved };
+        },
+        markQuest(key) {
+            const quest = this.questData();
+            if (!quest || quest.status !== 'active' || !['played', 'saved'].includes(key)) return;
+            if (key === 'saved' && !quest.played) return;
+            this.setQuestData(Object.assign({}, quest, { [key]: true })); this.updateQuest();
+        },
+        updateQuest() {
+            const quest = this.questData();
+            if (!quest || quest.status !== 'active') { this.stopQuestUi(); return false; }
+            const rows = Q.progress(this.questState(quest));
+            const completed = Array.from(new Set((quest.completed || []).concat(rows.filter(step => step.done).map(step => step.id))));
+            const next = Object.assign({}, quest, { completed, status: completed.length === Q.steps.length ? 'done' : 'active' });
+            if (JSON.stringify(next) !== JSON.stringify(quest)) this.setQuestData(next);
+            if (next.status === 'done') { this.stopQuestUi(); this.showToast('First map complete! Replay the quest from How to Use whenever you like.', 'success'); return true; }
+            if (this.mounted) this.renderQuest(next);
+            return false;
+        },
+        pauseQuest(status) {
+            const quest = this.questData();
+            if (quest) this.setQuestData(Object.assign({}, quest, { status: status === 'skipped' ? 'skipped' : 'paused' }));
+            this.stopQuestUi();
+        },
+        stopQuestUi() {
+            if (this._questTimer) clearInterval(this._questTimer);
+            this._questTimer = null;
+            if (typeof document !== 'undefined') for (const id of ['dd-first-map-quest', 'dd-quest-pointer']) {
+                const node = document.getElementById(id); if (node && node.parentNode) node.parentNode.removeChild(node);
+            }
+            this._questDrawn = '';
+        },
+        renderQuest(quest) {
+            const signature = JSON.stringify([quest.completed, this.currentMapId(), DocsDoodads.AssetIndex.list.length > 0]);
+            if (signature === this._questDrawn && document.getElementById('dd-first-map-quest')) return;
+            const old = document.getElementById('dd-first-map-quest'); if (old && old.parentNode) old.parentNode.removeChild(old);
+            const previousPointer = document.getElementById('dd-quest-pointer'); if (previousPointer && previousPointer.parentNode) previousPointer.parentNode.removeChild(previousPointer);
+            this._questDrawn = signature;
+            const card = document.createElement('div'); card.id = 'dd-first-map-quest'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;right:18px;bottom:45px;z-index:10038;width:250px;max-width:calc(100vw - 36px);padding:12px;font-size:12px;';
+            const done = new Set(quest.completed || []), next = Q.steps.find(step => !done.has(step.id));
+            card.innerHTML = '<div class="dd-panel-head" data-dd-help="your-first-map"><b> Your first map</b></div>'
+                + '<ol style="padding-left:22px;line-height:1.8;">' + Q.steps.map(step => '<li style="' + (done.has(step.id) ? 'color:var(--dd-muted);text-decoration:line-through;' : '') + '">' + (done.has(step.id) ? '✓ ' : '') + step.text + '</li>').join('') + '</ol>'
+                + (Number(quest.mapId) !== Number(this.currentMapId()) ? '<p>Continue on map ' + Number(quest.mapId) + '.</p>' : '')
+                + (!DocsDoodads.AssetIndex.list.length ? '<button class="dd-btn" id="dd-quest-samples">Add Sample Items</button>' : '')
+                + '<div style="display:flex;gap:5px;margin-top:8px;"><button class="dd-btn" id="dd-quest-point">Show me</button><button class="dd-btn" id="dd-quest-pause">Not now</button><button class="dd-btn" id="dd-quest-skip">Skip</button></div>';
+            (this.container || document.body).appendChild(card);
+            const bind = (id, fn) => { const element = document.getElementById(id); if (element) element.onclick = fn; };
+            bind('dd-quest-samples', async () => { await this.addSampleContent(); this._questDrawn = ''; this.updateQuest(); });
+            bind('dd-quest-pause', () => this.pauseQuest('paused')); bind('dd-quest-skip', () => this.pauseQuest('skipped'));
+            bind('dd-quest-point', () => {
+                const oldPointer = document.getElementById('dd-quest-pointer'); if (oldPointer && oldPointer.parentNode) oldPointer.parentNode.removeChild(oldPointer);
+                if (!next) return;
+                if (next.id === 'night') {
+                    this.selectedAsset = this.selectedEvent = this.selectedDoodad = null; this.selectedDoodads = [];
+                    this.refreshInspector();
+                }
+                const pointer = document.createElement('div'); pointer.id = 'dd-quest-pointer'; pointer.className = 'dd-tour dd-glass';
+                pointer.style.cssText = 'position:fixed;z-index:10039;width:250px;padding:10px;pointer-events:none;';
+                const hints = {
+                    place: 'Pick art in the Item Bag, choose Stamp and click the map three times.',
+                    lamp: 'Pick a placed object. In Details, More → Light → Emit light makes it a lamp. Or stamp the Sample Lamp Post prefab.',
+                    night: 'Drag the preview clock to 20:00 to see your lamps after dark.',
+                    played: 'Right-click a free tile, then Play From Here. Reopen the editor to continue.',
+                    saved: 'After trying the map, reopen the editor and press Save.'
+                };
+                pointer.textContent = hints[next.id] || next.text;
+                (this.container || document.body).appendChild(pointer); this.placeTour(pointer, next.at);
+            });
+        }
+    });
+    const play = W.playFromHere;
+    W.playFromHere = async function(x, y) { const ok = await play.call(this, x, y); if (ok) this.markQuest('played'); return ok; };
+    for (const name of ['saveAll', 'saveMapOnly']) {
+        const original = DocsDoodads.Persistence[name];
+        DocsDoodads.Persistence[name] = function(...args) {
+            const result = original.apply(this, args), quest = W.questData();
+            const mapId = name === 'saveMapOnly' ? Number(args[0] || W.currentMapId()) : null;
+            if (result === true && quest && (mapId === null || mapId === Number(quest.mapId))) W.markQuest('saved');
+            return result;
+        };
+    }
+})();
 // @editor-only
 //==========================================================
 // SECTION 25b: WORKSPACE READOUTS (COLLISION OVERLAY, DRAG READOUT, STATUS BAR)
@@ -53927,6 +55073,20 @@ if (autosaveRecoveryInterval > 0 && typeof window !== 'undefined') {
     }, autosaveRecoveryInterval * 1000);
     if (recoveryTimer && typeof recoveryTimer.unref === 'function') {
         recoveryTimer.unref();
+    }
+}
+// @editor-only
+if (DocsDoodads.Compat.isTest()) {
+    const clash = DocsDoodads.Clash;
+    if (typeof Game_Map !== 'undefined') clash.watch(Game_Map.prototype, 'update', 'Game_Map.update');
+    if (typeof Spriteset_Map !== 'undefined') clash.watch(Spriteset_Map.prototype, 'update', 'Spriteset_Map.update');
+    for (const level of ['warn', 'error']) {
+        const previous = console[level];
+        console[level] = function(...args) { clash.record(level, args); return previous.apply(console, args); };
+    }
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('error', event => clash.record('error', [event.error || event.message]));
+        window.addEventListener('unhandledrejection', event => clash.record('error', [event.reason]));
     }
 }
 //==========================================================

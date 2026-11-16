@@ -173,7 +173,7 @@ Ideas gathered after PR #86, from a read of the plugin and of what users of othe
 | 7.1.2 | **Built; MZ playtest pending.** **Editing what an event does.** The editor makes events from templates and changes their position, trigger and priority, but not their commands. An editor for the common ones (Show Text, Transfer Player, switches, self switches, pages and their conditions) would save most trips back to MZ. | L |
 | 7.1.3 | **Play From Here.** **Done** for the time and season (weather and switches to start with are not in it). Right-click a tile to put the player there and close the editor, with the time, season, weather and switches to start with. | S |
 | 7.1.4 | **Built; MZ playtest pending.** **Schedules for events.** The clock, the calendar and weekdays are there; nothing puts an event at the shop by day and at the inn by night. A schedule per event: where to be, by hour and weekday, walking there or appearing there. | M |
-| 7.1.5 | **Normal maps on flat maps.** Normal maps only work on 3D models. On doodads and characters they would let the lights there already shade the art by its shape. | L |
+| 7.1.5 | **Built; MZ playtest pending.** **Normal maps on flat maps.** Normal maps only work on 3D models. On doodads and characters they would let the lights there already shade the art by its shape. | L |
 | 7.1.6 | **Bringing in Tiled and LDtk maps.** There is no importer. Tiles, object layers as doodads, and collision shapes. | M |
 | 7.1.7 | **Types for `DocsDoodads.api`.** **Done.** `types/Docs-Doodads.d.ts`, written by `npm run types` from the JSDoc and checked by verify, is in the release zip. A `.d.ts` written by the build, so other plugins' authors get completion and checking. | S |
 | 7.1.8 | **A sample project.** Add Sample Items gives four pictures. A small town with lights, states, touchable doodads, traversal, weather and a 3D map would show what the plugin does. | M |
@@ -239,7 +239,7 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | 8.1.1 | **Built; MZ playtest pending.** **Simple mode.** The top bar has ten tools and four menus. Open with Select, Stamp, Scatter and Tiles and a short Details panel, with a Show Everything switch. Find a Tool (Ctrl+K) still reaches the rest. | M |
 | 8.1.2 | **Built; MZ playtest pending.** **Moods.** One button sets light, look, weather and ambience together (Cosy Night Village, Rainy Forest, Cave), shown on the map while the pointer is on it. The parts are all there; the bundle is not. | S |
 | 8.1.3 | **Good settings on drop.** Guess from the file's name and shape: "lamp" gets a lantern light that comes on after dark; "tree" gets sway, see-through and a box round the trunk. One Undo puts it back. | M |
-| 8.1.4 | **A first-map quest.** In place of the welcome card, five steps that tick themselves off (place three trees, add a lamp, make it night, press Play). Goes with the sample project (7.1.8). | S |
+| 8.1.4 | **Built; MZ playtest pending.** **A first-map quest.** In place of the welcome card, five steps that tick themselves off (place three trees, add a lamp, make it night, press Play). Goes with the sample project (7.1.8). | S |
 | 8.1.5 | **Built; MZ playtest pending.** **Help where you are.** A ? on each panel that opens its part of the guide, and the guide's headings in Find a Tool. | S |
 
 ### 8.2 Look and feel
@@ -271,7 +271,7 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | 8.4.1 | **Decorate mode for players.** A small, safe part of the editor in the finished game: the player opens a bag of things the maker chose, places and moves them where the maker allows, and it is kept in the save. Housing, farms, bases, shop floors. Placement, snapping, collision, undo and saved states are there; it needs a player's UI and the limits. | L |
 | 8.4.2 | **A world that remembers.** Grass wears to a path where the player walks often, snow keeps trails, saplings grow into trees over calendar days, broken things stay broken. On the calendar, seasons and saved states. | L |
 | 8.4.3 | **Elements that spread.** Fire catches on dry grass and moves with the wind; rain puts it out and leaves puddles; water runs downhill on Hills. Lights, wind, weather and height are there apart; this makes them act on each other. | L |
-| 8.4.4 | **Maps that move to the music.** Lights pulse, plants sway and particles burst in time with the BGM, per doodad, with a strength. | S |
+| 8.4.4 | **Built; MZ playtest pending.** **Maps that move to the music.** Lights pulse, plants sway and particles burst in time with the BGM, per doodad, with a strength. | S |
 | 8.4.5 | **Map eras.** One map in several versions (whole, burning, ruined; or now and ten years on), shown one over another in the editor and crossfaded in the game by a switch. | L |
 | 8.4.6 | **Rewind in a playtest.** Hold a key to take the game back up to 30 seconds, change the map, and play the same moment again. | L |
 | 8.4.7 | **A robot tester.** It walks every tile it can reach, touches every doodad and event and takes every transfer, then lists places with no way out, dead ends and errors. A step past Check Reach. | M |
@@ -343,5 +343,5 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | # | Suggestion | Size |
 |---|---|---|
 | 9.5.1 | **Tool built; real-runtime references and regression validation pending.** **A playtest that runs itself.** The suites run on a stand-in engine in Node; the water bug of 15 November only showed on a real GPU, and its probe is still pasted into DevTools by hand. `npm run playtest` starts MZ's runtime on a copy of the test project, visits Starting Town, Field Map and the cave, flat and in 3D, and compares frames with kept pictures. | M |
-| 9.5.2 | **Plugin clash check and a report bundle.** 7.4.5 is a list to publish. From the same table, Problems says which enabled plugins clash or need another order; and Save a Report gathers versions, the GPU, the plugin list and recent errors into one file for a bug report. Nothing is sent anywhere. | S |
+| 9.5.2 | **Built; MZ playtest pending.** **Plugin clash check and a report bundle.** 7.4.5 is a list to publish. From the same table, Problems says which enabled plugins clash or need another order; and Save a Report gathers versions, the GPU, the plugin list and recent errors into one file for a bug report. Nothing is sent anywhere. | S |
 | 9.5.3 | **Save-safe changes.** States and lights are kept in saves by a doodad's Name. Mark a release, and the editor warns when a rename, a delete or a changed state list would lose what players' saves hold, and keeps the old name working. | S |

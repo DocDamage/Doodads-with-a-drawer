@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Flat maps can shade doodads and characters from `_n.png` companions and nearby lamps. Normal maps follow animated frames, art moves and deployment; a generator supplies a rough starting map. Quality controls the light count; real GPU performance validation is pending.
+- New installs get a five-step first-map quest with observed progress, control hints, sample art and remembered Skip/Not Now. How to Use and Find a Tool can replay it.
+- Motion and lamps can follow shared Bass, Middle or Treble bands from BGM; particles can burst on a kick. The analyser is lazy, ignores sound effects and is released when unused. `api.beat()` exposes the bands.
+- Problems checks plugin order and observes bypassed update hooks. Info saves a local report with bounded warnings/errors, project-relative paths and only this plugin's parameters. No report is uploaded; compatibility playtests remain pending.
 - Event Details edits pages, conditions and common commands, including sign text and door destinations picked on another map. Unknown commands and branch markers are preserved; each change is undoable.
 - Details offers a short list for pictures, lights, sounds, models and events, with More and a search across hidden settings. Pins stay visible; settings used often rise in the list using counts kept on this computer.
 - Events can follow clock and weekday schedules, walk to a destination, hide between visits and pause for cutscenes. Details edits note or active-page schedules with undo and a tile picker.

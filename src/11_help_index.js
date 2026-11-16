@@ -37,6 +37,11 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "- Category Tabs: icon tabs for Doodads, People, Tiles, Pictures, Prefabs, Sounds, Favourites, Recently used, Everything, Faces, Battlers, Backdrops and System (hover for the name; the bag's title shows the open one). - Virtual Collections: Group assets into custom collections (e.g., \"Castle Set\", \"Dungeon Props\") without duplicating files on disk. Pick one in the collection list under the bag's search box or type collection:\"Castle Set\"; the ✕ beside the list deletes the shown collection (its assets stay). - Right-Click Card Context Menu: Right-click any asset card to open an instant action menu: - Place as Doodad / Place as Real MZ Event... - Add to Favorites / Remove from Favorites - Add to Collection... / Remove from \"Castle Set\" (one item per collection the asset is in) - Open in Slicing Modal / Export Slices to PNGs - Play Audio Preview / Stop Audio - Picking several: Ctrl+click cards to pick them one by one, Shift+click to pick the run from the last one clicked (the item shown in Details counts as the first). A bar above the cards then acts on all of them: Tag (adds tags), ★ (favourites; again to take the star off), Collection, Move (to another folder, updating every map, event and prefab that uses them, as Rename/Move does; save your changes first) and Delete (only files nothing uses: they go to data/docsdoodadscache/deleted/, from where you can put them back by hand). A plain click picks none again. - Thumbnail Slider: Zoom cards smoothly between 48px and 160px."
     },
     {
+        "title": "Your first map",
+        "anchor": "your-first-map",
+        "firstParagraph": "The small corner card ticks off five steps as you do them: place three things, add a lamp, make it night with the preview clock, Play From Here, then reopen the editor and Save. Show me points at the next control and explains what to do. With no art, Add Sample Items supplies some. Not now hides the quest until the next editor open; Skip is remembered. Finished quests stay finished. How to Use and Find a Tool can replay it, starting fresh steps on the current map without changing its content."
+    },
+    {
         "title": "Tokenized Search Syntax",
         "anchor": "tokenized-search-syntax",
         "firstParagraph": "Type directly into the search bar (press F to focus). Search is evaluated dynamically in under 30ms across 25,000+ assets: - chest: Finds any asset with \"chest\" in its name, tag, or path. - tag:nature or tag:\"deep forest\": Filters for assets with the manual or auto-tag. - collection:\"Castle Set\": Filters for assets belonging to a virtual collection. - type:charactersheet: Filters specifically for character sheets. - category:Audio: Filters for sound files. - favorite:true: Shows only starred/favorite assets. - animated:true: Shows only multi-frame or animated assets. - used:no / used:yes: Files no map, event, database entry, doodad, or prefab uses (or that something does use). - -tree: Negative search; excludes any asset matching \"tree\". A minus works on the others too: -tag:\"deep forest\", -type:charactersheet, -folder:enemies, -collection:\"Castle Set\", -category:Audio. - Combined Example: prop123 tag:tree -dead category:Doodads collection:\"Castle Set\""
@@ -100,6 +105,16 @@ DocsDoodads.HelpIndex = [
         "title": "Water Reflections",
         "anchor": "water-reflections",
         "firstParagraph": "- Characters and standing doodads get a rippling mirrored copy on the water tiles below them. Bridges over water are left alone. - Add a region to treat painted areas (ponds drawn with B-E tiles) as water. - Shore margin keeps a strip along the waterline clear, because MZ water tiles draw their own sand or grass edge. Reflections start where the water visibly begins. - Turn it off per map, per doodad (Reflect in water), or per event with <no reflection>."
+    },
+    {
+        "title": "Normal maps on flat maps",
+        "anchor": "normal-maps-on-flat-maps",
+        "firstParagraph": "Enable World → Normal Maps to shade pictures and characters with nearby lamps. Put Treen.png beside Tree.png, with the same dimensions, or pick the art and choose Make Normal Map in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together."
+    },
+    {
+        "title": "With the music",
+        "anchor": "with-the-music",
+        "firstParagraph": "In a doodad's Motion or Light section, With the music chooses Bass, Middle or Treble. Music strength blends between its usual amount and the music's energy. Plants can sway and lamps can pulse together. In Particles, Emits → On a music kick sends a burst at a bass onset. Only BGM drives these effects; sound effects do not. Silent or muted BGM gives zero energy. Scripts can read DocsDoodads.api.beat() for low, mid, high (0–1) and kick for this frame. One analyser is shared and released when unused."
     },
     {
         "title": "Motion Blur",
@@ -460,6 +475,11 @@ DocsDoodads.HelpIndex = [
         "title": "24. Troubleshooting & FAQ",
         "anchor": "24-troubleshooting--faq",
         "firstParagraph": ""
+    },
+    {
+        "title": "Plugins and local reports",
+        "anchor": "plugins-and-local-reports",
+        "firstParagraph": "Map → Problems has a Plugins group for known order advisories and hooks a later plugin appears to bypass. The check observes normal map updates without running gameplay as a probe. It waits for repeated calls before flagging a hook that never delegates; a removed observer is labelled as an unverified change. Listed later plugins are candidates to investigate. The generated plugin notes distinguish order advice from compatibility playtests, which are still pending."
     },
     {
         "title": "Q: Why isn't the editor opening when I press F10?",
