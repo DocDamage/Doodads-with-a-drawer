@@ -238,7 +238,7 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Terrain brush: raise, lower, flatten, set and erase with different radii; undo each stroke; Clear Painted Heights.
 - [ ] Hills shows height numbers under the brush; a Hard edge raises the whole circle the same, Soft less towards the rim.
 - [ ] Set Editor Toggle Key to `Ctrl+F10`: F10 alone does nothing, Ctrl+F10 opens and closes, the Done tip says Ctrl+F10. Set it to `E`: typing E in the search box does not close the editor.
-- [ ] 3D water: ripples on a sea and a lake, strength/speed/sparkle sliders, ripples off; sail a boat and a ship and watch the wakes; cross a looping map's seam; night; with terrain on.
+- [ ] 3D water: ripples on a sea and a lake, strength/speed/sparkle sliders, ripples off; sail a boat and a ship and watch the wakes; cross a looping map's seam; night; with terrain on. Look past every edge of the finite ground capture: the outer void stays its plain colour without a repeated moving water pattern, while water at the edge still ripples.
 - [ ] 3D height: shrink and grow standing doodads and characters; check feet stay put, gear and balloons follow, and clicking and dragging doodads in the editor still lands on them.
 - [ ] 3D day and night: run the clock and preview times in the editor; look east at dawn and west at dusk for the sun; stars at night; hills and water lit from the sun's side; a map with a parallax; the option off.
 - [ ] 3D weather: Set Weather Effect rain, storm and snow at powers 1, 5 and 9, with fades; at night; on water; with terrain; on a planet; turn 3D weather off (MZ's flat weather returns); leave 3D.

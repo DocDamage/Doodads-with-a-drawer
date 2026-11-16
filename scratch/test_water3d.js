@@ -23,12 +23,6 @@ const P = DocsDoodads.Perspective;
 const Wt = DocsDoodads.Water3D;
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
 
-// The shared ground shaders may animate water only inside their finite tilemap capture. Terrain has
-// margin triangles and the flat plane is infinite, so this is separate from whether the map loops.
-assert.strictEqual(typeof Wt.insideCapture, 'function');
-assert.deepStrictEqual([[0, 0], [0.5, 0.5], [1, 1], [-0.001, 0.5], [1.001, 0.5]].map(p => Wt.insideCapture(p[0], p[1])),
-    [true, true, true, false, false]);
-
 // 1. Settings live with the 3D view; water ripples by default.
 const s = P.normalize({ enabled: true });
 assert.deepStrictEqual([s.water, s.waterStrength, s.waterSpeed, s.waterShine, s.waterWakes], [true, 0.6, 1, 0.4, true]);

@@ -1407,7 +1407,9 @@ DocsDoodads.Water3D.applyGlsl = [
     '        vec2 mp = p + uOrigin;',
     // Only well inside water tiles: their shore border is drawn inside them, and sand stays dry.
     '        float wet = smoothstep(0.55, 0.95, docsWaterMask(mp));',
-    '        if (wet > 0.01) {',
+    // The map can loop under the finite tilemap capture. Terrain margins and the flat plane extend
+    // past that texture, but must stay plain void instead of receiving wrapped water highlights.
+    '        if (wet > 0.01 && uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) {',
     '            float foam;',
     '            vec2 g = docsWaterGrad(mp, foam) * uWater.y;',
     '            uv += g * 3.0 * wet / uGround;',
