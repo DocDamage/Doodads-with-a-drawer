@@ -72,9 +72,14 @@ R.updateMap($gameMap, false);
 assert.ok(R.stateFor(npc).target, 'the same minute retries after the map becomes free');
 let attempts = 0;
 npc.findDirectionTo = () => { attempts++; return 0; };
-for (let i = 0; i < 599; i++) R.stepEvent(npc);
+const walkingTarget = R.stateFor(npc).target;
+for (let minute = 0; minute < 10; minute++) {
+    now = 9 * 60 + minute;
+    R.updateMap($gameMap, false);
+    assert.strictEqual(R.stateFor(npc).target, walkingTarget, 'the same schedule entry preserves its walking state when the clock minute changes');
+    for (let frame = 0; frame < 60; frame++) R.stepEvent(npc);
+}
 assert.deepStrictEqual([npc.x, npc.y], [2, 2]);
-R.stepEvent(npc);
 assert.deepStrictEqual([npc.x, npc.y, npc.direction()], [5, 5, 6], 'a stuck walk locates and faces after 600 eligible frames');
 assert.ok(attempts > 0);
 
@@ -126,6 +131,24 @@ PluginManager._commands[pauseCommand]({ on: 'false' });
 assert.strictEqual(S.enabled(), false);
 PluginManager._commands[pauseCommand]({ on: 'true' });
 
+// Once an initial scan proves that a map has no schedules, its ordinary per-frame update avoids clock work.
+const savedNoteForEmptyMap = $dataMap.events[1].note;
+$dataMap.events[1].note = '';
+if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(npc);
+S.invalidate(npc);
+R.reset();
+R.updateMap($gameMap, true);
+let emptyMapClockReads = 0;
+const runtimeNow = R.now;
+R.now = function() { emptyMapClockReads++; return runtimeNow.call(this); };
+for (let frame = 0; frame < 30; frame++) $gameMap.updateDocsSchedules();
+assert.strictEqual(emptyMapClockReads, 0, 'a scanned map with no schedules does not rebuild clock and weekday values every frame');
+R.now = runtimeNow;
+$dataMap.events[1].note = savedNoteForEmptyMap;
+if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(npc);
+S.invalidate(npc);
+R.reset(); R.updateMap($gameMap, true);
+
 // Editor helpers: schedule comments migrate to one canonical note block, in one undoable edit.
 const staged = JSON.parse(JSON.stringify($dataMap.events[1]));
 staged.note = '<docs label: Baker>';
@@ -148,6 +171,30 @@ undoCommands[0].revert();
 assert.ok(!staged.note.includes('<docs schedule>'));
 assert.ok(staged.pages[0].list.some(c => /docs schedule/i.test(String((c.parameters || [])[0] || ''))));
 undoCommands[0].apply();
+
+// Editing is page-scoped when the active page owns a block, and never removes another page's block.
+staged.note = '<docs schedule>\n06:00 2,2\n</docs schedule>';
+staged.pages.push({ through: false, list: [
+    { code: 108, indent: 0, parameters: ['<docs schedule>'] },
+    { code: 408, indent: 0, parameters: ['18:00 8,8 hide'] },
+    { code: 408, indent: 0, parameters: ['</docs schedule>'] },
+    { code: 0, indent: 0, parameters: [] }
+] });
+npc._pageIndex = 0;
+staged.pages[0].list = [
+    { code: 108, indent: 0, parameters: ['<docs schedule>'] },
+    { code: 408, indent: 0, parameters: ['12:00 6,6 walk'] },
+    { code: 408, indent: 0, parameters: ['</docs schedule>'] },
+    { code: 0, indent: 0, parameters: [] }
+];
+const pageTwoBefore = JSON.stringify(staged.pages[1].list);
+const noteBeforePageEdit = staged.note;
+assert.strictEqual(W.selectedScheduleData().scope.kind, 'page');
+assert.strictEqual(W.editEventSchedule(S.parse('<docs schedule>\n13:00 7,7 face:2\n</docs schedule>', weekdays)), true);
+assert.strictEqual(JSON.stringify(staged.pages[1].list), pageTwoBefore, 'editing page 1 preserves the inactive page 2 schedule exactly');
+assert.strictEqual(staged.note, noteBeforePageEdit, 'a page schedule is not silently migrated into the event note');
+assert.ok(staged.pages[0].list.some(c => /13:00 7,7 face:2/.test(String((c.parameters || [])[0] || ''))));
+
 const invalidEdit = S.parse('<docs schedule>\nbad line\n</docs schedule>', weekdays);
 assert.strictEqual(W.editEventSchedule(invalidEdit), false, 'invalid text is kept in the field instead of dropping its line');
 
