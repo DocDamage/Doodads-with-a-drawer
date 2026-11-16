@@ -377,6 +377,12 @@ if (typeof Spriteset_Map !== 'undefined') {
         }
         if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
+        const base = Lighting.lightmapBase(ambient);
+        // Normal filters still need live lamps in daylight, when the ordinary multiply is not drawn.
+        this._docsNormalLightInfo = { base, lights, time };
+        // Resolve filters before the ordinary lightmap is rendered, so its white exemption pool describes
+        // this frame (including a quality switch to Off), not the previous one.
+        if (this.updateDocsNormalSprites) this.updateDocsNormalSprites();
 
         const glowing = lights.filter(l => l.glow > 0);
         this.docsSpritePool(this._docsGlowSprites, this._docsGlowLayer, glowing.length);
@@ -400,6 +406,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (ambient.darkness <= 0.001 || !renderer) {
             this._docsLightOverlay.visible = false;
             this._docsLightInfo = null;
+            if (this.updateDocsNormalMasks) this.updateDocsNormalMasks(false);
             return;
         }
         const size = this._docs3dSize;
@@ -410,7 +417,6 @@ if (typeof Spriteset_Map !== 'undefined') {
             this._docsLightTexture = PIXI.RenderTexture.create({ width: w, height: h });
             this._docsLightOverlay.texture = this._docsLightTexture;
         }
-        const base = Lighting.lightmapBase(ambient);
         this._docsLightInfo = { base, lights };
         this._docsLightBase.width = w;
         this._docsLightBase.height = h;
@@ -434,6 +440,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         });
         // Masks left over from lights that went out.
         for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i]._docsOutline = null; this._docsLightMasks[i].visible = false; }
+        if (this.updateDocsNormalMasks) this.updateDocsNormalMasks(true);
         renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
@@ -778,7 +785,8 @@ DocsDoodads.Perspective.usedInProject = function() {
 };
 
 DocsDoodads.fxQualityOffered = function() {
-    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject();
+    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject()
+        || Boolean(DocsDoodads.World.settings().normalLight.enabled);
 };
 
 // Options menu: players can switch motion blur off and lower the effects quality

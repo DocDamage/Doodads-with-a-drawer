@@ -1,6 +1,13 @@
 'use strict';
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const E = require('./engine/fake_engine');
+
+const projectRoot = process.env.DD_REPO_ROOT || fs.mkdtempSync(path.join(os.tmpdir(), 'dd-normal-map-'));
+fs.mkdirSync(projectRoot, { recursive: true });
+process.chdir(projectRoot);
 
 E.install();
 E.setupWorld({ width: 24, height: 18, px: 10, py: 9 });
@@ -128,6 +135,7 @@ assert.ok(visibleMasks.every(s => ss._docsLightScene.children.indexOf(s) > ss._d
 ConfigManager.docsFxQuality = 3;
 E.frames(ss, 1);
 assert.ok(!(targetSprite.filters || []).includes(targetSprite._docsNormalFilter), 'Effects Quality Off removes the filter');
+assert.ok(ss._docsNormalMasks.every(s => !s.visible), 'the ordinary lightmap exemption turns off in the same frame');
 ConfigManager.docsFxQuality = 0;
 D.Lighting.setMapSettings(1, { perspective: { enabled: true, pitch: 45, viewTiles: 20 } });
 E.frames(ss, 2);
@@ -139,4 +147,39 @@ assert.ok(normalSection && normalSection.fields.some(f => f.key === 'normalLight
 assert.ok(/Make Normal Map/.test(D.Workspace.renderUsagePanel(indexed.stone)));
 assert.ok(!/Make Normal Map/.test(D.Workspace.renderUsagePanel(indexed.stoneNormal)));
 
-console.log('Normal maps: manifest, Sobel, GLSL1 uniforms, runtime filters, masks, characters, quality, 3D and deployment passed.');
+(async () => {
+    // The actual editor action writes beside the source, indexes the result, and persists the runtime manifest.
+    fs.mkdirSync(path.join(projectRoot, 'img/doodads'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'img/doodads/Stone.png'), Buffer.from([1]));
+    const createElement = document.createElement;
+    document.createElement = tag => {
+        const element = createElement(tag);
+        if (String(tag).toLowerCase() === 'canvas') element.toDataURL = () => 'data:image/png;base64,AA==';
+        return element;
+    };
+    D.Workspace.showToast = D.Workspace.refreshDrawerCards = D.Workspace.refreshInspector = D.Workspace.refreshSpriteset = () => {};
+    const made = await D.Workspace.makeAssetNormalMap(indexed.stone, async () => ({
+        width: 2, height: 2, data: new Uint8ClampedArray(16).fill(255)
+    }));
+    document.createElement = createElement;
+    assert.strictEqual(made, 'img/doodads/Stone_n.png');
+    assert.ok(fs.existsSync(path.join(projectRoot, made)));
+    const savedManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, N.manifestPath), 'utf8'));
+    assert.strictEqual(savedManifest.normals['img/doodads/stone.png'], 'img/doodads/Stone_n.png');
+    assert.ok(D.Workspace.companionFiles('img/doodads/Stone.png', 'img/doodads/Rock.png').some(move =>
+        move.from === 'img/doodads/Stone_n.png' && move.to === 'img/doodads/Rock_n.png'), 'Rename/Move keeps a normal beside its base art');
+    const baseEntry = { id: 'img/doodads/stone.png', path: 'img/doodads/Stone.png', fileName: 'Stone.png', tags: [], autoTags: [], collections: [], placement: {}, collision: {}, usage: {} };
+    const normalEntry = { id: 'img/doodads/stone_n.png', path: 'img/doodads/Stone_n.png', fileName: 'Stone_n.png', tags: [], autoTags: [], collections: [], placement: {}, collision: {}, usage: {} };
+    D.AssetIndex.data = { version: 1, assets: { [baseEntry.id]: baseEntry, [normalEntry.id]: normalEntry }, collections: {}, settings: {} };
+    D.AssetIndex.linkNormalMaps(); D.AssetIndex.save();
+    D.Persistence.dirtyDoodads = D.Persistence.dirtyMap = false; D.Persistence.stagedMaps = {};
+    const renamed = D.Workspace.renameAsset(baseEntry, 'img/doodads/Rock.png', { quiet: true });
+    assert.strictEqual(renamed.ok, true, renamed.error);
+    assert.ok(fs.existsSync(path.join(projectRoot, 'img/doodads/Rock.png')) && fs.existsSync(path.join(projectRoot, 'img/doodads/Rock_n.png')));
+    assert.ok(!fs.existsSync(path.join(projectRoot, 'img/doodads/Stone.png')) && !fs.existsSync(path.join(projectRoot, 'img/doodads/Stone_n.png')));
+    assert.strictEqual(D.AssetIndex.data.assets['img/doodads/rock.png'].normalMap, 'img/doodads/Rock_n.png');
+    const renamedManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, N.manifestPath), 'utf8'));
+    assert.strictEqual(renamedManifest.normals['img/doodads/rock.png'], 'img/doodads/Rock_n.png');
+
+    console.log('Normal maps: manifest, Sobel, GLSL1 uniforms, runtime filters, masks, characters, quality, 3D, generation and deployment passed.');
+})().catch(error => { console.error(error); process.exitCode = 1; });

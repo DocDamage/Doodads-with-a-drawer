@@ -63,6 +63,12 @@ DocsDoodads.RequiredAssets = {
                 if (name && base !== name && base.toLowerCase().startsWith(name.toLowerCase() + '_')) add('img/characters/' + file);
             }
         }
+        // The runtime manifest is authoritative: restore only known companions, never guessed `_n` names.
+        const normalManifest = sources.normalManifest || (DocsDoodads.NormalLight && DocsDoodads.NormalLight.manifest) || { normals: {} };
+        const normalFor = base => DocsDoodads.NormalLight ? DocsDoodads.NormalLight.pathFor(base, normalManifest) : null;
+        for (const file of Array.from(out)) add(normalFor(file));
+        // MZ already knows the base actor/event sheet, so it may not be in `out`; its normal is still plugin art.
+        for (const name of sheetNames) add(normalFor('img/characters/' + name + '.png'));
         return Array.from(out).sort();
     },
 
@@ -78,7 +84,8 @@ DocsDoodads.RequiredAssets = {
         }
         let characters = [];
         try { characters = FS.fs.readdirSync('img/characters').filter(f => /\.png$/i.test(f)); } catch (e) { characters = []; }
-        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters });
+        const normalManifest = FS.readJson(DocsDoodads.NormalLight.manifestPath) || DocsDoodads.NormalLight.manifest;
+        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters, normalManifest });
         const ok = FS.atomicWriteJson(this.path, { note: 'Files Doc\'s Doodads draws that MZ\'s "Exclude unused files" can\'t see. npm run deploy -- --restore <project> <deployed folder> puts them back.', files }, 2);
         return ok ? files : null;
     }

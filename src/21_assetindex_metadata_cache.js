@@ -22,7 +22,7 @@ DocsDoodads.AssetIndex = {
     },
     list: [],
     // Bump when indexFile derives new fields so unchanged files are re-indexed once.
-    entryRevision: 4,
+    entryRevision: 5,
 
     // Reads the library file, unless it is unchanged since it was last read or written here (opening the
     // editor again keeps the same objects). True when it was read.
@@ -37,7 +37,7 @@ DocsDoodads.AssetIndex = {
             this.data = loaded;
         }
         this.noteLoaded(stat);
-        this.rebuildList();
+        this.linkNormalMaps();
         return true;
     },
 
@@ -64,7 +64,35 @@ DocsDoodads.AssetIndex = {
     },
 
     rebuildList() {
-        this.list = Object.values(this.data.assets);
+        this.list = Object.values(this.data.assets).filter(asset => asset && !asset.auxiliary);
+    },
+
+    // Links hand-authored or generated `_n.png` files after a scan has seen both sides. The small runtime
+    // manifest is the only source used in-game, so a missing companion is never requested speculatively.
+    linkNormalMaps() {
+        const assets = this.data.assets || {};
+        for (const asset of Object.values(assets)) {
+            if (!asset) continue;
+            delete asset.normalMap;
+            if (asset.normalFor) { delete asset.normalFor; delete asset.auxiliary; }
+        }
+        const manifest = DocsDoodads.NormalLight.manifestFromAssets(assets);
+        const byPath = new Map(Object.values(assets).filter(Boolean).map(asset => [String(asset.path || '').toLowerCase(), asset]));
+        for (const [basePath, normalPath] of Object.entries(manifest.normals)) {
+            const base = byPath.get(basePath), normal = byPath.get(String(normalPath).toLowerCase());
+            if (!base || !normal) continue;
+            base.normalMap = normal.path;
+            normal.normalFor = base.path;
+            normal.auxiliary = true;
+        }
+        this.rebuildList();
+        return manifest;
+    },
+
+    writeNormalManifest(target = DocsDoodads.NormalLight.manifestPath, manifest = this.linkNormalMaps()) {
+        const ok = DocsDoodads.FS.atomicWriteJson(target, manifest, 2);
+        if (ok && target === DocsDoodads.NormalLight.manifestPath) DocsDoodads.NormalLight.setManifest(manifest);
+        return ok;
     },
 
     isEntryCurrent(existing, stat) {
@@ -192,12 +220,14 @@ DocsDoodads.AssetIndex = {
         }
 
         this.data.generatedAt = Date.now();
-        this.rebuildList();
+        const normalManifest = this.linkNormalMaps();
         if (options.save !== false) {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
             if (DocsDoodads.FS.atomicWriteJson(target, this.data, 0) && target === this.libraryPath) this.noteLoaded();
+            const normalTarget = options.projectRoot ? path.join(projectRoot, DocsDoodads.NormalLight.manifestPath) : DocsDoodads.NormalLight.manifestPath;
+            this.writeNormalManifest(normalTarget, normalManifest);
         }
         return result;
     },
@@ -223,7 +253,7 @@ DocsDoodads.AssetIndex = {
         }
         if (indexed) {
             this.data.generatedAt = Date.now();
-            this.rebuildList();
+            this.linkNormalMaps();
             if (options.save !== false) this.save();
         }
         return indexed;
@@ -345,8 +375,10 @@ DocsDoodads.AssetIndex = {
     // wait a moment (saveSoon) and are written by flushUsage on Save, on closing the editor and the game.
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
+        const manifest = this.linkNormalMaps();
         const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data, 0);
         if (ok) this.noteLoaded();
+        if (ok) this.writeNormalManifest(DocsDoodads.NormalLight.manifestPath, manifest);
         return ok;
     },
 

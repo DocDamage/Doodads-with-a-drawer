@@ -552,7 +552,7 @@
         return index.get(DocsDoodads.Usage.keyOf(asset.path)) || [];
     },
 
-    // Files that move with an image or sound: atlas metadata, and the other audio format.
+    // Files that move with an image or sound: atlas metadata, a normal map, and the other audio format.
     companionFiles(oldPath, newPath) {
         const FS = DocsDoodads.FS;
         const out = [];
@@ -562,6 +562,8 @@
         for (const extra of extras) {
             if (FS.existsSync(oldBase + extra)) out.push({ from: oldBase + extra, to: newBase + extra });
         }
+        const oldNormal = DocsDoodads.NormalLight.normalPath(oldPath), newNormal = DocsDoodads.NormalLight.normalPath(newPath);
+        if (oldNormal && newNormal && FS.existsSync(oldNormal)) out.push({ from: oldNormal, to: newNormal });
         return out;
     },
 
@@ -616,10 +618,26 @@
         entry.fileName = newPath.split('/').pop();
         entry.category = DocsDoodads.AssetIndex.detectCategory(newPath);
         library.assets[newId] = entry;
+        const oldNormal = DocsDoodads.NormalLight.normalPath(oldPath), newNormal = DocsDoodads.NormalLight.normalPath(newPath);
+        const oldNormalId = oldNormal ? oldNormal.toLowerCase() : '', newNormalId = newNormal ? newNormal.toLowerCase() : '';
+        if (oldNormalId && newNormalId && library.assets[oldNormalId]) {
+            const normalEntry = library.assets[oldNormalId];
+            delete library.assets[oldNormalId];
+            normalEntry.id = newNormalId;
+            normalEntry.path = newNormal;
+            normalEntry.fileName = newNormal.split('/').pop();
+            normalEntry.category = DocsDoodads.AssetIndex.detectCategory(newNormal);
+            library.assets[newNormalId] = normalEntry;
+        }
         for (const members of Object.values(library.collections || {})) {
-            if (Array.isArray(members)) members.forEach((id, i) => { if (id === oldId) members[i] = newId; });
+            if (Array.isArray(members)) members.forEach((id, i) => {
+                if (id === oldId) members[i] = newId;
+                else if (id === oldNormalId) members[i] = newNormalId;
+            });
         }
         entries.push({ path: DocsDoodads.AssetIndex.libraryPath, data: library, indent: 2 });
+        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets);
+        entries.push({ path: DocsDoodads.NormalLight.manifestPath, data: normalManifest, indent: 2 });
 
         // Move the files first: undoing a rename is easy, undoing half-written data is not.
         const moves = [{ from: oldPath, to: newPath }].concat(this.companionFiles(oldPath, newPath));
@@ -659,7 +677,8 @@
         }
         for (const e of entries) if (/data\/Map\d+\.json$/.test(e.path)) persistence.sessionSnapshots[e.path] = FS.stat(e.path);
         DocsDoodads.AssetIndex.data = library;
-        DocsDoodads.AssetIndex.rebuildList();
+        DocsDoodads.AssetIndex.linkNormalMaps();
+        DocsDoodads.NormalLight.setManifest(normalManifest);
         DocsDoodads.Thumbnail.invalidate(oldId);
         DocsDoodads.Usage.lastIndex = null;
         if (this.selectedAsset === asset) this.selectedAsset = library.assets[newId];

@@ -95,7 +95,10 @@ if (typeof PIXI !== 'undefined') {
             this._stateArtKey = this._stateArt ? this._stateArt.path : '';
             const path = this.seasonPath();
             this._loadedPath = path;
-            const packed = path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
+            // A packed region has different UVs from its full-size `_n` companion. Keep mapped normal art on
+            // its original sheet so both samplers use the same frame.
+            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.pathFor(path);
+            const packed = !normalMapped && path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
                 ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
             this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;
             this._regionSize = packed ? { w: packed.w, h: packed.h } : null;
