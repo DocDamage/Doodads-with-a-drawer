@@ -748,6 +748,7 @@
         const out = [];
         const add = (label, run, group, keys) => out.push({ label, run, group: group || 'Command', keys });
         const K = id => D.Shortcuts.label(id) || undefined;
+        for (const heading of D.HelpIndex) add('Help: ' + heading.title, () => D.Help.show(heading.anchor), 'Help');
         add('Save', () => D.Persistence.saveAll(), null, K('save'));
         add('Undo', () => D.Undo.undo(), null, K('undo'));
         add('Redo', () => D.Undo.redo(), null, K('redo'));

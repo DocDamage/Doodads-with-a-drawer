@@ -12,6 +12,7 @@
     "build:game": "node scripts/build.js --game",
     "shortcuts": "npm run build && node scripts/shortcuts.js",
     "strings": "node scripts/strings.js",
+    "help": "node scripts/help.js",
     "types": "node scripts/types.js",
     "check": "node scripts/build.js --check && node --check Docs-Doodads.js",
     "test": "node scratch/run-tests.js",

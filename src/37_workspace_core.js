@@ -151,6 +151,7 @@ DocsDoodads.Workspace = {
         }
         this.updateCollisionLegend();
         DocsDoodads.Ui.installTooltips();
+        DocsDoodads.Help.install();
         if (DocsDoodads.Ui.prefs().perfOverlay === true) this.startPerf();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
@@ -176,6 +177,7 @@ DocsDoodads.Workspace = {
         if (DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         this.stopStatusBar();
         DocsDoodads.Ui.removeTooltips();
+        DocsDoodads.Help.uninstall();
         this.closeToastHistory();
         this.closeLookCard();
         this.closeMoods();
@@ -513,7 +515,7 @@ DocsDoodads.Workspace = {
         `;
         drawer.innerHTML = `
             <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Item Bag size" tabindex="0"></div>
-            <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag">
+            <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag" data-dd-help="4-the-item-bag--search">
                 ${U.icon('bag', 2)}
                 <span class="dd-grow">Item Bag <span id="dd-drawer-category" style="color: var(--dd-muted); font-weight: 800; font-size: 12px;"></span></span>
                 <button class="dd-btn dd-fold" id="dd-drawer-fold" title="Fold the bag away">${U.icon('left', 1)}</button>
@@ -556,7 +558,7 @@ DocsDoodads.Workspace = {
         `;
         inspector.innerHTML = `
             <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Details size" tabindex="0"></div>
-            <div class="dd-panel-head" id="dd-inspector-head">
+            <div class="dd-panel-head" id="dd-inspector-head" data-dd-help="7-depth-appearance-motion-shadows--lights">
                 <button class="dd-btn dd-fold" id="dd-inspector-fold" title="Fold the details away (H)">${U.icon('right', 1)}</button>
                 <span id="dd-inspector-icon">${U.icon('map', 2)}</span>
                 <span class="dd-grow" id="dd-inspector-title">Details</span>

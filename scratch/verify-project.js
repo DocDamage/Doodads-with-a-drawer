@@ -58,6 +58,7 @@ console.log('\n===== Game-only editor guards =====');
     }
 }
 run('Guide shortcut table', process.execPath, [path.join('scripts', 'shortcuts.js'), '--check']);
+run('Guide help index', process.execPath, [path.join('scripts', 'help.js'), '--check']);
 run('Translation template', process.execPath, [path.join('scripts', 'strings.js'), '--check']);
 run('API types', process.execPath, [path.join('scripts', 'types.js'), '--check']);
 run('Lint', process.execPath, [path.join('node_modules', 'eslint', 'bin', 'eslint.js'), 'Docs-Doodads.js', 'scripts', 'scratch', 'eslint.config.js']);
