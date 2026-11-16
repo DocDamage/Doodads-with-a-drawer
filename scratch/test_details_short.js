@@ -41,4 +41,41 @@ assert.strictEqual(D.Ui.prefs().detailsUsage.picture.opacity, 2, 'a reverted ges
 const html = W.renderEffectSections([first]);
 assert.ok(html.includes('Emitter'), 'all settings are rendered and bound before display filtering');
 assert.ok(W._effectSections.some(s => s.title === 'Particles'));
+// A small DOM fixture checks the actual controls, including selection classification and More.
+function node(tag, text = '') {
+    return { tagName: tag.toUpperCase(), textContent: text, style: {}, children: [], id: '', value: '',
+        appendChild(child) { this.children.push(child); child.parentNode = this; },
+        insertBefore(child, before) { if (child.parentNode) child.parentNode.children = child.parentNode.children.filter(c => c !== child); const index = this.children.indexOf(before); this.children.splice(index < 0 ? 0 : index, 0, child); child.parentNode = this; },
+        setAttribute(key, value) { this[key] = value; },
+        closest(selector) { let current = this; while (current) { if (current.tagName.toLowerCase() === selector) return current; current = current.parentNode; } return null; },
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+        querySelectorAll(selector) { const found = []; const visit = parent => { for (const child of parent.children) { if (selector.split(',').some(s => s.startsWith('#') ? child.id === s.slice(1) : child.tagName.toLowerCase() === s)) found.push(child); visit(child); } }; visit(this); return found; }
+    };
+}
+const root = node('div');
+for (const title of ['Appearance', 'Particles']) {
+    const section = node('details'), summary = node('summary', title), row = node('div', title === 'Particles' ? 'Emitter amount' : 'Opacity');
+    section.appendChild(summary); section.appendChild(row);
+    const control = node('input'); control.id = title === 'Particles' ? 'particles.rateScale' : 'opacity'; row.appendChild(control); root.appendChild(section);
+}
+const position = node('div', 'Tile X'); const xInput = node('input'); xInput.id = 'dd-prop-x'; position.appendChild(xInput); root.appendChild(position);
+document.createElement = tag => node(tag);
+document.getElementById = id => id === 'dd-inspector-content' ? root : root.querySelector('#' + id);
+W.selectedDoodads = [first];
+assert.deepStrictEqual(W.detailsKinds(), ['picture']);
+W.bindShortDetails();
+const particleSection = root.querySelectorAll('details').find(s => s.querySelector('summary').textContent === 'Particles');
+assert.strictEqual(particleSection.style.display, 'none');
+const more = root.querySelector('#dd-details-more'); more.onclick();
+assert.strictEqual(particleSection.style.display, '');
+more.onclick();
+const search = root.querySelector('#dd-details-search'); search.value = 'emitter'; search.oninput();
+assert.strictEqual(particleSection.style.display, '', 'typing reveals and opens the hidden section');
+assert.strictEqual(particleSection.open, true);
+assert.strictEqual(position.style.display, 'none');
+search.value = 'tile'; search.oninput();
+assert.strictEqual(position.style.display, '', 'top-level fields are also searchable');
+search.value = ''; search.oninput();
+assert.strictEqual(particleSection.style.display, 'none', 'clearing search restores the shortlist');
+assert.ok(!JSON.stringify(D.Ui.prefs()).includes('Emitter amount'), 'query text is never written to preferences');
 console.log('Short Details: defaults, pins, mixed kinds, hidden search and local usage passed.');

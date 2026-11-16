@@ -25,6 +25,10 @@ DocsDoodads.SimpleMode = {
     end() { this.extra = []; this.active = null; },
     menuItems(all) { return all.filter(item => this.basicMenus.includes(item.id)); },
     sections(all, kind) {
+        if (kind && DocsDoodads.DetailsShort) {
+            const prefs = DocsDoodads.Ui.prefs();
+            return DocsDoodads.DetailsShort.sections(all, [kind], Array.isArray(prefs.detailsPinned) ? prefs.detailsPinned : [], prefs.detailsUsage || {});
+        }
         return all.filter(s => this.basicFields[s.title] || (kind === 'model' && s.title === '3D Model')).map(s => {
             const fields = this.basicFields[s.title];
             return fields ? Object.assign({}, s, { fields: s.fields.filter(f => fields.includes(f.key)) }) : s;
