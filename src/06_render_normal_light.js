@@ -156,17 +156,25 @@ DocsDoodads.NormalLight = {
         });
     },
 
-    transformUniforms(matrix, frame, anchor, into = {}) {
+    transformUniforms(matrix, frame, anchor, into = {}, lightMatrix = null) {
         matrix = matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
         const a = Number(matrix.a) || 0, b = Number(matrix.b) || 0, c = Number(matrix.c) || 0, d = Number(matrix.d) || 0;
         const det = a * d - b * c;
         const inv = Math.abs(det) > 0.0000001 ? [d / det, -b / det, -c / det, a / det] : [1, 0, 0, 1];
-        const ax = Math.hypot(a, b) || 1, ay = Math.hypot(c, d) || 1;
+        const light = lightMatrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        const la = Number(light.a) || 0, lb = Number(light.b) || 0, lc = Number(light.c) || 0, ld = Number(light.d) || 0;
+        const lightDet = la * ld - lb * lc;
+        const lightInv = Math.abs(lightDet) > 0.0000001 ? [ld / lightDet, -lb / lightDet, -lc / lightDet, la / lightDet] : [1, 0, 0, 1];
+        const ra = lightInv[0] * a + lightInv[2] * b, rb = lightInv[1] * a + lightInv[3] * b;
+        const rc = lightInv[0] * c + lightInv[2] * d, rd = lightInv[1] * c + lightInv[3] * d;
+        const ax = Math.hypot(ra, rb) || 1, ay = Math.hypot(rc, rd) || 1;
         into.uScreenToLocal = inv;
         into.uSpriteOrigin = [Number(matrix.tx) || 0, Number(matrix.ty) || 0];
         into.uSpriteSize = [Math.max(1, Number(frame && frame.width) || 1), Math.max(1, Number(frame && frame.height) || 1)];
         into.uAnchor = [Number(anchor && anchor.x) || 0, Number(anchor && anchor.y) || 0];
-        into.uNormalBasis = [a / ax, b / ax, c / ay, d / ay];
+        into.uScreenToLight = lightInv;
+        into.uLightOrigin = [Number(light.tx) || 0, Number(light.ty) || 0];
+        into.uNormalBasis = [ra / ax, rb / ax, rc / ay, rd / ay];
         return into;
     },
 
@@ -178,6 +186,13 @@ DocsDoodads.NormalLight = {
         const x = inverse[0] * deltaX + inverse[2] * deltaY;
         const y = inverse[1] * deltaX + inverse[3] * deltaY;
         return [x / uniforms.uSpriteSize[0] + uniforms.uAnchor[0], y / uniforms.uSpriteSize[1] + uniforms.uAnchor[1]];
+    },
+
+    lightPoint(point, uniforms) {
+        const deltaX = (Number(point && point.x) || 0) - uniforms.uLightOrigin[0];
+        const deltaY = (Number(point && point.y) || 0) - uniforms.uLightOrigin[1];
+        const inverse = uniforms.uScreenToLight;
+        return [inverse[0] * deltaX + inverse[2] * deltaY, inverse[1] * deltaX + inverse[3] * deltaY];
     },
 
     // A simple height map from alpha and luminance, then Sobel X/Y into a tangent-space normal.
@@ -208,7 +223,11 @@ DocsDoodads.NormalLight = {
     },
 
     fragment: `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 varying vec2 vTextureCoord;
 uniform sampler2D uSampler;
 uniform sampler2D uNormalMap;
@@ -220,6 +239,8 @@ uniform vec4 uScreenToLocal;
 uniform vec2 uSpriteOrigin;
 uniform vec2 uSpriteSize;
 uniform vec2 uAnchor;
+uniform vec4 uScreenToLight;
+uniform vec2 uLightOrigin;
 uniform sampler2D uLightMap;
 uniform vec2 uLightMapSize;
 uniform float uUseOcclusion;
@@ -231,6 +252,9 @@ uniform vec4 uLightCone[8];
 void main(void) {
     vec4 base = texture2D(uSampler, vTextureCoord);
     vec2 fragmentPixel = outputFrame.xy + vTextureCoord * inputSize.xy;
+    vec2 lightDelta = fragmentPixel - uLightOrigin;
+    vec2 lightPixel = vec2(uScreenToLight.x * lightDelta.x + uScreenToLight.z * lightDelta.y,
+        uScreenToLight.y * lightDelta.x + uScreenToLight.w * lightDelta.y);
     vec2 delta = fragmentPixel - uSpriteOrigin;
     vec2 localUv = vec2(uScreenToLocal.x * delta.x + uScreenToLocal.z * delta.y,
         uScreenToLocal.y * delta.x + uScreenToLocal.w * delta.y) / uSpriteSize + uAnchor;
@@ -243,7 +267,7 @@ void main(void) {
     vec3 flatLightValue = uAmbient;
     for (int i = 0; i < 8; i++) {
         if (float(i) < uLightCount) {
-            vec2 fromLight = fragmentPixel - uLightPosRadius[i].xy;
+            vec2 fromLight = lightPixel - uLightPosRadius[i].xy;
             float distanceToLight = length(fromLight);
             float falloff = max(0.0, 1.0 - distanceToLight / uLightPosRadius[i].z);
             float cone = 1.0;
@@ -257,7 +281,7 @@ void main(void) {
     }
     lightValue = clamp(lightValue, 0.0, 1.0);
     if (uUseOcclusion > 0.5) {
-        vec3 reached = max(texture2D(uLightMap, fragmentPixel / uLightMapSize).rgb - uAmbient, vec3(0.0));
+        vec3 reached = max(texture2D(uLightMap, lightPixel / uLightMapSize).rgb - uAmbient, vec3(0.0));
         vec3 possible = max(flatLightValue - uAmbient, vec3(0.00001));
         vec3 reachRatio = clamp(reached / possible, 0.0, 1.0);
         lightValue = uAmbient + (lightValue - uAmbient) * reachRatio;

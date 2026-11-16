@@ -83,12 +83,14 @@
                 uniforms.uLightMap = PIXI.Texture.WHITE;
                 uniforms.uLightMapSize = [1, 1];
                 uniforms.uUseOcclusion = 0;
-                N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, uniforms);
+                const base = sprite._docsNormalBase;
+                N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, uniforms, base && base.worldTransform);
                 sprite._docsNormalFilter = new PIXI.Filter(undefined, this.fragment, uniforms);
                 sprite._docsNormalFilter.padding = 0;
                 const apply = sprite._docsNormalFilter.apply;
                 sprite._docsNormalFilter.apply = function() {
-                    N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, this.uniforms);
+                    const base = sprite._docsNormalBase;
+                    N.transformUniforms(sprite.worldTransform, sprite.texture && sprite.texture.frame, sprite.anchor, this.uniforms, base && base.worldTransform);
                     return apply.apply(this, arguments);
                 };
             } catch (error) {
@@ -129,7 +131,8 @@
             return (Number(light.intensity) || 0) * flicker;
         });
         filter.uniforms.uNormalUv = this.frameUv(frame, sprite._docsNormalBitmap.width, sprite._docsNormalBitmap.height);
-        this.transformUniforms(sprite.worldTransform, frame, sprite.anchor, filter.uniforms);
+        const base = sprite._docsNormalBase;
+        this.transformUniforms(sprite.worldTransform, frame, sprite.anchor, filter.uniforms, base && base.worldTransform);
         DocsDoodads.toggleFilter(sprite, filter, true);
         sprite._docsNormalActive = true;
         return true;
@@ -152,7 +155,10 @@
         if (!max) { for (const sprite of sprites) N.detach(sprite); return 0; }
         const info = this._docsNormalLightInfo || { base: [1, 1, 1], lights: [], time: DocsDoodads.frameCount() / 60 };
         let count = 0;
-        for (const sprite of sprites) if (N.updateSprite(sprite, N.sourceFor(sprite), info, max)) count++;
+        for (const sprite of sprites) {
+            sprite._docsNormalBase = this._baseSprite || null;
+            if (N.updateSprite(sprite, N.sourceFor(sprite), info, max)) count++;
+        }
         return count;
     };
 

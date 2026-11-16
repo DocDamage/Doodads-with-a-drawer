@@ -68,6 +68,7 @@ assert.deepStrictEqual(Array.from(uniforms.uAmbient), [0.2, 0.3, 0.4]);
 assert.strictEqual(uniforms.uLightCone[3], 1, 'cone flag is packed');
 assert.ok(/for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*8/.test(N.fragment));
 assert.ok(!/#version\s+300|\bin\s+vec|\bout\s+vec|texture\s*\(/.test(N.fragment), 'shader stays GLSL ES 1.00');
+assert.match(N.fragment, /GL_FRAGMENT_PRECISION_HIGH[\s\S]*precision highp float/, 'PIXI filter uniforms use the vertex shader\'s highp precision');
 assert.deepStrictEqual(N.alphaWhite(0.25), [0.25, 0.25, 0.25, 0.25], 'white coverage is premultiplied for PIXI NORMAL blending');
 assert.match(N.alphaFragment, /vec4\s*\(\s*vec3\s*\(\s*alpha\s*\)\s*,\s*alpha\s*\)/);
 assert.match(N.blackAlphaFragment, /vec4\s*\(\s*0\.0\s*,\s*0\.0\s*,\s*0\.0\s*,\s*alpha\s*\)/);
@@ -88,6 +89,16 @@ assert.ok(Math.abs(transformedUv[0] - 0.75) < 1e-9 && Math.abs(transformedUv[1] 
 const asymmetricNormals = [11, 22, 33, 44];
 assert.strictEqual(asymmetricNormals[Math.min(1, Math.floor(transformedUv[1] * 2)) * 2 + Math.min(1, Math.floor(transformedUv[0] * 2))], 44,
     'a transformed asymmetric normal sheet samples the sprite-local texel');
+const zoomed = N.transformUniforms(
+    { a: 0, b: -4, c: 6, d: 2, tx: 230, ty: 140 }, { width: 40, height: 20 }, { x: 0.5, y: 1 }, {},
+    { a: 2, b: 0, c: 0, d: 2, tx: 30, ty: 40 }
+);
+assert.deepStrictEqual(N.lightPoint({ x: 200, y: 90 }, zoomed), [85, 25], 'screen zoom and translation return to base-sprite light coordinates');
+const zoomedUv = N.localUv({ x: 200, y: 90 }, zoomed);
+assert.ok(Math.abs(zoomedUv[0] - 0.75) < 1e-9 && Math.abs(zoomedUv[1] - 0.75) < 1e-9,
+    'base-sprite zoom does not change an asymmetric sprite-local normal sample');
+assert.ok(Math.abs(zoomed.uNormalBasis[0]) < 1e-9 && Math.abs(zoomed.uNormalBasis[1] + 1) < 1e-9,
+    'normal directions are expressed in the same base-sprite space as lights');
 
 // Sobel generation is neutral on flat art, follows a brightness edge, preserves alpha, and caps allocation.
 const flat = new Uint8ClampedArray(3 * 3 * 4).fill(255);
