@@ -11,12 +11,14 @@
 DocsDoodads.api = {
     version: 1,
 
-    /** Returns the player's Reduce Flashes and Less Camera Motion choices.
+    /**
+     * Returns the player's Reduce Flashes and Less Camera Motion choices.
      * @returns {{reduceFlashes: boolean, lessCameraMotion: boolean}}
      */
     comfort() { return DocsDoodads.Comfort.choices(); },
 
-    /** The name of the area under the player, or an empty string.
+    /**
+     * The name of the area under the player, or an empty string.
      * @returns {string}
      */
     area() { const area = DocsDoodads.Areas.current(); return area ? String(area.name) : ''; },

@@ -577,7 +577,7 @@ Object.assign(DocsDoodads.Workspace, {
         const unsafe = credits.filter(f => !f.safeToEncrypt).length;
         root.innerHTML = `<div class="dd-cr${narrow ? ' dd-cr-narrow' : ''}">
             <div class="dd-cr-top">
-                <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
+                <div class="dd-cr-title" data-dd-help="character-creators-and-my-parts">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
                 ${this.creatorSwitcherHtml()}
                 <div class="dd-cr-lib">${K.libraryLine(this, index, this.creatorSafeOnly())}</div>
                 <div class="dd-cr-grow"></div>

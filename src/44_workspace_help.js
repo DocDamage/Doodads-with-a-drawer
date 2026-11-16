@@ -5,7 +5,7 @@ DocsDoodads.Help = {
         ['map settings', 'Map settings: copying'], ['moods', 'Looks and presets'],
         ['regions', 'Regions'], ['tiles', 'Tiles (painting'], ['hills', 'Terrain height'],
         ['terrain', 'Terrain height'], ['world view', '19. Maps:'], ['screen looks', '9. Post-Processing'],
-        ['capture', 'Export Map Image'], ['effects maker', 'Effects Maker (VFX)'], ['characters', 'Character animation'],
+        ['capture', 'Export Map Image'], ['effects maker', 'Effects Maker (VFX)'], ['characters', 'Character creators and My parts'],
         ['cut up sheet', '5. Intelligent Slicing'], ['sound', '11. Spatial Sound'],
         ['old saves', 'Save history'], ['steps', 'Undo history'], ['notes', 'Map notes'], ['bookmarks', 'Ruler and bookmarks'],
         ['look', '21. Workspace Layouts'], ['settings', '3. Plugin Parameters'], ['path', '6. Drag-and-Drop'],

@@ -1,6 +1,6 @@
 # Doc's Doodads: Recommendations
 
-Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas, none started, was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026). A second, [section 8](#8-backlog-easier-better-looking-and-things-no-one-else-does-15-november-2026), was added the same day: ease of use, look and feel, things no one else does, and maps made from a picture or a real place. A third, [section 9](#9-backlog-for-players-the-map-as-gameplay-and-safer-releases-15-november-2026), followed: comfort and convenience for players, the map as gameplay, more life on the map, art and tileset chores, and safer releases.
+Status updated 16 November 2026; local backlog integration is in progress. Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026). A second, [section 8](#8-backlog-easier-better-looking-and-things-no-one-else-does-15-november-2026), was added the same day: ease of use, look and feel, things no one else does, and maps made from a picture or a real place. A third, [section 9](#9-backlog-for-players-the-map-as-gameplay-and-safer-releases-15-november-2026), followed: comfort and convenience for players, the map as gameplay, more life on the map, art and tileset chores, and safer releases.
 
 **S** = an afternoon, **M** = a PR like terrain or water, **L** = several PRs.
 
@@ -161,7 +161,7 @@ Ideas gathered after PR #41, grouped as improvements to what exists, new feature
 
 ## 7. Backlog: next steps (15 November 2026)
 
-Ideas gathered after PR #86, from a read of the plugin and of what users of other MZ mapping, lighting and 3D plugins ask for. None is committed to and none is started; sizes use the scale at the top. Each was checked against `Docs-Doodads.js` and is not there today.
+Ideas gathered after PR #86, from a read of the plugin and of what users of other MZ mapping, lighting and 3D plugins ask for. The build is in progress locally; row statuses distinguish built work from items awaiting implementation. Sizes use the scale at the top. Each was checked against `Docs-Doodads.js` and is not there today.
 
 **How to build each one** (where in `src/`, the data it keeps, the steps in order, the tests, and when it is done) is in [docs/BACKLOG_7_PLAN.md](docs/BACKLOG_7_PLAN.md), under the same numbers, with a suggested order.
 
@@ -196,7 +196,7 @@ Watching a new user (item E under What's left) comes before all of these.
 | # | Suggestion | Size |
 |---|---|---|
 | 7.3.1 | **Walking from map to map without a transfer.** Neighbouring maps and World View are there, but the player still transfers. Load the neighbours in the background and let the player walk over the edge with no fade, for open worlds. | L |
-| 7.3.2 | **A collision brush.** Collision is set per doodad (presets, Trace from Art, a box). A brush that paints walls of any shape on the map, for parallax-style maps. | M |
+| 7.3.2 | **Built; MZ playtest pending.** **A collision brush.** Collision is set per doodad (presets, Trace from Art, a box). A brush that paints walls of any shape on the map, for parallax-style maps. | M |
 | 7.3.3 | **Movement off the grid.** The player and events moving by pixels against doodad and painted collision, as an option. | L |
 | 7.3.4 | **Baking for phones.** At deploy time, draw each map's still doodads and their shadows into a few big pictures. Drawing only what is on screen took a 3,000-doodad map from 12,000 draw calls to 150; baking is the next step for phones. Needs item B's test on real hardware, and an Android device, to measure. | L |
 | 7.3.5 | **Generated maps.** Dressing rules, biomes, room stamps and prefabs are the parts of a dungeon or wilderness generator: in the editor (generate, then tidy by hand) or in the game from a seed. | L |
@@ -217,14 +217,14 @@ From the comment pages and forum threads of other MZ plugins. Two larger wishlis
 | 7.4.5 | **A list of plugins it works with.** The most common question on the [MZ3D page](https://cutievirus.itch.io/mz3d/comments?after=80) (VisuStella, action-battle plugins, other tilesets). Test beside the most used ones and publish the list, with what clashes. | MZ3D comments. | No list. | M |
 | 7.4.6 | **Names or icons over events.** **Done.** | MZ3D comments. | Yes: `<docs label>`, `<docs icon>` and `<docs label range>`, flat and in 3D, also set in the event's Details. | S |
 | 7.4.7 | **Other tile sizes and screen sizes. Done.** | Prlx lists it. | Audited live dimensions and added 16/32-pixel automated cases. Played 32-pixel maps at 1280 × 720 in MZ, flat and in 3D; see [QA](docs/QA_2026-11-15.md#other-tile-and-screen-sizes-747). The [water-edge renderer follow-up is fixed](docs/QA_2026-11-15.md#water-outside-the-3d-ground-capture). 16-pixel tiles remain automated coverage only. | S |
-| 7.4.8 | **More tabs and parts in the character generator.** | [A request on the official forum](https://guild.rpgmakerofficial.com/t/topic/2357?tl=en). | Partly, through the three creators. Let a creator take a folder of the user's own parts as a tab. | M |
+| 7.4.8 | **Built; MZ playtest pending.** **More tabs and parts in the character generator.** | [A request on the official forum](https://guild.rpgmakerofficial.com/t/topic/2357?tl=en). | Partly, through the three creators. Let a creator take a folder of the user's own parts as a tab. | M |
 | 7.4.9 | **Say what already works.** **Done.** Three lines under the README's first paragraph. Deployed, encrypted games that hang on loading are the most common MZ3D complaint; parallax-style art in 3D is asked for there; [VisuStella's lighting](https://www.yanfly.moe/wiki/Lighting_VisuStella_MZ) suggests maps under 72 × 72. All three are tested here (deployed builds, doodads standing in 3D, 200 × 200 with 375 lights). Put them at the top of the README. | Above. | Done in the plugin, not said up front. | S |
 
 ---
 
 ## 8. Backlog: easier, better looking, and things no one else does (15 November 2026)
 
-Ideas gathered the same day as section 7, after a second read of the README, section 7 and `Docs-Doodads.js`. None is committed to and none is started; sizes use the scale at the top. Each was searched for in `Docs-Doodads.js` and is not there today. Rows that build on a section 7 row name it. Whether other plugins have the rows in 8.4 and 8.5 was not surveyed.
+Ideas gathered the same day as section 7, after a second read of the README, section 7 and `Docs-Doodads.js`. The build is in progress locally; row statuses distinguish built work from items awaiting implementation. Sizes use the scale at the top. Each was searched for in `Docs-Doodads.js` and is not there today. Rows that build on a section 7 row name it. Whether other plugins have the rows in 8.4 and 8.5 was not surveyed.
 
 **How to build each one** is in [docs/BACKLOG_8_PLAN.md](docs/BACKLOG_8_PLAN.md), under the same numbers, with a suggested order.
 
@@ -236,17 +236,17 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 
 | # | Suggestion | Size |
 |---|---|---|
-| 8.1.1 | **Simple mode.** The top bar has ten tools and four menus. Open with Select, Stamp, Scatter and Tiles and a short Details panel, with a Show Everything switch. Find a Tool (Ctrl+K) still reaches the rest. | M |
-| 8.1.2 | **Moods.** One button sets light, look, weather and ambience together (Cosy Night Village, Rainy Forest, Cave), shown on the map while the pointer is on it. The parts are all there; the bundle is not. | S |
+| 8.1.1 | **Built; MZ playtest pending.** **Simple mode.** The top bar has ten tools and four menus. Open with Select, Stamp, Scatter and Tiles and a short Details panel, with a Show Everything switch. Find a Tool (Ctrl+K) still reaches the rest. | M |
+| 8.1.2 | **Built; MZ playtest pending.** **Moods.** One button sets light, look, weather and ambience together (Cosy Night Village, Rainy Forest, Cave), shown on the map while the pointer is on it. The parts are all there; the bundle is not. | S |
 | 8.1.3 | **Good settings on drop.** Guess from the file's name and shape: "lamp" gets a lantern light that comes on after dark; "tree" gets sway, see-through and a box round the trunk. One Undo puts it back. | M |
 | 8.1.4 | **A first-map quest.** In place of the welcome card, five steps that tick themselves off (place three trees, add a lamp, make it night, press Play). Goes with the sample project (7.1.8). | S |
-| 8.1.5 | **Help where you are.** A ? on each panel that opens its part of the guide, and the guide's headings in Find a Tool. | S |
+| 8.1.5 | **Built; MZ playtest pending.** **Help where you are.** A ? on each panel that opens its part of the guide, and the guide's headings in Find a Tool. | S |
 
 ### 8.2 Look and feel
 
 | # | Suggestion | Size |
 |---|---|---|
-| 8.2.1 | **A bigger window while editing.** Grow the Playtest window to fill the screen when the editor opens and put it back on Done. Much less work than panels in their own window (7.2.5), for most of the gain. | S |
+| 8.2.1 | **Built; MZ playtest pending.** **A bigger window while editing.** Grow the Playtest window to fill the screen when the editor opens and put it back on Done. Much less work than panels in their own window (7.2.5), for most of the gain. | S |
 | 8.2.2 | **A truer ghost of what will be placed.** There is a ghost today: a small picture that follows the pointer, over everything. Draw the item in the map as it will land instead, with its own size, shadow, light and depth, before the click. | S |
 | 8.2.3 | **Moving tooltips.** A tool's tooltip plays a two-second clip of the tool in use. | S |
 | 8.2.4 | **Details that starts short.** The three most used settings for the kind of thing picked, with the rest under More. | M |
@@ -293,7 +293,7 @@ A drawing, a scan or a real-world map, made into a map in the game. The result i
 
 ## 9. Backlog: for players, the map as gameplay, and safer releases (15 November 2026)
 
-Ideas gathered the same day as sections 7 and 8, from asking what is neither built nor planned. None is committed to and none is started; sizes use the scale at the top. Each was looked for in `src/` and in the plans for sections 7 and 8 by searching for its words, not by a full read, and no trace was found; search again before starting one. Rows that lean on a row in section 7 or 8 name it.
+Ideas gathered the same day as sections 7 and 8, from asking what is neither built nor planned. The build is in progress locally; row statuses distinguish built work from items awaiting implementation. Sizes use the scale at the top. Each was looked for in `src/` and in the plans for sections 7 and 8 by searching for its words, not by a full read, and no trace was found; search again before starting one. Rows that lean on a row in section 7 or 8 name it.
 
 **How to build each one** is in [docs/BACKLOG_9_PLAN.md](docs/BACKLOG_9_PLAN.md), under the same numbers, with a suggested order.
 
@@ -303,11 +303,11 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 
 | # | Suggestion | Size |
 |---|---|---|
-| 9.1.1 | **Comfort options.** Options has two rows from the plugin, Motion Blur and Effects Quality, while the game can show lightning, flashes, shockwaves and a camera that looks ahead. Add Reduce Flashes and Less Camera Motion for the player. | S |
+| 9.1.1 | **Built; MZ playtest pending.** **Comfort options.** Options has two rows from the plugin, Motion Blur and Effects Quality, while the game can show lightning, flashes, shockwaves and a camera that looks ahead. Add Reduce Flashes and Less Camera Motion for the player. | S |
 | 9.1.2 | **Quality that looks after itself.** Effects Quality is a fixed choice. An Auto choice steps it down when frames stay low and back up when there is room. Goes with item B under What's left. | S |
 | 9.1.3 | **A title screen from a map.** Pick a map, a time, weather, a look and a camera path, and the title screen shows it live behind the menu. | S |
 | 9.1.4 | **Pictures on save files.** A small picture of where the player was, with the place and the game's day and time, on each row of the save and load screens. | S |
-| 9.1.5 | **Area names.** Regions already drive camera rooms, looks and sounds. Give a region a name ("Old Quarter") and show it as MZ shows a map's name when the player walks in. | S |
+| 9.1.5 | **Built; MZ playtest pending.** **Area names.** Regions already drive camera rooms, looks and sounds. Give a region a name ("Old Quarter") and show it as MZ shows a map's name when the player walks in. | S |
 | 9.1.6 | **Pins and fast travel.** Pins on the minimap and the world map for towns, shops and quests, shown once found, and travel to a found pin from the world map. | S |
 | 9.1.7 | **Flat maps as battle backgrounds.** The 3D view can be the battle background (5.4); a flat map cannot. Use the map where the player stands, with its light, time and weather, without the blur. | S |
 
@@ -315,7 +315,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 
 | # | Suggestion | Size |
 |---|---|---|
-| 9.2.1 | **Nearness triggers.** A doodad is touched by Action, a click or walking into it. Add "when the player comes within so many tiles", and "when they leave": doors that open, torches that light along a corridor. | S |
+| 9.2.1 | **Built; MZ playtest pending.** **Nearness triggers.** A doodad is touched by Action, a click or walking into it. Add "when the player comes within so many tiles", and "when they leave": doors that open, torches that light along a corridor. | S |
 | 9.2.2 | **Indoors by region.** Weather covers the whole map, though character shadows already stop at roof regions. Marked regions stop rain, snow and sun shadows, take their own darkness and quieten the rain, so a house can share a map with its street. | M |
 | 9.2.3 | **Bridges you walk over and under.** Regions mark a bridge's deck and its ends; the player and events keep a level, pass under or over, and do not bump into or talk to those on the other level. Flat maps first. Shares its hooks with 7.3.2 and 7.3.3. | M |
 | 9.2.4 | **Light and sight.** A script or event can ask how bright a tile is, and an event can see the player: in a cone, stopped by the walls that already stop light, and less far in the dark. For stealth and puzzles. | M |
@@ -342,6 +342,6 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 
 | # | Suggestion | Size |
 |---|---|---|
-| 9.5.1 | **A playtest that runs itself.** The suites run on a stand-in engine in Node; the water bug of 15 November only showed on a real GPU, and its probe is still pasted into DevTools by hand. `npm run playtest` starts MZ's runtime on a copy of the test project, visits Starting Town, Field Map and the cave, flat and in 3D, and compares frames with kept pictures. | M |
+| 9.5.1 | **Tool built; real-runtime references and regression validation pending.** **A playtest that runs itself.** The suites run on a stand-in engine in Node; the water bug of 15 November only showed on a real GPU, and its probe is still pasted into DevTools by hand. `npm run playtest` starts MZ's runtime on a copy of the test project, visits Starting Town, Field Map and the cave, flat and in 3D, and compares frames with kept pictures. | M |
 | 9.5.2 | **Plugin clash check and a report bundle.** 7.4.5 is a list to publish. From the same table, Problems says which enabled plugins clash or need another order; and Save a Report gathers versions, the GPU, the plugin list and recent errors into one file for a bug report. Nothing is sent anywhere. | S |
 | 9.5.3 | **Save-safe changes.** States and lights are kept in saves by a doodad's Name. Mark a release, and the editor warns when a rename, a delete or a changed state list would lose what players' saves hold, and keeps the old name working. | S |

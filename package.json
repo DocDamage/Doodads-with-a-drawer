@@ -17,6 +17,7 @@
     "check": "node scripts/build.js --check && node --check Docs-Doodads.js",
     "test": "node scratch/run-tests.js",
     "verify": "node scratch/verify-project.js",
+    "playtest": "node scripts/playtest.js",
     "coverage": "c8 --reporter=text --reporter=json-summary --include=Docs-Doodads.js --check-coverage --lines=85 --statements=85 --functions=80 --branches=75 node scratch/run-tests.js",
     "icons": "node scripts/icons.js",
     "fonts": "node scripts/fonts.js",

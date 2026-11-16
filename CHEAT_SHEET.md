@@ -1,5 +1,12 @@
 # Doc's Doodads Cheat Sheet
 
+New player/map controls: **Store Area Name** (`variableId`) stores the region's name, or an
+empty string. `DocsDoodads.api.area()` reads it; `api.on('areaEnter', fn)` receives
+`{ mapId, region, name }`. `api.comfort()` reads `{ reduceFlashes, lessCameraMotion }`.
+`api.on('near', fn)` and `api.on('far', fn)` receive `{ doodad, name, mapId }` from the
+Details section **When the player is near**. Range 0 turns it off; states accept a name,
+`next` or blank. The existing Touch trigger remains separate.
+
 Every notetag, image name tag, plugin command and script call on one page. The [User Guide](Docs_Doodads_Guide.md) explains each in full; section numbers below point there.
 
 ## Notetags

@@ -70,6 +70,12 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 ## 4. The Item Bag & Search
 
 ### The editor at a glance
+
+New installs start in **Simple mode**: Select, Stamp, Scatter and Tiles, with a short Details
+panel. **Show Everything** on the top bar brings back the full editor; **Keep It Simple**
+shortens it again. The same switch is in View → Look and Find a Tool. Ctrl+K and the keys
+still reach every tool. A hidden tool used that way stays on the bar until Done. Existing
+saved editor preferences keep the full editor on the first run after an update.
 Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**. From the card (More > How to Use) you can also **Add Sample Items** (four small pictures in `img/doodads/samples`, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), **Replay Tool Tours**, and read **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
 
 - **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Regions** (region numbers), **Collision** (fine blocked cells), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), the menus **Map**, **Art**, **View** and **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
@@ -310,6 +316,12 @@ Open **View → Screen Looks**. Changes show live on the map behind it, and ever
 - **Tilt-Shift**: blurs above and below a sharp band, for a miniature look.
 
 ### Looks and presets
+
+**Map → Moods** opens bundles such as Rainy Forest, Cosy Night Village and Cave. Point or focus
+one to try it; leave to put the map back. Click to keep its light, look, fog and echo as one
+undo step. Other settings and your own picture layers stay as they were. Time, weather and
+wind are previews only: use the game's clock and weather commands for play. Save Current as
+a Mood keeps your own bundle in this project's map presets.
 - **Editing: Game-wide look** applies to every map and to battles. **Editing: This map** chooses what the current map uses: *The game-wide look*, *No effects*, or *Its own look*. A map's own look starts as a copy of the game-wide one.
 - **Presets**: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it.
 - **Hold to Compare** shows the map without effects while the button is held. **Show while editing** turns effects off in the editor only.
@@ -513,9 +525,18 @@ Each map keeps its own steps. Going to another map parks this map's steps; comin
 **Tiles** (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs **A1** to **E**. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. **Layer: Automatic** puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. **Eraser** takes the top tile off. **Alt+click** picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied.
 
 ### Regions
+
+Each region in the legend has an **Area name** and **Show once per save**. The game shows the
+name in its map-name banner after the player stays inside for a short moment. Clear the name
+to stop showing it. **Store Area Name** writes it into a variable; `DocsDoodads.api.area()` reads
+it, and `api.on('areaEnter', fn)` hears a settled entry. Names accept MZ text codes.
 The **Regions** tool paints MZ region numbers onto the map's tiles, the ones dressing rules, biomes, region sounds, footsteps, ambience, climbing, ice, no-fly zones and terrain height read. Pick the number (0 rubs regions out) and the size (1 to 13 tiles across, **[** and **]**), then drag on the map; each stroke is one undo step and is saved into the map file with your other map edits. **Alt+click** a tile to pick up its region. While the tool is out, each painted tile shows its region's colour and number. The card's legend lists the regions on this map, how many tiles each covers and what the project uses it for; click one to paint with it. **Show terrain tags** marks tiles that have a terrain tag (T1, T2...). Terrain tags belong to the tileset in MZ's database, so they are shown here but changed in MZ.
 
 ### Command palette (Ctrl+K)
+
+The **?** in a panel's title opens its guide paragraph. **Help: …** entries in Find a Tool
+reach every heading. Open the Guide opens that heading in a local reader; keep
+`Docs_Doodads_Guide.md` beside the game's `index.html` for the full guide.
 Type a few letters of anything and press Enter:
 - tools, panels, Save, Undo and Redo, Toggle Grid
 - mirror modes, Screen Look presets, Play Effect for any effect
@@ -787,6 +808,12 @@ Doodads placed, moved, changed or removed through the API change the game's copy
 
 ## 16. Direct Physical Collision System
 
+**When the player is near** in a doodad's Details sets a range in tiles (0 is off), the state
+on entering and leaving (a name, `next` or blank), and an optional common event. Leaving has
+half a tile of slack so standing at the edge does not repeatedly trigger it. Only the first
+visit can be kept in the save. The same doodad can also have Touch; range events are `near`
+and `far` on `api.on`. A busy or already reserved common event is not queued again.
+
 Doodads do not require invisible blocker events to obstruct the player. Each doodad's collision box blocks the map tiles it covers at runtime:
 
 The map itself can also have painted collision finer than a tile. Pick **Collision** on the top bar and left-drag to block 12-pixel cells (one quarter of a 48-pixel tile); right-drag rubs them out, **Shift** joins from the last point, **[** and **]** resize the round or square brush, and **Fill** fills an enclosed area. A stroke is one Undo step. The blocked colour is visible while the tool is out and under **Show Collision**. **From Picture** replaces the painted cells from a map picture layer's alpha at the chosen threshold, which is useful for cliffs and walls on parallax maps. Painted cells wrap across looping-map seams, are saved with this map's doodad data, and stop the player and events as well as Check Reach and destination paths; the runtime collision works in a deployed game with the editor absent.
@@ -868,6 +895,13 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ---
 
+### Character creators and My parts
+
+**Art → Characters** chooses the MZ, LPC or Memao creator and its source folders. A second
+**My parts** folder adds your own art alongside the library. Keep its native folder layout,
+scan again, then pick the added parts; unfamiliar kinds get an Extra tab named for the folder.
+Source folders stay outside the project, while exported characters go into the game.
+
 ## 21. Workspace Layouts & Custom Layout Persistence
 
 Switch panel layout presets in **View → Panel sizes**:
@@ -881,6 +915,16 @@ Switch panel layout presets in **View → Panel sizes**:
 - **Docking**: drag the Item Bag or Details by its title to the left, the right or the bottom of the window (the drop zones light up), or pick **Left**, **Right** or **Bottom** for each in **View → Look**. A panel along the bottom resizes from its top edge; two panels on one side share it, one above the other; two along the bottom sit side by side. The map's status bar, hint and readouts move out of the way. Where the panels are is remembered for each layout on this computer.
 
 ### Accessibility
+
+**View → Look → Bigger window while editing** fills the screen when F10 opens the editor,
+then restores the window on Done, close or reload. It leaves a window you already resized
+or maximised alone. Turn it off to keep the normal Playtest size.
+
+The player's Options offers **Reduce Flashes** and **Less Camera Motion** when the game uses
+these effects (or when the maker offers them always). They cap and ease this plugin's flashes,
+soften shockwaves and impact zoom, and turn off camera look-ahead. The **Also soften MZ flashes
+and shakes** setting includes MZ's own screen commands. These choices reduce effects; they do
+not control another plugin or a video. Both start off and are kept in MZ's config.
 - Every control has a name for screen readers (icon buttons say their tooltip, fields their placeholder), the panels are named regions, and messages and the hint are read out as they come.
 - **The keyboard**: Tab and Shift+Tab move through the controls with a visible ring; **F6** (Shift+F6 back) goes from the top bar to the Item Bag's search, the map and Details; in the Item Bag the **arrow keys** move between items (Home and End too) and **Enter** or Space picks one; the row of kinds above them is a set of tabs (the arrow keys show the next kind). Details sections open with Enter on their title. The right-click menu takes the focus: the arrow keys move through it, Enter runs an item and Esc closes it. The edge of the Item Bag and of Details is in the Tab order too: the arrow keys resize the panel (Shift for bigger steps, Home and End for the smallest and biggest).
 - **Less motion** (View → Look), or the system's reduced-motion setting, stops the editor's animations and the moving thumbnails.

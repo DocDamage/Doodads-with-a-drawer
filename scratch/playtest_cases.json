@@ -1,0 +1,11 @@
+[
+    { "name": "town-flat", "mapId": 3, "mode": "flat", "minutes": 720, "frames": 120 },
+    { "name": "town-3d", "mapId": 3, "mode": "3d", "minutes": 720, "frames": 120 },
+    { "name": "field-flat", "mapId": 4, "mode": "flat", "minutes": 720, "frames": 120 },
+    { "name": "field-3d", "mapId": 4, "mode": "3d", "minutes": 720, "frames": 120 },
+    { "name": "cave-flat", "mapId": 5, "mode": "flat", "minutes": 720, "frames": 120 },
+    { "name": "cave-3d", "mapId": 5, "mode": "3d", "minutes": 720, "frames": 120 },
+    { "name": "storm-at-dusk", "mapId": 3, "mode": "3d", "minutes": 1110, "weather": "storm", "power": 8, "frames": 120 },
+    { "name": "night-with-lamps", "mapId": 3, "mode": "flat", "minutes": 1320, "frames": 120 },
+    { "name": "water-capture-edge", "mapId": 4, "mode": "3d", "minutes": 720, "frames": 120, "waterProbe": true }
+]

@@ -180,7 +180,7 @@ DocsDoodads.Slicing.Editor = {
                 <div style="display: flex; align-items: center; gap: 8px;">
                     ${U.icon('scissors', 2)}
                     <div style="flex: 1; min-width: 0;">
-                        <div style="font-weight: 900; font-size: 15px;">Cut Up Sheet</div>
+                        <div data-dd-help="5-intelligent-slicing-engine--cut-up-sheet" style="font-weight: 900; font-size: 15px;">Cut Up Sheet</div>
                         <div style="color: var(--dd-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(this.asset.fileName)}: each box becomes a piece you can place.</div>
                     </div>
                     <button class="dd-btn dd-btn-good" id="dd-slicer-save-btn" style="padding: 7px 16px;">${U.icon('save', 1)} Save Pieces</button>

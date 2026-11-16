@@ -4,6 +4,16 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 ## Preflight
 
+- [ ] With fresh editor preferences, find Stamp and Save in Simple mode; Show Everything restores all tools. Existing preferences start in the full view. In Simple mode, use a hidden tool through Ctrl+K and its key, check its temporary toolbar button and tour, and navigate menus with the keyboard.
+
+- [ ] Before a release or drawing change, close other playtests and run `npm run playtest` on the copied fixture. Review the PNG/reference/difference HTML report, create local references with `--update`, and pass twice without updating. Reintroducing the old water-capture bug must fail the water probe. Real GPU validation of this tool is still pending.
+- [ ] Open and close the editor at normal, maximised and user-resized window sizes; check restored position/size, reload and close, and flat/3D picking at 125% and 150% editor size.
+- [ ] Try several Moods by mouse and keyboard focus, leave/cancel, apply, undo/redo and save/reload a custom mood. Hover must not dirty or save the project; weather, wind and clock return after preview.
+- [ ] Open panel ? buttons and Help entries in Find a Tool. Each shows the right paragraph and opens its heading in the local guide.
+- [ ] In a storm, compare Reduce Flashes and Less Camera Motion on/off, including MZ flash/shake commands with the maker's option on. Check thunder timing, config reload, camera look-ahead, impact zoom and shockwaves.
+- [ ] Name regions, cross their border slowly, check text codes and once-per-save after a reload. An unnamed region does not show a banner; later native map names still work.
+- [ ] Set a door's near/far states and a torch's common event; approach and leave on outdoor, cave and looping maps, flat/3D. The exit margin prevents repeated triggers and a reserved common event is not queued twice.
+
 - [ ] Copy `Docs-Doodads.js` into `js/plugins/` and enable it after UltraMode7, if used.
 - [ ] Confirm the project opens normally before enabling the plugin.
 - [ ] Start Playtest and confirm no console error appears before opening the editor.

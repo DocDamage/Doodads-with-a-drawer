@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Simple mode starts new installs with Select, Stamp, Scatter, Tiles and shorter Details. Show Everything restores the full editor, while Ctrl+K and shortcuts reach every tool in either mode; existing editor preferences keep the full view.
+- Collision brush: paint or erase fine cells, join lines, fill an enclosed space, or read collision from a picture layer. Each stroke is one undo step; walls travel with split map data.
+- Character creators accept a My parts folder, keep clashing names separately and offer unknown families in an Extra tab. Recipes remember which folder supplied a part.
+- Map → Moods tries bundled light, looks and ambience on hover and keeps them with one undo step. Weather, wind and the clock are previews; save your own moods as presets.
+- The editing window can fill the screen and return to its previous size on Done, close or reload. A window the user already resized is left alone; View → Look can turn this off.
+- Panel help opens the matching guide excerpt, and Find a Tool includes every guide heading. `npm run help` keeps that index current.
+- Players can choose Reduce Flashes and Less Camera Motion. An optional plugin setting includes MZ's own flashes and shakes; both choices start off.
+- Regions can have area names, shown after a short border wait, once per save if asked. Store Area Name and `api.area()` let events and scripts read them.
+- Doodads can change state and run a common event when the player enters or leaves a range, including across a looping seam. An exit margin stops changes at the edge; once-only visits persist.
+- `npm run playtest` prepares a temporary MZ project copy, runs fixed flat/3D screenshot cases and the water probe, and writes local reference/difference reports. Real-runtime reference captures and the restored-water-bug check are pending.
+
 - Game-only builds: `npm run build:game` writes a runtime-only `release/Docs-Doodads.game.js` that keeps doodads, collision, lights, sounds, states, traversal, packed art, minimap and 3D while leaving out the editor. Release zips include it with installation directions, and `npm run deploy -- <project> <output> --game-build` installs it under the required `Docs-Doodads.js` name in the deployed copy without changing the source project.
 - Deployment preflight checks the game variant and plugin directory before replacing an existing output. Missing or corrupt game-build inputs leave the old deployment intact.
 - Tile and screen sizes were audited end to end: map coordinates use MZ's live dimensions while art, light distances and UI sizes remain deliberate pixels. The stand-in engine and focused suites now exercise 16- and 32-pixel tiles and alternate viewports. A real-MZ 32-pixel, 1280 × 720 playtest passed on interior, town, looping field and cave maps, flat and in 3D. Rippling water no longer repeats over the void outside the finite 3D ground capture on looping maps; waves and wakes inside the ground edge are unchanged.
