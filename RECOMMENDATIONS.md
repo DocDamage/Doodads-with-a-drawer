@@ -1,6 +1,6 @@
 # Doc's Doodads: Recommendations
 
-Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas, none started, was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026). A second, [section 8](#8-backlog-easier-better-looking-and-things-no-one-else-does-15-november-2026), was added the same day: ease of use, look and feel, things no one else does, and maps made from a picture or a real place.
+Status as of 19 October 2026 (after PR #52). Every item on the 17 October list is done, merged in PR #24 along with the fixes from its review and playtest (listed in [docs/QA_2026-10-18.md](docs/QA_2026-10-18.md#review-fixes)), and in the PRs after it. Every suggestion in the backlog (section 6) is done too, in PRs #43–#52, played in MZ in [docs/QA_2026-10-19.md](docs/QA_2026-10-19.md). What's left needs another computer, a person or a translator; it is under What's left. A new backlog of ideas, none started, was added on 15 November 2026 as [section 7](#7-backlog-next-steps-15-november-2026). A second, [section 8](#8-backlog-easier-better-looking-and-things-no-one-else-does-15-november-2026), was added the same day: ease of use, look and feel, things no one else does, and maps made from a picture or a real place. A third, [section 9](#9-backlog-for-players-the-map-as-gameplay-and-safer-releases-15-november-2026), followed: comfort and convenience for players, the map as gameplay, more life on the map, art and tileset chores, and safer releases.
 
 **S** = an afternoon, **M** = a PR like terrain or water, **L** = several PRs.
 
@@ -288,3 +288,60 @@ A drawing, a scan or a real-world map, made into a map in the game. The result i
 | 8.5.3 | **What kind of map.** Asked first, because it sets the scale, the key and the rules. **Overworld:** a tile is a long way; coast, mountains, forests, rivers, and a marker for each town, castle and dungeon. **Town or castle:** streets, walls, gates, building outlines with roofs and doors, yards and water. **Dungeon or cave:** a floor plan read as walls, floors, doors and stairs, from lines as well as colours. **Room:** walls, floor, doors and windows, then furniture from room stamps and prefabs. The user can add kinds of their own. | M |
 | 8.5.4 | **Maps inside maps.** A marker on the overworld makes or opens that town's map; a door in the town makes or opens that building's rooms; stairs join a dungeon's floors. Transfers both ways are made from the event templates. A tree of the project's maps (world, place, room) to move around in. A picture bigger than MZ's 256 × 256 tiles is cut into neighbouring maps for World View; walking between them with no fade is 7.3.1. | L |
 | 8.5.5 | **A real place.** Pick an area of the world: roads, rivers, coast, forests and building outlines from OpenStreetMap, and heights for Hills. Works at each scale in 8.5.3: a country as an overworld, a town as a town. Needs a download, so it is off unless asked for, and OpenStreetMap's credit must go in the game; the tool writes it. | L |
+
+---
+
+## 9. Backlog: for players, the map as gameplay, and safer releases (15 November 2026)
+
+Ideas gathered the same day as sections 7 and 8, from asking what is neither built nor planned. None is committed to and none is started; sizes use the scale at the top. Each was looked for in `src/` and in the plans for sections 7 and 8 by searching for its words, not by a full read, and no trace was found; search again before starting one. Rows that lean on a row in section 7 or 8 name it.
+
+**How to build each one** is in [docs/BACKLOG_9_PLAN.md](docs/BACKLOG_9_PLAN.md), under the same numbers, with a suggested order.
+
+**Suggested order:** 9.1.1 and 9.5.1 first (comfort options are small and matter to anyone shipping a game; the playtest that runs itself protects everything built after it); then 9.2.1, 9.2.2 and 9.2.3.
+
+### 9.1 For the player
+
+| # | Suggestion | Size |
+|---|---|---|
+| 9.1.1 | **Comfort options.** Options has two rows from the plugin, Motion Blur and Effects Quality, while the game can show lightning, flashes, shockwaves and a camera that looks ahead. Add Reduce Flashes and Less Camera Motion for the player. | S |
+| 9.1.2 | **Quality that looks after itself.** Effects Quality is a fixed choice. An Auto choice steps it down when frames stay low and back up when there is room. Goes with item B under What's left. | S |
+| 9.1.3 | **A title screen from a map.** Pick a map, a time, weather, a look and a camera path, and the title screen shows it live behind the menu. | S |
+| 9.1.4 | **Pictures on save files.** A small picture of where the player was, with the place and the game's day and time, on each row of the save and load screens. | S |
+| 9.1.5 | **Area names.** Regions already drive camera rooms, looks and sounds. Give a region a name ("Old Quarter") and show it as MZ shows a map's name when the player walks in. | S |
+| 9.1.6 | **Pins and fast travel.** Pins on the minimap and the world map for towns, shops and quests, shown once found, and travel to a found pin from the world map. | S |
+| 9.1.7 | **Flat maps as battle backgrounds.** The 3D view can be the battle background (5.4); a flat map cannot. Use the map where the player stands, with its light, time and weather, without the blur. | S |
+
+### 9.2 The map as gameplay
+
+| # | Suggestion | Size |
+|---|---|---|
+| 9.2.1 | **Nearness triggers.** A doodad is touched by Action, a click or walking into it. Add "when the player comes within so many tiles", and "when they leave": doors that open, torches that light along a corridor. | S |
+| 9.2.2 | **Indoors by region.** Weather covers the whole map, though character shadows already stop at roof regions. Marked regions stop rain, snow and sun shadows, take their own darkness and quieten the rain, so a house can share a map with its street. | M |
+| 9.2.3 | **Bridges you walk over and under.** Regions mark a bridge's deck and its ends; the player and events keep a level, pass under or over, and do not bump into or talk to those on the other level. Flat maps first. Shares its hooks with 7.3.2 and 7.3.3. | M |
+| 9.2.4 | **Light and sight.** A script or event can ask how bright a tile is, and an event can see the player: in a cone, stopped by the walls that already stop light, and less far in the dark. For stealth and puzzles. | M |
+| 9.2.5 | **Doodads that ride and travel.** Motion is sway, bob, pulse, flicker and shimmer. Let a doodad ride on an event or the player (a lantern, a cart's load), or travel along a path (boats, clouds, platforms that carry the player). | M |
+| 9.2.6 | **Weather that picks itself.** A climate: the chance of rain, storm, snow, fog and wind per season, rolled from the calendar so the same day has the same weather after a load, with a forecast events can read. Interiors opt out. Goes with Moods (8.1.2). | S |
+
+### 9.3 Life and look
+
+| # | Suggestion | Size |
+|---|---|---|
+| 9.3.1 | **Ambient creatures.** Particles do not react. Birds that scatter when the player comes near and come back, butterflies by day, fish under water that dart away. Not events: no collision, nothing saved. | M |
+| 9.3.2 | **Ropes and cables.** A line between two points that sags and sways with the wind, plain or textured, with things hung along it: bunting, power lines, chains, strings of lanterns. | S |
+| 9.3.3 | **Heat haze.** Shockwave bends the whole screen once. A haze setting on a doodad (a campfire, a lava vent) or a map (a desert road, under water) bends what is behind it, all the time. | S |
+
+### 9.4 Editor and art
+
+| # | Suggestion | Size |
+|---|---|---|
+| 9.4.1 | **Tileset flags in the editor.** Passability, ☆, ladder, bush, counter, damage floor and terrain tags still need a trip to MZ's database; the Regions tool shows terrain tags and cannot change them. Click them on the Tiles palette as in MZ, see the result at once, and save `Tilesets.json` with the same care as a map. | M |
+| 9.4.2 | **Animated GIF and APNG in.** The Item Bag takes PNG, JPEG and WebP. A dropped GIF or APNG becomes a frame strip with its frame count and speed set, so the placed doodad animates at once. | S |
+| 9.4.3 | **A licence ledger for all art.** Credits are written for LPC only. Keep an author, a licence and a source per file or folder (packs carry theirs), find art with none, and write one credits file for the art the game uses. | S |
+
+### 9.5 Safer releases
+
+| # | Suggestion | Size |
+|---|---|---|
+| 9.5.1 | **A playtest that runs itself.** The suites run on a stand-in engine in Node; the water bug of 15 November only showed on a real GPU, and its probe is still pasted into DevTools by hand. `npm run playtest` starts MZ's runtime on a copy of the test project, visits Starting Town, Field Map and the cave, flat and in 3D, and compares frames with kept pictures. | M |
+| 9.5.2 | **Plugin clash check and a report bundle.** 7.4.5 is a list to publish. From the same table, Problems says which enabled plugins clash or need another order; and Save a Report gathers versions, the GPU, the plugin list and recent errors into one file for a bug report. Nothing is sent anywhere. | S |
+| 9.5.3 | **Save-safe changes.** States and lights are kept in saves by a doodad's Name. Mark a release, and the editor warns when a rename, a delete or a changed state list would lose what players' saves hold, and keeps the old name working. | S |
