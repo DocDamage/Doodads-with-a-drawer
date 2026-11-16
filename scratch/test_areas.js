@@ -45,11 +45,19 @@ const ss = new Spriteset_Map();
 ss.updateDocsAreas();
 for (let i = 0; i < 14; i++) { Graphics.frameCount++; ss.updateDocsAreas(); }
 assert.strictEqual(window.drawn, 'Old Quarter');
+window.normalRefresh = false;
+window.refresh();
+assert.strictEqual(window.normalRefresh, true, 'a later native refresh shows the map name');
 assert.strictEqual(entered.region, 3);
 region = 4;
 for (let i = 0; i < 16; i++) { Graphics.frameCount++; ss.updateDocsAreas(); }
 assert.strictEqual(window.drawn, 'Translated', 'MZ text codes pass through its text renderer');
 assert.ok($gameSystem._docsAreasSeen[1][4]);
+const oldSettings = $dataDocsDoodads.mapSettings[1];
+$dataDocsDoodads.mapSettings[1] = {};
+ss.updateDocsAreas();
+assert.strictEqual(ss._docsAreaState, null, 'an unnamed map clears entry state');
+$dataDocsDoodads.mapSettings[1] = oldSettings;
 commands.storeAreaName({ variableId: 2 });
 assert.strictEqual($gameVariables.value(2), '\\V[1]');
 D.Workspace.refreshInspector = D.Workspace.updateUndoButtons = () => {};

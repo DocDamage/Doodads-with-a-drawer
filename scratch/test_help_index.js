@@ -28,4 +28,20 @@ const row = DocsDoodads.Help.entry(index[0].anchor);
 assert.strictEqual(row.title, index[0].title);
 const commands = DocsDoodads.Workspace.paletteCommands();
 assert.ok(commands.some(c => c.label === 'Help: ' + index[0].title));
+for (const title of ['Item Bag', 'Details', 'Scatter', 'Paint', 'Hills', 'Regions', 'Collision', 'Tiles', 'Mirror', 'Path', 'Map', 'Art', 'View', 'More',
+    'Old Saves', 'Effects Maker', 'Screen Looks', 'World View', 'File Check', 'Doodad or event?', 'Add Files', 'Capture', 'Steps on this map',
+    'Info', 'Bring Back a Backup', 'Find Doodads', "This Map's Doodads", 'Look', 'Characters', 'Tile 5, 6', 'Problems', 'Notes', 'Doodad Packs',
+    'Bookmarks', 'Messages', 'Rooms', 'Event Templates', 'Map Settings', 'Settings', 'Keyboard Shortcuts', 'Moods']) {
+    assert.ok(DocsDoodads.Help.anchorFor(title), title + ' has contextual help');
+}
+const node = text => ({ textContent: text, attrs: {}, children: [],
+    getAttribute(k) { return this.attrs[k] || null; }, setAttribute(k, v) { this.attrs[k] = v; },
+    appendChild(child) { this.children.push(child); }, querySelector() { return this.children.find(c => c.className === 'dd-btn dd-context-help') || null; } });
+const known = node('Moods'), unknown = node('An unrelated third-party panel');
+document.createElement = () => node('');
+DocsDoodads.Help.decorate({ querySelectorAll: () => [known, unknown] });
+assert.strictEqual(known.children.length, 1);
+assert.strictEqual(unknown.children.length, 0, 'do not link an unknown panel to unrelated help');
+DocsDoodads.Help.decorate({ querySelectorAll: () => [known] });
+assert.strictEqual(known.children.length, 1, 'decoration is idempotent');
 console.log('Context help: all tests passed.');
