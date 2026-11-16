@@ -191,6 +191,7 @@ DocsDoodads.Workspace = {
         this.closeLookCard();
         this.closeMoods();
         this.closeTraceCard(true);
+        this.stopQuestUi();
         this.closeMapTools();
         this.endTour();
         this.closeCaptureCard();
@@ -610,8 +611,8 @@ DocsDoodads.Workspace = {
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
-        if (!prefs.welcomed) this.showWelcome();
-        else this.maybeShowWhatsNew();
+        if (!prefs.welcomed) this.startQuest();
+        else { this.resumeQuest(); this.maybeShowWhatsNew(); }
     },
 
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
@@ -752,6 +753,7 @@ DocsDoodads.Workspace = {
             <div class="dd-welcome-more">
                 <button class="dd-btn" id="dd-welcome-samples" type="button" title="Draws a few pictures into img/doodads/samples and adds two prefabs and a biome to try">${U.icon('box', 1)} Add Sample Items</button>
                 <button class="dd-btn" id="dd-welcome-tours" type="button">${U.icon('help', 1)} Replay Tool Tours</button>
+                <button class="dd-btn" id="dd-welcome-quest" type="button">Replay First Map Quest</button>
                 <button class="dd-btn" id="dd-welcome-new" type="button">${U.icon('sparkle', 1)} What's New</button>
             </div>
             <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
@@ -769,6 +771,8 @@ DocsDoodads.Workspace = {
         if (samples) samples.onclick = () => { dismiss(); this.addSampleContent(); };
         const tours = document.getElementById('dd-welcome-tours');
         if (tours) tours.onclick = () => { dismiss(); this.replayTours(); };
+        const quest = document.getElementById('dd-welcome-quest');
+        if (quest) quest.onclick = () => { dismiss(); this.startQuest(true); };
         const whatsNew = document.getElementById('dd-welcome-new');
         if (whatsNew) whatsNew.onclick = () => { dismiss(); this.showWhatsNew(); };
     },

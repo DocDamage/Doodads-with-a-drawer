@@ -14,6 +14,8 @@ W.mounted = false; W.showToast = () => {};
 $dataDocsDoodads[1] = [];
 assert.strictEqual(W.startQuest(), true);
 assert.strictEqual(D.Ui.prefs().welcomed, true);
+W.markQuest('saved');
+assert.strictEqual(D.Ui.prefs().quest.saved, false, 'a save before Play From Here does not finish the last step');
 $dataDocsDoodads[1].push({ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2, light: { enabled: true } });
 W.previewMinutes = 1200; W.updateQuest();
 assert.deepStrictEqual(D.Ui.prefs().quest.completed.sort(), ['lamp', 'night', 'place']);

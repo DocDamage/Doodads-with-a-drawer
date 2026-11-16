@@ -782,6 +782,7 @@
         add('Keep It Simple', () => this.setSimpleMode(true), 'View');
         add('How to Use (welcome card)', () => this.showWelcome());
         add('Replay Tool Tours', () => this.replayTours());
+        add('Replay First Map Quest', () => this.startQuest(true));
         add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());
