@@ -46,7 +46,7 @@ const state = D.Particles.createState(config, 1);
 D.Particles.step(state, 1 / 60, true);
 assert.strictEqual(state.particles.length, 0, 'Kick emitters stay quiet without audio');
 $dataDocsDoodads[1] = [E.doodad(2, 2, { particles: { preset: 'fire', burst: 12, musicTrigger: 'kick' } })];
-const display = new Spriteset_Map(); E.frames(display, 1);
+const display = new Spriteset_Map(); display._docsDoodadSprites[0].updateDocsParticles();
 assert.strictEqual(display._docsDoodadSprites[0]._docsEmitter._state.particles.length, 0, 'the real emitter suppresses its initial configured burst without a kick');
 AudioManager._bgmBuffer = { _gainNode: gain, isPlaying: () => true };
 level = 0;

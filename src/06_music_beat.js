@@ -33,7 +33,8 @@ DocsDoodads.Beat = {
                 source.connect(node); this.node = node; this.source = source; this.context = context;
             } catch (error) { this.release(); return; }
         }
-        this.node.getByteFrequencyData(this.bytes);
+        try { this.node.getByteFrequencyData(this.bytes); }
+        catch (error) { this.release(); return; }
         const binHz = (Number(context.sampleRate) || 48000) / this.node.fftSize;
         const band = (from, to) => {
             const first = Math.max(0, Math.min(this.bytes.length - 1, Math.ceil(from / binHz)));

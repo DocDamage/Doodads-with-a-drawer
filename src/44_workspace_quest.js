@@ -2,20 +2,26 @@
 (function() {
     const W = DocsDoodads.Workspace, Q = DocsDoodads.Quest, U = DocsDoodads.Ui;
     Object.assign(W, {
+        questData() { return this._questMemory || U.prefs().quest || null; },
+        setQuestData(quest) { this._questMemory = quest; U.setPref('quest', quest); },
         startQuest(replay = false) {
-            const previous = U.prefs().quest;
+            const previous = this.questData();
             if (!replay && previous && previous.status !== 'active') return false;
             const mapId = this.currentMapId();
             const quest = !replay && previous ? previous : { status: 'active', mapId, baseline: DocsDoodads.doodads(mapId).length, completed: [], played: false, saved: false };
-            U.setPref('quest', quest); U.setPref('welcomed', true); U.setPref('whatsNewSeen', DocsDoodads.WhatsNew.id);
+            this.setQuestData(quest); U.setPref('welcomed', true); U.setPref('whatsNewSeen', DocsDoodads.WhatsNew.id);
             this.stopQuestUi(); this.updateQuest();
-            if (this.mounted && U.prefs().quest.status === 'active') {
+            if (this.mounted && this.questData() && this.questData().status === 'active') {
                 this._questTimer = setInterval(() => this.updateQuest(), 500);
                 if (this._questTimer && this._questTimer.unref) this._questTimer.unref();
             }
             return true;
         },
-        resumeQuest() { const quest = U.prefs().quest; return quest && quest.status === 'active' ? this.startQuest() : false; },
+        resumeQuest() {
+            const quest = this.questData();
+            if (quest && quest.status === 'paused') this.setQuestData(Object.assign({}, quest, { status: 'active' }));
+            return quest && ['active', 'paused'].includes(quest.status) ? this.startQuest() : false;
+        },
         questState(quest) {
             const items = DocsDoodads.doodads(quest.mapId);
             const sameMap = Number(quest.mapId) === Number(this.currentMapId());
@@ -24,25 +30,25 @@
                 played: quest.played, saved: quest.saved };
         },
         markQuest(key) {
-            const quest = U.prefs().quest;
+            const quest = this.questData();
             if (!quest || quest.status !== 'active' || !['played', 'saved'].includes(key)) return;
             if (key === 'saved' && !quest.played) return;
-            U.setPref('quest', Object.assign({}, quest, { [key]: true })); this.updateQuest();
+            this.setQuestData(Object.assign({}, quest, { [key]: true })); this.updateQuest();
         },
         updateQuest() {
-            const quest = U.prefs().quest;
+            const quest = this.questData();
             if (!quest || quest.status !== 'active') { this.stopQuestUi(); return false; }
             const rows = Q.progress(this.questState(quest));
             const completed = Array.from(new Set((quest.completed || []).concat(rows.filter(step => step.done).map(step => step.id))));
             const next = Object.assign({}, quest, { completed, status: completed.length === Q.steps.length ? 'done' : 'active' });
-            if (JSON.stringify(next) !== JSON.stringify(quest)) U.setPref('quest', next);
+            if (JSON.stringify(next) !== JSON.stringify(quest)) this.setQuestData(next);
             if (next.status === 'done') { this.stopQuestUi(); this.showToast('First map complete! Replay the quest from How to Use whenever you like.', 'success'); return true; }
             if (this.mounted) this.renderQuest(next);
             return false;
         },
         pauseQuest(status) {
-            const quest = U.prefs().quest;
-            if (quest) U.setPref('quest', Object.assign({}, quest, { status: status === 'skipped' ? 'skipped' : 'paused' }));
+            const quest = this.questData();
+            if (quest) this.setQuestData(Object.assign({}, quest, { status: status === 'skipped' ? 'skipped' : 'paused' }));
             this.stopQuestUi();
         },
         stopQuestUi() {
@@ -97,7 +103,7 @@
     for (const name of ['saveAll', 'saveMapOnly']) {
         const original = DocsDoodads.Persistence[name];
         DocsDoodads.Persistence[name] = function(...args) {
-            const result = original.apply(this, args), quest = U.prefs().quest;
+            const result = original.apply(this, args), quest = W.questData();
             const mapId = name === 'saveMapOnly' ? Number(args[0] || W.currentMapId()) : null;
             if (result === true && quest && (mapId === null || mapId === Number(quest.mapId))) W.markQuest('saved');
             return result;

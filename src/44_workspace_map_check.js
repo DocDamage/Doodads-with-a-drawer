@@ -162,6 +162,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (this._reach && this._reach.mapId === here) out = out.concat(this._reach.flagged);
         // Project-wide: LPC pictures and their credits (no map to go to).
         if (typeof this.lpcProblems === 'function') out = out.concat(this.lpcProblems());
+        const clash = DocsDoodads.Clash, plugins = window.$plugins || [];
+        if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
         return out;
     },
 

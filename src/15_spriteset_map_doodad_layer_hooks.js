@@ -1215,7 +1215,7 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         const P = DocsDoodads.Particles;
         if (emitting && !this._bursted) {
             this._bursted = true;
-            if (this._config.burst) this.burstNow();
+            if (this._config.burst && this._config.musicTrigger !== 'kick') this.burstNow();
         }
         P.step(this._state, dt, emitting);
         const views = P.view(this._state);

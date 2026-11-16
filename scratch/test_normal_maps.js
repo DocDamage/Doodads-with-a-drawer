@@ -5,7 +5,8 @@ const path = require('path');
 const os = require('os');
 const E = require('./engine/fake_engine');
 
-const projectRoot = process.env.DD_REPO_ROOT || fs.mkdtempSync(path.join(os.tmpdir(), 'dd-normal-map-'));
+// DD_REPO_ROOT is read-only source location, not the test project. All generated art/data stays here.
+const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-normal-map-'));
 fs.mkdirSync(projectRoot, { recursive: true });
 process.chdir(projectRoot);
 

@@ -611,7 +611,7 @@ DocsDoodads.Workspace = {
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
-        if (!prefs.welcomed) this.startQuest();
+        if (!prefs.welcomed && !this.questData()) this.startQuest();
         else { this.resumeQuest(); this.maybeShowWhatsNew(); }
     },
 

@@ -2,11 +2,6 @@
 (function() {
     const W = DocsDoodads.Workspace, C = DocsDoodads.Clash;
     W.problemGroups.push(['plugins', 'Plugins']);
-    const collect = W.collectProblems;
-    W.collectProblems = function(scope) {
-        const plugins = window.$plugins || [];
-        return collect.call(this, scope).concat(C.check(plugins), C.hookFindings(plugins));
-    };
     W.pluginReportText = function() {
         const renderer = DocsDoodads.Compat.getRenderer(), gl = renderer && renderer.gl;
         let gpu = 'Unavailable';
