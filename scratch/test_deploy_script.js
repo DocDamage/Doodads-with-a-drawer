@@ -86,6 +86,8 @@ try {
     const standaloneDeploy = require(path.join(standaloneTools, 'deploy.js')).deploy;
     assert.throws(() => standaloneDeploy({ project, out, runtime, encrypt: false, gameBuild: true }), /game-only plugin is unavailable/);
     assert.strictEqual(fs.readFileSync(sentinel, 'utf8'), 'known good deployment', 'a missing packaged game build preserves the existing output');
+    assert.throws(() => deploy({ project, out, runtime, encrypt: false, gameBuild: true, gameBuildText: 'if (' }), /not valid JavaScript/);
+    assert.strictEqual(fs.readFileSync(sentinel, 'utf8'), 'known good deployment', 'a corrupt game build preserves the existing output');
 
     const invalidProject = path.join(root, 'project-without-plugins');
     write(path.join(invalidProject, 'index.html'), '<html></html>');

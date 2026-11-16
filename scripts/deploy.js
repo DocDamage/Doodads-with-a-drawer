@@ -25,6 +25,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const vm = require('vm');
 
 const HEADER = Buffer.from([0x52, 0x50, 0x47, 0x4d, 0x56, 0, 0, 0, 0, 3, 1, 0, 0, 0, 0, 0]);
 const DEFAULT_RUNTIMES = [
@@ -114,6 +115,20 @@ function deploy(options) {
     if (out === project || out.startsWith(project + path.sep)) throw new Error('The output folder must be outside the project.');
     const runtime = options.runtime || DEFAULT_RUNTIMES.find(r => fs.existsSync(path.join(r, 'nw.exe')));
     if (!runtime || !fs.existsSync(path.join(runtime, 'nw.exe'))) throw new Error('No MZ nwjs-win runtime found; pass --runtime <folder with nw.exe>.');
+    let gameBuffer = null;
+    if (options.gameBuild) {
+        const pluginDir = path.join(project, 'js', 'plugins');
+        if (!fs.existsSync(pluginDir) || !fs.statSync(pluginDir).isDirectory()) {
+            throw new Error('The project has no js/plugins folder for Docs-Doodads.js.');
+        }
+        gameBuffer = gameBuildText(options);
+        if (!gameBuffer.length) throw new Error('The game-only plugin is empty.');
+        try {
+            new vm.Script(gameBuffer.toString('utf8'), { filename: 'Docs-Doodads.game.js' });
+        } catch (error) {
+            throw new Error(`The game-only plugin is not valid JavaScript: ${error.message}`);
+        }
+    }
 
     fs.rmSync(out, { recursive: true, force: true });
     copyDir(runtime, out, name => RUNTIME_SKIP.has(name));
@@ -121,8 +136,7 @@ function deploy(options) {
     copyDir(project, out, name => name === 'save' || name.endsWith('.rmmzproject'));
     if (options.gameBuild) {
         const plugin = path.join(out, 'js', 'plugins', 'Docs-Doodads.js');
-        if (!fs.existsSync(path.dirname(plugin))) throw new Error('The project has no js/plugins folder for Docs-Doodads.js.');
-        fs.writeFileSync(plugin, gameBuildText(options));
+        fs.writeFileSync(plugin, gameBuffer);
     }
 
     // Players don't get developer tools (MZ adds this flag to the game's chromium-args).
