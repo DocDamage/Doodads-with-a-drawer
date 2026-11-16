@@ -31,7 +31,7 @@ DocsDoodads.ScheduleRuntime = {
     mapState(map) {
         if (!this._maps) this.reset();
         let state = this._maps.get(map);
-        if (!state) { state = { minute: null, weekday: null, revision: -1, pending: true, initialized: false }; this._maps.set(map, state); }
+        if (!state) { state = { minute: null, weekday: null, revision: -1, pending: true, initialized: false, hasSchedules: null }; this._maps.set(map, state); }
         return state;
     },
 
@@ -98,7 +98,7 @@ DocsDoodads.ScheduleRuntime = {
     applyEvent(event, entry, setup) {
         const state = this.stateFor(event), map = typeof $gameMap !== 'undefined' ? $gameMap : null;
         const key = entry ? entry.key : null;
-        if (!setup && state.key === key && !state.hidden && !state.target && (key !== null || !event._docsScheduleKey)) return true;
+        if (!setup && state.key === key && (key !== null || !event._docsScheduleKey)) return true;
         if (!setup && this.busy(event)) return false;
 
         // A saved hidden entry leaves MZ's ordinary flags true in the serialized Game_Event. The key tells us
@@ -147,11 +147,12 @@ DocsDoodads.ScheduleRuntime = {
     updateMap(map, setup) {
         const tracked = this.mapState(map), now = this.now();
         tracked.minute = now.minutes; tracked.weekday = now.weekday; tracked.revision = DocsDoodads.Schedules.revision; tracked.initialized = true;
-        if (!DocsDoodads.Schedules.enabled()) { tracked.pending = false; return false; }
-        let pending = false;
+        let pending = false, hasSchedules = false;
         for (const event of (map && map.events ? map.events() : [])) {
             if (!event || event._erased) continue;
             const entries = DocsDoodads.Schedules.of(event, now.names);
+            if (entries.length) hasSchedules = true;
+            if (!DocsDoodads.Schedules.enabled()) continue;
             if (!entries.length) {
                 if ((this.peek(event) || event._docsScheduleKey) && !this.applyEvent(event, null, Boolean(setup))) pending = true;
                 continue;
@@ -159,8 +160,9 @@ DocsDoodads.ScheduleRuntime = {
             const current = now.minutes === null ? null : DocsDoodads.Schedules.current(entries, now.minutes, now.weekday, now.names);
             if (!this.applyEvent(event, current, Boolean(setup))) pending = true;
         }
+        tracked.hasSchedules = hasSchedules;
         tracked.pending = pending;
-        return !pending;
+        return DocsDoodads.Schedules.enabled() && !pending;
     },
 
     stepEvent(event) {
@@ -203,7 +205,9 @@ if (typeof Game_Map !== 'undefined') {
     };
 
     Game_Map.prototype.updateDocsSchedules = function() {
-        const R = DocsDoodads.ScheduleRuntime, state = R.mapState(this), now = R.now();
+        const R = DocsDoodads.ScheduleRuntime, state = R.mapState(this);
+        if (state.initialized && state.hasSchedules === false && !state.pending && state.revision === DocsDoodads.Schedules.revision) return;
+        const now = R.now();
         const changed = !state.initialized || state.minute !== now.minutes || state.weekday !== now.weekday || state.revision !== DocsDoodads.Schedules.revision;
         if (changed || state.pending) R.updateMap(this, !state.initialized);
     };

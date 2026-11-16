@@ -77,9 +77,11 @@ for (let minute = 0; minute < 10; minute++) {
     now = 9 * 60 + minute;
     R.updateMap($gameMap, false);
     assert.strictEqual(R.stateFor(npc).target, walkingTarget, 'the same schedule entry preserves its walking state when the clock minute changes');
-    for (let frame = 0; frame < 60; frame++) R.stepEvent(npc);
+    const frames = minute === 9 ? 59 : 60;
+    for (let frame = 0; frame < frames; frame++) R.stepEvent(npc);
 }
 assert.deepStrictEqual([npc.x, npc.y], [2, 2]);
+R.stepEvent(npc);
 assert.deepStrictEqual([npc.x, npc.y, npc.direction()], [5, 5, 6], 'a stuck walk locates and faces after 600 eligible frames');
 assert.ok(attempts > 0);
 
@@ -149,7 +151,7 @@ if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(npc);
 S.invalidate(npc);
 R.reset(); R.updateMap($gameMap, true);
 
-// Editor helpers: schedule comments migrate to one canonical note block, in one undoable edit.
+// Editor helpers: a current-page schedule stays page-scoped in one undoable edit.
 const staged = JSON.parse(JSON.stringify($dataMap.events[1]));
 staged.note = '<docs label: Baker>';
 staged.pages[0].list = [
@@ -165,11 +167,11 @@ const execute = D.Undo.execute;
 D.Undo.execute = command => { undoCommands.push(command); command.apply(); };
 assert.strictEqual(W.editEventSchedule(S.parse('<docs schedule>\n12:00 6,6 walk\n</docs schedule>', weekdays)), true);
 assert.strictEqual(undoCommands.length, 1);
-assert.ok(staged.note.includes('<docs schedule>'));
-assert.ok(!staged.pages[0].list.some(c => /docs schedule/i.test(String((c.parameters || [])[0] || ''))), 'comment block was migrated, not duplicated');
+assert.ok(!staged.note.includes('<docs schedule>'));
+assert.ok(staged.pages[0].list.some(c => /12:00 6,6 walk/i.test(String((c.parameters || [])[0] || ''))), 'the active-page block remains on that page');
 undoCommands[0].revert();
 assert.ok(!staged.note.includes('<docs schedule>'));
-assert.ok(staged.pages[0].list.some(c => /docs schedule/i.test(String((c.parameters || [])[0] || ''))));
+assert.ok(staged.pages[0].list.some(c => /08:00 1,1/i.test(String((c.parameters || [])[0] || ''))));
 undoCommands[0].apply();
 
 // Editing is page-scoped when the active page owns a block, and never removes another page's block.
@@ -200,16 +202,16 @@ assert.strictEqual(W.editEventSchedule(invalidEdit), false, 'invalid text is kep
 
 W.beginScheduleTilePick(0);
 W.toolHooks.scheduleTile.click.call(W, { tileX: 9, tileY: 4 });
-assert.ok(staged.note.includes('12:00 9,4 walk'));
+assert.ok(staged.pages[0].list.some(c => /13:00 9,4 face:2/.test(String((c.parameters || [])[0] || ''))));
 assert.strictEqual(W.placementTool, null);
 const overlay = W.scheduleOverlayEntries();
-assert.deepStrictEqual(overlay.map(e => [e.x, e.y, e.label]), [[9, 4, '12:00']]);
+assert.deepStrictEqual(overlay.map(e => [e.x, e.y, e.label]), [[9, 4, '13:00']]);
 const graphics = new PIXI.Graphics();
 PIXI.Text = function(text, style) { this.text = text; this.style = style; this.anchor = { set() {} }; this.visible = true; };
 const liveCamera = D.Perspective.liveCamera; D.Perspective.liveCamera = () => false;
 W.drawScheduleOverlay(graphics);
 D.Perspective.liveCamera = liveCamera;
-assert.strictEqual(graphics._ddScheduleLabels[0].text, '12:00');
+assert.strictEqual(graphics._ddScheduleLabels[0].text, '13:00');
 assert.ok(String(W.renderScheduleDetails).includes('Use this tile'));
 D.Undo.execute = execute;
 

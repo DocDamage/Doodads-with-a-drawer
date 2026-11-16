@@ -133,31 +133,52 @@ DocsDoodads.Schedules = {
         return lines.join('\n');
     },
 
-    // Move schedule blocks out of current-page comment command groups before the editor writes the canonical
-    // note block. Other comment text and the commands themselves remain in place.
-    stripCommentBlocks(event) {
-        let changed = false;
-        for (const page of (event && event.pages) || []) {
-            const list = page.list || [];
-            for (let i = 0; i < list.length; i++) {
-                if (!list[i] || list[i].code !== 108) continue;
-                let end = i + 1;
-                while (end < list.length && list[end] && list[end].code === 408) end++;
-                const group = list.slice(i, end), before = group.map(c => String((c.parameters || [])[0] || '')).join('\n');
-                if (!this.blocks(before).length) { i = end - 1; continue; }
-                const after = this.strip(before);
-                if (after !== before.trim()) {
-                    changed = true;
-                    const lines = after ? after.split(/\r?\n/) : [];
-                    group.forEach((command, index) => {
-                        command.parameters = command.parameters || [''];
-                        command.parameters[0] = lines[index] || '';
-                    });
-                }
-                i = end - 1;
+    pageCommentText(event, pageIndex) {
+        const pages = event && event.pages || [];
+        const page = pages[Math.max(0, Number(pageIndex) || 0)] || pages[0];
+        const lines = [];
+        for (const command of (page && page.list) || []) {
+            if (command && (command.code === 108 || command.code === 408)) lines.push(String((command.parameters || [])[0] || ''));
+        }
+        return lines.join('\n');
+    },
+
+    scheduleScope(event, pageIndex) {
+        const index = Math.max(0, Number(pageIndex) || 0), pageText = this.pageCommentText(event, index);
+        if (this.blocks(pageText).length) return { kind: 'page', pageIndex: index, text: pageText };
+        return { kind: 'note', pageIndex: index, text: String(event && event.note || '') };
+    },
+
+    // Rewrite only the selected page's comment groups. Other pages and the event note are separate authoring
+    // scopes, so changing one can never silently remove or migrate a schedule from another.
+    writeCommentSchedule(event, pageIndex, entries) {
+        const pages = event && event.pages || [], page = pages[Math.max(0, Number(pageIndex) || 0)] || pages[0];
+        const list = page && page.list;
+        if (!list) return false;
+        let changed = false, wrote = false;
+        for (let i = 0; i < list.length;) {
+            if (!list[i] || list[i].code !== 108) { i++; continue; }
+            let end = i + 1;
+            while (end < list.length && list[end] && list[end].code === 408) end++;
+            const group = list.slice(i, end), before = group.map(c => String((c.parameters || [])[0] || '')).join('\n');
+            if (!this.blocks(before).length) { i = end; continue; }
+            const after = wrote ? this.strip(before) : this.write(before, entries);
+            wrote = true;
+            if (after !== before.trim()) {
+                const indent = Number(group[0].indent) || 0;
+                const lines = after ? after.split(/\r?\n/) : [''];
+                const replacement = lines.map((line, index) => ({ code: index ? 408 : 108, indent, parameters: [line] }));
+                list.splice(i, end - i, ...replacement);
+                end = i + replacement.length;
+                changed = true;
             }
+            i = end;
         }
         return changed;
+    },
+
+    stripCommentBlocks(event, pageIndex) {
+        return this.writeCommentSchedule(event, pageIndex, []);
     },
 
     of(event, weekdayNames) {

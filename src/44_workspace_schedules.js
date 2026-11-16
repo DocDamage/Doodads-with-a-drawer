@@ -10,13 +10,14 @@
         selectedScheduleData() {
             const info = this.selectedEvent, ge = info && info.gameEvent;
             const event = this.selectedStagedEvent ? this.selectedStagedEvent() : (info && info.stagedEvent);
-            return event ? { event, ge, pageIndex: ge ? ge._pageIndex : 0 } : null;
+            const pageIndex = ge ? ge._pageIndex : 0;
+            return event ? { event, ge, pageIndex, scope: S.scheduleScope(event, pageIndex) } : null;
         },
 
         eventScheduleEntries() {
             const picked = this.selectedScheduleData();
             if (!picked) { const empty = []; empty.errors = []; return empty; }
-            return S.parse(S.eventDataText(picked.event, picked.pageIndex), DocsDoodads.Calendar.weekdayNames());
+            return S.parse(picked.scope.text, DocsDoodads.Calendar.weekdayNames());
         },
 
         editEventSchedule(entries) {
@@ -24,8 +25,8 @@
             if (!picked || (entries && entries.errors && entries.errors.length)) return false;
             const event = picked.event, ge = picked.ge;
             const before = JSON.parse(JSON.stringify(event)), after = JSON.parse(JSON.stringify(event));
-            S.stripCommentBlocks(after);
-            after.note = S.write(after.note, entries);
+            if (picked.scope.kind === 'page') S.writeCommentSchedule(after, picked.scope.pageIndex, entries);
+            else after.note = S.write(after.note, entries);
             if (JSON.stringify(after) === JSON.stringify(before)) return false;
             const set = snapshot => {
                 for (const key of Object.keys(event)) delete event[key];
@@ -56,7 +57,7 @@
             if (!content) return null;
             const old = document.getElementById('dd-event-schedule');
             if (old && old.parentNode) old.parentNode.removeChild(old);
-            const picked = this.selectedScheduleData(), text = picked ? S.eventDataText(picked.event, picked.pageIndex) : '';
+            const picked = this.selectedScheduleData(), text = picked ? picked.scope.text : '';
             const raw = S.blockText(text), entries = this.scheduleFromText(raw);
             const esc = DocsDoodads.Security.escapeHtml;
             const section = document.createElement('div');
@@ -64,7 +65,7 @@
             section.style.cssText = 'margin-top:10px;border-top:1px solid var(--dd-line-soft);padding-top:8px;';
             section.innerHTML = `
                 <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Schedule</div>
-                <div style="font-size:10px;color:var(--dd-muted);margin-bottom:5px;">One line per place: weekdays (optional), time, tile, then walk, hide or face:2/4/6/8.</div>
+                <div style="font-size:10px;color:var(--dd-muted);margin-bottom:5px;">Editing ${picked && picked.scope.kind === 'page' ? 'this event page' : 'the event note'}. One line per place: weekdays (optional), time, tile, then walk, hide or face:2/4/6/8.</div>
                 <textarea id="dd-schedule-text" rows="${Math.max(3, raw.split(/\r?\n/).length + 1)}" style="width:100%;resize:vertical;background:var(--dd-field);color:var(--dd-text);border:1px solid var(--dd-line);padding:5px;font:11px monospace;">${esc(raw)}</textarea>
                 <div id="dd-schedule-errors" style="font-size:10px;color:var(--dd-danger);margin-top:3px;">${entries.errors.map(error => esc('Line ' + error.line + ': ' + error.message)).join('<br>')}</div>
                 <div id="dd-schedule-rows" style="display:flex;flex-direction:column;gap:3px;margin-top:6px;">${entries.map((entry, index) => `
