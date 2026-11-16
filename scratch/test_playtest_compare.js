@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { compare } = require('../scripts/playtest_compare');
-const { parseCases, parseArgs, prepare, runningRuntime, run, writeReport, safeRemoveTemp } = require('../scripts/playtest');
+const { parseCases, parseArgs, prepare, runningRuntime, run, writeReport, safeRemoveTemp, terminateSpawned } = require('../scripts/playtest');
 const picture = (w, h) => ({ width: w, height: h, rgba: new Uint8Array(w * h * 4).fill(255) });
 const a = picture(12, 10), b = picture(12, 10);
 assert.strictEqual(compare(a, b).pass, true);
@@ -164,6 +164,34 @@ assert.strictEqual(destroyed, true);
     assert.strictEqual(timeoutClosed, true, 'timeout waits for the spawned process to close');
     assert.strictEqual(timed.pass, false);
     assert.strictEqual(fs.existsSync(spawnedCopy), false);
+
+    let windowsForceCalls = 0;
+    const stubbornTree = new EventEmitter(); stubbornTree.pid = 98765;
+    stubbornTree.kill = signal => { if (signal === 'SIGKILL') setImmediate(() => stubbornTree.emit('close', 137)); };
+    assert.strictEqual(await terminateSpawned(stubbornTree, { platform: 'win32', terminateGraceMs: 2,
+        forceKill() { windowsForceCalls++; } }), true, 'the Windows fallback confirms the child closed');
+    assert.ok(windowsForceCalls >= 2, 'the exact spawned Windows tree is retried after the first grace period');
+
+    const neverSpawn = (_executable, args) => {
+        const child = new EventEmitter(); child.pid = 24680; child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+        child.kill = () => {}; spawnedCopy = args[0]; return child;
+    };
+    const unconfirmed = await run(Object.assign({}, options, { update: false, timeout: 0.001, out: path.join(fixtureRoot, 'unconfirmed-report') }),
+        { spawn: neverSpawn, runningRuntime: () => false, terminateGraceMs: 2, platform: 'win32', forceKill() {} });
+    assert.strictEqual(unconfirmed.pass, false);
+    assert.match(unconfirmed.error, /PID 24680.*not confirm/i);
+    assert.ok(unconfirmed.projectCopy && fs.existsSync(unconfirmed.projectCopy), 'an unconfirmed process keeps the copy it may still write');
+    safeRemoveTemp(unconfirmed.projectCopy);
+
+    const inside = path.join(source, 'inside-output'); fs.mkdirSync(inside);
+    const alias = path.join(fixtureRoot, 'inside-alias');
+    try {
+        fs.symlinkSync(inside, alias, process.platform === 'win32' ? 'junction' : 'dir');
+        assert.throws(() => writeReport(prepared, { cases: [], errors: [] }, { out: alias, baseline }), /outside/,
+            'a junction cannot make an in-project report folder look external');
+    } catch (error) {
+        if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) throw error;
+    }
 
     const kept = await run(Object.assign({}, options, { keepCopy: true, update: false, out: path.join(fixtureRoot, 'kept-report') }), dependencies);
     assert.ok(kept.projectCopy && fs.existsSync(kept.projectCopy));
