@@ -102,6 +102,10 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if (DocsDoodads.SimpleMode.enabled()) {
+            DocsDoodads.SimpleMode.reveal(tool);
+            this.updateSimpleView();
+        }
         if (this._tour && this._tour.tool !== tool) this.endTour();
         this.placementTool = tool || null;
         for (const [name, id] of Object.entries(this.toolButtons)) {
@@ -131,6 +135,7 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        DocsDoodads.SimpleMode.begin();
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
         this.showSounds = DocsDoodads.Ui.prefs().soundOverlay === true;
         DocsDoodads.Ui.applyLook();
@@ -233,6 +238,7 @@ DocsDoodads.Workspace = {
         this.postFxCompare = false;
         this.mounted = false;
         DocsDoodads.EditWindow.onClose();
+        DocsDoodads.SimpleMode.end();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = false;
         }
@@ -353,7 +359,7 @@ DocsDoodads.Workspace = {
         U.watchFocusSource();
 
         const tool = (id, icon, label, title, extra = '') =>
-            `<button class="dd-btn dd-tool ${extra}" id="${id}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
+            `<button class="dd-btn dd-tool ${extra}" id="${id}" style="${this.simpleToolStyle(id)}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
         const slider = (id, label, valId, value, min, max, step = 1) => `
             <div>
                 <div style="display: flex; justify-content: space-between; color: var(--dd-muted);"><span>${label}</span><b id="${valId}" style="color: var(--dd-text);">${value}</b></div>
@@ -385,6 +391,7 @@ DocsDoodads.Workspace = {
             <div class="dd-spacer"></div>
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
             ${this.renderMenuButtons(tool)}
+            <button class="dd-btn" id="dd-simple-btn" type="button" aria-pressed="${DocsDoodads.SimpleMode.enabled()}">${DocsDoodads.SimpleMode.enabled() ? 'Show Everything' : 'Keep It Simple'}</button>
             ${tool('dd-save-btn', 'save', 'Save', DocsDoodads.Shortcuts.tip('save', 'Save everything'), 'dd-btn-good')}
             ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
@@ -1000,6 +1007,7 @@ DocsDoodads.Workspace = {
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
         on('dd-mapset-btn', () => { this.showMoreMenu(false); this.showMapSettingsCard(); });
         on('dd-moods-btn', () => { this.showMoreMenu(false); this.showMoods(); });
+        on('dd-simple-btn', () => this.setSimpleMode(!DocsDoodads.SimpleMode.enabled()));
         on('dd-savemap-btn', () => { this.showMoreMenu(false); this.saveThisMap(); });
         on('dd-autosave-btn', () => { this.cycleAutosave(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });

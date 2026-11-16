@@ -92,6 +92,7 @@ Object.assign(DocsDoodads.Workspace, {
         try { rows.push.apply(rows, this.mapSettingDescriptors()); } catch (err) { /* an optional panel must not break Settings */ }
         [['dd-look-scale', 'Editor size', 'scale zoom'], ['dd-look-theme', 'Theme', 'dark light'], ['dd-look-colors', 'Map colours', 'color colour blind'],
             ['dd-look-bigwin', 'Bigger window while editing', 'maximize maximise full screen window size']]
+            .concat([['dd-look-simple', 'Keep It Simple', 'simple mode show everything tools']])
             .forEach(row => rows.push({ id: `look:${row[0]}`, controlId: row[0], label: row[1], words: row[2], where: 'Editor / Look', kind: 'look' }));
         rows.push({ id: 'autosave', controlId: 'dd-autosave-btn', label: 'Autosave', words: 'automatic save interval recovery', where: 'Editor / Saving', kind: 'autosave' });
         for (const shortcut of DocsDoodads.Shortcuts.list) rows.push({ id: `key:${shortcut.id}`, shortcutId: shortcut.id,

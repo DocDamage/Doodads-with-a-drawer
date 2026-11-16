@@ -1120,6 +1120,7 @@
         const first = items[0];
         this._openEffectSections = this._openEffectSections || {};
         this._effectSections = (items.length > 1 ? [this.placementSection()] : []).concat(this.effectSections());
+        if (DocsDoodads.SimpleMode.enabled()) this._effectSections = DocsDoodads.SimpleMode.sections(this._effectSections, first.model ? 'model' : 'picture');
         return this._effectSections.map((section, si) => {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;

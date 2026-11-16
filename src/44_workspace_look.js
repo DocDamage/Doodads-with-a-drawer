@@ -77,6 +77,7 @@ Object.assign(DocsDoodads.Workspace, {
             <label>Theme<select id="dd-look-theme">${U.themes.map(t => option(t.value, t.label, U.theme())).join('')}</select></label>
             <label>Map colours<select id="dd-look-colors">${option('standard', 'Standard', U.mapColorMode())}${option('safe', 'Colour-blind safe', U.mapColorMode())}</select></label>
             <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" id="dd-look-bigwin" ${DocsDoodads.EditWindow.enabled() ? 'checked' : ''} /> Bigger window while editing</label>
+            <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" id="dd-look-simple" ${DocsDoodads.SimpleMode.enabled() ? 'checked' : ''} /> Keep It Simple</label>
             <div class="dd-label" style="margin: 2px 0 0;">What the map colours mean</div>
             <div class="dd-look-key" id="dd-look-key">${U.mapColorMeanings.map(([name, text]) =>
                 `<div><span class="dd-swatch" style="background: ${hex(U.mapColor(name))};"></span>${escapeHtml(text)}</div>`).join('')}</div>
@@ -87,6 +88,8 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-look-colors', v => this.setLook('mapColors', v));
         const bigWindow = document.getElementById('dd-look-bigwin');
         if (bigWindow) bigWindow.onchange = e => DocsDoodads.EditWindow.setEnabled(Boolean(e.target.checked), this.mounted);
+        const simple = document.getElementById('dd-look-simple');
+        if (simple) simple.onchange = e => this.setSimpleMode(Boolean(e.target.checked));
         const close = document.getElementById('dd-look-close');
         if (close) close.onclick = () => this.closeLookCard();
         return card;

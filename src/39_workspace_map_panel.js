@@ -208,6 +208,7 @@
     },
 
     setSymmetry(mode) {
+        if (DocsDoodads.SimpleMode.enabled()) { DocsDoodads.SimpleMode.reveal('symmetry'); this.updateSimpleView(); }
         this.symmetry = Object.assign({}, this.symmetry, { mode });
         const btn = document.getElementById('dd-sym-btn');
         if (btn && btn.classList) btn.classList.toggle('dd-btn-active', mode !== 'off');
@@ -775,6 +776,8 @@
         add('Clear Map Dressing', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
         add('Messages (read them again)', () => this.showToastHistory());
         add('Look: size, theme, map colours', () => this.showLookCard());
+        add('Show Everything', () => this.setSimpleMode(false), 'View');
+        add('Keep It Simple', () => this.setSimpleMode(true), 'View');
         add('How to Use (welcome card)', () => this.showWelcome());
         add('Replay Tool Tours', () => this.replayTours());
         add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());

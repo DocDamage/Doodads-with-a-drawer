@@ -78,7 +78,8 @@
         const button = item => {
             const title = typeof item.title === 'function' ? item.title() : item.title;
             const text = esc(this.menuItemText(item));
-            return `<button class="dd-btn" id="${item.id}" title="${esc(title || '')}">${U.icon(item.icon, 1)} ${item.span ? `<span id="${item.span}">${text}</span>` : text}</button>`;
+            const hidden = DocsDoodads.SimpleMode.enabled() && !DocsDoodads.SimpleMode.menuItems([item]).length;
+            return `<button class="dd-btn" id="${item.id}" style="${hidden ? 'display:none;' : ''}" title="${esc(title || '')}">${U.icon(item.icon, 1)} ${item.span ? `<span id="${item.span}">${text}</span>` : text}</button>`;
         };
         const layouts = `
                     <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
@@ -200,11 +201,15 @@
 
     // Keys in an open menu: up and down move between its entries, left and right to the next menu (the ones
     // on the bar), Home and End, Esc closes it and goes back to its button.
+    visibleMenuItems(pop) {
+        return pop ? Array.from(pop.querySelectorAll('.dd-more-grid button, select')).filter(button => !button.disabled && (!button.style || button.style.display !== 'none')) : [];
+    },
+
     topMenuKey(id, e) {
         if (typeof document === 'undefined') return false;
         const pop = document.getElementById(this.menuPopId(id));
         if (!pop) return false;
-        const items = Array.from(pop.querySelectorAll('.dd-more-grid button, select'));
+        const items = this.visibleMenuItems(pop);
         const active = document.activeElement;
         const i = items.indexOf(active);
         let next = null;
@@ -218,7 +223,7 @@
             const to = bar[(j + (e.key === 'ArrowRight' ? 1 : bar.length - 1)) % bar.length];
             this.showMenu(to, true);
             const first = document.getElementById(this.menuPopId(to));
-            next = first ? first.querySelector('.dd-more-grid button') : null;
+            next = this.visibleMenuItems(first)[0] || null;
         } else if (e.key === 'Escape') {
             this.showMenu(null, false);
             next = document.getElementById(this.menuButtonId(id));
@@ -243,7 +248,7 @@
                     if (e.key !== 'ArrowDown') return;
                     this.showMenu(m.id, true);
                     const pop = document.getElementById(this.menuPopId(m.id));
-                    const first = pop ? pop.querySelector('.dd-more-grid button') : null;
+                    const first = this.visibleMenuItems(pop)[0] || null;
                     if (first && first.focus) first.focus();
                     if (e.preventDefault) e.preventDefault();
                 });

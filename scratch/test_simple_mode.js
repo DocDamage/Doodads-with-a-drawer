@@ -36,5 +36,10 @@ W.setPlacementTool('path');
 assert.strictEqual(W.placementTool, 'path', 'a hidden tool still works from a shortcut or the palette');
 assert.strictEqual(nodes['dd-path-btn'].style.display, '');
 assert.ok(S.tools().includes('path'));
+let focused = false;
+nodes['dd-menu-map'] = { querySelectorAll: () => [{ style: { display: 'none' }, focus() { throw new Error('Hidden menu entry was focused'); } },
+    { style: {}, focus() { focused = true; } }] };
+W.topMenuKey('map', { key: 'ArrowDown', preventDefault() {}, stopPropagation() {} });
+assert.strictEqual(focused, true, 'keyboard menu navigation skips hidden commands');
 S.end(); assert.ok(!S.tools().includes('path'), 'extra tool lasts only this editor session');
 console.log('Simple mode: all tests passed.');
