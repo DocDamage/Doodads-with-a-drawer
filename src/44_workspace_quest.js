@@ -80,7 +80,14 @@
                 }
                 const pointer = document.createElement('div'); pointer.id = 'dd-quest-pointer'; pointer.className = 'dd-tour dd-glass';
                 pointer.style.cssText = 'position:fixed;z-index:10039;width:250px;padding:10px;pointer-events:none;';
-                pointer.textContent = next.id === 'played' ? 'Right-click a free tile, then Play From Here. Reopen the editor to continue.' : next.text;
+                const hints = {
+                    place: 'Pick art in the Item Bag, choose Stamp and click the map three times.',
+                    lamp: 'Pick a placed object. In Details, More → Light → Emit light makes it a lamp. Or stamp the Sample Lamp Post prefab.',
+                    night: 'Drag the preview clock to 20:00 to see your lamps after dark.',
+                    played: 'Right-click a free tile, then Play From Here. Reopen the editor to continue.',
+                    saved: 'After trying the map, reopen the editor and press Save.'
+                };
+                pointer.textContent = hints[next.id] || next.text;
                 (this.container || document.body).appendChild(pointer); this.placeTour(pointer, next.at);
             });
         }
