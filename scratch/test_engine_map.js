@@ -98,4 +98,32 @@ run('menu round trip', () => {
 });
 assert.deepStrictEqual(errors, []);
 
-console.log("✓ Map drawing on a stand-in engine: 2D doodads and lighting, 3D with terrain, weather, standing tiles, snow, clouds, models, minimap, quality, planets, see-through, leaving 3D and a menu round trip.");
+// 8. The same runtime paths use the project's tile size and viewport instead of assuming MZ's defaults.
+for (const spec of [{ tileSize: 32, screenWidth: 1280, screenHeight: 720 }, { tileSize: 16, screenWidth: 640, screenHeight: 360 }]) {
+    const size = spec.tileSize;
+    E.setupWorld(Object.assign({ mapId: size, width: 20, height: 15, px: 4, py: 4, tiles: [[6, 5, 0, 2048]] }, spec));
+    assert.strictEqual($gameMap.screenTileX(), spec.screenWidth / size, `${size}px flat viewport width`);
+    assert.strictEqual($gameMap.screenTileY(), spec.screenHeight / size, `${size}px flat viewport height`);
+    const obstacle = E.doodad(5, 5, { frameW: size, frameH: size, collision: { preset: 'full', shape: null }, light: { enabled: true, when: 'always', radius: size * 3 } });
+    $dataDocsDoodads[size] = [obstacle];
+    DocsDoodads.Lighting.setMapSettings(size, {
+        perspective: { enabled: true, pitch: 50, viewTiles: 16, minimap: true },
+        terrain: { enabled: true, style: 'stepped', auto: false, paint: { '5,5': 1 } },
+        ambient: { darkness: 0.3, color: '#101830' }
+    });
+    const sized = new Spriteset_Map();
+    SceneManager._scene = { _spriteset: sized };
+    $gameMap.setDisplayPos(2, 3);
+    run(`${size}px frames`, () => E.frames(sized, 4));
+    assert.strictEqual($gameMap.tileWidth(), size);
+    assert.strictEqual($gameMap.tileHeight(), size);
+    assert.strictEqual($gameMap.screenTileX(), 16, `${size}px 3D viewTiles controls the camera span`);
+    assert.deepStrictEqual([sized._tilemap.tileWidth, sized._tilemap.tileHeight], [size, size]);
+    assert.ok(sized._docs3d && sized._docsMinimap.visible, `${size}px 3D and minimap`);
+    assert.ok(sized._docsLightOverlay, `${size}px lights`);
+    assert.ok(DocsDoodads.Collision.tilesUnder(DocsDoodads.Collision.bodyOf(obstacle), size, size).some(t => t.x === 5 && t.y === 5), `${size}px collision`);
+    assert.ok(DocsDoodads.Traversal.isWater(6, 5), `${size}px traversal reads the intended water tile`);
+    assert.deepStrictEqual(errors, []);
+}
+
+console.log("✓ Map drawing on a stand-in engine: 2D doodads and lighting, 3D with terrain, weather, standing tiles, snow, clouds, models, minimap, quality, planets, see-through, leaving 3D, a menu round trip, and 16/32px tiles on alternate viewports.");

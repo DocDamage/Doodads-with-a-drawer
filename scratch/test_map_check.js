@@ -36,6 +36,7 @@ const rows = [
 ];
 const wall = (x, y) => rows[y] && rows[y][x] === '#';
 let loop = false;
+let tileSize = 48;
 const ev = (id, x, y, opts = {}) => ({
     x, y, eventId: () => id, isNormalPriority: () => opts.priority === 1, isThrough: () => false,
     event: () => ({ name: opts.name || '', pages: [{ list: opts.list || [{ code: 0 }], image: { characterName: opts.sheet || '' } }] }),
@@ -44,7 +45,7 @@ const ev = (id, x, y, opts = {}) => ({
 const events = [];
 let mapId = 1;
 global.$gameMap = {
-    mapId: () => mapId, width: () => 10, height: () => 6, tileWidth: () => 48, tileHeight: () => 48,
+    mapId: () => mapId, width: () => 10, height: () => 6, tileWidth: () => tileSize, tileHeight: () => tileSize,
     displayX: () => 0, displayY: () => 0, adjustX: x => x, adjustY: y => y,
     isLoopHorizontal: () => loop, isLoopVertical: () => false,
     roundX: x => (loop ? (x + 10) % 10 : x), roundY: y => y,
@@ -128,6 +129,24 @@ D.Perspective.liveCamera = () => null;
     assert.ok(g.fills.includes(D.Ui.mapColor('reach')));
     assert.ok(g.rects.some(rc => rc[0] === 3 * 48 + 2 && rc[1] === 3 * 48 + 2), 'the chest outlined');
     assert.deepStrictEqual(g.circles, [[7.5 * 48, 3.5 * 48]], 'the start marked');
+    for (const size of [32, 16]) {
+        tileSize = size;
+        Graphics.width = size * 10;
+        Graphics.height = size * 6;
+        const sizedCrate = Object.assign(D.standardStruct(), { x: size / 2, y: 3 * size, frameW: size, frameH: size, collision: { preset: 'full', shape: null }, bit: [3, 'img/doodads/crate.png'] });
+        $dataDocsDoodads[1] = [sizedCrate];
+        assert.ok(ws.doodadBlockedTiles().has('0,2'), `${size}px collision maps back to tile 0,2`);
+        const sized = { rects: [], circles: [], lineStyle() {}, beginFill() {}, endFill() {}, drawRect(...a) { this.rects.push(a); }, drawCircle(...a) { this.circles.push(a); } };
+        ws.drawReachOverlay(sized);
+        assert.ok(sized.rects.some(rc => rc[0] === 3 * size + 2 && rc[1] === 3 * size + 2), `${size}px problem outline`);
+        assert.deepStrictEqual(sized.circles, [[7.5 * size, 3.5 * size, 8]], `${size}px reach start`);
+        ws.centerOnTile(7, 3);
+        assert.deepStrictEqual($gameMap._shown, [2.5, 0.5], `${size}px viewport centering`);
+    }
+    tileSize = 48;
+    Graphics.width = 480;
+    Graphics.height = 288;
+    $dataDocsDoodads[1] = [crate];
     // The Reach tool: a click on the map checks from that tile, then Select is back.
     byId.GameCanvas = makeNode('canvas');
     ws.mounted = true;

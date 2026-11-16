@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tile and screen sizes were audited end to end: map coordinates use MZ's live dimensions while art, light distances and UI sizes remain deliberate pixels. The stand-in engine and focused suites now exercise 16- and 32-pixel tiles and alternate viewports. A real-MZ 32-pixel, 1280 × 720 playtest passed on interior, town, looping field and cave maps, flat and in 3D; see the QA record for scope and a pre-existing renderer artifact.
 - Settings: More → Settings (Ctrl+,) searches map, world, editor, keyboard and all 16 plugin settings in one grouped list; choosing a result opens and briefly highlights its real control. Plugin parameters show their configured and default values read-only, with directions to MZ's Plugin Manager. Every result is also in Find a Tool with a `Setting:` prefix.
 - Map pictures: opened maps get a small tiles-and-doodads picture in map-tab hover cards, the map list, Find a Tool's Go to map rows and World View. Pictures are made lazily at about 256 pixels on their long side and kept in the disposable editor cache; unopened maps keep a named placeholder.
 - Fix: crash recovery now keeps unsaved notes on every map and editor bookmarks, including changes that remove either list.
