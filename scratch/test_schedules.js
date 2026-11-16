@@ -90,7 +90,23 @@ assert.strictEqual(npc.isTransparent(), true);
 now = 11 * 60; R.updateMap($gameMap, false);
 assert.strictEqual(npc.isTransparent(), false);
 
+// If the active page loses its schedule, the ordinary event position and flags come back.
+const scheduleNote = $dataMap.events[1].note;
+now = 10 * 60; R.updateMap($gameMap, false);
+$dataMap.events[1].note = '';
+if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(npc);
+S.invalidate(npc); R.mapState($gameMap).pending = true;
+R.updateMap($gameMap, false);
+assert.deepStrictEqual([npc.x, npc.y, npc.isTransparent(), npc.isThrough()], [1, 1, false, true]);
+$dataMap.events[1].note = scheduleNote;
+if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(npc);
+S.invalidate(npc);
+
 // A restored map has no WeakMap state: current clock state is derived again even if its saved key matches.
+npc.locate(7, 7); npc.setTransparent(true); npc.setThrough(true); npc._docsScheduleKey = S.parse(scheduleNote, weekdays)[2].key;
+R.reset(); now = 10 * 60; R.updateMap($gameMap, true);
+now = 11 * 60; R.updateMap($gameMap, false);
+assert.deepStrictEqual([npc.isTransparent(), npc.isThrough()], [false, true], 'load while hidden still restores page visibility later');
 npc.locate(99, 99); npc._docsScheduleKey = S.of(npc, weekdays)[3].key;
 R.reset(); R.updateMap($gameMap, true);
 assert.deepStrictEqual([npc.x, npc.y], [8, 8]);
