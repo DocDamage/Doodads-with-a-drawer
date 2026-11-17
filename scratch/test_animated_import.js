@@ -63,6 +63,26 @@ function apngFixture() {
         control(1, 1, 0, 0, 10, 0, 0), fdat([255, 255, 255, 255]), pngChunk('IEND', Buffer.alloc(0))
     ]);
 }
+function oneFrameApng(options = {}) {
+    const width = options.width || 2, height = options.height || 1, depth = options.depth === undefined ? 8 : options.depth;
+    const colour = options.colour === undefined ? 6 : options.colour;
+    const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = depth; ihdr[9] = colour;
+    const actl = Buffer.alloc(8); actl.writeUInt32BE(1, 0);
+    const fctl = Buffer.alloc(26); fctl.writeUInt32BE(0, 0); fctl.writeUInt32BE(options.frameWidth || width, 4); fctl.writeUInt32BE(options.frameHeight || height, 8);
+    fctl.writeUInt32BE(options.frameX || 0, 12); fctl.writeUInt32BE(options.frameY || 0, 16); fctl.writeUInt16BE(10, 20); fctl.writeUInt16BE(100, 22);
+    const chunks = [];
+    if (options.beforeHeader) chunks.push(pngChunk('tEXt', Buffer.alloc(0)));
+    chunks.push(pngChunk('IHDR', ihdr));
+    if (options.duplicateHeader) chunks.push(pngChunk('IHDR', ihdr));
+    if (options.palette) chunks.push(pngChunk('PLTE', Buffer.from(options.palette.flat())));
+    if (options.transparency) chunks.push(pngChunk('tRNS', Buffer.from(options.transparency)));
+    if (!options.lateAnimation) chunks.push(pngChunk('acTL', actl));
+    chunks.push(pngChunk('fcTL', fctl), pngChunk('IDAT', zlib.deflateSync(Buffer.from([0, ...(options.row || [255, 0, 0, 255, 255, 0, 0, 255])]))));
+    if (options.lateAnimation) chunks.push(pngChunk('acTL', actl));
+    chunks.push(pngChunk('IEND', Buffer.alloc(0)));
+    return Buffer.concat([signature, ...chunks]);
+}
 
 async function main() {
     assert.ok(D.GifRead && D.ApngRead && D.AnimatedImport, 'animated readers and import helper exist');
@@ -75,6 +95,11 @@ async function main() {
     const roundTrip = D.GifRead.frames(D.Gif.encode(original, { delay: 6 }));
     assert.strictEqual(roundTrip.length, 2); assert.deepStrictEqual(pixel(roundTrip[0], 0, 0), [255, 0, 0, 255]);
     assert.deepStrictEqual(pixel(roundTrip[1], 1, 1), [0, 255, 0, 255]); assert.strictEqual(roundTrip[0].delayMs, 60);
+    const manyPixels = frame(32, 32, Array.from({ length: 1024 }, (_, index) => [index % 16 * 17, Math.floor(index / 16) % 16 * 17, index * 7 % 16 * 17, 255]));
+    assert.strictEqual(D.GifRead.frames(D.Gif.encode([manyPixels], { delay: 4 }))[0].rgba.length, manyPixels.rgba.length,
+        'LZW code-size changes round-trip beyond a tiny fixture');
+    const transparent = D.GifRead.frames(gifFixture(2, 1, [{ width: 2, height: 1, indices: [1, 0], transparent: 0 }]))[0];
+    assert.strictEqual(pixel(transparent, 1, 0)[3], 0, 'untouched transparent GIF pixels remain transparent');
 
     // Disposal 2 clears the prior rectangle to the GIF background; disposal 3 restores its saved canvas.
     const disposed = D.GifRead.frames(gifFixture(2, 1, [
@@ -97,6 +122,19 @@ async function main() {
     assert.deepStrictEqual(pixel(apng[1], 0, 0), [127, 0, 128, 255], 'half-blue blends over red');
     assert.deepStrictEqual([pixel(apng[2], 0, 0), pixel(apng[2], 1, 0)], [[255, 0, 0, 255], [0, 255, 0, 255]], 'previous restores before frame 3');
     assert.deepStrictEqual([pixel(apng[3], 0, 0), pixel(apng[3], 1, 0)], [[255, 255, 255, 255], [0, 0, 0, 0]], 'background clears frame 3 rectangle');
+    const indexed = D.ApngRead.frames(oneFrameApng({ depth: 2, colour: 3, palette: [[255, 0, 0], [0, 255, 0]], transparency: [255, 0], row: [0x10] }), zlib.inflateSync)[0];
+    assert.deepStrictEqual([pixel(indexed, 0, 0), pixel(indexed, 1, 0)], [[255, 0, 0, 255], [0, 255, 0, 0]], 'indexed APNG palette alpha is retained');
+    const grey = D.ApngRead.frames(oneFrameApng({ depth: 4, colour: 0, transparency: [0, 10], row: [0xa5] }), zlib.inflateSync)[0];
+    assert.deepStrictEqual([pixel(grey, 0, 0), pixel(grey, 1, 0)], [[170, 170, 170, 0], [85, 85, 85, 255]], 'packed greyscale and tRNS are decoded');
+    const badCrc = Buffer.from(oneFrameApng()); badCrc[badCrc.indexOf('IDAT') + 4] ^= 1;
+    assert.throws(() => D.ApngRead.frames(badCrc, zlib.inflateSync), /CRC/i);
+    assert.throws(() => D.ApngRead.frames(oneFrameApng({ lateAnimation: true }), zlib.inflateSync), /acTL|before.*IDAT/i);
+    assert.throws(() => D.ApngRead.frames(oneFrameApng({ frameWidth: 1 }), zlib.inflateSync), /default|IHDR|full/i);
+    assert.throws(() => D.ApngRead.frames(oneFrameApng({ beforeHeader: true }), zlib.inflateSync), /IHDR.*first|header/i);
+    assert.throws(() => D.ApngRead.frames(oneFrameApng({ duplicateHeader: true }), zlib.inflateSync), /IHDR|header/i);
+    const baseApng = oneFrameApng(), emptyChunks = Array.from({ length: 4097 }, () => pngChunk('aaAa', Buffer.alloc(0)));
+    const tooManyChunks = Buffer.concat([baseApng.subarray(0, 33), ...emptyChunks, baseApng.subarray(33)]);
+    assert.throws(() => D.ApngRead.frames(tooManyChunks, zlib.inflateSync), /chunks|complex/i);
 
     // Packing wraps under the side bound, records the real count so padded cells never play, and chooses
     // the commonest delay. A single frame is an ordinary still PNG.
@@ -106,6 +144,8 @@ async function main() {
     assert.strictEqual(packed.variedDelay, true); assert.strictEqual(PngRead.decode(Buffer.from(packed.bytes)).width, 12);
     const still = D.AnimatedImport.pack([original[0]], bytes => zlib.deflateSync(bytes));
     assert.deepStrictEqual([still.xFrame, still.yFrame, still.frameCount, still.frameUpdate], [1, 1, 1, 0]);
+    const zeroDelay = D.AnimatedImport.pack([solid(1, 1, [1, 2, 3, 255], 0), solid(1, 1, [4, 5, 6, 255], 0)], bytes => zlib.deflateSync(bytes));
+    assert.strictEqual(zeroDelay.frameUpdate, 1, 'a zero-delay source runs at the game minimum rather than an invented tenth-second pause');
     assert.throws(() => D.AnimatedImport.pack([solid(3, 3, [1, 2, 3, 255]), solid(3, 3, [4, 5, 6, 255])], zlib.deflateSync, { maxSide: 4 }), /4096|fit|limit/i);
 
     // Import uses the existing temp/backup transaction, writes only a generated PNG, leaves the source
@@ -131,9 +171,24 @@ async function main() {
         const doodad = D.Workspace.newDoodadFromAsset(asset, 10, 20, false);
         assert.deepStrictEqual([doodad.frameW, doodad.frameH, doodad.xFrame, doodad.yFrame, doodad.frameUpdate, doodad.anim.frameCount], [2, 2, 2, 1, 4, 2]);
         assert.strictEqual(D.FrameAnim.total(Object.assign({}, doodad, { xFrame: 4, yFrame: 2, anim: { frameCount: 5 } })), 5);
-        let shown = -1;
-        Sprite_DocsDoodad.prototype.updateFrameAnimation.call({ _data: { xFrame: 4, yFrame: 2, anim: { frameCount: 5 } }, _currentFrame: 4, showFrame(i) { shown = i; } });
-        assert.strictEqual(shown, 0, 'the runtime skips padded cells and loops at the real frame count');
+        assert.strictEqual(D.FrameAnim.total({ xFrame: 4, yFrame: 2, anim: { frameCount: Infinity } }), 8, 'corrupt counts clamp to the grid');
+        assert.ok(Number.isFinite(D.FrameAnim.total({ xFrame: Infinity, yFrame: Infinity, anim: { frameCount: Infinity } })), 'corrupt grid dimensions stay finite');
+        const runtimeDoodad = Object.assign(D.standardStruct(), { xFrame: 4, yFrame: 2, anim: { frameCount: 5 }, bit: [3, 'img/doodads/Spark.png'] });
+        $dataDocsDoodads[1] = [runtimeDoodad];
+        const runtimeSpriteset = new Spriteset_Map();
+        const runtimeSprite = runtimeSpriteset._docsDoodadSprites[0];
+        runtimeSprite._currentFrame = 4; runtimeSprite.updateFrameAnimation();
+        assert.strictEqual(runtimeSprite._currentFrame, 0, 'the runtime skips padded cells and loops at the real frame count');
+
+        const plainSource = path.join(sourceDir, 'Spark.png');
+        const sameSizeStill = D.AnimatedImport.pack([solid(4, 2, [30, 40, 50, 255])], bytes => zlib.deflateSync(bytes));
+        fs.writeFileSync(plainSource, sameSizeStill.bytes);
+        const plainOverwrite = await D.Workspace.runAssetImport([plainSource], {
+            projectRoot: project, destination: 'img/doodads', collisionPolicy: 'overwrite'
+        });
+        assert.strictEqual(plainOverwrite.ok, true, JSON.stringify(plainOverwrite.errors));
+        assert.strictEqual(D.AssetIndex.data.assets['img/doodads/spark.png'].animation, undefined,
+            'explicitly replacing an animated import with a plain same-size PNG clears generated animation metadata');
 
         const cancelledGif = path.join(sourceDir, 'Cancelled.gif'); fs.writeFileSync(cancelledGif, sourceBytes);
         const cancelled = await D.Workspace.runAssetImport([cancelledGif], {
@@ -145,6 +200,7 @@ async function main() {
         const sourceApng = path.join(sourceDir, 'Weather.png'); fs.writeFileSync(sourceApng, apngBytes);
         const apngResult = await D.Workspace.runAssetImport([sourceApng], { projectRoot: project, destination: 'img/doodads' });
         assert.strictEqual(apngResult.ok, true, JSON.stringify(apngResult.errors));
+        assert.deepStrictEqual(fs.readFileSync(sourceApng), apngBytes, 'the original APNG is preserved too');
         assert.ok(apngResult.warnings.some(message => /different frame times|commonest/i.test(message)));
         assert.strictEqual(D.AssetIndex.data.assets['img/doodads/weather.png'].animation.frameCount, 4);
     } finally {
@@ -154,8 +210,7 @@ async function main() {
 
     // Malformed/unsupported inputs fail before the transaction writes anything and say what is unsupported.
     assert.throws(() => D.GifRead.frames(Uint8Array.from([71, 73, 70])), /GIF|truncated/i);
-    const badColour = Buffer.from(apngBytes); badColour[25] = 3;
-    assert.throws(() => D.ApngRead.frames(badColour, zlib.inflateSync), /RGB|RGBA|colour/i);
+    assert.throws(() => D.ApngRead.frames(oneFrameApng({ colour: 5 }), zlib.inflateSync), /colour|color/i);
     console.log('PASS animated GIF/APNG decode, disposal, bounded sheet, transaction, metadata and runtime playback');
 }
 

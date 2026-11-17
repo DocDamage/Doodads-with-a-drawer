@@ -237,8 +237,9 @@ DocsDoodads.AssetIndex = {
     async indexPaths(paths, options = {}) {
         const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
         if (!fs || !path || !fs.promises) return 0;
-        const root = path.resolve('.');
+        const root = path.resolve(options.projectRoot || '.');
         const prefixes = this.roots.map(r => String(r).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '').toLowerCase() + '/');
+        const animationByPath = options.animationByPath instanceof Map ? options.animationByPath : new Map();
         let indexed = 0;
         for (const p of paths || []) {
             const absolute = path.resolve(root, String(p));
@@ -247,16 +248,56 @@ DocsDoodads.AssetIndex = {
             try {
                 const stat = await fs.promises.stat(absolute);
                 if (!stat.isFile()) continue;
+                const animationKey = absolute.toLowerCase(), hasAnimationDecision = animationByPath.has(animationKey);
+                if (hasAnimationDecision && this.data.assets[assetPath.toLowerCase()]) this.data.assets[assetPath.toLowerCase()].entryRevision = -1;
                 this.indexFile(absolute, path.basename(absolute), path.extname(absolute).toLowerCase(), assetPath, stat);
+                const asset = this.data.assets[assetPath.toLowerCase()], animation = animationByPath.get(animationKey);
+                if (animation) this.applyAnimation(asset, animation, true);
+                else if (hasAnimationDecision && asset) {
+                    delete asset.animation;
+                    if (asset.slice && asset.slice.method === 'animated-import') asset.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
+                }
                 indexed++;
             } catch (error) {}
         }
         if (indexed) {
             this.data.generatedAt = Date.now();
-            this.linkNormalMaps();
-            if (options.save !== false) this.save();
+            const manifest = this.linkNormalMaps();
+            if (options.save !== false) {
+                const sameRoot = process.platform === 'win32' ? root.toLowerCase() === path.resolve('.').toLowerCase() : root === path.resolve('.');
+                if (options.projectRoot && !sameRoot) {
+                    DocsDoodads.FS.atomicWriteJson(path.join(root, options.libraryPath || this.libraryPath), this.data, 0);
+                    this.writeNormalManifest(path.join(root, DocsDoodads.NormalLight.manifestPath), manifest);
+                } else this.save();
+            }
         }
         return indexed;
+    },
+
+    normalizeAnimation(animation, width, height) {
+        if (!animation) return null;
+        const integer = (value, fallback) => Math.max(1, Math.round(Number(value) || fallback));
+        const frameW = integer(animation.frameW, 1), frameH = integer(animation.frameH, 1);
+        const xFrame = integer(animation.xFrame, 1), yFrame = integer(animation.yFrame, 1), grid = xFrame * yFrame;
+        const frameCount = Math.max(1, Math.min(grid, Math.round(Number(animation.frameCount) || grid)));
+        const frameUpdate = frameCount > 1 ? integer(animation.frameUpdate, 1) : 0;
+        if (!Number.isFinite(grid) || grid > 65536 || frameW * xFrame > Number(width) || frameH * yFrame > Number(height)) return null;
+        return { frameW, frameH, xFrame, yFrame, frameCount, frameUpdate };
+    },
+
+    applyAnimation(asset, animation, replaceSlice) {
+        if (!asset) return null;
+        const normalized = this.normalizeAnimation(animation, asset.width, asset.height);
+        if (!normalized) { delete asset.animation; return null; }
+        asset.animation = normalized;
+        if (replaceSlice) {
+            asset.slice = { status: 'auto', method: 'animated-import', confidence: 1, regions: Array.from({ length: normalized.frameCount }, (_, index) => ({
+                x: index % normalized.xFrame * normalized.frameW,
+                y: Math.floor(index / normalized.xFrame) * normalized.frameH,
+                w: normalized.frameW, h: normalized.frameH
+            })) };
+        }
+        return normalized;
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
@@ -328,6 +369,12 @@ DocsDoodads.AssetIndex = {
                     newEntry.slice = known;
                     newEntry.width = known.width;
                     newEntry.height = known.height;
+                }
+            }
+            if (existing && existing.animation) {
+                const kept = this.applyAnimation(newEntry, existing.animation, false);
+                if (!kept && newEntry.slice && newEntry.slice.method === 'animated-import') {
+                    newEntry.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
                 }
             }
         }

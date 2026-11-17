@@ -3,7 +3,7 @@
 // SECTION 24: DocsDoodads.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
 //==========================================================
 DocsDoodads.Import = {
-    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp']),
+    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']),
     audioExtensions: new Set(['.ogg', '.m4a', '.wav']),
     destinations: [
         'img/doodads', 'img/characters', 'img/faces', 'img/parallaxes',
@@ -129,7 +129,8 @@ DocsDoodads.Import = {
             const parts = [`Imported ${result.imported.length} file(s)`];
             if (result.duplicates && result.duplicates.length) parts.push(`${result.duplicates.length} identical file(s) skipped`);
             if (result.skipped && result.skipped.length) parts.push(`${result.skipped.length} skipped because the name already exists`);
-            return parts.join(', ') + '.';
+            const warnings = result.warnings && result.warnings.length ? ` ${result.warnings.join(' ')}` : '';
+            return parts.join(', ') + '.' + warnings;
         }
         if (result.cancelled) return `Import cancelled${result.rolledBack ? '; copied files were rolled back' : ''}.`;
         const collision = (result.errors || []).find(error => error.message === 'Destination already exists.');
@@ -216,7 +217,8 @@ DocsDoodads.Import = {
                 continue;
             }
 
-            const fileName = path.basename(source);
+            const animatedKind = DocsDoodads.AnimatedImport ? DocsDoodads.AnimatedImport.sourceKind(source) : null;
+            const fileName = animatedKind ? DocsDoodads.AnimatedImport.destinationName(source) : path.basename(source);
             const ext = path.extname(fileName);
             const base = path.basename(fileName, ext);
             let destination = path.join(targetFolder, fileName);
@@ -225,7 +227,7 @@ DocsDoodads.Import = {
 
             while (fs.existsSync(destination) || reserved.has(reservedKey(destination))) {
                 const comparisonSource = reserved.has(reservedKey(destination)) ? reserved.get(reservedKey(destination)) : destination;
-                if (this.filesEqual(source, comparisonSource)) {
+                if (!animatedKind && this.filesEqual(source, comparisonSource)) {
                     plan.duplicates.push({ source, destination });
                     destination = null;
                     break;
@@ -259,7 +261,8 @@ DocsDoodads.Import = {
                 destination,
                 relativeDestination: path.relative(plan.projectRoot, destination).replace(/\\/g, '/'),
                 overwrite,
-                kind: this.audioExtensions.has(path.extname(source).toLowerCase()) ? 'audio' : 'image'
+                kind: this.audioExtensions.has(path.extname(source).toLowerCase()) ? 'audio' : 'image',
+                ...(animatedKind ? { animatedKind } : {})
             });
         }
         return plan;
@@ -277,6 +280,7 @@ DocsDoodads.Import = {
             skipped: (plan && plan.skipped) ? plan.skipped.slice() : [],
             unsupported: (plan && plan.unsupported) ? plan.unsupported.slice() : [],
             errors: (plan && plan.errors) ? plan.errors.slice() : [],
+            warnings: (plan && plan.warnings) ? plan.warnings.slice() : [],
             rolledBack: false,
             cancelled: false
         };
@@ -324,7 +328,8 @@ DocsDoodads.Import = {
 
                 const temporary = `${operation.destination}.ddimport-${transactionId}-${index}.tmp`;
                 tempFiles.push(temporary);
-                await fsp.copyFile(operation.source, temporary);
+                if (operation.outputBytes) await fsp.writeFile(temporary, operation.outputBytes);
+                else await fsp.copyFile(operation.source, temporary);
                 if (existed) {
                     completed.push({ operation, existed, backup });
                     await fsp.copyFile(temporary, operation.destination);

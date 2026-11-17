@@ -74,6 +74,7 @@
         // Drag payloads carry frameW/frameH; library assets carry width/height.
         d.frameW = asset.frameW || asset.width || 48;
         d.frameH = asset.frameH || asset.height || 48;
+        if (DocsDoodads.AnimatedImport) DocsDoodads.AnimatedImport.applyToDoodad(d, asset);
         const preferredDepth = (asset.placement && asset.placement.depth) || asset.depth;
         d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
         const collision = asset.collision || {};
