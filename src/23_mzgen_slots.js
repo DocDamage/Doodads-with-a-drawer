@@ -10,7 +10,7 @@
 DocsDoodads.MzGenSlots = {
     bodies: [['Male', 'Male'], ['Female', 'Female'], ['Kid', 'Kid']],
 
-    cards: [
+    baseCards: [
         { key: 'body', label: 'Body', tabs: [
             { key: 'body', label: 'Body', slots: [
                 { key: 'body', label: 'Skin', family: 'Body', required: true },
@@ -48,16 +48,41 @@ DocsDoodads.MzGenSlots = {
         ] }
     ],
 
+    extraPrefix: 'x_',
+    _extra: { families: [], label: 'Extra' },
+
+    useIndex(index) {
+        if (index === this._extraFor) return this._extra;
+        const known = new Set(this.baseCards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => s.family))));
+        const families = [...new Set(((index && index.parts) || []).map(p => p.family).filter(f => !known.has(f)))].sort();
+        this._extraFor = index;
+        this._extra = { families, label: index && index.mine && families.some(f => index.parts.some(p => p.mine && p.family === f)) ? index.mine.label : 'Extra' };
+        this._cards = null;
+        return this._extra;
+    },
+
+    get cards() {
+        if (this._cards) return this._cards;
+        if (!this._extra.families.length) return (this._cards = this.baseCards);
+        const tab = { key: 'extra', label: this._extra.label, slots: this._extra.families.map(f => ({ key: this.extraPrefix + f, label: DocsDoodads.MzGen.label(f), family: f, extra: true })) };
+        return (this._cards = this.baseCards.map(c => c.key === 'outfit' ? Object.assign({}, c, { tabs: c.tabs.concat([tab]) }) : c));
+    },
+
     allSlots() {
         return this.cards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => Object.assign({ card: c.key, tab: t.key }, s))));
     },
 
     slot(key) {
-        return this.allSlots().find(s => s.key === key) || null;
+        const found = this.allSlots().find(s => s.key === key);
+        if (found) return found;
+        const k = String(key || '');
+        if (!k.startsWith(this.extraPrefix) || k.length <= this.extraPrefix.length) return null;
+        const family = k.slice(this.extraPrefix.length);
+        return { key: k, label: DocsDoodads.MzGen.label(family), family, extra: true, gone: true, card: 'outfit', tab: 'extra' };
     },
 
     options(index, slot, body) {
-        if (!index || !slot) return [];
+        if (!index || !slot || slot.gone) return [];
         return index.parts.filter(p => p.base === body && p.family === slot.family).sort((a, b) => a.num - b.num);
     },
 
@@ -116,8 +141,14 @@ DocsDoodads.MzGenSlots = {
 
     setPart(state, index, key, part) {
         if (!part) delete state.slots[key];
-        else state.slots[key] = { id: part.id };
+        else state.slots[key] = part.mine ? { id: part.id, from: part.source || (index.mine && index.mine.label) || 'My parts' } : { id: part.id };
         return state;
+    },
+
+    goneNote(picks, gone) {
+        const names = [...new Set(gone.map(k => picks && picks[k] && picks[k].from).filter(Boolean))];
+        if (!names.length) return 'the generator folder changed';
+        return names.length === 1 && gone.every(k => picks[k] && picks[k].from) ? `${names[0]} changed` : `the generator folder or ${names.join(', ')} changed`;
     },
 
     // A first character: the base's first body, face, eyes, nose, mouth, brows, hair and clothing.

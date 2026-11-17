@@ -8,7 +8,7 @@
 DocsDoodads.Ui.css += `
 #dd-rooms-card { position: fixed; top: 90px; right: 280px; z-index: 10045; width: 300px; max-width: calc(100vw - 32px); max-height: calc(100vh - 120px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 #dd-rooms-card .dd-room-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-#dd-rooms-card .dd-room-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px; align-items: center; padding: 4px 6px; border-radius: 8px; font-size: 11px; }
+#dd-rooms-card .dd-room-row { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 4px; align-items: center; padding: 4px 6px; border-radius: 8px; font-size: 11px; }
 #dd-rooms-card .dd-room-row.dd-active { background: var(--dd-primary-soft); }
 #dd-rooms-card .dd-room-row small { display: block; color: var(--dd-faint); font-size: 10px; }
 #dd-rooms-card label { display: flex; align-items: center; gap: 6px; font-size: 11px; }
@@ -77,10 +77,12 @@ Object.assign(DocsDoodads.Workspace, {
         const values = await DocsDoodads.Ui.form({
             title: 'Save a room', icon: 'map', ok: 'Save Room',
             text: `${rect.w} x ${rect.h} tiles from (${rect.x}, ${rect.y}): its tiles, the doodads standing in it and the events on it.`,
-            fields: [{ key: 'name', label: 'Name', value: 'Room ' + (R.ensureLoaded().length + 1) }]
+            fields: [{ key: 'name', label: 'Name', value: 'Room ' + (R.ensureLoaded().length + 1) },
+                { key: 'openings', label: 'Door openings on edges', value: '', placeholder: 'N2, E3, S2, W3',
+                    help: 'N/S use the x coordinate; E/W use y, starting at 0.' }]
         });
         if (!values || !String(values.name || '').trim() || !this.mounted) return null;
-        const room = R.capture(values.name, map, rect, DocsDoodads.doodads() || [], events, tw, th);
+        const room = R.capture(values.name, map, rect, DocsDoodads.doodads() || [], events, tw, th, R.parseDoors(values.openings, rect.w, rect.h));
         R.add(room);
         R.save();
         this.showToast(`Saved room "${room.name}" (${R.summary(room)}).`, 'success');
@@ -101,6 +103,7 @@ Object.assign(DocsDoodads.Workspace, {
         const plan = R.place(room, map, at, {
             tiles: t.tiles, doodads: t.doodads, events: t.events && Boolean(staged && staged.events), keepUnder: t.keepUnder,
             tileWidth: tw, tileHeight: th,
+            groupId: 'grp_' + DocsDoodads.Prefabs.newId('rm_'),
             allocateEventId: () => {
                 const id = DocsDoodads.Events.allocateSafeId(staged);
                 staged.events[id] = { id, reserved: true };
@@ -147,6 +150,16 @@ Object.assign(DocsDoodads.Workspace, {
         this.refreshRoomsCard();
     },
 
+    async editRoomOpenings(id) {
+        const room = DocsDoodads.Rooms.get(id);
+        if (!room) return;
+        const text = await DocsDoodads.Ui.prompt('Edge openings: N/S use x, E/W use y. Example: N2, E3, S2, W3',
+            DocsDoodads.Rooms.formatDoors(room.doors), { title: 'Room door openings', ok: 'Save Openings', icon: 'map' });
+        if (text === null || text === undefined || DocsDoodads.Rooms.get(id) !== room) return;
+        room.doors = DocsDoodads.Rooms.parseDoors(text, room.w, room.h);
+        DocsDoodads.Rooms.save(); this.refreshRoomsCard();
+    },
+
     async deleteRoom(id) {
         const room = DocsDoodads.Rooms.get(id);
         if (!room) return;
@@ -180,6 +193,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-room-row${t.roomId === r.id && this.placementTool === 'room' ? ' dd-active' : ''}">
                     <span>${escapeHtml(r.name)}<small>${escapeHtml(R.summary(r))}</small></span>
                     <button class="dd-btn" id="dd-room-place-${i}" type="button" title="Click the map where its top-left corner goes">Place</button>
+                    <button class="dd-btn" id="dd-room-doors-${i}" type="button" title="Mark door openings on the room's edges">Doors</button>
                     <button class="dd-btn" id="dd-room-rename-${i}" type="button" title="Rename">${U.icon('wrench', 1)}</button>
                     <button class="dd-btn" id="dd-room-delete-${i}" type="button" title="Delete">${U.icon('trash', 1)}</button>
                 </div>`).join('') : '<div style="font-size: 11px; color: var(--dd-faint); line-height: 1.4;">No rooms yet. Save one from the map: a house, a shop counter, a camp, then place it again anywhere.</div>'}</div>
@@ -194,6 +208,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-rooms-capture', () => this.startRoomCapture());
         rooms.forEach((r, i) => {
             on(`dd-room-place-${i}`, () => this.pickRoom(r.id));
+            on(`dd-room-doors-${i}`, () => this.editRoomOpenings(r.id));
             on(`dd-room-rename-${i}`, () => this.renameRoom(r.id));
             on(`dd-room-delete-${i}`, () => this.deleteRoom(r.id));
         });

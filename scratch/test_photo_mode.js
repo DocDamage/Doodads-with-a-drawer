@@ -1,0 +1,214 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const E = require('./engine/fake_engine');
+
+E.install();
+E.setupWorld({ width: 40, height: 30, px: 12, py: 10 });
+PluginManager.parameters = name => name === 'Docs-Doodads'
+    ? { photoModeKey: 'P', photoModeForbidSwitch: '9' } : {};
+const windowListeners = [];
+window.addEventListener = (type, fn, options) => windowListeners.push({ type, fn, options });
+window.removeEventListener = (type, fn) => {
+    const index = windowListeners.findIndex(listener => listener.type === type && listener.fn === fn);
+    if (index >= 0) windowListeners.splice(index, 1);
+};
+let ordinaryUpdates = 0;
+Scene_Map.prototype.updateMain = function() { ordinaryUpdates++; };
+Scene_Map.prototype.isMenuCalled = function() { return true; };
+require('../Docs-Doodads.js');
+
+const D = DocsDoodads;
+const Photo = D.PhotoMode;
+assert.ok(Photo && D.Capture, 'Photo Mode and its game-safe capture backend are in the ordinary build');
+assert.strictEqual(typeof D.api.photoMode, 'function', 'scripts have a public Photo Mode entry point');
+assert.ok(PluginManager._commands['Docs-Doodads:openPhotoMode'], 'Open Photo Mode is a plugin command');
+const keyListeners = windowListeners.filter(listener => listener.type === 'keydown');
+assert.ok(keyListeners.length >= 2, 'editor and game Photo Mode keyboard routing are both present in the full build');
+assert.notStrictEqual(keyListeners[0].fn, Photo._keyHandler,
+    'the central editor key handler remains first for legacy and workspace shortcut routing');
+assert.strictEqual(keyListeners[keyListeners.length - 1].fn, Photo._keyHandler,
+    'Photo Mode dispatch is installed by the final game-safe input hook');
+
+// The shared renderer always restores editor-only layers, including when PIXI fails mid-capture.
+const spriteset = new Spriteset_Map();
+spriteset._docsSelectionOutline = { visible: true };
+spriteset._docsTraceSprite = { visible: false };
+const renderer = Graphics.app.renderer;
+const canvas = D.Capture.renderSceneCanvas(spriteset, renderer);
+assert.deepStrictEqual([canvas.width, canvas.height], [Graphics.width, Graphics.height]);
+assert.deepStrictEqual([spriteset._docsSelectionOutline.visible, spriteset._docsTraceSprite.visible], [true, false]);
+const normalRender = renderer.render;
+renderer.render = () => { throw new Error('GPU stopped'); };
+assert.throws(() => D.Capture.renderSceneCanvas(spriteset, renderer), /GPU stopped/);
+renderer.render = normalRender;
+assert.deepStrictEqual([spriteset._docsSelectionOutline.visible, spriteset._docsTraceSprite.visible], [true, false],
+    'capture failure restores every temporarily hidden layer');
+const createTexture = PIXI.RenderTexture.create;
+PIXI.RenderTexture.create = () => { throw new Error('texture allocation stopped'); };
+assert.throws(() => D.Capture.renderSceneCanvas(spriteset, renderer), /texture allocation stopped/);
+PIXI.RenderTexture.create = createTexture;
+assert.deepStrictEqual([spriteset._docsSelectionOutline.visible, spriteset._docsTraceSprite.visible], [true, false],
+    'texture allocation failure also restores temporarily hidden layers');
+
+// Browser games download without needing editor or Node filesystem globals.
+let downloaded = null;
+const createElement = document.createElement;
+document.createElement = tag => {
+    if (tag !== 'a') return createElement(tag);
+    return { style: {}, remove() {}, click() { downloaded = { name: this.download, href: this.href }; } };
+};
+const browserSave = D.Capture.saveCanvas(canvas, 'photo_Map001_test.png');
+document.createElement = createElement;
+assert.strictEqual(browserSave.kind, 'download');
+assert.deepStrictEqual(downloaded && downloaded.name, 'photo_Map001_test.png');
+assert.match(downloaded.href, /^data:image\/png/);
+
+// Desktop games write only beneath a generated screenshots directory. Tests use an isolated temp root,
+// never DD_REPO_ROOT or the source checkout.
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-photo-'));
+const wasNwjs = Utils.isNwjs;
+Utils.isNwjs = () => true;
+D.Capture.desktopRoot = () => tempRoot;
+const desktopSave = D.Capture.saveCanvas(canvas, '../../data/Map001.json');
+const desktopSave2 = D.Capture.saveCanvas(canvas, '../../data/Map001.json');
+Utils.isNwjs = wasNwjs;
+assert.strictEqual(desktopSave.kind, 'file');
+assert.strictEqual(path.dirname(desktopSave.path), path.join(tempRoot, 'screenshots'));
+assert.strictEqual(path.extname(desktopSave.path), '.png');
+assert.ok(fs.existsSync(desktopSave.path), 'desktop PNG was written inside the isolated screenshots folder');
+assert.ok(path.resolve(desktopSave.path).startsWith(path.resolve(tempRoot) + path.sep));
+assert.notStrictEqual(desktopSave2.path, desktopSave.path, 'a capture never overwrites another picture with the same name');
+
+const aliasRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-photo-alias-'));
+const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-photo-outside-'));
+let madeAlias = false;
+try {
+    fs.symlinkSync(outsideRoot, path.join(aliasRoot, 'screenshots'), 'junction');
+    madeAlias = true;
+    Utils.isNwjs = () => true;
+    D.Capture.desktopRoot = () => aliasRoot;
+    assert.throws(() => D.Capture.saveCanvas(canvas, 'escape.png'), /outside the game/i,
+        'a screenshots junction cannot redirect the runtime write outside the game');
+} catch (error) {
+    if (!error || !['EPERM', 'EACCES'].includes(error.code)) throw error;
+} finally {
+    Utils.isNwjs = wasNwjs;
+    if (madeAlias) fs.unlinkSync(path.join(aliasRoot, 'screenshots'));
+    fs.rmdirSync(aliasRoot); fs.rmdirSync(outsideRoot);
+}
+
+// Opening freezes ordinary Scene_Map updates but leaves the spriteset available to render. Every camera,
+// look and visibility field goes back exactly when the mode closes.
+const scene = new Scene_Map();
+scene._spriteset = spriteset;
+SceneManager._scene = scene;
+$gameMap.setDisplayPos(4, 6);
+$gameMap._docsCam2d = { free: 'event', follow: 2, hold: { x: 7, y: 8 }, path: null };
+$gameMap._docsCamera = { yaw: 25, pitch: 50, zoom: 1.25 };
+$gameMap._docsCameraTween = { frame: 3, frames: 20 };
+D.Camera2D._external = true;
+$gameSystem._docsLook = { current: D.PostFX.presetLook('golden'), framesLeft: 0, clearWhenDone: false };
+Object.assign($gameScreen, { _zoomX: 14, _zoomY: 18, _zoomScale: 1.4, _zoomScaleTarget: 1.4, _zoomDuration: 0 });
+const before = JSON.stringify({
+    x: $gameMap.displayX(), y: $gameMap.displayY(), cam2d: $gameMap._docsCam2d,
+    camera: $gameMap._docsCamera, tween: $gameMap._docsCameraTween, look: $gameSystem._docsLook,
+    zoom: [$gameScreen._zoomX, $gameScreen._zoomY, $gameScreen._zoomScale, $gameScreen._zoomScaleTarget, $gameScreen._zoomDuration]
+});
+assert.strictEqual(Photo.open(scene), true);
+scene.updateMain();
+assert.strictEqual(ordinaryUpdates, 0, 'map, events and player do not update while composing a photo');
+assert.strictEqual(scene.isMenuCalled(), false, 'the ordinary menu cannot open behind Photo Mode');
+Photo.pan(1, -1);
+Photo.zoomBy(0.25);
+Photo.selectLook('noir');
+Photo.setHidePlayer(true);
+const partySprites = spriteset._characterSprites.filter(sprite => sprite._character === $gamePlayer
+    || $gamePlayer.followers().data().includes(sprite._character));
+assert.ok(partySprites.length && partySprites.every(sprite => sprite.visible === false), 'Hide Player hides the player and followers from the picture');
+partySprites[0].visible = true;
+partySprites[0].updateVisibility();
+assert.strictEqual(partySprites[0].visible, false, 'the real character visibility update cannot re-show the hidden party');
+assert.strictEqual(Photo.close(), true);
+assert.strictEqual(JSON.stringify({
+    x: $gameMap.displayX(), y: $gameMap.displayY(), cam2d: $gameMap._docsCam2d,
+    camera: $gameMap._docsCamera, tween: $gameMap._docsCameraTween, look: $gameSystem._docsLook,
+    zoom: [$gameScreen._zoomX, $gameScreen._zoomY, $gameScreen._zoomScale, $gameScreen._zoomScaleTarget, $gameScreen._zoomDuration]
+}), before, 'leaving restores the exact camera, zoom and look in use before Photo Mode');
+assert.strictEqual(D.Camera2D._external, true, 'the external-camera marker is restored too');
+assert.ok(partySprites.every(sprite => sprite.visible === true), 'party visibility is restored');
+scene.updateMain();
+assert.strictEqual(ordinaryUpdates, 1, 'ordinary map updates resume after leaving');
+
+// Rendering or saving failures close the overlay and still restore the exact state.
+assert.strictEqual(Photo.open(scene), true);
+const saveCanvas = D.Capture.saveCanvas;
+D.Capture.saveCanvas = () => { throw new Error('disk full'); };
+assert.strictEqual(Photo.save(), null);
+D.Capture.saveCanvas = saveCanvas;
+assert.strictEqual(Photo.active, false, 'a save failure closes and restores the composer instead of leaving a stuck overlay');
+
+// Panning is bounded near map edges and measures loop seams by wrapped distance.
+$gamePlayer.locate(39, 29);
+assert.strictEqual(Photo.open(scene), true);
+Photo.pan(1, 1);
+assert.ok($gameMap.displayX() <= $gameMap.width() - $gameMap.screenTileX());
+assert.ok($gameMap.displayY() <= $gameMap.height() - $gameMap.screenTileY());
+Photo.close();
+$dataMap.scrollType = 3;
+$gamePlayer.locate(0, 0);
+$gameMap.setDisplayPos(39, 29);
+assert.strictEqual(Photo.open(scene), true);
+Photo.pan(-1, -1);
+assert.ok(Math.abs($gameMap.deltaX($gameMap.displayX() + $gameMap.screenTileX() / 2, $gamePlayer.x)) <= Photo.maxPanTiles + 0.001,
+    'horizontal loop-seam pan remains within the player range');
+assert.ok(Math.abs($gameMap.deltaY($gameMap.displayY() + $gameMap.screenTileY() / 2, $gamePlayer.y)) <= Photo.maxPanTiles + 0.001,
+    'vertical loop-seam pan remains within the player range');
+Photo.close();
+$dataMap.scrollType = 0; $gamePlayer.locate(12, 10); $gameMap.setDisplayPos(4, 6);
+
+// Scene lifecycle closes the mode, and the forbidden switch blocks key, API and command entry alike.
+assert.strictEqual(D.api.photoMode(), true);
+scene.terminate();
+assert.strictEqual(Photo.active, false, 'leaving Scene_Map always closes and restores Photo Mode');
+$gameSwitches.setValue(9, true);
+assert.strictEqual(Photo.open(scene), false);
+assert.strictEqual(D.api.photoMode(), false);
+PluginManager.callCommand(null, 'Docs-Doodads', 'openPhotoMode', {});
+assert.strictEqual(Photo.active, false, 'the forbid switch also guards the plugin command');
+$gameSwitches.setValue(9, false);
+
+let prevented = false;
+assert.strictEqual(Photo.onKey({ code: 'KeyP', preventDefault() { prevented = true; } }), true,
+    'the configured key opens Photo Mode in an ordinary game');
+assert.strictEqual(prevented, true);
+Photo.close();
+
+// The central editor shortcut may open the workspace while composing. Restore Photo's snapshot before
+// the editor captures its own session; stop just after that boundary so this remains a focused fixture.
+assert.strictEqual(Photo.open(scene), true);
+const beginSimple = D.SimpleMode.begin;
+const editorNwjs = Utils.isNwjs;
+Utils.isNwjs = () => true;
+D.SimpleMode.begin = () => { throw new Error('stop-editor-mount'); };
+assert.throws(() => D.Workspace.open(), /stop-editor-mount/);
+assert.strictEqual(Photo.active, false, 'opening the editor returns Photo Mode to play before mounting');
+D.SimpleMode.begin = beginSimple;
+Utils.isNwjs = editorNwjs;
+
+// A same-scene map load closes without writing the old camera snapshot into the new map object.
+assert.strictEqual(Photo.open(scene), true);
+const nextMap = new Game_Map();
+nextMap.setup(2);
+nextMap.setDisplayPos(2, 3);
+global.$gameMap = nextMap;
+scene.onMapLoaded();
+assert.strictEqual(Photo.active, false);
+assert.deepStrictEqual([nextMap.displayX(), nextMap.displayY()], [2, 3]);
+
+assert.ok(path.resolve(tempRoot).startsWith(path.resolve(os.tmpdir()) + path.sep));
+for (const file of fs.readdirSync(path.join(tempRoot, 'screenshots'))) fs.unlinkSync(path.join(tempRoot, 'screenshots', file));
+fs.rmdirSync(path.join(tempRoot, 'screenshots')); fs.rmdirSync(tempRoot);
+console.log('Photo Mode: pause, capture backends, forbid switch and exact restoration passed.');

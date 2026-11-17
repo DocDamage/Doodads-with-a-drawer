@@ -159,7 +159,7 @@ const list = [
         usage: { useCount: 3, lastUsedAt: 1 } });
     D.Usage.lastIndex = null;
     let facts = ws.hoverCardFacts(list[0]);
-    assert.deepStrictEqual(facts, [['Size', '96 × 144 px'], ['Frames', '1'], ['Depth', 'Sorted with characters'], ['Used in', 'press Where Used'], ['Placed', '5 time(s)']]);
+    assert.deepStrictEqual(facts, [['Credit', 'not recorded'], ['Size', '96 × 144 px'], ['Frames', '1'], ['Depth', 'Sorted with characters'], ['Used in', 'press Where Used'], ['Placed', '5 time(s)']]);
     const rug = asset('rug', { placement: { depth: 'below' } });
     assert.deepStrictEqual(ws.hoverCardFacts(rug).find(f => f[0] === 'Depth'), ['Depth', 'Below characters']);
     assert.ok(/animated/.test(ws.hoverCardFacts(anim).find(f => f[0] === 'Frames')[1]));

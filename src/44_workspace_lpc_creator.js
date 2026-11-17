@@ -203,6 +203,7 @@ Object.assign(DocsDoodads.Workspace, {
         const S = K.slots;
         const index = K.index(this);
         if (!index) { K.noLibrary(this); return null; }
+        if (S.useIndex) S.useIndex(index);
         const safeOnly = K.safeSwitch ? this.lpcSafeOnly() : false;
         const was = this._creator && (this._creator.kit || 'lpc') === K.id ? this._creator : null;
         this._creator = {
@@ -576,7 +577,7 @@ Object.assign(DocsDoodads.Workspace, {
         const unsafe = credits.filter(f => !f.safeToEncrypt).length;
         root.innerHTML = `<div class="dd-cr${narrow ? ' dd-cr-narrow' : ''}">
             <div class="dd-cr-top">
-                <div class="dd-cr-title">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
+                <div class="dd-cr-title" data-dd-help="character-creators-and-my-parts">${U.icon('person', narrow ? 1 : 2)} ${escapeHtml(K.title)}</div>
                 ${this.creatorSwitcherHtml()}
                 <div class="dd-cr-lib">${K.libraryLine(this, index, this.creatorSafeOnly())}</div>
                 <div class="dd-cr-grow"></div>
@@ -923,12 +924,16 @@ Object.assign(DocsDoodads.Workspace, {
         const S = this.creatorSlots(), c = this._creator;
         const state = S.load(this.readCreatorSaved(), name);
         if (!state) return false;
+        const oldPicks = JSON.parse(JSON.stringify(state.slots || {}));
         const gone = this.creatorDropStale(state);
         this.creatorRemember();
         c.state = state;
         c.name = name;
         c.pop = null;
-        if (gone.length) this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${this.creatorKit().missingNote}.`, 'info');
+        if (gone.length) {
+            const note = S.goneNote ? S.goneNote(oldPicks, gone) : this.creatorKit().missingNote;
+            this.showToast(`Some parts aren't offered now (${gone.map(k => S.slot(k) ? S.slot(k).label : k).join(', ')}): ${note}.`, 'info');
+        }
         this.creatorChanged('ok', 'Loaded ' + name);
         return true;
     },

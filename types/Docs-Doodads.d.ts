@@ -68,6 +68,12 @@ type DocsTraversalAbility = 'jump' | 'glide' | 'swim' | 'dive' | 'fly' | 'climb'
 
 /** The events api.on listens for, and what each listener is given. */
 interface DocsDoodadsEvents {
+    /** The player settled inside a named map region. */
+    areaEnter: { mapId: number; region: number; name: string };
+    /** The player entered a doodad's range. */
+    near: { doodad: DocsDoodad; name: string; mapId: number };
+    /** The player left a doodad's range. */
+    far: { doodad: DocsDoodad; name: string; mapId: number };
     /** The player touched a doodad; x and y are the tile its base is on. */
     touch: { doodad: DocsDoodad; mapId: number; x: number; y: number };
     /** A named doodad's state changed. */
@@ -149,6 +155,21 @@ interface DocsDoodadsApi {
      * The API's version; it goes up when a call changes in a way that breaks scripts.
      */
     readonly version: number;
+
+    /**
+     * Returns the player's Reduce Flashes and Less Camera Motion choices.
+     */
+    comfort(): {reduceFlashes: boolean, lessCameraMotion: boolean};
+
+    /**
+     * The shared BGM spectrum bands (0-1) and whether this frame starts a kick. Silent without audio.
+     */
+    beat(): {low: number, mid: number, high: number, kick: boolean};
+
+    /**
+     * The name of the area under the player, or an empty string.
+     */
+    area(): string;
 
     /**
      * Listens for one of the plugin's events. Returns a function that stops listening.
@@ -289,9 +310,29 @@ interface DocsDoodadsApi {
     setWind(strength: number | 'world', frames?: number, direction?: 'left' | 'right' | 'same'): object | null;
 
     /**
+     * Reads deterministic weather spans for the next days, assuming the current season.
+     */
+    forecast(days?: number): object[];
+
+    /**
+     * Gives weather control back to the climate after an event's Set Weather.
+     */
+    resumeClimate(): boolean;
+
+    /**
      * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
      */
     flashlight(on: boolean | null): boolean;
+
+    /**
+     * Brightness at a map tile, from 0 (dark) to 1 (fully lit).
+     */
+    lightAt(tileX: number, tileY: number): number;
+
+    /**
+     * Whether a tagged map event can currently see the player.
+     */
+    sees(eventId: number): boolean;
 
     /**
      * An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
@@ -339,6 +380,17 @@ interface DocsDoodadsApi {
     zoomTo(target: { x: number, y: number } | DocsCharacter | 'player', scale?: number, frames?: number): boolean;
 
     /**
+     * Opens the player's Photo Mode on the current map. Returns false when its forbid switch is on.
+     */
+    photoMode(): boolean;
+
+    /**
+     * Changes the current map's 3D camera for this visit. mode is 'orbit' or 'first'; first-person also
+     * accepts eyeHeight, pitch, fov, mouseLook and nearFade. Returns false on a flat/unloaded map.
+     */
+    camera3d(options: object, frames?: number): boolean;
+
+    /**
      * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.
      */
     day(): number;
@@ -362,6 +414,16 @@ interface DocsDoodadsApi {
      * Goes to a day (1 or more), keeping the time of day. Returns false when the clock doesn't run.
      */
     setDay(day: number): boolean;
+
+    /**
+     * Turns scheduled event movement on or off for a cutscene. This pause is not kept in the save.
+     */
+    schedules(on?: boolean): boolean;
+
+    /**
+     * Queues a seeded dungeon or wilderness recipe for a map. It is regenerated before that map sets up.
+     */
+    generateMap(options: object): {seed: number, recipe: object} | null;
 
     /**
      * The time of day in minutes (0-1439), or null when the clock is off.

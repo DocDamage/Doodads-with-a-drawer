@@ -64,15 +64,37 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Show Grid Snap** (`gridSnapShow`) | Boolean | `false` | Shows the placement grid when the workspace opens (G toggles it). |
 | **Grid Snap Width / Height** (`gridSnapWidth`, `gridSnapHeight`) | Number | `0` | The snapping grid in pixels; `0` uses the map's tiles. Events always go on tiles. |
 | **Developer Diagnostics** (`devDiagnostics`) | Boolean | `false` | Enables detailed console logging in DevTools. |
+| **Photo Mode Key** (`photoModeKey`) | Combo | `P` | Opens player Photo Mode. Blank disables the key. |
+| **Forbid Photo Mode Switch** (`photoModeForbidSwitch`) | Switch | `0` | While on, blocks Photo Mode by key, command and script. |
+| **Comfort options** (`comfortOptions`) | Select | `auto` | Offers Reduce Flashes and Less Camera Motion when used, or always. |
+| **Also soften MZ flashes and shakes** (`softenMZEffects`) | Boolean | `false` | Applies the player’s comfort choices to MZ’s flash and shake commands. |
+| **Start players on Auto** (`startPlayersOnAuto`) | Boolean | `false` | Starts new preferences with Auto Effects Quality. Existing saved choices win. |
 
 ---
 
 ## 4. The Item Bag & Search
 
-### The editor at a glance
-Press **F10** in a playtest. The first time, a short welcome card shows the three steps: pick something from the **Item Bag**, click the map to put it there, then **Save** and **Done**. From the card (More > How to Use) you can also **Add Sample Items** (four small pictures in `img/doodads/samples`, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), **Replay Tool Tours**, and read **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
+### Guessed settings on new pictures
 
-- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Regions** (region numbers), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), the menus **Map**, **Art**, **View** and **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
+A picture with a clear name, tag or folder can start with useful settings: a lamp is lit after dark, a tree has gentle sway and see-through, and water sits below characters. Ambiguous names and unknown pictures receive no guess. Character sheets are excluded. Saved depth, collision and other item defaults take priority. Older collision defaults are preserved.
+
+The item’s **Guessed** control in Details changes its kind, chooses None or guesses again. The choice stays in the library and affects new placements only. **Settings → Guess settings for new placements** turns this off on this computer. A placement message explains what changed; **Undo settings** removes the added settings while leaving the picture in place, and that edit can itself be undone. It does not overwrite later edits or a different map.
+
+Language files can add single-word matches in an optional `guessWords` object, for example `"guessWords": { "lamp": ["lampe"], "tree": ["arbre"] }`. English matching remains available; a match for two different kinds gives no guess.
+
+### The editor at a glance
+
+New installs start in **Simple mode**: Select, Stamp, Scatter and Tiles, with a short Details
+panel. **Show Everything** on the top bar brings back the full editor; **Keep It Simple**
+shortens it again. The same switch is in View → Look and Find a Tool. Ctrl+K and the keys
+still reach every tool. A hidden tool used that way stays on the bar until Done. Existing
+saved editor preferences keep the full editor on the first run after an update.
+
+**Find a setting** at the top of Details searches every field, including settings under **More**. The short list fits pictures, lights, sounds, models or events; mixed selections keep their shared sections. **More** opens the rest, **Less** shortens it again, and ☆ pins a section so it always shows. After enough edits, frequently used sections rise in the list. Those counts stay in this computer's editor preferences.
+
+Press **F10** in a playtest. A new install starts the five-step **Your first map** quest. **More → How to Use** can replay the quest or tool tours, **Add Sample Items** (four pictures, the Sample Garden and Sample Lamp Post prefabs and a Sample Meadow biome), and show **What's New**. The first time you pick each tool, a short tour shows how it works; "No more tours" turns them off. After an update, What's New shows once.
+
+- **Top bar**: the tools, each a big button with its name under it: **Select** (click things to change them, drag to move), **Stamp**, **Scatter**, **Paint** (biomes), **Path**, **Hills** (terrain heights), **Regions** (region numbers), **Collision** (fine blocked cells), **Mirror** (symmetry) and **Grab** (the eyedropper). Then **Undo**, **Redo** and **Steps** (every step, to jump back to any of them), the menus **Map**, **Art**, **View** and **More**, **Save** (an orange dot means something isn't saved yet) and **Done** (closes the editor).
 - With unsaved changes, **Done**, the toggle key, closing the Playtest window and **F5** ask first: **Save**, **Don't Save** (the doodads and events go back to how they were last saved) or **Keep Editing**.
 - Questions (names, "are you sure?") come up in a card: **Enter** answers with the main button and **Esc** cancels. Anything that can't easily be taken back has a red button.
 - A tool's options open in a card under its button while it is on. **Esc** goes back to Select.
@@ -90,6 +112,12 @@ Press **F10** in a playtest. The first time, a short welcome card shows the thre
 - **Problems** (Map): pictures (a state's own art too), common events and sounds missing from the project, doodads outside the map, lamps on maps that never get dark, events nobody can step on or that sit under a doodad's collision; for this map or every map. **Go To** shows each one; **Fix** (where there is a safe fix) replaces the art, removes the sound or moves the doodad inside.
 - **Check Reach** (in Problems, or the palette): shades every tile the player can walk to from where they stand (or **From a Tile...**), past walls, doodad collision and characters, and lists the doors, chests and transfers out of reach. "Only a character stands in the way" means a character blocks the only path; it may move during play.
 - **Capture** (More): **Save a Picture of the View** writes a PNG of the map as it is on screen (no editor outlines); **Orbit GIF (3D)** turns the 3D camera once round and saves a looping GIF (pick 12, 24 or 36 frames and a width). Both go into the project's `screenshots` folder.
+
+### Player Photo Mode
+
+During play, **P** opens Photo Mode on the current map. The map, events and timer pause while sprites keep rendering. Arrows move the flat camera within four tiles of the player, or turn the 3D view; the wheel zooms. Choose a screen look, hide the player and followers, then Save PNG. The controls stay out of the picture. Escape or Exit returns the exact camera, look, zoom and visibility from before composing. A failed capture also returns to play.
+
+Desktop games save uniquely named PNGs under `screenshots` beside the game; browser games download the image. Plugin Manager can change **Photo Mode Key** (blank disables it) and choose a **Forbid Photo Mode Switch** for story scenes. Events use **Open Photo Mode**, and scripts can call `DocsDoodads.api.photoMode()`. The switch guards all three entry points. This also works in the game-only build.
 - **Right-click menus** remember what you use: once a few actions repeat, longer menus open with a row of your most-used actions on top.
 - **Look** (View): the editor's **size** (100, 125 or 150%), its **theme** (Light, Dark, High contrast, or **Playful**: cream cards, teal and coral, pill buttons, in the style of the coming Character Creator) and the **map colours**: Standard, or **Colour-blind safe** (colours that stay apart for red-green and blue-yellow colour blindness) for the selection, guides, mirror line, paths, Old Saves, brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer. When the top bar doesn't fit (a small window, or 125% and 150%), the words under the tools go (resting on a tool still names it), then Map, Art and View fold into More, each under its name, then the bar takes a second row.
 - **Details** remembers which sections you opened or closed. The ☆ on a section's title pins it to the top; ★ unpins it.
@@ -115,6 +143,10 @@ The left panel is the **Item Bag**, providing virtualized access to all graphics
   - *Play Audio Preview* / *Stop Audio*
 - **Picking several**: **Ctrl+click** cards to pick them one by one, **Shift+click** to pick the run from the last one clicked (the item shown in Details counts as the first). A bar above the cards then acts on all of them: **Tag** (adds tags), **★** (favourites; again to take the star off), **Collection**, **Move** (to another folder, updating every map, event and prefab that uses them, as Rename/Move does; save your changes first) and **Delete** (only files nothing uses: they go to `data/docs_doodads_cache/deleted/`, from where you can put them back by hand). A plain click picks none again.
 - **Thumbnail Slider**: Zoom cards smoothly between 48px and 160px.
+
+### Your first map
+
+The small corner card ticks off five steps as you do them: place three things, add a lamp, make it night with the preview clock, **Play From Here**, then reopen the editor and **Save**. **Show me** points at the next control and explains what to do. With no art, **Add Sample Items** supplies some. **Not now** hides the quest until the next editor open; **Skip** is remembered. Finished quests stay finished. How to Use and Find a Tool can replay it, starting fresh steps on the current map without changing its content.
 
 ### Tokenized Search Syntax
 Type directly into the search bar (press **F** to focus). Search is evaluated dynamically in under 30ms across 25,000+ assets:
@@ -150,6 +182,12 @@ The workspace features a multi-tiered slicing engine that segments composite she
 ---
 
 ## 6. Drag-and-Drop Placement & Modern Map Editing
+
+### A picture preview on the map
+
+While placing a picture doodad, the preview is a translucent version of the real map sprite. It sorts behind and in front of scenery by its base, animates, and shows its light, shadow and reflection. Scatter, Paint and Path preview up to twelve of the next placements. Their preview plans keep the random sequence and path jitter used by the committed stroke. The small HTML picture still follows a bag drag before it reaches the map; event and prefab drags retain their existing preview.
+
+Previews never enter map data, saved files or Undo. They disappear on Escape, tool/map changes, leaving the window, or closing the workspace. Capture and map export remove them, including pooled reflections and their light contribution, before drawing. Removing a preview does not advance ambient or lamp fades.
 
 ### Placing Assets
 - **Drag & Drop**: Drag any asset or slice from the Item Bag directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
@@ -229,6 +267,16 @@ Select a placed doodad (or several) and open Details' collapsible sections. Ever
 
 ## 8. World Atmosphere: Day & Night, Sun Shadows, See-Through, Water, Seasons, Motion Blur
 
+### Seasonal climate and forecasts
+
+Enable **World → Climate → Weather follows the season and day** and set a weather table for each named season. Each row chooses Clear, Rain, Storm, Snow, Fog or Windy, its power, chance and hours per spell. Chances are weights out of 100: an unassigned share is clear, and totals above 100 scale proportionally. Identical adjacent spells join. Fog adds temporary flat-map fog banks or closes in the 3D fog; Windy controls wind with MZ rain set to none. Authored picture layers stay intact.
+
+The **running game clock** counts days. Other time sources keep the climate on Day 1. A day, season and seed always produce the same spans; the seed is kept when a save first uses climate. The next seven days appear beside the clock scrubber. Forecasts assume the currently selected season until an event changes it; changing a season variable changes that assumption.
+
+Set **Climate on this map → None (indoors)** to hide climate weather while the calendar continues. A maker’s MZ **Set Weather** command holds automatic weather, fog and wind until **Resume Climate** (or `api.resumeClimate()`). Indoor suppression preserves held native weather for returning outside. The clock may advance in menus or battles; the climate applies the new span on returning to the map. Opening the editor previews time without claiming manual weather ownership.
+
+**Store Forecast** puts a readable report in a variable; `api.forecast(days)` returns day/season records with minute-based weather spans, up to 31 days. Reading a forecast does not create save state. Forecasts describe the climate table; an event’s held weather remains in control until resumed.
+
 These settings apply to the whole game. With nothing selected, Details shows the map panel. Its sections marked **All maps** hold them, and the Lighting section has three per-map switches. Everything is undoable and saved in `data/DocsDoodads.json`.
 
 ### Day and Night
@@ -263,6 +311,26 @@ When the player walks behind a tall doodad (a tree, a roof, a tower), it fades s
 - Add a **region** to treat painted areas (ponds drawn with B-E tiles) as water.
 - **Shore margin** keeps a strip along the waterline clear, because MZ water tiles draw their own sand or grass edge. Reflections start where the water visibly begins.
 - Turn it off per map, per doodad (**Reflect in water**), or per event with `<no reflection>`.
+
+### Normal maps on flat maps
+
+Enable **World → Normal Maps** to shade pictures and characters with nearby lamps. Put `Tree_n.png` beside `Tree.png`, with the same dimensions, or pick the art and choose **Make Normal Map** in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together.
+
+Up to eight nearby lights contribute, including switched lamps and cones; Effects Quality caps this at eight, four, two or zero. Animation, state and seasonal art use their matching companions; character sheets can use `$Name_n.png`. Foreground sprites and upper tiles keep their own lighting, and wall masks limit lamp contribution. This first version is flat-map only. Real GPU checks with 200 mapped pictures and 20 lights are pending; the automated benchmark measures the stand-in engine.
+
+### Generated maps
+
+**Map → Generate Map** builds a seeded **Dungeon** or **Wilderness** in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. **Preview** changes nothing, **Reroll** advances the seed, and **Apply** writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map.
+
+Room stamps' **Doors** control uses edge notation such as `N2, E3, S2, W3` (north/south use x, east/west use y, starting at zero). The **Generate Map** plugin command or `api.generateMap(spec)` queues a target map before transfer and resolves a variable seed once. The save keeps only seed and recipe; the map regenerates before display and after loading a save. Generated named states/lights are retained until materialization succeeds. Both editor and game builds share the same placement rules, and generated art uses its full bitmap size. Real MZ transfer, visuals and deployment checks remain pending.
+
+### Heat haze
+
+In a doodad's **Heat haze** section choose **Campfire**, **Lava**, **Desert Road** (a horizontal band) or **Under Water** (the whole screen), then adjust radius, strength and upward drift. The selected circle's radius shows on the map. The **Heat** Screen Look adds a road-like band. At most eight visible sources bend the map before bloom; Low/Off quality removes the pass, and Less Camera Motion halves it. Empty maps add no heat pass. This first version is flat-map only, and stitched map exports omit screen distortion. GPU appearance checks are pending.
+
+### With the music
+
+In a doodad's **Motion** or **Light** section, **With the music** chooses Bass, Middle or Treble. **Music strength** blends between its usual amount and the music's energy. Plants can sway and lamps can pulse together. In **Particles**, **Emits → On a music kick** sends a burst at a bass onset. Only BGM drives these effects; sound effects do not. Silent or muted BGM gives zero energy. Scripts can read `DocsDoodads.api.beat()` for `low`, `mid`, `high` (0–1) and `kick` for this frame. One analyser is shared and released when unused.
 
 ### Motion Blur
 Moving characters blur along their direction, more when dashing; transfers and jumps never smear. Choose everyone or events tagged `<motion blur>` (`<no motion blur>` opts out). When it is on, players get a **Motion Blur** switch in the Options menu.
@@ -310,11 +378,17 @@ Open **View → Screen Looks**. Changes show live on the map behind it, and ever
 - **Tilt-Shift**: blurs above and below a sharp band, for a miniature look.
 
 ### Looks and presets
+
+**Map → Moods** opens bundles such as Rainy Forest, Cosy Night Village and Cave. Point or focus
+one to try it; leave to put the map back. Click to keep its light, look, fog and echo as one
+undo step. Other settings and your own picture layers stay as they were. Time, weather and
+wind are previews only: use the game's clock and weather commands for play. Save Current as
+a Mood keeps your own bundle in this project's map presets.
 - **Editing: Game-wide look** applies to every map and to battles. **Editing: This map** chooses what the current map uses: *The game-wide look*, *No effects*, or *Its own look*. A map's own look starts as a copy of the game-wide one.
 - **Presets**: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it.
 - **Hold to Compare** shows the map without effects while the button is held. **Show while editing** turns effects off in the editor only.
 - **Affect pictures**: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected.
-- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14).
+- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off, Auto). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14). Auto ignores map warm-up and long stalls, waits before lowering detail, waits longer before raising it, and remembers the settled level. Changes use a half-second frame fade or wait for an already pending transfer. **Start players on Auto** in Plugin Manager is off by default; existing player choices take priority.
 
 ### Looks by time and by region
 Under the effects, the card mixes looks in on top of the game-wide or map look:
@@ -452,7 +526,21 @@ Tick **Footsteps** and add footstep sounds by ground: a region, a terrain tag, s
 ### Map settings: copying and presets
 Map → **Map Settings** says which settings this map has of its own. **Copy from Another Map...** picks a map, then what to take from it: light, shadows and reflections; the screen look; layers; camera, 3D and the minimap; echo and region sounds; everything else; and (unticked at first) that map's ground: its heights, surfaces, neighbouring maps and where it leads. This map's settings of the kinds you tick are replaced, as one undo step. **Save as Preset** keeps this map's settings, without its ground, under a name in `data/DocsDoodadsMapPresets.json`; **Use Here** puts a preset on the map you are on (one undo step).
 
+### Trace a picture
+
+**Map → Trace a Picture** keeps a drawing under the editor's grid on a flat map. Choose or
+drop a PNG, JPEG or WebP (up to 4096 pixels on either side). Fit to Map centres it; unlock it
+to drag, pull the square corner to scale, or use the round handle to turn (Shift snaps to
+15 degrees). Two-point Fit asks for two places on the picture, then the two tiles they
+should match. Each fit or drag is one undo step. Lock it to paint and place through it.
+Opacity and Show picture are in the card; View → Show / Hide Trace also toggles it.
+The copy stays in the disposable editor cache. It never appears in play, Capture, map
+exports or the required-art list, and the deploy script leaves the cache out. If the cache
+is cleared, choose the source picture again. In 3D the tracing layer is hidden; use a flat
+view for fitting and painting.
+
 ### Layers
+
 Every map has a **Main** layer. Add layers in the map panel under **Layers** (for example Ground Decor, Props, Canopy, Lights, Markers).
 - The layer selected with the round button receives new doodads.
 - **Ed** shows or hides a layer in the editor only, to work underneath a canopy.
@@ -513,9 +601,18 @@ Each map keeps its own steps. Going to another map parks this map's steps; comin
 **Tiles** (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs **A1** to **E**. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. **Layer: Automatic** puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. **Eraser** takes the top tile off. **Alt+click** picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied.
 
 ### Regions
+
+Each region in the legend has an **Area name** and **Show once per save**. The game shows the
+name in its map-name banner after the player stays inside for a short moment. Clear the name
+to stop showing it. **Store Area Name** writes it into a variable; `DocsDoodads.api.area()` reads
+it, and `api.on('areaEnter', fn)` hears a settled entry. Names accept MZ text codes.
 The **Regions** tool paints MZ region numbers onto the map's tiles, the ones dressing rules, biomes, region sounds, footsteps, ambience, climbing, ice, no-fly zones and terrain height read. Pick the number (0 rubs regions out) and the size (1 to 13 tiles across, **[** and **]**), then drag on the map; each stroke is one undo step and is saved into the map file with your other map edits. **Alt+click** a tile to pick up its region. While the tool is out, each painted tile shows its region's colour and number. The card's legend lists the regions on this map, how many tiles each covers and what the project uses it for; click one to paint with it. **Show terrain tags** marks tiles that have a terrain tag (T1, T2...). Terrain tags belong to the tileset in MZ's database, so they are shown here but changed in MZ.
 
 ### Command palette (Ctrl+K)
+
+The **?** in a panel's title opens its guide paragraph. **Help: …** entries in Find a Tool
+reach every heading. Open the Guide opens that heading in a local reader; keep
+`Docs_Doodads_Guide.md` beside the game's `index.html` for the full guide.
 Type a few letters of anything and press Enter:
 - tools, panels, Save, Undo and Redo, Toggle Grid
 - mirror modes, Screen Look presets, Play Effect for any effect
@@ -588,6 +685,14 @@ The **Set Destination Marker** plugin command changes any of these mid-game. The
 ---
 
 ## 14. 3D View
+
+### First-person camera
+
+In this map’s 3D settings, **Camera → First person** puts the camera at the player’s feet plus **Eye height**, measured in tiles above the terrain. Look tilt and field of view have their own first-person settings. Up walks forward, Down steps back without turning the player away from an action event, and Left/Right turn 90 degrees with a short ease. The player’s own billboard disappears; followers remain. **Fade nearby billboards** keeps close props from filling the view and does not affect orbit maps.
+
+With **mouse look** enabled, click the game to capture the pointer. Mouse motion turns the view and movement follows its nearest tile direction. Escape, Photo Mode, opening the editor, changing maps or leaving the map scene releases the pointer. The editor uses orbit view for picking without changing the saved first-person setting. **Set Camera** accepts First person/Orbit plus eye height, mouse look and near fade; scripts use `api.camera3d(options, frames)`.
+
+First person needs standing scenery: use **Tileset objects** for B–E objects and terrain walls for cave walls. Flat roofs and treetops on the ground cannot make a convincing corridor at eye height. Real MZ/GPU cave, event-interaction and performance checks are pending.
 
 Any map can be shown in 3D. Open **3D View (this map)** in the map panel and tick **Show this map in 3D**.
 New to the 3D view? [Your First 3D Map](docs/FIRST_3D_MAP.md) is a short walkthrough with screenshots.
@@ -756,6 +861,24 @@ Each template comes pre-configured with authentic MZ event pages, conditions, tr
 - **Duplicate & Delete**: Press **Duplicate Event** to duplicate with automatic safe ID allocation and tile offset, or **Delete Event** (with full undo/redo).
 - **Managing templates**: Map → **Templates** lists your own templates by category, with **Rename**, **Category** (pick one or type a new one) and **Delete** (events made from a template stay as they are). The built-in ones can't be changed. Saving a template under a name already used asks before replacing it. Packs can carry your templates to another project (an identical one is not added twice; a different one with the same name comes in as "Name 2").
 
+### Editing what an event does
+
+Pick an event and choose **Edit Commands** in Details. Page tabs switch between its pages; **+ Page**, **Copy Page** and **Delete Page** are undoable, and deleting asks first. **Conditions & Page** edits switches, variables, self switches, item/actor conditions, trigger and priority. Switches and variables are listed by their database names.
+
+Edit or insert Show Text (write `\n` for a new line), Transfer Player, switches, self switches, common events, waits, sound effects and plugin commands. **Pick Map & Tile** beside a transfer visits the destination map, takes a tile click and returns to the source event; Escape cancels and returns. Unknown commands and branch markers stay untouched for editing in MZ. Text lines move as a group, and movement cannot cross branch boundaries. Each edit is one undo step, saved through the usual MZ conflict check.
+
+### NPC schedules
+
+Pick an event and open **Schedule** in Details. Each line gives optional comma-separated weekdays, a time and a tile, followed by `walk`, `hide` or `face:2/4/6/8` if needed. **Use this tile** takes the next map click. Scheduled tiles show their times in the editor.
+
+```text
+08:00 12,5
+18:00 20,9 walk
+Sat,Sun 10:00 3,3 hide
+```
+
+Schedules live in a `<docs schedule>` block in the event note or a page's comments. Details says which one it edits: the active page's block when present, otherwise the note. Other pages are preserved. The latest matching entry today applies; before it, the last matching entry yesterday carries over. With neither, the event uses its authored position. Walking waits for busy events and moves to its destination after 600 eligible blocked frames. Hiding restores the event's original transparency and passability when it ends. Loading derives the position from the clock. **Pause Schedules** or `DocsDoodads.api.schedules(false)` pauses movement for a cutscene; `true` resumes it. The pause is not saved.
+
 ### Scripts and other plugins (`DocsDoodads.api`)
 
 Everything works on the map the player is on unless a map ID is given. Doodads are found by the **Name** given in Details (any case), or by a query object.
@@ -775,6 +898,8 @@ Everything works on the map the player is on unless a map ID is given. Doodads a
 | `state(name)`, `setState(name, state)`, `stateNames(name)` | States, as Set Doodad State (kept in the save). |
 | `light(name)`, `setLight(name, true / false / null)` | Lights, as Set Doodad Light (kept in the save). |
 | `time()`, `setTime(h, m, day)`, `addTime(h, m)` | The time of day in minutes (`null` with the clock off). `day` is optional; without it the day stays. |
+| `schedules(false / true)` | Pause or resume scheduled events for a cutscene; the pause is not saved. |
+| `beat()` | BGM energy: `{ low, mid, high, kick }`; silent or muted audio gives zeros. |
 | `season()`, `seasonName()`, `setSeason(n or name)` | The season. |
 | `ambient(darkness, color, frames)`, `ambient(null)` | Fades the ambient light (0 to 1), or back to the map's own. |
 | `on('touch' / 'state' / 'light' / 'animationEnd', fn)` | Calls `fn` with `{ doodad }`, `{ name, state }`, `{ name, on }` or `{ doodad, name }` (and `mapId`); returns a function that stops it. |
@@ -787,7 +912,15 @@ Doodads placed, moved, changed or removed through the API change the game's copy
 
 ## 16. Direct Physical Collision System
 
+**When the player is near** in a doodad's Details sets a range in tiles (0 is off), the state
+on entering and leaving (a name, `next` or blank), and an optional common event. Leaving has
+half a tile of slack so standing at the edge does not repeatedly trigger it. Only the first
+visit can be kept in the save. The same doodad can also have Touch; range events are `near`
+and `far` on `api.on`. A busy or already reserved common event is not queued again.
+
 Doodads do not require invisible blocker events to obstruct the player. Each doodad's collision box blocks the map tiles it covers at runtime:
+
+The map itself can also have painted collision finer than a tile. Pick **Collision** on the top bar and left-drag to block 12-pixel cells (one quarter of a 48-pixel tile); right-drag rubs them out, **Shift** joins from the last point, **[** and **]** resize the round or square brush, and **Fill** fills an enclosed area. A stroke is one Undo step. The blocked colour is visible while the tool is out and under **Show Collision**. **From Picture** replaces the painted cells from a map picture layer's alpha at the chosen threshold, which is useful for cliffs and walls on parallax maps. Painted cells wrap across looping-map seams, are saved with this map's doodad data, and stop the player and events as well as Check Reach and destination paths; the runtime collision works in a deployed game with the editor absent.
 
 - **Who it stops**: everyone, only the player and followers (an invisible wall for the player only), or only events (a fence that keeps villagers in); boats and ships only when *Blocks boats and ships* is ticked.
 - **Can be crossed**: a ledge that can be walked off going one way (down, up, left or right) but not back.
@@ -817,6 +950,14 @@ Click the **Sounds** tab in the Item Bag to browse BGM, BGS, ME, and SE files:
 ---
 
 ## 18. Windows Explorer Native Drag-and-Drop Ingestion
+
+### Animated GIF and APNG
+
+Drop a GIF or APNG (`.png` or `.apng`), or choose it in **Add Files**, to make a PNG frame sheet. The original stays intact. The imported item has its frames, commonest delay and exact frame count set, so a picture placement plays immediately; **Cut Up Sheet** opens it like other sheets. Packs carry these animation defaults. Converting an APNG already at the target path chooses an unused name even if Overwrite was selected.
+
+GIF has up to 256 colours and no soft transparency; converting it does not restore those details. If frame delays differ, the importer says that the commonest delay is used for the whole animation, rounded to the game’s 60-frame clock. A one-frame file produces a still PNG.
+
+Animated inputs are limited to 64 MB, 512 frames and 32 million decoded pixels; no sheet side exceeds 4096 pixels. PNG header/chunk scanning is bounded. APNG accepts palette and grayscale depths 1/2/4/8 and RGB/RGBA/grayscale-alpha at 8 bits, including palette/colour-key transparency. Export 16-bit or Adam7-interlaced APNG as an 8-bit non-interlaced copy first. Invalid or oversized animation and cancellation leave no partial converted PNG. These readers stay out of the game-only build.
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.
@@ -851,6 +992,14 @@ The **Maps** section of the map panel (shown when nothing is selected):
 
 ## 20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
+### Art credit ledger
+
+An item’s Details has **Set Credit…** and **Folder Credit…**, and the multi-pick bar can set the same credit on several files. Record author, licence/terms, source and a note. A file’s own record wins; otherwise it takes the nearest folder’s. **Clear this record / inherit folder** removes an override. Moving an item preserves its inherited credit. Hover cards show the author and licence; searches accept `author:`, `licence:` (or `license:`), `credit:none` and their minus-prefixed exclusions.
+
+Packs carry resolved credits with each file. When a dropped folder or ZIP contains a licence, credits or readme text, the importer offers to keep it as a folder note. It never chooses a licence from that text. Notes are bounded to 64 KB each and twenty per import. Review the supplied terms and enter the credit you intend to record.
+
+**Art → Write Credits** writes `CREDITS.txt`, asking before replacing an existing file. It includes referenced art from Where Used, plugin-only states/models/normal companions and the room catalog used by seeded generators; unused loose library art is excluded. The LPC section uses the existing recorded creator credits for referenced images. In Problems, **Check art credits** optionally lists referenced art missing an author or licence and opens its credit form. This ledger stores the maker’s information and does not judge what a licence permits.
+
 - **Where Used** (the asset's Details) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.
 - **Art → File Check → Find Unused Files** lists files nothing references (engine system files are never listed). Plugins and scripts can also load files by name, so check before deleting.
@@ -859,11 +1008,19 @@ The **Maps** section of the map panel (shown when nothing is selected):
 - **MZ characters** (Art → **Characters**, at the top): a creator made from the parts of **RPG Maker MZ's own Character Generator**, which come with RPG Maker MZ ([Steam](https://store.steampowered.com/app/1096900/RPG_Maker_MZ/), [official site](https://www.rpgmakerweb.com/products/rpg-maker-mz)). In a playtest the editor finds MZ's `generator` folder by itself, on Windows or inside the app on macOS (**Choose...** if MZ is somewhere else). **Scan the Parts** reads them (the scan lists any mask colour that is no colour slot, whose pixels keep their colour); they are read where they are and never copied into the project, and characters made from them may be used in games made with RPG Maker MZ. **Open the MZ Creator** is the same window as the LPC creator, with the same keys, gamepad and dice. Body type is Male, Female or Kid, and the pickers are the generator's: skin, face, ears, beast ears, eyes, eyebrows, nose, mouth, facial mark, front and rear hair, beard, clothing, cloak, accessories A and B, glasses, wing and tail. Colours are the character's colour slots, shared as in MZ's generator: the hair colour changes the front hair, rear hair, eyebrows and beard together; clothing has up to four colours, picked on tabs in its swatch's palette. A part offers every colour slot it has, on its face pictures or on its walking and battler pictures (a cloak's second colour, the eyes on the walking body). **As drawn** keeps a part's own colours; a ramp recolours it, keeping the shading. The stage plays the walk, the damaged pose, the face portrait and MZ's 18 battle motions. **Export to RPG Maker** writes MZ's own layouts: the walking character `$Name.png`, the damaged character `$Name_damage[f3][d1].png` (for Play Character Action or an event), the side-view battler `img/sv_actors/Name.png` and the face `img/faces/Name.png`, in the slot you pick. Characters are saved in `data/DocsDoodadsMzCharacters.json` with their colours. The colours are close to MZ's generator but not always identical: Doc's Doodads recolours by brightness.
 - **Characters** (Art → **Characters**) has a group for each library (MZ's generator, LPC, Memao), each folded or open as you last left it. The LPC group: where the **LPC character library** (a copy of the [Universal LPC Spritesheet Character Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator): **Code → Download ZIP** on GitHub, or clone it; about 1.5 GB, free) is on this computer. Keep it outside the project: MZ's Deployment copies everything in the project folder, and the card warns if it is inside. **Scan the Library** reads its parts, colours and credits into the editor's cache (it says when the library has changed since). **Only art that is safe to encrypt (CC0, OGA-BY)** is on for a new project: CC-BY and CC-BY-SA art may not be locked away, which "Encrypt image files" does. Every picture made from the library has its artists recorded in `data/DocsDoodadsCredits.json`; **Write CREDITS_LPC.txt** puts them in a file that ships with the game, and **Problems** says when it needs writing again and which pictures can't be encrypted. **Try it** shows a random character from the library walking (**Shuffle** for another, the arrows to turn it), to check the library reads and draws. **Only art that is safe to encrypt** is also at the top of the creator, with how many parts it lets through (for example *512 of 657*). Where it hides parts in the tab you're on, a line says how many, with **Show all parts** to turn it off. Tick it again at the top to go back. **Open the Creator** makes a character: body, skin, head, ears and nose, face, hair and extras on the left; hat, mask, shirt, jacket, armour, cape, belt, gloves, trousers, shoes, weapons and back on the right, each with ◀ ▶ through what fits the body and a colour swatch (click it for every colour; right-click for the one before). The character walks on the stage; turn it, play its other animations (the parts that don't have one are named), and roll the dice for a new body or outfit. **Save** keeps it by name in `data/DocsDoodadsCharacters.json`; **Load** brings it back. **Credits** lists who drew what you are wearing. Click a row's value (or press Enter on it) to see all its choices at once in a grid of small pictures, None first, the one worn marked: type to find one by name, the arrows move, Enter or a click picks it, Esc clears what you typed and then closes (on a gamepad: the right stick opens it, the d-pad moves, A picks, B closes). MZ's tiles are the generator's own icons. The padlock at the start of a row (or L) keeps that row as it is when you roll the dice; the dice give a new face and hair on the same body type, and Shift+X a new body type too (one your locked parts fit, unless the body type row is locked). Ctrl+Z goes back a step (the last 20: changes, colours, rolls, loads). Memao's long hair, side hair and eyebrows take the hair's colour, shown by a chain where their swatch would be; click it (or K) to give one its own colour, and again to link it back. Keys: ↑ ↓ choose a row, ← → change it, Shift for its colour, C its next colour (a part with several, shown by a number on the swatch), Q/E tabs, [ or ] the other side, X/Y dice, Esc closes; Tab and Shift+Tab move between the buttons as in any dialog, and what changes is read out to screen readers. A gamepad works the same way (hold A for the next colour, hold X for a new body type, Y with a direction locks the row, Back with B undoes). The window follows its size: made smaller than 1120 pixels it shows one side at a time. In MZ's own window size the two sides take turns (Body & face / Outfit). **Export to RPG Maker** (name the character first) writes, as ticked: the **classic walker** `$Name.png` (MZ's 3-frame walk, which works without the plugin); the **smooth walker** `$Name[f9][w2].png` with `$Name_idle[f2].png` and `$Name_run[f8].png`, and the animation set that plays them (breathing after standing a moment, running when dashing); and the **face** in `img/faces/Name.png`, in the slot you pick from the sheet's eight faces, shown as they are now (the sheet's other faces are kept; held weapons and back gear are left out of it). Pick the sheets in MZ's database as for any character. Every file's artists are recorded and `CREDITS_LPC.txt` is written again; a character using art that can't be encrypted says so. Exporting again asks before replacing pictures. **Export recipe...** and **Import recipe...** (under Load) keep one character in a file of its own, anywhere on the computer, to keep or give to someone; a recipe opens in the creator that made it (another creator says which to switch to), and parts the library no longer has are left out and named. With more than one library scanned, the list beside the creator's title switches to another (MZ, LPC or Memao) keeping the name, and each library's character is kept for coming back; Character Creator... in the palette (Ctrl+K) opens the one used last. Under the High contrast look the window is black on white too. **Try on the player** shows it on the player at once (this playtest only). Also in the export: a **side-view battler** (`img/sv_actors/Name.png`, MZ's 18 battle motions from the character's walk, idle, spellcast, guard, hurt, jump, thrust, slash, shoot and emote; pick it as the actor's battler) and **actions** for **Play Character Action**: `$Name_slash[f6]`, `$Name_thrust[f8]`, `$Name_spellcast[f7]`, `$Name_shoot[f13]`, `$Name_hurt[f6]` and others you tick (sit, emote, jump, climb...). Good speeds: slash and thrust 12 frames a second, shoot 14, spellcast 10, hurt 8 (Hold the Last Frame for a fall). LPC figures fill less of their frame than MZ's own battlers, so they look a little smaller in battle. **Big weapons** (most swords, spears and polearms, which the library draws on 128- or 192-pixel frames) are drawn at their size. The stage shows the whole swing, and the sheets that use them get bigger frames standing on the character's feet like the rest (MZ splits a tagged sheet evenly, so nothing else is needed). Action sheets keep the whole frame (192 × 192), with the art below the feet, such as the tip of a downward thrust, and the plugin stands them on their feet; walkers and the battler, which work without the plugin, leave the few pixels below the feet out. A spear, katana or bow carried on 128-pixel frames gives the walkers 128 × 96 frames. The battler's cells grow to fit (192 × 128 for a big swing) with the body at its usual size, and battle animations still play on the figure as on any 64-pixel battler (the export notes the figure's height in the project's settings; `[h64]` in a battler's name does the same for other art). The export says which sheets are bigger. **Backswing** (the `slash reverse` action, `$Name_slash_reverse[f6]`) plays the slash backwards, with the return-swing art of the weapons that have it (the club and boomerang swing that way on Slash too). Exported as Visual Equipment parts, a big weapon gets the same bigger frames, drawn on the same feet over the 64-pixel body.
 - **Memao characters** (Art → **Characters**, at the bottom): the asset pack of the **Memao Sprite Sheet Creator** by Sleeping Robot Games (bought separately, [on itch.io](https://sleeping-robot-games.itch.io/sprite-sheet-creator)). Unpack `memao-assets.zip` somewhere outside the project and choose that folder. Its export has **Stand on the tile's bottom** (on at first): every frame 6 pixels lower, so the feet are where MZ's own characters stand (a sheet whose frames reach their bottom is left as it was, and the export says which). Where the pack has more than one of a prop (the food, drink, book or easel of the Eat, Drink, Read and Paint animations), the Tools tab has a row to choose it; None is the pack's first. The pack's licence lets the sheets you make go into your games, but not the pack itself, or the sheets on their own; the editor reads the pack where it is and never copies it, and the card warns if the folder is inside the project. **Scan the Assets** reads its parts (names from its README, draw order from its `z_index_player_library.json`). **Open the Memao Creator** is the same window as the LPC creator, with the same keys, gamepad and dice. The body type is the arms (Average, Dainty, Broad); sleeves follow them. Skin, hair, eyes and clothes take Doc's Doodads' colour ramps. Head, arms and ears follow the skin; sleeves follow their shirt or jacket. Other parts: horns, eyebrows, face, three layers of hair, glasses, two of headwear, back, shirt, jacket, bottom, waist, socks, shoes, neck, shoulders, middle and gloves, plus a **Tools** tab (sword, axe, field tool, scythe, seed bag, watering can) that shows in the animations that use them. The stage plays all 22 animations: walk, idle, run, slash, hurt, downed, death, pick up, strike, chop, reap, seed, water, eat, drink, laugh, wave, think, shrug, sit, read and paint. **Export to RPG Maker** writes 48-pixel frames, MZ's own size: `$Name.png` (classic), `$Name[f7][w2].png` with `$Name_idle[f4]` and `$Name_run[f6]` and their animation set, actions like `$Name_wave[f4]`, a side-view battler (432 × 288) and a face. Characters are saved in `data/DocsDoodadsMemaoCharacters.json`. Memao figures are small (about 16 × 32), so they look smaller than MZ's own characters. In a side-view battle, MZ also draws its own sprite for the equipped weapon; for a character that holds its weapon in the sheet, set the weapon type's attack motion to no image in the database. Credit to "Memao" is appreciated.
+- **Your own creator parts**: each Characters group has an optional **My parts** folder. Lay it out like that creator's normal source: MZ's `TV`, `TVD`, `SV` and `Face` folders; LPC's `sheet_definitions` and `spritesheets`; or Memao's set folders and `z_index_player_library.json`. Scan again to merge it with the main library. A part with the same identity is kept beside the original, and a folder/type the creator does not know becomes a row under a tab named for your folder. Saved characters and exported recipes remember that source; if the folder later moves or a part is removed, Load leaves that part out and names the folder that changed. Keep source-part folders outside the project so Deployment does not copy them into the game.
 - **Doodad Packs** (Art → **Packs**): tick prefabs (the prefabs inside them come too), rooms, biomes, dressing rules and collections, name the pack and **Make Pack**. It is one `.ddpack` file in the project's `packs` folder with the art, state pictures, sounds and models they use and those files' Item Bag entries (cut-up slices, tags, collision). It can also hold your event templates. In another project, **Bring In a Pack or Zip...** shows what is in it and which files differ from yours: **Keep mine** (the default) or **Use the pack's** (yours are backed up first). Items whose ids are already used are added as new ones. Only files in the project's own folders (img, audio, models, movies, effects) are ever written, never anything in `data/`. Making a pack with the name of one already in `packs` asks before replacing it, and packs and the files they bring are written whole or not at all.
 - **A zip of art**: **Bring In a Pack or Zip...** also takes a `.zip`. A pack inside it is brought in as a pack. Otherwise its pictures go in `img/doodads/<zip name>/`, keeping the zip's folders, and files already under `img/`, `audio/`, `models/`, `movies/` or `effects/` inside the zip keep that place. Names that would reach outside the project (`..`, a drive letter) are refused, other files (text, Mac folders) are left out and counted, a damaged file stops it before anything is written, and a zip that would unpack to more than 512 MB is refused.
 - **Pack Map Art** (map panel → Performance): copies the art the map's doodads use into a few sheets in `img/doodads/_packed/` so deployed games load fewer textures. Playtests keep using the original files unless you tick **Use packed art in this playtest**. The panel warns when a source image has changed since packing; pack again before deploying.
 
 ---
+
+### Character creators and My parts
+
+**Art → Characters** chooses the MZ, LPC or Memao creator and its source folders. A second
+**My parts** folder adds your own art alongside the library. Keep its native folder layout,
+scan again, then pick the added parts; unfamiliar kinds get an Extra tab named for the folder.
+Source folders stay outside the project, while exported characters go into the game.
 
 ## 21. Workspace Layouts & Custom Layout Persistence
 
@@ -878,6 +1035,16 @@ Switch panel layout presets in **View → Panel sizes**:
 - **Docking**: drag the Item Bag or Details by its title to the left, the right or the bottom of the window (the drop zones light up), or pick **Left**, **Right** or **Bottom** for each in **View → Look**. A panel along the bottom resizes from its top edge; two panels on one side share it, one above the other; two along the bottom sit side by side. The map's status bar, hint and readouts move out of the way. Where the panels are is remembered for each layout on this computer.
 
 ### Accessibility
+
+**View → Look → Bigger window while editing** fills the screen when F10 opens the editor,
+then restores the window on Done, close or reload. It leaves a window you already resized
+or maximised alone. Turn it off to keep the normal Playtest size.
+
+The player's Options offers **Reduce Flashes** and **Less Camera Motion** when the game uses
+these effects (or when the maker offers them always). They cap and ease this plugin's flashes,
+soften shockwaves and impact zoom, and turn off camera look-ahead. The **Also soften MZ flashes
+and shakes** setting includes MZ's own screen commands. These choices reduce effects; they do
+not control another plugin or a video. Both start off and are kept in MZ's config.
 - Every control has a name for screen readers (icon buttons say their tooltip, fields their placeholder), the panels are named regions, and messages and the hint are read out as they come.
 - **The keyboard**: Tab and Shift+Tab move through the controls with a visible ring; **F6** (Shift+F6 back) goes from the top bar to the Item Bag's search, the map and Details; in the Item Bag the **arrow keys** move between items (Home and End too) and **Enter** or Space picks one; the row of kinds above them is a set of tabs (the arrow keys show the next kind). Details sections open with Enter on their title. The right-click menu takes the focus: the arrow keys move through it, Enter runs an item and Esc closes it. The edge of the Item Bag and of Details is in the Tab order too: the arrow keys resize the panel (Shift for bigger steps, Home and End for the smallest and biggest).
 - **Less motion** (View → Look), or the system's reduced-motion setting, stops the editor's animations and the moving thumbnails.
@@ -906,6 +1073,14 @@ Editing real map data in playtest mode requires rigorous file protection:
 9. **Manual Backup Restore**: Open **More → Info → Restore Project Backup…**, select the current map, doodad data (this map's file with **Doodad Files: One file per map**), or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
 
 ---
+
+### Keeping released saves working
+
+Before distributing a version, choose **More → Mark as Released**, save first if asked, and give the release a name. `data/DocsDoodadsShipped.json` records named doodads, their states and map sizes. **Problems → Released saves** then shows missing or apparently renamed names, removed/reordered states and resized maps. The deploy tool reminds you when recorded source data changed.
+
+Renaming or deleting the last doodad with a released name asks about its saved states and lights. **Keep the Old Name Working** adds an alias to the new name; for deletion, choose another existing name. The name change and alias undo together. Existing saved values at the destination take priority. Chains of renames keep working. **Rename/Delete without an Alias** leaves the warning for you to assess. Choosing Cancel or changing maps/selection while the question is open applies nothing.
+
+New state changes store a state's name when available, so later reordering can preserve it. Numbers from older saves still read as indices; review reordering warnings before shipping. On loading a map, aliases migrate saved states/lights and names no longer on that map are removed. Invalid cyclic aliases preserve their saved values for repair. **Save This Map** saves only that map's aliases along with its other edits.
 
 ## 23. Complete Keyboard Shortcuts Cheat Sheet
 
@@ -981,6 +1156,30 @@ With the mouse:
 ---
 
 ## 24. Troubleshooting & FAQ
+
+### Save-file pictures and battle backgrounds
+
+- **Map → Use This View as the Title Screen** captures a flat map's current view, preview time/season, weather and screen look. The card edits the looping camera path and whether MZ's title pictures stay over the map or are hidden. **Use the ordinary title screen** turns it off. The title animates the map without running event commands; its game objects, climate, lamp fades and screen effects are isolated from New Game and Continue. This first version uses flat maps.
+- In MZ's Plugin Manager, **Pictures on save files** adds a small picture, the area's name (or map display name), and day/time/season to the native save and load list. It is off by default. Each picture is a JPEG of at most 8 KB, made from MZ's existing map snapshot when opening the menu. Saves made without a fresh map snapshot, including initial autosaves, keep the native row. Old saves and unreadable pictures also use the native layout; custom save windows may use the `docsShot`, `docsPlace` and `docsClock` info fields themselves.
+- **Map Settings → Battle background (flat map)** lets a battle use this map's current light, weather and look without MZ's blur. Characters, their gear/shadows/reflections, pictures and the minimap are left out. A named battleback, including Change Battle Back, takes priority. A 3D map uses its existing setting under **3D View**.
+
+### Event sight and light levels
+
+- Pick an event and use **Sight** in Details to set range, spread, darkness sensitivity and either a self switch or common event. The cone is drawn while editing a flat map. A current page's sight tags take priority over note tags. Walls use **World → Lighting** wall regions, even when visual light occlusion is off.
+- Tags: `<docs sight: 6, 90>`, `<docs sight light: 0.3>`, and either `<docs sight self switch: A>` or `<docs sight common event: 12>`. Seeing triggers once until sight is lost; a busy common-event slot is retried. Darkness shortens the range to at least a quarter.
+- `DocsDoodads.api.lightAt(tileX, tileY)` reads brightness from 0 to 1; **Store Light Level** writes it to a variable. `DocsDoodads.api.sees(eventId)` checks a tagged event. World → Lighting can drive a chosen switch while the player is below a brightness threshold. Detection checks near-screen events five times per second, up to 24 per check, and does not depend on the player's Effects Quality.
+
+### Plain words and playtest trails
+
+- In **Find a Tool**, try “make it a rainy night”, “foggy and darker”, “bigger”, or “no rain”. The first row lists the exact resolved commands; Enter runs them. A line containing unknown or conflicting phrases produces no plain-word plan. Weather/time are previews; fog and map darkness are authored settings with Undo. Relative darkness overrides the map's clock-driven light as one undo step. This works offline. In a language file, translate the pipe-separated alias strings (for example `rain|rainy|raining`) into your own aliases, keeping `|` between alternatives; command identities stay fixed.
+- **View → Show Trails** displays a flat-map heat overlay with its colour key, accumulated stops and Game Over locations, Go To, and Clear for this map or every map. Menu, battle, Photo Mode and editor time are excluded. Counts have a tile budget; imports are bounded to 16 MB and deleted maps are ignored.
+- Desktop playtests record trails automatically and save `data/docs_doodads_cache/trails.json` when the editor opens or the game closes. **Record trails in tester builds** is off by default; enable it only for a desktop tester build you want to record. It records counts and tile locations without player identifiers and makes no upload. Bring back the tester's JSON using the file picker or drop it onto the Trails card. Each import adds counts again. An unreadable existing file is preserved until you explicitly Clear it.
+
+### Plugins and local reports
+
+**Map → Problems** has a **Plugins** group for known order advisories and hooks a later plugin appears to bypass. The check observes normal map updates without running gameplay as a probe. It waits for repeated calls before flagging a hook that never delegates; a removed observer is labelled as an unverified change. Listed later plugins are candidates to investigate. The generated [plugin notes](docs/PLUGIN_COMPATIBILITY.md) distinguish order advice from compatibility playtests, which are still pending.
+
+**More → Info → Save a Report** writes a text file in `data/docs_doodads_cache/reports` and opens its folder. It includes version, graphics and map details, enabled plugin names/order, this plugin's parameters, Problems and the last 200 warnings/errors. Other plugins' parameters are omitted; credentials and paths outside the project are redacted. Read the file before attaching it to an issue. Nothing is uploaded, and reports stay out of deployment. `npm run clashes` keeps the in-editor table and published notes together from their one data file.
 
 ### Q: Why isn't the editor opening when I press F10?
 - Verify that playtest is running under NW.js (not launched from an external standard browser without Node filesystem access).

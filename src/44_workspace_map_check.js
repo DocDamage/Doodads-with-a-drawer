@@ -24,7 +24,7 @@ Object.assign(DocsDoodads.Workspace, {
         ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['badCondition', 'Conditions that don\'t run'], ['offMap', 'Off the map'],
         ['darkLamp', 'Lamps that never show'], ['blockedEvent', 'Events that can\'t be reached or touched'], ['unreachable', 'Out of reach'],
         // Project-wide, from the LPC character library (44_workspace_lpc_library.js).
-        ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out']
+        ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out'], ['artCredits', 'Art without credits']
     ],
 
     // ---- Collecting problems ----
@@ -162,6 +162,10 @@ Object.assign(DocsDoodads.Workspace, {
         if (this._reach && this._reach.mapId === here) out = out.concat(this._reach.flagged);
         // Project-wide: LPC pictures and their credits (no map to go to).
         if (typeof this.lpcProblems === 'function') out = out.concat(this.lpcProblems());
+        const clash = DocsDoodads.Clash, plugins = window.$plugins || [];
+        if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
+        if (this.shippedProblems && this.shippedRelease()) out = out.concat(this.shippedProblems());
+        if (this.creditProblems) out = out.concat(this.creditProblems());
         return out;
     },
 
@@ -314,6 +318,7 @@ Object.assign(DocsDoodads.Workspace, {
             <div class="dd-panel-head"><span class="dd-grow">${U.icon('help', 1)} Problems (${problems.length})</span>
                 <button class="dd-btn dd-fold" id="dd-pr-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
             <div class="dd-pr-tools">
+                <label><input type="checkbox" id="dd-pr-credits" ${U.prefs().checkArtCredits ? 'checked' : ''} /> Check art credits</label>
                 <select id="dd-pr-scope"><option value="map"${this._problemScope === 'map' ? ' selected' : ''}>This map</option><option value="all"${this._problemScope === 'all' ? ' selected' : ''}>Every map</option></select>
                 <button class="dd-btn" id="dd-pr-refresh" type="button">Check Again</button>
                 <button class="dd-btn" id="dd-pr-reach" type="button" title="Where the player can walk from where they stand">Check Reach</button>
@@ -366,6 +371,8 @@ Object.assign(DocsDoodads.Workspace, {
         const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
         on('dd-pr-close', () => this.closeProblems());
         on('dd-pr-refresh', () => this.renderProblems());
+        const credits = document.getElementById('dd-pr-credits');
+        if (credits) credits.onchange = () => { U.setPref('checkArtCredits', Boolean(credits.checked)); this.renderProblems(); };
         on('dd-pr-reach', () => this.checkReach());
         on('dd-pr-reach-tile', () => this.setPlacementTool('reach'));
         on('dd-pr-reach-clear', () => this.clearReach());

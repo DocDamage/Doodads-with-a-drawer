@@ -10,7 +10,7 @@ DocsDoodads.LpcSlots = {
     bodies: [['male', 'Male'], ['female', 'Female'], ['muscular', 'Muscular'], ['teen', 'Teen'], ['child', 'Child'], ['pregnant', 'Pregnant']],
 
     // card -> tabs -> slots. types: the parts' type_name; required: no "None"; addon: hidden by "Body add-ons".
-    cards: [
+    baseCards: [
         { key: 'body', label: 'Body', tabs: [
             { key: 'body', label: 'Body', slots: [
                 { key: 'body', label: 'Skin', types: ['body'], required: true },
@@ -70,19 +70,44 @@ DocsDoodads.LpcSlots = {
         ] }
     ],
 
+    extraPrefix: 'x_',
+    _extra: { types: [], label: 'Extra' },
+
+    useIndex(index) {
+        if (index === this._extraFor) return this._extra;
+        const known = new Set(this.baseCards.flatMap(c => c.tabs.flatMap(t => t.slots.flatMap(s => s.types))));
+        const types = [...new Set(((index && index.parts) || []).map(p => p.type).filter(t => t && !known.has(t)))].sort();
+        this._extraFor = index;
+        this._extra = { types, label: index && index.mine && types.some(t => index.parts.some(p => p.mine && p.type === t)) ? index.mine.label : 'Extra' };
+        this._cards = null;
+        return this._extra;
+    },
+
+    get cards() {
+        if (this._cards) return this._cards;
+        if (!this._extra.types.length) return (this._cards = this.baseCards);
+        const tab = { key: 'extra', label: this._extra.label, slots: this._extra.types.map(type => ({ key: this.extraPrefix + type, label: type.replace(/(^|[_-])(\w)/g, (_m, _s, c) => c.toUpperCase()), types: [type], extra: true })) };
+        return (this._cards = this.baseCards.map(c => c.key === 'outfit' ? Object.assign({}, c, { tabs: c.tabs.concat([tab]) }) : c));
+    },
+
     allSlots() {
         return this.cards.flatMap(c => c.tabs.flatMap(t => t.slots.map(s => Object.assign({ card: c.key, tab: t.key }, s))));
     },
 
     slot(key) {
-        return this.allSlots().find(s => s.key === key) || null;
+        const found = this.allSlots().find(s => s.key === key);
+        if (found) return found;
+        const k = String(key || '');
+        if (!k.startsWith(this.extraPrefix) || k.length <= this.extraPrefix.length) return null;
+        const type = k.slice(this.extraPrefix.length);
+        return { key: k, label: type, types: [type], extra: true, gone: true, card: 'outfit', tab: 'extra' };
     },
 
     // Parts that fit: the slot's kinds, a picture for this body that walks (or the big weapon art that stands
     // in for the usual animations: a long spear walks on walk_128, a club only swings), safe ones when asked.
     // By name.
     options(index, slot, body, safeOnly) {
-        if (!index || !slot) return [];
+        if (!index || !slot || slot.gone) return [];
         const big = DocsDoodads.LpcCompose.oversize;
         return index.parts.filter(p => slot.types.includes(p.type) && p.layers.some(l => l.paths[body] && (!l.custom || big[l.custom])) &&
             (!p.animations.length || p.animations.includes('walk') || p.animations.some(a => big[a])) && (!safeOnly || p.safeFor[body]))
@@ -152,9 +177,16 @@ DocsDoodads.LpcSlots = {
         if (!part) { delete state.slots[key]; return state; }
         const was = state.slots[key] || {};
         state.slots[key] = { id: part.id, colour: this.defaultColour(index, part, 0, was.colour) };
+        if (part.mine) state.slots[key].from = part.source || (index.mine && index.mine.label) || 'My parts';
         const two = this.colours(index, part, 1);
         if (two.length) state.slots[key].colour2 = this.defaultColour(index, part, 1, was.colour2);
         return state;
+    },
+
+    goneNote(picks, gone) {
+        const names = [...new Set(gone.map(k => picks && picks[k] && picks[k].from).filter(Boolean))];
+        if (!names.length) return 'the library changed, or they aren\'t safe to encrypt';
+        return names.length === 1 && gone.every(k => picks[k] && picks[k].from) ? `${names[0]} changed` : `the library or ${names.join(', ')} changed`;
     },
 
     // ◀ ▶: the previous or next part ("None" sits before the first, unless the slot is required).

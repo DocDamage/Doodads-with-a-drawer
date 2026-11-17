@@ -214,6 +214,24 @@
  * @default F10
  * @desc Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.
  *
+ * @param photoModeKey
+ * @text Photo Mode Key
+ * @type combo
+ * @option P
+ * @option F6
+ * @option F7
+ * @option F8
+ * @option F9
+ * @option Ctrl+P
+ * @default P
+ * @desc Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.
+ *
+ * @param photoModeForbidSwitch
+ * @text Forbid Photo Mode Switch
+ * @type switch
+ * @default 0
+ * @desc While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).
+ *
  * @param editorMode
  * @text Editor Enabled
  * @type boolean
@@ -319,11 +337,58 @@
  * @default 0
  * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
+ * @param testerTrails
+ * @text Record trails in tester builds
+ * @type boolean
+ * @default false
+ * @desc Record local walk/stop/Game Over counts in desktop tester builds. Playtests record them automatically. No upload.
+ *
+ * @param saveFilePictures
+ * @text Pictures on save files
+ * @type boolean
+ * @default false
+ * @desc Add small map pictures, area names and game time to MZ's save list. About 8 KB maximum per picture.
+ *
+ * @param comfortOptions
+ * @text Comfort options
+ * @type select
+ * @option When used by the project
+ * @value auto
+ * @option Always
+ * @value always
+ * @default auto
+ * @desc Show Reduce Flashes and Less Camera Motion in the player's Options.
+ *
+ * @param startPlayersOnAuto
+ * @text Start players on Auto
+ * @type boolean
+ * @default false
+ * @desc Start new player preferences with Auto Effects Quality; existing saved choices stay in control.
+ *
+ * @param softenMZEffects
+ * @text Also soften MZ flashes and shakes
+ * @type boolean
+ * @default false
+ * @desc Apply the player's comfort choices to MZ's Flash Screen and Shake Screen commands too.
+ *
  * @param devDiagnostics
  * @text Developer Diagnostics
  * @type boolean
  * @default false
  * @desc Enable diagnostics logging in Developer Tools console.
+ *
+ * @command openPhotoMode
+ * @text Open Photo Mode
+ * @desc Pauses the map and lets the player move the camera, choose a look, hide the party and save a PNG.
+ *
+ * @command storeAreaName
+ * @text Store Area Name
+ * @desc Put the current region's area name into a game variable (empty outside a named area).
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 1
  *
  * @command setAmbient
  * @text Set Ambient Light
@@ -401,6 +466,26 @@
  * @max 59
  * @default 0
  *
+ * @command resumeClimate
+ * @text Resume Climate
+ * @desc Let the seasonal climate control weather again after an event's Set Weather.
+ *
+ * @command storeForecast
+ * @text Store Forecast
+ * @desc Put the next days' weather report into a variable. Assumes the current season.
+ *
+ * @arg days
+ * @text Days
+ * @type number
+ * @min 1
+ * @max 31
+ * @default 7
+ *
+ * @arg variableId
+ * @text Report variable
+ * @type variable
+ * @default 1
+ *
  * @command calendar
  * @text Calendar
  * @desc The running clock's days: go to a day, move days on, or put the day, the weekday or the named date in a variable.
@@ -429,6 +514,17 @@
  * @text Variable
  * @type variable
  * @default 0
+ *
+ * @command pauseSchedules
+ * @text Pause Schedules
+ * @desc Turns scheduled event movement on or off for cutscenes. The pause is not kept in the save.
+ *
+ * @arg on
+ * @text Schedules
+ * @type boolean
+ * @on On
+ * @off Off
+ * @default true
  *
  * @command clockControl
  * @text Clock Control
@@ -1030,8 +1126,19 @@
  * @text Set Camera (3D)
  * @desc Moves the 3D camera. Blank fields keep their value.
  *
+ * @arg cameraMode
+ * @text Camera Mode
+ * @type select
+ * @option (keep)
+ * @value
+ * @option Orbit
+ * @value orbit
+ * @option First person
+ * @value first
+ * @default
+ *
  * @arg pitch
- * @text Tilt (degrees down, 20-89)
+ * @text Tilt (orbit, or first-person look)
  * @type string
  * @default
  *
@@ -1047,6 +1154,27 @@
  *
  * @arg fov
  * @text Field of View
+ * @type string
+ * @default
+ *
+ * @arg eyeHeight
+ * @text First-person Eye Height (tiles)
+ * @type string
+ * @default
+ *
+ * @arg mouseLook
+ * @text First-person Mouse Look
+ * @type select
+ * @option (keep)
+ * @value
+ * @option On (click game to capture mouse)
+ * @value on
+ * @option Off
+ * @value off
+ * @default
+ *
+ * @arg nearFade
+ * @text Near Billboard Fade (tiles)
  * @type string
  * @default
  *
@@ -1498,6 +1626,27 @@
  * @value world
  * @default on
  *
+ * @command storeLightLevel
+ * @text Store Light Level
+ * @desc Stores brightness at a map tile in a variable: 0 is dark, 1 is fully lit.
+ *
+ * @arg tileX
+ * @text Tile X
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg tileY
+ * @text Tile Y
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg variableId
+ * @text Store In Variable
+ * @type variable
+ * @default 1
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
@@ -1561,6 +1710,90 @@
  * @text Map
  * @type number
  * @desc 0 for this map.
+ * @default 0
+ *
+ * @command generateMap
+ * @text Generate Map
+ * @desc Queue a seeded dungeon or wilderness. It is built before the target map appears and regenerated from its seed after loading a save.
+ *
+ * @arg mapId
+ * @text Target Map
+ * @type number
+ * @min 1
+ * @default 1
+ *
+ * @arg kind
+ * @text Kind
+ * @type select
+ * @option Dungeon
+ * @value dungeon
+ * @option Wilderness
+ * @value wilderness
+ * @default dungeon
+ *
+ * @arg seedVariable
+ * @text Seed Variable
+ * @type variable
+ * @desc Read once when this command runs. 0 uses Seed below.
+ * @default 0
+ *
+ * @arg seed
+ * @text Seed
+ * @type text
+ * @default 1
+ *
+ * @arg w
+ * @text Width
+ * @type number
+ * @min 8
+ * @max 256
+ * @default 30
+ *
+ * @arg h
+ * @text Height
+ * @type number
+ * @min 8
+ * @max 256
+ * @default 24
+ *
+ * @arg count
+ * @text Rooms
+ * @type number
+ * @min 1
+ * @max 64
+ * @default 6
+ *
+ * @arg roomIds
+ * @text Room Stamp IDs
+ * @type text
+ * @desc Comma-separated; blank makes plain rooms.
+ *
+ * @arg biomes
+ * @text Biomes
+ * @type text
+ * @desc Wilderness biome IDs, comma-separated, or a JSON array with weights.
+ *
+ * @arg points
+ * @text Path Points
+ * @type text
+ * @desc Wilderness points as x,y; x,y.
+ *
+ * @arg floorTile
+ * @text Floor Tile ID
+ * @type number
+ * @min 0
+ * @default 2816
+ *
+ * @arg wallTile
+ * @text Wall Tile ID
+ * @type number
+ * @min 0
+ * @default 4352
+ *
+ * @arg pathTile
+ * @text Path Tile ID
+ * @type number
+ * @min 0
  * @default 0
  */
 

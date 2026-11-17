@@ -640,6 +640,7 @@
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
+            ${this.renderAssetGuess(a)}
             ${this.renderAssetSeasonControl(a)}
             ${this.renderAssetPlacementTools(a)}
             ${this.renderUsagePanel(a)}
@@ -682,6 +683,7 @@
         colSel.onchange = (e) => {
             const shape = e.target.value === 'custom' ? (a.collision.shape || { x: 0.2, y: 0.6, w: 0.6, h: 0.4 }) : null;
             a.collision = { preset: e.target.value, shape };
+            a.collisionUserSet = true;
             DocsDoodads.AssetIndex.saveSoon();
         };
         document.getElementById('dd-asset-trace-col').onclick = () => this.traceAssetCollision(a);
@@ -705,6 +707,7 @@
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
+        this.bindAssetGuess(a);
         this.bindAssetSeasonControl(a);
         this.bindAssetPlacementTools(a);
         this.bindUsagePanel(a);
@@ -742,7 +745,8 @@
             react: DocsDoodads.React.defaults,
             model: { path: '', scale: 1, yaw: 0, animation: '', speed: 1 },
             states: DocsDoodads.States.defaults,
-            touch: DocsDoodads.Touch.defaults
+            touch: DocsDoodads.Touch.defaults,
+            near: DocsDoodads.Near.defaults
         };
     },
 
@@ -1028,6 +1032,13 @@
                 number('touch.cooldown', 'Wait between touches (seconds)', 0.5),
                 { key: 'touch.prompt', label: 'Prompt over it when faced (e.g. Open, Read, !)', type: 'text' }
             ] },
+            { title: 'When the player is near', fields: [
+                number('near.range', 'Range in tiles (0 = off)', 0.5),
+                { key: 'near.enter', label: 'State on entering (a name, next, or blank)', type: 'text' },
+                { key: 'near.leave', label: 'State on leaving (a name, next, or blank)', type: 'text' },
+                { key: 'near.commonEventId', label: 'Common event on entering and leaving', type: 'select', options: this.commonEventOptions() },
+                { key: 'near.once', label: 'Only the first visit (the save remembers)', type: 'checkbox' }
+            ] },
             { title: 'Particles', fields: [
                 { key: 'particles.preset', label: 'Emitter', type: 'select', options: [{ value: 'none', label: 'None' }].concat(D.Particles.presets.map(p => ({ value: p.id, label: p.label }))) },
                 range('particles.rateScale', 'Amount (x preset rate)', 0, 5, 0.1),
@@ -1112,6 +1123,7 @@
         const first = items[0];
         this._openEffectSections = this._openEffectSections || {};
         this._effectSections = (items.length > 1 ? [this.placementSection()] : []).concat(this.effectSections());
+        // Bind every field before Short Details hides sections; search and More must reach all of them.
         return this._effectSections.map((section, si) => {
             const fields = section.fields.map((f, fi) => {
                 const id = `dd-fx-${si}-${fi}`;

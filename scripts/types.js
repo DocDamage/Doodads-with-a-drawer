@@ -221,6 +221,12 @@ type DocsTraversalAbility = 'jump' | 'glide' | 'swim' | 'dive' | 'fly' | 'climb'
 
 /** The events api.on listens for, and what each listener is given. */
 interface DocsDoodadsEvents {
+    /** The player settled inside a named map region. */
+    areaEnter: { mapId: number; region: number; name: string };
+    /** The player entered a doodad's range. */
+    near: { doodad: DocsDoodad; name: string; mapId: number };
+    /** The player left a doodad's range. */
+    far: { doodad: DocsDoodad; name: string; mapId: number };
     /** The player touched a doodad; x and y are the tile its base is on. */
     touch: { doodad: DocsDoodad; mapId: number; x: number; y: number };
     /** A named doodad's state changed. */

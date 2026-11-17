@@ -72,6 +72,24 @@ Editor panels use the theme's CSS variables (`--dd-*`) and classes (`dd-btn`, `d
 1. Pick the version and put it in `package.json`, the header's `@plugindesc` (`[V…]`) and `pluginVersion` in `src/01_core_constants_parameters.js`.
 2. In `CHANGELOG.md`, turn "Unreleased — X" into "X — <date>" and start a new Unreleased section above it when work goes on.
 3. Give What's New (`DocsDoodads.WhatsNew` in `src/44_workspace_onboarding.js`) the version as its `id` and seven short items from the top of that changelog section.
-4. `npm run build`, `npm run strings`, `npm run shortcuts`, `npm run types`; then `npm run verify` (it checks that the five versions agree) and `npm run coverage`.
+4. `npm run help`, `npm run build`, `npm run strings`, `npm run shortcuts`, `npm run types`; then `npm run verify` (it checks that the five versions agree) and `npm run coverage`. If shortcuts changed the guide, run `npm run help` and `npm run build` again.
 5. Run `MANUAL_TEST_CHECKLIST.md` on a copy of a real project, record it in `docs/QA_<date>.md`, and test a deployed build (`npm run deploy`).
 6. Once it is merged and tagged (`v<version>`), `npm run package -- --ref v<version>` makes the download in `release/`, to attach to the GitHub release and upload to itch.io.
+
+### Screenshot playtest
+
+Before a release, and after changing drawing, close any running NW.js playtest and run
+`npm run playtest`. It builds into a temporary copy of `rpgmaker project`, never into the
+source project. Use `--project <folder>` and `--runtime <folder with nw.exe>` when needed.
+Cases are in `scratch/playtest_cases.json`; `--cases <file>` chooses another list.
+
+The first run fails without reference pictures. Review its HTML report in `release/playtest/`,
+then run `npm run playtest -- --update` to keep references on this computer. References switch
+as a complete run through `current.json`; keep that pointer, its manifest and run folder together.
+Temporary projects are removed after the run; `--keep-copy` retains one for debugging. Run twice without
+`--update` to check repeatability. PNGs, raw pixels and size files are kept together under the
+home folder's `.docs-doodads-playtest/<machine>/`; `--baseline <folder>` chooses another folder.
+Keep them out of git: they show MZ art and differ between GPUs. `--out <folder>`,
+`--tolerance <0–255>` and `--fraction <0–1>` control the report and comparison; do not raise
+tolerances to hide a regression. A timeout, console error, missing case or water-probe error
+fails the run. This tool is outside CI; real-runtime reference validation is still pending.

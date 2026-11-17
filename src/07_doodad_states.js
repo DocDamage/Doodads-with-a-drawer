@@ -31,6 +31,10 @@ DocsDoodads.States = {
     find(d, which) {
         const list = this.list(d);
         if (which === null || which === undefined || which === '') return -1;
+        if (typeof which === 'string') {
+            const named = list.findIndex(state => state && String(state.name || '').trim().toLowerCase() === which.trim().toLowerCase());
+            if (named >= 0) return named;
+        }
         if (typeof which === 'number' || /^\d+$/.test(String(which).trim())) {
             const n = Number(which);
             return n >= 0 && n < list.length ? n : -1;
@@ -133,11 +137,14 @@ DocsDoodads.WorldState = {
         return this.mapId(mapId) + '/' + id;
     },
 
-    handle(nameOrDoodad) {
-        if (nameOrDoodad && typeof nameOrDoodad === 'object') return this.idOf(nameOrDoodad);
+    handle(nameOrDoodad, mapId) {
+        if (nameOrDoodad && typeof nameOrDoodad === 'object') {
+            return this.idOf(nameOrDoodad);
+        }
         const name = String(nameOrDoodad || '').trim();
         if (!name) return '';
-        return /^uid:/.test(name) ? name : 'name:' + name.toLowerCase();
+        const id = /^uid:/.test(name) ? name : 'name:' + name.toLowerCase();
+        return DocsDoodads.Shipped ? DocsDoodads.Shipped.resolveId(id, this.mapId(mapId)) : id;
     },
 
     // The name events know a doodad by (its uid when it has no name).
@@ -170,7 +177,7 @@ DocsDoodads.WorldState = {
     // The doodads with this name (or the given doodad) on a map (this map when 0).
     doodadsNamed(name, mapId) {
         if (name && typeof name === 'object') return [name];
-        const id = this.handle(name);
+        const id = this.handle(name, mapId);
         if (!id) return [];
         const list = typeof DocsDoodads.doodads === 'function' ? DocsDoodads.doodads(this.mapId(mapId)) || [] : [];
         return list.filter(d => d && this.idOf(d) === id);
@@ -187,7 +194,7 @@ DocsDoodads.WorldState = {
         const m = this.mapId(mapId);
         const d = this.doodadsNamed(name, m)[0];
         if (d) return DocsDoodads.States.index(d, m);
-        const id = this.handle(name);
+        const id = this.handle(name, m);
         const v = id ? this.store(false).states[this.key(m, id)] : undefined;
         return typeof v === 'number' ? v : -1;
     },
@@ -198,7 +205,7 @@ DocsDoodads.WorldState = {
         const m = this.mapId(mapId);
         const d = this.doodadsNamed(name, m)[0];
         if (d) return DocsDoodads.States.name(d, m);
-        const id = this.handle(name);
+        const id = this.handle(name, m);
         const v = id ? this.store(false).states[this.key(m, id)] : undefined;
         return v === undefined || v === null ? '' : String(v);
     },
@@ -211,7 +218,7 @@ DocsDoodads.WorldState = {
     // Sets a named doodad's state on a map (this map when 0): a state name, its number, 'next', or
     // '' to go back to following its switch or variable.
     setState(name, which, mapId) {
-        const id = this.handle(name);
+        const id = this.handle(name, mapId);
         if (!id) return false;
         const m = this.mapId(mapId);
         const key = this.key(m, id);
@@ -220,6 +227,7 @@ DocsDoodads.WorldState = {
         const told = () => { if (DocsDoodads.api) DocsDoodads.api.emit('state', { name: this.nameOf(name), state: this.state(name, m), mapId: m }); };
         if (raw === '') {
             delete states[key];
+            const owners = this.store().liveNames; if (owners && owners.states) delete owners.states[key];
             told();
             return true;
         }
@@ -228,12 +236,14 @@ DocsDoodads.WorldState = {
             if (!d) return false;
             const n = DocsDoodads.States.list(d).length;
             if (n < 2) return false;
-            states[key] = (DocsDoodads.States.index(d, m) + 1) % n;
+            const next = (DocsDoodads.States.index(d, m) + 1) % n;
+            if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('states', name, m, id);
+            states[key] = String(DocsDoodads.States.list(d)[next].name || '').trim() || next;
             told();
             return true;
         }
         // Only states the doodad has, so a typo doesn't leave a dead key in every save.
-        if (d && DocsDoodads.States.find(d, raw) < 0) {
+        if (d && DocsDoodads.States.find(d, which) < 0) {
             const names = DocsDoodads.States.list(d).map((s, i) => String((s && s.name) || i)).join(', ');
             console.warn(`[DocsDoodads] "${this.nameOf(name)}" has no state "${raw}"; its states are: ${names || 'none'}.`);
             return false;
@@ -242,7 +252,10 @@ DocsDoodads.WorldState = {
             console.warn(`[DocsDoodads] no doodad named "${this.nameOf(name)}" on map ${m}.`);
             return false;
         }
-        states[key] = /^\d+$/.test(raw) ? Number(raw) : raw;
+        const index = d ? DocsDoodads.States.find(d, which) : -1;
+        const named = index >= 0 ? String(DocsDoodads.States.list(d)[index].name || '').trim() : '';
+        if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('states', name, m, id);
+        states[key] = named || (/^\d+$/.test(raw) ? Number(raw) : raw);
         told();
         return true;
     },
@@ -251,7 +264,7 @@ DocsDoodads.WorldState = {
     light(name, mapId) {
         const d = this.doodadsNamed(name, mapId)[0];
         if (!d) {
-            const id = this.handle(name);
+            const id = this.handle(name, mapId);
             const v = id ? this.store(false).lights[this.key(mapId, id)] : undefined;
             return typeof v === 'boolean' ? v : null;
         }
@@ -260,12 +273,16 @@ DocsDoodads.WorldState = {
 
     // on: true, false, or null to go back to the doodad's own setting.
     setLight(name, on, mapId) {
-        const id = this.handle(name);
+        const id = this.handle(name, mapId);
         if (!id) return false;
         const key = this.key(mapId, id);
         const lights = this.store().lights;
-        if (on === null || on === undefined || on === '') delete lights[key];
-        else lights[key] = Boolean(on === true || on === 'true' || on === 'on' || on === 1);
+        if (on === null || on === undefined || on === '') {
+            delete lights[key]; const owners = this.store().liveNames; if (owners && owners.lights) delete owners.lights[key];
+        } else {
+            if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('lights', name, this.mapId(mapId), id);
+            lights[key] = Boolean(on === true || on === 'true' || on === 'on' || on === 1);
+        }
         if (DocsDoodads.api) DocsDoodads.api.emit('light', { name: this.nameOf(name), on: this.light(name, mapId), mapId: this.mapId(mapId) });
         return true;
     },

@@ -53,6 +53,7 @@ Object.assign(DocsDoodads.Workspace, {
                     </select>
                     <button class="dd-btn" id="dd-clock-now" type="button" title="Back to the game's own time and season"${previewing || season >= 0 ? '' : ' disabled'}>Now</button>
                 </div>
+                ${this.renderClimateForecast()}
             </div>`;
     },
 
@@ -89,6 +90,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (now) now.disabled = !previewing && !(this.previewSeason >= 0);
         const season = document.getElementById('dd-clock-season');
         if (season && resetSeason) season.value = '-1';
+        this.updateClimateForecast();
     },
 
     playClock() {
@@ -133,6 +135,19 @@ Object.assign(DocsDoodads.Workspace, {
             }
         }
         return { emitters, regionTiles };
+    },
+
+    drawNearOverlay(g) {
+        const map = window.$gameMap;
+        if (!map || (DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera())) return;
+        const items = this.showSounds ? DocsDoodads.doodads() : (this.selectedDoodads || []);
+        for (const d of items || []) {
+            if (!d || !d.near || !(Number(d.near.range) > 0)) continue;
+            const at = DocsDoodads.mapToScreen(d.x, d.y - map.tileHeight() / 2);
+            g.lineStyle(2, DocsDoodads.Ui.mapColor('sound'), 0.8);
+            g.drawCircle(at.x, at.y, Math.min(100, Number(d.near.range)) * map.tileWidth());
+        }
+        g.lineStyle(0);
     },
 
     drawSoundOverlay(g) {

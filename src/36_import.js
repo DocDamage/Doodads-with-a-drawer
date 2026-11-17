@@ -3,7 +3,7 @@
 // SECTION 24: DocsDoodads.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
 //==========================================================
 DocsDoodads.Import = {
-    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp']),
+    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.apng']),
     audioExtensions: new Set(['.ogg', '.m4a', '.wav']),
     destinations: [
         'img/doodads', 'img/characters', 'img/faces', 'img/parallaxes',
@@ -106,6 +106,21 @@ DocsDoodads.Import = {
         return { files, errors, relativeDirs };
     },
 
+    readCreditNotes(files) {
+        const FS = DocsDoodads.FS, C = DocsDoodads.Credits, out = [];
+        for (const file of files || []) {
+            if (!C.noteFile(file)) continue;
+            try {
+                const stat = FS.fs.statSync(file);
+                if (!stat.isFile() || stat.size > 65536) continue;
+                const note = C.notesFromFiles([{ name: FS.path.basename(file), data: FS.fs.readFileSync(file) }])[0];
+                if (note) out.push(Object.assign(note, { sourceFolder: FS.path.dirname(file) }));
+                if (out.length >= 20) break;
+            } catch (error) { /* A credit note cannot stop importing the art. */ }
+        }
+        return out;
+    },
+
     // Plain-language summary of a runAssetImport result for the toast.
     describeResult(result) {
         const path = DocsDoodads.FS.path;
@@ -114,7 +129,8 @@ DocsDoodads.Import = {
             const parts = [`Imported ${result.imported.length} file(s)`];
             if (result.duplicates && result.duplicates.length) parts.push(`${result.duplicates.length} identical file(s) skipped`);
             if (result.skipped && result.skipped.length) parts.push(`${result.skipped.length} skipped because the name already exists`);
-            return parts.join(', ') + '.';
+            const warnings = result.warnings && result.warnings.length ? ` ${result.warnings.join(' ')}` : '';
+            return parts.join(', ') + '.' + warnings;
         }
         if (result.cancelled) return `Import cancelled${result.rolledBack ? '; copied files were rolled back' : ''}.`;
         const collision = (result.errors || []).find(error => error.message === 'Destination already exists.');
@@ -150,6 +166,24 @@ DocsDoodads.Import = {
         }
     },
 
+    // True for the same on-disk file even when one side reaches it through a directory junction or
+    // symbolic link. Animated imports generate different bytes, so their source must never also be the
+    // requested output (ordinary byte-equal imports can still use filesEqual above).
+    sameCanonicalFile(firstPath, secondPath) {
+        const fs = DocsDoodads.FS.fs;
+        if (!fs) return false;
+        try {
+            const realpath = fs.realpathSync.native || fs.realpathSync;
+            const first = realpath(firstPath), second = realpath(secondPath);
+            const normalize = value => process.platform === 'win32' ? String(value).toLowerCase() : String(value);
+            if (normalize(first) === normalize(second)) return true;
+            const a = fs.statSync(first), b = fs.statSync(second);
+            return Boolean(a.dev === b.dev && a.ino && a.ino === b.ino);
+        } catch (error) {
+            return false;
+        }
+    },
+
     planBatch(sourcePaths, options = {}) {
         const fs = DocsDoodads.FS.fs;
         const path = DocsDoodads.FS.path;
@@ -165,6 +199,7 @@ DocsDoodads.Import = {
 
         // The Add Files card has already walked the dropped folders; its list is used as it is.
         const collected = options.collected || this.collectFiles(sourcePaths);
+        plan.creditNotes = this.readCreditNotes(collected.files);
         plan.errors.push(...collected.errors);
         const reserved = new Map();
         const reservedKey = destination => process.platform === 'win32' ? destination.toLowerCase() : destination;
@@ -200,16 +235,29 @@ DocsDoodads.Import = {
                 continue;
             }
 
-            const fileName = path.basename(source);
+            let animatedKind = null;
+            try { animatedKind = DocsDoodads.AnimatedImport ? DocsDoodads.AnimatedImport.sourceKind(source) : null; }
+            catch (error) {
+                plan.errors.push({ path: source, message: error && error.message ? error.message : String(error) });
+                continue;
+            }
+            const fileName = animatedKind ? DocsDoodads.AnimatedImport.destinationName(source) : path.basename(source);
             const ext = path.extname(fileName);
             const base = path.basename(fileName, ext);
             let destination = path.join(targetFolder, fileName);
             let overwrite = false;
             let suffix = 0;
+            let protectingAnimatedSource = false;
 
             while (fs.existsSync(destination) || reserved.has(reservedKey(destination))) {
                 const comparisonSource = reserved.has(reservedKey(destination)) ? reserved.get(reservedKey(destination)) : destination;
-                if (this.filesEqual(source, comparisonSource)) {
+                if (animatedKind && (protectingAnimatedSource || this.sameCanonicalFile(source, comparisonSource))) {
+                    protectingAnimatedSource = true;
+                    suffix++;
+                    destination = path.join(targetFolder, `${base}_${suffix}${ext}`);
+                    continue;
+                }
+                if (!animatedKind && this.filesEqual(source, comparisonSource)) {
                     plan.duplicates.push({ source, destination });
                     destination = null;
                     break;
@@ -243,7 +291,8 @@ DocsDoodads.Import = {
                 destination,
                 relativeDestination: path.relative(plan.projectRoot, destination).replace(/\\/g, '/'),
                 overwrite,
-                kind: this.audioExtensions.has(path.extname(source).toLowerCase()) ? 'audio' : 'image'
+                kind: this.audioExtensions.has(path.extname(source).toLowerCase()) ? 'audio' : 'image',
+                ...(animatedKind ? { animatedKind } : {})
             });
         }
         return plan;
@@ -261,6 +310,7 @@ DocsDoodads.Import = {
             skipped: (plan && plan.skipped) ? plan.skipped.slice() : [],
             unsupported: (plan && plan.unsupported) ? plan.unsupported.slice() : [],
             errors: (plan && plan.errors) ? plan.errors.slice() : [],
+            warnings: (plan && plan.warnings) ? plan.warnings.slice() : [],
             rolledBack: false,
             cancelled: false
         };
@@ -308,7 +358,8 @@ DocsDoodads.Import = {
 
                 const temporary = `${operation.destination}.ddimport-${transactionId}-${index}.tmp`;
                 tempFiles.push(temporary);
-                await fsp.copyFile(operation.source, temporary);
+                if (operation.outputBytes) await fsp.writeFile(temporary, operation.outputBytes);
+                else await fsp.copyFile(operation.source, temporary);
                 if (existed) {
                     completed.push({ operation, existed, backup });
                     await fsp.copyFile(temporary, operation.destination);

@@ -324,6 +324,8 @@
 
     async runAssetImport(sourcePaths, options = {}) {
         const plan = DocsDoodads.Import.planBatch(sourcePaths, options);
+        const prepared = this.prepareAnimatedImport(plan, options.cancellationToken);
+        if (!prepared.ok) return this.animatedImportFailure(plan, prepared);
         const result = await DocsDoodads.Import.executeBatchAsync(plan, {
             cancellationToken: options.cancellationToken,
             onProgress: options.onProgress
@@ -331,7 +333,15 @@
         if (!result.ok) return result;
 
         // Only the files just written are indexed, not every folder walked again.
-        await DocsDoodads.AssetIndex.indexPaths(result.imported);
+        await DocsDoodads.AssetIndex.indexPaths(result.imported, {
+            projectRoot: plan.projectRoot,
+            animationByPath: DocsDoodads.AnimatedImport.metadataByPath(plan)
+        });
+        const FS = DocsDoodads.FS, written = new Set(result.imported.map(file => FS.path.resolve(file)));
+        await this.offerCreditNotes(plan.creditNotes, note => plan.operations.filter(op => {
+            const relative = FS.path.relative(note.sourceFolder, op.source);
+            return written.has(FS.path.resolve(op.destination)) && relative !== '..' && !relative.startsWith('..' + FS.path.sep) && !FS.path.isAbsolute(relative);
+        }).map(op => op.relativeDestination));
         this.refreshDrawerCards();
 
         if (options.autoSlice) {
@@ -454,10 +464,10 @@
 
     // Each supported file and the folder it would go to, for the import card: chosen folder, or the guess.
     importPreviewRows(files, chosen) {
-        const I = DocsDoodads.Import, path = DocsDoodads.FS.path;
+        const I = DocsDoodads.Import;
         return (files || []).filter(f => I.isSupported(f)).map(source => ({
             source,
-            name: path.basename(source),
+            name: DocsDoodads.AnimatedImport.destinationName(source),
             folder: chosen && chosen !== 'auto' ? chosen : (I.detectDestination(source) || '?')
         }));
     },

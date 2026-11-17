@@ -1,5 +1,12 @@
 # Doc's Doodads Cheat Sheet
 
+New player/map controls: **Store Area Name** (`variableId`) stores the region's name, or an
+empty string. `DocsDoodads.api.area()` reads it; `api.on('areaEnter', fn)` receives
+`{ mapId, region, name }`. `api.comfort()` reads `{ reduceFlashes, lessCameraMotion }`.
+`api.on('near', fn)` and `api.on('far', fn)` receive `{ doodad, name, mapId }` from the
+Details section **When the player is near**. Range 0 turns it off; states accept a name,
+`next` or blank. The existing Touch trigger remains separate.
+
 Every notetag, image name tag, plugin command and script call on one page. The [User Guide](Docs_Doodads_Guide.md) explains each in full; section numbers below point there.
 
 ## Notetags
@@ -62,6 +69,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Pass Time | hours, minutes | Moves the clock forward. |
 | Calendar | action, value, variable | Go to a day, move days on, or put the day, weekday or named date in a variable. |
 | Clock Control | action, speed | Pause, resume or change the clock's speed. |
+| Pause Schedules | on | Allow scheduled event movement when on; pause it for a cutscene when off. Not saved. |
 | Set Season | season | Changes the season. |
 | Set Atmosphere Effect | feature, enabled | Turns an effect on or off for this playthrough. |
 | Set Post-Processing Look | look, duration | Fades to a look, to none, or back to the map's. |

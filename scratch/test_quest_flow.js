@@ -1,0 +1,34 @@
+'use strict';
+const assert = require('assert'), fs = require('fs'), path = require('path'), vm = require('vm');
+const E = require('./engine/fake_engine'); E.install(); E.setupWorld();
+require('../Docs-Doodads.js');
+let saved = false, played = false, mapId = 1;
+const prefs = {}, items = [];
+const W = { mounted: false, currentMapId: () => mapId, playFromHere: async () => played, showToast() {} };
+const D = { Quest: DocsDoodads.Quest, Workspace: W, Ui: { prefs: () => prefs, setPref(key, value) { prefs[key] = value; } },
+    WhatsNew: { id: 'test' }, doodads: () => items, api: { time: () => null }, Persistence: { saveAll: () => saved, saveMapOnly: () => saved } };
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/44_workspace_quest.js'), 'utf8'), { DocsDoodads: D, setInterval, clearInterval });
+(async () => {
+    W.startQuest();
+    assert.strictEqual(await W.playFromHere(1, 1), false);
+    assert.strictEqual(W.questData().played, false, 'canceled/refused Play From Here never advances');
+    played = true; await W.playFromHere(1, 1);
+    assert.strictEqual(W.questData().played, true, 'only completed asynchronous play advances');
+    D.Persistence.saveAll();
+    assert.strictEqual(W.questData().saved, false, 'a failed save does not count');
+    saved = true; D.Persistence.saveMapOnly(2);
+    assert.strictEqual(W.questData().saved, false, 'saving another map does not count');
+    D.Persistence.saveMapOnly(1);
+    assert.strictEqual(W.questData().saved, true);
+    const baseline = W.questData().baseline;
+    W.stopQuestUi(); W.resumeQuest();
+    assert.strictEqual(W.questData().baseline, baseline, 'close/reopen preserves the original placement target');
+    W.pauseQuest('paused'); W.stopQuestUi(); W.resumeQuest();
+    assert.strictEqual(W.questData().status, 'active');
+    W.pauseQuest('skipped'); W.stopQuestUi();
+    assert.strictEqual(W.resumeQuest(), false);
+    mapId = 2; W.startQuest(true);
+    assert.strictEqual(W.questData().mapId, 2, 'explicit replay targets the current map');
+    W.stopQuestUi();
+    console.log('Quest flow: asynchronous play, successful map saves, close/reopen, temporary pause and replay passed.');
+})().catch(error => { console.error(error); process.exitCode = 1; });

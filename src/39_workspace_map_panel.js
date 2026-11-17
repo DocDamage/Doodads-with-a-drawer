@@ -208,6 +208,7 @@
     },
 
     setSymmetry(mode) {
+        if (DocsDoodads.SimpleMode.enabled()) { DocsDoodads.SimpleMode.reveal('symmetry'); this.updateSimpleView(); }
         this.symmetry = Object.assign({}, this.symmetry, { mode });
         const btn = document.getElementById('dd-sym-btn');
         if (btn && btn.classList) btn.classList.toggle('dd-btn-active', mode !== 'off');
@@ -291,6 +292,7 @@
     },
 
     biomePaintAt(clientX, clientY) {
+        this.clearPlacementPreview();
         const coords = this.clientToMapCoords(clientX, clientY);
         const s = this.biomeSettings;
         if (this._lastDab && Math.hypot(this._lastDab.x - coords.x, this._lastDab.y - coords.y) < s.radius * 0.4) return;
@@ -748,6 +750,7 @@
         const out = [];
         const add = (label, run, group, keys) => out.push({ label, run, group: group || 'Command', keys });
         const K = id => D.Shortcuts.label(id) || undefined;
+        for (const heading of D.HelpIndex) add('Help: ' + heading.title, () => D.Help.show(heading.anchor), 'Help');
         add('Save', () => D.Persistence.saveAll(), null, K('save'));
         add('Undo', () => D.Undo.undo(), null, K('undo'));
         add('Redo', () => D.Undo.redo(), null, K('redo'));
@@ -761,6 +764,9 @@
         add('Save This Search', () => this.saveCurrentSearch(), 'Item Bag');
         for (const s of D.AssetIndex.savedSearches()) add('Saved search: ' + s.name, () => this.setSearchQuery(s.query), 'Item Bag');
         add('Screen Looks (post-processing)', () => this.showPostFxBuilder());
+        add('Moods (light, look, weather and ambience)', () => this.showMoods(), 'Map');
+        add('Trace a Picture', () => this.showTraceCard(), 'Map');
+        add('Show / Hide Trace', () => this.toggleTrace(), 'View');
         add('Effects Maker (VFX)', () => this.showVfxBuilder());
         add('File Check (duplicates, unused files)', () => this.showAssetTools());
         add('Old Saves (history)', () => this.showHistoryPanel());
@@ -773,8 +779,11 @@
         add('Clear Map Dressing', () => { const n = this.clearDressing(); if (n) this.toastUndo(`Removed ${n} dressed prop(s).`, 'info'); else this.showToast('No dressed props to remove.', 'info'); });
         add('Messages (read them again)', () => this.showToastHistory());
         add('Look: size, theme, map colours', () => this.showLookCard());
+        add('Show Everything', () => this.setSimpleMode(false), 'View');
+        add('Keep It Simple', () => this.setSimpleMode(true), 'View');
         add('How to Use (welcome card)', () => this.showWelcome());
         add('Replay Tool Tours', () => this.replayTours());
+        add('Replay First Map Quest', () => this.startQuest(true));
         add('Add Sample Items (pictures, prefabs, a biome)', () => this.addSampleContent());
         add("What's New", () => this.showWhatsNew());
         add('Capture: picture of the view (PNG)', () => this.capturePicture());

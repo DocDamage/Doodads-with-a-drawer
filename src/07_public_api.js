@@ -11,6 +11,24 @@
 DocsDoodads.api = {
     version: 1,
 
+    /**
+     * Returns the player's Reduce Flashes and Less Camera Motion choices.
+     * @returns {{reduceFlashes: boolean, lessCameraMotion: boolean}}
+     */
+    comfort() { return DocsDoodads.Comfort.choices(); },
+
+    /**
+     * The shared BGM spectrum bands (0-1) and whether this frame starts a kick. Silent without audio.
+     * @returns {{low: number, mid: number, high: number, kick: boolean}}
+     */
+    beat() { return DocsDoodads.Beat.snapshot(); },
+
+    /**
+     * The name of the area under the player, or an empty string.
+     * @returns {string}
+     */
+    area() { const area = DocsDoodads.Areas.current(); return area ? String(area.name) : ''; },
+
     _listeners: {},
 
     // ---- Events: 'touch' ({ doodad, mapId, x, y }: the tile its base is on), 'state' ({ name, state, mapId }), 'light' ({ name, on, mapId }) ----
@@ -413,6 +431,19 @@ DocsDoodads.api = {
     },
 
     /**
+     * Reads deterministic weather spans for the next days, assuming the current season.
+     * @param {number} [days]
+     * @returns {object[]}
+     */
+    forecast(days = 7) { return DocsDoodads.Climate.forecast(days); },
+
+    /**
+     * Gives weather control back to the climate after an event's Set Weather.
+     * @returns {boolean}
+     */
+    resumeClimate() { return DocsDoodads.Climate.resume(); },
+
+    /**
      * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
      * @param {boolean | null} on
      * @returns {boolean}
@@ -421,6 +452,27 @@ DocsDoodads.api = {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
         $gameSystem._docsFlashlight = on === null || on === undefined ? undefined : Boolean(on);
         return true;
+    },
+
+    /**
+     * Brightness at a map tile, from 0 (dark) to 1 (fully lit).
+     * @param {number} tileX
+     * @param {number} tileY
+     * @returns {number}
+     */
+    lightAt(tileX, tileY) {
+        return DocsDoodads.SightRuntime ? DocsDoodads.SightRuntime.levelAtTile(tileX, tileY) : 0;
+    },
+
+    /**
+     * Whether a tagged map event can currently see the player.
+     * @param {number} eventId
+     * @returns {boolean}
+     */
+    sees(eventId) {
+        if (!DocsDoodads.SightRuntime || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const event = $gameMap.event(Math.max(0, Math.floor(Number(eventId) || 0)));
+        return Boolean(event && DocsDoodads.SightRuntime.seesEvent(event));
     },
 
     /**
@@ -538,6 +590,44 @@ DocsDoodads.api = {
         return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
     },
 
+    /**
+     * Opens the player's Photo Mode on the current map. Returns false when its forbid switch is on.
+     * @returns {boolean}
+     */
+    photoMode() {
+        return DocsDoodads.PhotoMode.open();
+    },
+
+    /**
+     * Changes the current map's 3D camera for this visit. mode is 'orbit' or 'first'; first-person also
+     * accepts eyeHeight, pitch, fov, mouseLook and nearFade. Returns false on a flat/unloaded map.
+     * @param {object} options
+     * @param {number} [frames]
+     * @returns {boolean}
+     */
+    camera3d(options, frames = 0) {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gameMap.docsMoveCamera !== 'function') return false;
+        const input = options || {};
+        const P = DocsDoodads.Perspective;
+        const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
+        const current = P.active() || P.normalize(mine);
+        const target = {};
+        if (input.mode === 'first' || input.mode === 'orbit') target.mode = input.mode;
+        const mode = target.mode || current.mode;
+        for (const key of ['yaw', 'zoom', 'curvature', 'eyeHeight', 'nearFade']) {
+            if (input[key] !== undefined && input[key] !== null && input[key] !== '') target[key] = Number(input[key]);
+        }
+        if (input.pitch !== undefined && input.pitch !== null && input.pitch !== '') target[mode === 'first' ? 'firstPitch' : 'pitch'] = Number(input.pitch);
+        if (input.fov !== undefined && input.fov !== null && input.fov !== '') target[mode === 'first' ? 'firstFov' : 'fov'] = Number(input.fov);
+        if (input.mouseLook !== undefined) target.mouseLook = Boolean(input.mouseLook);
+        if (input.curve === 'flat' || input.curve === 'sphere' || input.curve === 'cylinder') target.curve = input.curve;
+        if (target.mode === 'first') $gameMap._docsFirstPersonMode = target.yaw !== undefined;
+        else if (target.mode === 'orbit') $gameMap._docsFirstPersonMode = false;
+        if ((target.mode === 'orbit' || target.mouseLook === false) && P.releaseMouseLook) P.releaseMouseLook();
+        $gameMap.docsMoveCamera(target, Number(frames) || 0);
+        return true;
+    },
+
     // ---- The calendar (the running clock's days; World > Day and Night) ----
     /**
      * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.
@@ -567,6 +657,20 @@ DocsDoodads.api = {
      * @returns {boolean}
      */
     setDay(day) { return DocsDoodads.Calendar.setDay(day); },
+
+    /**
+     * Turns scheduled event movement on or off for a cutscene. This pause is not kept in the save.
+     * @param {boolean} [on]
+     * @returns {boolean} Whether schedules are now on.
+     */
+    schedules(on = true) { return DocsDoodads.Schedules.setEnabled(on); },
+
+    /**
+     * Queues a seeded dungeon or wilderness recipe for a map. It is regenerated before that map sets up.
+     * @param {object} options
+     * @returns {{seed: number, recipe: object} | null}
+     */
+    generateMap(options) { return DocsDoodads.GenerateRuntime.queue(options || {}); },
 
     // ---- Clock, season and ambient light ----
     /**

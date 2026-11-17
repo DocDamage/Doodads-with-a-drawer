@@ -7,6 +7,10 @@
 DocsDoodads.PostFX = {
     // neutral: the value at which a parameter does nothing (used when blending an effect in or out).
     effects: [
+        { id: 'heat', label: 'Heat haze (flat maps)', screenSpace: true, params: [
+            { key: 'strength', label: 'Strength (pixels)', min: 0, max: 12, step: 0.5, def: 3, neutral: 0 },
+            { key: 'speed', label: 'Upward drift speed', min: 0, max: 3, step: 0.1, def: 0.5, neutral: 0.5 }
+        ] },
         { id: 'bloom', label: 'Bloom', params: [
             { key: 'threshold', label: 'Threshold', min: 0, max: 1, step: 0.05, def: 0.7, neutral: 1 },
             { key: 'intensity', label: 'Intensity', min: 0, max: 3, step: 0.05, def: 0.8, neutral: 0 },
@@ -57,6 +61,7 @@ DocsDoodads.PostFX = {
     ],
 
     presets: [
+        { id: 'heat', label: 'Heat', look: { heat: { enabled: true, strength: 3, speed: 0.5 } } },
         { id: 'cinematic', label: 'Cinematic', look: {
             color: { enabled: true, contrast: 1.12, saturation: 0.92, shadows: '#1f6f8b', highlights: '#f0a35e', split: 0.35 },
             vignette: { enabled: true, amount: 0.35, softness: 0.5 }, grain: { enabled: true, amount: 0.06 } } },
@@ -214,9 +219,10 @@ DocsDoodads.PostFX = {
 
     gradeIds: ['color', 'vignette', 'grain', 'aberration', 'lens', 'crt', 'pixelate', 'sharpen'],
 
-    passes(look, quality, anim) {
+    passes(look, quality, anim, haze) {
         if (quality === 'off') return [];
         const out = [];
+        if (haze && haze.length && quality !== 'low') out.push('haze');
         if ((look && look.bloom.enabled) || (anim && anim.bloom > 0)) out.push('bloom');
         if (look && look.tiltShift.enabled && quality !== 'low') out.push('tiltShift');
         const animated = anim && ((anim.zoom !== undefined && anim.zoom !== 1) || (anim.shock && anim.shock[3] > 0) || anim.aberration > 0);
@@ -307,14 +313,15 @@ DocsDoodads.PostFX = {
                 const fall = (1 - t) * (1 - t);
                 if (a.type === 'zoomPunch') {
                     const env = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
-                    out.zoom *= 1 + a.strength * env * env * (3 - 2 * env);
+                    out.zoom *= 1 + DocsDoodads.Comfort.motion(a.strength) * env * env * (3 - 2 * env);
                     out.zoomCenter = a.center;
                 } else if (a.type === 'shockwave') {
-                    out.shock = [a.center[0], a.center[1], t * 0.9, a.strength * 0.06 * (1 - t)];
+                    out.shock = [a.center[0], a.center[1], t * 0.9, DocsDoodads.Comfort.motion(a.strength) * 0.06 * (1 - t)];
                 } else if (a.type === 'chromaticPunch') {
-                    out.aberration += a.strength * 3 * fall;
+                    out.aberration += DocsDoodads.Comfort.motion(a.strength) * 3 * fall;
                 } else if (a.type === 'bloomFlash') {
-                    out.bloom += a.strength * 2 * fall;
+                    const opts = Object.assign(DocsDoodads.Comfort.choices(), { age: frame - a.start, duration: a.duration });
+                    out.bloom += DocsDoodads.Comfort.flash(a.strength * 255, opts) / 255 * 2 * fall;
                 }
             }
             return out;

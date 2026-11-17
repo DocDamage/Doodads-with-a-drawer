@@ -50,6 +50,8 @@ ws.mounted = true;
     await D.AssetIndex.scanAsync({ loadCache: false });
     D.AssetIndex.data.assets['img/doodads/bench.png'].slice = { status: 'manual', method: 'grid', confidence: 1, regions: [{ x: 0, y: 0, w: 8, h: 8 }] };
     D.AssetIndex.data.assets['img/doodads/bench.png'].tags = ['park'];
+    const animatedLamp = { frameW: 8, frameH: 16, xFrame: 2, yFrame: 1, frameCount: 2, frameUpdate: 6 };
+    D.AssetIndex.data.assets['img/doodads/lamp.png'].animation = animatedLamp;
     D.AssetIndex.addAssetToCollection('img/doodads/flower.png', 'Garden');
 
     // Project A: a lamp prefab (with a state picture and a sound), a plaza holding it, a room, a biome, a rule.
@@ -82,6 +84,7 @@ ws.mounted = true;
     assert.deepStrictEqual(made.pack.missing, ['img/doodads/gone.png']);
     assert.strictEqual(Buffer.from(made.pack.files['img/doodads/lamp.png'], 'base64').toString('latin1').slice(-4), 'lamp');
     assert.deepStrictEqual(made.pack.library['img/doodads/bench.png'].tags, ['park']);
+    assert.deepStrictEqual(made.pack.library['img/doodads/lamp.png'].animation, animatedLamp, 'animated sheet defaults travel with the file');
     assert.ok(/not found were left out/.test(toasts[toasts.length - 1]));
     const packFile = path.join(root, 'Town_Kit.ddpack');
     fs.copyFileSync(path.join(projectA, 'packs', 'Town_Kit.ddpack'), packFile);
@@ -116,6 +119,10 @@ ws.mounted = true;
     assert.strictEqual(fs.readFileSync(path.join(projectB, 'img/doodads/rock.png')).toString('latin1').slice(-6), 'rock-B', 'mine kept');
     assert.ok(fs.existsSync(path.join(projectB, 'img/doodads/lamp.png')) && fs.existsSync(path.join(projectB, 'audio/bgs/Fire.ogg')));
     assert.strictEqual(result.written.length, 4);
+    const incomingLamp = D.AssetIndex.data.assets['img/doodads/lamp.png'];
+    assert.deepStrictEqual(incomingLamp.animation, animatedLamp);
+    const animatedDrop = ws.newDoodadFromAsset(incomingLamp, 0, 0);
+    assert.deepStrictEqual([animatedDrop.frameW, animatedDrop.frameH, animatedDrop.xFrame, animatedDrop.anim.frameCount, animatedDrop.frameUpdate], [8, 16, 2, 2, 6]);
     const prefabs = D.Prefabs.ensureLoaded();
     const newLamp = prefabs.find(p => p.name === 'Lamp'), newPlaza = prefabs.find(p => p.name === 'Plaza');
     assert.ok(newLamp && newLamp.id !== lamp.id, 'the clashing id got a new one');

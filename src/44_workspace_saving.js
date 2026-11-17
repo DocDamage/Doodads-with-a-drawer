@@ -72,13 +72,19 @@ DocsDoodads.MapPresets = {
     },
 
     // Keeps the settings without the parts tied to one map's tiles. Replaces a preset of the same name.
-    save(name, settings) {
+    save(name, settings, mood) {
         name = String(name || '').trim();
         if (!name) return null;
         const C = DocsDoodads.MapSettingsCopy;
         const keep = C.apply({}, settings, C.parts.filter(p => !p.off).map(p => p.id));
         const presets = this.list().filter(p => p.name !== name);
         const preset = { name, settings: keep };
+        if (mood && mood.mood) {
+            preset.mood = true;
+            preset.time = mood.time;
+            preset.weather = DocsDoodads.Moods.normalizeWeather(mood.weather);
+            preset.wind = mood.wind;
+        }
         presets.push(preset);
         presets.sort((a, b) => a.name.localeCompare(b.name));
         this.data.presets = presets;
@@ -377,12 +383,13 @@ Object.assign(DocsDoodads.Workspace, {
         }
         bar.innerHTML = `<span style="flex-basis: 100%;">${count} picked (Ctrl or Shift + click)</span>
             <button class="dd-btn" type="button" id="dd-bb-tag">Tag</button><button class="dd-btn" type="button" id="dd-bb-fav">★</button>
-            <button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
+            <button class="dd-btn" type="button" id="dd-bb-credit">Set Credit…</button><button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
             <button class="dd-btn" type="button" id="dd-bb-del">Delete</button><button class="dd-btn" type="button" id="dd-bb-clear" title="Pick none">✕</button>`;
         const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
         on('dd-bb-tag', () => this.bagBatch('tag'));
         on('dd-bb-fav', () => this.bagBatch('favorite'));
         on('dd-bb-col', () => this.bagBatch('collection'));
+        on('dd-bb-credit', () => this.editArtCredit(this.bagPickedAssets()));
         on('dd-bb-move', () => this.bagBatch('move'));
         on('dd-bb-del', () => this.bagBatch('delete'));
         on('dd-bb-clear', () => this.clearBagPicks());

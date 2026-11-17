@@ -17,6 +17,11 @@ assert.ok(game.parts.length < full.parts.length, 'game build leaves out marked e
 assert.ok(gameBytes <= fullBytes / 2, `game build is at most half the full plugin (${gameBytes}/${fullBytes} bytes)`);
 assert.ok(game.text.includes('@target MZ') && game.text.includes('@param editorMode'), 'the complete MZ plugin header remains');
 assert.doesNotThrow(() => new vm.Script(game.text, { filename: 'Docs-Doodads.game.js' }), 'game build parses');
+for (const object of ['Scatter', 'Biome', 'Dress']) {
+    const assignment = new RegExp('DocsDoodads\\.' + object + '\\s*=', 'g');
+    assert.strictEqual((full.text.match(assignment) || []).length, 1, object + ' has one shared implementation in the full build');
+    assert.strictEqual((game.text.match(assignment) || []).length, 1, object + ' has the same shared implementation in the game build');
+}
 
 E.install();
 E.setupWorld({ width: 24, height: 18, px: 4, py: 4, tiles: [[6, 5, 0, 2048]] });
@@ -28,6 +33,14 @@ vm.runInThisContext(game.text, { filename: 'Docs-Doodads.game.js' });
 const D = global.DocsDoodads;
 assert.ok(D && D.Collision && D.Packer && D.Layers, 'runtime dependencies remain');
 assert.strictEqual(D.Workspace, undefined, 'editor workspace is absent');
+assert.ok(D.Generate && D.GenerateRuntime && D.Rooms && D.Tiles, 'generated-map parts remain without the editor');
+const authoredMapData = $dataMap.data.slice();
+D.GenerateRuntime.queue({ mapId: 1, kind: 'dungeon', seed: 17, w: 24, h: 18, count: 2, floorTile: 2816, wallTile: 4352 });
+$gameMap.setup(1);
+assert.ok($dataMap.data.some(tileId => tileId === 4352), 'a seeded map is generated before game-only map setup');
+delete $gameSystem._docsGeneratedMaps[1];
+$dataMap.data = authoredMapData;
+$gameMap.setup(1);
 
 const door = E.doodad(5, 5, {
     name: 'Runtime Door', uid: 'runtime-door', frameW: 48, frameH: 48,

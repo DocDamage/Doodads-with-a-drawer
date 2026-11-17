@@ -4,6 +4,8 @@
 
 const api = DocsDoodads.api;
 const v: number = api.version;
+const beat: { low: number; mid: number; high: number; kick: boolean } = api.beat();
+const bass: number = beat.low;
 
 // Finding doodads.
 const all: DocsDoodad[] = api.doodads();
@@ -61,6 +63,7 @@ api.freeCamera();
 api.zoomTo({ x: 5, y: 5 }, 2, 30);
 const day: number = api.day();
 api.setDay(day + 1);
+const schedulesOn: boolean = api.schedules(false);
 const time: number | null = api.time();
 api.setTime(18, 30);
 api.addTime(1);
@@ -69,7 +72,7 @@ const season: string = api.seasonName();
 api.ambient(0.6, '#102040', 120);
 api.ambient(null);
 
-void v; void all; void w; void moved; void state; void lit; void names; void seen; void time; void season;
+void v; void all; void w; void moved; void state; void lit; void names; void seen; void schedulesOn; void time; void season;
 
 // ---- Each of these is wrong and must be caught ----
 // @ts-expect-error: no such event

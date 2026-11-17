@@ -4,12 +4,12 @@
 // 3D. Not a test (wall-clock numbers depend on the machine); run it before and after a change:
 //   node scratch/bench_frames.js            ms a frame, 2D and 3D
 //   node scratch/bench_frames.js --counts   also counts the per-frame calls B4 removed
-// Pass --doodads=N or --frames=N to change the size.
+// Pass --doodads=N or --frames=N to change the size; --normals=200 exercises the 7.1.5 target.
 const path = require('path');
 const E = require('./engine/fake_engine');
 
 const arg = (name, def) => { const a = process.argv.find(s => s.startsWith('--' + name + '=')); return a ? Number(a.split('=')[1]) : def; };
-const COUNT = arg('doodads', 3000), FRAMES = arg('frames', 240);
+const COUNT = arg('doodads', 3000), FRAMES = arg('frames', 240), NORMALS = Math.max(0, Math.min(COUNT, arg('normals', 0)));
 const wantCounts = process.argv.includes('--counts');
 
 E.install();
@@ -24,6 +24,7 @@ const list = [];
 for (let i = 0; i < COUNT; i++) {
     const tx = Math.floor(rand() * W), ty = Math.floor(rand() * H), r = rand();
     const extra = { uid: 'dd_' + i };
+    if (i < NORMALS) extra.bit = [3, 'img/doodads/NormalBench.png'];
     if (r < 0.08) extra.light = { enabled: true, when: 'always', radius: 120, occlude: i % 2 === 0 };
     if (r > 0.6) extra.shadow = { enabled: true, followSun: i % 3 === 0 };
     if (r > 0.3 && r < 0.36) { extra.states = { list: [{ name: 'closed' }, { name: 'open' }], switchId: 3 }; }
@@ -38,6 +39,10 @@ for (let i = 0; i < COUNT; i++) {
 $dataDocsDoodads[1] = list;
 require('../Docs-Doodads.js');
 const D = DocsDoodads;
+if (NORMALS) {
+    D.NormalLight.setManifest({ version: 1, normals: { 'img/doodads/normalbench.png': 'img/doodads/NormalBench_n.png' } });
+    $dataDocsDoodads.world = Object.assign({}, $dataDocsDoodads.world, { normalLight: { enabled: true, maxLights: 8 } });
+}
 D.Lighting.setMapSettings(1, {
     ambient: { darkness: 0.4, color: '#101830', switchId: 0 },
     layers: { list: [{ id: 'l0', name: 'Ground' }, { id: 'l1', name: 'Props' }, { id: 'l2', name: 'Top' }] }
@@ -83,7 +88,7 @@ function measure(label, ss, frames) {
     const started = process.hrtime.bigint();
     for (let i = 0; i < frames; i++) { wander(); E.frames(ss, 1); }
     const ms = Number(process.hrtime.bigint() - started) / 1e6 / frames;
-    console.log(`${label}: ${ms.toFixed(2)} ms a frame (${COUNT} doodads, ${frames} frames)`);
+    console.log(`${label}: ${ms.toFixed(2)} ms a frame (${COUNT} doodads, ${NORMALS} normal-mapped, ${frames} frames)`);
     if (wantCounts) for (const [k, v] of Object.entries(counters)) console.log(`  ${k}: ${(v / frames).toFixed(1)} a frame`);
     return ms;
 }

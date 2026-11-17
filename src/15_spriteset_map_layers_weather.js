@@ -41,7 +41,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.updateDocsLayers2d = function(flat) {
         const L = DocsDoodads.MapLayers;
-        const mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        let mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        if (flat) mapSettings = DocsDoodads.Climate.mapLayers(mapSettings);
         const raw = mapSettings && Array.isArray(mapSettings.layers2d) ? mapSettings.layers2d : null;
         // In play the layers only change by being replaced: the list is read again when the settings' array
         // changes. The editor changes them in place, so there it compares the whole list every frame.
@@ -177,7 +178,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (bolt.wait <= 0) { bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random()); return; }
         if (--bolt.wait > 0) return;
         const strike = L.strike(s, Math.random());
-        if (screen.startFlash) screen.startFlash([255, 255, 255, strike.flash], 12);
+        if (screen.startFlash) DocsDoodads.Comfort.beginFlash(screen, [255, 255, 255, strike.flash], 12);
         bolt.thunder.push({ in: Math.max(1, strike.thunderIn), volume: strike.volume, pan: strike.pan });
         bolt.strikes = (bolt.strikes || 0) + 1;
         bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random());

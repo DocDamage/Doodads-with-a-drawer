@@ -99,7 +99,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         'updateDocsMinimap',        // the minimap (17_perspective_runtime_3_minimap)
         'updateDocsFlyShadow',      // the flying player's shadow (17_traversal)
         'updateDocsTouchPrompt',    // the bubble over a touchable doodad the player faces (15_spriteset_map_prompts)
-        'updateDocsEventLabels'     // names and icons over events (15_spriteset_map_labels)
+        'updateDocsEventLabels',    // names and icons over events (15_spriteset_map_labels)
+        'updateDocsAreas',          // named regions, in MZ's map-name window (15_spriteset_map_areas)
+        'updateDocsNear'            // doodad enter/leave ranges (15_spriteset_map_near)
     ];
     $.Spriteset_Map_update = Spriteset_Map.prototype.update;
     Spriteset_Map.prototype.update = function() {
@@ -346,12 +348,12 @@ if (typeof Spriteset_Map !== 'undefined') {
         for (let i = 0; i < pool.length; i++) pool[i].visible = i < count;
     };
 
-    Spriteset_Map.prototype.updateDocsLighting = function() {
+    Spriteset_Map.prototype.updateDocsLighting = function(freeze) {
         if (!this._docsLightOverlay || typeof $gameMap === 'undefined' || !$gameMap) return;
         const Lighting = DocsDoodads.Lighting;
         const workspace = DocsDoodads.Workspace;
         const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
-        if (fade) {
+        if (fade && !freeze) {
             Lighting.stepFade(fade);
             if (fade.framesLeft <= 0 && fade.clearWhenDone) $gameSystem._docsAmbientFade = null;
         }
@@ -368,13 +370,19 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (d && d.light && d.light.enabled) visibleData.push(d);
         }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
-            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
+            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30, freeze: Boolean(freeze) });
         // In 3D the ground is lit around the lamp's base: the height offset would land the pool behind it.
         if (this._docs3d) {
             for (const l of lights) l.y -= Number(Lighting.lightOf(l.doodad).offsetY) || 0;
         }
         if (this.docsAddFlashlight) this.docsAddFlashlight(lights);
         const time = DocsDoodads.frameCount() / 60;
+        const base = Lighting.lightmapBase(ambient);
+        // Normal filters still need live lamps in daylight, when the ordinary multiply is not drawn.
+        this._docsNormalLightInfo = { base, lights, time };
+        // Resolve filters before the ordinary lightmap is rendered, so its white exemption pool describes
+        // this frame (including a quality switch to Off), not the previous one.
+        if (this.updateDocsNormalSprites) this.updateDocsNormalSprites();
 
         const glowing = lights.filter(l => l.glow > 0);
         this.docsSpritePool(this._docsGlowSprites, this._docsGlowLayer, glowing.length);
@@ -398,6 +406,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         if (ambient.darkness <= 0.001 || !renderer) {
             this._docsLightOverlay.visible = false;
             this._docsLightInfo = null;
+            if (this.updateDocsNormalMasks) this.updateDocsNormalMasks(false);
             return;
         }
         const size = this._docs3dSize;
@@ -408,7 +417,6 @@ if (typeof Spriteset_Map !== 'undefined') {
             this._docsLightTexture = PIXI.RenderTexture.create({ width: w, height: h });
             this._docsLightOverlay.texture = this._docsLightTexture;
         }
-        const base = Lighting.lightmapBase(ambient);
         this._docsLightInfo = { base, lights };
         this._docsLightBase.width = w;
         this._docsLightBase.height = h;
@@ -432,7 +440,9 @@ if (typeof Spriteset_Map !== 'undefined') {
         });
         // Masks left over from lights that went out.
         for (let i = lights.length; i < (this._docsLightMasks || []).length; i++) { this._docsLightMasks[i].clear(); this._docsLightMasks[i]._docsOutline = null; this._docsLightMasks[i].visible = false; }
-        renderer.render(this._docsLightScene, this._docsLightTexture, true);
+        const normalCount = this.updateDocsNormalMasks ? this.updateDocsNormalMasks(true, renderer, w, h) : 0;
+        if (normalCount && this.renderDocsNormalLightmap) this.renderDocsNormalLightmap(renderer, this._docsLightTexture, w, h);
+        else renderer.render(this._docsLightScene, this._docsLightTexture, true);
         this._docsLightOverlay.visible = true;
         // Keep the lightmap directly above the tilemap and doodads after layers are rebuilt.
         const parent = this._docsLightOverlay.parent;
@@ -762,6 +772,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
 
 // Post-processing is offered in Options only when the project uses it.
 DocsDoodads.PostFX.offeredInOptions = function() {
+    if (DocsDoodads.Haze && DocsDoodads.Haze.usedInProject()) return true;
     const pf = DocsDoodads.World.settings().postfx;
     if (!pf.enabled) return false;
     if (this.isActive(this.normalizeLook(pf.look))) return true;
@@ -776,31 +787,39 @@ DocsDoodads.Perspective.usedInProject = function() {
 };
 
 DocsDoodads.fxQualityOffered = function() {
-    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject();
+    return DocsDoodads.PostFX.offeredInOptions() || DocsDoodads.Perspective.usedInProject()
+        || Boolean(DocsDoodads.World.settings().normalLight.enabled);
 };
 
 // Options menu: players can switch motion blur off and lower the effects quality
 // (post-processing and the 3D view).
-DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off'];
+DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off', 'Auto'];
 if (typeof ConfigManager !== 'undefined') {
     ConfigManager.docsMotionBlur = true;
-    ConfigManager.docsFxQuality = 0;
+    ConfigManager.docsFxQuality = DocsDoodads.AutoQuality.defaultAuto() ? 4 : 0;
+    ConfigManager.docsReduceFlashes = false;
+    ConfigManager.docsLessCameraMotion = false;
     $.ConfigManager_makeData = ConfigManager.makeData;
     ConfigManager.makeData = function() {
         const config = $.ConfigManager_makeData.call(this);
         config.docsMotionBlur = this.docsMotionBlur;
         config.docsFxQuality = this.docsFxQuality;
+        config.docsReduceFlashes = this.docsReduceFlashes;
+        config.docsLessCameraMotion = this.docsLessCameraMotion;
         return config;
     };
     $.ConfigManager_applyData = ConfigManager.applyData;
     ConfigManager.applyData = function(config) {
         $.ConfigManager_applyData.call(this, config);
         this.docsMotionBlur = config && 'docsMotionBlur' in config ? Boolean(config.docsMotionBlur) : true;
-        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(3, Number(config.docsFxQuality) || 0)) : 0;
+        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(DocsDoodads.fxQualityLabels.length - 1, Math.round(Number(config.docsFxQuality) || 0))) : (DocsDoodads.AutoQuality.defaultAuto() ? 4 : 0);
+        this.docsReduceFlashes = Boolean(config && config.docsReduceFlashes === true);
+        this.docsLessCameraMotion = Boolean(config && config.docsLessCameraMotion === true);
     };
 }
 DocsDoodads.extraOptionCount = function() {
-    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.fxQualityOffered() ? 1 : 0);
+    return (DocsDoodads.World.settings().motionBlur.enabled ? 1 : 0) + (DocsDoodads.fxQualityOffered() ? 1 : 0)
+        + (DocsDoodads.Comfort.offered() ? 2 : 0);
 };
 if (typeof Window_Options !== 'undefined') {
     $.Window_Options_addGeneralOptions = Window_Options.prototype.addGeneralOptions;
@@ -808,8 +827,12 @@ if (typeof Window_Options !== 'undefined') {
         $.Window_Options_addGeneralOptions.call(this);
         if (DocsDoodads.World.settings().motionBlur.enabled) this.addCommand('Motion Blur', 'docsMotionBlur');
         if (DocsDoodads.fxQualityOffered()) this.addCommand('Effects Quality', 'docsFxQuality');
+        if (DocsDoodads.Comfort.offered()) {
+            this.addCommand('Reduce Flashes', 'docsReduceFlashes');
+            this.addCommand('Less Camera Motion', 'docsLessCameraMotion');
+        }
     };
-    // Effects Quality cycles High > Medium > Low > Off.
+    // Effects Quality cycles through the current label list, including Auto.
     $.Window_Options_statusText = Window_Options.prototype.statusText;
     Window_Options.prototype.statusText = function(index) {
         if (this.commandSymbol(index) === 'docsFxQuality') return DocsDoodads.fxQualityLabels[this.getConfigValue('docsFxQuality') || 0];
@@ -817,7 +840,8 @@ if (typeof Window_Options !== 'undefined') {
     };
     const shiftQuality = (win, delta, wrap) => {
         const value = (win.getConfigValue('docsFxQuality') || 0) + delta;
-        win.changeValue('docsFxQuality', wrap ? (value + 4) % 4 : Math.max(0, Math.min(3, value)));
+        const count = DocsDoodads.fxQualityLabels.length;
+        win.changeValue('docsFxQuality', wrap ? (value + count) % count : Math.max(0, Math.min(count - 1, value)));
     };
     $.Window_Options_processOk = Window_Options.prototype.processOk;
     Window_Options.prototype.processOk = function() {
@@ -895,9 +919,11 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
             look = this._docsExportLook;
             anim = null;
         }
-        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        const option = DocsDoodads.qualityOption();
         const quality = P.effectiveQuality(world.postfx.quality, option);
-        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim);
+        const haze = this.docsHazeSources ? this.docsHazeSources(look, quality, hidden) : [];
+        this._docsHazeInputs = { look, quality, hidden };
+        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim, haze);
         const target = world.postfx.includePictures ? this : this._baseSprite;
         const other = target === this ? this._baseSprite : this;
         if (!target) return;
@@ -905,6 +931,10 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const f = this._docsPostFx;
         const ours = [];
         if (f) {
+            if (passes.includes('haze') && f.haze) {
+                DocsDoodads.Haze.uniforms(haze, DocsDoodads.frameCount() / 60, DocsDoodads.Comfort.choices().lessCameraMotion, f.haze.uniforms);
+                ours.push(f.haze);
+            }
             if (passes.includes('bloom')) {
                 const bloom = look ? look.bloom : P.defaultLook().bloom;
                 const parts = f.bloom._docsParts;
@@ -938,7 +968,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
                 ours.push(f.grade);
             }
         }
-        const all = f ? [f.bloom, f.tiltH, f.tiltV, f.grade] : [];
+        const all = f ? [f.haze, f.bloom, f.tiltH, f.tiltV, f.grade] : [];
         const strip = list => (list || []).filter(filter => !all.includes(filter));
         // The other container may still hold our filters from before "Affect pictures" changed.
         if (other && other.filters && other.filters.some(filter => all.includes(filter))) other.filters = strip(other.filters);
@@ -1019,6 +1049,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 
 // Full-map image export: renders each screen-sized piece with the camera moved there, then restores everything.
 DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
+    if (spriteset && typeof spriteset.removeDocsPlacementPreview === 'function') spriteset.removeDocsPlacementPreview();
     const renderer = DocsDoodads.Compat.getRenderer();
     if (!renderer || !spriteset || typeof $gameMap === 'undefined' || !$gameMap) throw new Error('The map is not ready.');
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -1049,6 +1080,7 @@ DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
             spriteset.x = 0;
             spriteset.y = 0;
             if (spriteset._docsSelectionOutline) spriteset._docsSelectionOutline.visible = false;
+            if (spriteset._docsTraceSprite) spriteset._docsTraceSprite.visible = false;
             if (spriteset._docsSilhouette) spriteset._docsSilhouette.visible = false;
             if (spriteset._weather) spriteset._weather.visible = false;
             if (!options.includeEffects) {
@@ -1192,7 +1224,7 @@ if (typeof PIXI !== 'undefined' && PIXI.Container) {
         const P = DocsDoodads.Particles;
         if (emitting && !this._bursted) {
             this._bursted = true;
-            if (this._config.burst) this.burstNow();
+            if (this._config.burst && this._config.musicTrigger !== 'kick') this.burstNow();
         }
         P.step(this._state, dt, emitting);
         const views = P.view(this._state);

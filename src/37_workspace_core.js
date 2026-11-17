@@ -102,6 +102,17 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if ((tool || null) !== this.placementTool && this.clearPlacementPreview) { this.clearPlacementPreview(); this._placementPathSeed = null; }
+        if (tool !== 'generate' && this._generatedPreview) {
+            this._generatedPreview = null;
+            if (this.redrawOverlay) this.redrawOverlay();
+        }
+        if (tool !== 'traceFit') this._traceFit = null;
+        if (tool !== 'trace' && this._traceDrag) this.endTraceDrag();
+        if (DocsDoodads.SimpleMode.enabled()) {
+            DocsDoodads.SimpleMode.reveal(tool);
+            this.updateSimpleView();
+        }
         if (this._tour && this._tour.tool !== tool) this.endTour();
         this.placementTool = tool || null;
         for (const [name, id] of Object.entries(this.toolButtons)) {
@@ -131,6 +142,9 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        if (DocsDoodads.Trails) { DocsDoodads.Trails.flush(); if (DocsDoodads.Trails._data) delete DocsDoodads.Trails._data.cursor; }
+        if (DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
+        DocsDoodads.SimpleMode.begin();
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
         this.showSounds = DocsDoodads.Ui.prefs().soundOverlay === true;
         DocsDoodads.Ui.applyLook();
@@ -145,11 +159,14 @@ DocsDoodads.Workspace = {
         this._onWindowResize = () => this.layoutPanels();
         window.addEventListener('resize', this._onWindowResize);
         this.mounted = true;
+        DocsDoodads.EditWindow.onOpen();
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }
         this.updateCollisionLegend();
         DocsDoodads.Ui.installTooltips();
+        DocsDoodads.Help.install();
         if (DocsDoodads.Ui.prefs().perfOverlay === true) this.startPerf();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
@@ -172,11 +189,19 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        if (typeof this.closeGenerateCard === 'function') this.closeGenerateCard();
+        this.closeEventCommandEditor();
+        this.cancelEventTransferPick(false);
         if (DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
         this.stopStatusBar();
         DocsDoodads.Ui.removeTooltips();
+        DocsDoodads.Help.uninstall();
         this.closeToastHistory();
         this.closeLookCard();
+        this.closeMoods();
+        if (typeof this.hideTrails === 'function') this.hideTrails();
+        this.closeTraceCard(true);
+        this.stopQuestUi();
         this.closeMapTools();
         this.endTour();
         this.closeCaptureCard();
@@ -228,6 +253,8 @@ DocsDoodads.Workspace = {
         this.stopVfxPreview();
         this.postFxCompare = false;
         this.mounted = false;
+        DocsDoodads.EditWindow.onClose();
+        DocsDoodads.SimpleMode.end();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = false;
         }
@@ -348,7 +375,7 @@ DocsDoodads.Workspace = {
         U.watchFocusSource();
 
         const tool = (id, icon, label, title, extra = '') =>
-            `<button class="dd-btn dd-tool ${extra}" id="${id}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
+            `<button class="dd-btn dd-tool ${extra}" id="${id}" style="${this.simpleToolStyle(id)}" title="${escapeHtml(title)}">${U.icon(icon, 2)}<b>${escapeHtml(label)}</b></button>`;
         const slider = (id, label, valId, value, min, max, step = 1) => `
             <div>
                 <div style="display: flex; justify-content: space-between; color: var(--dd-muted);"><span>${label}</span><b id="${valId}" style="color: var(--dd-text);">${value}</b></div>
@@ -369,6 +396,7 @@ DocsDoodads.Workspace = {
             ${tool('dd-path-btn', 'path', 'Path', this.shortcutTip('dd-path-btn'))}
             ${tool('dd-terrain-btn', 'terrain', 'Hills', this.shortcutTip('dd-terrain-btn'))}
             ${tool('dd-region-btn', 'grid', 'Regions', this.shortcutTip('dd-region-btn'))}
+            ${tool('dd-walls-btn', 'lock', 'Collision', 'Paint fine blocked cells; right-drag erases, [ and ] change size')}
             ${tool('dd-tiles-btn', 'tiles', 'Tiles', this.shortcutTip('dd-tiles-btn'))}
             ${tool('dd-sym-btn', 'mirror', 'Mirror', 'Mirror: also place copies on the other side')}
             ${tool('dd-eyedropper-btn', 'picker', 'Grab', this.shortcutTip('dd-eyedropper-btn'))}
@@ -379,6 +407,7 @@ DocsDoodads.Workspace = {
             <div class="dd-spacer"></div>
             <button class="dd-btn dd-tool" id="dd-stop-audio-btn" title="Stop the sound" style="display: none;">${U.icon('sound', 2)}<b>Stop</b></button>
             ${this.renderMenuButtons(tool)}
+            <button class="dd-btn" id="dd-simple-btn" type="button" aria-pressed="${DocsDoodads.SimpleMode.enabled()}">${DocsDoodads.SimpleMode.enabled() ? 'Show Everything' : 'Keep It Simple'}</button>
             ${tool('dd-save-btn', 'save', 'Save', DocsDoodads.Shortcuts.tip('save', 'Save everything'), 'dd-btn-good')}
             ${tool('dd-close-btn', 'done', 'Done', `Close the editor and play (${DocsDoodads.KeyChord.label(DocsDoodads.editChord)})`, 'dd-btn-primary')}
         `;
@@ -443,6 +472,22 @@ DocsDoodads.Workspace = {
                     <div style="line-height: 1.4;">Drag on the map; each stroke is one undo step and is saved with the map. Alt+click picks up a tile's region.</div>
                 </div>
             </div>
+            <div id="dd-walls-popover" class="dd-glass dd-pop" style="display: none;">
+                <div class="dd-pop-title">${U.icon('lock', 1)} Collision</div>
+                <div style="display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: var(--dd-muted);">
+                    <label>Brush<select id="dd-walls-mode" style="width: 100%;"><option value="paint">Paint / erase</option><option value="fill">Fill a closed area</option></select></label>
+                    <label>Shape<select id="dd-walls-shape" style="width: 100%;"><option value="round">Round</option><option value="square">Square</option></select></label>
+                    <div>Size ([ and ]): <b id="dd-walls-size-value" style="color: var(--dd-text);">1</b> cells across<input type="range" id="dd-walls-size" min="0" max="16" step="1" value="0" style="width: 100%;" /></div>
+                    <div id="dd-walls-count">No painted collision on this map</div>
+                    <div style="border-top: 1px solid var(--dd-line); padding-top: 7px; display: flex; flex-direction: column; gap: 5px;">
+                        <b style="color: var(--dd-text);">From Picture</b>
+                        <select id="dd-walls-picture" style="width: 100%;"></select>
+                        <label>Opaque at alpha <input type="number" id="dd-walls-alpha" min="0" max="255" step="1" value="48" style="width: 64px;" /></label>
+                        <button class="dd-btn" id="dd-walls-from-picture">Replace from picture layer</button>
+                    </div>
+                    <div style="line-height: 1.4;">Left-drag blocks; right-drag erases. Shift joins from the last point. Each stroke is one undo step.</div>
+                </div>
+            </div>
             <div id="dd-tiles-popover" class="dd-glass dd-pop" style="display: none;">
                 <div class="dd-pop-title">${U.icon('tiles', 1)} Tiles</div>
                 <div id="dd-tiles-palette" style="display: flex; flex-direction: column; gap: 6px;"></div>
@@ -493,7 +538,7 @@ DocsDoodads.Workspace = {
         `;
         drawer.innerHTML = `
             <div id="dd-drawer-resizer" style="position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Item Bag size" tabindex="0"></div>
-            <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag">
+            <div class="dd-panel-head" id="dd-drawer-head" title="Item Bag" data-dd-help="4-the-item-bag--search">
                 ${U.icon('bag', 2)}
                 <span class="dd-grow">Item Bag <span id="dd-drawer-category" style="color: var(--dd-muted); font-weight: 800; font-size: 12px;"></span></span>
                 <button class="dd-btn dd-fold" id="dd-drawer-fold" title="Fold the bag away">${U.icon('left', 1)}</button>
@@ -536,7 +581,7 @@ DocsDoodads.Workspace = {
         `;
         inspector.innerHTML = `
             <div id="dd-inspector-resizer" style="position: absolute; top: 0; left: 0; width: 6px; height: 100%; cursor: ew-resize; z-index: 20;" title="Drag to resize (or the arrow keys)" role="separator" aria-label="Details size" tabindex="0"></div>
-            <div class="dd-panel-head" id="dd-inspector-head">
+            <div class="dd-panel-head" id="dd-inspector-head" data-dd-help="7-depth-appearance-motion-shadows--lights">
                 <button class="dd-btn dd-fold" id="dd-inspector-fold" title="Fold the details away (H)">${U.icon('right', 1)}</button>
                 <span id="dd-inspector-icon">${U.icon('map', 2)}</span>
                 <span class="dd-grow" id="dd-inspector-title">Details</span>
@@ -576,8 +621,8 @@ DocsDoodads.Workspace = {
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
-        if (!prefs.welcomed) this.showWelcome();
-        else this.maybeShowWhatsNew();
+        if (!prefs.welcomed && !this.questData()) this.startQuest();
+        else { this.resumeQuest(); this.maybeShowWhatsNew(); }
     },
 
     // The side panels start just below the top bar (it can wrap in a narrow window); open option cards
@@ -718,6 +763,7 @@ DocsDoodads.Workspace = {
             <div class="dd-welcome-more">
                 <button class="dd-btn" id="dd-welcome-samples" type="button" title="Draws a few pictures into img/doodads/samples and adds two prefabs and a biome to try">${U.icon('box', 1)} Add Sample Items</button>
                 <button class="dd-btn" id="dd-welcome-tours" type="button">${U.icon('help', 1)} Replay Tool Tours</button>
+                <button class="dd-btn" id="dd-welcome-quest" type="button">Replay First Map Quest</button>
                 <button class="dd-btn" id="dd-welcome-new" type="button">${U.icon('sparkle', 1)} What's New</button>
             </div>
             <button class="dd-btn dd-btn-primary" id="dd-welcome-ok" style="font-size: 14px; padding: 8px 26px;">Got it!</button>
@@ -735,6 +781,8 @@ DocsDoodads.Workspace = {
         if (samples) samples.onclick = () => { dismiss(); this.addSampleContent(); };
         const tours = document.getElementById('dd-welcome-tours');
         if (tours) tours.onclick = () => { dismiss(); this.replayTours(); };
+        const quest = document.getElementById('dd-welcome-quest');
+        if (quest) quest.onclick = () => { dismiss(); this.startQuest(true); };
         const whatsNew = document.getElementById('dd-welcome-new');
         if (whatsNew) whatsNew.onclick = () => { dismiss(); this.showWhatsNew(); };
     },
@@ -965,7 +1013,9 @@ DocsDoodads.Workspace = {
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
+        on('dd-generate-btn', () => { this.showMoreMenu(false); this.showGenerateCard(); });
         on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
+        on('dd-credits-btn', () => { this.showMoreMenu(false); this.writeArtCredits(); });
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
@@ -977,6 +1027,10 @@ DocsDoodads.Workspace = {
         on('dd-outliner-btn', () => { this.showMoreMenu(false); this.showOutliner(); });
         on('dd-templates-btn', () => { this.showMoreMenu(false); this.showTemplatesCard(); });
         on('dd-mapset-btn', () => { this.showMoreMenu(false); this.showMapSettingsCard(); });
+        on('dd-moods-btn', () => { this.showMoreMenu(false); this.showMoods(); });
+        on('dd-trace-btn', () => { this.showMoreMenu(false); this.showTraceCard(); });
+        on('dd-trace-show-btn', () => this.toggleTrace());
+        on('dd-simple-btn', () => this.setSimpleMode(!DocsDoodads.SimpleMode.enabled()));
         on('dd-savemap-btn', () => { this.showMoreMenu(false); this.saveThisMap(); });
         on('dd-autosave-btn', () => { this.cycleAutosave(); });
         on('dd-sounds-btn', () => { this.toggleSoundOverlay(); this.showMoreMenu(false); });
@@ -1008,6 +1062,7 @@ DocsDoodads.Workspace = {
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
+        document.getElementById('dd-markreleased-btn').onclick = () => this.markAsReleased();
         document.getElementById('dd-tools-btn').onclick = () => this.showAssetTools();
         document.getElementById('dd-postfx-btn').onclick = () => this.showPostFxBuilder();
         document.getElementById('dd-vfx-btn').onclick = () => this.showVfxBuilder();
@@ -1342,6 +1397,7 @@ DocsDoodads.Workspace = {
                 type: asset.type,
                 frameW: asset.width || 48,
                 frameH: asset.height || 48,
+                ...(asset.animation ? { animation: JSON.parse(JSON.stringify(asset.animation)) } : {}),
                 collision: asset.collision || { preset: "none" },
                 characterIndex: asset.placement.characterIndex || 0,
                 depth: asset.placement.depth,

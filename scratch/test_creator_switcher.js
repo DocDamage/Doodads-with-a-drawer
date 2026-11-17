@@ -133,7 +133,7 @@ const snap = () => JSON.stringify(cr().state);
 
     // 2. The palette has two creator commands, plus separate Setting: rows from the settings index.
     ws.mapEntries = () => [];
-    const labels = ws.paletteCommands().map(c => c.label).filter(l => /Charact/.test(l) && !/CREDITS/.test(l));
+    const labels = ws.paletteCommands().filter(c => c.group !== 'Help').map(c => c.label).filter(l => /Charact/.test(l) && !/CREDITS/.test(l));
     assert.deepStrictEqual(labels.filter(l => !l.startsWith('Setting: ')), ['Characters (MZ, LPC and Memao libraries)', 'Character Creator...']);
     assert.deepStrictEqual(labels.filter(l => l.startsWith('Setting: ')), [
         'Setting: Character shadows on this map', 'Setting: Characters: height in 3D', 'Setting: Characters cast shadows'

@@ -176,6 +176,7 @@ Object.assign(DocsDoodads.Workspace, {
     },
 
     startTour(tool) {
+        if (DocsDoodads.SimpleMode.enabled() && !DocsDoodads.SimpleMode.tools().includes(tool)) return false;
         if (!this.tours[tool]) return false;
         this._tour = { tool, step: 0 };
         const seen = Object.assign({}, DocsDoodads.Ui.prefs().toursSeen || {});

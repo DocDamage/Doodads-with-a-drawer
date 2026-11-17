@@ -85,6 +85,15 @@ Object.assign(DocsDoodads.Persistence, {
         const settings = Object.assign({}, merged.mapSettings || {});
         if (live.mapSettings && live.mapSettings[mapId]) settings[mapId] = live.mapSettings[mapId]; else delete settings[mapId];
         if (Object.keys(settings).length) merged.mapSettings = settings; else delete merged.mapSettings;
+        const walls = Object.assign({}, merged.walls || {});
+        if (live.walls && live.walls[mapId]) walls[mapId] = live.walls[mapId]; else delete walls[mapId];
+        if (Object.keys(walls).length) merged.walls = walls; else delete merged.walls;
+        const trace = Object.assign({}, merged.trace || {});
+        if (live.trace && live.trace[mapId]) trace[mapId] = live.trace[mapId]; else delete trace[mapId];
+        if (Object.keys(trace).length) merged.trace = trace; else delete merged.trace;
+        const aliases = Object.assign({}, merged.aliases || {});
+        if (live.aliases && live.aliases[mapId]) aliases[mapId] = live.aliases[mapId]; else delete aliases[mapId];
+        if (Object.keys(aliases).length) merged.aliases = aliases; else delete merged.aliases;
 
         const owner = gameMap._stagedMapData && (gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : gameMap.mapId());
         const mapEntries = gameMap._stagedMapData && Number(owner) === mapId ? [{ path: mapFile, data: gameMap._stagedMapData, indent: 2 }] : [];

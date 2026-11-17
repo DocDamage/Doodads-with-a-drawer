@@ -22,8 +22,10 @@
                 <button class="dd-btn" id="dd-close-diag-btn">Close</button>
             </div>
             <button class="dd-btn" id="dd-restore-backup-btn" style="width: 100%; margin-top: 8px; border-color: var(--dd-warn); color: var(--dd-warn);">Restore Project Backup…</button>
+            <button class="dd-btn" id="dd-save-report-btn" style="width:100%;margin-top:8px;">Save a Report</button>
         `;
         document.body.appendChild(diag);
+        document.getElementById('dd-save-report-btn').onclick = () => this.savePluginReport();
 
         document.getElementById('dd-rebuild-idx-btn').onclick = async () => {
             if (diag.parentNode) diag.parentNode.removeChild(diag);

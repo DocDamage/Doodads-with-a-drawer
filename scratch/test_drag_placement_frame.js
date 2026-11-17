@@ -33,4 +33,17 @@ const placed = $dataDocsDoodads[1][0];
 assert.ok(placed, "dropping a card places a doodad");
 assert.deepStrictEqual([placed.frameW, placed.frameH], [224, 228], "the placed doodad shows the whole image");
 
+// The real drawer-card payload must carry imported animation, rather than only the full sheet size.
+const animated = { id: 'img/doodads/fire.png', path: 'img/doodads/Fire.png', fileName: 'Fire.png', type: 'doodad', category: 'Doodads', width: 128, height: 64,
+    placement: {}, collision: { preset: 'none' }, tags: [], autoTags: [],
+    animation: { frameW: 64, frameH: 64, xFrame: 2, yFrame: 1, frameCount: 2, frameUpdate: 6 } };
+DocsDoodads.Thumbnail.get = (asset, size, done) => done('data:image/png;base64,AA==');
+ws.selectAsset = asset => { ws.selectedAsset = asset; };
+const card = ws.createCardElement(animated, 100);
+let dragged;
+card.ondragstart({ dataTransfer: { setData(type, text) { dragged = JSON.parse(text); } } });
+ws.commitPlacement(dragged, { x: 200, y: 200, tileX: 4, tileY: 4 }, 'doodad');
+const playing = $dataDocsDoodads[1][$dataDocsDoodads[1].length - 1];
+assert.deepStrictEqual([playing.frameW, playing.frameH, playing.xFrame, playing.frameUpdate, playing.anim && playing.anim.frameCount], [64, 64, 2, 6, 2], 'dragging the imported card immediately animates');
+
 console.log("✓ Dragged doodads keep the asset's full frame size.");

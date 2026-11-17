@@ -41,6 +41,7 @@ DocsDoodads.Particles = {
         const color = (v, def) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : def);
         return {
             preset: preset ? preset.id : null,
+            ...(src.musicTrigger === 'kick' ? { musicTrigger: 'kick' } : {}),
             rate: num(merged.rate, d.rate, 0, 500),
             burst: Math.round(num(merged.burst, 0, 0, 1000)),
             max: Math.round(num(merged.max, d.max, 1, 1000)),

@@ -54,6 +54,7 @@
                 return null;
             }
             asset.collision = { preset: 'custom', shape };
+            asset.collisionUserSet = true;
             DocsDoodads.AssetIndex.saveSoon();
             this.showToast(`Collision traced for ${asset.fileName}; new placements will use it.`);
             this.refreshInspector();
@@ -65,18 +66,20 @@
     },
 
     // A new doodad for an asset (library entry or drag payload) at a map position.
-    newDoodadFromAsset(asset, x, y) {
-        const d = DocsDoodads.standardStruct();
+    newDoodadFromAsset(asset, x, y, guessing = true) {
+        let d = DocsDoodads.standardStruct();
         d.bit = [3, asset.path];
         d.x = x;
         d.y = y;
         // Drag payloads carry frameW/frameH; library assets carry width/height.
         d.frameW = asset.frameW || asset.width || 48;
         d.frameH = asset.frameH || asset.height || 48;
+        if (DocsDoodads.AnimatedImport) DocsDoodads.AnimatedImport.applyToDoodad(d, asset);
         const preferredDepth = (asset.placement && asset.placement.depth) || asset.depth;
         d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
         const collision = asset.collision || {};
         d.collision = { preset: collision.preset || "none", shape: collision.shape ? JSON.parse(JSON.stringify(collision.shape)) : null };
+        d = DocsDoodads.Guess.apply(d, this.guessAsset(asset), guessing && this.guessEnabled(), this.guessWords());
         DocsDoodads.MapLinks.ensureUid(d);
         const layer = this.layerOnThisMap(this.activeLayer);
         if (layer !== 'main') d.layer = layer;
@@ -552,7 +555,7 @@
         return index.get(DocsDoodads.Usage.keyOf(asset.path)) || [];
     },
 
-    // Files that move with an image or sound: atlas metadata, and the other audio format.
+    // Files that move with an image or sound: atlas metadata, a normal map, and the other audio format.
     companionFiles(oldPath, newPath) {
         const FS = DocsDoodads.FS;
         const out = [];
@@ -562,6 +565,8 @@
         for (const extra of extras) {
             if (FS.existsSync(oldBase + extra)) out.push({ from: oldBase + extra, to: newBase + extra });
         }
+        const oldNormal = DocsDoodads.NormalLight.normalPath(oldPath), newNormal = DocsDoodads.NormalLight.normalPath(newPath);
+        if (oldNormal && newNormal && FS.existsSync(oldNormal)) out.push({ from: oldNormal, to: newNormal });
         return out;
     },
 
@@ -610,16 +615,43 @@
         const library = JSON.parse(JSON.stringify(DocsDoodads.AssetIndex.data));
         const oldId = oldPath.toLowerCase(), newId = newPath.toLowerCase();
         const entry = library.assets[oldId] || JSON.parse(JSON.stringify(asset));
+        const inheritedCredit = DocsDoodads.Credits.of(oldPath, DocsDoodads.AssetIndex.data);
+        if (!DocsDoodads.Credits.normalize(entry.credit) && inheritedCredit && oldPath.split('/').slice(0, -1).join('/') !== newPath.split('/').slice(0, -1).join('/')) entry.credit = inheritedCredit;
         delete library.assets[oldId];
         entry.id = newId;
         entry.path = newPath;
         entry.fileName = newPath.split('/').pop();
         entry.category = DocsDoodads.AssetIndex.detectCategory(newPath);
         library.assets[newId] = entry;
+        const oldNormal = DocsDoodads.NormalLight.normalPath(oldPath), newNormal = DocsDoodads.NormalLight.normalPath(newPath);
+        const oldNormalId = oldNormal ? oldNormal.toLowerCase() : '', newNormalId = newNormal ? newNormal.toLowerCase() : '';
+        if (oldNormalId && newNormalId && library.assets[oldNormalId]) {
+            const normalEntry = library.assets[oldNormalId];
+            const normalCredit = DocsDoodads.Credits.of(oldNormal, DocsDoodads.AssetIndex.data);
+            if (!DocsDoodads.Credits.normalize(normalEntry.credit) && normalCredit && oldNormal.split('/').slice(0, -1).join('/') !== newNormal.split('/').slice(0, -1).join('/')) normalEntry.credit = normalCredit;
+            delete library.assets[oldNormalId];
+            normalEntry.id = newNormalId;
+            normalEntry.path = newNormal;
+            normalEntry.fileName = newNormal.split('/').pop();
+            normalEntry.category = DocsDoodads.AssetIndex.detectCategory(newNormal);
+            library.assets[newNormalId] = normalEntry;
+        }
+        if (library.fileCredits) for (const [from, to] of [[oldId, newId], [oldNormalId, newNormalId]]) {
+            if (!from || !to || from === to || !Object.prototype.hasOwnProperty.call(library.fileCredits, from)) continue;
+            const credit = DocsDoodads.Credits.normalize(library.fileCredits[from]), assetEntry = library.assets[to];
+            if (credit && assetEntry && !DocsDoodads.Credits.normalize(assetEntry.credit)) assetEntry.credit = credit;
+            else if (credit && !assetEntry) library.fileCredits[to] = credit;
+            delete library.fileCredits[from];
+        }
         for (const members of Object.values(library.collections || {})) {
-            if (Array.isArray(members)) members.forEach((id, i) => { if (id === oldId) members[i] = newId; });
+            if (Array.isArray(members)) members.forEach((id, i) => {
+                if (id === oldId) members[i] = newId;
+                else if (id === oldNormalId) members[i] = newNormalId;
+            });
         }
         entries.push({ path: DocsDoodads.AssetIndex.libraryPath, data: library, indent: 2 });
+        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets);
+        entries.push({ path: DocsDoodads.NormalLight.manifestPath, data: normalManifest, indent: 2 });
 
         // Move the files first: undoing a rename is easy, undoing half-written data is not.
         const moves = [{ from: oldPath, to: newPath }].concat(this.companionFiles(oldPath, newPath));
@@ -659,7 +691,8 @@
         }
         for (const e of entries) if (/data\/Map\d+\.json$/.test(e.path)) persistence.sessionSnapshots[e.path] = FS.stat(e.path);
         DocsDoodads.AssetIndex.data = library;
-        DocsDoodads.AssetIndex.rebuildList();
+        DocsDoodads.AssetIndex.linkNormalMaps();
+        DocsDoodads.NormalLight.setManifest(normalManifest);
         DocsDoodads.Thumbnail.invalidate(oldId);
         DocsDoodads.Usage.lastIndex = null;
         if (this.selectedAsset === asset) this.selectedAsset = library.assets[newId];
@@ -1071,6 +1104,7 @@
             DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
+            const baseline = this.newDoodadFromAsset(asset, coords.x, coords.y, false);
             const placed = this.withMirrors(this.newDoodadFromAsset(asset, coords.x, coords.y));
             if (placed.length === 0) {
                 this.showToast(this.levelGroundMessage, 'info');
@@ -1080,9 +1114,9 @@
             const mapId = $gameMap.mapId();
             const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
             DocsDoodads.Undo.execute(this.doodadListStep('place_doodad', list, placed, true));
-            this.showToast("Placed Doodad on Map!");
+            this.guessedPlacementToast(asset, placed, baseline);
         }
-        DocsDoodads.AssetIndex.recordUsage(asset.id);
+        DocsDoodads.AssetIndex.recordUsage(asset.id || String(asset.path || '').toLowerCase());
     },
 
     // The selected doodads, or the one selected doodad.

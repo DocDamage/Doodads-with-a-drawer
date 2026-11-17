@@ -14,9 +14,12 @@
         return [
             { id: 'map', label: 'Map', icon: 'map', title: 'This map: its settings, finding things, rooms, templates, problems, saving it', items: [
                 { id: 'dd-mapset-btn', icon: 'map', label: 'Map Settings', title: "Copy another map's settings to this one, or keep them as a preset" },
+                { id: 'dd-moods-btn', icon: 'sun', label: 'Moods', title: 'Try light, a screen look, weather and ambience together' },
+                { id: 'dd-trace-btn', icon: 'picture', label: 'Trace a Picture', title: 'Fit an editor-only picture under the grid on a flat map' },
                 { id: 'dd-find-btn', icon: 'search', label: 'Find Doodads', title: 'Find doodads on this map or every map, by picture, name, tag, layer, light, sound...' },
                 { id: 'dd-outliner-btn', icon: 'grid', label: 'Outliner', title: "This map's doodads by layer: hide, lock, pick, solo a layer" },
                 { id: 'dd-rooms-btn', icon: 'map', label: 'Rooms', title: 'Save part of the map (tiles, doodads, events) as a room stamp and place it again', key: 'rooms' },
+                { id: 'dd-generate-btn', icon: 'sparkle', label: 'Generate Map', title: 'Preview and apply a seeded dungeon or wilderness as one undo step' },
                 { id: 'dd-templates-btn', icon: 'person', label: 'Templates', title: 'Rename, sort and delete your own event templates' },
                 { id: 'dd-problems-btn', icon: 'help', label: 'Problems', title: 'Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach' },
                 { id: 'dd-notes-btn', icon: 'info', label: 'Notes', title: 'Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)' },
@@ -30,6 +33,7 @@
                 { id: 'dd-lpc-btn', icon: 'person', label: 'Characters', title: "Character creators: RPG Maker MZ's generator parts, the LPC library and the Memao assets on this computer" },
                 { id: 'dd-packs-btn', icon: 'box', label: 'Packs', title: 'Put prefabs, rooms, biomes and their art in one file for another project, or bring one in' },
                 { id: 'dd-vfx-btn', icon: 'sparkle', label: 'Effects Maker', title: 'Make sparkles, smoke, fire and other effects' },
+                { id: 'dd-credits-btn', icon: 'info', label: 'Write Credits', title: 'Write CREDITS.txt for art in use, including LPC credits' },
                 { id: 'dd-tools-btn', icon: 'wrench', label: 'File Check', title: 'Find copies of the same file and files nothing uses' }
             ] },
             { id: 'view', label: 'View', icon: 'eye', title: 'What the map shows while editing, Screen Looks, the editor\'s look and panel sizes', layouts: true, items: [
@@ -40,6 +44,7 @@
                 { id: 'dd-perf-btn', icon: 'gear', label: () => (DocsDoodads.Ui.prefs().perfOverlay === true ? 'Hide Speed' : 'Show Speed'), span: 'dd-perf-label', title: 'Frames a second, draw calls, pictures loaded and lights', key: 'speed' },
                 { id: 'dd-postfx-btn', icon: 'sun', label: 'Screen Looks', title: 'Looks and screen effects for the whole game or this map; save a picture of the map' },
                 { id: 'dd-notes-show-btn', icon: 'info', label: () => (this.notesShown() ? 'Hide Notes' : 'Show Notes'), span: 'dd-notes-show-label', title: "Show or hide the notes' pins on the map" },
+                { id: 'dd-trace-show-btn', icon: 'picture', label: 'Show / Hide Trace', title: 'Show or hide this map\'s tracing picture' },
                 { id: 'dd-bookmarks-btn', icon: 'star', label: 'Bookmarks', title: 'Places on the maps to jump back to: Bookmark This View, and Ctrl+1 to Ctrl+9' },
                 { id: 'dd-look-btn', icon: 'eye', label: 'Look', title: 'Editor size, theme and map colours' }
             ] },
@@ -51,6 +56,7 @@
                 { id: 'dd-history-btn', icon: 'folder', label: 'Old Saves', title: 'Compare with earlier saves and bring single things back' },
                 { id: 'dd-messages-btn', icon: 'history', label: 'Messages', title: "Read the editor's recent messages again" },
                 { id: 'dd-diag-btn', icon: 'info', label: 'Info', title: 'Numbers, cache and backups' },
+                { id: 'dd-markreleased-btn', icon: 'history', label: 'Mark as Released', title: 'Remember the names, states and map sizes players\' saves know' },
                 { id: 'dd-sound-btn', icon: 'sound', label: () => (DocsDoodads.Ui.prefs().sounds === false ? 'Sounds: Off' : 'Sounds: On'), span: 'dd-sound-label', title: 'Little sounds when you use the tools' },
                 { id: 'dd-help-btn', icon: 'help', label: 'How to Use', title: 'How to use the editor' }
             ] }
@@ -77,7 +83,8 @@
         const button = item => {
             const title = typeof item.title === 'function' ? item.title() : item.title;
             const text = esc(this.menuItemText(item));
-            return `<button class="dd-btn" id="${item.id}" title="${esc(title || '')}">${U.icon(item.icon, 1)} ${item.span ? `<span id="${item.span}">${text}</span>` : text}</button>`;
+            const hidden = DocsDoodads.SimpleMode.enabled() && !DocsDoodads.SimpleMode.menuItems([item]).length;
+            return `<button class="dd-btn" id="${item.id}" style="${hidden ? 'display:none;' : ''}" title="${esc(title || '')}">${U.icon(item.icon, 1)} ${item.span ? `<span id="${item.span}">${text}</span>` : text}</button>`;
         };
         const layouts = `
                     <div style="margin-top: 10px; font-weight: 800; color: var(--dd-muted);">Panel sizes</div>
@@ -199,11 +206,15 @@
 
     // Keys in an open menu: up and down move between its entries, left and right to the next menu (the ones
     // on the bar), Home and End, Esc closes it and goes back to its button.
+    visibleMenuItems(pop) {
+        return pop ? Array.from(pop.querySelectorAll('.dd-more-grid button, select')).filter(button => !button.disabled && (!button.style || button.style.display !== 'none')) : [];
+    },
+
     topMenuKey(id, e) {
         if (typeof document === 'undefined') return false;
         const pop = document.getElementById(this.menuPopId(id));
         if (!pop) return false;
-        const items = Array.from(pop.querySelectorAll('.dd-more-grid button, select'));
+        const items = this.visibleMenuItems(pop);
         const active = document.activeElement;
         const i = items.indexOf(active);
         let next = null;
@@ -217,7 +228,7 @@
             const to = bar[(j + (e.key === 'ArrowRight' ? 1 : bar.length - 1)) % bar.length];
             this.showMenu(to, true);
             const first = document.getElementById(this.menuPopId(to));
-            next = first ? first.querySelector('.dd-more-grid button') : null;
+            next = this.visibleMenuItems(first)[0] || null;
         } else if (e.key === 'Escape') {
             this.showMenu(null, false);
             next = document.getElementById(this.menuButtonId(id));
@@ -242,7 +253,7 @@
                     if (e.key !== 'ArrowDown') return;
                     this.showMenu(m.id, true);
                     const pop = document.getElementById(this.menuPopId(m.id));
-                    const first = pop ? pop.querySelector('.dd-more-grid button') : null;
+                    const first = this.visibleMenuItems(pop)[0] || null;
                     if (first && first.focus) first.focus();
                     if (e.preventDefault) e.preventDefault();
                 });

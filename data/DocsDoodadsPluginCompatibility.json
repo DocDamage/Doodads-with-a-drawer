@@ -1,0 +1,8 @@
+[
+  {
+    "match": "UltraMode7",
+    "level": "order",
+    "before": "Docs-Doodads",
+    "note": "Load UltraMode7 before Docs-Doodads, as in the manual preflight. This is an order advisory; no compatibility playtest is recorded."
+  }
+]

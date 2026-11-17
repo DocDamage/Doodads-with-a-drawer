@@ -6,7 +6,8 @@
 // upright billboards at the projection of their foot point.
 DocsDoodads.Perspective = {
     defaults: {
-        enabled: false, pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
+        enabled: false, mode: 'orbit', pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
+        eyeHeight: 0.8, firstPitch: 0, firstFov: 75, mouseLook: false, nearFade: 1,
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
@@ -34,6 +35,7 @@ DocsDoodads.Perspective = {
         const color = (v, fallback) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : fallback);
         const out = {
             enabled: s.enabled === true,
+            mode: s.mode === 'first' ? 'first' : 'orbit',
             pitch: num(s.pitch, d.pitch, 20, 89),
             yaw: ((num(s.yaw, d.yaw, -100000, 100000) % 360) + 360) % 360,
             fov: num(s.fov, d.fov, 20, 100),
@@ -74,7 +76,12 @@ DocsDoodads.Perspective = {
             skyVideoSpeed: num(s.skyVideoSpeed, d.skyVideoSpeed, 0, 4),
             skyVideoDayNight: s.skyVideoDayNight !== false,
             skyVideoFlat: s.skyVideoFlat === true,
-            lodTiles: num(s.lodTiles, d.lodTiles, 0, 200)
+            lodTiles: num(s.lodTiles, d.lodTiles, 0, 200),
+            eyeHeight: num(s.eyeHeight, d.eyeHeight, 0.2, 2),
+            firstPitch: num(s.firstPitch, d.firstPitch, -45, 60),
+            firstFov: num(s.firstFov, d.firstFov, 40, 110),
+            mouseLook: s.mouseLook === true,
+            nearFade: num(s.nearFade, d.nearFade, 0, 4)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -242,9 +249,14 @@ DocsDoodads.Perspective = {
         const F = { x: ct * sp, y: -ct * cp, z: -st };
         const R = { x: cp, y: sp, z: 0 };
         const U = { x: st * sp, y: -st * cp, z: ct };
-        const focal = (spec.height / 2) / Math.tan(spec.fov * rad / 2);
+        const baseFocal = (spec.height / 2) / Math.tan(spec.fov * rad / 2);
+        // An orbit's distance produces its zoom. A camera already placed at an eye instead changes its
+        // focal length, since moving the eye would no longer be first-person.
+        const focal = spec.eye ? baseFocal * (spec.zoom || 1) : baseFocal;
         const dist = focal / (spec.zoom || 1);
-        const C = { x: spec.target.x - F.x * dist, y: spec.target.y - F.y * dist, z: -F.z * dist };
+        const C = spec.eye
+            ? { x: Number(spec.eye.x) || 0, y: Number(spec.eye.y) || 0, z: Number(spec.eye.z) || 0 }
+            : { x: spec.target.x - F.x * dist, y: spec.target.y - F.y * dist, z: -F.z * dist };
         // Round worlds: a sphere or a cylinder (axis left-right) touching the ground at the target.
         const curve = (spec.curve === 'sphere' || spec.curve === 'cylinder') && spec.radius > 0 ? spec.curve : 'flat';
         return { C, F, R, U, focal, dist, width: spec.width, height: spec.height, target: spec.target,
@@ -415,7 +427,7 @@ DocsDoodads.Perspective = {
 
     // Eased camera moves. Yaw turns the short way round.
     startTween(from, to, frames) {
-        const keys = ['pitch', 'yaw', 'zoom', 'fov', 'curvature'];
+        const keys = ['pitch', 'yaw', 'zoom', 'fov', 'curvature', 'firstPitch', 'firstFov', 'eyeHeight'];
         const start = {}, end = {};
         for (const k of keys) {
             start[k] = from[k];

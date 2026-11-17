@@ -1,0 +1,97 @@
+'use strict';
+const assert = require('assert');
+const E = require('./engine/fake_engine');
+E.install(); E.setupWorld();
+require('../Docs-Doodads.js');
+const D = DocsDoodads, G = D.Guess, W = D.Workspace;
+assert.ok(G, 'placement guessing rules exist');
+for (const [name, kind] of [['OldLantern.png', 'lamp'], ['Pine_Tree_03.png', 'tree'], ['bush.png', 'bush'],
+    ['Stone.png', 'rock'], ['little-house.png', 'building'], ['Fence01.png', 'fence'], ['Pond.png', 'water'],
+    ['Campfire.png', 'fire'], ['signpost.png', 'sign'], ['chair.png', null], ['tree_lamp.png', null], ['fireplace.png', null]]) {
+    assert.strictEqual(G.kindOf({ name, width: 48, height: 96 }), kind, name);
+}
+assert.strictEqual(G.kindOf({ name: 'art.png', tags: ['oak'] }), 'tree');
+assert.strictEqual(G.kindOf({ name: 'art.png', folder: 'img/doodads/lanterns' }), 'lamp');
+assert.strictEqual(G.kindOf({ name: 'art.png', width: 20, height: 100 }), null, 'shape alone never invents a tree');
+assert.strictEqual(G.kindOf({ name: 'lampe.png' }, { lamp: ['lampe'] }), 'lamp');
+const original = D.standardStruct();
+const lamp = { path: 'img/doodads/Lantern.png', fileName: 'Lantern.png', width: 48, height: 96 };
+const lit = G.apply(original, lamp, true);
+assert.strictEqual(lit.light.enabled, true); assert.strictEqual(lit.light.when, 'dark');
+assert.strictEqual(original.light, undefined, 'pure merge does not mutate the baseline');
+const manual = { ...lamp, placement: { defaults: { light: { enabled: false, radius: 99 }, motion: { type: 'none' } } } };
+const own = G.apply(original, manual, true);
+assert.strictEqual(own.light.enabled, false); assert.strictEqual(own.light.radius, 99);
+assert.strictEqual(own.light.when, 'dark', 'missing nested defaults can be guessed');
+assert.deepStrictEqual(G.apply(original, lamp, false), original, 'off adds nothing');
+assert.deepStrictEqual(G.apply(original, { ...lamp, fileName: 'unknown.png', path: 'img/unknown.png' }, true), original);
+const tree = { ...lamp, fileName: 'Oak.png', path: 'img/Oak.png', collision: { preset: 'none', shape: null }, collisionUserSet: false };
+assert.strictEqual(G.apply(original, tree, true).collision.preset, 'trunk');
+assert.strictEqual(G.apply(original, { ...tree, collisionUserSet: true }, true).collision.preset, 'none');
+assert.strictEqual(G.apply(original, { ...tree, placement: { depth: 'above' } }, true).depth, 'above');
+assert.strictEqual(G.apply(original, { ...lamp, guess: { kind: null } }, true).light, undefined, 'None is remembered');
+assert.strictEqual(G.apply(original, { ...lamp, type: 'character_sheet' }, true).light, undefined, 'character sheets are not guessed');
+for (const type of ['single_character', 'tileset', 'faceset', 'audio', 'prefab']) {
+    assert.strictEqual(G.kind({ ...tree, type }), null, `${type} art is not guessed`);
+}
+let saves = 0;
+D.AssetIndex.saveSoon = () => saves++;
+D.AssetIndex.data.assets = { [lamp.path.toLowerCase()]: lamp };
+const prefs = {};
+D.Ui.prefs = () => prefs; D.Ui.setPref = (k, v) => { prefs[k] = v; };
+W.layerOnThisMap = () => 'main';
+const placed = W.newDoodadFromAsset(lamp, 100, 200);
+assert.strictEqual(placed.light.when, 'dark'); assert.strictEqual(placed.x, 100); assert.strictEqual(placed.frameH, 96);
+assert.strictEqual(lamp.guess, undefined, 'constructing a ghost does not persist metadata');
+D.AssetIndex.recordUsage(lamp.path.toLowerCase());
+assert.strictEqual(lamp.guess.kind, 'lamp');
+lamp.fileName = 'Oak.png';
+assert.strictEqual(W.newDoodadFromAsset(lamp, 1, 2).light.when, 'dark', 'later placements use the remembered choice');
+W.setAssetGuess(lamp, 'tree');
+assert.strictEqual(W.newDoodadFromAsset(lamp, 1, 2).motion.type, 'sway');
+W.setAssetGuess(lamp, 'none');
+assert.strictEqual(W.newDoodadFromAsset(lamp, 1, 2).motion, undefined);
+W.setAssetGuess(lamp, 'auto');
+assert.strictEqual(lamp.guess.kind, 'tree');
+prefs.guessOnDrop = false;
+assert.strictEqual(W.newDoodadFromAsset(lamp, 1, 2).motion, undefined);
+prefs.guessOnDrop = true;
+D.I18n.use('test', { language: 'Test', guessWords: { lamp: ['lampe'], tree: ['arbre'] }, strings: {} });
+assert.strictEqual(W.guessKind({ fileName: 'arbre.png' }), 'tree');
+D.I18n.use('en', null);
+assert.strictEqual(W.guessKind({ fileName: 'arbre.png' }), null, 'changing language resets extra words');
+assert.ok(saves >= 4);
+const html = W.renderAssetGuess(lamp);
+assert.ok(html.includes('dd-asset-guess') && html.includes('Guessed'), 'Details exposes the remembered kind');
+assert.ok(D.SettingsSearch.search(W.refreshSettingsIndex(), 'guess').some(row => row.controlId === 'dd-look-guess'));
+// Reindexing a changed file preserves the choice and the authored-collision marker.
+const fs = require('fs'), os = require('os'), path = require('path');
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-guess-'));
+const file = path.join(temp, 'Oak.png'); fs.writeFileSync(file, Buffer.from('not-image-data'));
+const oldReadSize = D.AssetIndex.readImageSize;
+D.AssetIndex.readImageSize = () => ({ width: 48, height: 96 });
+const assetId = 'img/doodads/oak.png';
+D.AssetIndex.data.assets[assetId] = { ...tree, id: assetId, guess: { kind: 'rock', source: 'manual' }, collisionUserSet: true };
+D.AssetIndex.indexFile(file, 'Oak.png', '.png', 'img/doodads/Oak.png');
+assert.strictEqual(D.AssetIndex.data.assets[assetId].guess.kind, 'rock');
+assert.strictEqual(D.AssetIndex.data.assets[assetId].collisionUserSet, true);
+D.AssetIndex.readImageSize = oldReadSize;
+fs.unlinkSync(file); fs.rmdirSync(temp);
+// The toast action removes just the added settings, remains undoable, and rejects a different map/list.
+const baseline = W.newDoodadFromAsset(tree, 100, 200, false);
+const guessed = W.newDoodadFromAsset(tree, 100, 200);
+let toast;
+W.showToast = (...args) => { toast = args; };
+W.currentMapId = () => 1;
+window.$dataDocsDoodads[1] = [guessed];
+W.guessedPlacementToast(tree, [guessed], baseline);
+assert.strictEqual(toast[2].action.label, 'Undo settings');
+W.refreshInspector = W.refreshSpriteset = W.afterDoodadEdit = () => {};
+toast[2].action.run();
+assert.strictEqual(guessed.motion, undefined); assert.strictEqual(guessed.x, 100);
+assert.strictEqual(window.$dataDocsDoodads[1][0], guessed, 'placement stays on the map');
+D.Undo.undo(); assert.strictEqual(guessed.motion.type, 'sway');
+W.guessedPlacementToast(tree, [guessed], baseline);
+window.$dataDocsDoodads[1] = [];
+toast[2].action.run(); assert.strictEqual(guessed.motion.type, 'sway');
+console.log('PASS conservative asset kinds, saved defaults, placement, memory, language and settings');

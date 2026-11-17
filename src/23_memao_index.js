@@ -93,7 +93,7 @@ DocsDoodads.Memao = {
     },
 
     // Reads the pack into an index. now: an ISO time for 'built' (passed in for tests).
-    scan(fsLike, pathLib, root, now) {
+    scan(fsLike, pathLib, root, now, opts = {}) {
         if (!this.isLibrary(fsLike, pathLib, root)) return null;
         const warnings = [];
         let z = {};
@@ -159,6 +159,34 @@ DocsDoodads.Memao = {
         };
     },
 
+    minePrefix: 'mine:',
+
+    isMine(value) { return String(value || '').indexOf(this.minePrefix) === 0; },
+
+    mergeIndexes(a, b, label) {
+        if (!this.validIndex(a)) return null;
+        if (!this.validIndex(b)) return a;
+        const name = String(label || '').trim() || 'My parts';
+        const ids = new Set(a.parts.map(p => p.id));
+        const own = b.parts.map(p => Object.assign({}, p, {
+            id: this.minePrefix + p.id, name: p.name + (ids.has(p.id) ? ` (${name})` : ''),
+            mine: true, source: name, clash: ids.has(p.id)
+        }));
+        const sets = Object.assign({}, a.sets || {});
+        for (const [set, info] of Object.entries(b.sets || {})) if (!sets[set] || !sets[set].frames) sets[set] = info;
+        return Object.assign({}, a, {
+            parts: a.parts.filter(p => !p.mine).concat(own), sets,
+            mine: { library: b.library, label: name, parts: b.parts.length, built: b.built, folders: b.folders || {}, sets: b.sets || {} },
+            warnings: (a.warnings || []).concat((b.warnings || []).map(w => `${name}: ${w}`))
+        });
+    },
+
+    filePath(pathLib, index, file) {
+        if (!index || !pathLib) return '';
+        if (this.isMine(file)) return index.mine && index.mine.library ? pathLib.join(index.mine.library, String(file).slice(this.minePrefix.length)) : '';
+        return index.library ? pathLib.join(index.library, file) : '';
+    },
+
     // A saved index this version can use, or null.
     validIndex(index) {
         return index && index.format === this.indexFormat && index.version === this.indexVersion && Array.isArray(index.parts) ? index : null;
@@ -167,7 +195,7 @@ DocsDoodads.Memao = {
     summary(index) {
         if (!this.validIndex(index)) return null;
         return { parts: index.parts.length, folders: Object.keys(index.folders || {}).length, sets: this.sets.filter(s => index.sets && index.sets[s] && index.sets[s].frames),
-            built: index.built || '', warnings: index.warnings || [] };
+            built: index.built || '', warnings: index.warnings || [], mine: index.mine ? index.mine.parts : 0 };
     },
 
     // The file a part draws for a body (its arm's sleeve, or its only file), or null.

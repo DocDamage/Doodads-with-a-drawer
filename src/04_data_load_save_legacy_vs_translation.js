@@ -83,19 +83,31 @@ DocsDoodads.DataFiles = {
         const indent = saveMode ? 0 : 2;
         const clean = this.stable(data || {});
         delete clean._mapFiles;
+        if (clean.walls && Object.keys(clean.walls).length === 0) delete clean.walls;
+        if (clean.trace && Object.keys(clean.trace).length === 0) delete clean.trace;
         if (!split) return [{ path: this.mainPath(), data: clean, indent }];
         const main = {};
-        const maps = [];
+        const mapIds = new Set();
         const out = [];
         for (const key of Object.keys(clean)) {
-            if (!this.isMapKey(key)) {
+            if (key === 'walls' || key === 'trace') {
+                for (const id of Object.keys(clean[key] || {})) if (this.isMapKey(id) && clean[key][id]) mapIds.add(Number(id));
+            } else if (!this.isMapKey(key)) {
                 main[key] = clean[key];
             } else if (Array.isArray(clean[key]) && clean[key].length > 0) {
-                maps.push(Number(key));
-                out.push({ path: this.mapPath(key), data: clean[key], indent });
+                mapIds.add(Number(key));
             }
         }
-        main._mapFiles = maps.sort((a, b) => a - b);
+        const maps = Array.from(mapIds).sort((a, b) => a - b);
+        for (const id of maps) {
+            const doodads = Array.isArray(clean[id]) && clean[id].length ? clean[id] : null;
+            const walls = clean.walls && clean.walls[id];
+            const trace = clean.trace && clean.trace[id];
+            // Old split files are arrays. Only maps that need extra per-map data use the extensible object form.
+            const mapData = walls || trace ? this.stable(Object.assign({}, doodads ? { doodads } : {}, walls ? { walls } : {}, trace ? { trace } : {})) : doodads;
+            out.push({ path: this.mapPath(id), data: mapData, indent });
+        }
+        main._mapFiles = maps;
         return [{ path: this.mainPath(), data: this.stable(main), indent }].concat(out);
     },
 
@@ -106,10 +118,24 @@ DocsDoodads.DataFiles = {
         delete data._mapFiles;
         if (maps) {
             for (const id of maps) {
-                const list = readMap(id);
-                if (Array.isArray(list)) data[id] = list;
+                const mapData = readMap(id);
+                if (Array.isArray(mapData)) {
+                    data[id] = mapData;
+                } else if (mapData && typeof mapData === 'object') {
+                    if (Array.isArray(mapData.doodads) && mapData.doodads.length) data[id] = mapData.doodads;
+                    if (mapData.walls) {
+                        data.walls = data.walls || {};
+                        data.walls[id] = mapData.walls;
+                    }
+                    if (mapData.trace) {
+                        data.trace = data.trace || {};
+                        data.trace[id] = mapData.trace;
+                    }
+                }
             }
         }
+        if (data.walls && Object.keys(data.walls).length === 0) delete data.walls;
+        if (data.trace && Object.keys(data.trace).length === 0) delete data.trace;
         return data;
     },
 
@@ -236,7 +262,7 @@ if (typeof DataManager !== 'undefined') {
                     } catch (error) {
                         console.warn(`[DocsDoodads] ${F.mapPath(id)} could not be read:`, error);
                         const recovered = DocsDoodads.FS.fs ? DocsDoodads.FS.readJson(F.mapPath(id)) : null;
-                        if (Array.isArray(recovered)) lists[id] = recovered;
+                        if (recovered && typeof recovered === 'object') lists[id] = recovered;
                     }
                 }
                 if (--left === 0) done();

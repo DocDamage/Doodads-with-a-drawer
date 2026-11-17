@@ -22,7 +22,7 @@ DocsDoodads.AssetIndex = {
     },
     list: [],
     // Bump when indexFile derives new fields so unchanged files are re-indexed once.
-    entryRevision: 4,
+    entryRevision: 5,
 
     // Reads the library file, unless it is unchanged since it was last read or written here (opening the
     // editor again keeps the same objects). True when it was read.
@@ -37,7 +37,7 @@ DocsDoodads.AssetIndex = {
             this.data = loaded;
         }
         this.noteLoaded(stat);
-        this.rebuildList();
+        this.linkNormalMaps();
         return true;
     },
 
@@ -64,7 +64,35 @@ DocsDoodads.AssetIndex = {
     },
 
     rebuildList() {
-        this.list = Object.values(this.data.assets);
+        this.list = Object.values(this.data.assets).filter(asset => asset && !asset.auxiliary);
+    },
+
+    // Links hand-authored or generated `_n.png` files after a scan has seen both sides. The small runtime
+    // manifest is the only source used in-game, so a missing companion is never requested speculatively.
+    linkNormalMaps() {
+        const assets = this.data.assets || {};
+        for (const asset of Object.values(assets)) {
+            if (!asset) continue;
+            delete asset.normalMap;
+            if (asset.normalFor) { delete asset.normalFor; delete asset.auxiliary; }
+        }
+        const manifest = DocsDoodads.NormalLight.manifestFromAssets(assets);
+        const byPath = new Map(Object.values(assets).filter(Boolean).map(asset => [String(asset.path || '').toLowerCase(), asset]));
+        for (const [basePath, normalPath] of Object.entries(manifest.normals)) {
+            const base = byPath.get(basePath), normal = byPath.get(String(normalPath).toLowerCase());
+            if (!base || !normal) continue;
+            base.normalMap = normal.path;
+            normal.normalFor = base.path;
+            normal.auxiliary = true;
+        }
+        this.rebuildList();
+        return manifest;
+    },
+
+    writeNormalManifest(target = DocsDoodads.NormalLight.manifestPath, manifest = this.linkNormalMaps()) {
+        const ok = DocsDoodads.FS.atomicWriteJson(target, manifest, 2);
+        if (ok && target === DocsDoodads.NormalLight.manifestPath) DocsDoodads.NormalLight.setManifest(manifest);
+        return ok;
     },
 
     isEntryCurrent(existing, stat) {
@@ -192,12 +220,14 @@ DocsDoodads.AssetIndex = {
         }
 
         this.data.generatedAt = Date.now();
-        this.rebuildList();
+        const normalManifest = this.linkNormalMaps();
         if (options.save !== false) {
             const target = options.projectRoot
                 ? path.join(projectRoot, options.libraryPath || this.libraryPath)
                 : (options.libraryPath || this.libraryPath);
             if (DocsDoodads.FS.atomicWriteJson(target, this.data, 0) && target === this.libraryPath) this.noteLoaded();
+            const normalTarget = options.projectRoot ? path.join(projectRoot, DocsDoodads.NormalLight.manifestPath) : DocsDoodads.NormalLight.manifestPath;
+            this.writeNormalManifest(normalTarget, normalManifest);
         }
         return result;
     },
@@ -207,8 +237,9 @@ DocsDoodads.AssetIndex = {
     async indexPaths(paths, options = {}) {
         const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
         if (!fs || !path || !fs.promises) return 0;
-        const root = path.resolve('.');
+        const root = path.resolve(options.projectRoot || '.');
         const prefixes = this.roots.map(r => String(r).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '').toLowerCase() + '/');
+        const animationByPath = options.animationByPath instanceof Map ? options.animationByPath : new Map();
         let indexed = 0;
         for (const p of paths || []) {
             const absolute = path.resolve(root, String(p));
@@ -217,16 +248,61 @@ DocsDoodads.AssetIndex = {
             try {
                 const stat = await fs.promises.stat(absolute);
                 if (!stat.isFile()) continue;
+                const previous = this.data.assets[assetPath.toLowerCase()];
+                const hasAuthoredPlacement = Boolean(previous && previous.placement);
+                const animationKey = absolute.toLowerCase(), hasAnimationDecision = animationByPath.has(animationKey);
+                if (hasAnimationDecision && previous) previous.entryRevision = -1;
                 this.indexFile(absolute, path.basename(absolute), path.extname(absolute).toLowerCase(), assetPath, stat);
+                const asset = this.data.assets[assetPath.toLowerCase()], animation = animationByPath.get(animationKey);
+                if (animation) {
+                    const applied = this.applyAnimation(asset, animation, true);
+                    if (applied && !hasAuthoredPlacement) asset.placement = Object.assign({}, asset.placement || {}, { defaultMode: 'doodad' });
+                }
+                else if (hasAnimationDecision && asset) {
+                    delete asset.animation;
+                    if (asset.slice && asset.slice.method === 'animated-import') asset.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
+                }
                 indexed++;
             } catch (error) {}
         }
         if (indexed) {
             this.data.generatedAt = Date.now();
-            this.rebuildList();
-            if (options.save !== false) this.save();
+            const manifest = this.linkNormalMaps();
+            if (options.save !== false) {
+                const sameRoot = process.platform === 'win32' ? root.toLowerCase() === path.resolve('.').toLowerCase() : root === path.resolve('.');
+                if (options.projectRoot && !sameRoot) {
+                    DocsDoodads.FS.atomicWriteJson(path.join(root, options.libraryPath || this.libraryPath), this.data, 0);
+                    this.writeNormalManifest(path.join(root, DocsDoodads.NormalLight.manifestPath), manifest);
+                } else this.save();
+            }
         }
         return indexed;
+    },
+
+    normalizeAnimation(animation, width, height) {
+        if (!animation) return null;
+        const integer = (value, fallback) => Math.max(1, Math.round(Number(value) || fallback));
+        const frameW = integer(animation.frameW, 1), frameH = integer(animation.frameH, 1);
+        const xFrame = integer(animation.xFrame, 1), yFrame = integer(animation.yFrame, 1), grid = xFrame * yFrame;
+        const frameCount = Math.max(1, Math.min(grid, Math.round(Number(animation.frameCount) || grid)));
+        const frameUpdate = frameCount > 1 ? integer(animation.frameUpdate, 1) : 0;
+        if (!Number.isFinite(grid) || grid > 65536 || frameW * xFrame > Number(width) || frameH * yFrame > Number(height)) return null;
+        return { frameW, frameH, xFrame, yFrame, frameCount, frameUpdate };
+    },
+
+    applyAnimation(asset, animation, replaceSlice) {
+        if (!asset) return null;
+        const normalized = this.normalizeAnimation(animation, asset.width, asset.height);
+        if (!normalized) { delete asset.animation; return null; }
+        asset.animation = normalized;
+        if (replaceSlice) {
+            asset.slice = { status: 'auto', method: 'animated-import', confidence: 1, regions: Array.from({ length: normalized.frameCount }, (_, index) => ({
+                x: index % normalized.xFrame * normalized.frameW,
+                y: Math.floor(index / normalized.xFrame) * normalized.frameH,
+                w: normalized.frameW, h: normalized.frameH
+            })) };
+        }
+        return normalized;
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
@@ -275,6 +351,9 @@ DocsDoodads.AssetIndex = {
                 preset: "none",
                 shape: null
             },
+            collisionUserSet: existing ? existing.collisionUserSet !== false : false,
+            ...(existing && existing.guess ? { guess: existing.guess } : {}),
+            ...(existing && existing.credit ? { credit: existing.credit } : {}),
             usage: existing && existing.usage ? existing.usage : { lastUsedAt: 0, useCount: 0 }
         };
 
@@ -295,6 +374,12 @@ DocsDoodads.AssetIndex = {
                     newEntry.slice = known;
                     newEntry.width = known.width;
                     newEntry.height = known.height;
+                }
+            }
+            if (existing && existing.animation) {
+                const kept = this.applyAnimation(newEntry, existing.animation, false);
+                if (!kept && newEntry.slice && newEntry.slice.method === 'animated-import') {
+                    newEntry.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
                 }
             }
         }
@@ -345,8 +430,10 @@ DocsDoodads.AssetIndex = {
     // wait a moment (saveSoon) and are written by flushUsage on Save, on closing the editor and the game.
     save() {
         if (this._usageTimer) { clearTimeout(this._usageTimer); this._usageTimer = null; }
+        const manifest = this.linkNormalMaps();
         const ok = DocsDoodads.FS.atomicWriteJson(this.libraryPath, this.data, 0);
         if (ok) this.noteLoaded();
+        if (ok) this.writeNormalManifest(DocsDoodads.NormalLight.manifestPath, manifest);
         return ok;
     },
 
@@ -377,6 +464,7 @@ DocsDoodads.AssetIndex = {
     recordUsage(assetId) {
         const asset = this.data.assets[assetId];
         if (!asset) return;
+        DocsDoodads.Workspace.rememberAssetGuess(asset);
         const u = asset.usage = asset.usage || { lastUsedAt: 0, useCount: 0 };
         u.useCount = (u.useCount || 0) + 1;
         u.lastUsedAt = Date.now();

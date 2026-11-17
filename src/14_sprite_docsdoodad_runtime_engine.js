@@ -47,6 +47,16 @@ DocsDoodads.frameCount = function() {
     return typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : 0;
 };
 
+// Imported sheets can wrap into a partly filled final row. The saved real count is optional (old sheets
+// use the whole grid) and is never allowed outside that grid, even if save data was hand-edited.
+DocsDoodads.FrameAnim.total = function(d) {
+    const side = value => Number.isFinite(Number(value)) ? Math.max(1, Math.min(65536, Math.round(Number(value)))) : 1;
+    const across = side(d && d.xFrame);
+    const down = side(d && d.yFrame);
+    const grid = across * down, saved = Math.round(Number(d && d.anim && d.anim.frameCount) || grid);
+    return Math.max(1, Math.min(grid, saved));
+};
+
 if (typeof PIXI !== 'undefined') {
     Sprite_DocsDoodad.prototype = Object.create(PIXI.Sprite.prototype);
     Sprite_DocsDoodad.prototype.constructor = Sprite_DocsDoodad;
@@ -95,7 +105,10 @@ if (typeof PIXI !== 'undefined') {
             this._stateArtKey = this._stateArt ? this._stateArt.path : '';
             const path = this.seasonPath();
             this._loadedPath = path;
-            const packed = path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
+            // A packed region has different UVs from its full-size `_n` companion. Keep mapped normal art on
+            // its original sheet so both samplers use the same frame.
+            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.pathFor(path);
+            const packed = !normalMapped && path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
                 ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
             this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;
             this._regionSize = packed ? { w: packed.w, h: packed.h } : null;
@@ -241,7 +254,7 @@ if (typeof PIXI !== 'undefined') {
                     this._animSteps = (this._animSteps || 0) + 1;
                 }
             }
-            const total = (d.xFrame || 1) * (d.yFrame || 1);
+            const total = DocsDoodads.FrameAnim.total(d);
             const want = A.index(d, this._animSteps || 0, total);
             if (want !== this._currentFrame || this._animShownFor !== this._bmp) this.showFrame(want);
         }
@@ -331,6 +344,7 @@ if (typeof PIXI !== 'undefined') {
         this.updateDissolve(fx);
         if (this._shimmerFilter) {
             this._shimmerFilter.uniforms.time = DocsDoodads.frameCount() / 60;
+            this._shimmerFilter.uniforms.amount = this._motion.amount * DocsDoodads.Beat.factor(this._motion.musicBand, this._motion.musicStrength);
         }
         // Far away in 3D (the map's "Plain beyond"): drawn without its shadow, and its effects wait.
         if (this.docsFar()) {
@@ -516,7 +530,7 @@ if (typeof PIXI !== 'undefined') {
 
     // One frame on (looping).
     Sprite_DocsDoodad.prototype.updateFrameAnimation = function() {
-        const total = (this._data.xFrame || 1) * (this._data.yFrame || 1);
+        const total = DocsDoodads.FrameAnim.total(this._data);
         this.showFrame((this._currentFrame + 1) % total);
     };
 

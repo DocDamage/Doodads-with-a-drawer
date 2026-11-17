@@ -38,8 +38,9 @@
         this._onCanvasContextMenu = (e) => {
             if (!this.mounted) return;
             e.preventDefault();
-            // With Scatter out, the right button erases instead.
-            if (this.placementTool === 'brush') return;
+            // Some brushes reserve the right button for erasing instead of opening this menu.
+            const activeHook = this.toolHooks[this.placementTool];
+            if (this.placementTool === 'brush' || (activeHook && activeHook.buttons && activeHook.buttons.includes(2))) return;
             const coords = this.clientToMapCoords(e.clientX, e.clientY);
             const items = [];
 
@@ -167,9 +168,11 @@
         };
 
         this._onCanvasMouseDown = (e) => {
+            this.clearPlacementPreview();
             if (e.button === 1 && this.beginCameraDrag(e)) return;
             const hook = this.toolHooks[this.placementTool];
-            if (hook && hook.down && e.button === 0) {
+            const hookButton = hook && hook.buttons ? hook.buttons.includes(e.button) : e.button === 0;
+            if (hook && hook.down && hookButton) {
                 if (hook.down.call(this, e)) {
                     this.isBrushActive = true;
                     this._hookStroke = hook;
@@ -324,6 +327,7 @@
                     overlay.style.height = Math.abs(dy) + 'px';
                 }
             }
+            this.updateBrushPlacementPreview(e);
         };
 
         this._onCanvasMouseUp = (e) => {
@@ -373,6 +377,7 @@
                     };
                     cmd.type = this.placementTool === 'biome' ? 'biome_paint' : 'scatter_doodads';
                     DocsDoodads.Undo.execute(cmd);
+                    this.rememberGuessPlacements(batch);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
             }
@@ -422,6 +427,8 @@
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
             window.addEventListener('mousemove', this._onCanvasMouseMove);
             window.addEventListener('mouseup', this._onCanvasMouseUp);
+            this._onPlacementPreviewBlur = () => this.removeGhost();
+            window.addEventListener('blur', this._onPlacementPreviewBlur);
         }
     },
 
@@ -506,12 +513,14 @@
         if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
             if (this._onCanvasMouseMove) window.removeEventListener('mousemove', this._onCanvasMouseMove);
             if (this._onCanvasMouseUp) window.removeEventListener('mouseup', this._onCanvasMouseUp);
+            if (this._onPlacementPreviewBlur) window.removeEventListener('blur', this._onPlacementPreviewBlur);
         }
     },
 
     // Evenly spaced scatter: props keep minDistance from each other and from what is already there,
     // and only land where the region/terrain/passability rules allow.
     scatterAt(clientX, clientY) {
+        this.clearPlacementPreview();
         const coords = this.clientToMapCoords(clientX, clientY);
         const asset = this.selectedAsset;
         const b = this.brushSettings;
