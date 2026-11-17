@@ -1395,6 +1395,7 @@ DocsDoodads.Workspace = {
                 type: asset.type,
                 frameW: asset.width || 48,
                 frameH: asset.height || 48,
+                ...(asset.animation ? { animation: JSON.parse(JSON.stringify(asset.animation)) } : {}),
                 collision: asset.collision || { preset: "none" },
                 characterIndex: asset.placement.characterIndex || 0,
                 depth: asset.placement.depth,

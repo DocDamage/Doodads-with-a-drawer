@@ -32,6 +32,7 @@ assert.strictEqual(ss._docsDoodadSprites.find(sprite => sprite._docsPlacementPre
 assert.strictEqual(firstSprite._data.x, 280);
 W.removeGhost(); assert.ok(!ss._docsDoodadSprites.some(sprite => sprite._docsPlacementPreview));
 assert.strictEqual(firstSprite._shadowSprite, null);
+assert.strictEqual(W.showPlacementPreview({ ...asset, placementMode: 'event' }, at, 'stamp'), 0, 'an event drag retains its event preview instead of a fake picture doodad');
 // The scatter preview forks the brush RNG; committing the same dab produces the same first points.
 W.selectedAsset = asset; W._scatterRng = D.Scatter.rng(123);
 W.brushSettings = { radius: 80, density: 5, minDistance: 10, scaleJitter: 0.2, rotateJitter: 20, flipChance: 0.5, hueJitter: 10, regions: '', terrainTags: '', avoidBlocked: false };

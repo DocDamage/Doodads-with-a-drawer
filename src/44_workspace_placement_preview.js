@@ -61,7 +61,7 @@ Object.assign(DocsDoodads.Workspace, {
     showPlacementPreview(asset, coords, tool = 'stamp') {
         const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null, spriteset = scene && scene._spriteset;
         if (!this.mounted || !spriteset || !spriteset.addDocsDoodadSprites || !asset && tool !== 'biome'
-            || asset && (asset.category === 'Audio' || asset.type === 'prefab' || asset.placement && asset.placement.defaultMode === 'event')) { this.clearPlacementPreview(); return 0; }
+            || asset && (asset.category === 'Audio' || asset.type === 'prefab' || asset.placementMode === 'event' || asset.placement && asset.placement.defaultMode === 'event')) { this.clearPlacementPreview(); return 0; }
         const items = this.placementPreviewItems(asset, coords, tool);
         for (const d of items) { d.opacity = (d.opacity === undefined ? 1 : d.opacity) * 0.55; d._editorPreview = true; }
         const key = JSON.stringify(items.map(d => [d.bit, d.frameX, d.frameY, d.frameW, d.frameH, d.xFrame, d.yFrame, d.frameUpdate]));
@@ -112,7 +112,7 @@ Object.assign(DocsDoodads.Workspace, {
             if (!alt || this.activeDragPayload) this.showPlacementPreview(asset, alt ? coords : this.snapToTile(coords), 'stamp');
             else this.clearPlacementPreview();
         } else this.clearPlacementPreview();
-        const picture = asset && asset.category !== 'Audio' && asset.type !== 'prefab' && !(asset.placement && asset.placement.defaultMode === 'event');
+        const picture = asset && asset.category !== 'Audio' && asset.type !== 'prefab' && asset.placementMode !== 'event' && !(asset.placement && asset.placement.defaultMode === 'event');
         if (this.ghostEl) this.ghostEl.style.display = onMap && picture ? 'none' : '';
     };
     W.removeGhost = function() { this.clearPlacementPreview(); this._placementPathSeed = null; return remove.call(this); };
