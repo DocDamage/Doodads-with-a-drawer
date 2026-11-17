@@ -17,6 +17,11 @@ assert.ok(game.parts.length < full.parts.length, 'game build leaves out marked e
 assert.ok(gameBytes <= fullBytes / 2, `game build is at most half the full plugin (${gameBytes}/${fullBytes} bytes)`);
 assert.ok(game.text.includes('@target MZ') && game.text.includes('@param editorMode'), 'the complete MZ plugin header remains');
 assert.doesNotThrow(() => new vm.Script(game.text, { filename: 'Docs-Doodads.game.js' }), 'game build parses');
+for (const object of ['Scatter', 'Biome', 'Dress']) {
+    const assignment = new RegExp('DocsDoodads\\.' + object + '\\s*=', 'g');
+    assert.strictEqual((full.text.match(assignment) || []).length, 1, object + ' has one shared implementation in the full build');
+    assert.strictEqual((game.text.match(assignment) || []).length, 1, object + ' has the same shared implementation in the game build');
+}
 
 E.install();
 E.setupWorld({ width: 24, height: 18, px: 4, py: 4, tiles: [[6, 5, 0, 2048]] });

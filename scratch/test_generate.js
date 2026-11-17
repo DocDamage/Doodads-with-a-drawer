@@ -158,6 +158,15 @@ assert.deepStrictEqual(D.GenerateRuntime.decorations(artLayout, artRecipe, 1, 99
 assert.deepStrictEqual(D.Workspace.generatedDecorations({ layout: artLayout, recipe: artRecipe, mapId: 1, seed: 991 }, [], []), runtimeArt,
     'editor preview and game runtime materialize the same seeded biome and dressing art');
 
+// Generated props use their real picture size. A tall tree must not be clipped to a tile, and the
+// generated data keeps the ordinary standing anchor/depth used by hand-placed art.
+const loadBitmap = D.loadBitmap;
+D.loadBitmap = () => ({ addLoadListener(listener) { listener({ width: 96, height: 144 }); } });
+const tall = D.GenerateRuntime.makeDoodad({ path: 'img/doodads/TallTree.png', x: 96, y: 144, scale: 1, flipX: false }, 1, 991, 99);
+D.loadBitmap = loadBitmap;
+assert.deepStrictEqual([tall.frameW, tall.frameH, tall.anchorX, tall.anchorY, tall.depth], [96, 144, 0.5, 1, 'sorted'],
+    'generated art gets its full bitmap frame and remains anchored/sorted at its base');
+
 // Loading a save does not always call Game_Map.setup. The pending post-extract path regenerates $dataMap
 // before Scene_Map creates its display objects.
 const loadedMap = { width: 16, height: 12, data: new Array(16 * 12 * 6).fill(0), events: [null], tilesetId: 1 };
