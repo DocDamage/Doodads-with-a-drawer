@@ -40,8 +40,8 @@
             const version = String(values && values.version || '').trim().slice(0, 80);
             if (!version) return false;
             const value = D.FS.readJson(S.path), previous = S.latest(value);
-            if (value && !previous) { this.showToast('The release-history format is not recognized; keep it intact and check the file.', 'error'); return false; }
-            const releases = value && Array.isArray(value.releases) ? value.releases.slice() : previous ? [previous] : [];
+            if (value && !previous && !Array.isArray(value.releases) && !Array.isArray(value)) { this.showToast('The release-history format is not recognized; keep it intact and check the file.', 'error'); return false; }
+            const releases = Array.isArray(value) ? value.slice() : value && Array.isArray(value.releases) ? value.releases.slice() : previous ? [previous] : [];
             if (releases.some(release => release.version === version) && !(await U.confirm('Replace the recorded snapshot for ' + version + '?', { title: 'Replace Release Snapshot', ok: 'Replace', danger: true }))) return false;
             let snapshot;
             try { snapshot = this.shippedCurrent(version, true); }
@@ -58,7 +58,7 @@
         },
         shippedHazards(items) {
             const mapId = this.currentMapId(), names = this.shippedNames(mapId), picked = new Set(items);
-            const remaining = new Set(D.doodads(mapId).filter(item => !picked.has(item)).map(item => S.name(item.name)));
+            const remaining = new Set(D.doodads(mapId).filter(item => item && !picked.has(item)).map(item => S.name(item.name)));
             return Array.from(new Set(items.map(item => S.name(item.name)).filter(name => name && names.has(name) && !remaining.has(name))));
         },
         withShippedAliases(mapId, changes, action) {
@@ -93,7 +93,7 @@
         async confirmShippedChange(items, target, action) {
             const hazards = this.shippedHazards(items);
             if (!hazards.length) return action();
-            const identity = this.shippedIdentity(items), candidates = target === null ? Array.from(new Set(D.doodads(identity.mapId).filter(item => !items.includes(item)).map(item => String(item.name || '').trim()).filter(Boolean))) : [];
+            const identity = this.shippedIdentity(items), candidates = target === null ? Array.from(new Set(D.doodads(identity.mapId).filter(item => item && !items.includes(item)).map(item => String(item.name || '').trim()).filter(Boolean))) : [];
             const canKeep = target !== null ? Boolean(S.name(target)) : candidates.length > 0;
             const choices = [{ label: 'Cancel', value: null }];
             if (canKeep) choices.push({ label: 'Keep the Old Name Working', value: 'keep', main: true });

@@ -40,6 +40,12 @@ assert.strictEqual(W.setState('Numeric', 2, 1), false, 'invalid numeric indices 
 assert.strictEqual(W.setState('Numeric', '2', 1), true);
 assert.strictEqual(D.States.index(numericNamed, 1), 0);
 assert.strictEqual(S.resolveName({ 1: { a: 'B', b: 'A' } }, 1, 'A'), 'a', 'cyclic author aliases terminate safely');
+const long = {};
+for (let i = 0; i < 200; i++) long['n' + i] = 'n' + (i + 1);
+assert.strictEqual(S.resolveName({ 1: long }, 1, 'n0'), 'n200', 'long rename histories do not truncate');
+$dataDocsDoodads.aliases[1].a = 'B'; $dataDocsDoodads.aliases[1].b = 'A';
+W.store().states['1/name:a'] = 'Open'; S.migrateSaved(1);
+assert.strictEqual(W.store().states['1/name:a'], 'Open', 'invalid alias metadata cannot erase a saved value');
 for (const split of [false, true]) {
     const entries = D.DataFiles.entriesFor($dataDocsDoodads, split), files = Object.fromEntries(entries.map(entry => [entry.path, entry.data]));
     const read = D.DataFiles.merge(entries[0].data, id => files[D.DataFiles.mapPath(id)]);

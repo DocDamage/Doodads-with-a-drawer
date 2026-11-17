@@ -2,19 +2,20 @@
 DocsDoodads.Shipped = {
     path: 'data/DocsDoodadsShipped.json',
     name(value) { return String(value || '').trim().toLowerCase(); },
-    resolveName(aliases, mapId, name) {
+    traceName(aliases, mapId, name) {
         const first = this.name(name), map = aliases && aliases[Number(mapId)] || {};
         let current = first;
         const seen = new Set();
-        for (let i = 0; i < 64; i++) {
+        for (;;) {
             const key = Object.prototype.hasOwnProperty.call(map, 'name:' + current) ? 'name:' + current : current;
             if (!Object.prototype.hasOwnProperty.call(map, key)) break;
-            if (seen.has(current)) return first;
+            if (seen.has(current)) return { name: first, valid: false };
             seen.add(current); current = this.name(map[key]);
-            if (!current) return first;
+            if (!current) return { name: first, valid: false };
         }
-        return current;
+        return { name: current, valid: true };
     },
+    resolveName(aliases, mapId, name) { return this.traceName(aliases, mapId, name).name; },
     resolveId(id, mapId) {
         if (!String(id || '').startsWith('name:')) return id;
         const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
@@ -65,7 +66,7 @@ DocsDoodads.Shipped = {
                 const previous = before.stateKeys && before.stateKeys[oldKey] || ((before.states || {})[oldKey] || []).map(name => 'name:' + this.name(name));
                 const current = now.stateKeys && now.stateKeys[newKey] || ((now.states || {})[newKey] || []).map(name => 'name:' + this.name(name));
                 previous.forEach((key, index) => {
-                    const next = current.indexOf(key), label = (before.states[oldKey] || [])[index] || 'state ' + index;
+                    const next = current.indexOf(key), label = ((before.states || {})[oldKey] || [])[index] || 'state ' + index;
                     if (next < 0) add('stateGone', mapId, oldName + ': released ' + label + ' is missing.', { oldName, state: label });
                     else if (next !== index) add('stateMoved', mapId, oldName + ': released ' + label + ' moved from ' + index + ' to ' + next + '; older numeric saves need care.', { oldName, state: label });
                 });
@@ -85,6 +86,9 @@ DocsDoodads.Shipped = {
             const values = store[field];
             for (const key of Object.keys(values)) {
                 if (!key.startsWith(prefix)) continue;
+                const oldId = key.slice(prefix.length);
+                const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+                if (oldId.startsWith('name:') && !this.traceName(data && data.aliases, mapId, oldId.slice(5)).valid) continue;
                 const id = this.resolveId(key.slice(prefix.length), W.mapId(mapId)), target = prefix + id;
                 if (!valid.has(id)) { delete values[key]; continue; }
                 if (target !== key) { if (!Object.prototype.hasOwnProperty.call(values, target)) values[target] = values[key]; delete values[key]; }

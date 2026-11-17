@@ -129,7 +129,7 @@ function releasedChanges(project) {
     let history;
     try { history = JSON.parse(fs.readFileSync(marker, 'utf8')); }
     catch (error) { return ['release snapshot could not be read']; }
-    const release = Array.isArray(history.releases) ? history.releases[history.releases.length - 1] : history;
+    const release = Array.isArray(history) ? history[history.length - 1] : Array.isArray(history.releases) ? history.releases[history.releases.length - 1] : history;
     const changed = [], canonicalProject = fs.realpathSync(project);
     for (const [relative, expected] of Object.entries(release && release.fileHashes || {}).sort((a, b) => a[0].localeCompare(b[0]))) {
         if (!/^data\/[a-zA-Z0-9_./-]+\.json$/.test(relative) || relative.split('/').includes('..')) continue;
