@@ -180,6 +180,18 @@ async function main() {
         runtimeSprite._currentFrame = 4; runtimeSprite.updateFrameAnimation();
         assert.strictEqual(runtimeSprite._currentFrame, 0, 'the runtime skips padded cells and loops at the real frame count');
 
+        const actorGif = path.join(sourceDir, 'Actor.gif'); fs.writeFileSync(actorGif, sourceBytes);
+        const actorResult = await D.Workspace.runAssetImport([actorGif], { projectRoot: project });
+        assert.strictEqual(actorResult.ok, true, JSON.stringify(actorResult.errors));
+        const actorAsset = D.AssetIndex.data.assets['img/characters/actor.png'];
+        assert.ok(actorAsset && actorAsset.animation, 'an auto-routed character GIF keeps generated animation metadata');
+        assert.strictEqual(actorAsset.placement.defaultMode, 'doodad', 'a new frame strip uses doodad animation instead of MZ event-sheet rules');
+        actorAsset.placement = { defaultMode: 'event', depth: 'above' };
+        const actorAgain = await D.Workspace.runAssetImport([actorGif], { projectRoot: project, collisionPolicy: 'overwrite' });
+        assert.strictEqual(actorAgain.ok, true, JSON.stringify(actorAgain.errors));
+        assert.deepStrictEqual(D.AssetIndex.data.assets['img/characters/actor.png'].placement, { defaultMode: 'event', depth: 'above' },
+            're-import preserves an existing authored placement preference');
+
         const plainSource = path.join(sourceDir, 'Spark.png');
         const sameSizeStill = D.AnimatedImport.pack([solid(4, 2, [30, 40, 50, 255])], bytes => zlib.deflateSync(bytes));
         fs.writeFileSync(plainSource, sameSizeStill.bytes);
