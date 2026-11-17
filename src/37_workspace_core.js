@@ -102,6 +102,7 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if ((tool || null) !== this.placementTool && this.clearPlacementPreview) { this.clearPlacementPreview(); this._placementPathSeed = null; }
         if (tool !== 'generate' && this._generatedPreview) {
             this._generatedPreview = null;
             if (this.redrawOverlay) this.redrawOverlay();

@@ -8,6 +8,7 @@ DocsDoodads.Capture = {
     renderSceneCanvas(spriteset, renderer) {
         renderer = renderer || (DocsDoodads.Compat && DocsDoodads.Compat.getRenderer ? DocsDoodads.Compat.getRenderer() : null);
         if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
+        if (typeof spriteset.removeDocsPlacementPreview === 'function') spriteset.removeDocsPlacementPreview();
         const outline = spriteset._docsSelectionOutline;
         const outlineVisible = outline && outline.visible;
         if (outline) outline.visible = false;

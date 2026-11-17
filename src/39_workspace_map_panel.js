@@ -292,6 +292,7 @@
     },
 
     biomePaintAt(clientX, clientY) {
+        this.clearPlacementPreview();
         const coords = this.clientToMapCoords(clientX, clientY);
         const s = this.biomeSettings;
         if (this._lastDab && Math.hypot(this._lastDab.x - coords.x, this._lastDab.y - coords.y) < s.radius * 0.4) return;

@@ -1049,6 +1049,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 
 // Full-map image export: renders each screen-sized piece with the camera moved there, then restores everything.
 DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
+    if (spriteset && typeof spriteset.removeDocsPlacementPreview === 'function') spriteset.removeDocsPlacementPreview();
     const renderer = DocsDoodads.Compat.getRenderer();
     if (!renderer || !spriteset || typeof $gameMap === 'undefined' || !$gameMap) throw new Error('The map is not ready.');
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();

@@ -7,7 +7,9 @@ const D = DocsDoodads, W = D.Workspace;
 assert.strictEqual(typeof W.showPlacementPreview, 'function', 'map placements have real sprite previews');
 const original = D.Scatter.rng(42), copy = original.clone();
 assert.strictEqual(original(), copy()); assert.strictEqual(original(), copy());
+window.$dataDocsDoodads[1] = [E.doodad(20, 20)];
 const ss = new Spriteset_Map(); SceneManager._scene = { _spriteset: ss };
+const realSpriteClass = ss._docsDoodadSprites[0].constructor;
 W.mounted = true; W.activeLayer = 'main';
 W.refreshInspector = W.refreshDrawerCards = W.showMoreMenu = W.redrawOverlay = () => {};
 const asset = { id: 'img/doodads/lantern.png', path: 'img/doodads/Lantern.png', fileName: 'Lantern.png', type: 'doodad', width: 48, height: 96,
@@ -20,7 +22,7 @@ assert.strictEqual(JSON.stringify(window.$dataDocsDoodads), raw, 'preview data i
 assert.strictEqual(D.Persistence.dirtyDoodads, dirty);
 assert.strictEqual(asset.guess, undefined, 'hover does not save guess metadata or usage');
 let preview = ss._docsDoodadSprites.find(sprite => sprite._docsPlacementPreview);
-assert.ok(preview instanceof Sprite_DocsDoodad); assert.strictEqual(preview._data.frameH, 96); assert.strictEqual(preview._data.light.radius, 90);
+assert.strictEqual(preview.constructor, realSpriteClass); assert.strictEqual(preview._data.frameH, 96); assert.strictEqual(preview._data.light.radius, 90);
 E.frames(ss, 1);
 assert.ok(preview._shadowSprite, 'preview uses the real shadow path');
 assert.ok(preview.alpha > 0 && preview.alpha < 1, 'ghost is translucent');
@@ -32,7 +34,7 @@ W.removeGhost(); assert.ok(!ss._docsDoodadSprites.some(sprite => sprite._docsPla
 assert.strictEqual(firstSprite._shadowSprite, null);
 // The scatter preview forks the brush RNG; committing the same dab produces the same first points.
 W.selectedAsset = asset; W._scatterRng = D.Scatter.rng(123);
-W.brushSettings = { radius: 80, density: 5, minDistance: 10, scaleMin: 0.8, scaleMax: 1.2, rotate: 20, flip: true, regions: '', terrainTags: '', avoidBlocked: false };
+W.brushSettings = { radius: 80, density: 5, minDistance: 10, scaleJitter: 0.2, rotateJitter: 20, flipChance: 0.5, hueJitter: 10, regions: '', terrainTags: '', avoidBlocked: false };
 const expectedNext = W._scatterRng.clone()();
 W.showPlacementPreview(asset, at, 'brush');
 assert.strictEqual(W._scatterRng(), expectedNext, 'planning a preview never advances the brush RNG');
@@ -44,6 +46,16 @@ W.scatterAt(0, 0);
 assert.deepStrictEqual(W.currentBrushBatch.slice(0, points.length).map(d => [d.x, d.y, d.scaleX, d.scaleY, d.rotation]), points);
 W.removeGhost();
 // A path shares its planned jitter/endpoint assets with the eventual committed stroke.
+D.World.set('biomes.list', [{ id: 'preview-paint', name: 'Preview paint', density: 4, spacing: 12, cluster: 0, edgeThin: 0, flip: true,
+    entries: [{ path: asset.path, weight: 1, scaleMin: 0.8, scaleMax: 1.2 }] }]);
+W.biomeSettings = { biomeId: 'preview-paint', radius: 80, avoidBlocked: false }; W._biomeRng = D.Scatter.rng(456);
+W.showPlacementPreview(null, at, 'biome');
+const paint = W._placementPreview.items.map(d => [d.x, d.y, d.scaleX, d.scaleY]);
+assert.ok(paint.length > 0);
+W.currentBrushBatch = []; W.biomePaintAt(0, 0);
+assert.deepStrictEqual(W.currentBrushBatch.slice(0, paint.length).map(d => [d.x, d.y, d.scaleX, d.scaleY]), paint);
+assert.strictEqual(W._placementPreview, null, 'committing Paint removes the preview before adding real sprites');
+W.removeGhost();
 W.pathPoints = [{ x: 200, y: 240 }];
 W.pathSettings = { spacing: 30, alignToPath: true, smooth: false, jitter: 4, endAsset: null, cornerAsset: null };
 W.showPlacementPreview(asset, at, 'path');
@@ -57,6 +69,23 @@ const renderer = { render() { assert.ok(!ss._docsDoodadSprites.some(sprite => sp
 assert.ok(D.Capture.renderSceneCanvas(ss, renderer)); assert.strictEqual(W._placementPreview, null);
 W.showPlacementPreview(asset, at, 'stamp'); W.placementTool = 'stamp'; W.setPlacementTool(null);
 assert.strictEqual(W._placementPreview, null, 'tool changes remove previews');
+W.placementTool = 'brush'; W.brushSettings.density = 60; W.brushSettings.radius = 200;
+W.showPlacementPreview(asset, at, 'brush');
+assert.ok(W._placementPreview.items.length <= 12, 'large dabs keep a bounded sprite pool');
+const hit = document.elementFromPoint;
+document.elementFromPoint = () => ({ tagName: 'BUTTON' });
+W.updateBrushPlacementPreview({ clientX: 100, clientY: 100 });
+assert.strictEqual(W._placementPreview, null, 'a panel over the canvas never receives a map preview');
+document.elementFromPoint = hit;
+const addWindow = window.addEventListener, removeWindow = window.removeEventListener, owned = new Set();
+window.addEventListener = (type, fn) => { if (type === 'blur') owned.add(fn); };
+window.removeEventListener = (type, fn) => { if (type === 'blur') owned.delete(fn); };
+W.attachCanvasListeners(); assert.strictEqual(owned.size, 1);
+W.showPlacementPreview(asset, at, 'stamp'); W._onPlacementPreviewBlur();
+assert.strictEqual(W._placementPreview, null, 'leaving the window removes previews');
+W.detachCanvasListeners(); assert.strictEqual(owned.size, 0, 'preview input has workspace-scoped cleanup');
+window.addEventListener = addWindow; window.removeEventListener = removeWindow;
+assert.ok(!JSON.stringify(window.$dataDocsDoodads).includes('_editorPreview'));
 W.showPlacementPreview(asset, at, 'stamp'); $gameMap.setup(2);
 assert.strictEqual(W._placementPreview, null, 'map changes remove previews');
 W.mounted = false;

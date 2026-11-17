@@ -4,14 +4,19 @@
 // One pure implementation is shared by editor brushes and generated maps in deployed games.
 DocsDoodads.Scatter = {
     rng(seed) {
-        let state = (Number(seed) || 1) >>> 0;
-        return function() {
-            state = (state + 0x6d2b79f5) >>> 0;
-            let value = state;
-            value = Math.imul(value ^ value >>> 15, value | 1);
-            value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-            return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        const make = initial => {
+            let state = initial;
+            const random = function() {
+                state = (state + 0x6d2b79f5) >>> 0;
+                let value = state;
+                value = Math.imul(value ^ value >>> 15, value | 1);
+                value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+                return ((value ^ value >>> 14) >>> 0) / 4294967296;
+            };
+            random.clone = () => make(state);
+            return random;
         };
+        return make((Number(seed) || 1) >>> 0);
     },
     candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
         const accepted = [], others = (existing || []).slice(), attempts = maxAttempts || Math.max(30, count * 30);

@@ -362,17 +362,9 @@
 
     placePath(points, asset, settings = this.pathSettings) {
         if (!asset || !points || points.length === 0) return [];
-        const samples = DocsDoodads.Paths.sample(points, settings.spacing, { smooth: settings.smooth });
-        const rng = DocsDoodads.Scatter.rng(Date.now());
-        const placed = samples.map(p => {
-            const special = (p.kind === 'start' || p.kind === 'end') ? settings.endAsset : p.kind === 'corner' ? settings.cornerAsset : null;
-            const jitter = Number(settings.jitter) || 0;
-            const x = Math.round(p.x + (jitter ? (rng() * 2 - 1) * jitter : 0));
-            const y = Math.round(p.y + (jitter ? (rng() * 2 - 1) * jitter : 0));
-            const d = this.newDoodadFromAsset(special || asset, x, y);
-            if (settings.alignToPath) d.rotation = Math.round(p.angle);
-            return d;
-        }).filter(d => DocsDoodads.Terrain.allowsDoodad(d, this.currentMapId()));
+        this.clearPlacementPreview();
+        const placed = this.planPathPlacement(points, asset, settings, this._placementPathSeed || Date.now());
+        this._placementPathSeed = null;
         const mapId = this.currentMapId();
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         DocsDoodads.Undo.execute({
