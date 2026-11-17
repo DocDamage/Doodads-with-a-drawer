@@ -337,6 +337,12 @@
  * @default 0
  * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
+ * @param testerTrails
+ * @text Record trails in tester builds
+ * @type boolean
+ * @default false
+ * @desc Record local walk/stop/Game Over counts in desktop tester builds. Playtests record them automatically. No upload.
+ *
  * @param saveFilePictures
  * @text Pictures on save files
  * @type boolean

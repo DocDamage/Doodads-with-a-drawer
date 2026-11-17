@@ -142,6 +142,7 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        if (DocsDoodads.Trails) { DocsDoodads.Trails.flush(); if (DocsDoodads.Trails._data) delete DocsDoodads.Trails._data.cursor; }
         if (DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
         DocsDoodads.SimpleMode.begin();
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
@@ -198,6 +199,7 @@ DocsDoodads.Workspace = {
         this.closeToastHistory();
         this.closeLookCard();
         this.closeMoods();
+        if (typeof this.hideTrails === 'function') this.hideTrails();
         this.closeTraceCard(true);
         this.stopQuestUi();
         this.closeMapTools();
