@@ -102,8 +102,41 @@
         return true;
     };
 
-    N.ensure = function(sprite, source) {
-        const base = sprite && (sprite._bmp || sprite.bitmap), normalPath = this.pathFor(source);
+    // The editor replaces this to make a missing map (8.3.1). A deployed game only uses what the manifest names.
+    N.requestGenerated = N.requestGenerated || function() { return false; };
+    // The editor replaces this to remake a map whose picture changed since it was made.
+    N.checkGenerated = N.checkGenerated || function() { return false; };
+
+    N.shadeFor = function(sprite, info) {
+        if (typeof Sprite_DocsDoodad !== 'undefined' && sprite instanceof Sprite_DocsDoodad) return sprite._data && sprite._data.shade;
+        return { mode: info && info.characters === 'made' ? 'made' : 'file' };
+    };
+
+    // Memoised per sprite: the key string is only rebuilt when the picture, its Shading, its frame grid or
+    // the manifest changes, not every frame for every doodad.
+    N.normalFor = function(sprite, source, info) {
+        if (!sprite || !source) return null;
+        // Before its picture loads a sprite shows an empty 1×1 frame: no grid can be read from that.
+        const base = sprite._bmp || sprite.bitmap;
+        if (!base || typeof base.isReady === 'function' && !base.isReady()) return null;
+        const raw = this.shadeFor(sprite, info), s = this.shade(raw), frame = sprite.texture && sprite.texture.frame;
+        const g = this.gridOf(frame), memo = sprite._docsNormalPick;
+        if (memo && memo.source === source && memo.manifest === this.manifest && memo.mode === s.mode && memo.strength === s.strength &&
+            memo.shape === s.shape && memo.w === g.w && memo.h === g.h && memo.x === g.x && memo.y === g.y) {
+            if (memo.request && !memo.path) this.requestGenerated(memo.request);
+            return memo.path;
+        }
+        const found = this.resolve(source, s, frame);
+        const request = found.key ? { key: found.key, source, shape: s.shape, strength: s.strength, grid: g, path: found.path } : null;
+        sprite._docsNormalPick = { source, manifest: this.manifest, mode: s.mode, strength: s.strength, shape: s.shape,
+            w: g.w, h: g.h, x: g.x, y: g.y, path: found.path, request };
+        if (request && found.missing) this.requestGenerated(request);
+        else if (request) this.checkGenerated(request);
+        return found.path;
+    };
+
+    N.ensure = function(sprite, source, normalPath = this.pathFor(source)) {
+        const base = sprite && (sprite._bmp || sprite.bitmap);
         if (!sprite || !base || !normalPath) { this.detach(sprite); return false; }
         const old = sprite._docsNormalRequest;
         if (old && old.source === source && old.base === base && old.normalPath === normalPath) return Boolean(sprite._docsNormalBitmap && sprite._docsNormalFilter);
@@ -119,7 +152,7 @@
     };
 
     N.updateSprite = function(sprite, source, info, max) {
-        if (!sprite || !source || !sprite.visible || sprite.renderable === false || !this.ensure(sprite, source)) {
+        if (!sprite || !source || !sprite.visible || sprite.renderable === false || !this.ensure(sprite, source, this.normalFor(sprite, source, info))) {
             this.detach(sprite);
             return false;
         }
@@ -154,6 +187,7 @@
         const sprites = this.docsNormalSprites(), max = this.docsNormalMax();
         if (!max) { for (const sprite of sprites) N.detach(sprite); return 0; }
         const info = this._docsNormalLightInfo || { base: [1, 1, 1], lights: [], time: DocsDoodads.frameCount() / 60 };
+        info.characters = DocsDoodads.World.settings().normalLight.characters;
         let count = 0;
         for (const sprite of sprites) {
             sprite._docsNormalBase = this._baseSprite || null;

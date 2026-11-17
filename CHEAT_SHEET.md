@@ -27,6 +27,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `<docs label: Blacksmith>` | A name over the event (flat and 3D); Details: **Name over it**. | 15 |
 | `<docs icon: 87>` | An IconSet icon over the event, beside its name if it has one; Details: **Icon**. | 15 |
 | `<docs label range: 4>` | Its name and icon show only within 4 tiles of the player (without it, always). | 15 |
+| `<docs pin: 87, Inn>` | A pin with IconSet icon 87 on the minimap and world map once found; follows the event and its page (display only, no travel). | 19 |
 | `<visual actor: 4>` | Wears actor 4's look (layers and all). | 13 |
 | `<visual: ...>` and the other visual tags below | Visual equipment drawn on the event. | 13 |
 
@@ -94,7 +95,10 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | 2D Camera Follow | target, eventId | Flat maps: the camera follows the player, this event, another event, or nothing (stays put). |
 | Set Traversal | ability, state | Jump, glide, swim, dive, fly, climb or ice on, off or as in the World settings, for this game. |
 | Traversal Action | action | The player jumps, takes off, lands or dives (if allowed). |
-| Show World Map | | The whole map (a globe on planets) until OK or Cancel. |
+| Show World Map | | The whole map (a globe on planets) with found pins; with travel pins found, arrows choose, OK asks, OK again travels. |
+| Find Pin | pin | A pin (name or id) counts as found and shows again if hidden. |
+| Hide Pin | pin, hidden | Hides or shows a pin on the minimap and world map; saved. |
+| Open Fast Travel | | The world map for choosing a found travel pin; the Forbid Fast Travel Switch still applies. |
 | Store Ground Height | target, eventId, variableId | Terrain height under a character into a variable. |
 | Set Doodad State | name, state, mapId, wait | Named doodads to a state (name, number, `next`, or blank to follow their switch or variable); saved. Wait: until the crossfade ends. |
 | Zoom to Point | target, x, y, eventId, scale, frames, wait | The flat screen zooms in on a tile or a character; scale 1 goes back. |

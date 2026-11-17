@@ -132,9 +132,29 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Enable World → Normal Maps to shade pictures and characters with nearby lamps. Put Treen.png beside Tree.png, with the same dimensions, or pick the art and choose Make Normal Map in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together."
     },
     {
+        "title": "Made for me",
+        "anchor": "made-for-me",
+        "firstParagraph": "With Normal Maps on, a doodad with no n.png gets a normal map made from its shape the first time it is lit in a playtest. The shape's edges are rounded off by their distance from the see-through pixels, with a little of the picture's brightness for surface detail. Every frame of a strip or sheet is made on its own, so frames never bleed into each other. The work runs in slices over several frames, with a progress pill if it takes a while. Made maps are kept in img/doodads/normals/ (hidden from the Item Bag), named in the normal-map manifest and listed for deployment with the pictures they shade. Editing a picture makes a new map and removes the old one."
+    },
+    {
+        "title": "Phone Preview",
+        "anchor": "phone-preview",
+        "firstParagraph": "View → Phone Preview plays the running project on a phone on the same Wi-Fi. It asks first, because anyone on that network who has the address can see the project until you stop. A card shows a QR code and the address; scan it with the phone's camera. The phone runs the game with the editor off. When a map or other data file is saved, the phone reloads and starts again where the player was standing. Stop on the card, closing the editor or closing the playtest stops it."
+    },
+    {
         "title": "Generated maps",
         "anchor": "generated-maps",
         "firstParagraph": "Map → Generate Map builds a seeded Dungeon or Wilderness in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. Preview changes nothing, Reroll advances the seed, and Apply writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map."
+    },
+    {
+        "title": "Ground brush",
+        "anchor": "ground-brush",
+        "firstParagraph": "Map → Ground Brush paints dirt, grass and stone with soft edges, off the grid, over the ground tiles and under every doodad and character. In its card, pick a picture in the Item Bag and choose Use Picked for one of the three texture slots (textures repeat across the map), choose a slot, and drag on the map. Size, Strength and Soft edge set the brush; right-drag erases. Painting one texture over another replaces it. Each stroke is one undo step."
+    },
+    {
+        "title": "Ropes and cables",
+        "anchor": "ropes-and-cables",
+        "firstParagraph": "On the Path card choose Draw a Rope Instead, then press at one end and release at the other (hold Shift to snap the ends to tile middles). With a picture picked in the Item Bag, the picture is stretched along the rope; with none, it is a plain cord. A selected rope shows a handle at each end and one in the middle: drag the ends to move them and the middle to change the sag. Each drag is one Undo step."
     },
     {
         "title": "Heat haze",
@@ -230,6 +250,11 @@ DocsDoodads.HelpIndex = [
         "title": "Character animation",
         "anchor": "character-animation",
         "firstParagraph": "- Sheet names set the layout, so no notetags are needed: - Hero[f8]: 8 frames per row (any number up to 64). %(8) also works. - Slime[f6][d1]: a single row facing right, mirrored when facing left. - Knight[d8][f4]: 8 rows. Down, left, right and up come first, then down-left, down-right, up-left and up-right. - Hero[f9][w2]: frame 0 is the standing pose and the others are the walk, one cycle every 2 tiles at any speed, so the feet keep up with the ground (the Character Creator's walkers use it). Needs more than 3 frames. - Ogresmash[f6][b32]: each frame has 32 pixels of art below the feet (a weapon swung down past them). The character still stands where it is; its shadow, reflection, bush and gear follow the feet. The Character Creator's big-weapon actions do the same without the tag (it notes them in the project's settings, so their names stay the same). - Tagged sheets hold one character, like $ sheets. - Idle and run cycles: open the map panel's Characters section. - Add a character's sheet name. Sheets named Nameidle and Namerun beside it are found automatically, or Add All Detected finds every pair at once. - Set how long a character must stand still before idling, and the idle and run frame rates. - Run plays while dashing, and for events with move speed 5 or more. - Variant sheets are preloaded when the map loads, so switching never blinks. - Diagonal movement (8 directions) lets the player move diagonally with two keys held, sliding along walls. 8-direction sheets then show the diagonal rows. - Play Character Action plays a sheet on the player or an event, such as drinking, sleeping, farming or a sword swing. - Set the frames per second and how many times it plays (0 = until cleared). - Hold the Last Frame keeps it there for sitting or sleeping. - The event can wait until the action finishes. - Clear Character Action returns the character to normal."
+    },
+    {
+        "title": "Movement off the grid",
+        "anchor": "movement-off-the-grid",
+        "firstParagraph": "World → Movement → The player walks off the grid lets the player move by pixels in eight directions instead of tile by tile. A small box at their feet (24 × 16 pixels by default; set its size there) slides along painted collision, doodad bodies, MZ's impassable tiles and one-way tile edges, and the boxes of events that stand like characters. A box that just clips a corner is nudged round it. Touch and mouse destinations follow the tile path and walk it freely."
     },
     {
         "title": "Traversal",
@@ -475,6 +500,31 @@ DocsDoodads.HelpIndex = [
         "title": "19. Maps: Switching, Cross-Map Editing, Neighbours & World View",
         "anchor": "19-maps-switching-cross-map-editing-neighbours--world-view",
         "firstParagraph": "The Maps section of the map panel (shown when nothing is selected): - Go to Map moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and Save writes every map you changed to its own file. - Copy / Paste across maps: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy, and Paste in Place (Ctrl+Shift+V) keeps the position there too. - Copy to Map / Move to Map (Details): send the selection to any map in one undoable step. - Neighbouring maps: link maps north/south/east/west. Mirror Edge Doodads copies doodads hanging over an edge onto the neighbouring map as locked mirrors, so a tree on a border shows on both sides. Running it again replaces the old mirrors. - Map pictures: after a map has been opened, its tabs, Go to Map list, Go to map rows in Find a Tool and World View show a small picture of its tiles and doodads. A map without a cached picture has a plain tile with its name until it gets one. Pictures are refreshed when the map opens, is saved or is left; they are disposable files under data/docsdoodadscache/maps/ and are never added to the game's saved data. Unsaved pictures stay in memory and go away when changes are discarded. Saving changes to another map invalidates that map's old picture; it is redrawn when opened, while unchanged maps keep theirs. - World View draws the map and its linked neighbours to scale with their map pictures and edge-crossing doodads in orange. Click a map to go there. - Looping (world) maps wrap doodads, lights, outlines and clicks with the camera, the same way MZ's characters wrap."
+    },
+    {
+        "title": "Robot tester",
+        "anchor": "robot-tester",
+        "firstParagraph": "Map → Test Every Map follows the game from its start without playing: it walks each map from where the player arrives (MZ's passage rules, painted collision and events that stand like characters) and follows every Transfer Player it can get to. It lists maps nobody can reach, transfers that land outside a map, on a missing map or on a tile nobody can stand on, maps with no way out (dead ends), one-way trips with no way back, and transfers set by variables (which it cannot follow). Doodad collision on other maps is not counted."
+    },
+    {
+        "title": "Save 3D Map as File",
+        "anchor": "save-3d-map-as-file",
+        "firstParagraph": "Map → Save 3D Map as File writes this map as one .glb file in screenshots/ for Blender, a trailer or a 3D print: the ground (the 3D view's hills and walls, or two triangles for a flat map) with the map's tiles as its picture, and each standing doodad as an upright picture (floor decals stay in the ground picture). Choose the ground picture's size, or Ground only. One tile is one metre and +Y is up. It asks first: the file carries the project's art, so share it only where the art's licences allow. 3D models and ropes are not written in this version."
+    },
+    {
+        "title": "Picture to Map",
+        "anchor": "picture-to-map",
+        "firstParagraph": "Map → Picture to Map turns a drawing into this map's tiles, hills and doodads. First choose the kind of map, because it sets the scale, the key and the rules:"
+    },
+    {
+        "title": "Import a Tiled or LDtk map",
+        "anchor": "import-a-tiled-or-ldtk-map",
+        "firstParagraph": "Map → Import Map makes a new MZ map from a Tiled map (.tmj, or .json saved from Tiled) or one level of an LDtk project (.ldtk). Close RPG Maker MZ's editor first: it rewrites the map list when it saves. Choose the file (and the level), read what will be made, then Import."
+    },
+    {
+        "title": "Pins and fast travel",
+        "anchor": "pins-and-fast-travel",
+        "firstParagraph": "Right-click a tile and choose Add Pin Here to mark a town, shop or quest for players. Give it a name, an IconSet icon, and optionally a switch it needs. Tick fast travel to let players travel there from the world map. Edit Pin and Delete Pin are on the same menu, and each change is one Undo step. Pins are saved with the project and drawn as small flags in the editor."
     },
     {
         "title": "20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing",

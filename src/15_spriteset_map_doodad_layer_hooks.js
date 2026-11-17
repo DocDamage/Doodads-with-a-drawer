@@ -368,6 +368,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         for (const sprite of this._docsDoodadSprites || []) {
             const d = sprite.visible ? sprite._data : null;
             if (d && d.light && d.light.enabled) visibleData.push(d);
+            // Lights hung on a rope (9.3.2) follow its sway; the same objects each frame keep their fades.
+            if (sprite.visible && sprite._docsRopeLights) for (const hung of sprite._docsRopeLights) visibleData.push(hung);
         }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
             { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30, freeze: Boolean(freeze) });

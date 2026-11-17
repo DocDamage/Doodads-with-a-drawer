@@ -232,6 +232,12 @@
  * @default 0
  * @desc While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).
  *
+ * @param fastTravelForbidSwitch
+ * @text Forbid Fast Travel Switch
+ * @type switch
+ * @default 0
+ * @desc While this switch is ON the world map shows pins but cannot travel (dungeons, cutscenes).
+ *
  * @param editorMode
  * @text Editor Enabled
  * @type boolean
@@ -1341,7 +1347,36 @@
  *
  * @command showWorldMap
  * @text Show World Map
- * @desc Shows the whole map (a globe on planet-shaped 3D maps) with the player marked. Arrow keys turn the globe; OK or Cancel closes.
+ * @desc Shows the whole map (a globe on planet-shaped 3D maps) with the player and found pins marked. With travel pins found, arrows choose one and OK travels.
+ *
+ * @command findPin
+ * @text Find Pin
+ * @desc Marks a pin as found (and shows it again if it was hidden), as if the player had been there.
+ *
+ * @arg pin
+ * @text Pin
+ * @type text
+ * @desc The pin's name (any map, letter case ignored) or its id, as Details shows them.
+ *
+ * @command hidePin
+ * @text Hide Pin
+ * @desc Hides or shows a pin on the minimap and the world map (saved with the game).
+ *
+ * @arg pin
+ * @text Pin
+ * @type text
+ * @desc The pin's name (any map, letter case ignored) or its id.
+ *
+ * @arg hidden
+ * @text Hidden
+ * @type boolean
+ * @default true
+ * @on Hide
+ * @off Show
+ *
+ * @command openFastTravel
+ * @text Open Fast Travel
+ * @desc Opens the world map to choose a found travel pin (also from a signpost or an item). The Forbid Fast Travel Switch still applies.
  *
  * @command storeHeight
  * @text Store Ground Height

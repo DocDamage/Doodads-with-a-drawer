@@ -650,7 +650,8 @@
             });
         }
         entries.push({ path: DocsDoodads.AssetIndex.libraryPath, data: library, indent: 2 });
-        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets);
+        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets,
+            DocsDoodads.NormalLight.renameGenerated(DocsDoodads.NormalLight.manifest.generated, oldPath, newPath));
         entries.push({ path: DocsDoodads.NormalLight.manifestPath, data: normalManifest, indent: 2 });
 
         // Move the files first: undoing a rename is easy, undoing half-written data is not.

@@ -121,7 +121,7 @@ DocsDoodads.AssetIndex = {
     },
 
     isIgnoredDirectory(name) {
-        return name === '_packed' || String(name).startsWith('.');
+        return name === '_packed' || name === '_normals' || String(name).startsWith('.');
     },
 
     isSupportedAssetFile(filePath) {

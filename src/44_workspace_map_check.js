@@ -166,6 +166,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
         if (this.shippedProblems && this.shippedRelease()) out = out.concat(this.shippedProblems());
         if (this.creditProblems) out = out.concat(this.creditProblems());
+        if (this.pinProblems) out = out.concat(this.pinProblems());
         return out;
     },
 

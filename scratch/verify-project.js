@@ -62,6 +62,7 @@ run('Guide help index', process.execPath, [path.join('scripts', 'help.js'), '--c
 run('Plugin compatibility table', process.execPath, [path.join('scripts', 'clashes.js'), '--check']);
 run('Translation template', process.execPath, [path.join('scripts', 'strings.js'), '--check']);
 run('API types', process.execPath, [path.join('scripts', 'types.js'), '--check']);
+run('Tool clips', process.execPath, [path.join('scripts', 'tool_clips.js'), '--check']);
 run('Lint', process.execPath, [path.join('node_modules', 'eslint', 'bin', 'eslint.js'), 'Docs-Doodads.js', 'scripts', 'scratch', 'eslint.config.js']);
 if (!skipTests) run('Regression suites', process.execPath, [path.join('scratch', 'run-tests.js')]);
 

@@ -150,6 +150,42 @@ const tipped = makeNode('button'); tipped.setAttribute('data-dd-tip', 'Save (Ctr
 const tip = U.showTooltip(tipped);
 assert.deepStrictEqual([tip.style.left, tip.style.top], [Math.round(130 * 1.5 - 80) + 'px', Math.round(80 * 1.5 + 8) + 'px'], 'under the button as it appears');
 U.hideTooltip();
+{
+    // Moving tooltips (8.2.3): a main tool's tooltip gains its clip after a moment; others are unchanged.
+    const TC = DocsDoodads.ToolClips, art = DocsDoodads.ToolClipArt, timers = [], realTimeout = global.setTimeout;
+    assert.strictEqual(Object.keys(art.clips).length, 10, 'the ten main tools have clips');
+    assert.ok(Object.values(art.clips).every(url => /^data:image\/png;base64,/.test(url)));
+    assert.ok(Buffer.byteLength(JSON.stringify(art.clips)) < 48 * 1024, 'all clips together stay small');
+    global.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+    const clipsIn = node => node.childNodes.filter(child => child.className === 'dd-tip-clip');
+    const stampButton = makeNode('button'); stampButton.id = 'dd-stamp-btn'; stampButton.setAttribute('data-dd-tip', 'Stamp (S)'); ws.container.appendChild(stampButton);
+    U.setPref('lessMotion', false);
+    const stampTip = U.showTooltip(stampButton);
+    assert.strictEqual(clipsIn(stampTip).length, 0, 'not at once');
+    assert.strictEqual(timers[timers.length - 1].ms, TC.delay);
+    timers.pop().fn();
+    const clip = clipsIn(stampTip)[0];
+    assert.ok(clip, 'the clip appears once the tooltip has been up a moment');
+    assert.ok(clip.style.cssText.includes(art.clips['dd-stamp-btn']) && /steps\(8\)/.test(clip.style.cssText) && /width:160px/.test(clip.style.cssText));
+    U.hideTooltip();
+    const plainTip = U.showTooltip(tipped);
+    assert.strictEqual(timers.length, 0, 'a control with no clip schedules nothing');
+    assert.strictEqual(clipsIn(plainTip).length, 0, 'and its tooltip is unchanged');
+    U.hideTooltip();
+    const early = U.showTooltip(stampButton);
+    const pending = timers.pop();
+    U.hideTooltip();
+    pending.fn();
+    assert.strictEqual(clipsIn(early).length, 0, 'a tooltip closed before the moment gets no clip');
+    U.setPref('lessMotion', true);
+    const still = U.showTooltip(stampButton);
+    assert.strictEqual(timers.length, 0, 'Less motion: no clip is scheduled');
+    assert.strictEqual(clipsIn(still).length, 0);
+    U.hideTooltip();
+    U.setPref('lessMotion', false);
+    global.setTimeout = realTimeout;
+    console.log('✓ moving tooltips: after a moment, only for tools with clips, never with Less motion');
+}
 U.setPref('uiScale', 1);
 console.log('✓ sizes: workspace units inside, window pixels for page-level pills, hover card and tooltips');
 

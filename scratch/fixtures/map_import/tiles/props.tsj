@@ -1,0 +1,1 @@
+{ "name": "props", "image": "props.png", "imagewidth": 32, "imageheight": 16, "columns": 2, "tilewidth": 16, "tileheight": 16, "margin": 1, "spacing": 2, "tilecount": 2 }

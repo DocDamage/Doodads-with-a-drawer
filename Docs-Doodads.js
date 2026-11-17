@@ -232,6 +232,12 @@
  * @default 0
  * @desc While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).
  *
+ * @param fastTravelForbidSwitch
+ * @text Forbid Fast Travel Switch
+ * @type switch
+ * @default 0
+ * @desc While this switch is ON the world map shows pins but cannot travel (dungeons, cutscenes).
+ *
  * @param editorMode
  * @text Editor Enabled
  * @type boolean
@@ -1341,7 +1347,36 @@
  *
  * @command showWorldMap
  * @text Show World Map
- * @desc Shows the whole map (a globe on planet-shaped 3D maps) with the player marked. Arrow keys turn the globe; OK or Cancel closes.
+ * @desc Shows the whole map (a globe on planet-shaped 3D maps) with the player and found pins marked. With travel pins found, arrows choose one and OK travels.
+ *
+ * @command findPin
+ * @text Find Pin
+ * @desc Marks a pin as found (and shows it again if it was hidden), as if the player had been there.
+ *
+ * @arg pin
+ * @text Pin
+ * @type text
+ * @desc The pin's name (any map, letter case ignored) or its id, as Details shows them.
+ *
+ * @command hidePin
+ * @text Hide Pin
+ * @desc Hides or shows a pin on the minimap and the world map (saved with the game).
+ *
+ * @arg pin
+ * @text Pin
+ * @type text
+ * @desc The pin's name (any map, letter case ignored) or its id.
+ *
+ * @arg hidden
+ * @text Hidden
+ * @type boolean
+ * @default true
+ * @on Hide
+ * @off Show
+ *
+ * @command openFastTravel
+ * @text Open Fast Travel
+ * @desc Opens the world map to choose a found travel pin (also from a signpost or an item). The Forbid Fast Travel Switch still applies.
  *
  * @command storeHeight
  * @text Store Ground Height
@@ -1874,6 +1909,7 @@ const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
 const photoModeKey = String(parameters.photoModeKey === undefined ? "P" : parameters.photoModeKey).trim();
 const photoModeForbidSwitch = Math.max(0, Math.round(parseNumberParameter(parameters.photoModeForbidSwitch, 0, 0, 9999)));
+const fastTravelForbidSwitch = Math.max(0, Math.round(parseNumberParameter(parameters.fastTravelForbidSwitch, 0, 0, 9999)));
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
 const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
 // The release, as in package.json and the header's @plugindesc (verify checks that the three agree).
@@ -2558,6 +2594,281 @@ DocsDoodads.Comfort = {
         const softened = colour.slice(); softened[3] = 0;
         start.call(screen, softened, frames);
     }
+};
+//==========================================================
+// SECTION 4F: MOVEMENT OFF THE GRID (7.3.3), THE PURE PART
+//==========================================================
+// A character's box (24 × 16 pixels at the feet by default) moves by pixels and slides along whatever stops
+// it: x and y are resolved apart, a long move is cut into short steps so nothing thin is jumped over, and a
+// box that just clips a corner is nudged round it. `blocked(rect, from)` says whether a box may stand
+// somewhere; the runtime builds it from painted walls, doodad bodies, MZ's tiles and other characters.
+DocsDoodads.FreeMove = {
+    defaults: { enabled: false, boxW: 24, boxH: 16 },
+    maxStep: 4,
+    slip: 8,
+
+    settings(world) {
+        const s = Object.assign({}, this.defaults, (world && world.freeMove) || {});
+        const num = (v, min, max, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d; };
+        return { enabled: s.enabled === true, boxW: Math.round(num(s.boxW, 4, 96, 24)), boxH: Math.round(num(s.boxH, 4, 96, 16)) };
+    },
+
+    // MZ's numpad directions: 1 down-left ... 9 up-right. Diagonals are as fast as straight moves.
+    vector(dir8) {
+        const v = { 1: [-1, 1], 2: [0, 1], 3: [1, 1], 4: [-1, 0], 6: [1, 0], 7: [-1, -1], 8: [0, -1], 9: [1, -1] }[dir8];
+        if (!v) return { x: 0, y: 0 };
+        const length = Math.hypot(v[0], v[1]);
+        return { x: v[0] / length, y: v[1] / length };
+    },
+
+    // The way a character faces while moving diagonally: it keeps facing a side it already faces.
+    facing(dir8, current) {
+        if ([2, 4, 6, 8].includes(dir8)) return dir8;
+        const parts = { 1: [4, 2], 3: [6, 2], 7: [4, 8], 9: [6, 8] }[dir8];
+        if (!parts) return current;
+        return parts.includes(current) ? current : parts[0];
+    },
+
+    // The box at a character's real position (tiles): centred on its feet, which are the bottom of its tile.
+    box(realX, realY, tw, th, w, h) {
+        return { x: (realX + 0.5) * tw - w / 2, y: (realY + 1) * th - h, w, h };
+    },
+
+    realOf(box, tw, th) {
+        return { x: (box.x + box.w / 2) / tw - 0.5, y: (box.y + box.h) / th - 1 };
+    },
+
+    // The tile a box stands on: the one under its middle.
+    tileOf(box, tw, th) {
+        return { x: Math.floor((box.x + box.w / 2) / tw), y: Math.floor((box.y + box.h / 2) / th) };
+    },
+
+    // Touching is not overlapping: a box may slide along a wall it touches.
+    overlaps(a, b) {
+        return Boolean(a && b) && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    },
+
+    // The tiles a box covers (for walls and solid tiles).
+    tilesUnder(box, tw, th) {
+        const out = [];
+        const x0 = Math.floor(box.x / tw), x1 = Math.floor((box.x + box.w - 1e-6) / tw);
+        const y0 = Math.floor(box.y / th), y1 = Math.floor((box.y + box.h - 1e-6) / th);
+        for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) out.push({ x: tx, y: ty });
+        return out;
+    },
+
+    // Whether going from one tile to the next is stopped by MZ's passage rules. passable(x, y, d): may a
+    // character leave (x, y) towards d, as Game_CharacterBase.isMapPassable answers. A diagonal step is
+    // allowed when either way round is.
+    crossBlocked(passable, from, to) {
+        const dx = Math.sign(to.x - from.x), dy = Math.sign(to.y - from.y);
+        if (!dx && !dy) return false;
+        const h = dx > 0 ? 6 : 4, v = dy > 0 ? 2 : 8;
+        if (dx && !dy) return !passable(from.x, from.y, h);
+        if (dy && !dx) return !passable(from.x, from.y, v);
+        const viaX = passable(from.x, from.y, h) && passable(from.x + dx, from.y, v);
+        const viaY = passable(from.x, from.y, v) && passable(from.x, from.y + dy, h);
+        return !(viaX || viaY);
+    },
+
+    // As far as it can along one axis: the whole way, or up to what stops it (to 1/64 of the step).
+    advance(box, mx, my, blocked) {
+        const target = { x: box.x + mx, y: box.y + my, w: box.w, h: box.h };
+        if (!blocked(target, box)) return { box: target, hit: false };
+        let lo = 0, hi = 1;
+        for (let k = 0; k < 6; k++) {
+            const mid = (lo + hi) / 2;
+            if (blocked({ x: box.x + mx * mid, y: box.y + my * mid, w: box.w, h: box.h }, box)) hi = mid; else lo = mid;
+        }
+        return { box: { x: box.x + mx * lo, y: box.y + my * lo, w: box.w, h: box.h }, hit: true };
+    },
+
+    // A box stopped while moving straight slips sideways (up to `slip` pixels) when that clears the corner.
+    corner(box, mx, my, blocked, slip) {
+        for (let off = 1; off <= slip; off++) {
+            for (const sign of [-1, 1]) {
+                const side = mx ? { x: box.x, y: box.y + sign * off, w: box.w, h: box.h } : { x: box.x + sign * off, y: box.y, w: box.w, h: box.h };
+                if (blocked(side, box)) continue;
+                const ahead = { x: side.x + mx, y: side.y + my, w: box.w, h: box.h };
+                if (blocked(ahead, side)) continue;
+                const nudge = Math.min(off, Math.max(Math.abs(mx), Math.abs(my)));
+                return mx ? { x: box.x, y: box.y + sign * nudge, w: box.w, h: box.h } : { x: box.x + sign * nudge, y: box.y, w: box.w, h: box.h };
+            }
+        }
+        return null;
+    },
+
+    // One frame's move. A box that starts inside something is let out (no collision until it is clear).
+    step(box, dx, dy, blocked, options = {}) {
+        const maxStep = Math.max(0.25, Number(options.maxStep) || this.maxStep), slip = Math.max(0, Number(options.slip === undefined ? this.slip : options.slip) || 0);
+        const start = { x: box.x, y: box.y, w: box.w, h: box.h };
+        if (blocked(start, start)) {
+            const free = { x: box.x + dx, y: box.y + dy, w: box.w, h: box.h };
+            return { x: free.x, y: free.y, hitX: false, hitY: false, moved: Math.hypot(dx, dy), stuck: true };
+        }
+        let current = start, hitX = false, hitY = false;
+        const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / maxStep));
+        const sx = dx / n, sy = dy / n;
+        for (let i = 0; i < n; i++) {
+            if (sx && !hitX) {
+                const r = this.advance(current, sx, 0, blocked);
+                current = r.box;
+                if (r.hit) {
+                    const round = !sy && slip ? this.corner(current, sx, 0, blocked, slip) : null;
+                    if (round) current = round; else hitX = true;
+                }
+            }
+            if (sy && !hitY) {
+                const r = this.advance(current, 0, sy, blocked);
+                current = r.box;
+                if (r.hit) {
+                    const round = !sx && slip ? this.corner(current, 0, sy, blocked, slip) : null;
+                    if (round) current = round; else hitY = true;
+                }
+            }
+        }
+        return { x: current.x, y: current.y, hitX, hitY, moved: Math.hypot(current.x - start.x, current.y - start.y), stuck: false };
+    },
+
+    // Followers: the point `distance` back along a trail of { x, y, d } (newest last).
+    alongTrail(trail, distance) {
+        if (!trail || !trail.length) return null;
+        let left = Math.max(0, distance);
+        for (let i = trail.length - 1; i > 0; i--) {
+            const a = trail[i], b = trail[i - 1], span = Math.hypot(a.x - b.x, a.y - b.y);
+            if (span >= left && span > 0) {
+                const f = left / span;
+                return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, d: a.d };
+            }
+            left -= span;
+        }
+        return { x: trail[0].x, y: trail[0].y, d: trail[0].d };
+    }
+};
+//==========================================================
+// SECTION 4G: THE GROUND BRUSH (8.3.4), THE PURE PART
+//==========================================================
+// Dirt, grass and stone painted with soft edges, off the grid. A map's painting is one mask picture,
+// img/doodads/ground/Map###_ground.png, at a quarter of the map's pixel size, with a channel per texture:
+// red, green and blue mix up to three repeating textures (the map's settings name them). Alpha stays opaque:
+// browsers premultiply a picture's alpha when it is uploaded, which would spoil the other three channels.
+DocsDoodads.Ground = {
+    maskScale: 4,
+    channels: 3,
+    folder: 'img/doodads/ground',
+
+    maskPath(mapId) { return `${this.folder}/Map${String(Math.max(0, Math.floor(Number(mapId) || 0))).padStart(3, '0')}_ground.png`; },
+
+    settings(mapSettings) {
+        const g = mapSettings && mapSettings.ground && typeof mapSettings.ground === 'object' ? mapSettings.ground : null;
+        if (!g) return null;
+        const clean = p => (typeof p === 'string' && /^img\/[^\0]*\.(png|jpe?g|webp)$/i.test(p) && !p.split('/').includes('..') ? p : '');
+        const textures = [0, 1, 2].map(i => clean((g.textures || [])[i]));
+        return { textures, mask: clean(g.mask), scale: Math.max(0.25, Math.min(8, Number(g.scale) || 1)) };
+    },
+
+    maskSize(tilesW, tilesH, tw, th) {
+        return { w: Math.max(1, Math.ceil(tilesW * tw / this.maskScale)), h: Math.max(1, Math.ceil(tilesH * th / this.maskScale)) };
+    },
+
+    blank(w, h) {
+        const data = new Uint8ClampedArray(w * h * 4);
+        for (let i = 3; i < data.length; i += 4) data[i] = 255;
+        return data;
+    },
+
+    // 1 inside the hard part of the brush, easing to 0 at its edge (softness 0 is a hard edge).
+    weight(distance, radius, softness = 0.5) {
+        if (!(radius > 0) || distance >= radius) return 0;
+        const hard = radius * (1 - Math.max(0, Math.min(1, Number(softness) || 0)));
+        if (distance <= hard) return 1;
+        const t = (distance - hard) / Math.max(1e-6, radius - hard);
+        return 1 - t * t * (3 - 2 * t);
+    },
+
+    // One dab at (cx, cy) in mask pixels. Painting a channel raises it and lowers the others, so a texture
+    // painted over another replaces it; erasing lowers all three. Returns the changed rectangle, or null.
+    dab(mask, w, h, cx, cy, radius, options = {}) {
+        const channel = Math.max(0, Math.min(this.channels - 1, Math.floor(Number(options.channel) || 0)));
+        const strength = Math.max(0, Math.min(1, options.strength === undefined ? 1 : Number(options.strength)));
+        const x0 = Math.max(0, Math.floor(cx - radius)), x1 = Math.min(w - 1, Math.ceil(cx + radius));
+        const y0 = Math.max(0, Math.floor(cy - radius)), y1 = Math.min(h - 1, Math.ceil(cy + radius));
+        if (x0 > x1 || y0 > y1 || !strength) return null;
+        let changed = false;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+            const k = this.weight(Math.hypot(x + 0.5 - cx, y + 0.5 - cy), radius, options.softness) * strength;
+            if (!k) continue;
+            const at = (y * w + x) * 4;
+            for (let c = 0; c < this.channels; c++) {
+                const old = mask[at + c];
+                const next = options.erase ? old * (1 - k) : c === channel ? old + (255 - old) * k : old * (1 - k);
+                mask[at + c] = Math.round(next);
+                if (mask[at + c] !== old) changed = true;
+            }
+            mask[at + 3] = 255;
+        }
+        return changed ? { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 } : null;
+    },
+
+    union(a, b) {
+        if (!a) return b ? Object.assign({}, b) : null;
+        if (!b) return Object.assign({}, a);
+        const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+        return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+    },
+
+    // Undo keeps only the rectangle a stroke changed.
+    copyRect(mask, w, rect) {
+        const out = new Uint8ClampedArray(rect.w * rect.h * 4);
+        for (let y = 0; y < rect.h; y++) out.set(mask.subarray(((rect.y + y) * w + rect.x) * 4, ((rect.y + y) * w + rect.x + rect.w) * 4), y * rect.w * 4);
+        return out;
+    },
+
+    putRect(mask, w, rect, pixels) {
+        for (let y = 0; y < rect.h; y++) mask.set(pixels.subarray(y * rect.w * 4, (y + 1) * rect.w * 4), ((rect.y + y) * w + rect.x) * 4);
+        return mask;
+    },
+
+    isEmpty(mask) {
+        for (let i = 0; i < mask.length; i += 4) if (mask[i] || mask[i + 1] || mask[i + 2]) return false;
+        return true;
+    },
+
+    vertex: [
+        'precision highp float;',
+        'attribute vec2 aVertexPosition;',
+        'uniform mat3 projectionMatrix;',
+        'uniform mat3 translationMatrix;',
+        'varying vec2 vMap;',
+        'void main() {',
+        '    vMap = aVertexPosition;',
+        '    gl_Position = vec4((projectionMatrix * translationMatrix * vec3(aVertexPosition, 1.0)).xy, 0.0, 1.0);',
+        '}'
+    ].join('\n'),
+
+    // The mask weights three repeating textures; where nothing is painted the tiles show through.
+    fragment: [
+        'precision mediump float;',
+        'varying vec2 vMap;',
+        'uniform sampler2D uMask;',
+        'uniform vec2 uMapSize;',
+        'uniform sampler2D uTex0;',
+        'uniform sampler2D uTex1;',
+        'uniform sampler2D uTex2;',
+        'uniform vec2 uTexSize0;',
+        'uniform vec2 uTexSize1;',
+        'uniform vec2 uTexSize2;',
+        'uniform float uAlpha;',
+        'void main() {',
+        '    vec3 m = texture2D(uMask, vMap / uMapSize).rgb;',
+        '    float total = m.r + m.g + m.b;',
+        '    if (total < 0.004) discard;',
+        '    vec3 c = texture2D(uTex0, fract(vMap / uTexSize0)).rgb * m.r + texture2D(uTex1, fract(vMap / uTexSize1)).rgb * m.g +',
+        '        texture2D(uTex2, fract(vMap / uTexSize2)).rgb * m.b;',
+        '    float a = min(1.0, total) * uAlpha;',
+        '    gl_FragColor = vec4(c / total * a, a);',
+        '}'
+    ].join('\n')
 };
 // One passive analyser tap on the BGM gain, shared by all music-reactive effects.
 DocsDoodads.Beat = {
@@ -3406,6 +3717,7 @@ DocsDoodads.NormalLight = {
     maxLights: 8,
     manifestPath: 'data/DocsDoodadsNormals.json',
     manifest: { version: 1, normals: {} },
+    _generatedSources: new Set(),
 
     cleanPath(value) {
         const path = String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
@@ -3419,7 +3731,93 @@ DocsDoodads.NormalLight = {
         return path.replace(/\.(png|jpe?g|webp)$/i, '_n.png');
     },
 
-    manifestFromAssets(assets) {
+    // Normal maps made for a picture (8.3.1) live here, under img/ so MZ's deployment encrypts them with the
+    // rest of the art; the asset index ignores the folder as it ignores _packed.
+    generatedDir: 'img/doodads/_normals',
+    shadeModes: ['made', 'file', 'off'],
+    shadeDefaults: { mode: 'made', strength: 1, shape: 'round' },
+
+    // A doodad's Shading: Made for me (a hand-made _n file still wins), From file only, or Off.
+    shade(value) {
+        const d = this.shadeDefaults, v = value && typeof value === 'object' ? value : {};
+        const mode = this.shadeModes.includes(v.mode) ? v.mode : d.mode;
+        const strength = Math.round(Math.max(0.25, Math.min(4, Number(v.strength) || d.strength)) * 100) / 100;
+        return { mode, strength, shape: v.shape === 'flat' ? 'flat' : 'round' };
+    },
+
+    // The frame grid a sprite shows: cell size and where its cells start, so every frame of a strip shares a key.
+    gridOf(frame) {
+        const w = Math.max(1, Math.round(Number(frame && frame.width) || 1));
+        const h = Math.max(1, Math.round(Number(frame && frame.height) || 1));
+        const x = Math.round(Number(frame && frame.x) || 0), y = Math.round(Number(frame && frame.y) || 0);
+        return { w, h, x: ((x % w) + w) % w, y: ((y % h) + h) % h };
+    },
+
+    generatedKey(source, shade, frame) {
+        const path = this.cleanPath(source);
+        if (!path) return null;
+        const s = this.shade(shade), g = this.gridOf(frame);
+        return `${path.toLowerCase()}|${s.shape}|${s.strength.toFixed(2)}|${g.w}x${g.h}+${g.x},${g.y}`;
+    },
+
+    sourceOfKey(key) {
+        const bar = String(key || '').indexOf('|');
+        return bar > 0 ? String(key).slice(0, bar) : null;
+    },
+
+    cleanGenerated(rows) {
+        const clean = {};
+        if (!rows || typeof rows !== 'object') return clean;
+        const prefix = this.generatedDir.toLowerCase() + '/';
+        for (const [key, value] of Object.entries(rows)) {
+            const path = this.cleanPath(value), source = this.cleanPath(this.sourceOfKey(key));
+            if (!source || String(key).length > 1024 || !path || !/_n\.png$/i.test(path) || !path.toLowerCase().startsWith(prefix)) continue;
+            clean[String(key)] = path;
+        }
+        return clean;
+    },
+
+    // The base path for each picture with a made map, for the packed-art check in the game.
+    generatedSources(generated) {
+        const out = new Set();
+        for (const key of Object.keys(generated || {})) out.add(this.sourceOfKey(key));
+        return out;
+    },
+
+    // Rename/Move keeps a picture's made maps: the file itself does not move, only its key.
+    renameGenerated(generated, from, to) {
+        const oldPath = this.cleanPath(from), newPath = this.cleanPath(to), out = {};
+        for (const [key, value] of Object.entries(generated || {})) {
+            if (oldPath && newPath && this.sourceOfKey(key) === oldPath.toLowerCase()) out[newPath.toLowerCase() + key.slice(oldPath.length)] = value;
+            else out[key] = value;
+        }
+        return out;
+    },
+
+    // Which normal map a sprite draws with, and the key of a made one that is still missing.
+    resolve(source, shade, frame, manifest = this.manifest) {
+        const s = this.shade(shade);
+        if (s.mode === 'off' || !this.cleanPath(source)) return { path: null, kind: null, key: null };
+        const file = this.pathFor(source, manifest);
+        if (file || s.mode === 'file') return { path: file, kind: file ? 'file' : null, key: null };
+        const key = this.generatedKey(source, s, frame);
+        const rows = manifest && manifest.generated;
+        const made = key && rows && typeof rows === 'object' ? rows[key] || null : null;
+        return { path: made, kind: made ? 'made' : null, key, missing: !made };
+    },
+
+    // True when a doodad's picture is drawn with a normal map, so the game keeps it off packed sheets.
+    mapsSource(path, data, manifest = this.manifest) {
+        const s = this.shade(data && data.shade);
+        if (s.mode === 'off') return false;
+        if (this.pathFor(path, manifest)) return true;
+        if (s.mode === 'file') return false;
+        const clean = this.cleanPath(path);
+        const sources = manifest === this.manifest && this._generatedSources ? this._generatedSources : this.generatedSources(manifest && manifest.generated);
+        return Boolean(clean && sources.has(clean.toLowerCase()));
+    },
+
+    manifestFromAssets(assets, generated = this.manifest && this.manifest.generated) {
         const byPath = new Map();
         for (const asset of Object.values(assets || {})) {
             const path = asset && this.cleanPath(asset.path);
@@ -3437,7 +3835,8 @@ DocsDoodads.NormalLight = {
             }
             if (base) normals[String(base.path).toLowerCase()] = String(normal.path);
         }
-        return { version: 1, normals };
+        const made = this.cleanGenerated(generated);
+        return Object.keys(made).length ? { version: 1, normals, generated: made } : { version: 1, normals };
     },
 
     setManifest(value) {
@@ -3447,7 +3846,9 @@ DocsDoodads.NormalLight = {
             const b = this.cleanPath(base), n = this.cleanPath(normal);
             if (b && n && /_n\.png$/i.test(n)) clean[b.toLowerCase()] = n;
         }
-        this.manifest = { version: 1, normals: clean };
+        const made = this.cleanGenerated(value && value.generated);
+        this.manifest = Object.keys(made).length ? { version: 1, normals: clean, generated: made } : { version: 1, normals: clean };
+        this._generatedSources = this.generatedSources(made);
         return this.manifest;
     },
 
@@ -3720,6 +4121,108 @@ void main(void) {
     float owned = texture2D(uCoverage, vTextureCoord).r;
     gl_FragColor = vec4(mix(light.rgb, vec3(1.0), owned), light.a);
 }`
+};
+//==========================================================
+// SECTION 4R: ROPES AND CABLES (9.3.2)
+//==========================================================
+// Pure rules for a line between two points that sags and sways. A rope is a doodad with `line`; its first end
+// is the doodad's own point and the other is (x2, y2) pixels from it, so moving the doodad moves the rope and a
+// looping map's seam never splits it. Plain ropes carry MZ's empty icon (IconSet 0) as their picture, so a
+// build without ropes shows nothing instead of a missing picture.
+DocsDoodads.Rope = {
+    defaults: { x2: 96, y2: 0, sag: 16, width: 2, color: '#3b2a1a', sway: 1, hang: { path: '', count: 0, light: '' } },
+    maxLength: 4096,
+
+    normalize(line) {
+        if (!line || typeof line !== 'object') return null;
+        const d = this.defaults, num = (v, fallback, min, max) => {
+            const n = Number(v);
+            return Math.max(min, Math.min(max, Number.isFinite(n) ? n : fallback));
+        };
+        const hang = line.hang && typeof line.hang === 'object' ? line.hang : {};
+        const color = /^#[0-9a-f]{6}$/i.test(String(line.color || '')) ? String(line.color).toLowerCase() : d.color;
+        return {
+            x2: Math.round(num(line.x2, d.x2, -this.maxLength, this.maxLength)),
+            y2: Math.round(num(line.y2, d.y2, -this.maxLength, this.maxLength)),
+            sag: Math.round(num(line.sag, d.sag, 0, 512)),
+            width: num(line.width, d.width, 1, 16),
+            color,
+            sway: num(line.sway, d.sway, 0, 2),
+            hang: {
+                path: typeof hang.path === 'string' && /^img\/[^\0]*\.(png|jpe?g|webp)$/i.test(hang.path) && !hang.path.split('/').includes('..') ? hang.path : '',
+                count: Math.round(num(hang.count, 0, 0, 24)),
+                light: typeof hang.light === 'string' ? hang.light : ''
+            }
+        };
+    },
+
+    // Points along a hanging line: straight between the ends plus a parabola of `sag` pixels at the middle.
+    points(x1, y1, x2, y2, sag, n) {
+        n = Math.max(2, Math.min(64, Math.floor(Number(n) || 2)));
+        sag = Math.max(0, Number(sag) || 0);
+        const out = [];
+        for (let i = 0; i <= n; i++) {
+            const t = i / n;
+            out.push({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t + 4 * sag * t * (1 - t), t });
+        }
+        return out;
+    },
+
+    // Enough segments for a smooth curve: about one per 16 pixels, at least 8.
+    segmentsFor(line) {
+        const l = this.normalize(line);
+        if (!l) return 8;
+        return Math.max(8, Math.min(64, Math.ceil((Math.hypot(l.x2, l.y2) + l.sag) / 16)));
+    },
+
+    length(points) {
+        let total = 0;
+        for (let i = 1; i < (points || []).length; i++) total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+        return total;
+    },
+
+    // The wind pushes the middle sideways most and the ends not at all; a slow swing with the gusts.
+    // wind: { x, strength } as DocsDoodads.Wind.current() gives it. No wind is no sway.
+    swayed(points, wind, time, seed = 0, amount = 1) {
+        const x = Number(wind && wind.x) || 0, strength = Math.max(0, Number(wind && wind.strength) || 0);
+        amount = Math.max(0, Number(amount) || 0);
+        if ((!x && !strength) || !amount) return (points || []).map(p => ({ x: p.x, y: p.y, t: p.t }));
+        const swing = Math.sin((Number(time) || 0) * 1.7 + (Number(seed) || 0) * 0.37) * 4 * strength;
+        return points.map(p => {
+            const t = p.t !== undefined ? p.t : 0, belly = 4 * t * (1 - t);
+            const dx = belly * (x * 14 + swing) * amount;
+            return { x: p.x + dx, y: p.y - Math.abs(dx) * 0.2, t };
+        });
+    },
+
+    // Where hung things go: evenly spaced, never on the ends.
+    hangAt(points, count) {
+        count = Math.max(0, Math.min(24, Math.floor(Number(count) || 0)));
+        if (!count || !points || points.length < 2) return [];
+        const total = this.length(points), out = [];
+        for (let k = 1; k <= count; k++) {
+            let want = total * k / (count + 1), i = 1;
+            while (i < points.length - 1 && want > Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)) {
+                want -= Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+                i++;
+            }
+            const a = points[i - 1], b = points[i], span = Math.hypot(b.x - a.x, b.y - a.y) || 1, f = Math.min(1, want / span);
+            out.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+        }
+        return out;
+    },
+
+    // The lowest point below the first end (for "sorted with characters": the rope sorts by its lower end).
+    lowest(line) {
+        const l = this.normalize(line);
+        if (!l) return 0;
+        return Math.max(...this.points(0, 0, l.x2, l.y2, l.sag, 16).map(p => p.y));
+    },
+
+    colorNumber(color) {
+        const text = /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color) : this.defaults.color;
+        return parseInt(text.slice(1), 16);
+    }
 };
 //==========================================================
 // SECTION 6C: FINE-CELL COLLISION WALLS
@@ -6284,7 +6787,8 @@ DocsDoodads.World = {
         lighting2d: { occlusion: false, wallRegions: '', rays: 160, blockDoodads: false, blockEvents: false,
             flashlight: { enabled: false, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } },
         // Per-pixel normals beside doodad/character art (`Tree_n.png`); flat maps only.
-        normalLight: { enabled: false, maxLights: 8 },
+        normalLight: { enabled: false, maxLights: 8, characters: 'file' },
+        freeMove: { enabled: false, boxW: 24, boxH: 16 },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
             wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
@@ -10039,6 +10543,136 @@ DocsDoodads.Generate = {
     }
 };
 // @editor-only
+//==========================================================
+// SECTION 5W: WRITING glTF (8.4.8)
+//==========================================================
+// One binary .glb from meshes: { name, positions (x, y, z), normals, uvs, indices, image: { bytes, mime } | null,
+// doubleSided }. Each mesh is a node of the one scene with its own material (its picture as the base colour,
+// nearest-neighbour so pixel art stays sharp; cut-out transparency). Units: one tile is one metre, +Y up.
+// Read back with DocsDoodads.Gltf.parse.
+DocsDoodads.GltfWrite = {
+    GLB: 0x46546c67, JSON: 0x4e4f534a, BIN: 0x004e4942,
+
+    pad4(n) { return (4 - (n % 4)) % 4; },
+
+    // Flat normals per triangle, added up per vertex and normalised: smooth where triangles share points.
+    normalsFor(positions, indices) {
+        const out = new Float32Array(positions.length);
+        for (let i = 0; i + 2 < indices.length; i += 3) {
+            const [a, b, c] = [indices[i] * 3, indices[i + 1] * 3, indices[i + 2] * 3];
+            const ux = positions[b] - positions[a], uy = positions[b + 1] - positions[a + 1], uz = positions[b + 2] - positions[a + 2];
+            const vx = positions[c] - positions[a], vy = positions[c + 1] - positions[a + 1], vz = positions[c + 2] - positions[a + 2];
+            const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+            for (const k of [a, b, c]) { out[k] += nx; out[k + 1] += ny; out[k + 2] += nz; }
+        }
+        for (let k = 0; k < out.length; k += 3) {
+            const length = Math.hypot(out[k], out[k + 1], out[k + 2]);
+            if (length > 0) { out[k] /= length; out[k + 1] /= length; out[k + 2] /= length; } else out[k + 1] = 1;
+        }
+        return out;
+    },
+
+    glb(meshes, options = {}) {
+        const json = { asset: { version: '2.0', generator: options.generator || "Doc's Doodads" }, scene: 0, scenes: [{ nodes: [] }], nodes: [], meshes: [],
+            materials: [], accessors: [], bufferViews: [], buffers: [] };
+        const chunks = [];
+        let length = 0;
+        const view = (bytes, target) => {
+            const padding = this.pad4(length);
+            if (padding) { chunks.push(new Uint8Array(padding)); length += padding; }
+            json.bufferViews.push(Object.assign({ buffer: 0, byteOffset: length, byteLength: bytes.byteLength }, target ? { target } : {}));
+            chunks.push(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+            length += bytes.byteLength;
+            return json.bufferViews.length - 1;
+        };
+        const accessor = (array, type, componentType, target, minMax) => {
+            const count = array.length / ({ SCALAR: 1, VEC2: 2, VEC3: 3 }[type]);
+            const a = { bufferView: view(array, target), componentType, count, type };
+            if (minMax) {
+                const n = { VEC2: 2, VEC3: 3 }[type], min = new Array(n).fill(Infinity), max = new Array(n).fill(-Infinity);
+                for (let i = 0; i < array.length; i++) { const k = i % n; if (array[i] < min[k]) min[k] = array[i]; if (array[i] > max[k]) max[k] = array[i]; }
+                a.min = min; a.max = max;
+            }
+            json.accessors.push(a);
+            return json.accessors.length - 1;
+        };
+        const images = new Map();
+        for (const mesh of meshes) {
+            const positions = mesh.positions instanceof Float32Array ? mesh.positions : Float32Array.from(mesh.positions);
+            if (!positions.length) continue;
+            const count = positions.length / 3;
+            const indices = count > 65535 ? Uint32Array.from(mesh.indices) : Uint16Array.from(mesh.indices);
+            const normals = mesh.normals ? Float32Array.from(mesh.normals) : this.normalsFor(positions, indices);
+            const attributes = { POSITION: accessor(positions, 'VEC3', 5126, 34962, true), NORMAL: accessor(normals, 'VEC3', 5126, 34962) };
+            if (mesh.uvs) attributes.TEXCOORD_0 = accessor(Float32Array.from(mesh.uvs), 'VEC2', 5126, 34962);
+            const primitive = { attributes, indices: accessor(indices, 'SCALAR', count > 65535 ? 5125 : 5123, 34963), mode: 4 };
+            const material = { name: mesh.name || 'Material', doubleSided: Boolean(mesh.doubleSided), pbrMetallicRoughness: { metallicFactor: 0, roughnessFactor: 1 } };
+            if (mesh.image && mesh.image.bytes && mesh.uvs) {
+                if (!json.samplers) { json.samplers = [{ magFilter: 9728, minFilter: 9728, wrapS: 33071, wrapT: 33071 }]; json.textures = []; json.images = []; }
+                let texture = images.get(mesh.image.bytes);
+                if (texture === undefined) {
+                    json.images.push({ bufferView: view(mesh.image.bytes instanceof Uint8Array ? mesh.image.bytes : new Uint8Array(mesh.image.bytes)), mimeType: mesh.image.mime || 'image/png' });
+                    json.textures.push({ sampler: 0, source: json.images.length - 1 });
+                    texture = json.textures.length - 1;
+                    images.set(mesh.image.bytes, texture);
+                }
+                material.pbrMetallicRoughness.baseColorTexture = { index: texture };
+                if (mesh.cutout !== false) { material.alphaMode = 'MASK'; material.alphaCutoff = 0.5; }
+            }
+            json.materials.push(material);
+            primitive.material = json.materials.length - 1;
+            json.meshes.push({ name: mesh.name || 'Mesh', primitives: [primitive] });
+            json.nodes.push({ name: mesh.name || 'Node', mesh: json.meshes.length - 1 });
+            json.scenes[0].nodes.push(json.nodes.length - 1);
+        }
+        const padding = this.pad4(length);
+        if (padding) { chunks.push(new Uint8Array(padding)); length += padding; }
+        json.buffers.push({ byteLength: length });
+        const text = new TextEncoder().encode(JSON.stringify(json));
+        const jsonPad = this.pad4(text.length), total = 12 + 8 + text.length + jsonPad + 8 + length;
+        const out = new Uint8Array(total), dv = new DataView(out.buffer);
+        dv.setUint32(0, this.GLB, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+        dv.setUint32(12, text.length + jsonPad, true); dv.setUint32(16, this.JSON, true);
+        out.set(text, 20); out.fill(0x20, 20 + text.length, 20 + text.length + jsonPad);
+        let at = 20 + text.length + jsonPad;
+        dv.setUint32(at, length, true); dv.setUint32(at + 4, this.BIN, true); at += 8;
+        for (const chunk of chunks) { out.set(chunk, at); at += chunk.length; }
+        return out;
+    },
+
+    // A whole map's ground as one mesh from Terrain.buildMesh's vertices (map pixels, height in tiles).
+    groundFromTerrain(built, tw, th, mapW, mapH) {
+        const positions = new Float32Array(built.vertices.length * 3), uvs = new Float32Array(built.vertices.length * 2);
+        built.vertices.forEach((v, i) => {
+            positions[i * 3] = v.x / tw; positions[i * 3 + 1] = v.h; positions[i * 3 + 2] = v.y / th;
+            uvs[i * 2] = v.u / mapW; uvs[i * 2 + 1] = v.v / mapH;
+        });
+        // Map y becomes glTF z, which mirrors the winding: each triangle is turned round so the ground faces up.
+        const indices = [];
+        for (let i = 0; i + 2 < built.triangles.length; i += 3) indices.push(built.triangles[i], built.triangles[i + 2], built.triangles[i + 1]);
+        return { name: 'Ground', positions, uvs, indices };
+    },
+
+    // A flat map's ground: two triangles for the whole map.
+    flatGround(tilesW, tilesH) {
+        return { name: 'Ground', positions: [0, 0, 0, tilesW, 0, 0, tilesW, 0, tilesH, 0, 0, tilesH], uvs: [0, 0, 1, 0, 1, 1, 0, 1], indices: [0, 2, 1, 0, 3, 2] };
+    },
+
+    // Standing pictures as upright quads (facing +Z), merged per picture. items: [{ x, y, w, h, ground }] in
+    // tiles: x the middle, y the foot, ground the height under it.
+    quads(name, items, image) {
+        const positions = [], uvs = [], indices = [];
+        for (const it of items) {
+            const base = positions.length / 3, half = it.w / 2, g = it.ground || 0;
+            positions.push(it.x - half, g, it.y, it.x + half, g, it.y, it.x + half, g + it.h, it.y, it.x - half, g + it.h, it.y);
+            const flip = it.flipX ? 1 : 0;
+            uvs.push(flip, 1, 1 - flip, 1, 1 - flip, 0, flip, 0);
+            indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+        }
+        return { name, positions, uvs, indices, image, doubleSided: true };
+    }
+};
+// @editor-only
 // Conservative defaults for new pictures. Shape alone never identifies an object.
 DocsDoodads.Guess = {
     words: {
@@ -10246,9 +10880,29 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Enable World → Normal Maps to shade pictures and characters with nearby lamps. Put Treen.png beside Tree.png, with the same dimensions, or pick the art and choose Make Normal Map in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together."
     },
     {
+        "title": "Made for me",
+        "anchor": "made-for-me",
+        "firstParagraph": "With Normal Maps on, a doodad with no n.png gets a normal map made from its shape the first time it is lit in a playtest. The shape's edges are rounded off by their distance from the see-through pixels, with a little of the picture's brightness for surface detail. Every frame of a strip or sheet is made on its own, so frames never bleed into each other. The work runs in slices over several frames, with a progress pill if it takes a while. Made maps are kept in img/doodads/normals/ (hidden from the Item Bag), named in the normal-map manifest and listed for deployment with the pictures they shade. Editing a picture makes a new map and removes the old one."
+    },
+    {
+        "title": "Phone Preview",
+        "anchor": "phone-preview",
+        "firstParagraph": "View → Phone Preview plays the running project on a phone on the same Wi-Fi. It asks first, because anyone on that network who has the address can see the project until you stop. A card shows a QR code and the address; scan it with the phone's camera. The phone runs the game with the editor off. When a map or other data file is saved, the phone reloads and starts again where the player was standing. Stop on the card, closing the editor or closing the playtest stops it."
+    },
+    {
         "title": "Generated maps",
         "anchor": "generated-maps",
         "firstParagraph": "Map → Generate Map builds a seeded Dungeon or Wilderness in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. Preview changes nothing, Reroll advances the seed, and Apply writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map."
+    },
+    {
+        "title": "Ground brush",
+        "anchor": "ground-brush",
+        "firstParagraph": "Map → Ground Brush paints dirt, grass and stone with soft edges, off the grid, over the ground tiles and under every doodad and character. In its card, pick a picture in the Item Bag and choose Use Picked for one of the three texture slots (textures repeat across the map), choose a slot, and drag on the map. Size, Strength and Soft edge set the brush; right-drag erases. Painting one texture over another replaces it. Each stroke is one undo step."
+    },
+    {
+        "title": "Ropes and cables",
+        "anchor": "ropes-and-cables",
+        "firstParagraph": "On the Path card choose Draw a Rope Instead, then press at one end and release at the other (hold Shift to snap the ends to tile middles). With a picture picked in the Item Bag, the picture is stretched along the rope; with none, it is a plain cord. A selected rope shows a handle at each end and one in the middle: drag the ends to move them and the middle to change the sag. Each drag is one Undo step."
     },
     {
         "title": "Heat haze",
@@ -10344,6 +10998,11 @@ DocsDoodads.HelpIndex = [
         "title": "Character animation",
         "anchor": "character-animation",
         "firstParagraph": "- Sheet names set the layout, so no notetags are needed: - Hero[f8]: 8 frames per row (any number up to 64). %(8) also works. - Slime[f6][d1]: a single row facing right, mirrored when facing left. - Knight[d8][f4]: 8 rows. Down, left, right and up come first, then down-left, down-right, up-left and up-right. - Hero[f9][w2]: frame 0 is the standing pose and the others are the walk, one cycle every 2 tiles at any speed, so the feet keep up with the ground (the Character Creator's walkers use it). Needs more than 3 frames. - Ogresmash[f6][b32]: each frame has 32 pixels of art below the feet (a weapon swung down past them). The character still stands where it is; its shadow, reflection, bush and gear follow the feet. The Character Creator's big-weapon actions do the same without the tag (it notes them in the project's settings, so their names stay the same). - Tagged sheets hold one character, like $ sheets. - Idle and run cycles: open the map panel's Characters section. - Add a character's sheet name. Sheets named Nameidle and Namerun beside it are found automatically, or Add All Detected finds every pair at once. - Set how long a character must stand still before idling, and the idle and run frame rates. - Run plays while dashing, and for events with move speed 5 or more. - Variant sheets are preloaded when the map loads, so switching never blinks. - Diagonal movement (8 directions) lets the player move diagonally with two keys held, sliding along walls. 8-direction sheets then show the diagonal rows. - Play Character Action plays a sheet on the player or an event, such as drinking, sleeping, farming or a sword swing. - Set the frames per second and how many times it plays (0 = until cleared). - Hold the Last Frame keeps it there for sitting or sleeping. - The event can wait until the action finishes. - Clear Character Action returns the character to normal."
+    },
+    {
+        "title": "Movement off the grid",
+        "anchor": "movement-off-the-grid",
+        "firstParagraph": "World → Movement → The player walks off the grid lets the player move by pixels in eight directions instead of tile by tile. A small box at their feet (24 × 16 pixels by default; set its size there) slides along painted collision, doodad bodies, MZ's impassable tiles and one-way tile edges, and the boxes of events that stand like characters. A box that just clips a corner is nudged round it. Touch and mouse destinations follow the tile path and walk it freely."
     },
     {
         "title": "Traversal",
@@ -10591,6 +11250,31 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "The Maps section of the map panel (shown when nothing is selected): - Go to Map moves the player there with the workspace still open. Undo history ends at a map change, because its steps belong to the old map. Unsaved event edits stay with their own map, and Save writes every map you changed to its own file. - Copy / Paste across maps: Ctrl+C writes the clipboard to disk, so it survives map changes and restarts. Pasting on another map keeps the original position; pasting on the same map offsets the copy, and Paste in Place (Ctrl+Shift+V) keeps the position there too. - Copy to Map / Move to Map (Details): send the selection to any map in one undoable step. - Neighbouring maps: link maps north/south/east/west. Mirror Edge Doodads copies doodads hanging over an edge onto the neighbouring map as locked mirrors, so a tree on a border shows on both sides. Running it again replaces the old mirrors. - Map pictures: after a map has been opened, its tabs, Go to Map list, Go to map rows in Find a Tool and World View show a small picture of its tiles and doodads. A map without a cached picture has a plain tile with its name until it gets one. Pictures are refreshed when the map opens, is saved or is left; they are disposable files under data/docsdoodadscache/maps/ and are never added to the game's saved data. Unsaved pictures stay in memory and go away when changes are discarded. Saving changes to another map invalidates that map's old picture; it is redrawn when opened, while unchanged maps keep theirs. - World View draws the map and its linked neighbours to scale with their map pictures and edge-crossing doodads in orange. Click a map to go there. - Looping (world) maps wrap doodads, lights, outlines and clicks with the camera, the same way MZ's characters wrap."
     },
     {
+        "title": "Robot tester",
+        "anchor": "robot-tester",
+        "firstParagraph": "Map → Test Every Map follows the game from its start without playing: it walks each map from where the player arrives (MZ's passage rules, painted collision and events that stand like characters) and follows every Transfer Player it can get to. It lists maps nobody can reach, transfers that land outside a map, on a missing map or on a tile nobody can stand on, maps with no way out (dead ends), one-way trips with no way back, and transfers set by variables (which it cannot follow). Doodad collision on other maps is not counted."
+    },
+    {
+        "title": "Save 3D Map as File",
+        "anchor": "save-3d-map-as-file",
+        "firstParagraph": "Map → Save 3D Map as File writes this map as one .glb file in screenshots/ for Blender, a trailer or a 3D print: the ground (the 3D view's hills and walls, or two triangles for a flat map) with the map's tiles as its picture, and each standing doodad as an upright picture (floor decals stay in the ground picture). Choose the ground picture's size, or Ground only. One tile is one metre and +Y is up. It asks first: the file carries the project's art, so share it only where the art's licences allow. 3D models and ropes are not written in this version."
+    },
+    {
+        "title": "Picture to Map",
+        "anchor": "picture-to-map",
+        "firstParagraph": "Map → Picture to Map turns a drawing into this map's tiles, hills and doodads. First choose the kind of map, because it sets the scale, the key and the rules:"
+    },
+    {
+        "title": "Import a Tiled or LDtk map",
+        "anchor": "import-a-tiled-or-ldtk-map",
+        "firstParagraph": "Map → Import Map makes a new MZ map from a Tiled map (.tmj, or .json saved from Tiled) or one level of an LDtk project (.ldtk). Close RPG Maker MZ's editor first: it rewrites the map list when it saves. Choose the file (and the level), read what will be made, then Import."
+    },
+    {
+        "title": "Pins and fast travel",
+        "anchor": "pins-and-fast-travel",
+        "firstParagraph": "Right-click a tile and choose Add Pin Here to mark a town, shop or quest for players. Give it a name, an IconSet icon, and optionally a switch it needs. Tick fast travel to let players travel there from the world map. Edit Pin and Delete Pin are on the same menu, and each change is one Undo step. Pins are saved with the project and drawn as small flags in the editor."
+    },
+    {
         "title": "20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing",
         "anchor": "20-asset-management-where-used-renamemove-duplicates-live-reload-packing",
         "firstParagraph": ""
@@ -10701,6 +11385,411 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "- Origins: Doc's Doodads began as an upgrade of QJ-Doodads by Qiu Jiu (MIT License) and has grown into its own tool. - Font: the editor's font is Nunito, under the SIL Open Font License 1.1 (art/fonts/Nunito-OFL.txt)."
     }
 ];
+// @editor-only
+//==========================================================
+// SECTION 5M: MAPS FROM A PICTURE (8.5.2) AND WHAT KIND OF MAP (8.5.3)
+//==========================================================
+// A picture becomes a plan (plain data), the plan is shown, and only Apply changes the map, as one undo step.
+// The plan: { w, h, kind, cells: [class id or null per tile], heights: [0..1 per tile] | null, features:
+// [{ type, x, y, w, h, name }] }. Reading samples the commonest colour in each tile (edges stay sharp) and groups
+// the colours by median cut; the user agrees a key (colour group → class); the kind's finish step shapes the
+// plan (coasts, buildings, rooms); build turns it into tiles, regions, heights and biome spots. Pure.
+DocsDoodads.MapFrom = {
+    maxColours: 12,
+
+    // ---- Kinds of map (8.5.3) ----
+    builtIn: [
+        { id: 'overworld', name: 'Overworld', scale: 'A tile is a long way: coast, mountains, forests, rivers, a marker for each place.', rules: { mountainAt: 0.7 },
+            classes: [
+                { id: 'water', name: 'Sea and rivers', passable: false }, { id: 'grass', name: 'Grassland' }, { id: 'forest', name: 'Forest', biome: 'forest' },
+                { id: 'mountain', name: 'Mountains', height: 2, passable: false }, { id: 'road', name: 'Road' }, { id: 'desert', name: 'Desert' },
+                { id: 'snow', name: 'Snow' }, { id: 'place', name: 'Town or dungeon marker' }] },
+        { id: 'town', name: 'Town or castle', scale: 'Streets, walls, gates, buildings with roofs and doors, yards and water.', rules: {},
+            classes: [
+                { id: 'ground', name: 'Ground' }, { id: 'road', name: 'Street' }, { id: 'building', name: 'Building outline', passable: false },
+                { id: 'roof', name: 'Roof', passable: false }, { id: 'door', name: 'Door' }, { id: 'wall', name: 'Town wall', passable: false },
+                { id: 'grass', name: 'Yard' }, { id: 'water', name: 'Water', passable: false }, { id: 'tree', name: 'Trees', biome: 'forest' }] },
+        { id: 'dungeon', name: 'Dungeon or cave', scale: 'A floor plan: lines are walls, what they close in is floor, a gap is a door.', rules: { roughen: 0 },
+            classes: [
+                { id: 'wall', name: 'Wall', passable: false }, { id: 'floor', name: 'Floor' }, { id: 'door', name: 'Door' },
+                { id: 'stairs', name: 'Stairs' }, { id: 'water', name: 'Water', passable: false }] },
+        { id: 'room', name: 'Room', scale: 'One room: walls, floor, doors and windows, then furniture by its name.', rules: {},
+            classes: [
+                { id: 'wall', name: 'Wall', passable: false }, { id: 'floor', name: 'Floor' }, { id: 'door', name: 'Door' }, { id: 'window', name: 'Window', passable: false }] }
+    ],
+
+    cleanKind(kind) {
+        if (!kind || typeof kind !== 'object') return null;
+        const id = String(kind.id || '').replace(/[^\w-]/g, '').slice(0, 40);
+        if (!id) return null;
+        const classes = (Array.isArray(kind.classes) ? kind.classes : []).map(c => c && {
+            id: String(c.id || '').replace(/[^\w-]/g, '').slice(0, 40), name: String(c.name || c.id || '').slice(0, 60),
+            tile: Number.isInteger(c.tile) && c.tile > 0 ? c.tile : null, region: Math.max(0, Math.min(255, Math.floor(Number(c.region) || 0))),
+            biome: String(c.biome || ''), height: Math.max(0, Math.min(16, Number(c.height) || 0)), passable: c.passable !== false
+        }).filter(c => c && c.id);
+        return { id, name: String(kind.name || id).slice(0, 60), scale: String(kind.scale || ''), base: kind.base || (this.builtIn.some(b => b.id === id) ? id : 'overworld'),
+            rules: Object.assign({}, kind.rules || {}), classes };
+    },
+
+    kinds(userKinds) {
+        const own = (Array.isArray(userKinds) ? userKinds : []).map(k => this.cleanKind(k)).filter(Boolean);
+        return this.builtIn.map(k => this.cleanKind(k)).concat(own.filter(k => !this.builtIn.some(b => b.id === k.id)));
+    },
+
+    kind(id, userKinds) { return this.kinds(userKinds).find(k => k.id === id) || this.cleanKind(this.builtIn[0]); },
+
+    // A user's copy of a kind: the same classes and rules, its own id, finished as the kind it came from.
+    copyKind(kind, id, name) {
+        const k = this.cleanKind(kind);
+        return Object.assign(k, { id: String(id).replace(/[^\w-]/g, '') || k.id + '_copy', name: name || k.name + ' (copy)', base: k.base || k.id });
+    },
+
+    // ---- Reading a picture (8.5.2) ----
+    // pixels: RGBA bytes of a w × h picture; returns { w, h, cells: [group or -1], groups: [{ colour, count }] }.
+    read(pixels, width, height, options = {}) {
+        const w = Math.max(1, Math.floor(Number(options.tilesW) || 1)), h = Math.max(1, Math.floor(Number(options.tilesH) || 1));
+        if (!pixels || pixels.length < width * height * 4) throw new Error('The picture could not be read.');
+        const samples = new Array(w * h).fill(null);
+        for (let ty = 0; ty < h; ty++) for (let tx = 0; tx < w; tx++) {
+            const x0 = Math.floor(tx * width / w), x1 = Math.max(x0 + 1, Math.floor((tx + 1) * width / w));
+            const y0 = Math.floor(ty * height / h), y1 = Math.max(y0 + 1, Math.floor((ty + 1) * height / h));
+            const counts = new Map();
+            let best = null, bestCount = 0;
+            for (let y = y0; y < y1 && y < height; y++) for (let x = x0; x < x1 && x < width; x++) {
+                const at = (y * width + x) * 4;
+                if (pixels[at + 3] < 128) continue;
+                const key = ((pixels[at] >> 3) << 10) | ((pixels[at + 1] >> 3) << 5) | (pixels[at + 2] >> 3);
+                const n = (counts.get(key) || 0) + 1;
+                counts.set(key, n);
+                if (n > bestCount || (n === bestCount && key < best)) { best = key; bestCount = n; }
+            }
+            if (best !== null) samples[ty * w + tx] = [((best >> 10) & 31) * 8 + 4, ((best >> 5) & 31) * 8 + 4, (best & 31) * 8 + 4];
+        }
+        const groups = this.medianCut(samples.filter(Boolean), Math.max(1, Math.min(this.maxColours, Number(options.maxColours) || this.maxColours)));
+        const cells = samples.map(c => c ? this.nearest(c, groups) : -1);
+        const counted = groups.map((colour, i) => ({ colour, count: cells.filter(c => c === i).length }));
+        return { w, h, cells, groups: counted };
+    },
+
+    // Median cut: split the box with the widest channel at its median until there are `max` boxes.
+    medianCut(colours, max) {
+        if (!colours.length) return [];
+        let boxes = [colours.slice()];
+        const range = box => [0, 1, 2].map(c => Math.max(...box.map(p => p[c])) - Math.min(...box.map(p => p[c])));
+        while (boxes.length < max) {
+            let pick = -1, widest = 0, channel = 0;
+            boxes.forEach((box, i) => { const r = range(box), c = r.indexOf(Math.max(...r)); if (box.length > 1 && r[c] > widest) { widest = r[c]; pick = i; channel = c; } });
+            if (pick < 0 || widest < 24) break;
+            const box = boxes[pick].slice().sort((a, b) => a[channel] - b[channel] || a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+            const mid = Math.floor(box.length / 2);
+            let cut = mid;
+            while (cut < box.length - 1 && box[cut][channel] === box[cut - 1][channel]) cut++;
+            if (cut >= box.length || cut <= 0) { cut = mid; while (cut > 1 && box[cut][channel] === box[cut - 1][channel]) cut--; }
+            if (cut <= 0 || cut >= box.length) break;
+            boxes.splice(pick, 1, box.slice(0, cut), box.slice(cut));
+        }
+        const out = boxes.map(box => [0, 1, 2].map(c => Math.round(box.reduce((s, p) => s + p[c], 0) / box.length)));
+        return out.sort((a, b) => (a[0] * 65536 + a[1] * 256 + a[2]) - (b[0] * 65536 + b[1] * 256 + b[2]));
+    },
+
+    nearest(colour, groups) {
+        let best = 0, distance = Infinity;
+        groups.forEach((g, i) => { const d = (g[0] - colour[0]) ** 2 + (g[1] - colour[1]) ** 2 + (g[2] - colour[2]) ** 2; if (d < distance) { distance = d; best = i; } });
+        return best;
+    },
+
+    // A first guess at a colour's class: blues to water, greens to grass or forest, greys to stone or road...
+    guess(colour, kind) {
+        const has = id => kind.classes.some(c => c.id === id);
+        const pick = (...ids) => ids.find(has) || null;
+        const [r, g, b] = colour.map(v => v / 255), max = Math.max(r, g, b), min = Math.min(r, g, b), v = max, s = max ? (max - min) / max : 0;
+        let hue = 0;
+        if (max !== min) hue = max === r ? 60 * (((g - b) / (max - min)) % 6) : max === g ? 60 * ((b - r) / (max - min) + 2) : 60 * ((r - g) / (max - min) + 4);
+        if (hue < 0) hue += 360;
+        if (s < 0.15) {
+            if (v > 0.9) return pick('snow', 'floor', 'ground', 'road');
+            if (v < 0.35) return pick('wall', 'mountain', 'building');
+            return pick('road', 'floor', 'mountain', 'wall');
+        }
+        if (hue >= 180 && hue < 260) return pick('water');
+        if (hue >= 70 && hue < 180) return v < 0.45 ? pick('forest', 'tree', 'grass') : pick('grass', 'ground', 'floor');
+        if (hue >= 45 && hue < 70) return pick('desert', 'road', 'floor', 'ground');
+        if (hue >= 18 && hue < 45) return pick('road', 'desert', 'ground', 'floor', 'door');
+        return pick('place', 'building', 'door', 'roof');
+    },
+
+    // ---- Cleaning ----
+    // Lines n tiles thin or thinner (labels, grid lines) give way to what is around them: an opening with an
+    // (n + 1)-tile square removes exactly what a square that size cannot fit in.
+    ignoreThin(cells, w, h, n) {
+        n = Math.max(0, Math.floor(Number(n) || 0));
+        if (!n) return cells.slice();
+        const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? undefined : cells[y * w + x]);
+        const erode = (mask, value) => mask.map((on, i) => {
+            if (!on) return false;
+            const x = i % w, y = Math.floor(i / w);
+            for (let dy = 0; dy <= n; dy++) for (let dx = 0; dx <= n; dx++) { if (at(x + dx, y + dy) !== value) return false; }
+            return true;
+        });
+        const dilate = mask => mask.map((_, i) => {
+            const x = i % w, y = Math.floor(i / w);
+            for (let dy = 0; dy <= n; dy++) for (let dx = 0; dx <= n; dx++) { const xx = x - dx, yy = y - dy; if (xx >= 0 && yy >= 0 && mask[yy * w + xx]) return true; }
+            return false;
+        });
+        const thin = new Array(cells.length).fill(false);
+        for (const value of new Set(cells)) {
+            const mask = cells.map(c => c === value), opened = dilate(erode(mask, value));
+            mask.forEach((on, i) => { if (on && !opened[i]) thin[i] = true; });
+        }
+        const out = cells.slice();
+        for (let pass = 0; pass < w + h && thin.some(Boolean); pass++) {
+            const next = thin.slice();
+            thin.forEach((isThin, i) => {
+                if (!isThin) return;
+                const x = i % w, y = Math.floor(i / w), votes = new Map();
+                for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+                    const xx = x + dx, yy = y + dy;
+                    if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h && !thin[yy * w + xx]) votes.set(out[yy * w + xx], (votes.get(out[yy * w + xx]) || 0) + 1);
+                }
+                if (!votes.size) return;
+                out[i] = Array.from(votes.entries()).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0][0];
+                next[i] = false;
+            });
+            thin.splice(0, thin.length, ...next);
+        }
+        return out;
+    },
+
+    // Grey to height: dark low, light high, one value 0-1 per tile.
+    heightsFrom(pixels, width, height, w, h) {
+        const out = new Array(w * h).fill(0);
+        for (let ty = 0; ty < h; ty++) for (let tx = 0; tx < w; tx++) {
+            let sum = 0, n = 0;
+            for (let y = Math.floor(ty * height / h); y < Math.max(Math.floor(ty * height / h) + 1, Math.floor((ty + 1) * height / h)); y++) {
+                for (let x = Math.floor(tx * width / w); x < Math.max(Math.floor(tx * width / w) + 1, Math.floor((tx + 1) * width / w)); x++) {
+                    const at = (y * width + x) * 4;
+                    sum += (pixels[at] * 0.2126 + pixels[at + 1] * 0.7152 + pixels[at + 2] * 0.0722) / 255; n++;
+                }
+            }
+            out[ty * w + tx] = n ? Math.round(sum / n * 100) / 100 : 0;
+        }
+        return out;
+    },
+
+    // ---- The plan ----
+    // key: [class id or null per colour group]. options: { heights, name, seed }.
+    plan(read, key, kind, options = {}) {
+        const cells = read.cells.map(g => (g >= 0 && key[g] && kind.classes.some(c => c.id === key[g]) ? key[g] : null));
+        const plan = { w: read.w, h: read.h, kind: kind.id, cells, heights: options.heights || null, features: [], options: Object.assign({}, options, { heights: undefined }) };
+        return this.finish(plan, kind);
+    },
+
+    finish(plan, kind) {
+        const base = kind.base || kind.id;
+        const step = { overworld: 'finishOverworld', town: 'finishTown', dungeon: 'finishDungeon', room: 'finishRoom' }[base];
+        return step ? this[step](plan, kind) : plan;
+    },
+
+    neighbours(w, h, i, diagonal) {
+        const x = i % w, y = Math.floor(i / w), out = [];
+        for (const [dx, dy] of diagonal ? [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] : [[0, -1], [-1, 0], [1, 0], [0, 1]]) {
+            const xx = x + dx, yy = y + dy;
+            if (xx >= 0 && yy >= 0 && xx < w && yy < h) out.push(yy * w + xx);
+        }
+        return out;
+    },
+
+    components(cells, w, h, test) {
+        const seen = new Uint8Array(cells.length), out = [];
+        cells.forEach((c, i) => {
+            if (seen[i] || !test(c)) return;
+            const list = [], queue = [i];
+            seen[i] = 1;
+            while (queue.length) {
+                const k = queue.pop();
+                list.push(k);
+                for (const n of this.neighbours(w, h, k, false)) if (!seen[n] && test(cells[n])) { seen[n] = 1; queue.push(n); }
+            }
+            out.push(list.sort((a, b) => a - b));
+        });
+        return out;
+    },
+
+    bounds(list, w) {
+        const xs = list.map(i => i % w), ys = list.map(i => Math.floor(i / w));
+        const x = Math.min(...xs), y = Math.min(...ys);
+        return { x, y, w: Math.max(...xs) - x + 1, h: Math.max(...ys) - y + 1 };
+    },
+
+    // Overworld: smooth the coast, raise mountains from height, and turn each "place" mark into a marker.
+    finishOverworld(plan) {
+        const { w, h } = plan, cells = plan.cells.slice();
+        plan.cells.forEach((c, i) => {
+            const around = this.neighbours(w, h, i, true).map(n => plan.cells[n]);
+            const water = around.filter(a => a === 'water').length;
+            if (c !== 'water' && c !== null && water >= 6) cells[i] = 'water';
+            if (c === 'water' && around.length - water >= 7) {
+                const land = around.filter(a => a && a !== 'water');
+                if (land.length) cells[i] = land.sort((a, b) => land.filter(x => x === b).length - land.filter(x => x === a).length || a.localeCompare(b))[0];
+            }
+        });
+        const at = Number(plan.options && plan.options.mountainAt) || 0.7;
+        if (plan.heights) cells.forEach((c, i) => { if (c && c !== 'water' && plan.heights[i] >= at) cells[i] = 'mountain'; });
+        for (const list of this.components(cells, w, h, c => c === 'place')) {
+            plan.features.push(Object.assign({ type: 'place', name: '' }, this.bounds(list, w)));
+            for (const i of list) {
+                const near = this.neighbours(w, h, i, true).map(n => cells[n]).filter(c => c && c !== 'place' && c !== 'water');
+                cells[i] = near[0] || 'grass';
+            }
+        }
+        plan.cells = cells;
+        return plan;
+    },
+
+    // Town: each building outline becomes walls round a roof with a door on the side facing the nearest street;
+    // a street crossing a town wall becomes a gate.
+    finishTown(plan) {
+        const { w, h } = plan, cells = plan.cells.slice();
+        const roads = [];
+        cells.forEach((c, i) => { if (c === 'road') roads.push(i); });
+        for (const list of this.components(cells, w, h, c => c === 'building')) {
+            const box = this.bounds(list, w), own = new Set(list);
+            // Outside the building: reached from just outside its box without crossing it.
+            const outside = new Set(), queue = [];
+            const inBox = (x, y) => x >= box.x - 1 && y >= box.y - 1 && x <= box.x + box.w && y <= box.y + box.h;
+            for (let y = box.y - 1; y <= box.y + box.h; y++) for (let x = box.x - 1; x <= box.x + box.w; x++) {
+                if (x === box.x - 1 || y === box.y - 1 || x === box.x + box.w || y === box.y + box.h) { const k = y * w + x; outside.add(k); queue.push([x, y]); }
+            }
+            while (queue.length) {
+                const [x, y] = queue.pop();
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const xx = x + dx, yy = y + dy, k = yy * w + xx;
+                    if (inBox(xx, yy) && !outside.has(k) && !own.has(k)) { outside.add(k); queue.push([xx, yy]); }
+                }
+            }
+            const isOut = (x, y) => x < 0 || y < 0 || x >= w || y >= h || outside.has(y * w + x);
+            // Walls are the outline cells that face outside; everything closed in is roof.
+            const edge = [];
+            for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) {
+                const k = y * w + x;
+                if (outside.has(k)) continue;
+                const facesOut = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isOut(x + dx, y + dy));
+                if (own.has(k) && facesOut) edge.push(k); else cells[k] = 'roof';
+            }
+            let door = null, best = Infinity;
+            for (const i of edge) {
+                const x = i % w, y = Math.floor(i / w);
+                const straight = (isOut(x - 1, y) && !isOut(x + 1, y) || isOut(x + 1, y) && !isOut(x - 1, y)) !== (isOut(x, y - 1) && !isOut(x, y + 1) || isOut(x, y + 1) && !isOut(x, y - 1));
+                if (!straight) continue;
+                const target = roads.length ? roads : [];
+                for (const r of target) { const d = Math.hypot((r % w) - x, Math.floor(r / w) - y); if (d < best || (d === best && i < door)) { best = d; door = i; } }
+                if (!target.length && isOut(x, y + 1) && (door === null || i > door)) door = i;
+            }
+            if (door !== null) { cells[door] = 'door'; plan.features.push({ type: 'door', x: door % w, y: Math.floor(door / w), w: 1, h: 1, name: '' }); }
+            plan.features.push(Object.assign({ type: 'building', name: '' }, box));
+        }
+        cells.forEach((c, i) => {
+            if (c !== 'road') return;
+            const x = i % w, y = Math.floor(i / w), is = (xx, yy) => xx >= 0 && yy >= 0 && xx < w && yy < h && cells[yy * w + xx] === 'wall';
+            if ((is(x - 1, y) && is(x + 1, y)) || (is(x, y - 1) && is(x, y + 1))) plan.features.push({ type: 'gate', x, y, w: 1, h: 1, name: '' });
+        });
+        plan.cells = cells;
+        return plan;
+    },
+
+    // Dungeon or cave: lines are walls; a one-tile gap in a wall is a door; what the walls close in is floor;
+    // a stairs mark is a feature. Caves roughen the walls with seeded noise.
+    finishDungeon(plan, kind) {
+        const { w, h } = plan, cells = plan.cells.slice();
+        const wall = i => cells[i] === 'wall';
+        const doors = [];
+        cells.forEach((c, i) => {
+            if (c === 'wall' || c === 'water') return;
+            const x = i % w, y = Math.floor(i / w), isWall = (xx, yy) => xx >= 0 && yy >= 0 && xx < w && yy < h && wall(yy * w + xx);
+            const lr = isWall(x - 1, y) && isWall(x + 1, y) && !isWall(x, y - 1) && !isWall(x, y + 1);
+            const ud = isWall(x, y - 1) && isWall(x, y + 1) && !isWall(x - 1, y) && !isWall(x + 1, y);
+            if (lr || ud) doors.push(i);
+        });
+        // The outside: reached from the picture's edge without crossing a wall or a door.
+        const outside = new Uint8Array(cells.length), queue = [];
+        const blocked = i => wall(i) || doors.includes(i);
+        for (let i = 0; i < cells.length; i++) {
+            const x = i % w, y = Math.floor(i / w);
+            if ((x === 0 || y === 0 || x === w - 1 || y === h - 1) && !blocked(i)) { outside[i] = 1; queue.push(i); }
+        }
+        while (queue.length) { const k = queue.pop(); for (const n of this.neighbours(w, h, k, false)) if (!outside[n] && !blocked(n)) { outside[n] = 1; queue.push(n); } }
+        cells.forEach((c, i) => {
+            if (wall(i) || doors.includes(i)) return;
+            if (outside[i]) { cells[i] = null; return; }
+            if (c === 'stairs') plan.features.push({ type: 'stairs', x: i % w, y: Math.floor(i / w), w: 1, h: 1, name: '' });
+            if (c !== 'water') cells[i] = 'floor';
+        });
+        for (const i of doors) {
+            const inside = this.neighbours(w, h, i, false).some(n => cells[n] === 'floor');
+            if (!inside) { cells[i] = null; continue; }
+            cells[i] = 'door';
+            plan.features.push({ type: 'door', x: i % w, y: Math.floor(i / w), w: 1, h: 1, name: '' });
+        }
+        const roughen = Math.max(0, Math.min(1, Number((plan.options && plan.options.roughen) !== undefined ? plan.options.roughen : (kind.rules || {}).roughen) || 0));
+        if (roughen > 0) {
+            const rng = DocsDoodads.Scatter.rng(Number(plan.options && plan.options.seed) || 1);
+            const next = cells.slice();
+            cells.forEach((c, i) => {
+                if (c !== 'floor') return;
+                const touching = this.neighbours(w, h, i, false).filter(n => cells[n] === 'wall').length;
+                const nextToDoor = this.neighbours(w, h, i, true).some(n => cells[n] === 'door' || cells[n] === 'stairs');
+                if (touching && !nextToDoor && rng() < roughen * 0.35) next[i] = 'wall';
+            });
+            plan.cells = next;
+        } else plan.cells = cells;
+        return plan;
+    },
+
+    // Room: one outline; doors and windows on its edges; furniture named by the room.
+    finishRoom(plan) {
+        const w = plan.w, cells = plan.cells.slice();
+        const used = []; cells.forEach((c, i) => { if (c) used.push(i); });
+        if (!used.length) return plan;
+        const box = this.bounds(used, w);
+        for (let y = box.y; y < box.y + box.h; y++) for (let x = box.x; x < box.x + box.w; x++) {
+            const i = y * w + x, edge = x === box.x || y === box.y || x === box.x + box.w - 1 || y === box.y + box.h - 1;
+            if (edge) {
+                if (cells[i] === 'door' || cells[i] === 'window') plan.features.push({ type: cells[i], x, y, w: 1, h: 1, name: '' });
+                else cells[i] = 'wall';
+            } else cells[i] = 'floor';
+        }
+        const name = String((plan.options && plan.options.name) || '').trim();
+        if (name) plan.features.push({ type: 'furniture', x: box.x + 1, y: box.y + 1, w: Math.max(1, box.w - 2), h: Math.max(1, box.h - 2), name });
+        plan.cells = cells;
+        return plan;
+    },
+
+    // ---- Building ----
+    // tileFor(classId) → an MZ tile id or null. Returns what Apply writes, and the classes with no tile.
+    build(plan, kind, tileFor) {
+        const out = { tiles: [], regions: [], heights: {}, biomes: [], unmapped: [] };
+        const unmapped = new Set();
+        const byId = new Map(kind.classes.map(c => [c.id, c]));
+        plan.cells.forEach((id, i) => {
+            if (!id) return;
+            const x = i % plan.w, y = Math.floor(i / plan.w), cls = byId.get(id);
+            if (!cls) return;
+            const tile = tileFor ? tileFor(id) : cls.tile;
+            if (tile) out.tiles.push({ x, y, id: tile }); else unmapped.add(id);
+            if (cls.region) out.regions.push({ x, y, id: cls.region });
+            const height = cls.height || (plan.heights && id !== 'water' ? Math.round(plan.heights[i] * 4 * 4) / 4 : 0);
+            if (height) out.heights[x + ',' + y] = height;
+            if (cls.biome) out.biomes.push({ x, y, biome: cls.biome });
+        });
+        out.unmapped = Array.from(unmapped);
+        return out;
+    },
+
+    // What fraction of a tile each picture pixel covers: under two pixels a tile the drawing is too small.
+    pixelsPerTile(width, height, tilesW, tilesH) {
+        return Math.min(width / Math.max(1, tilesW), height / Math.max(1, tilesH));
+    }
+};
 // @editor-only
 //==========================================================
 // SECTION 5G5: MOODS
@@ -10819,6 +11908,188 @@ DocsDoodads.Moods = {
         if (typeof mood === 'string') mood = this.get(mood);
         if (!mood) return null;
         return this.merge(DocsDoodads.Lighting.mapSettings(mapId), mood);
+    }
+};
+// @editor-only
+//==========================================================
+// SECTION 11N: NORMAL MAPS MADE FROM A PICTURE (8.3.1)
+//==========================================================
+// Pure rules on RGBA pixel arrays. Every frame cell is worked on alone: distances, brightness and the
+// Sobel filter never read across a cell's edge, so neighbouring frames in a sheet or strip cannot bleed.
+// Heights are in pixels: a slope of 1 is 45 degrees at Strength 1.
+DocsDoodads.NormalGen = {
+    maxPixels: 16777216,
+    alphaCut: 128,
+    // Pixels per slice before the editor's runner may yield to the next frame.
+    sliceBudget: 65536,
+
+    options(width, height, options = {}) {
+        width = Number(width); height = Number(height);
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > this.maxPixels) {
+            throw new Error('Normal-map image size is invalid or too large.');
+        }
+        const grid = this.grid(width, height, options.grid);
+        const shape = options.shape === 'flat' ? 'flat' : 'round';
+        const strength = Math.max(0.1, Math.min(8, Number(options.strength) || 1));
+        const auto = Math.round(Math.min(grid.w, grid.h) / 5);
+        const radius = Math.max(1, Math.min(64, Math.round(Number(options.radius) || Math.max(2, Math.min(48, auto)))));
+        return { width, height, grid, shape, strength, radius };
+    },
+
+    // A frame grid: cell size and where one cell starts. Missing or bad values mean one cell for the picture.
+    grid(width, height, grid) {
+        const size = (value, whole) => { const n = Math.floor(Number(value)); return n > 0 ? Math.min(whole, n) : whole; };
+        const w = size(grid && grid.w, width), h = size(grid && grid.h, height);
+        const x = ((Math.floor(Number(grid && grid.x) || 0) % w) + w) % w;
+        const y = ((Math.floor(Number(grid && grid.y) || 0) % h) + h) % h;
+        return { w, h, x, y };
+    },
+
+    // The cells that tile the picture, clipped at its edges. A grid that starts at x=4 leaves a 4-pixel cell first.
+    cells(width, height, grid) {
+        const g = this.grid(width, height, grid), out = [];
+        const starts = (size, step, offset) => {
+            const list = [];
+            for (let at = offset > 0 ? offset - step : 0; at < size; at += step) list.push(at);
+            return list;
+        };
+        for (const top of starts(height, g.h, g.y)) for (const left of starts(width, g.w, g.x)) {
+            const x0 = Math.max(0, left), y0 = Math.max(0, top);
+            const x1 = Math.min(width, left + g.w), y1 = Math.min(height, top + g.h);
+            if (x1 > x0 && y1 > y0) out.push({ x0, y0, x1, y1 });
+        }
+        return out;
+    },
+
+    checkPixels(pixels, width, height) {
+        if (!pixels || pixels.length < width * height * 4) throw new Error('Normal-map source pixels are incomplete.');
+    },
+
+    // Rounded shapes: a quarter-parabola rising over `radius` pixels from the edge of the opaque shape.
+    profile(distance, radius) {
+        const t = Math.min(distance, radius) / radius;
+        return radius * 0.5 * (1 - (1 - t) * (1 - t));
+    },
+
+    // Two-pass chamfer distance (1 and √2) to the nearest see-through pixel in the same cell. A cell edge is
+    // not a shape edge: an opaque cell with no see-through pixel is a flat plateau.
+    *cellDistance(pixels, width, distance, cell) {
+        const cut = this.alphaCut, D = Math.SQRT2, far = 1e9;
+        let seeded = false;
+        const rowsPerSlice = Math.max(1, Math.floor(this.sliceBudget / Math.max(1, cell.x1 - cell.x0)));
+        for (let y = cell.y0; y < cell.y1; y++) {
+            for (let x = cell.x0; x < cell.x1; x++) {
+                const i = y * width + x;
+                if (pixels[i * 4 + 3] < cut) { distance[i] = 0; seeded = true; continue; }
+                let best = far;
+                if (x > cell.x0) best = Math.min(best, distance[i - 1] + 1);
+                if (y > cell.y0) {
+                    best = Math.min(best, distance[i - width] + 1);
+                    if (x > cell.x0) best = Math.min(best, distance[i - width - 1] + D);
+                    if (x + 1 < cell.x1) best = Math.min(best, distance[i - width + 1] + D);
+                }
+                distance[i] = best;
+            }
+            if ((y - cell.y0 + 1) % rowsPerSlice === 0) yield cell.x1 - cell.x0;
+        }
+        for (let y = cell.y1 - 1; y >= cell.y0; y--) {
+            for (let x = cell.x1 - 1; x >= cell.x0; x--) {
+                const i = y * width + x;
+                let best = distance[i];
+                if (!best) continue;
+                if (x + 1 < cell.x1) best = Math.min(best, distance[i + 1] + 1);
+                if (y + 1 < cell.y1) {
+                    best = Math.min(best, distance[i + width] + 1);
+                    if (x + 1 < cell.x1) best = Math.min(best, distance[i + width + 1] + D);
+                    if (x > cell.x0) best = Math.min(best, distance[i + width - 1] + D);
+                }
+                distance[i] = best;
+            }
+            if ((cell.y1 - y) % rowsPerSlice === 0) yield cell.x1 - cell.x0;
+        }
+        if (!seeded) for (let y = cell.y0; y < cell.y1; y++) for (let x = cell.x0; x < cell.x1; x++) distance[y * width + x] = far;
+    },
+
+    luminance(pixels, i) {
+        const at = i * 4;
+        return pixels[at + 3] / 255 * (pixels[at] * 0.2126 + pixels[at + 1] * 0.7152 + pixels[at + 2] * 0.0722) / 255;
+    },
+
+    // Rounded: the shape's profile with a little of the picture's brightness for surface detail.
+    // Flat: brightness alone, as a hand-painted bump would be read.
+    *heightJob(pixels, width, height, o) {
+        const heights = new Float32Array(width * height);
+        const cells = this.cells(width, height, o.grid);
+        if (o.shape === 'round') {
+            for (const cell of cells) yield* this.cellDistance(pixels, width, heights, cell);
+            for (let i = 0; i < heights.length; i++) heights[i] = this.profile(heights[i], o.radius) + this.luminance(pixels, i);
+        } else {
+            for (let i = 0; i < heights.length; i++) heights[i] = this.luminance(pixels, i) * 2;
+        }
+        return { heights, cells };
+    },
+
+    heightFromAlpha(pixels, width, height, options = {}) {
+        const o = this.options(width, height, Object.assign({}, options, { shape: 'round' }));
+        this.checkPixels(pixels, width, height);
+        const heights = new Float32Array(width * height);
+        for (const cell of this.cells(width, height, o.grid)) {
+            const steps = this.cellDistance(pixels, width, heights, cell);
+            while (!steps.next().done) { /* run to the end */ }
+        }
+        for (let i = 0; i < heights.length; i++) heights[i] = this.profile(heights[i], o.radius);
+        return heights;
+    },
+
+    // One encoded normal: tangent space, green up, alpha opaque so PIXI's premultiplied upload keeps RGB.
+    encode(nx, ny, nz, out = new Uint8ClampedArray(4), at = 0) {
+        out[at] = Math.round((nx * 0.5 + 0.5) * 255);
+        out[at + 1] = Math.round((ny * 0.5 + 0.5) * 255);
+        out[at + 2] = Math.round((nz * 0.5 + 0.5) * 255);
+        out[at + 3] = 255;
+        return out;
+    },
+
+    *cellNormals(heights, width, out, cell, strength) {
+        const rowsPerSlice = Math.max(1, Math.floor(this.sliceBudget / Math.max(1, cell.x1 - cell.x0)));
+        const sample = (x, y) => heights[Math.max(cell.y0, Math.min(cell.y1 - 1, y)) * width + Math.max(cell.x0, Math.min(cell.x1 - 1, x))];
+        for (let y = cell.y0; y < cell.y1; y++) {
+            for (let x = cell.x0; x < cell.x1; x++) {
+                const gx = (-sample(x - 1, y - 1) + sample(x + 1, y - 1) - 2 * sample(x - 1, y) + 2 * sample(x + 1, y) - sample(x - 1, y + 1) + sample(x + 1, y + 1)) / 8;
+                const gy = (-sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1) + sample(x - 1, y + 1) + 2 * sample(x, y + 1) + sample(x + 1, y + 1)) / 8;
+                // Same convention as NormalLight.make: the shader flips green into screen-down coordinates.
+                const nx = -gx * strength, ny = gy * strength, length = Math.hypot(nx, ny, 1);
+                this.encode(nx / length, ny / length, 1 / length, out, (y * width + x) * 4);
+            }
+            if ((y - cell.y0 + 1) % rowsPerSlice === 0) yield cell.x1 - cell.x0;
+        }
+    },
+
+    normalsFromHeight(heights, width, height, options = {}) {
+        const o = this.options(width, height, options);
+        const out = new Uint8ClampedArray(width * height * 4);
+        for (const cell of this.cells(width, height, o.grid)) {
+            const steps = this.cellNormals(heights, width, out, cell, o.strength);
+            while (!steps.next().done) { /* run to the end */ }
+        }
+        return out;
+    },
+
+    // The whole job as slices: each yield is a little work done, so the editor can spread it over frames.
+    *job(pixels, width, height, options = {}) {
+        const o = this.options(width, height, options);
+        this.checkPixels(pixels, width, height);
+        const { heights, cells } = yield* this.heightJob(pixels, width, height, o);
+        const out = new Uint8ClampedArray(width * height * 4);
+        for (const cell of cells) yield* this.cellNormals(heights, width, out, cell, o.strength);
+        return out;
+    },
+
+    make(pixels, width, height, options = {}) {
+        const steps = this.job(pixels, width, height, options);
+        let step = steps.next();
+        while (!step.done) step = steps.next();
+        return step.value;
     }
 };
 // @editor-only
@@ -11115,6 +12386,415 @@ DocsDoodads.Clash = {
         const sanitize = value => Array.isArray(value) ? value.map(sanitize) : value && typeof value === 'object'
             ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitize(item)])) : typeof value === 'string' ? clean(value) : value;
         return 'Doc\'s Doodads local diagnostic report\n' + JSON.stringify(sanitize(report), null, 2) + '\n';
+    }
+};
+// @editor-only
+//==========================================================
+// SECTION 11Q: A SMALL QR CODE WRITER (8.3.5)
+//==========================================================
+// Byte mode, versions 1 to 10, error correction L, M, Q or H: enough for a local address with a long token.
+// Written to ISO/IEC 18004; the tables are per version (index 0 unused). Pure: no canvas, no DOM.
+DocsDoodads.Qr = {
+    maxVersion: 10,
+    levels: { L: 1, M: 0, Q: 3, H: 2 },
+    eccPerBlock: {
+        L: [-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18],
+        M: [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26],
+        Q: [-1, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24],
+        H: [-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28]
+    },
+    blockCount: {
+        L: [-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4],
+        M: [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5],
+        Q: [-1, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8],
+        H: [-1, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8]
+    },
+
+    size(version) { return version * 4 + 17; },
+
+    rawModules(version) {
+        let result = (16 * version + 128) * version + 64;
+        if (version >= 2) {
+            const align = Math.floor(version / 7) + 2;
+            result -= (25 * align - 10) * align - 55;
+            if (version >= 7) result -= 36;
+        }
+        return result;
+    },
+
+    totalCodewords(version) { return Math.floor(this.rawModules(version) / 8); },
+
+    dataCodewords(version, ecc) {
+        return this.totalCodewords(version) - this.eccPerBlock[ecc][version] * this.blockCount[ecc][version];
+    },
+
+    // Bytes that fit in byte mode: 4 mode bits and an 8-bit count up to version 9, 16 bits from version 10.
+    capacity(version, ecc) {
+        const countBits = version < 10 ? 8 : 16;
+        return Math.floor((this.dataCodewords(version, ecc) * 8 - 4 - countBits) / 8);
+    },
+
+    alignmentPositions(version) {
+        if (version === 1) return [];
+        const count = Math.floor(version / 7) + 2, size = this.size(version);
+        const step = Math.ceil((version * 4 + 4) / (count * 2 - 2)) * 2;
+        const out = [6];
+        for (let pos = size - 7; out.length < count; pos -= step) out.splice(1, 0, pos);
+        return out;
+    },
+
+    // GF(256) with the QR polynomial x^8 + x^4 + x^3 + x^2 + 1.
+    multiply(x, y) {
+        let z = 0;
+        for (let i = 7; i >= 0; i--) {
+            z = (z << 1) ^ ((z >>> 7) * 0x11D);
+            z ^= ((y >>> i) & 1) * x;
+        }
+        return z & 255;
+    },
+
+    divisor(degree) {
+        const result = new Array(degree).fill(0);
+        result[degree - 1] = 1;
+        let root = 1;
+        for (let i = 0; i < degree; i++) {
+            for (let j = 0; j < result.length; j++) {
+                result[j] = this.multiply(result[j], root);
+                if (j + 1 < result.length) result[j] ^= result[j + 1];
+            }
+            root = this.multiply(root, 2);
+        }
+        return result;
+    },
+
+    remainder(data, divisor) {
+        const result = divisor.map(() => 0);
+        for (const value of data) {
+            const factor = value ^ result.shift();
+            result.push(0);
+            divisor.forEach((coefficient, i) => { result[i] ^= this.multiply(coefficient, factor); });
+        }
+        return result;
+    },
+
+    formatBits(ecc, mask) {
+        const data = (this.levels[ecc] << 3) | mask;
+        let rem = data;
+        for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+        return ((data << 10) | rem) ^ 0x5412;
+    },
+
+    versionBits(version) {
+        let rem = version;
+        for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+        return (version << 12) | rem;
+    },
+
+    utf8(text) {
+        if (typeof TextEncoder !== 'undefined') return Array.from(new TextEncoder().encode(String(text)));
+        return Array.from(unescape(encodeURIComponent(String(text))), ch => ch.charCodeAt(0));
+    },
+
+    // Data codewords: mode, count, bytes, terminator, byte padding, then 0xEC/0x11 pad bytes.
+    dataBytes(bytes, version, ecc) {
+        const bits = [];
+        const put = (value, length) => { for (let i = length - 1; i >= 0; i--) bits.push((value >>> i) & 1); };
+        put(4, 4);
+        put(bytes.length, version < 10 ? 8 : 16);
+        for (const b of bytes) put(b, 8);
+        const capacityBits = this.dataCodewords(version, ecc) * 8;
+        put(0, Math.min(4, capacityBits - bits.length));
+        put(0, (8 - bits.length % 8) % 8);
+        const out = [];
+        for (let i = 0; i < bits.length; i += 8) out.push(bits.slice(i, i + 8).reduce((a, b) => (a << 1) | b, 0));
+        for (let pad = 0xEC; out.length < capacityBits / 8; pad ^= 0xEC ^ 0x11) out.push(pad);
+        return out;
+    },
+
+    // Splits into blocks (short ones first), adds each block's error correction, then interleaves.
+    interleave(data, version, ecc) {
+        const blocks = this.blockCount[ecc][version], eccLength = this.eccPerBlock[ecc][version];
+        const total = this.totalCodewords(version), shortLength = Math.floor(total / blocks);
+        const shortBlocks = blocks - total % blocks, divisor = this.divisor(eccLength);
+        const list = [];
+        for (let i = 0, k = 0; i < blocks; i++) {
+            const length = shortLength - eccLength + (i < shortBlocks ? 0 : 1);
+            const part = data.slice(k, k + length);
+            k += length;
+            list.push({ data: part, ecc: this.remainder(part, divisor) });
+        }
+        const out = [];
+        const longest = Math.max(...list.map(block => block.data.length));
+        for (let i = 0; i < longest; i++) for (const block of list) if (i < block.data.length) out.push(block.data[i]);
+        for (let i = 0; i < eccLength; i++) for (const block of list) out.push(block.ecc[i]);
+        return out;
+    },
+
+    // Finders, separators, timing, alignment, the dark module and reserved format/version areas.
+    functionPatterns(version) {
+        const size = this.size(version);
+        const dark = Array.from({ length: size }, () => new Uint8Array(size));
+        const fixed = Array.from({ length: size }, () => new Uint8Array(size));
+        const set = (x, y, on) => { if (x >= 0 && y >= 0 && x < size && y < size) { dark[y][x] = on ? 1 : 0; fixed[y][x] = 1; } };
+        for (let i = 0; i < size; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+        for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+            for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+                const d = Math.max(Math.abs(dx), Math.abs(dy));
+                set(cx + dx, cy + dy, d !== 2 && d !== 4);
+            }
+        }
+        const align = this.alignmentPositions(version), last = align.length - 1;
+        for (let i = 0; i < align.length; i++) for (let j = 0; j < align.length; j++) {
+            if ((i === 0 && j === 0) || (i === 0 && j === last) || (i === last && j === 0)) continue;
+            for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) set(align[i] + dx, align[j] + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+        }
+        this.drawFormat(set, size, 0);
+        if (version >= 7) this.drawVersion(set, size, version);
+        return { size, dark, fixed };
+    },
+
+    drawFormat(set, size, bits) {
+        const bit = i => ((bits >>> i) & 1) === 1;
+        for (let i = 0; i <= 5; i++) set(8, i, bit(i));
+        set(8, 7, bit(6)); set(8, 8, bit(7)); set(7, 8, bit(8));
+        for (let i = 9; i < 15; i++) set(14 - i, 8, bit(i));
+        for (let i = 0; i < 8; i++) set(size - 1 - i, 8, bit(i));
+        for (let i = 8; i < 15; i++) set(8, size - 15 + i, bit(i));
+        set(8, size - 8, true);
+    },
+
+    drawVersion(set, size, version) {
+        const bits = this.versionBits(version);
+        for (let i = 0; i < 18; i++) {
+            const on = ((bits >>> i) & 1) === 1, a = size - 11 + i % 3, b = Math.floor(i / 3);
+            set(a, b, on); set(b, a, on);
+        }
+    },
+
+    // The zigzag from the bottom-right, two columns at a time, skipping the vertical timing column.
+    placementOrder(fixed) {
+        const size = fixed.length, out = [];
+        for (let right = size - 1; right >= 1; right -= 2) {
+            if (right === 6) right = 5;
+            for (let vert = 0; vert < size; vert++) for (let j = 0; j < 2; j++) {
+                const x = right - j, upward = ((right + 1) & 2) === 0, y = upward ? size - 1 - vert : vert;
+                if (!fixed[y][x]) out.push([x, y]);
+            }
+        }
+        return out;
+    },
+
+    maskAt(mask, x, y) {
+        switch (mask) {
+            case 0: return (x + y) % 2 === 0;
+            case 1: return y % 2 === 0;
+            case 2: return x % 3 === 0;
+            case 3: return (x + y) % 3 === 0;
+            case 4: return (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0;
+            case 5: return x * y % 2 + x * y % 3 === 0;
+            case 6: return (x * y % 2 + x * y % 3) % 2 === 0;
+            default: return ((x + y) % 2 + x * y % 3) % 2 === 0;
+        }
+    },
+
+    penalty(modules) {
+        const size = modules.length;
+        let score = 0, dark = 0;
+        const line = get => {
+            let run = 1;
+            for (let i = 1; i <= size; i++) {
+                if (i < size && get(i) === get(i - 1)) { run++; continue; }
+                if (run >= 5) score += 3 + run - 5;
+                run = 1;
+            }
+            const finderA = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0], finderB = finderA.slice().reverse();
+            for (let i = 0; i + 11 <= size; i++) {
+                if (finderA.every((v, k) => get(i + k) === v) || finderB.every((v, k) => get(i + k) === v)) score += 40;
+            }
+        };
+        for (let y = 0; y < size; y++) line(x => modules[y][x]);
+        for (let x = 0; x < size; x++) line(y => modules[y][x]);
+        for (let y = 0; y + 1 < size; y++) for (let x = 0; x + 1 < size; x++) {
+            const c = modules[y][x];
+            if (c === modules[y][x + 1] && c === modules[y + 1][x] && c === modules[y + 1][x + 1]) score += 3;
+        }
+        for (const row of modules) for (const v of row) dark += v;
+        score += Math.floor(Math.abs(dark * 100 / (size * size) - 50) / 5) * 10;
+        return score;
+    },
+
+    // text → { version, size, ecc, mask, modules: rows of 0/1 }. Picks the smallest version that fits.
+    encode(text, options = {}) {
+        const ecc = Object.prototype.hasOwnProperty.call(this.levels, options.ecc) ? options.ecc : 'M';
+        const bytes = this.utf8(text);
+        let version = Math.max(1, Math.min(this.maxVersion, Math.floor(Number(options.minVersion) || 1)));
+        while (version <= this.maxVersion && this.capacity(version, ecc) < bytes.length) version++;
+        if (version > this.maxVersion) throw new Error(`Too long for a QR code here (${bytes.length} bytes).`);
+        const codewords = this.interleave(this.dataBytes(bytes, version, ecc), version, ecc);
+        const base = this.functionPatterns(version), order = this.placementOrder(base.fixed);
+        const fixedMask = Number.isInteger(options.mask) && options.mask >= 0 && options.mask < 8 ? options.mask : null;
+        let best = null;
+        for (let mask = 0; mask < 8; mask++) {
+            if (fixedMask !== null && mask !== fixedMask) continue;
+            const modules = base.dark.map(row => Uint8Array.from(row));
+            order.forEach(([x, y], i) => {
+                const bit = i < codewords.length * 8 ? (codewords[i >>> 3] >>> (7 - (i & 7))) & 1 : 0;
+                modules[y][x] = bit ^ (this.maskAt(mask, x, y) ? 1 : 0);
+            });
+            this.drawFormat((x, y, on) => { modules[y][x] = on ? 1 : 0; }, base.size, this.formatBits(ecc, mask));
+            const score = this.penalty(modules);
+            if (!best || score < best.score) best = { mask, modules, score };
+        }
+        return { version, size: base.size, ecc, mask: best.mask, modules: best.modules.map(row => Array.from(row)) };
+    }
+};
+// @editor-only
+//==========================================================
+// SECTION 5R: THE ROBOT TESTER (8.4.7)
+//==========================================================
+// Without playing: follow transfers from the starting map. Each map is flooded from where the player arrives
+// (MapCheck.reach on MZ's passage rules, painted walls and standing events); every transfer event the player can
+// get to is followed. Findings: maps nobody can reach, transfers that land outside a map, on a missing map or on
+// a tile nobody can stand on, maps with no way out (dead ends) and one-way trips (no way back to where they came
+// from). Transfers by variables cannot be followed and are listed. Pure: maps are passed in as data.
+DocsDoodads.Robot = {
+    dirs: { 2: [0, 1], 4: [-1, 0], 6: [1, 0], 8: [0, -1] },
+
+    // MZ's checkPassage over the map's tile layers (and tile events): 0x10 is "no effect", a clear bit passes.
+    checkPassage(map, flags, x, y, bit, tileEvents) {
+        const w = map.width, h = map.height, ids = [];
+        for (const id of (tileEvents && tileEvents[x + ',' + y]) || []) ids.push(id);
+        for (let z = 3; z >= 0; z--) ids.push(Number(map.data[(z * h + y) * w + x]) || 0);
+        for (const id of ids) {
+            if (!id) continue;
+            const f = flags[id] || 0;
+            if ((f & 0x10) !== 0) continue;
+            if ((f & bit) === 0) return true;
+            if ((f & bit) === bit) return false;
+        }
+        return false;
+    },
+
+    // A walker for a map: { width, height, loopX, loopY, canStep(x, y, dir), standable(x, y) }.
+    walker(map, flags, options = {}) {
+        const w = map.width, h = map.height, loopX = map.scrollType === 2 || map.scrollType === 3, loopY = map.scrollType === 1 || map.scrollType === 3;
+        const blockers = new Set(), tileEvents = {};
+        for (const ev of map.events || []) {
+            const page = ev && ev.pages && ev.pages[0];
+            if (!ev || !page) continue;
+            const image = page.image || {};
+            if (image.tileId > 0 && page.priorityType === 0) (tileEvents[ev.x + ',' + ev.y] = tileEvents[ev.x + ',' + ev.y] || []).push(image.tileId);
+            if (page.priorityType === 1 && !page.through) blockers.add(ev.x + ',' + ev.y);
+        }
+        const walls = options.walls || (() => false);
+        const wrap = (x, y) => [loopX ? (x + w) % w : x, loopY ? (y + h) % h : y];
+        const inside = (x, y) => x >= 0 && y >= 0 && x < w && y < h;
+        const bit = d => (1 << (d / 2 - 1)) & 0x0f;
+        const pass = (x, y, d) => this.checkPassage(map, flags, x, y, bit(d), tileEvents);
+        const canStep = (x, y, d) => {
+            const [nx, ny] = wrap(x + this.dirs[d][0], y + this.dirs[d][1]);
+            if (!inside(nx, ny) || !pass(x, y, d) || !pass(nx, ny, 10 - d)) return false;
+            return !blockers.has(nx + ',' + ny) && !walls(nx, ny);
+        };
+        const standable = (x, y) => inside(x, y) && !walls(x, y) && [2, 4, 6, 8].some(d => pass(x, y, d));
+        return { width: w, height: h, loopX, loopY, canStep, standable };
+    },
+
+    // Transfer Player commands (code 201) on any page of an event: { mapId, x, y } or { variables: true }.
+    transfersOf(ev) {
+        const out = [];
+        for (const page of (ev && ev.pages) || []) for (const cmd of (page && page.list) || []) {
+            if (!cmd || cmd.code !== 201 || !cmd.parameters) continue;
+            const p = cmd.parameters;
+            out.push(p[0] === 0 ? { mapId: Number(p[1]), x: Number(p[2]), y: Number(p[3]) } : { variables: true });
+        }
+        return out;
+    },
+
+    // project: { start: { mapId, x, y }, maps: { [id]: map data }, names: { [id]: name }, flags(mapId), walls(mapId) }.
+    explore(project) {
+        const findings = [], edges = [], reached = new Map(), seen = new Set();
+        const names = project.names || {}, label = id => `Map ${String(id).padStart(3, '0')}${names[id] ? ` "${names[id]}"` : ''}`;
+        const queue = [{ mapId: Number(project.start.mapId), x: Number(project.start.x), y: Number(project.start.y), from: null }];
+        const walkers = new Map();
+        const walkerOf = id => {
+            if (!walkers.has(id)) {
+                const map = project.maps[id];
+                walkers.set(id, map ? this.walker(map, project.flags ? project.flags(id) : [], { walls: project.walls ? project.walls(id) : null }) : null);
+            }
+            return walkers.get(id);
+        };
+        while (queue.length) {
+            const at = queue.shift(), key = `${at.mapId}:${at.x},${at.y}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const map = project.maps[at.mapId], walk = walkerOf(at.mapId);
+            if (!map || !walk) { findings.push({ kind: 'missingMap', mapId: at.from ? at.from.mapId : at.mapId, x: at.from ? at.from.x : at.x, y: at.from ? at.from.y : at.y, text: `A transfer goes to ${label(at.mapId)}, which does not exist.` }); continue; }
+            if (at.x < 0 || at.y < 0 || at.x >= map.width || at.y >= map.height) {
+                findings.push({ kind: 'outsideMap', mapId: at.from.mapId, x: at.from.x, y: at.from.y, text: `A transfer lands outside ${label(at.mapId)} (${at.x}, ${at.y}).` });
+                continue;
+            }
+            if (!walk.standable(at.x, at.y)) {
+                findings.push({ kind: 'blockedLanding', mapId: at.from ? at.from.mapId : at.mapId, x: at.from ? at.from.x : at.x, y: at.from ? at.from.y : at.y,
+                    text: `${at.from ? 'A transfer lands' : 'The game starts'} on a tile nobody can stand on: ${label(at.mapId)} (${at.x}, ${at.y}).` });
+                continue;
+            }
+            const flood = DocsDoodads.MapCheck.reach({ x: at.x, y: at.y }, walk);
+            const sofar = reached.get(at.mapId) || new Uint8Array(map.width * map.height);
+            flood.seen.forEach((v, i) => { if (v) sofar[i] = 1; });
+            reached.set(at.mapId, sofar);
+            for (const ev of map.events || []) {
+                if (!ev) continue;
+                const near = DocsDoodads.MapCheck.nearReached(flood.seen, map.width, map.height, ev.x, ev.y, { x: walk.loopX, y: walk.loopY });
+                if (!near) continue;
+                for (const t of this.transfersOf(ev)) {
+                    if (t.variables) { findings.push({ kind: 'variableTransfer', mapId: at.mapId, x: ev.x, y: ev.y, text: `EV${String(ev.id).padStart(3, '0')} on ${label(at.mapId)} transfers by variables; the robot cannot follow it.` }); continue; }
+                    edges.push({ from: at.mapId, to: t.mapId, x: ev.x, y: ev.y, eventId: ev.id });
+                    queue.push({ mapId: t.mapId, x: t.x, y: t.y, from: { mapId: at.mapId, x: ev.x, y: ev.y } });
+                }
+            }
+        }
+        // Maps no one gets to.
+        for (const id of Object.keys(project.maps).map(Number)) {
+            if (!reached.has(id)) findings.push({ kind: 'unreachedMap', mapId: id, x: 0, y: 0, text: `${label(id)} cannot be reached from the start by walking and transfers.`, global: true });
+        }
+        // Dead ends (no way out) and one-way trips (no way back).
+        const out = id => edges.filter(e => e.from === id && e.to !== id);
+        const canReturn = (from, to) => {
+            const seenMaps = new Set([from]), stack = [from];
+            while (stack.length) {
+                const id = stack.pop();
+                if (id === to) return true;
+                for (const e of out(id)) if (!seenMaps.has(e.to)) { seenMaps.add(e.to); stack.push(e.to); }
+            }
+            return false;
+        };
+        const start = Number(project.start.mapId), deadEnds = new Set();
+        for (const id of reached.keys()) {
+            if (id !== start && !out(id).length) { deadEnds.add(id); findings.push({ kind: 'deadEnd', mapId: id, x: 0, y: 0, text: `${label(id)} has no way out once the player is there.`, global: true }); }
+        }
+        const reported = new Set();
+        for (const e of edges) {
+            if (e.from === e.to || deadEnds.has(e.to) || reported.has(e.from + '>' + e.to)) continue;
+            if (!canReturn(e.to, e.from)) {
+                reported.add(e.from + '>' + e.to);
+                findings.push({ kind: 'oneWay', mapId: e.from, x: e.x, y: e.y, text: `The transfer at (${e.x}, ${e.y}) on ${label(e.from)} to ${label(e.to)} has no way back.` });
+            }
+        }
+        return { findings, edges, reached: Array.from(reached.keys()).sort((a, b) => a - b) };
+    },
+
+    // Playing (in a playtest): steps an interpreter until it finishes, with a frame limit. step() runs one frame
+    // and returns true while the event is still running. Returns { done, frames, error }.
+    drive(step, limit = 1800) {
+        for (let frame = 0; frame < limit; frame++) {
+            try {
+                if (!step(frame)) return { done: true, frames: frame + 1, error: null };
+            } catch (error) {
+                return { done: false, frames: frame + 1, error: error && error.message ? error.message : String(error) };
+            }
+        }
+        return { done: false, frames: limit, error: null };
     }
 };
 //==========================================================
@@ -12211,6 +13891,195 @@ if (typeof Game_System !== 'undefined' && Game_System.prototype.onBeforeSave) {
         $.Game_System_onBeforeSave_explored.call(this);
     };
 }
+//==========================================================
+// SECTION 6P: PINS AND FAST TRAVEL (9.1.6)
+//==========================================================
+// Places on the minimap and the world map. Pins placed in the editor live in the project:
+// $dataDocsDoodads.pins[mapId] = [{ id, x, y, icon, name, travel, switchId }]. An event can carry one in its
+// note or a comment on its page: <docs pin: icon, name> (add ", travel" only for display; event pins never
+// take the player anywhere, since an event's tile is usually not one to stand on). What the player has
+// found or the game has hidden is in the save: $gameSystem._docsPins = { found: [ids], hidden: [ids] }.
+// A pin shows once found: its tile explored (with the minimap's fog of war), the player within the minimap's
+// radius (without it), or a Find Pin command. Pins are placed by tile, so looping maps and planets agree.
+DocsDoodads.Pins = {
+    tag: /<docs\s*pin\s*:\s*([^>]*)>/i,
+
+    store(write) {
+        const data = typeof window !== 'undefined' ? (window.$dataDocsDoodads = window.$dataDocsDoodads || {}) : {};
+        if (write && (!data.pins || typeof data.pins !== 'object' || Array.isArray(data.pins))) data.pins = {};
+        return data.pins && typeof data.pins === 'object' && !Array.isArray(data.pins) ? data.pins : {};
+    },
+
+    clean(fields) {
+        const out = {};
+        const int = (v, min, max) => Math.max(min, Math.min(max, Math.floor(Number(v)) || 0));
+        if (fields.x !== undefined) out.x = int(fields.x, 0, 9999);
+        if (fields.y !== undefined) out.y = int(fields.y, 0, 9999);
+        if (fields.icon !== undefined) out.icon = int(fields.icon, 0, 9999);
+        if (fields.name !== undefined) out.name = String(fields.name || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
+        if (fields.travel !== undefined) out.travel = Boolean(fields.travel);
+        if (fields.switchId !== undefined) out.switchId = int(fields.switchId, 0, 9999);
+        return out;
+    },
+
+    list(mapId) {
+        const list = this.store(false)[Number(mapId)];
+        return Array.isArray(list) ? list.filter(p => p && typeof p.id === 'string') : [];
+    },
+
+    copy(mapId) { return JSON.parse(JSON.stringify(this.list(mapId))); },
+
+    // Replaces a map's pins; an empty list removes the key, and no pins anywhere removes `pins`.
+    put(mapId, list) {
+        const store = this.store(true);
+        if (Array.isArray(list) && list.length) store[Number(mapId)] = list;
+        else delete store[Number(mapId)];
+        if (!Object.keys(store).length && typeof window !== 'undefined' && window.$dataDocsDoodads) delete window.$dataDocsDoodads.pins;
+    },
+
+    at(mapId, x, y) { return this.list(mapId).find(p => p.x === x && p.y === y) || null; },
+
+    add(mapId, fields) {
+        const clean = Object.assign({ x: 0, y: 0, icon: 190, name: '', travel: false, switchId: 0 }, this.clean(fields || {}));
+        if (!clean.name) return null;
+        const list = this.copy(mapId);
+        let n = 1;
+        for (const p of list) { const m = /p(\d+)$/.exec(p.id); if (m) n = Math.max(n, Number(m[1]) + 1); }
+        const pin = Object.assign({ id: `m${Number(mapId)}p${n}` }, clean);
+        list.push(pin);
+        this.put(mapId, list);
+        return pin;
+    },
+
+    update(mapId, id, fields) {
+        const list = this.copy(mapId), pin = list.find(p => p.id === id);
+        if (!pin) return null;
+        Object.assign(pin, this.clean(fields || {}));
+        if (!pin.name) return this.remove(mapId, id);
+        this.put(mapId, list);
+        return pin;
+    },
+
+    remove(mapId, id) {
+        const list = this.copy(mapId), next = list.filter(p => p.id !== id);
+        if (next.length === list.length) return null;
+        this.put(mapId, next);
+        return true;
+    },
+
+    // "<docs pin: 87, Inn>" → { icon: 87, name: 'Inn' }. A missing icon number means the default flag.
+    parseTag(text) {
+        const m = this.tag.exec(String(text || ''));
+        if (!m) return null;
+        const parts = m[1].split(',').map(s => s.trim()).filter(Boolean);
+        let icon = 190;
+        if (parts.length && /^\d+$/.test(parts[0])) icon = Math.min(9999, Number(parts.shift()));
+        if (parts.length && /^travel$/i.test(parts[parts.length - 1])) parts.pop();
+        const name = parts.join(', ').slice(0, 60);
+        return name ? { icon, name } : null;
+    },
+
+    eventPin(mapId, eventId, x, y, text) {
+        const tag = this.parseTag(text);
+        return tag ? { id: `m${Number(mapId)}e${Number(eventId)}`, x, y, icon: tag.icon, name: tag.name, travel: false, switchId: 0, event: true } : null;
+    },
+
+    // Every pin on a map: its own and its events' ({ eventId, x, y, text } each).
+    forMap(mapId, events) {
+        const out = this.list(mapId).slice();
+        for (const ev of events || []) {
+            const pin = ev ? this.eventPin(mapId, ev.eventId, ev.x, ev.y, ev.text) : null;
+            if (pin) out.push(pin);
+        }
+        return out;
+    },
+
+    // A project pin by id, or by name (any map, letter case ignored).
+    find(key) {
+        const text = String(key || '').trim();
+        if (!text) return null;
+        const store = this.store(false), byName = [];
+        for (const mapId of Object.keys(store)) {
+            for (const pin of this.list(mapId)) {
+                if (pin.id === text) return { mapId: Number(mapId), pin };
+                if (pin.name.toLowerCase() === text.toLowerCase()) byName.push({ mapId: Number(mapId), pin });
+            }
+        }
+        return byName[0] || null;
+    },
+
+    state() {
+        const sys = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem : null;
+        if (!sys) return { found: [], hidden: [] };
+        const s = sys._docsPins;
+        if (!s || !Array.isArray(s.found) || !Array.isArray(s.hidden)) sys._docsPins = { found: [], hidden: [] };
+        return sys._docsPins;
+    },
+
+    isFound(id) { return this.state().found.includes(id); },
+    isHidden(id) { return this.state().hidden.includes(id); },
+
+    discover(id) {
+        const s = this.state();
+        if (!id || s.found.includes(id)) return false;
+        s.found.push(id);
+        return true;
+    },
+
+    setHidden(id, hidden) {
+        const s = this.state(), at = s.hidden.indexOf(id);
+        if (hidden && at < 0) s.hidden.push(id);
+        if (!hidden && at >= 0) s.hidden.splice(at, 1);
+        return Boolean(hidden);
+    },
+
+    // ctx: { found(id), hidden(id), switchOn(id), explored(x, y) }.
+    visible(pin, ctx = {}) {
+        if (!pin || (ctx.hidden && ctx.hidden(pin.id))) return false;
+        if (pin.switchId > 0 && !(ctx.switchOn && ctx.switchOn(pin.switchId))) return false;
+        return Boolean((ctx.found && ctx.found(pin.id)) || (ctx.explored && ctx.explored(pin.x, pin.y)));
+    },
+
+    // Pins near the player become found: with fog, by an explored tile; without, within `radius` tiles.
+    discoverNear(pins, ctx) {
+        const found = [];
+        for (const pin of pins || []) {
+            if (!pin || this.isFound(pin.id)) continue;
+            const near = ctx.fog ? Boolean(ctx.explored && ctx.explored(pin.x, pin.y))
+                : Math.hypot(this.loopDelta(pin.x - ctx.px, ctx.width, ctx.loopX), this.loopDelta(pin.y - ctx.py, ctx.height, ctx.loopY)) <= ctx.radius;
+            if (near && this.discover(pin.id)) found.push(pin);
+        }
+        return found;
+    },
+
+    loopDelta(d, size, loop) {
+        if (!loop || !size) return d;
+        d = ((d % size) + size) % size;
+        return d > size / 2 ? d - size : d;
+    },
+
+    // Found, shown, travel pins on maps that still exist, by map and then name.
+    travelList(ctx = {}) {
+        const out = [], store = this.store(false), infos = ctx.mapInfos || [];
+        for (const mapId of Object.keys(store).map(Number).sort((a, b) => a - b)) {
+            if (!infos[mapId]) continue;
+            for (const pin of this.list(mapId)) {
+                if (!pin.travel || !this.visible(pin, { found: id => this.isFound(id), hidden: id => this.isHidden(id), switchOn: ctx.switchOn })) continue;
+                out.push({ mapId, pin, mapName: infos[mapId].name || `Map ${mapId}` });
+            }
+        }
+        return out.sort((a, b) => a.mapId - b.mapId || a.pin.name.localeCompare(b.pin.name));
+    },
+
+    travelAllowed(forbidSwitch, switchOn) {
+        return !(Number(forbidSwitch) > 0 && switchOn && switchOn(Number(forbidSwitch)));
+    },
+
+    iconFrame(icon, size = 32) {
+        icon = Math.max(0, Math.floor(Number(icon) || 0));
+        return { x: (icon % 16) * size, y: Math.floor(icon / 16) * size, w: size, h: size };
+    }
+};
 //==========================================================
 // SECTION 5H: VISUAL EQUIPMENT & MAP DESTINATION
 //==========================================================
@@ -15567,6 +17436,34 @@ if (typeof Game_CharacterBase !== 'undefined') {
     };
 }
 //==========================================================
+// SECTION 7M: PICTURE MAPS: EMPTY TILES ARE FLOOR (7.1.6)
+//==========================================================
+// A map drawn with picture layers (an imported Tiled or LDtk map, or parallax art) may have no tiles at all,
+// and MZ counts a tile with nothing on it as a wall. With the map's "Empty tiles are floor" on, a tile whose
+// four layers are empty can be walked on in every direction; painted collision (DocsDoodads.Walls) and
+// doodads still stop the player. Boats, ships and airship landings keep MZ's rules.
+DocsDoodads.PictureMaps = {
+    emptyIsFloor(mapId) {
+        const settings = DocsDoodads.Lighting && DocsDoodads.Lighting.mapSettings ? DocsDoodads.Lighting.mapSettings(mapId) : null;
+        return Boolean(settings && settings.emptyIsFloor === true);
+    },
+
+    // bit: MZ's passage bit (0x0f for walking directions).
+    passes(tileIds, bit, emptyIsFloor) {
+        if (!emptyIsFloor || !(bit & 0x0f)) return null;
+        return (tileIds || []).every(id => !id) ? true : null;
+    }
+};
+
+if (typeof Game_Map !== 'undefined' && typeof Game_Map.prototype.checkPassage === 'function') {
+    $.Game_Map_checkPassage_pictureMaps = Game_Map.prototype.checkPassage;
+    Game_Map.prototype.checkPassage = function(x, y, bit) {
+        const P = DocsDoodads.PictureMaps;
+        const open = P.emptyIsFloor(this.mapId()) && typeof this.layeredTiles === 'function' ? P.passes(this.layeredTiles(x, y), bit, true) : null;
+        return open === true ? true : $.Game_Map_checkPassage_pictureMaps.call(this, x, y, bit);
+    };
+}
+//==========================================================
 // SECTION 6: SPRITE_DOCSDOODAD RUNTIME ENGINE
 //==========================================================
 // Map pixels to screen pixels. Looping maps wrap the camera, so this uses MZ's adjustX/adjustY
@@ -15675,7 +17572,7 @@ if (typeof PIXI !== 'undefined') {
             this._loadedPath = path;
             // A packed region has different UVs from its full-size `_n` companion. Keep mapped normal art on
             // its original sheet so both samplers use the same frame.
-            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.pathFor(path);
+            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.mapsSource(path, this._data);
             const packed = !normalMapped && path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
                 ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
             this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;
@@ -16745,6 +18642,8 @@ if (typeof Spriteset_Map !== 'undefined') {
         for (const sprite of this._docsDoodadSprites || []) {
             const d = sprite.visible ? sprite._data : null;
             if (d && d.light && d.light.enabled) visibleData.push(d);
+            // Lights hung on a rope (9.3.2) follow its sway; the same objects each frame keep their fades.
+            if (sprite.visible && sprite._docsRopeLights) for (const hung of sprite._docsRopeLights) visibleData.push(hung);
         }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
             { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30, freeze: Boolean(freeze) });
@@ -18798,6 +20697,84 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 
+//==========================================================
+// SECTION 7G: THE GROUND BRUSH ON THE MAP (8.3.4)
+//==========================================================
+// The painted ground is a mesh in the tilemap above the ground tiles and below every doodad and character
+// (z 0.4), mixing the map's textures by its mask in one shader. Looping maps get a copy across each seam. While
+// the editor paints, it draws from the editor's live mask (DocsDoodads.Ground.live) instead of the saved PNG.
+// Flat maps only in this version.
+(function() {
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined' || !PIXI.Mesh || !PIXI.Geometry || !PIXI.Shader) return;
+    const G = DocsDoodads.Ground;
+    G.live = G.live || {};
+    G.z = 0.4;
+
+    G.textureFor = function(path) {
+        if (!path) return null;
+        const bmp = DocsDoodads.loadBitmap(path);
+        if (!bmp || !bmp._baseTexture || (bmp.isReady && !bmp.isReady())) return null;
+        if (!bmp._docsGroundTexture || bmp._docsGroundTexture.baseTexture !== bmp._baseTexture) bmp._docsGroundTexture = new PIXI.Texture(bmp._baseTexture);
+        return { texture: bmp._docsGroundTexture, w: bmp.width, h: bmp.height };
+    };
+
+    Spriteset_Map.prototype.docsGroundMeshes = function(count, width, height) {
+        const list = this._docsGroundMeshes = this._docsGroundMeshes || [];
+        if (list.length && (list[0]._docsW !== width || list[0]._docsH !== height)) this.docsRemoveGround();
+        while (list.length < count) {
+            const geometry = new PIXI.Geometry().addAttribute('aVertexPosition', [0, 0, width, 0, width, height, 0, height], 2).addIndex([0, 1, 2, 0, 2, 3]);
+            const shader = PIXI.Shader.from(G.vertex, G.fragment, { uMask: PIXI.Texture.EMPTY, uMapSize: [width, height], uTex0: PIXI.Texture.EMPTY, uTex1: PIXI.Texture.EMPTY,
+                uTex2: PIXI.Texture.EMPTY, uTexSize0: [1, 1], uTexSize1: [1, 1], uTexSize2: [1, 1], uAlpha: 1 });
+            const mesh = new PIXI.Mesh(geometry, shader);
+            mesh._docsW = width; mesh._docsH = height; mesh.z = G.z; mesh.spriteId = -1;
+            if (this._tilemap) this._tilemap.addChild(mesh);
+            list.push(mesh);
+        }
+        for (let i = 0; i < list.length; i++) list[i].visible = i < count;
+        return list;
+    };
+
+    Spriteset_Map.prototype.docsRemoveGround = function() {
+        for (const mesh of this._docsGroundMeshes || []) {
+            if (mesh.parent) mesh.parent.removeChild(mesh);
+            if (mesh.destroy) mesh.destroy();
+        }
+        this._docsGroundMeshes = [];
+    };
+
+    Spriteset_Map.prototype.updateDocsGround = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || !this._tilemap) return 0;
+        const mapId = $gameMap.mapId(), settings = G.settings(DocsDoodads.Lighting.mapSettings(mapId)), live = G.live[mapId];
+        const mask = live && live.texture ? { texture: live.texture } : settings && settings.mask ? G.textureFor(settings.mask) : null;
+        if (this._docs3d || !settings || !mask) { for (const m of this._docsGroundMeshes || []) m.visible = false; return 0; }
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), width = $gameMap.width() * tw, height = $gameMap.height() * th;
+        const loopX = $gameMap.isLoopHorizontal(), loopY = $gameMap.isLoopVertical();
+        const offsets = [];
+        for (const ox of loopX ? [-1, 0, 1] : [0]) for (const oy of loopY ? [-1, 0, 1] : [0]) offsets.push([ox, oy]);
+        const meshes = this.docsGroundMeshes(offsets.length, width, height);
+        const textures = settings.textures.map(path => G.textureFor(path));
+        const origin = { x: -$gameMap.displayX() * tw, y: -$gameMap.displayY() * th };
+        offsets.forEach(([ox, oy], i) => {
+            const mesh = meshes[i], u = mesh.shader.uniforms;
+            u.uMask = mask.texture; u.uMapSize = [width, height];
+            textures.forEach((t, k) => {
+                u['uTex' + k] = t ? t.texture : PIXI.Texture.EMPTY;
+                u['uTexSize' + k] = t ? [Math.max(1, t.w * settings.scale), Math.max(1, t.h * settings.scale)] : [1, 1];
+            });
+            mesh.x = Math.round(origin.x + ox * width);
+            mesh.y = Math.round(origin.y + oy * height);
+            mesh.z = G.z;
+            mesh.visible = mesh.x < Graphics.width && mesh.x + width > 0 && mesh.y < Graphics.height && mesh.y + height > 0;
+        });
+        return offsets.length;
+    };
+
+    const update = Spriteset_Map.prototype.update;
+    Spriteset_Map.prototype.update = function() {
+        update.apply(this, arguments);
+        this.updateDocsGround();
+    };
+})();
 (function() {
     if (typeof Spriteset_Base === 'undefined' || typeof PIXI === 'undefined' || !PIXI.Filter) return;
     const H = DocsDoodads.Haze;
@@ -19461,8 +21438,41 @@ if (typeof Spriteset_Map !== 'undefined') {
         return true;
     };
 
-    N.ensure = function(sprite, source) {
-        const base = sprite && (sprite._bmp || sprite.bitmap), normalPath = this.pathFor(source);
+    // The editor replaces this to make a missing map (8.3.1). A deployed game only uses what the manifest names.
+    N.requestGenerated = N.requestGenerated || function() { return false; };
+    // The editor replaces this to remake a map whose picture changed since it was made.
+    N.checkGenerated = N.checkGenerated || function() { return false; };
+
+    N.shadeFor = function(sprite, info) {
+        if (typeof Sprite_DocsDoodad !== 'undefined' && sprite instanceof Sprite_DocsDoodad) return sprite._data && sprite._data.shade;
+        return { mode: info && info.characters === 'made' ? 'made' : 'file' };
+    };
+
+    // Memoised per sprite: the key string is only rebuilt when the picture, its Shading, its frame grid or
+    // the manifest changes, not every frame for every doodad.
+    N.normalFor = function(sprite, source, info) {
+        if (!sprite || !source) return null;
+        // Before its picture loads a sprite shows an empty 1×1 frame: no grid can be read from that.
+        const base = sprite._bmp || sprite.bitmap;
+        if (!base || typeof base.isReady === 'function' && !base.isReady()) return null;
+        const raw = this.shadeFor(sprite, info), s = this.shade(raw), frame = sprite.texture && sprite.texture.frame;
+        const g = this.gridOf(frame), memo = sprite._docsNormalPick;
+        if (memo && memo.source === source && memo.manifest === this.manifest && memo.mode === s.mode && memo.strength === s.strength &&
+            memo.shape === s.shape && memo.w === g.w && memo.h === g.h && memo.x === g.x && memo.y === g.y) {
+            if (memo.request && !memo.path) this.requestGenerated(memo.request);
+            return memo.path;
+        }
+        const found = this.resolve(source, s, frame);
+        const request = found.key ? { key: found.key, source, shape: s.shape, strength: s.strength, grid: g, path: found.path } : null;
+        sprite._docsNormalPick = { source, manifest: this.manifest, mode: s.mode, strength: s.strength, shape: s.shape,
+            w: g.w, h: g.h, x: g.x, y: g.y, path: found.path, request };
+        if (request && found.missing) this.requestGenerated(request);
+        else if (request) this.checkGenerated(request);
+        return found.path;
+    };
+
+    N.ensure = function(sprite, source, normalPath = this.pathFor(source)) {
+        const base = sprite && (sprite._bmp || sprite.bitmap);
         if (!sprite || !base || !normalPath) { this.detach(sprite); return false; }
         const old = sprite._docsNormalRequest;
         if (old && old.source === source && old.base === base && old.normalPath === normalPath) return Boolean(sprite._docsNormalBitmap && sprite._docsNormalFilter);
@@ -19478,7 +21488,7 @@ if (typeof Spriteset_Map !== 'undefined') {
     };
 
     N.updateSprite = function(sprite, source, info, max) {
-        if (!sprite || !source || !sprite.visible || sprite.renderable === false || !this.ensure(sprite, source)) {
+        if (!sprite || !source || !sprite.visible || sprite.renderable === false || !this.ensure(sprite, source, this.normalFor(sprite, source, info))) {
             this.detach(sprite);
             return false;
         }
@@ -19513,6 +21523,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const sprites = this.docsNormalSprites(), max = this.docsNormalMax();
         if (!max) { for (const sprite of sprites) N.detach(sprite); return 0; }
         const info = this._docsNormalLightInfo || { base: [1, 1, 1], lights: [], time: DocsDoodads.frameCount() / 60 };
+        info.characters = DocsDoodads.World.settings().normalLight.characters;
         let count = 0;
         for (const sprite of sprites) {
             sprite._docsNormalBase = this._baseSprite || null;
@@ -19705,6 +21716,119 @@ DocsDoodads.Touch.promptBitmap = function(text) {
     cache.set(text, bmp);
     return bmp;
 };
+//==========================================================
+// SECTION 7R: ROPES AND CABLES ON THE MAP (9.3.2)
+//==========================================================
+// A doodad with `line` draws a hanging line from its point instead of its picture: a PIXI.SimpleRope with the
+// picture as texture, or a plain PIXI.Graphics cord. Hung pictures ride along it and may carry a light preset.
+// The rope ignores the doodad's size and turn, so its ends stay where they were placed. Flat maps.
+(function() {
+    if (typeof Sprite_DocsDoodad === 'undefined' || typeof PIXI === 'undefined') return;
+    const R = DocsDoodads.Rope;
+
+    const setup = Sprite_DocsDoodad.prototype.setupBitmap;
+    Sprite_DocsDoodad.prototype.setupBitmap = function(bmp) {
+        setup.call(this, bmp);
+        if (!this._data || !this._data.line) return;
+        // A textured rope keeps the picture's frame for the rope; the doodad itself draws nothing.
+        this._docsRopeTexture = this._data.bit && this._data.bit[0] === 3 && this.texture !== PIXI.Texture.EMPTY ? this.texture : null;
+        this.texture = PIXI.Texture.EMPTY;
+        if (this._shadowSprite) this._shadowSprite.texture = PIXI.Texture.EMPTY;
+    };
+
+    const update = Sprite_DocsDoodad.prototype.update;
+    Sprite_DocsDoodad.prototype.update = function() {
+        update.call(this);
+        if (this._data && this._data.line) this.updateDocsRope();
+        else if (this._docsRope) this.removeDocsRope();
+    };
+
+    Sprite_DocsDoodad.prototype.removeDocsRope = function() {
+        if (this._docsRope) {
+            if (this._docsRope.parent) this._docsRope.parent.removeChild(this._docsRope);
+            if (typeof this._docsRope.destroy === 'function') this._docsRope.destroy({ children: true });
+        }
+        this._docsRope = null; this._docsRopeMesh = null; this._docsRopeLine = null; this._docsRopePoints = null;
+        this._docsRopeHung = null; this._docsRopeLights = null; this._docsRopeFrame = -1;
+    };
+
+    Sprite_DocsDoodad.prototype.updateDocsRope = function() {
+        const frame = DocsDoodads.frameCount();
+        if (this._docsRopeFrame === frame && frame !== 0 && this._docsRope) return;
+        this._docsRopeFrame = frame;
+        const d = this._data, line = R.normalize(d.line);
+        if (!line) { this.removeDocsRope(); return; }
+        // The rope is drawn in map pixels: the doodad's size, flip and turn would move its far end.
+        this.scale.set(1, 1); this.rotation = 0; if (this.skew) this.skew.x = 0;
+        if (this.texture !== PIXI.Texture.EMPTY && this._bmp) this.setupBitmap(this._bmp);
+        if (!this._docsRope) {
+            this._docsRope = new PIXI.Container();
+            this.addChild(this._docsRope);
+        }
+        const base = R.points(0, 0, line.x2, line.y2, line.sag, R.segmentsFor(line));
+        const points = R.swayed(base, DocsDoodads.Wind.current(), frame / 60, (Number(d.x) || 0) + (Number(d.y) || 0), line.sway);
+        const texture = this._docsRopeTexture;
+        if (texture && PIXI.SimpleRope) {
+            if (this._docsRopeLine) this._docsRopeLine.visible = false;
+            if (!this._docsRopeMesh || this._docsRopeMesh.texture !== texture || this._docsRopePoints.length !== points.length) {
+                if (this._docsRopeMesh) { this._docsRope.removeChild(this._docsRopeMesh); this._docsRopeMesh.destroy(); }
+                this._docsRopePoints = points.map(p => new PIXI.Point(p.x, p.y));
+                this._docsRopeMesh = new PIXI.SimpleRope(texture, this._docsRopePoints);
+                this._docsRope.addChildAt(this._docsRopeMesh, 0);
+            }
+            points.forEach((p, i) => { this._docsRopePoints[i].x = p.x; this._docsRopePoints[i].y = p.y; });
+            this._docsRopeMesh.visible = true;
+        } else {
+            if (this._docsRopeMesh) this._docsRopeMesh.visible = false;
+            if (!this._docsRopeLine) { this._docsRopeLine = new PIXI.Graphics(); this._docsRope.addChildAt(this._docsRopeLine, 0); }
+            const g = this._docsRopeLine;
+            g.visible = true;
+            g.clear();
+            g.lineStyle(line.width, R.colorNumber(line.color), 1);
+            g.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
+            g.lineStyle(0);
+        }
+        this.updateDocsRopeHung(line, R.hangAt(points, line.hang.count));
+        const lowest = Math.max(...points.map(p => p.y));
+        if (DocsDoodads.Depth.resolve(d) === 'sorted') this._docsSortY = this.y + lowest;
+    };
+
+    Sprite_DocsDoodad.prototype.updateDocsRopeHung = function(line, spots) {
+        const hung = this._docsRopeHung = this._docsRopeHung || [];
+        const path = line.hang.path;
+        if (path) {
+            if (this._docsRopeHungPath !== path) {
+                this._docsRopeHungPath = path;
+                this._docsRopeHungBitmap = DocsDoodads.loadBitmap(path);
+            }
+            const bitmap = this._docsRopeHungBitmap;
+            for (let i = 0; i < spots.length; i++) {
+                let sprite = hung[i];
+                if (!sprite) { sprite = hung[i] = new PIXI.Sprite(PIXI.Texture.EMPTY); sprite.anchor.set(0.5, 0); this._docsRope.addChild(sprite); }
+                if (bitmap && bitmap._baseTexture && (!bitmap.isReady || bitmap.isReady()) && sprite._docsBase !== bitmap._baseTexture) {
+                    sprite.texture = new PIXI.Texture(bitmap._baseTexture);
+                    sprite._docsBase = bitmap._baseTexture;
+                }
+                sprite.x = spots[i].x; sprite.y = spots[i].y; sprite.visible = true;
+            }
+        }
+        for (let i = path ? spots.length : 0; i < hung.length; i++) hung[i].visible = false;
+        // Lights ride with the hung things; the same objects every frame so lamps fade instead of blinking.
+        const preset = line.hang.light && DocsDoodads.LightPresets.get(line.hang.light);
+        if (!preset || !spots.length) { this._docsRopeLights = null; return; }
+        const d = this._data, lights = this._docsRopeLights = (this._docsRopeLights || []).slice(0, spots.length);
+        for (let i = 0; i < spots.length; i++) {
+            const item = lights[i] || (lights[i] = { light: null, ropeOf: d });
+            if (!item.light || item.light.preset !== preset.id) {
+                item.light = Object.assign({}, DocsDoodads.Lighting.lightDefaults, JSON.parse(JSON.stringify(preset.light)), { enabled: true, preset: preset.id });
+            }
+            item.x = (Number(d.x) || 0) + spots[i].x;
+            item.y = (Number(d.y) || 0) + spots[i].y;
+            item.posMode = d.posMode;
+        }
+    };
+})();
 //==========================================================
 // SECTION 7H: VISUAL EQUIPMENT & MAP DESTINATION RUNTIME
 //==========================================================
@@ -24771,6 +26895,213 @@ if (typeof Sprite_Character !== 'undefined') {
 if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
     PluginManager.registerCommand(pluginName, 'openPhotoMode', () => DocsDoodads.PhotoMode.open());
 }
+//==========================================================
+// SECTION 7P: PINS ON THE MINIMAP AND THE WORLD MAP, AND FAST TRAVEL (9.1.6)
+//==========================================================
+(function() {
+    const P = DocsDoodads.Pins;
+    const switchOn = id => typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false;
+    P.forbidSwitch = typeof fastTravelForbidSwitch !== 'undefined' ? fastTravelForbidSwitch : 0;
+
+    // An event's pin, read again only when its page changes.
+    P._eventCache = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+    P.currentPins = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return [];
+        const mapId = $gameMap.mapId(), events = [];
+        for (const ev of typeof $gameMap.events === 'function' ? $gameMap.events() : []) {
+            if (!ev || typeof ev.eventId !== 'function') continue;
+            const page = ev._pageIndex;
+            let cached = this._eventCache ? this._eventCache.get(ev) : null;
+            if (!cached || cached.page !== page) {
+                let text = '';
+                try { text = DocsDoodads.VisualEquip && DocsDoodads.VisualEquip.eventText ? DocsDoodads.VisualEquip.eventText(ev) : ''; } catch (error) { text = ''; }
+                cached = { page, tag: this.parseTag(text) };
+                if (this._eventCache) this._eventCache.set(ev, cached);
+            }
+            if (cached.tag && page >= 0) events.push({ id: `m${mapId}e${ev.eventId()}`, x: ev.x, y: ev.y, icon: cached.tag.icon, name: cached.tag.name, travel: false, switchId: 0, event: true });
+        }
+        return this.list(mapId).concat(events);
+    };
+
+    P.context = function(mapId, map) {
+        const E = DocsDoodads.Explored, M = DocsDoodads.Minimap, cfg = M.settingsFor(mapId);
+        const seen = cfg.fog && map ? E.entry(mapId, map.width, map.height) : null;
+        return {
+            fog: cfg.fog, radius: cfg.radius,
+            found: id => this.isFound(id), hidden: id => this.isHidden(id), switchOn,
+            explored: (x, y) => Boolean(seen && E.isExplored(seen, x, y))
+        };
+    };
+
+    // Called as the player reaches a new tile: pins nearby become found (kept in the save).
+    P.discoverHere = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gamePlayer === 'undefined' || !$gamePlayer) return [];
+        const key = $gameMap.mapId() + ':' + $gamePlayer.x + ',' + $gamePlayer.y;
+        if (this._lastTile === key) return [];
+        this._lastTile = key;
+        const pins = this.currentPins();
+        if (!pins.length) return [];
+        const map = DocsDoodads.Minimap.forCurrentMap(), ctx = this.context($gameMap.mapId(), map);
+        return this.discoverNear(pins, Object.assign(ctx, { px: $gamePlayer.x, py: $gamePlayer.y, width: $gameMap.width(), height: $gameMap.height(),
+            loopX: $gameMap.isLoopHorizontal(), loopY: $gameMap.isLoopVertical() }));
+    };
+
+    P.visibleHere = function(map) {
+        const ctx = this.context($gameMap.mapId(), map);
+        return this.currentPins().filter(pin => this.visible(pin, ctx));
+    };
+
+    P.iconSprite = function(pin, size) {
+        const sprite = new PIXI.Sprite(PIXI.Texture.EMPTY);
+        sprite.anchor.set(0.5, 0.5);
+        sprite.scale.set(size / 32);
+        const bitmap = typeof ImageManager !== 'undefined' ? ImageManager.loadSystem('IconSet') : null;
+        const apply = () => {
+            if (!bitmap || !bitmap._baseTexture) return;
+            const unit = typeof ImageManager !== 'undefined' && ImageManager.iconWidth ? ImageManager.iconWidth : 32;
+            const f = this.iconFrame(pin.icon, unit);
+            if (f.x + f.w > bitmap.width || f.y + f.h > bitmap.height) return;
+            sprite.texture = new PIXI.Texture(bitmap._baseTexture, new PIXI.Rectangle(f.x, f.y, f.w, f.h));
+            sprite.scale.set(size / unit);
+        };
+        if (bitmap && (!bitmap.isReady || bitmap.isReady())) apply();
+        else if (bitmap && bitmap.addLoadListener) bitmap.addLoadListener(apply);
+        sprite._docsPinId = pin.id;
+        return sprite;
+    };
+
+    if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined' && Spriteset_Map.prototype.updateDocsMinimap) {
+        const updateMinimap = Spriteset_Map.prototype.updateDocsMinimap;
+        Spriteset_Map.prototype.updateDocsMinimap = function() {
+            updateMinimap.call(this);
+            if (!(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) P.discoverHere();
+            const mini = this._docsMinimap;
+            if (!mini || !mini.visible) return;
+            const map = DocsDoodads.Minimap.forCurrentMap();
+            const pins = map ? P.visibleHere(map) : [];
+            const signature = pins.map(p => `${p.id}@${p.x},${p.y}#${p.icon}`).join('|');
+            if (mini._docsPinSignature !== signature) {
+                mini._docsPinSignature = signature;
+                if (mini._docsPins) { mini.removeChild(mini._docsPins); mini._docsPins.destroy({ children: true }); }
+                mini._docsPins = new PIXI.Container();
+                for (const pin of pins) {
+                    const icon = P.iconSprite(pin, 14);
+                    icon.x = (pin.x + 0.5) * mini._docsScale; icon.y = (pin.y + 0.5) * mini._docsScale;
+                    mini._docsPins.addChild(icon);
+                }
+                // Under the player's arrow.
+                mini.addChildAt(mini._docsPins, Math.max(0, mini.children.indexOf(mini._docsArrow)));
+            }
+        };
+    }
+
+    const Scene = DocsDoodads.Scene_DocsWorldMap;
+    if (Scene && Scene.prototype && typeof Scene.prototype.create === 'function' && typeof Window_Help !== 'undefined') {
+        const create = Scene.prototype.create;
+        Scene.prototype.create = function() {
+            create.call(this);
+            this._docsPinLayer = new PIXI.Container();
+            this.addChild(this._docsPinLayer);
+            this._docsTravel = P.travelAllowed(P.forbidSwitch, switchOn)
+                ? P.travelList({ mapInfos: typeof $dataMapInfos !== 'undefined' ? $dataMapInfos : [], switchOn }) : [];
+            this._docsTravelIndex = -1;
+            if (this._docsTravel.length) {
+                const here = this._docsTravel.findIndex(row => row.mapId === $gameMap.mapId());
+                this._docsTravelIndex = here >= 0 ? here : 0;
+            }
+            this._docsConfirm = false;
+            const rect = new Rectangle(0, 0, Graphics.boxWidth, this.calcWindowHeight ? this.calcWindowHeight(1, false) : 72);
+            this._docsPinHelp = new Window_Help(rect);
+            this.addWindow(this._docsPinHelp);
+            this.drawDocsPins();
+        };
+
+        Scene.prototype.drawDocsPins = function() {
+            const layer = this._docsPinLayer;
+            if (!layer) return;
+            layer.removeChildren().forEach(child => child.destroy && child.destroy());
+            const map = this._map, travel = this._docsTravel || [], chosen = travel[this._docsTravelIndex];
+            if (map && !this._globe && this._picture && this._picture.bitmap) {
+                const scale = this._picture.bitmap.width / map.width;
+                for (const pin of P.visibleHere(DocsDoodads.Minimap.forCurrentMap())) {
+                    const icon = P.iconSprite(pin, 24);
+                    icon.x = this._picture.x + (pin.x + 0.5) * scale; icon.y = this._picture.y + (pin.y + 0.5) * scale;
+                    if (chosen && chosen.pin.id === pin.id && chosen.mapId === $gameMap.mapId()) {
+                        const ring = new PIXI.Graphics();
+                        ring.lineStyle(3, 0xffffff, 1).drawCircle(icon.x, icon.y, 16);
+                        layer.addChild(ring);
+                    }
+                    layer.addChild(icon);
+                }
+            }
+            const help = this._docsPinHelp;
+            if (!help) return;
+            if (!chosen) help.setText(travel.length ? '' : 'OK or Cancel to close.');
+            else if (this._docsConfirm) help.setText(`Travel to ${chosen.pin.name} (${chosen.mapName})? OK to go, Cancel to stay.`);
+            else help.setText(`${chosen.pin.name} · ${chosen.mapName}${travel.length > 1 ? '   ◀ ▶ to choose' : ''}   OK to travel`);
+        };
+
+        Scene.prototype.docsTravelTo = function(row) {
+            if (!row || !P.travelAllowed(P.forbidSwitch, switchOn)) return false;
+            $gamePlayer.reserveTransfer(row.mapId, row.pin.x, row.pin.y, 2, 0);
+            this.popScene();
+            return true;
+        };
+
+        const update = Scene.prototype.update;
+        Scene.prototype.update = function() {
+            const travel = this._docsTravel || [];
+            if (!travel.length) return update.call(this);
+            Scene_MenuBase.prototype.update.call(this);
+            const step = (Input.isRepeated('down') || (!this._globe && Input.isRepeated('right'))) ? 1
+                : (Input.isRepeated('up') || (!this._globe && Input.isRepeated('left'))) ? -1 : 0;
+            if (this._globe && (Input.isPressed('left') || Input.isPressed('right'))) {
+                this._spin += Input.isPressed('left') ? -0.05 : 0.05;
+                this.drawWorldMap();
+            }
+            if (step && !this._docsConfirm) {
+                this._docsTravelIndex = (this._docsTravelIndex + step + travel.length) % travel.length;
+                SoundManager.playCursor();
+                this.drawDocsPins();
+            } else if (Input.isTriggered('ok') || TouchInput.isTriggered()) {
+                if (this._docsConfirm) {
+                    SoundManager.playOk();
+                    this.docsTravelTo(travel[this._docsTravelIndex]);
+                } else {
+                    SoundManager.playOk();
+                    this._docsConfirm = true;
+                    this.drawDocsPins();
+                }
+            } else if (Input.isTriggered('cancel') || TouchInput.isCancelled()) {
+                SoundManager.playCancel();
+                if (this._docsConfirm) { this._docsConfirm = false; this.drawDocsPins(); }
+                else this.popScene();
+            }
+        };
+
+        const draw = Scene.prototype.drawWorldMap;
+        Scene.prototype.drawWorldMap = function() {
+            draw.call(this);
+            if (this._docsPinLayer) this.drawDocsPins();
+        };
+    }
+
+    if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+        PluginManager.registerCommand(pluginName, 'findPin', args => {
+            const found = P.find(args.pin);
+            if (found) { P.discover(found.pin.id); P.setHidden(found.pin.id, false); }
+            return Boolean(found);
+        });
+        PluginManager.registerCommand(pluginName, 'hidePin', args => {
+            const found = P.find(args.pin);
+            if (found) P.setHidden(found.pin.id, String(args.hidden) !== 'false');
+            return Boolean(found);
+        });
+        PluginManager.registerCommand(pluginName, 'openFastTravel', () => {
+            if (typeof SceneManager !== 'undefined' && Scene && typeof Scene.prototype.create === 'function') SceneManager.push(Scene);
+        });
+    }
+})();
 (() => {
     const S = DocsDoodads.SaveShot;
     S.enabled = () => parseBooleanParameter(parameters.saveFilePictures, false);
@@ -26324,6 +28655,271 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 7Q: MOVEMENT OFF THE GRID (7.3.3), THE PLAYER
+//==========================================================
+// With World → Movement → Off the grid on, the player walks by pixels: their box slides along painted walls,
+// doodad bodies, MZ's impassable tiles and tile edges (Game_CharacterBase.isMapPassable, so 3D heights and
+// swimming keep their own rules) and the boxes of events that stand like characters. The player's x and y
+// stay whole tiles (the tile under the box), so events, regions, encounters, terrain tags and other
+// plugins see the same tile as before. Reaching a new tile is a step: the party walks, floor events start
+// and encounters count. Followers walk the player's trail. Events, vehicles, forced move routes, jumps and
+// traversal (flying, swimming, climbing, ice) stay on the grid; the player snaps to the grid while they run.
+(function() {
+    if (typeof Game_Player === 'undefined' || typeof Game_CharacterBase === 'undefined') return;
+    const F = DocsDoodads.FreeMove;
+    const X = () => DocsDoodads.Traversal;
+    const settings = () => F.settings(DocsDoodads.World.settings());
+
+    Game_Player.prototype.docsFreeOn = function() {
+        if (!settings().enabled) return false;
+        if (this.isInVehicle && this.isInVehicle()) return false;
+        if ((this.isJumping && this.isJumping()) || (this.isMoveRouteForcing && this.isMoveRouteForcing())) return false;
+        if (this.isTransferring && this.isTransferring()) return false;
+        const T = X();
+        if (T && (this._docsSlideDir || (T.isFlying && T.isFlying(this)) || (T.isSwimming && T.isSwimming(this)) ||
+            (T.can && T.can('ice') && T.isIce && T.isIce(this.x, this.y)) || (T.can && T.can('climb') && T.isClimb && T.isClimb(this.x, this.y)))) return false;
+        return true;
+    };
+
+    Game_Player.prototype.docsFreeBox = function() {
+        const s = settings(), tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        return F.box(this._realX, this._realY, tw, th, s.boxW, s.boxH);
+    };
+
+    // Other characters as boxes at their feet: events that stand like characters, and vehicles here.
+    Game_Player.prototype.docsFreeOthers = function() {
+        const s = settings(), tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), out = [];
+        for (const ev of $gameMap.events ? $gameMap.events() : []) {
+            if (!ev || ev._erased || (ev.isThrough && ev.isThrough()) || !(ev.isNormalPriority && ev.isNormalPriority())) continue;
+            out.push({ who: ev, box: F.box(ev._realX, ev._realY, tw, th, s.boxW, s.boxH) });
+        }
+        for (const vehicle of $gameMap.vehicles ? $gameMap.vehicles() : []) {
+            if (!vehicle || vehicle._mapId !== $gameMap.mapId() || (vehicle.isAirship && vehicle.isAirship())) continue;
+            out.push({ who: vehicle, box: F.box(vehicle._realX, vehicle._realY, tw, th, s.boxW, s.boxH) });
+        }
+        return out;
+    };
+
+    // A tile nobody can enter from any side is solid for a box overlapping it.
+    Game_Player.prototype.docsFreeSolidTile = function(tx, ty) {
+        const cache = this._docsFreeSolid;
+        const key = tx + ',' + ty;
+        if (cache && cache.has(key)) return cache.get(key);
+        const loopX = $gameMap.isLoopHorizontal(), loopY = $gameMap.isLoopVertical();
+        let solid;
+        if ((!loopX && (tx < 0 || tx >= $gameMap.width())) || (!loopY && (ty < 0 || ty >= $gameMap.height()))) solid = true;
+        else {
+            const x = $gameMap.roundX(tx), y = $gameMap.roundY(ty);
+            solid = [[0, 1, 8], [0, -1, 2], [1, 0, 4], [-1, 0, 6]].every(([ox, oy, d]) => !this.isMapPassable($gameMap.roundX(x + ox), $gameMap.roundY(y + oy), d));
+        }
+        if (cache) cache.set(key, solid);
+        return solid;
+    };
+
+    Game_Player.prototype.docsFreeBlocked = function(rect, from) {
+        if ((this.isThrough && this.isThrough()) || (this.isDebugThrough && this.isDebugThrough())) return false;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        for (const t of F.tilesUnder(rect, tw, th)) if (this.docsFreeSolidTile(t.x, t.y)) return true;
+        const a = F.tileOf(from, tw, th), b = F.tileOf(rect, tw, th);
+        if ((a.x !== b.x || a.y !== b.y) && F.crossBlocked((x, y, d) => this.isMapPassable($gameMap.roundX(x), $gameMap.roundY(y), d), a, b)) return true;
+        const W = DocsDoodads.Walls, grid = W.get($gameMap.mapId());
+        if (grid && W.blocksRect(grid, rect.x, rect.y, rect.w, rect.h)) return true;
+        const C = DocsDoodads.Collision, doodads = DocsDoodads.doodads();
+        if (doodads && doodads.length) {
+            const g = C.grid(doodads, tw, th), seen = new Set(), settingsHere = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+            for (const t of F.tilesUnder(rect, tw, th)) {
+                for (const d of g.tiles.get(C.tileKey(t.x, t.y)) || []) {
+                    if (seen.has(d)) continue;
+                    seen.add(d);
+                    const body = C.cachedBody(d).body;
+                    if (!body || !F.overlaps(body, rect) || (d.collision && !C.stops(d, this, this._direction))) continue;
+                    if (DocsDoodads.Layers.visibleInGame(d, settingsHere) && DocsDoodads.Appearance.isVisible(d, {}) && DocsDoodads.States.blocks(d)) return true;
+                }
+            }
+        }
+        if (!(X() && X().isFlying && X().isFlying(this))) {
+            for (const other of this._docsFreeOthersNow || []) {
+                if (F.overlaps(other.box, rect) && !F.overlaps(other.box, from)) { this._docsFreeHit = other.who; return true; }
+            }
+        }
+        return false;
+    };
+
+    // dir8 0 means no input. Returns the step's result (and moves the player).
+    Game_Player.prototype.docsFreeStep = function(dir8, vector) {
+        this._docsFreeMoving = false;
+        this._docsFreeHit = null;
+        if (!dir8 && !vector) return null;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const v = vector || F.vector(dir8), speed = this.distancePerFrame() * tw;
+        this._docsFreeSolid = new Map();
+        this._docsFreeOthersNow = this.docsFreeOthers();
+        const box = this.docsFreeBox();
+        const result = F.step(box, v.x * speed, v.y * speed, (rect, from) => this.docsFreeBlocked(rect, from));
+        this._docsFreeSolid = null;
+        this._docsFreeOthersNow = null;
+        const moved = { x: result.x, y: result.y, w: box.w, h: box.h };
+        const real = F.realOf(moved, tw, th);
+        // Looping maps: as MZ does at the seam, the real position stays within half a tile of the whole tile.
+        const wrap = (value, size) => { const v = ((value % size) + size) % size; return v >= size - 0.5 ? v - size : v; };
+        if ($gameMap.isLoopHorizontal()) real.x = wrap(real.x, $gameMap.width());
+        if ($gameMap.isLoopVertical()) real.y = wrap(real.y, $gameMap.height());
+        if (dir8) this.setDirection(F.facing(dir8, this._direction));
+        else if (vector) this.setDirection(Math.abs(vector.x) > Math.abs(vector.y) ? (vector.x > 0 ? 6 : 4) : (vector.y > 0 ? 2 : 8));
+        this._docsFreeMoving = result.moved > 0.01;
+        if (this._docsFreeMoving) {
+            this._realX = real.x; this._realY = real.y;
+            this.docsFreeTrail();
+            const tile = F.tileOf(this.docsFreeBox(), tw, th);
+            const tx = $gameMap.roundX(tile.x), ty = $gameMap.roundY(tile.y);
+            if (tx !== this._x || ty !== this._y) { this._x = tx; this._y = ty; this.docsFreeArrive(); }
+        }
+        // Pushing into an event that starts on touch starts it, as walking into it on the grid does.
+        const hit = this._docsFreeHit;
+        if (hit && typeof Game_Event !== 'undefined' && hit instanceof Game_Event && !$gameMap.isEventRunning() && hit.isTriggerIn && hit.isTriggerIn([1, 2]) &&
+            (!this.canStartLocalEvents || this.canStartLocalEvents())) hit.start();
+        return result;
+    };
+
+    // A new tile is a step: the party walks, floor events here start, encounters count.
+    Game_Player.prototype.docsFreeArrive = function() {
+        if (this.increaseSteps) this.increaseSteps();
+        if (typeof $gameParty !== 'undefined' && $gameParty && $gameParty.onPlayerWalk) $gameParty.onPlayerWalk();
+        if (this.checkEventTriggerHere && !$gameMap.isEventRunning()) this.checkEventTriggerHere([1, 2]);
+        if ($gameMap.setupStartingEvent && $gameMap.setupStartingEvent()) return;
+        if (this.updateEncounterCount) this.updateEncounterCount();
+    };
+
+    Game_Player.prototype.docsFreeTrail = function() {
+        const trail = this._docsFreeTrailPoints = this._docsFreeTrailPoints || [];
+        const last = trail[trail.length - 1];
+        if (!last || Math.hypot(last.x - this._realX, last.y - this._realY) >= 0.05) trail.push({ x: this._realX, y: this._realY, d: this._direction });
+        const keep = 40 + 24 * ((this._followers && this._followers.data ? this._followers.data().length : 0) + 1);
+        if (trail.length > keep) trail.splice(0, trail.length - keep);
+    };
+
+    // Followers stand a tile apart along the trail, facing the way the player went there.
+    Game_Player.prototype.docsFreeFollowers = function() {
+        const trail = this._docsFreeTrailPoints;
+        const list = this._followers && this._followers.data ? this._followers.data() : [];
+        if (!trail || !trail.length) return;
+        list.forEach((follower, i) => {
+            const at = F.alongTrail(trail, i + 1);
+            if (!at) return;
+            const moving = Math.hypot(follower._realX - at.x, follower._realY - at.y) > 0.001;
+            follower._realX = at.x; follower._realY = at.y;
+            follower._x = $gameMap.roundX(Math.round(at.x)); follower._y = $gameMap.roundY(Math.round(at.y));
+            if (at.d) follower.setDirection(at.d);
+            follower._docsFreeMoving = moving;
+        });
+    };
+
+    // Touch or mouse destination: the path on tiles, walked freely toward each next tile's middle.
+    Game_Player.prototype.docsFreeDestination = function() {
+        if (typeof $gameTemp === 'undefined' || !$gameTemp || !$gameTemp.isDestinationValid || !$gameTemp.isDestinationValid()) return null;
+        const gx = $gameTemp.destinationX(), gy = $gameTemp.destinationY();
+        const at = { x: this._realX, y: this._realY };
+        if (this.x === gx && this.y === gy) {
+            const dx = gx - at.x, dy = gy - at.y, distance = Math.hypot(dx, dy);
+            if (distance < 0.05) { $gameTemp.clearDestination(); return null; }
+            return { x: dx / distance, y: dy / distance };
+        }
+        const d = this.findDirectionTo ? this.findDirectionTo(gx, gy) : 0;
+        if (!d) { $gameTemp.clearDestination(); return null; }
+        const nx = $gameMap.roundXWithDirection(this.x, d), ny = $gameMap.roundYWithDirection(this.y, d);
+        let dx = nx - at.x, dy = ny - at.y;
+        if ($gameMap.isLoopHorizontal() && Math.abs(dx) > $gameMap.width() / 2) dx -= Math.sign(dx) * $gameMap.width();
+        if ($gameMap.isLoopVertical() && Math.abs(dy) > $gameMap.height() / 2) dy -= Math.sign(dy) * $gameMap.height();
+        const distance = Math.hypot(dx, dy) || 1;
+        return { x: dx / distance, y: dy / distance };
+    };
+
+    const moveByInput = Game_Player.prototype.moveByInput;
+    Game_Player.prototype.moveByInput = function() {
+        if (!this.docsFreeOn()) return moveByInput.apply(this, arguments);
+        this._docsFreeMoving = false;
+        if (this.canMove && !this.canMove()) return;
+        const dir8 = typeof Input !== 'undefined' ? Number(Input.dir8) || 0 : 0;
+        if (dir8 && typeof $gameTemp !== 'undefined' && $gameTemp && $gameTemp.clearDestination) $gameTemp.clearDestination();
+        if (dir8) this.docsFreeStep(dir8);
+        else {
+            const toward = this.docsFreeDestination();
+            if (toward) this.docsFreeStep(0, toward);
+        }
+    };
+
+    const isMoving = Game_CharacterBase.prototype.isMoving;
+    Game_Player.prototype.isMoving = function() {
+        return this.docsFreeOn() ? Boolean(this._docsFreeMoving) : isMoving.call(this);
+    };
+    const updateMove = Game_Player.prototype.updateMove;
+    if (updateMove) {
+        Game_Player.prototype.updateMove = function() {
+            if (this.docsFreeOn()) { if (this.refreshBushDepth) this.refreshBushDepth(); return; }
+            return updateMove.apply(this, arguments);
+        };
+    }
+    // Dashing follows the button while walking freely (MZ only changes it while standing still).
+    const updateDashing = Game_Player.prototype.updateDashing;
+    if (updateDashing) {
+        Game_Player.prototype.updateDashing = function() {
+            if (!this.docsFreeOn()) return updateDashing.apply(this, arguments);
+            this._dashing = this.canMove() && this.isDashButtonPressed() && !$gameMap.isDashDisabled();
+        };
+    }
+    // Steps and floor events are counted per tile reached, so standing still only checks the action button.
+    const updateNonmoving = Game_Player.prototype.updateNonmoving;
+    if (updateNonmoving) {
+        Game_Player.prototype.updateNonmoving = function(wasMoving, sceneActive) {
+            if (!this.docsFreeOn()) return updateNonmoving.apply(this, arguments);
+            if ($gameMap.isEventRunning()) return;
+            if (sceneActive && this.triggerAction()) return;
+            if (!wasMoving && $gameTemp && $gameTemp.isDestinationValid && !$gameTemp.isDestinationValid()) $gameTemp.clearDestination();
+        };
+    }
+    // The action button looks in front of the box, not of the tile.
+    const there = Game_Player.prototype.checkEventTriggerThere;
+    if (there) {
+        Game_Player.prototype.checkEventTriggerThere = function(triggers) {
+            if (!this.docsFreeOn() || !this.canStartLocalEvents()) return there.apply(this, arguments);
+            const front = this.docsFreeFront();
+            this.startMapEvent(front.x, front.y, triggers, true);
+            if (!$gameMap.isAnyEventStarting() && $gameMap.isCounter(front.x, front.y)) {
+                this.startMapEvent($gameMap.roundXWithDirection(front.x, this._direction), $gameMap.roundYWithDirection(front.y, this._direction), triggers, true);
+            }
+        };
+    }
+    Game_Player.prototype.docsFreeFront = function() {
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), box = this.docsFreeBox();
+        // One tile on from the middle of the box: the box is low in its tile, so half a tile up would stay in it.
+        const v = F.vector(this._direction), reach = Math.abs(v.x) * tw + Math.abs(v.y) * th;
+        const cx = box.x + box.w / 2 + v.x * reach, cy = box.y + box.h / 2 + v.y * reach;
+        return { x: $gameMap.roundX(Math.floor(cx / tw)), y: $gameMap.roundY(Math.floor(cy / th)) };
+    };
+
+    const update = Game_Player.prototype.update;
+    Game_Player.prototype.update = function() {
+        const result = update.apply(this, arguments);
+        if (this.docsFreeOn()) this.docsFreeFollowers();
+        else this._docsFreeTrailPoints = null;
+        return result;
+    };
+
+    if (typeof Game_Follower !== 'undefined') {
+        const followerMoving = Game_Follower.prototype.isMoving || Game_CharacterBase.prototype.isMoving;
+        Game_Follower.prototype.isMoving = function() {
+            return $gamePlayer && $gamePlayer.docsFreeOn && $gamePlayer.docsFreeOn() && $gamePlayer._docsFreeTrailPoints ? Boolean(this._docsFreeMoving) : followerMoving.call(this);
+        };
+        const followerUpdateMove = Game_Follower.prototype.updateMove;
+        if (followerUpdateMove) {
+            Game_Follower.prototype.updateMove = function() {
+                if ($gamePlayer && $gamePlayer.docsFreeOn && $gamePlayer.docsFreeOn() && $gamePlayer._docsFreeTrailPoints) return;
+                return followerUpdateMove.apply(this, arguments);
+            };
+        }
+    }
+})();
+//==========================================================
 // SECTION 8: DocsDoodads.CORE & DIAGNOSTICS
 //==========================================================
 DocsDoodads.Core = {
@@ -26912,7 +29508,7 @@ DocsDoodads.AssetIndex = {
     },
 
     isIgnoredDirectory(name) {
-        return name === '_packed' || String(name).startsWith('.');
+        return name === '_packed' || name === '_normals' || String(name).startsWith('.');
     },
 
     isSupportedAssetFile(filePath) {
@@ -27487,7 +30083,15 @@ DocsDoodads.Usage = {
             if (!Array.isArray(list)) continue;
             list.forEach((d, i) => {
                 if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'doodads', `${mapLabel(id)} · doodad #${i + 1}`);
+                // Pictures hung on a rope (9.3.2).
+                if (d && d.line && d.line.hang) pathRef(d.line.hang, 'path', 'doodads', `${mapLabel(id)} · doodad #${i + 1} (hung on a rope)`);
             });
+        }
+        // Ground brush textures (8.3.4) named in a map's settings.
+        const allSettings = sources.doodads && sources.doodads.mapSettings;
+        for (const [id, settings] of Object.entries(allSettings || {})) {
+            const textures = settings && settings.ground && Array.isArray(settings.ground.textures) ? settings.ground.textures : [];
+            textures.forEach((t, i) => pathRef(textures, i, 'doodads', `${mapLabel(id)} · ground texture ${i + 1}`));
         }
         // Seasonal variants may only be reachable through the season table.
         const world = sources.doodads && sources.doodads.world;
@@ -27497,7 +30101,10 @@ DocsDoodads.Usage = {
         });
         for (const prefab of sources.prefabs || []) {
             const label = `Prefab "${prefab.name}"`;
-            (prefab.doodads || []).forEach(d => { if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'prefabs', label); });
+            (prefab.doodads || []).forEach(d => {
+                if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'prefabs', label);
+                if (d && d.line && d.line.hang) pathRef(d.line.hang, 'path', 'prefabs', label + ' (hung on a rope)');
+            });
             pathRef(prefab, 'thumbnail', 'prefabs', label + ' thumbnail', true);
         }
     },
@@ -27652,7 +30259,7 @@ DocsDoodads.LiveReload = {
     classify(root, filename) {
         if (!filename) return null;
         const rel = String(filename).replace(/\\/g, '/').replace(/^\/+/, '');
-        if (rel.split('/').some(part => part === '_packed' || part.startsWith('.'))) return null;
+        if (rel.split('/').some(part => part === '_packed' || part === '_normals' || part.startsWith('.'))) return null;
         if (/\.(tmp|bak)$|\.(dd|qj)(import|txn)-|~$/i.test(rel)) return null;
         if (!DocsDoodads.AssetIndex.isSupportedAssetFile(rel)) return null;
         return `${root}/${rel}`;
@@ -27927,7 +30534,7 @@ DocsDoodads.Packs = {
     // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names], templates: [keys] }
     // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id), template(key) }
     gather(sel, src, audioFile) {
-        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} };
+        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {}, mapKinds: [] };
         const files = new Set();
         const addDoodads = list => (list || []).forEach(d => this.filesOfDoodad(d, audioFile).forEach(f => files.add(f)));
         const seenPrefab = new Set();
@@ -27953,6 +30560,11 @@ DocsDoodads.Packs = {
             if (!b) continue;
             contents.biomes.push(JSON.parse(JSON.stringify(b)));
             (b.entries || []).forEach(e => e && e.path && files.add(String(e.path)));
+        }
+        // Kinds of map made from pictures (8.5.3): plain data, no files.
+        for (const id of sel.mapKinds || []) {
+            const k = (src.mapKinds || []).find(x => x && x.id === id);
+            if (k) contents.mapKinds.push(JSON.parse(JSON.stringify(k)));
         }
         for (const i of sel.dress || []) {
             const r = (src.dress || [])[i];
@@ -28022,7 +30634,7 @@ DocsDoodads.Packs = {
         try { pack = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a doodad pack (it is not readable JSON).'); }
         if (!pack || pack.format !== this.format) throw new Error('This file is not a doodad pack.');
         if (Number(pack.version) > this.version) throw new Error('This pack was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
-        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, pack.contents || {});
+        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {}, mapKinds: [] }, pack.contents || {});
         pack.files = pack.files || {};
         pack.library = pack.library || {};
         return pack;
@@ -28069,7 +30681,8 @@ DocsDoodads.Packs = {
             biomes: fresh(pack.contents.biomes, ids.biomes, 'biome_').out,
             dress: JSON.parse(JSON.stringify(pack.contents.dress || [])),
             collections: JSON.parse(JSON.stringify(pack.contents.collections || {})),
-            templates: JSON.parse(JSON.stringify(pack.contents.templates || {}))
+            templates: JSON.parse(JSON.stringify(pack.contents.templates || {})),
+            mapKinds: fresh(pack.contents.mapKinds, ids.mapKinds, 'kind_').out
         };
     },
 
@@ -28105,12 +30718,19 @@ DocsDoodads.RequiredAssets = {
                 if (d.bit && d.bit[0] === 3) add(d.bit[1]);
                 for (const st of (d.states && d.states.list) || []) if (st && st.path) add(st.path);
                 if (d.model && d.model.path) add(d.model.path);
+                if (d.line && d.line.hang && d.line.hang.path) add(d.line.hang.path);
             }
         }
         for (const room of sources.rooms || []) for (const doodad of (room && room.doodads) || []) {
             if (doodad && doodad.bit && doodad.bit[0] === 3) add(doodad.bit[1]);
             for (const state of (doodad && doodad.states && doodad.states.list) || []) if (state && state.path) add(state.path);
             if (doodad && doodad.model && doodad.model.path) add(doodad.model.path);
+            if (doodad && doodad.line && doodad.line.hang && doodad.line.hang.path) add(doodad.line.hang.path);
+        }
+        // The ground brush (8.3.4): a painted map's mask and its textures.
+        for (const settings of Object.values(data.mapSettings || {})) {
+            const ground = DocsDoodads.Ground && DocsDoodads.Ground.settings(settings);
+            if (ground && ground.mask) { add(ground.mask); for (const t of ground.textures) add(t); }
         }
         const world = data.world || {};
         for (const biome of (world.biomes && world.biomes.list) || []) for (const entry of (biome && biome.entries) || []) add(entry && entry.path);
@@ -28157,6 +30777,12 @@ DocsDoodads.RequiredAssets = {
         for (const file of Array.from(out)) add(normalFor(file));
         // MZ already knows the base actor/event sheet, so it may not be in `out`; its normal is still plugin art.
         for (const name of sheetNames) add(normalFor('img/characters/' + name + '.png'));
+        // Made normal maps (8.3.1) go with every picture the game draws; a stale key costs one small file.
+        const made = normalManifest && normalManifest.generated && typeof normalManifest.generated === 'object' ? normalManifest.generated : {};
+        const drawn = new Set(Array.from(out).map(file => String(file).toLowerCase()));
+        for (const name of sheetNames) drawn.add(('img/characters/' + name + '.png').toLowerCase());
+        const N = DocsDoodads.NormalLight;
+        for (const [key, file] of Object.entries(N ? N.cleanGenerated(made) : {})) if (drawn.has(N.sourceOfKey(key))) add(file);
         return Array.from(out).sort();
     },
 
@@ -35121,6 +37747,8 @@ DocsDoodads.Persistence = {
             return false;
         }
 
+        // The ground brush (8.3.4): each painted map names its mask before the data is written.
+        const ground = DocsDoodads.Workspace && DocsDoodads.Workspace.prepareGroundSave ? DocsDoodads.Workspace.prepareGroundSave() : null;
         const savedDoodads = DocsDoodads.DataFiles.readAll() || {};
         const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
@@ -35162,6 +37790,7 @@ DocsDoodads.Persistence = {
         this.dirtyDoodads = false;
         this.clearRecovery();
         // The files MZ's "Exclude unused files" can't see (22_required_assets.js); a failure doesn't stop the save.
+        if (ground) DocsDoodads.Workspace.writeGroundMasks(ground);
         try { if (DocsDoodads.RequiredAssets) DocsDoodads.RequiredAssets.write(); } catch (e) { DocsDoodads.Core.log('Required assets list not written.', e); }
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
@@ -35250,6 +37879,7 @@ DocsDoodads.Persistence = {
             // snapshots that have no field at all, and from an explicitly empty object or array.
             notes: Object.prototype.hasOwnProperty.call(data, 'notes') && data.notes !== undefined ? data.notes : null,
             bookmarks: Object.prototype.hasOwnProperty.call(data, 'bookmarks') && data.bookmarks !== undefined ? data.bookmarks : null,
+            pins: Object.prototype.hasOwnProperty.call(data, 'pins') && data.pins !== undefined ? data.pins : null,
             stagedMap: gameMap._stagedMapData
         };
         const count = this.changeCount, epoch = this._recoveryEpoch;
@@ -35345,6 +37975,7 @@ Object.assign(DocsDoodads.Persistence, {
         if (!gameMap) return false;
         mapId = Number(mapId || gameMap.mapId());
         const W = DocsDoodads.Workspace, DF = DocsDoodads.DataFiles, FS = DocsDoodads.FS;
+        const ground = W && W.prepareGroundSave ? W.prepareGroundSave([mapId]) : null;
         const mapFile = this.mapFilePath(mapId);
         const snap = this.sessionSnapshots[mapFile], now = FS.stat(mapFile);
         if (snap && now && (snap.mtimeMs !== now.mtimeMs || snap.size !== now.size)) {
@@ -35365,6 +37996,9 @@ Object.assign(DocsDoodads.Persistence, {
         const trace = Object.assign({}, merged.trace || {});
         if (live.trace && live.trace[mapId]) trace[mapId] = live.trace[mapId]; else delete trace[mapId];
         if (Object.keys(trace).length) merged.trace = trace; else delete merged.trace;
+        const pins = Object.assign({}, merged.pins || {});
+        if (live.pins && live.pins[mapId]) pins[mapId] = live.pins[mapId]; else delete pins[mapId];
+        if (Object.keys(pins).length) merged.pins = pins; else delete merged.pins;
         const aliases = Object.assign({}, merged.aliases || {});
         if (live.aliases && live.aliases[mapId]) aliases[mapId] = live.aliases[mapId]; else delete aliases[mapId];
         if (Object.keys(aliases).length) merged.aliases = aliases; else delete merged.aliases;
@@ -35397,6 +38031,7 @@ Object.assign(DocsDoodads.Persistence, {
         this.dirtyMap = Object.keys(this.stagedMaps).length > 0 || (this._dirtyMap && !mapEntries.length);
         this.dirtyDoodads = still;
         this.touchedMaps.delete(mapId);
+        if (ground) W.writeGroundMasks(ground);
         if (!this.hasUnsavedWork()) { this.lastSavedAt = Date.now(); this.clearRecovery(); }
         W.showToast(this.hasUnsavedWork() ? 'Saved this map. Other maps still have unsaved changes.' : 'Saved this map. Everything is saved.');
         if (W.mounted) W.updateSaveState(!this.hasUnsavedWork());
@@ -35993,6 +38628,267 @@ DocsDoodads.Import = {
 };
 
 
+// @editor-only
+//==========================================================
+// SECTION 24M: BRINGING IN TILED AND LDTK MAPS (7.1.6)
+//==========================================================
+// Tiled and LDtk tilesets are not MZ tilesets, so tiles are not turned into MZ tile ids: every tile layer is
+// drawn into one picture shown as a picture layer, objects with a tile become doodads (their pictures cut
+// from the tilesets), and collision becomes painted collision (DocsDoodads.Walls). Both readers return one
+// plain model; `plan` says what will be written before anything is. Pure: files are read through `readFile`.
+DocsDoodads.MapImport = {
+    flips: { h: 0x80000000, v: 0x40000000, d: 0x20000000, hex: 0x10000000 },
+    maxPixels: 8192 * 8192,
+
+    fail(message) { throw new Error(message); },
+
+    // A path beside the file that names it ("../tiles/a.png" from "maps/one.tmj" is "tiles/a.png").
+    join(base, rel) {
+        const parts = String(base || '').replace(/\\/g, '/').split('/').slice(0, -1);
+        for (const part of String(rel || '').replace(/\\/g, '/').split('/')) {
+            if (!part || part === '.') continue;
+            if (part === '..') { if (parts.length && parts[parts.length - 1] !== '..') parts.pop(); else parts.push('..'); } else parts.push(part);
+        }
+        return parts.join('/');
+    },
+
+    slug(text) {
+        return String(text || '').normalize ? String(text || '').normalize('NFKD').replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'Layer'
+            : String(text || 'Layer').replace(/[^\w-]+/g, '_').slice(0, 40);
+    },
+
+    // ---- Tiled JSON (.tmj / .json) ----
+    // readFile(path) → parsed JSON (for an external tileset, .tsj); inflate(bytes, kind) → bytes for
+    // base64 data compressed with zlib or gzip. `file` is the map's own path, for relative names.
+    readTiled(json, readFile, options = {}) {
+        if (!json || typeof json !== 'object') this.fail('This is not a Tiled map.');
+        if (json.infinite) this.fail('Infinite Tiled maps cannot be brought in; save the map at a fixed size (Map → Map Properties → Infinite off).');
+        if (json.orientation && json.orientation !== 'orthogonal') this.fail(`Only orthogonal Tiled maps can be brought in (this one is ${json.orientation}).`);
+        const width = Math.floor(Number(json.width)), height = Math.floor(Number(json.height));
+        const tw = Math.floor(Number(json.tilewidth)), th = Math.floor(Number(json.tileheight));
+        if (!(width > 0 && height > 0 && tw > 0 && th > 0)) this.fail('The Tiled map has no size.');
+        if (tw !== th) this.fail(`Tiles must be square (this map's are ${tw} × ${th}).`);
+        if (width * tw * height * th > this.maxPixels) this.fail('The map is too large to bring in as pictures.');
+        const file = options.file || '';
+        const tilesets = (json.tilesets || []).map(ts => {
+            let set = ts, base = file;
+            if (ts && ts.source) {
+                base = this.join(file, ts.source);
+                set = Object.assign({}, readFile(base), { firstgid: ts.firstgid });
+            }
+            if (!set || !(Number(set.firstgid) > 0)) this.fail('A Tiled tileset is missing its first id.');
+            const tiles = {};
+            for (const tile of set.tiles || []) if (tile && tile.image) tiles[tile.id] = { image: this.join(base, tile.image), w: Number(tile.imagewidth) || tw, h: Number(tile.imageheight) || th };
+            return {
+                firstgid: Number(set.firstgid), name: set.name || 'tiles', image: set.image ? this.join(base, set.image) : '', tiles,
+                columns: Math.max(1, Number(set.columns) || 1), tw: Number(set.tilewidth) || tw, th: Number(set.tileheight) || th,
+                margin: Number(set.margin) || 0, spacing: Number(set.spacing) || 0
+            };
+        }).sort((a, b) => a.firstgid - b.firstgid);
+        const tileOf = raw => {
+            const gid = Number(raw) >>> 0, flags = this.flips, id = gid & ~(flags.h | flags.v | flags.d | flags.hex);
+            if (!id) return null;
+            let set = null;
+            for (const ts of tilesets) if (ts.firstgid <= id) set = ts;
+            if (!set) this.fail(`Tile ${id} belongs to no tileset.`);
+            const local = id - set.firstgid, own = set.tiles[local];
+            const where = own ? { image: own.image, sx: 0, sy: 0, w: own.w, h: own.h }
+                : { image: set.image, sx: set.margin + (local % set.columns) * (set.tw + set.spacing), sy: set.margin + Math.floor(local / set.columns) * (set.th + set.spacing), w: set.tw, h: set.th };
+            if (!where.image) this.fail(`Tile ${id} has no picture.`);
+            return Object.assign(where, { flipX: Boolean(gid & flags.h), flipY: Boolean(gid & flags.v), diagonal: Boolean(gid & flags.d) });
+        };
+        const layers = [];
+        const decode = layer => {
+            if (Array.isArray(layer.data)) return layer.data;
+            if (typeof layer.data !== 'string' || layer.encoding !== 'base64') this.fail(`Layer "${layer.name}" uses data this importer cannot read.`);
+            let bytes = typeof Buffer !== 'undefined' ? Buffer.from(layer.data, 'base64') : Uint8Array.from(atob(layer.data), c => c.charCodeAt(0));
+            if (layer.compression === 'zlib' || layer.compression === 'gzip') {
+                if (!options.inflate) this.fail(`Layer "${layer.name}" is compressed and cannot be read here.`);
+                bytes = options.inflate(bytes, layer.compression);
+            } else if (layer.compression) this.fail(`Layer "${layer.name}" uses ${layer.compression} compression; save it as CSV or zlib in Tiled.`);
+            const out = [];
+            for (let i = 0; i + 3 < bytes.length; i += 4) out.push((bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24)) >>> 0);
+            return out;
+        };
+        const walk = (list, prefix, ox, oy, opacity) => {
+            for (const layer of list || []) {
+                if (!layer || layer.visible === false) continue;
+                const name = (prefix ? prefix + ' / ' : '') + (layer.name || 'Layer');
+                const dx = ox + (Number(layer.offsetx) || 0), dy = oy + (Number(layer.offsety) || 0), alpha = opacity * (layer.opacity === undefined ? 1 : Number(layer.opacity));
+                if (layer.type === 'group') { walk(layer.layers, name, dx, dy, alpha); continue; }
+                const collision = /collision|collide|solid|wall/i.test(layer.name || '');
+                if (layer.type === 'tilelayer') {
+                    const data = decode(layer), lw = Number(layer.width) || width;
+                    if (collision) {
+                        const rects = [];
+                        data.forEach((gid, i) => { if (gid >>> 0) rects.push({ x: dx + (i % lw) * tw, y: dy + Math.floor(i / lw) * th, w: tw, h: th }); });
+                        layers.push({ kind: 'collision', name, rects });
+                        continue;
+                    }
+                    const tiles = [];
+                    data.forEach((gid, i) => {
+                        const tile = tileOf(gid);
+                        if (tile) tiles.push(Object.assign(tile, { x: dx + (i % lw) * tw, y: dy + Math.floor(i / lw) * th + th - tile.h, dw: tile.w, dh: tile.h }));
+                    });
+                    layers.push({ kind: 'tiles', name, opacity: alpha, tiles });
+                } else if (layer.type === 'objectgroup') {
+                    if (collision) {
+                        layers.push({ kind: 'collision', name, rects: (layer.objects || []).filter(o => o && o.visible !== false && !o.gid && Number(o.width) > 0 && Number(o.height) > 0)
+                            .map(o => ({ x: dx + Number(o.x), y: dy + Number(o.y), w: Number(o.width), h: Number(o.height) })) });
+                        continue;
+                    }
+                    const objects = [];
+                    for (const o of layer.objects || []) {
+                        if (!o || o.visible === false) continue;
+                        const tile = o.gid ? tileOf(o.gid) : null;
+                        // A tile object's y is its bottom edge; a shape's is its top.
+                        const w = Number(o.width) || (tile ? tile.w : 0), h = Number(o.height) || (tile ? tile.h : 0);
+                        const top = tile ? Number(o.y) - h : Number(o.y);
+                        objects.push({ name: String(o.name || ''), type: String(o.type || o.class || ''), x: dx + Number(o.x), y: dy + top, w, h, tile });
+                    }
+                    layers.push({ kind: 'objects', name, objects });
+                }
+                // Image layers are left out: a picture layer of their own can be added after.
+            }
+        };
+        walk(json.layers, '', 0, 0, 1);
+        return { source: 'tiled', width: width * tw, height: height * th, tile: tw, layers };
+    },
+
+    // ---- LDtk (.ldtk) ----
+    // One level (by index); a level saved in its own file is read through readFile.
+    readLdtk(json, readFile, levelIndex = 0, options = {}) {
+        if (!json || !Array.isArray(json.levels)) this.fail('This is not an LDtk project.');
+        const file = options.file || '';
+        let level = json.levels[Math.max(0, Math.floor(Number(levelIndex) || 0))];
+        if (!level) this.fail('The LDtk project has no such level.');
+        if (!level.layerInstances && level.externalRelPath) level = readFile(this.join(file, level.externalRelPath));
+        const width = Math.floor(Number(level.pxWid)), height = Math.floor(Number(level.pxHei));
+        if (!(width > 0 && height > 0)) this.fail('The LDtk level has no size.');
+        if (width * height > this.maxPixels) this.fail('The level is too large to bring in as pictures.');
+        const tilesets = {};
+        for (const ts of (json.defs && json.defs.tilesets) || []) if (ts && ts.relPath) tilesets[ts.uid] = this.join(file, ts.relPath);
+        const instances = (level.layerInstances || []).slice().reverse();
+        const grid = instances.reduce((size, l) => size || Number(l && l.__gridSize) || 0, 0) || Number(json.defaultGridSize) || 16;
+        const layers = [];
+        for (const layer of instances) {
+            if (!layer || layer.visible === false) continue;
+            const name = layer.__identifier || 'Layer', ox = Number(layer.__pxTotalOffsetX) || 0, oy = Number(layer.__pxTotalOffsetY) || 0;
+            const size = Number(layer.__gridSize) || grid, alpha = layer.__opacity === undefined ? 1 : Number(layer.__opacity);
+            if (layer.__type === 'IntGrid') {
+                const rects = [], cols = Number(layer.__cWid) || 0;
+                (layer.intGridCsv || []).forEach((value, i) => { if (value) rects.push({ x: ox + (i % cols) * size, y: oy + Math.floor(i / cols) * size, w: size, h: size }); });
+                layers.push({ kind: 'collision', name, rects });
+            }
+            const placed = layer.__type === 'Tiles' ? layer.gridTiles : layer.autoLayerTiles;
+            if ((layer.__type === 'Tiles' || layer.__type === 'AutoLayer' || (layer.__type === 'IntGrid' && placed && placed.length)) && placed && placed.length) {
+                const image = layer.__tilesetRelPath ? this.join(file, layer.__tilesetRelPath) : tilesets[layer.__tilesetDefUid];
+                if (!image) this.fail(`Layer "${name}" has no tileset picture.`);
+                layers.push({ kind: 'tiles', name, opacity: alpha, tiles: placed.map(t => ({
+                    image, sx: t.src[0], sy: t.src[1], w: size, h: size, x: ox + t.px[0], y: oy + t.px[1], dw: size, dh: size,
+                    flipX: Boolean(t.f & 1), flipY: Boolean(t.f & 2), diagonal: false
+                })) });
+            }
+            if (layer.__type === 'Entities') {
+                layers.push({ kind: 'objects', name, objects: (layer.entityInstances || []).map(e => {
+                    const w = Number(e.width) || 0, h = Number(e.height) || 0, pivot = e.__pivot || [0, 0];
+                    const tile = e.__tile && tilesets[e.__tile.tilesetUid] ? { image: tilesets[e.__tile.tilesetUid], sx: e.__tile.x, sy: e.__tile.y, w: e.__tile.w, h: e.__tile.h, flipX: false, flipY: false, diagonal: false } : null;
+                    return { name: String(e.__identifier || ''), type: String(e.__identifier || ''), x: ox + e.px[0] - pivot[0] * w, y: oy + e.px[1] - pivot[1] * h, w, h, tile };
+                }) });
+            }
+        }
+        return { source: 'ldtk', width, height, tile: grid, level: level.identifier || '', layers };
+    },
+
+    levels(json) {
+        return Array.isArray(json && json.levels) ? json.levels.map((l, i) => ({ index: i, name: (l && l.identifier) || `Level ${i + 1}` })) : [];
+    },
+
+    // ---- What will be made ----
+    // options: { projectTile, mapId, baseName, mapName, tilesetId, cell, scale ('auto'|'refuse') }.
+    plan(model, options = {}) {
+        const projectTile = Math.max(1, Number(options.projectTile) || 48), source = Math.max(1, Number(model.tile) || projectTile);
+        let scale = 1;
+        const notices = [];
+        if (source !== projectTile) {
+            if (options.scale === 'refuse') this.fail(`The map's tiles are ${source} pixels and this project's are ${projectTile}.`);
+            scale = projectTile / source;
+            notices.push(`The map's ${source}-pixel tiles are scaled ×${Math.round(scale * 100) / 100} to this project's ${projectTile}-pixel tiles.`);
+        }
+        const width = Math.ceil(model.width * scale / projectTile), height = Math.ceil(model.height * scale / projectTile);
+        if (width > 256 || height > 256) this.fail(`The map would be ${width} × ${height} tiles; MZ allows at most 256 × 256.`);
+        const base = this.slug(options.baseName || 'Imported'), mapId = Math.max(1, Math.floor(Number(options.mapId) || 1));
+        const pictureW = Math.round(model.width * scale), pictureH = Math.round(model.height * scale);
+        const objectIndex = model.layers.findIndex(l => l.kind === 'objects' && /^player$/i.test(l.name));
+        const split = objectIndex >= 0 ? objectIndex : model.layers.findIndex(l => l.kind === 'objects');
+        const files = [], layers2d = [], doodads = [], pieces = new Map(), skipped = [];
+        const names = new Set();
+        model.layers.forEach((layer, index) => {
+            if (layer.kind === 'tiles') {
+                if (!layer.tiles.length) return;
+                let name = `${base}_${mapId}_${this.slug(layer.name)}`;
+                for (let n = 2; names.has(name.toLowerCase()); n++) name = `${base}_${mapId}_${this.slug(layer.name)}_${n}`;
+                names.add(name.toLowerCase());
+                files.push({ path: `img/parallaxes/${name}.png`, kind: 'layer', width: pictureW, height: pictureH, opacity: layer.opacity, draws: layer.tiles.map(t => Object.assign({}, t, {
+                    x: t.x * scale, y: t.y * scale, dw: t.dw * scale, dh: t.dh * scale })) });
+                layers2d.push({ image: name, place: split >= 0 && index > split ? 'front' : 'back', follow: 1, scrollX: 0, scrollY: 0, zoom: 1,
+                    opacity: Math.max(0, Math.min(1, Number(layer.opacity) || 0)), blend: 'normal', loopX: false, loopY: false, wind: false });
+            } else if (layer.kind === 'objects') {
+                for (const o of layer.objects) {
+                    if (!o.tile) { skipped.push(`${layer.name}: "${o.name || o.type || 'object'}" has no picture`); continue; }
+                    const t = o.tile, key = `${t.image}|${t.sx}|${t.sy}|${t.w}|${t.h}|${t.flipX ? 1 : 0}${t.flipY ? 1 : 0}${t.diagonal ? 1 : 0}`;
+                    if (!pieces.has(key)) {
+                        const file = `img/doodads/${base}/${this.slug(String(t.image).split('/').pop().replace(/\.[^.]+$/, ''))}_${t.sx}_${t.sy}_${t.w}x${t.h}${t.flipX ? 'h' : ''}${t.flipY ? 'v' : ''}${t.diagonal ? 'd' : ''}.png`;
+                        pieces.set(key, file);
+                        files.push({ path: file, kind: 'piece', width: t.w, height: t.h, opacity: 1, draws: [Object.assign({}, t, { x: 0, y: 0, dw: t.w, dh: t.h })] });
+                    }
+                    const w = (o.w || t.w) * scale, h = (o.h || t.h) * scale;
+                    doodads.push({ path: pieces.get(key), x: Math.round((o.x + (o.w || t.w) / 2) * scale), y: Math.round((o.y + (o.h || t.h)) * scale),
+                        frameW: t.w, frameH: t.h, scaleX: Math.round(w / t.w * 1000) / 1000, scaleY: Math.round(h / t.h * 1000) / 1000, name: o.name });
+                }
+            }
+        });
+        // Collision rectangles become painted cells: a cell is blocked when its middle is inside a rectangle.
+        const cell = Math.max(1, Math.floor(Number(options.cell) || Math.max(1, Math.round(projectTile / 4))));
+        const rects = model.layers.filter(l => l.kind === 'collision').flatMap(l => l.rects).map(r => ({ x: r.x * scale, y: r.y * scale, w: r.w * scale, h: r.h * scale }));
+        let walls = null;
+        if (rects.length) {
+            const cw = Math.ceil(width * projectTile / cell), ch = Math.ceil(height * projectTile / cell);
+            walls = { cell, w: cw, h: ch, cells: Array.from({ length: ch }, () => new Uint8Array(cw)) };
+            for (const r of rects) {
+                const x0 = Math.max(0, Math.floor(r.x / cell)), x1 = Math.min(cw - 1, Math.ceil((r.x + r.w) / cell));
+                const y0 = Math.max(0, Math.floor(r.y / cell)), y1 = Math.min(ch - 1, Math.ceil((r.y + r.h) / cell));
+                for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+                    const mx = (cx + 0.5) * cell, my = (cy + 0.5) * cell;
+                    if (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h) walls.cells[cy][cx] = 1;
+                }
+            }
+        }
+        if (skipped.length) notices.push(`${skipped.length} object(s) without a picture are left out.`);
+        return {
+            mapId, width, height, scale, notices, skipped, files, layers2d, doodads, walls,
+            mapInfo: { id: mapId, expanded: false, name: String(options.mapName || base).slice(0, 60), order: mapId, parentId: 0, scrollX: 0, scrollY: 0 },
+            map: this.emptyMap(width, height, Number(options.tilesetId) || 1)
+        };
+    },
+
+    // A new MZ map with no tiles: the picture layers are its look, and "empty tiles are floor" makes it walkable.
+    emptyMap(width, height, tilesetId) {
+        const audio = { name: '', pan: 0, pitch: 100, volume: 90 };
+        return {
+            autoplayBgm: false, autoplayBgs: false, battleback1Name: '', battleback2Name: '', bgm: Object.assign({}, audio), bgs: Object.assign({}, audio),
+            disableDashing: false, displayName: '', encounterList: [], encounterStep: 30, height, note: '', parallaxLoopX: false, parallaxLoopY: false,
+            parallaxName: '', parallaxShow: true, parallaxSx: 0, parallaxSy: 0, scrollType: 0, specifyBattleback: false, tilesetId, width,
+            data: new Array(width * height * 6).fill(0), events: [null]
+        };
+    },
+
+    nextMapId(mapInfos) {
+        let id = 1;
+        for (const info of mapInfos || []) if (info && Number(info.id) >= id) id = Number(info.id) + 1;
+        return id;
+    }
+};
 // @editor-only
 //==========================================================
 // SECTION 24a: DocsDoodads.UiFonts (THE WORKSPACE'S ROUNDED FONT)
@@ -37212,6 +40108,30 @@ DocsDoodads.Ui.css += `
 DocsDoodads.Ui.themes.push({ value: 'playful', label: 'Playful' });
 // @editor-only
 //==========================================================
+// SECTION 24c: DocsDoodads.ToolClipArt (MOVING TOOLTIPS, GENERATED)
+//==========================================================
+// Built by scripts/tool_clips.js (npm run clips): a drawn clip of each main tool, 8 frames of 80 x 56
+// pixels side by side. Edit the script, not this file.
+DocsDoodads.ToolClipArt = {
+    frameW: 80,
+    frameH: 56,
+    frames: 8,
+    labels: {"dd-select-btn":"Select","dd-stamp-btn":"Stamp","dd-brush-btn":"Scatter","dd-biome-btn":"Paint","dd-path-btn":"Path","dd-terrain-btn":"Hills","dd-region-btn":"Regions","dd-walls-btn":"Collision","dd-tiles-btn":"Tiles","dd-sym-btn":"Mirror"},
+    clips: {
+        'dd-select-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAFUklEQVR42u3dQW4TMRSH8ZwFdj0BC05QeYVYcgNugFhzCk7AOdhxqKJUmmqUTif2+NlO6h/SQwTxlebre55/x4l7+vI7PSmllFJKqXnqdP7t25+vhwuPx+PxeDwef1+8AIjH4/F4PB4vABKIx+PxeDweLwASiMfj8Xg8Hi8AEojH4/F4PB4vAOLxeDwej8fjBUA8Ho/H4/F4vACIx+PxeDwejxcA8Xg8Ho/H4/ECIB6Px+PxeDxeAMTj8Xg8Ho/HC4B4PB6Px+PxeAEQj8fj8Xg8Hi8A4vF4PB6Px+MFQDwej8fj8fjJA6BSSimllJqn3AHE4/F4PB6PtwVMIB6Px+PxeLwASCAej8fj8Xi8AEggHo/H4/F4vACIx+PxeDwejxcA8Xg8Ho/H4/ECIB6Px+PxeDxeAJyd//nv6bmWvyt5vObX/4Y//mr5Gq/rx3teZ5z/t/rviFfrZ+rarzP2b+76ecSr+R87/wLgjQSYqAWQP/4iA2DUBcT8b/uo+f8FwDbzKwC2mV8B8PbmXwDE4/F4PB6PtwUc/wl8/PX4Ur4A/PH3Pvg9r/wd50u88peq+pW/er5mHeBv7Pw3DYDnJ/D57/eXOj9++PDJAGZuYW7521vAbAHz12MLOMerLeDyLaAjXq2fqapfbQEf3wKOWAfM/9j5P7VKsOsnsq5zAFxC4FsDOHuA2fO3t4AJgPy1DIAlXgXA/AtAjVfrZ+rarwJgrFfzP3b+mwTAvSdzDn/nX0sItICV+btsCv7468WXeOUvn6/xyl/q2q/8x3rVv2PnPzwAXkuzSwBch0ALWL6/3NvD/PEXybfyOvsFoNarC2jq2q+z92+0V/M/dv6fA2BkXXsi6wC4hMDoz+HearmVm/vdwNZdrMuPwx9/vPLKK6+88vlWhd4BzEmzlwFwCYFeA5j/3cBb3xXM/hpA/tq8BrCl15lfAxTh1R3A1LVfZ34NYAuv5n/s/A8NgMsbQmYPgKW3gyO3MfnjL2qb4ojX2Y/RqfUqAKau/Tr7MTrRXs3/2PkPD4A5rwFcXvu3/rMFLM/fVjPwx1+PcxRbeHWOYp1XATB17VfnKMZ6Nf9j53/Im0DWT6jm7t97PMak1N+6GRwDw1+rY2BaeZ39GIharwJg6tqvsx8DE+3V/I+d/yYBsORcG+/CfB1gSs5RFGD46xUAW3h1AajzKgCmrv0qAMZ6Nf9j5//U+keZ7AU/57CV+3OOIn+jt4ByvPKXz9d45S917Vf+Y73q37Hz3zwAXisNUObv8k00/PE3IgBe88rfsQtAqVf+Utd+5T/Wq/4dO/+nUQOoAba3MK/52zpH0RYwf623gFt59aOgUpVX62fq2q+zbwFHezX/Y+f/1PNdhLYwygLMlr+9cxQFQP56BMBIry4Aqcqr9TN17VcBcP8OVqlX8z92/rsEwB+PDy+lAer8OUeRv1vhI7ya/1Tllb/UtV/172u+xit/Y+dfALzDALM0QG144Y+/yAB4xKv5T1Ve+UtV/Xrma9YB/lPVOsDf2Pk/+QLc/hbmui4bwGvY+Bu1Bbzmj3q1BZSq+tX6mQ7N7+Jxq39tAZdtAdesr+Z/7PwLgHcWYKIWQP74iwyAURcQF4Cyj2P9jJ9fAbDN/AqAtzf/AiAej8fj8Xj8ZLwAeCN3sNbfFZQ83uL54y/qDuBRr1uPzX9e/5X2r/W3X7/OegewZP0s8Wr+x87/cwBUSimllFLzlDuAeDwej8fj8baACcTj8Xg8Ho8XAAnE4/F4PB6PFwAJxOPxeDwejxcA8Xg8Ho/H4/ECIB6Px+PxeDxeAMTj8Xg8Ho/HD+X/A7f2DolDyvDNAAAAAElFTkSuQmCC',
+        'dd-stamp-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAEd0lEQVR42u3dy23bQBQFUNeS7FxBFqlA4Mrw0h2kgxSQKlKB60hfMbigQBD8zJfUaI6Bl6yOlVwTnKvRSH55+zv8N8YYY4wx/czL+MfH53vy8DzP8zzP8215BZDneZ7neV4BFCDP8zzP87wCKECe53me53kFUIA8z/M8z/MKIM/zPM/zPK8A8jzP8zzP8wogz/M8z/M8rwDyPM/zPM/zCiDP8zzP8zyvAPI8z/M8z/MKIM/zPM/zPK8A8jzP8zzP8wogz/M8z/M8rwDyPM/zPM93XgCNMcYYY0w/YweQ53me53neS8AC5Hme53meVwAFyPM8z/M8rwAKkOd5nud5XgHkeZ7neZ7nFUCe53me53leAeR5nud5nucVQJ7neZ7neV4B5Hme53me5xVAnud5nud5XgHkeZ5vxH//c7uP/OQnP/kpgDzP80/sxwXj579f95kvJPKTn/zkpwDyPM8/kV8uHMtZ21GQn/zk13d+Md/39AL4+u2HBaCCX+YqvzL+KFf58bX83uKxXETkJz/59Z3f3k7jQxXA+aJqAShXAFNKoPyGqOtVfvwZ/mj3oNQugvzkJ7+288vZaSxSAGNmXEzHr/HvWGvkKlfTw4QsHssbvNzkJ7/+8rvyZ5S0Azh9TYuqHYAyO4DzXOVXbgdwL1f58aV96O5BiV0E+clPfu3ml7vTeMlLwPOv1LNrFpDtAhiTq/yGrOtVfmF+uhGN+fkYiboLSO9PAM9YgKeM5Ve3ALZ4BvvM/I6+95jf3nnDywtgbgm0gAxZucpvyLpe5TdE3aSmM5XTjUh+2+/ii1085gWw5yeAufnFnGWX3616AWztDPZZ+YU8xpTfVtG8tABO/zgFsPxLwKG5ym/Iul7lN0Q9Q52fqfQ5YnUOkc8zll+d3ZeYjOUX/vjL732Uc8/5hRbA+f32IQrg9MPMLX8W4PV3Afe+A1DrGeharvJLK4Dzm5L83pN2EbZ2D2LOA8svrwA+6ytYtfNbe/y9AtPaGewz8gt5jLX77eUFMOY1fgUm7XMAFcA6Z1AUwHIF0Bng4w+SXbvJLxeO5eIRk7H80hbfUtdxr/ktHz+kwLR2BvuM/GIKYI38/CYQnueDb1DOAKctIEeTes5afmUKYOp13Gt+qQWwpTPYZ+R3tAtYOz8FkOf54BLoDHBafluz5mMyll/a45e6jnvNL6UAtnoGu3Z+ezuNtfNTAHmeD74Jzt8F7AxwnA89xB1zHlh+6QVwehdwznXca35Lv7WLdXS/kN+wWzBr56cA8jwffANcvvFDAQz3v2+v9zkqgKHngeWXXgA/Ovtd7CXzW/NbO1h79wv5Dbs7jbXzUwB5nn+IG6D85Ce/tvOLPR8nvyFop7HW/18B5Hme53m+uQLzjH6taCqAPM/zPM8rMPJTAHme53me53kFkOd5nud5ng8pgMYYY4wxpp+xA8jzPM/zPO8lYAHyPM/zPM8rgALkeZ7neZ5XAAXI8zzP8zyvAPI8z/M8z/MKIM/zPM/zPK8A8jzP8zzP85f6L/McGfXV6oTHAAAAAElFTkSuQmCC',
+        'dd-brush-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAHWElEQVR42u3dXXLbNhSGYe6rW9BVJ5feWbuCLqfT/bhjjdlyZJE8xB8J4vEMkovklZ03EPjp8ACcfv/z8WkYhmEYhmGMM6avXz7++pU88Hg8Ho/H4/F98QIgHo/H4/F4vABIIB6Px+PxeLwASCAej8fj8Xi8AEggHo/H4/F4vACIx+PxeDwejxcA8Xg8Ho/H4/ECIB6Px+PxeDxeAMTj8Xg8Ho/HC4B4PB6Px+PxeAEQj8fj8Xg8Hi8A4vF4PB6Px+PLB8DPf357DgLTeP74448//vjjj78uA6AEnTcB+eNvBH97iy1//PHHH39uAePx+JvxRxc//vjjjz/+Tg6AhmEYhmEYtcfnH38/Bxfn+1MBxN+Sj5bj+Svr7+htEP74428sf1/hhb9r+NvvAXzz5QJalt9zzF/aGzgyj/kL+vv+1Ll5CyRhHvP3ONSzlLNW8Pfzdd59/yOO+XuEQ8uSKzWPR/UX4SOOfwTA5V9c+09Z/vldF6CqCb6gYwHmsT35v94437+/+zvLAM7f+qKz5i93Ho/sL9TE/uJ4fs359eb5m7oe393f2mu++kudx/w9sq55rx8gj87jYfwFvv/rNS8yj6d3/wEpFSwBJB7+Uvg1xwLgY32Sr7xptt5A/O0vOktXreb/3fxFP8G/rZ4EKlj8bVSfXipRKT93D3cQWvgL8YkFjLPvIFzFX+T7L11Ffu4fFcBX2Ufvgaug7PcQ5FZARqqgJPdgZFZA7lJBqdkDmVsB6aGCcnYPaXRBj/Cj9+Cu+Xt+JezcfL2DMKy/wM+4NQ9z+RH8Rc44zCnATWu3wKI/2DIAqqDs96DlBsBRKihH51+pW2B36cFM8ZcyB3NbIEbzF61g5wa4s3swz/R3ZA7mfP+aLVBX9zf/jJEetLXQs8fntEDdwd9eaJzDX1YA3IPXmg/vXkEpdhDlxv34O1dQivoLzL/SFegr9KC09HdGBbpmBeWK/s5YP1MrKL36O2P9rNkCdUV/OevnazCr3QLVq7+PwMHWJdbPKSIwtQdLAKy3AI+yizUy/2otwHfYxZry/m3Zg3r1TWSl/J3Zg3rmJrKW/s7sQa3VAnU1fznX/3dhrPYH0B79hTalFLr+Ty0ngAAoANY6RkcArMuPGgBb8ncMgD1twturFumB35m/8w7XjQCoB/5X8vx7t3nJo+DweDx+pGOkEo6R4G/f39Hwx1/cX8o5dvzV96cCqAI4RAUw9SBNF4BFM3aFBWiUCmD0IO3oa41WASx1AXydx1e/BXw1fx+JxxCVOEfvzApgS3+R6unlK4B3aaK/8i3EHproa/MpF82emugvcYzBSvjroYn+ShfgMwNE7+eI9hAgrnwKRs33b8tNoGedgtHKX+tNTAKgADhEAOx1F+VVAmCPPZw98QJggyb6gQNgr7vYrxIA77qLXQAUAAVAAVAAFACHCoDzLT0BMLEFacWfAJjnTwAUAAVAAVAAFAAFwMoBUAUwL8CoAJb3d0oArDHmcDLyqO2A45iD+fR0jtMdp/rjODb/rBV13r85DpZVmp4dl/J31MFRf1d13NJfZP6VdGAXcKNdwKW3cY+2C3jL3+7TbDYeCzTKLuCc+bf1vMlRdgHn+hv9HMAW/kpXkCLHwjSr4F7E35Hr/56/57/pwPNwc3o4e/IXOhbme2Ne7vOEnQM44C4i/vgregs3YxHijz/+xvQ3Bxj+zvOnAugcwCHOARy9AlizhyxnEfIkkP/9eRJInr8ze8h6fhJIzvu35fX/qk8CKe2v5fVfABQABUAB8LRNBAKgR8G15AXAdreARwmAp2wiKRUASy/AtXcB2UVZdheQXZR2sZ+1ANvFXn/9tIu9/vppF3v99dMu9v31M+VW9PTfLr/MC2jqawz1KK3MC+i713ABfew6PnoBVsGOz8HUC7AK9nYFJfcCGn2NkSsoex9A9i6oOdfNUY5By/0Asvcat/YXCHRLPym3oqdSFRQl8PoVFCXw+hUUFez6FRQV7PoVFBXs/Ap05OJr/j6STg9QwY75q12Bnkr0oCiB1+9BUQKv34Oigp3Wg5JzlIP5u+4vtYI3WgU7Zxdm6rXrThXs2rtYUyt4vVSwr7ALPXUeT1u3wNZedPnnSuB5t8ByHbuAPrIcl2qBGLWCMh8SnTqPzd9H+Dbjmr+c9Xi0XcBr/lLXY/4eWde8dx/AS7RA3H0X8FYL1JH1eIreg19+WcDL72LdcsxfuQXo1TF/FRagA/OYv7QezJS1gr9jPZgRx/zl9WDmzuNh/S2eTrJ26zji2EHQrQLISpmYP/74448//kbyN/9b+DvXnwDYcALyV9/f2iN/+OOPP/74448/ARB/113AB968/PHHH3/88dezv6OhVQDE4/F4PB6P730PQWL4EwDxeDwej8fjB+SfAdAwDMMwDMMYZ6gA4vF4PB6Px49YASQQj8fj8Xg8XgAkEI/H4/F4PF4AJBCPx+PxeDxeACQQj8fj8Xg8XgDE4/F4PB6PxwuAeDwej8fj8fgL8f8CDpwMpn24RfUAAAAASUVORK5CYII=',
+        'dd-biome-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAIK0lEQVR42u3d3XHcNhSGYfWSO9eQBqRJfOHJZTpQBykgHeQuaSB1pK9k1jPUUAx/ziGJJUA8O4PYsfZbeV6DwKtDAHz59udP/2qapmmapmn9tJfHf379+5fdTV5eXl5eXl5evq08AZSXl5eXl5eXJ4AAysvLy8vLy8sTQADl5eXl5eXl5QkggPLy8vLy8vLyBFBeXl5eXl5eXp4AysvLy8vLy8vLVy+A3/76utoAXM9v8Zu2n/943WSMX45fpOF3jF8kj1/5PH7l8/iVz+NXPk8ACaAJmAASQAKIHwEkgASQABJAAogfASSAJmACSAAJIAEkgAQQPwJIAE3ABJAAEkACSAAJIH4EkAASQPwIIAEkgASQABIYAkgACSB+BJAAEkACSABNwASQABJA/AggASQwBJAAEkD8CCABJDAEsE4BHLfHB6616fu1HL9Iw698ww/j2vm1yLg1frUxviO/ZzLuld9exiqAKoAqgPipAF7M74ff3z6aCuDz+KkAlufXQwXwan5uARNA/AggAWyQ34//vH+09CSCX4jf0gRNAM/nl5GhOwhgDfwIIAHEjwASwIb4PQb48eSxSwLxW+Q3bktsexbAEvyy/bhlAayJ36kCuPYigOd0wAxj/PZdABHG+B0TwKP9uFd+cxPH0uC/9sJvnd/091O2w/ff24/xe139zGg/xu/rrh8Gp3//LONPAvgxqAQGfAK4rwNOGc91wJYn0Bou4Ew/xu/1kPhFBBy/3OQxDPx7xmP83lcn3en/H2XcO7/h+6991hrjqYDjl5PAKb9sP/4QwOEL0TLix/sJYLgDzv0Drd0CjlwQBOZ1k3GkH+OXk7/MLeA1xr3xi0wew6QZug08Gb/xm59w56oyWz/ARPpxz/wiAjP04y2B2Tse351fRACPzHnfBfBTRS9xH/mOFZRSF/DWT0BrjPGLXcDRC2G6BrCmCkrtE8iUcXQN4LMqKHeYgMPyN1kDeEYF5Q785ibf6Z8PjLNrAKeMe+UXEZjHK1rBysx5vfCLCOCeOW/M+OV/HTq5kPBuFZQSF/DaP1JkE0hLFZSrBsDMhTC3CaSWCkrNE0i0gp3pxwTwgPzNbAK5eg3x1fyWJt/pbd+5NVh7+nGP/CJr2CLyt7YJZO8SqLvwi8rfkU0gj9cpu4DvVEE5+wLeEpPoLuBWKihXDIBZ+VvaBVxDBaXWCSRTwc70Y2sAP6/5O+McwCMVlJb5ZeXvyC7gUkugaucX2cUalb+tXcB7lkDdgV+m8lfFMTAEkAASQAJIAPdNIo9B/re3L9/ZPH4lgPv4DW1pIh0E8IxzAFsWwCP8IufYba37a10AS/OLnANYlQDe6RbamRdwREwy5wD2cAzPkQ0JZ5wD2PoxPCUGwOwShkw/7v0cuyUxOXoQ9FWnCFzFb+vrY8Ee//mRcwBLrIGvmd/Q1vgNjMcydOQcwOwa+Nb5PdoWv+gmPAJIAAkgASSAlU4g44GeAB7jF/n6cGsye+D2XQUwyy9yizLbj1sWwBL8zjyFgQASQAJIAAlgA09SIYDln4U6FcDoJHxXAczmI5sUehLAEvwIIAEkgASQAHYkgOPNCWdsAulNANfWWM1tTshOwncXwCi/6FNrehPAM/kRQAJIAAkgAexEAOcOzD1yDExvAri02J4Ans+PAJbnd4kAjtvjA9fa9P1DGy6G3tuY1XBOT7b1zDjLCuNj/DAuz2+prZ2bNiwQb43xVfzmJuHpe7cEsAbGNfPbEpgaxorW+T17PFYBVAFUAVQBVAG8+GHyYzlJVQI7rQBGJtS5DQrWAO7nZw1geX7ZEwOcA+gcQOcAOgfQOYA3mIDnqoDOATxvAp5K4JFdwHc6BzDDLyIvmfH4DucAns0vknEQNAEkgASQABJAApgUwDPOAexVAKfVqKWDoAngfn7RpwadIoCeBexZwJ4F7FnAngX8/EXka88CDi8K7+xZwJlHcq314+F8tt6eBXwGv/H5dkvfPzoet/Ys4Gfxi0jmac8C/tShEx9SYg3EXSfgTAXlyBqIngUmI4F3rWCXHgAzj9JqsYJdwy7C1A8zlVWwa92FubSOKiuApSvYrfCLfP/MGvizKth34hepMu6Z88aMX6YVkOiHlCqB33kCjlZQjpTAexeY6AVx1wr2MwbA6CLkFivYtZwjFh7YK6tgt3AO23jyzAjgMyrYLfGLfP/oEqizKth34pfZeb13znuZ/gS59WHD664CUvoCnjJeWkNx1S6+O0wgmX6M374BcHhtVQBaq2BfMYGMbwmNHxu1ZzzG70vqVt1Rxr3zi54isHUHbG8/vju/rZ3DU37Zfjy7CWTtdXcBeVYHzDDGb98FHGGM37EB8Gg/JoCvhxjjl59Alw4w3tOP8Xt7+pzXG7+1zNwdsAzj084BJIDndUD8yl/A+JUfAPErn8ev/ASM3/tpz7HNngOI3/L6waoeBUcACSABNAETQAJIAPEjgOfyW7rFTAAJIH4EkAASQPx2rKPaew4gfnF+PQvgs/gRQAKIHwEkgAQQvxN3sRLA4/x6F8Bn8COABBA/AkgACSB+iXVUBLA8PwJYnh8BJID4EUACSADxS6yjIoDl+RHA8vwIIAHEjwASQAKI38l5/Mrn8btQAMft8YFrbfp+Lccv0vAr3/DDuHZ+LTJujV9tjO/I75mMe+W3l7EKoAqgCiB+KoAqgCowKoAqgD1WAAmcvLy8vLy8vHw/eQIoLy8vLy8vL08AAZSXl5eXl5eXJ4AAysvLy8vLy8sTQADl5eXl5eXl5QmgvLy8vLy8vLx8A/n/ANPAv3NoZM1kAAAAAElFTkSuQmCC',
+        'dd-path-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAE6ElEQVR42u3dO27eOBSAUa8lZVaQRaQKUrrMIrKRdF5B2izQhgwIEBiJkkhKfOgY4EzjM0a+McQbvf6XH2/f3y3LsizLsqznrJfpH69/fyYvnud5nud5vi9vAOR5nud5njcACsjzPM/zPG8AFJDneZ7ned4AKCDP8zzP87wBkOd5nud5njcA8jzP8zzP8wZAnud5nud53gDI8zzP8zzPGwB5nud5nud5AyDP8zzP8zxvAOR5nud5nucNgDzP8zzP87wBkOf5h/mvX77pp59++ulnAOR5/il+OvjNSz/99NNPv8gAaFmWNcJaHvzmpYt++umn3//LGUCe551B0E8//ar4tz//3n+9/v5c+t3bzwDI8/wwfvpyD5F++vXhp+FlXuEQo9/1/QyAPM/zPM/f6pfDy9oQo9/1/QyAPM/zPM/f6qdBZW14MQDe188AyPN8136+7Kaffvr1NcDMQ8xyeDEA3tfPAMjzfLc+Z/PVTz/97vXhZcpwcDkzvOiX388AyPM8z/P8pX7tcuXkU4cX/fL7GQB5nud5nr/Ml3hgQb/y/QyAPM935ZeX3fTTT7/2fYkHFvQr388AyPN8Nz6850o//fRr14fDSs4DC/qV72cA5Hmev+kenvCgrZ9+o/bbOmO1XPrV7WcA7MyHb/jWTz/9+rmHZ+q33ET002/EfrF71nr8/zdqPwNgR37tM/7002/0frFXbfTQb7l5zOvOMyCj9itxI7x+1/Q7es+afnX7GQA78ctfvuUmrJ9+I/fbe89ay/2WB+61fncMgCP3CzfHKz5KTL/0AebIPWv61e1nAHQGRj/99LvwEs7aJtLjPVAt9Vu7RJbyegz9yvVLeUmxfnX7fQ6AVvtr+pr+Pf3y6VGu3/ylkX6lVmxTCIc//dL6xTbg+fvDF+bqd12/Iy8p1q+9fs4A8vyJSz76Xd/vzH+jtT//8uAfe4JPv7x+4Qa7tvkeuUSnX36/nLNg+tXtZwBs2B85EOlXvl/PG0Dv/XoewGMH/DOXcPTb7xfbkI+cndl6ilK/8/1yXlKsX91+BsBG/dEDkX7X9pu/9NMvdqP43isbtg7m+qX32zozk3KJTr+8fqkvKdavbj8DIM+f+P5wMw7fi6ffc/odueyzdyDXr1y/lEt04Xvd9Evvl/IJFfrV7WcAbMifvfygX51+889ZeypWv2f02zpjcPZv8fpd0+/IJbq1p7L1y+tX+jU8+hkAH+FTNl/96vXbei+efuP3O3OjuH71+sUu0W29l1E//Z7UzwDI84l2tDOA+h0/cxA7Y3DXJRz9zv382CbcyxlA/fQzAA7i5/d/6ddvv57vwdLv/IfBpzzooV97/dbey6iffk/rZwCs5OdLbvrpp1/bPnYzd87moV/dfrk/Wz/9eu/3cuazQG2g6V4//fTrz689rVdq89BPP/30q+kPDYCxe01sIPrpp9+I/sjTejmbh3766adf0wPg3tNmNhD99NNvRB97Wm/5+Zz66aeffs4A+gXUTz/9BtpA9p7W008//fQbegB0D5F7sPTT74l+72k9/fTTT7/hB0BPUfI8/0Qfu19IP/3006/rAdCyLMuyLMt6znIGkOd5nud53iVgAXme53me5w2AAvI8z/M8zxsABeR5nud5njcA8jzP8zzP8wZAnud5nud53gDI8zzP8zzPV/UfcAqX1eeN1RsAAAAASUVORK5CYII=',
+        'dd-terrain-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAE6ElEQVR42u3dQY7TQBBGYR+MNausEEtuMEeBI3ACrsVBQCMRxUQex+4uu91dn6ViM3nSzI87/VRdcaYvP29/lFJKKaVUnpre//n262tx4fF4PB6Px+P74gkgHo/H4/F4PAEUIB6Px+PxeDwBFCAej8fj8Xg8ARQgHo/H4/F4PAHE4/F4PB6PT80vXQQQj8fj8Xg8fkB+TfaWfkYA8Xg8Ho/H4zvl18RvTQQJIB6Px+PxeHzHAriHI4B4PB6Px+PNsHXM75W/ecYEEI/H4/F4vBk2AkgA8Xg8Ho/Hm2G7Ml8qf1E8AcTj8Xg8Hp9uho0AEkA8Ho/H482wJTvCJIAEEI/H4/F4M2wEkADuFUCllFKq17pf0a/NkFtLfrT8vv9+W62r5acDiMfj8XgzbDpY3XWwrtZBfSWAPgWMx+PxeDNsjjAJ4ED33yv5e5ZAAojH4/F4M2wEkAB23oHeI4C+CQSPx+PxnsNGYJrnt1VelrpY1u9jTW7JzncB4/F4PN4MGwG8RAe1RAB1UB/8s9ytid9coAkgHo83w+YI0xEmAexGAO9CY/3eVmVvfi1JNAHE4/Fm2AggASSAzQRmrwTqQK8L4NYuKgHE4/Fm2AgMgSn8+0s34LnIZM1vy9Hl2lFm9vVbc+9dIT8CiMfjzbARwG43YEeYcQKzdYbtKgJDAAkgHm+GzREmAUyW31xMSgXw+eG8GfMrnWFberix/N6KP1FNAPF4M2wEkAASwJ0bcMkMG4HpX2DkRwDxeDNsBKYrvrZ7FdXF6j2/2hm22k14lPxaSYz82uZHAPF4M2wEsOEGUnuEaQMun2GTHwEkgATADJsjTEeYBPAUfk3kSgWwdBMZIb/aGTb5tZMY+bXNjwCaYSOABJAANt5AambYbMAERn7yKxZA1X/dr+jXZsitJd9bRXWvPuKz5Rc1w5Y9v6iSn/zW6tOPz4fW2X+PDqAZNh0sHaxTu1eRXawR8ouYYZNfmy6M/HLld7QAOgI2w+YIkwBekt8jcqUCuHcTGSG/qBk2+Z0vMT3ld7S8lEiM/NrmN5lhI4AEkABGPDg2Qv4IDIGRH4GRXzIB9Bw2AnMkH929iupi9Z5f9Axb1vxaSUwv+Z21+e7dhOUnv57zm8ywEcDMAnjEEWZmgamdYSOABJDAyE9+iQTQESYBPJKvEbkaLkt+0TNso+V39uaxZxORn/zklzc/AkgA0wtg9AwbATyvi2UDsQHLT37y61QACcytSfcqqovVe35HzbCNkl+rN7+tb4Lyk5/85Cc/AphSAI88wswkgNEzbATQBiI/+clPfgSQABbxkSJXw/WaX83CW7qOWMSj5nfWm6D85Cc/+cmPAKYVwKNm2DILoDdA+clPfvKTHwEs+AWO7l5FdbGuegOWdqyiX/vqJhwlv1aLWH7yk5/85Ce/Fvk1F8AzjjAzCOAWuas5yrSAvQHKT37yk5/8CODqL1AiLaWyUxviFW/AiBsmcoYtY35nLWL5yU9+8pOf/FrkN10lwL2CUiI0bkALWH7yk5/85Cc/+f0TwCvU/Yp+rVJKKaWU+r+mqxn4/froE7/PP8v+TSB4PB6Px+PxXX4V3JrszS//gXg8Ho/H4/EDCyAej8fj8Xg8ngDi8Xg8Ho/H4wkgHo/H4/F4PJ4A4vF4PB6Px+MJIB6Px+PxeDz+UX8B+zE+Nn1toPoAAAAASUVORK5CYII=',
+        'dd-region-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAADMklEQVR42u3dMQoqSRSG0d6eYCSGLsD9GJiYmZm6BME1uBtFo0oMqqql+nrPgzvZYeCX6f54Qc+0Oa2fzjnnnHMuz03vf+wu2+bjeZ7neZ7n6/3+cW2+3n+/AOR5nud5nheAfkCe53me53kB6AfkeZ7neZ4XgH5Anud5nuf5eQOw/CMAeZ7neZ7nBaAA5Hme53meF4ACkOd5nud5XgAKQJ7neZ7neQEoAHme53me5wWgH4DneZ7ned5nYPyAPM/zPM/zAtAPyPM8z/M8LwD9gDzP8zzP8wKQ53me53meDxGAzjnnnHMuz30C8H5eNZ+C798v+/6j94u+v/3sZz/7Rd2v92/A7Ne+nwAUgB6AXiD2s5/97CcABaAAFIAegF4g9rOf/ewnAAWgABSAHoBeIPazn/3sJwD/PwDLPwKw/j/gmv2y7z96v+j7289+9rNf1P16/1do9mvfTwAKQA9ALxD72c9+9hOAAlAACkAPQC8Q+9nPfvYTgAJQAApAD0AvEPvZz372E4ACUAAKQA9ALxD72c9+9hOAAlAACkAPQPvZz372s58AjByAPgPjMzA+g+AzEvazn/3s5zMwvgMoAAWgB6AXiP3sZz/7CUABKAA9wDwA7Wc/+9nPfgJQAApAAegBaD/72c9+9hOAAlAACkAPQPvZz372s58AXFgAOuecc865PDf5Gzye53v84XhrPvv175d9/9H7Rd/ffnn3E4A8zwtAAWg/AWM/AegFyPO8ABSA9hMw9hOAXoA8zwtAAWg/AWM/AegFyPP8twdQ+UcA/na/7PuP3i/6/vbLu58A5HleAApA+wkY+wlAL0Ce5wWgALSfgLGfAPQC5HleAApA+wkY+wlAL0Ce5wWIAPQCFjD2E4A8zwsYASgAvYAFjP0EIM/zPmMiAH0Gxmc4fMbEfj4Dw/O8gBGAAtAL2H72E4A8zwtA+wlAAWM/+wlAnucFoP0EoICxn/0EIM/zAtB+AlDA2M9+swWgc84555zLc/4GkOd5nud5PpkXgDzP8zzP8wLQgDzP8zzP8wLQgDzP8zzP8wLQgDzP8zzP8wKQ53me53meF4A8z/M8z/P80vwLw8F8e1UHl+8AAAAASUVORK5CYII=',
+        'dd-walls-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAD5ElEQVR42u3dzW0UURSE0QmQFfIKEQuREAEBkB7IRjL4d9zzuvtSqoN0kbw4m88Ll0YPfPn8/dMv55xzzjnXc5f7v77+uLv5eJ7neZ7n+SxvAPI8z/M8zxuAAvI8z/M8zxuAAvI8z/M8zxuAAvI8z/M8zxuAPM/zPM/zvAHI8zzP8zzPG4A8z/M8z/O8AcjzPM/zPM8bgDzP8zzP87wByPM8z/M8zxuAPM/zPM/zvAHI8zzP8zzPG4A8z/M8z/O8AcjzPM/zPF8+AJ1zzjnnXM89DMD7Pz+/fXm8LV9b4Ov92vtP90vvn95vun97P57nO/3DALwVG4B//Gq/9v7T/dL7p/eb7t/ej+f5Tv9kAG7FBuDTHyC39mvvP90vvX96v+n+7f14nu/0jwPwFmwA/v0BstKvvf90v/T+6f2m+7f343m+09/0BtAAXHtD9Lxfe//pfun90/tN92/vx/N8p9/8BtAAXHtD9N5HuK39p/ul90/vN92/vR/P851+0xtAA3DtDdG1b2Br/+l+6f3T+033b+/H83yn//AbQANw7Q3RtW9gc//pfun90/tN92/vx/N8p//QG0ADcO0N0bV+7f2n+6X3T+833b+9H8/znf7qG0ADcO0N0ZaPcFv7T/dL75/eb7p/ez+e5zv9u28ADcC1N0Rbv4Gt/af7pfdP7zfdv70fz/Od/s03gAbg2huird/A5v7T/dL7p/eb7t/ej+f5Tv/qG0ADcO0N0dZ+7f2n+6X3T+833b+9H8/znf7FG0ADcO0N0cpHuM2fAE72S++f3m+6f3s/nuc7vQFoABowBqAB6AcIz/ONA9A555xzzvXcxSd4PM/z/Fm/S/nfr/Vb79fef7pfcn8DkOd5nj/ldyk//1q/9X7t/af7Jfc3AHme5/nDf5fya/9aUb/1fu39p/sl9zcAeZ7n+UN/l/Jb/1WFfuv92vtP90vubwDyPM/zp73BMgD37dfef7pfcn8DkOd5nj/lDZYBuH+/9v7T/ZL7G4A8z/P84W+wDMBj+rX3n+6X3N8A5Hme5w99g2UAHtevvf90v+T+BiDP8zx/2BssA/DYfu39p/sl9zcAeZ7n+UPeYBmAx/dr7z/dL7m/AcjzPM/v/gbLADynX3v/6X7J/Q1Anud5ftc3WAbgef3a+0/3S+5vAPI8z/O7vcEyAM/t195/ul9yfwOQ53me3+UNlgF4fr/2/tP9kvsbgDzP87wBaADq1zgAnXPOOedcz/kEkOd5nud5vswbgDzP8zzP8waggDzP8zzP8waggDzP8zzP8waggDzP8zzP8wYgz/M8z/M8bwDyPM/zPM/z/5v/DQndji9EllKFAAAAAElFTkSuQmCC',
+        'dd-tiles-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAADI0lEQVR42u3dsa3iUBCGURdFFYgIERLQDR0QUQGV0BWI3EjXvhLD9X+C2ewkI8v+dnbf7nS8H17GGGOMMSZnps8v58dp9fA8z/M8z6/xz+t+9dhf3/4EIM/zPM/zAlAAeoB5nud5nheAAtADzPM8z/O8ABSAHmCe53me5wWgAOR5nud5nl8dMLfLTgD+aH8CkOd5nud5F0AXQA8wz/M8z/MCUAB6gHme53meF4AC0APM8zzP8/wvAmbu77bZX9/+BCDP8zzP8y6ALoAeYJ7neZ7n6wKm5adZ7a9vfwKQ53me53kXQBdADzDP8zzP8wJQAHqAeZ7neZ4XgNsKQGOMMcYYkzMugDzP8zzvgmV//gjYC4DneZ7nBYz9CUAvAJ7neZ4XMPYnAL0AeJ7neR9gAWN/ApDneZ7nfYAFjP0JQJ7neZ7P+QC3/A8MAsb+/mF/ApDneZ7nXbDszwXQC4DneZ7nBYz9CUAvAJ7neZ4XMPYnAL0AeJ7neR/gto/t3N/Nsj/7q9yfAOR5nud5Fyz7cwH0AuB5nuf5ng9wy09j2p/9Ve5PAPI8z/O8C5b9uQB6AfA8z/O8gLE/AegFwPM8z/MCxv62FYDGGGOMMSZnJgVe/zuY9P1X72/0/Y++v+r9p++P5/lMLwAFoIARgALQB4TneQEoAAWggBGAAtAHhOd5ASgABaCAEYAC0AeE53kBKAAFoIARgAKQ53l+QwHY8i9IC8DvH5Cl+0vff/X+Rt//6Pur3n/6/niez/QugC6ALlgugC6ALgg8z7sACkABKGAEoAD0AeF5XgAKQAEoYASgAPQB4Xk+MwDn/mxZAPbvL33/1fsbff+j7696/+n743k+07sAugC6YLkAugC6IPA87wK47KdJBGD//tL3X72/0fc/+v6q95++P57nM70LoAugC5YLoAugCwLP8y6AAlAAChgBKAB9QHieF4ACUAAKGAEoAH1AeJ7fVgAaY4wxxpicmVzweJ7neZ7ns7wA5Hme53meF4AWyPM8z/M8LwAtkOd5nud5XgBaIM/zPM/zvADkeZ7neZ7nBSDP8zzP8zz/b/4NejLf+mks+rwAAAAASUVORK5CYII=',
+        'dd-sym-btn': 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAA4CAYAAABty0kSAAAFgElEQVR42u3dzY3UMBiH8a0FblsBBypYzQntcTugAwqgCiqgDvoCBWlG2WycL9uJP34jvVzQg+OHKO9/Mk789O3X7a9SSimllOqnnoY/3n6/Hi48Ho/H4/F4fF188QFw+PgP5I8//vjjjz/++BMAnYD88ccff/zxxx9/AqATkD/++OOPP/7446+JAIjH4/F4PB6PFwDxeDwej8fj8QIgHo/H4/F4PN4aQCcAf/zxxx9//PHHnwDoBOSPP/74448//vgTAJ2A/PHHH3/88cefAOg/EI/H4/F4PN4aQALxeDwej8fjBUAC8Xg8Ho/H4wVAaxD4448//vjjjz/+rAF0AvLHH3/88ccff/wVGgBLruFT+jHyx5/ijz/+ctbnny+PatFf7vnx97GsAcTj8Xg8vlB+aOhf/3x/1LTR1z7/pfnxl9efAIjH4/F4fIH8tLkfafIlzz92fvzFzU8AxOPxeDy+MD7U3FOGmCvnn2J+/MXNz0MgFqHyxx9//GXlp43p+dOXpvxN55fi+Jea++Bv3ORr9Lc0v2mI4S+PPwFQA+GPP/74y8aHGvBQLfgLNd6Y41+7u3P3F3sX6yp/a/PbeheLvzh/AqAGwh9//PGXhV9qwMPnfiewVn9rzTdnALz7EwD5azYA4vF4PL7NABgbAq+ef8zPb2sBZqnJT/3lCjC5+LX5TcPLkQDI34sAiMfj8fhyA2BMCGw1AK41+Rb8Lc1vS3jhL96fAIjH4/H4U19jMm3AR5twy68xGf8bcw/R1O5vaX4pAyB/HgKxhog//vjj7wJ+rQHfF+TnaMBn+Mv5IuO5Zt6Sv9D8Ur4HkL9XAVAD4Y+/49+gr/CXYnz+yvA314DvTwGHmm9N/vY23r0BumV/R8MLf/H+BEABhj/+Vu/YhC4oOfylHJ+/cvxNG/CYHzfgWv0deaUIf/xd6c8aQDwev+nVAnMXmJbG5y+vvx8vz49q0d/c/Pjjr2R/AiAej199ojH0ZGNL4/PHH3/89eRPAMTj8YdfLNrK+Pzxxx9/vfn7HwBLruFT+jHyx1/tteXiM70IpfSXa3z++OOPP/7my0MgHmLgr3N/W799zn0LTeEv5/j88ccff/wl/gl4+hSNBhzP1/oerBL5ufeOnelv656gtVwAB38aCH8aMH/8CYDv3qPjDlK6ALg3BPJ3Wwxf4wY85/as8ffuZXn2BXDL5unjjdNTXsC3jB96yz1/ffjLefz88derv6gAGLuRtwDzMQDudcrfbTV8jbeemro9a/xQCKxlEfTYn0Xk/FmEzx9/jTwEEhMAY0OgAHOLcsrfvgA4dXt2AJyGwJIugEsXoam/HBfAPe/BKrGB8Ffv8fPHX4/+kgTAmBBoDdstyil/+wPg2G1qf7UGwLedm6fn8Hdkc3P++vB39Pj544+/EwLg0RAowNyinPL3ng99iwq5Te0vNH5om55SL4BLm6fn8rdlY/NaGgh/af2d3YD5468Hf8l+Aj7yAIMAs/wT8Ban/G3bSzHk1l6288e/FGDO8Ld1c3P++vB39l6s/PHXg78kTwEfDX/WsIWfAt7qlL95fq4Bz7k9a/ySnwIO/d2V/t42bm7OXx/+ehyfP/5yj5/sPYACYPr3AAqAaRvw2e+xrP0CON5c/Ap/WzY3568Pfz2Ozx9/uce3FzC+Wd4FkD/++OOPP/4qDYC2MuOPP/74448//vgTAJ2A/PHHH3/88ccffwKgE5A//vjjjz/++OPPGkA8Ho/H4/F4fDgAKqWUUkqpfsodQDwej8fj8fge7wD6Dd0aBP74448//vjjzxpAAp2A/PHHH3/88cefAEigE5A//vjjjz/++BMAnQB4PB6Px+Px1gDi8Xg8Ho/H4wVAPB6Px+PxeHxB/D/OpKrdIZ3EIAAAAABJRU5ErkJggg=='
+    }
+};
+// @editor-only
+//==========================================================
 // SECTION 25: DocsDoodads.WORKSPACE (GLASSMORPHIC WORKSPACE UI & TOOLS)
 //==========================================================
 DocsDoodads.Workspace = {
@@ -37464,6 +40384,8 @@ DocsDoodads.Workspace = {
         this._roomDrag = null;
         this.stopVfxPreview();
         this.postFxCompare = false;
+        // Phone Preview (8.3.5) never outlives the editor.
+        if (typeof this.stopPhonePreview === 'function') this.stopPhonePreview();
         this.mounted = false;
         DocsDoodads.EditWindow.onClose();
         DocsDoodads.SimpleMode.end();
@@ -37511,7 +40433,8 @@ DocsDoodads.Workspace = {
         };
         const restoredNotes = restoreMetadata('notes');
         const restoredBookmarks = restoreMetadata('bookmarks');
-        if (restoredNotes || restoredBookmarks) DocsDoodads.Persistence.dirtyDoodads = true;
+        const restoredPins = restoreMetadata('pins');
+        if (restoredNotes || restoredBookmarks || restoredPins) DocsDoodads.Persistence.dirtyDoodads = true;
         if (recovery.stagedMap) {
             if (mapId === this.currentMapId()) {
                 $gameMap._stagedMapData = recovery.stagedMap;
@@ -43681,7 +46604,8 @@ DocsDoodads.Workspace = {
             });
         }
         entries.push({ path: DocsDoodads.AssetIndex.libraryPath, data: library, indent: 2 });
-        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets);
+        const normalManifest = DocsDoodads.NormalLight.manifestFromAssets(library.assets,
+            DocsDoodads.NormalLight.renameGenerated(DocsDoodads.NormalLight.manifest.generated, oldPath, newPath));
         entries.push({ path: DocsDoodads.NormalLight.manifestPath, data: normalManifest, indent: 2 });
 
         // Move the files first: undoing a rename is easy, undoing half-written data is not.
@@ -45352,6 +48276,7 @@ DocsDoodads.Workspace = {
             }
             items.push({ separator: true });
             items.push(...this.noteMenuItems(coords.tileX, coords.tileY));
+            if (this.pinMenuItems) items.push(...this.pinMenuItems(coords.tileX, coords.tileY));
             items.push({ separator: true });
             items.push({ label: DocsDoodads.Shortcuts.tip('playHere', 'Play From Here'), icon: '▶️', onClick: () => this.playFromHere(coords.tileX, coords.tileY) });
             this.showContextMenu(e.clientX, e.clientY, items);
@@ -48970,6 +51895,21 @@ DocsDoodads.Workspace.mapSections.push({
 });
 // @editor-only
 //==========================================================
+// SECTION 25F: WORLD → MOVEMENT (7.3.3)
+//==========================================================
+(function() {
+    const W = DocsDoodads.Workspace;
+    W.extraWorldSections = W.extraWorldSections || [];
+    if (!W.extraWorldSections.some(section => section.title === 'Movement')) {
+        W.extraWorldSections.push({ title: 'Movement', fields: [
+            { key: 'freeMove.enabled', label: 'The player walks off the grid, by pixels (events stay on it)', type: 'checkbox' },
+            { key: 'freeMove.boxW', label: "Player's feet box: width (pixels)", type: 'range', min: 8, max: 48, step: 2 },
+            { key: 'freeMove.boxH', label: "Player's feet box: height (pixels)", type: 'range', min: 4, max: 48, step: 2 }
+        ] });
+    }
+})();
+// @editor-only
+//==========================================================
 // SECTION 25z: GENERATED MAP CARD AND PREVIEW
 //==========================================================
 DocsDoodads.Ui.css += `
@@ -49149,6 +52089,214 @@ DocsDoodads.Workspace.onMapLoaded = function() {
     this.closeGenerateCard();
     return generateMapLoaded.call(this);
 };
+// @editor-only
+//==========================================================
+// SECTION 25G: THE GROUND BRUSH TOOL (8.3.4)
+//==========================================================
+// Map → Ground Brush: pick a picture in the Item Bag and Use Picked for one of three textures, then paint soft
+// dirt, grass or stone off the grid; right-drag erases. Each stroke is one undo step that keeps only the
+// rectangle it changed. The mask is written as a PNG when the map is saved; a map with nothing painted has no
+// file. The mask and its textures are listed for deployment.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, G = D.Ground;
+    const escapeHtml = value => D.Security.escapeHtml(String(value));
+    D.Ui.hints.ground = 'Ground Brush: drag to paint the chosen texture; right-drag erases. Set textures and the brush in the card.';
+
+    Object.assign(W, {
+        groundBrush: { channel: 0, radius: 40, strength: 0.6, softness: 0.6 },
+
+        groundMasks() { return (this._groundMasks = this._groundMasks || {}); },
+
+        // The map's mask in memory: read from its PNG the first time, or blank.
+        async ensureGroundMask(mapId = this.currentMapId(), loader = path => this.loadPixels(path)) {
+            const masks = this.groundMasks();
+            if (masks[mapId]) return masks[mapId];
+            const size = G.maskSize($gameMap.width(), $gameMap.height(), $gameMap.tileWidth(), $gameMap.tileHeight());
+            const settings = G.settings(D.Lighting.mapSettings(mapId));
+            let data = G.blank(size.w, size.h);
+            if (settings && settings.mask && D.FS.existsSync && D.FS.existsSync(settings.mask)) {
+                try {
+                    const picture = await loader(D.LiveReload ? D.LiveReload.urlFor(settings.mask) : settings.mask);
+                    if (picture.width === size.w && picture.height === size.h) data = new Uint8ClampedArray(picture.data);
+                    else this.showToast('The painted ground was made for another map size; it starts again.', 'info');
+                } catch (error) { this.showToast(`The painted ground could not be read: ${error.message || error}`, 'error'); }
+            }
+            masks[mapId] = { w: size.w, h: size.h, data, dirty: false };
+            this.groundLive(mapId, { x: 0, y: 0, w: size.w, h: size.h });
+            return masks[mapId];
+        },
+
+        // The live picture the map draws while editing, updated where a stroke changed it.
+        groundLive(mapId, rect) {
+            const mask = this.groundMasks()[mapId];
+            if (!mask || typeof document === 'undefined' || typeof PIXI === 'undefined') return null;
+            const live = G.live[mapId] = G.live[mapId] || {};
+            if (!live.canvas || live.canvas.width !== mask.w || live.canvas.height !== mask.h) {
+                live.canvas = document.createElement('canvas');
+                live.canvas.width = mask.w; live.canvas.height = mask.h;
+                live.base = new PIXI.BaseTexture(live.canvas);
+                live.texture = new PIXI.Texture(live.base);
+                rect = { x: 0, y: 0, w: mask.w, h: mask.h };
+            }
+            const ctx = live.canvas.getContext && live.canvas.getContext('2d');
+            if (ctx && ctx.createImageData && ctx.putImageData && rect) {
+                const image = ctx.createImageData(rect.w, rect.h);
+                image.data.set(G.copyRect(mask.data, mask.w, rect));
+                ctx.putImageData(image, rect.x, rect.y);
+                if (live.base && live.base.update) live.base.update();
+            }
+            return live;
+        },
+
+        groundAt(e) {
+            const at = this.clientToMapCoords(e.clientX, e.clientY);
+            return { x: at.x / G.maskScale, y: at.y / G.maskScale, mapX: at.x, mapY: at.y };
+        },
+
+        groundDab(at, erase) {
+            const stroke = this._groundStroke;
+            if (!stroke) return null;
+            const mask = this.groundMasks()[stroke.mapId], b = this.groundBrush;
+            const rect = G.dab(mask.data, mask.w, mask.h, at.x, at.y, b.radius / G.maskScale, { channel: b.channel, strength: b.strength, softness: b.softness, erase });
+            if (rect) { stroke.rect = G.union(stroke.rect, rect); mask.dirty = true; this.groundLive(stroke.mapId, rect); }
+            return rect;
+        },
+
+        // A texture for a slot: the picture picked in the Item Bag. The first texture turns the ground on for the map.
+        setGroundTexture(slot, path) {
+            const mapId = this.currentMapId(), settings = D.Lighting.mapSettings(mapId) || {};
+            const ground = Object.assign({ textures: ['', '', ''], mask: '', scale: 1 }, JSON.parse(JSON.stringify(settings.ground || {})));
+            ground.textures = [0, 1, 2].map(i => (i === slot ? path || '' : (ground.textures || [])[i] || ''));
+            this.setMapSetting('ground', ground);
+            return ground;
+        },
+
+        // Before a save: each changed map names its mask (or drops it when nothing is painted), so the name is in
+        // the data that is written. Returns the maps to write after the save succeeds.
+        prepareGroundSave(only) {
+            const out = [];
+            for (const [id, mask] of Object.entries(this.groundMasks())) {
+                const mapId = Number(id);
+                if (!mask.dirty || (only && !only.includes(mapId))) continue;
+                const settings = D.Lighting.mapSettings(mapId) || {}, empty = G.isEmpty(mask.data), path = empty ? '' : G.maskPath(mapId);
+                if ((settings.ground && settings.ground.mask) !== path && (settings.ground || path)) {
+                    D.Lighting.setMapSettings(mapId, { ground: Object.assign({ textures: ['', '', ''], scale: 1 }, settings.ground || {}, { mask: path }) });
+                }
+                out.push(mapId);
+            }
+            return out.length ? out : null;
+        },
+
+        // After the save: the PNG of each prepared map is written, or removed when nothing is painted.
+        writeGroundMasks(mapIds) {
+            const F = D.FS, written = [];
+            for (const mapId of mapIds || []) {
+                const mask = this.groundMasks()[mapId];
+                if (!mask) continue;
+                const path = G.maskPath(mapId);
+                if (G.isEmpty(mask.data)) {
+                    try { if (F.existsSync(path)) F.fs.unlinkSync(F.path.resolve(path)); } catch (error) { /* gone */ }
+                } else {
+                    const zlib = require('zlib');
+                    F.mkdirp(G.folder);
+                    F.atomicWriteFile(path, Buffer.from(D.AsepriteSheets.encodePng(mask.w, mask.h, new Uint8Array(mask.data.buffer, mask.data.byteOffset, mask.data.length), data => zlib.deflateSync(data))));
+                    written.push(path);
+                }
+                mask.dirty = false;
+            }
+            return written;
+        },
+
+        startGroundTool() {
+            this.setPlacementTool('ground');
+            if (window.$gameMap) this.ensureGroundMask();
+            this.showGroundCard();
+        },
+
+        closeGroundCard() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-ground-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        },
+
+        showGroundCard() {
+            if (typeof document === 'undefined') return null;
+            this.closeGroundCard();
+            const settings = G.settings(D.Lighting.mapSettings(this.currentMapId())) || { textures: ['', '', ''] }, b = this.groundBrush;
+            const card = document.createElement('div');
+            card.id = 'dd-ground-card'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;top:80px;right:20px;width:300px;padding:12px;z-index:10040;font-size:11px;display:flex;flex-direction:column;gap:6px;';
+            card.innerHTML = `<div class="dd-panel-head">Ground Brush <button class="dd-btn" id="dd-ground-close" type="button">Close</button></div>
+                ${[0, 1, 2].map(i => `<label style="display:flex;gap:6px;align-items:center;"><input type="radio" name="dd-ground-slot" id="dd-ground-slot-${i}"${b.channel === i ? ' checked' : ''}>
+                    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(settings.textures[i] ? settings.textures[i].split('/').pop() : '(no texture)')}</span>
+                    <button class="dd-btn" type="button" id="dd-ground-use-${i}">Use Picked</button></label>`).join('')}
+                <label>Size <input id="dd-ground-radius" type="range" min="8" max="240" step="4" value="${b.radius}"></label>
+                <label>Strength <input id="dd-ground-strength" type="range" min="0.05" max="1" step="0.05" value="${b.strength}"></label>
+                <label>Soft edge <input id="dd-ground-soft" type="range" min="0" max="1" step="0.05" value="${b.softness}"></label>
+                <div style="color:var(--dd-muted);">Drag to paint; right-drag erases. Textures repeat; flat maps only. Saved with the map.</div>`;
+            document.body.appendChild(card);
+            const node = id => document.getElementById(id);
+            node('dd-ground-close').onclick = () => { this.closeGroundCard(); this.setPlacementTool(null); };
+            [0, 1, 2].forEach(i => {
+                node(`dd-ground-slot-${i}`).onchange = () => { b.channel = i; };
+                node(`dd-ground-use-${i}`).onclick = () => {
+                    const asset = this.selectedAsset;
+                    if (!asset || !/\.(png|jpe?g|webp)$/i.test(asset.path || '')) { this.showToast('Pick a picture in the Item Bag first.', 'info'); return; }
+                    this.setGroundTexture(i, asset.path); b.channel = i; this.showGroundCard();
+                };
+            });
+            node('dd-ground-radius').oninput = event => { b.radius = Number(event.target.value) || b.radius; };
+            node('dd-ground-strength').oninput = event => { b.strength = Number(event.target.value) || b.strength; };
+            node('dd-ground-soft').oninput = event => { b.softness = Number(event.target.value); };
+            return card;
+        }
+    });
+
+    W.toolHooks.ground = {
+        buttons: [0, 2],
+        down(e) {
+            const mapId = this.currentMapId(), mask = this.groundMasks()[mapId];
+            if (!mask) { this.ensureGroundMask(mapId); return false; }
+            const settings = G.settings(D.Lighting.mapSettings(mapId));
+            const erase = e.button === 2;
+            if (!erase && !(settings && settings.textures[this.groundBrush.channel])) { this.showToast('Choose a texture for this slot first (Use Picked).', 'info'); return false; }
+            this._groundStroke = { mapId, erase, rect: null, before: mask.data.slice() };
+            this.groundDab(this.groundAt(e), erase);
+            return true;
+        },
+        move(e, stroking) {
+            this._groundCursor = this.clientToMapCoords(e.clientX, e.clientY);
+            if (stroking && this._groundStroke) this.groundDab(this.groundAt(e), this._groundStroke.erase);
+        },
+        up() {
+            const stroke = this._groundStroke;
+            this._groundStroke = null;
+            this._suppressNextClick = true;
+            if (!stroke || !stroke.rect) return;
+            const mask = this.groundMasks()[stroke.mapId], rect = stroke.rect;
+            const before = G.copyRect(stroke.before, mask.w, rect), after = G.copyRect(mask.data, mask.w, rect);
+            const put = pixels => { G.putRect(mask.data, mask.w, rect, pixels); mask.dirty = true; D.Persistence.dirtyDoodads = true; this.groundLive(stroke.mapId, rect); };
+            D.Undo.execute({ type: 'paint_ground', rect, apply: () => put(after), revert: () => put(before) });
+        },
+        overlay(g) {
+            if (this.placementTool !== 'ground' || !this._groundCursor || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const p = D.mapToScreen(this._groundCursor.x, this._groundCursor.y);
+            g.lineStyle(1, D.Ui.mapColor('selection'), 0.9); g.drawCircle(p.x, p.y, this.groundBrush.radius); g.lineStyle(0);
+        }
+    };
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-ground-btn', icon: 'brush', label: 'Ground Brush', title: 'Paint dirt, grass and stone with soft edges, off the grid' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = typeof document !== 'undefined' ? document.getElementById('dd-ground-btn') : null;
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.startGroundTool(); };
+        return result;
+    };
+})();
 // @editor-only
 Object.assign(DocsDoodads.Workspace, {
     guessEnabled() { return DocsDoodads.Ui.prefs().guessOnDrop !== false; },
@@ -51922,6 +55070,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
         if (this.shippedProblems && this.shippedRelease()) out = out.concat(this.shippedProblems());
         if (this.creditProblems) out = out.concat(this.creditProblems());
+        if (this.pinProblems) out = out.concat(this.pinProblems());
         return out;
     },
 
@@ -52138,6 +55287,574 @@ Object.assign(DocsDoodads.Workspace, {
         return panel;
     }
 });
+// @editor-only
+//==========================================================
+// SECTION 25M: PICTURE TO MAP (8.5.2) AND KINDS OF MAP (8.5.3)
+//==========================================================
+// Map → Picture to Map: choose what kind of map, a picture (and a grey one for heights), how thin a line to
+// ignore, then agree the key: each colour group beside a class, guessed and always changeable, and the tile each
+// class uses (remembered per tileset). The plan shows on the map; Apply paints tiles (autotile edges joined),
+// regions, heights and biome art as one undo step. Kinds: four built in, and copies the user changes.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, M = D.MapFrom;
+    const escapeHtml = value => D.Security.escapeHtml(String(value));
+    const hex = c => '#' + c.map(v => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+
+    Object.assign(W, {
+        mapKinds() { return M.kinds(window.$dataDocsDoodads && window.$dataDocsDoodads.mapKinds); },
+
+        // The tile each class uses, per tileset and kind, kept on this computer.
+        mapFromTile(kindId, classId, value) {
+            const tileset = (window.$dataMap && $dataMap.tilesetId) || 0, prefs = D.Ui.prefs().mapFromTiles || {};
+            const key = `${tileset}:${kindId}`;
+            if (value === undefined) {
+                const saved = prefs[key] && prefs[key][classId];
+                if (saved) return saved;
+                const cls = M.kind(kindId, window.$dataDocsDoodads && window.$dataDocsDoodads.mapKinds).classes.find(c => c.id === classId);
+                return cls && cls.tile ? cls.tile : null;
+            }
+            const next = Object.assign({}, prefs, { [key]: Object.assign({}, prefs[key] || {}, { [classId]: Number(value) > 0 ? Math.floor(Number(value)) : null }) });
+            D.Ui.setPref('mapFromTiles', next);
+            return next[key][classId];
+        },
+
+        copyMapKind(kindId, name) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            const kinds = this.mapKinds(), from = kinds.find(k => k.id === kindId);
+            if (!from) return null;
+            let id = 'kind_' + String(name || from.id).toLowerCase().replace(/[^\w]+/g, '_').slice(0, 30), n = 2;
+            while (kinds.some(k => k.id === id)) id = id.replace(/_\d+$/, '') + '_' + n++;
+            const copy = M.copyKind(from, id, name || from.name + ' (copy)');
+            data.mapKinds = (Array.isArray(data.mapKinds) ? data.mapKinds : []).concat([copy]);
+            D.Persistence.dirtyDoodads = true;
+            return copy;
+        },
+
+        loadMapFromPicture(file) {
+            return new Promise((resolve, reject) => {
+                const url = typeof URL !== 'undefined' && URL.createObjectURL && file instanceof Blob ? URL.createObjectURL(file) : String(file);
+                const image = new Image();
+                image.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.naturalWidth || image.width; canvas.height = image.naturalHeight || image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    resolve({ data: ctx.getImageData(0, 0, canvas.width, canvas.height).data, width: canvas.width, height: canvas.height });
+                };
+                image.onerror = () => reject(new Error('That picture could not be read.'));
+                image.src = url;
+            });
+        },
+
+        // From the state of the card: the read picture, the key and the plan.
+        mapFromPlan(state) {
+            if (!state.picture || !window.$gameMap) return null;
+            const kind = this.mapKinds().find(k => k.id === state.kindId) || this.mapKinds()[0];
+            const tilesW = $gameMap.width(), tilesH = $gameMap.height();
+            const read = M.read(state.picture.data, state.picture.width, state.picture.height, { tilesW, tilesH });
+            read.cells = M.ignoreThin(read.cells, read.w, read.h, state.thin);
+            if (!state.key || state.key.length !== read.groups.length || state.keyKind !== kind.id) {
+                state.key = read.groups.map(g => M.guess(g.colour, kind));
+                state.keyKind = kind.id;
+            }
+            const heights = state.heights ? M.heightsFrom(state.heights.data, state.heights.width, state.heights.height, tilesW, tilesH) : null;
+            const plan = M.plan(read, state.key, kind, { heights, name: state.roomName, roughen: state.roughen, seed: state.seed || 1 });
+            return { kind, read, plan, ppt: M.pixelsPerTile(state.picture.width, state.picture.height, tilesW, tilesH) };
+        },
+
+        // Apply: tiles through Tiles.paint (autotile edges join up), regions, heights and biome art, one undo step.
+        applyMapFrom(plan, kind, tileFor = id => this.mapFromTile(kind.id, id)) {
+            const view = this.tileMapView ? this.tileMapView() : null;
+            if (!view) { this.showToast('Open a map first.', 'error'); return null; }
+            const built = M.build(plan, kind, tileFor), mapId = this.currentMapId(), T = D.Tiles, tables = this.autotileTables();
+            const tileChanges = new Map();
+            const record = (index, after) => {
+                const before = tileChanges.has(index) ? tileChanges.get(index).before : Number(view.data[index]) || 0;
+                tileChanges.set(index, { before, after });
+                this.setMapTile(mapId, index, after);
+            };
+            for (const t of built.tiles) for (const c of T.paint(view, t.x, t.y, { ids: [[t.id]], layer: 'auto' }, tables)) record(c.index, c.after);
+            for (const r of built.regions) record(T.index(view.width, view.height, r.x, r.y, 5), r.id);
+            const before = JSON.parse(JSON.stringify(D.Lighting.mapSettings(mapId) || {}));
+            const after = JSON.parse(JSON.stringify(before));
+            // The kind is kept with the map, so later tools know what it is.
+            after.mapKind = kind.id;
+            if (Object.keys(built.heights).length) {
+                after.terrain = Object.assign({}, after.terrain || {}, { enabled: true });
+                after.terrain.paint = Object.assign({}, D.Terrain.normalize(after.terrain).paint, built.heights);
+            }
+            // Biome art: one scatter per tile of a class with a biome, seeded so Apply twice makes the same map.
+            const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+            const biomes = this.biomesRaw ? this.biomesRaw() : [], placed = [], rng = D.Scatter.rng(Number(plan.options && plan.options.seed) || 1);
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), missingBiomes = new Set();
+            for (const spot of built.biomes) {
+                const raw = biomes.find(b => b && (b.id === spot.biome || String(b.name || '').toLowerCase() === spot.biome.toLowerCase()));
+                const biome = raw ? D.Biome.normalize(raw) : null;
+                if (!biome || !biome.entries.length) { missingBiomes.add(spot.biome); continue; }
+                const center = { x: spot.x * tw + tw / 2, y: spot.y * th + th / 2 };
+                const existing = placed.filter(d => Math.abs(d.x - center.x) < tw * 2 && Math.abs(d.y - center.y) < th * 2).map(d => ({ x: d.x, y: d.y }));
+                for (const p of D.Biome.paint(biome, center, tw / 2, existing, rng)) {
+                    const asset = this.assetByPath ? this.assetByPath(p.path) : null;
+                    const d = asset ? this.newDoodadFromAsset(asset, p.x, p.y, false) : Object.assign(D.standardStruct(), { bit: [3, p.path], x: p.x, y: p.y });
+                    d.scaleX = p.scale * (p.flipX ? -1 : 1); d.scaleY = p.scale;
+                    placed.push(d);
+                }
+            }
+            const changes = Array.from(tileChanges.entries()).filter(([, c]) => c.before !== c.after);
+            const setTiles = which => { for (const [index, c] of changes) this.setMapTile(mapId, index, c[which]); if (this.afterTileEdit) this.afterTileEdit(); };
+            const setSettings = value => { if (this.writeMapSettings) this.writeMapSettings(mapId, JSON.parse(JSON.stringify(value))); else D.Lighting.setMapSettings(mapId, value); };
+            const setDoodads = add => {
+                for (const d of placed) { const at = list.indexOf(d); if (add && at < 0) list.push(d); if (!add && at >= 0) list.splice(at, 1); }
+                D.Persistence.dirtyDoodads = true;
+                if (this.refreshSpriteset) this.refreshSpriteset(true);
+            };
+            setTiles('before');
+            D.Undo.execute({
+                type: 'picture_to_map',
+                apply: () => { setTiles('after'); setSettings(after); setDoodads(true); },
+                revert: () => { setTiles('before'); setSettings(before); setDoodads(false); }
+            });
+            const notes = [];
+            if (built.unmapped.length) notes.push(`No tile chosen for ${built.unmapped.map(id => (kind.classes.find(c => c.id === id) || { name: id }).name).join(', ')}: left alone.`);
+            if (missingBiomes.size) notes.push(`No biome with art called ${Array.from(missingBiomes).join(', ')}.`);
+            this.showToast(`Picture to Map: ${changes.length} tile change(s), ${placed.length} doodad(s). ${notes.join(' ')}`.trim(), notes.length ? 'info' : 'success');
+            return { changes: changes.length, doodads: placed.length, unmapped: built.unmapped, missingBiomes: Array.from(missingBiomes) };
+        },
+
+        // The plan on the map while the card is open: a colour per class.
+        drawMapFromPlan(g) {
+            const preview = this._mapFrom && this._mapFrom.preview;
+            if (!preview || typeof $gameMap === 'undefined' || !$gameMap || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const { plan, kind } = preview, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const colour = id => { let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return ((h & 0x7f) + 96) << 16 | (((h >> 7) & 0x7f) + 96) << 8 | (((h >> 14) & 0x7f) + 96); };
+            plan.cells.forEach((id, i) => {
+                if (!id || !kind.classes.some(c => c.id === id)) return;
+                const x = $gameMap.adjustX(i % plan.w) * tw, y = $gameMap.adjustY(Math.floor(i / plan.w)) * th;
+                g.beginFill(colour(id), 0.35); g.drawRect(x, y, tw, th); g.endFill();
+            });
+            for (const f of plan.features) {
+                const x = $gameMap.adjustX(f.x) * tw, y = $gameMap.adjustY(f.y) * th;
+                g.lineStyle(2, 0xffffff, 0.9); g.drawRect(x + 2, y + 2, f.w * tw - 4, f.h * th - 4); g.lineStyle(0);
+            }
+        },
+
+        closeMapFrom() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-map-from') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+            this._mapFrom = null;
+        },
+
+        openMapFrom() {
+            if (typeof document === 'undefined') return null;
+            this.closeMapFrom();
+            const state = this._mapFrom = { kindId: 'overworld', thin: 0, roughen: 0, roomName: '', picture: null, heights: null, key: null, preview: null, error: '' };
+            const card = document.createElement('div');
+            card.id = 'dd-map-from'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;top:80px;right:20px;width:380px;max-height:78vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;display:flex;flex-direction:column;gap:6px;';
+            const render = () => {
+                let made = null;
+                try { made = this.mapFromPlan(state); state.error = ''; } catch (error) { state.error = error.message || String(error); }
+                state.preview = made ? { plan: made.plan, kind: made.kind } : null;
+                const kinds = this.mapKinds(), kind = made ? made.kind : kinds.find(k => k.id === state.kindId) || kinds[0];
+                const classOptions = selected => `<option value=""${!selected ? ' selected' : ''}>Leave alone</option>` + kind.classes.map(c => `<option value="${escapeHtml(c.id)}"${c.id === selected ? ' selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+                const used = made ? Array.from(new Set(made.plan.cells.filter(Boolean))) : [];
+                card.innerHTML = `<div class="dd-panel-head">Picture to Map <button class="dd-btn" id="dd-mf-close" type="button">Close</button></div>
+                    <label>Kind of map <select id="dd-mf-kind">${kinds.map(k => `<option value="${escapeHtml(k.id)}"${k.id === kind.id ? ' selected' : ''}>${escapeHtml(k.name)}</option>`).join('')}</select>
+                    <button class="dd-btn" id="dd-mf-copy" type="button">Copy Kind</button></label>
+                    <div style="color:var(--dd-muted);">${escapeHtml(kind.scale)}</div>
+                    ${(kind.base || kind.id) === 'room' ? `<label>Room name (for furniture) <input id="dd-mf-room" type="text" value="${escapeHtml(state.roomName)}"></label>` : ''}
+                    ${(kind.base || kind.id) === 'dungeon' ? `<label>Cave walls (rough) <input id="dd-mf-rough" type="range" min="0" max="1" step="0.1" value="${state.roughen}"></label>` : ''}
+                    <label>Picture <input id="dd-mf-picture" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                    <label>Heights (grey: dark low, light high) <input id="dd-mf-heights" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                    <label>Ignore lines (labels, grid lines) up to <select id="dd-mf-thin">${[0, 1, 2, 3].map(n => `<option value="${n}"${state.thin === n ? ' selected' : ''}>${n ? n + ' tile(s) thick' : 'nothing'}</option>`).join('')}</select></label>
+                    ${made ? `<div>${$gameMap.width()} × ${$gameMap.height()} tiles; about ${Math.round(made.ppt * 10) / 10} picture pixels a tile.${made.ppt < 2 ? ' <b>Under two pixels a tile: draw it bigger or make the map smaller.</b>' : ''}</div>` : ''}
+                    ${state.error ? `<div style="color:#f87171;">${escapeHtml(state.error)}</div>` : ''}
+                    ${made ? made.read.groups.map((g, i) => `<label style="display:flex;gap:6px;align-items:center;"><span style="display:inline-block;width:18px;height:18px;border-radius:4px;background:${hex(g.colour)};"></span>${g.count} tile(s)
+                        <select id="dd-mf-key-${i}">${classOptions(state.key[i])}</select></label>`).join('') : ''}
+                    ${used.length ? `<div class="dd-panel-head" style="margin-top:4px;">Tiles</div>` + used.map(id => `<label>${escapeHtml((kind.classes.find(c => c.id === id) || { name: id }).name)}
+                        <input id="dd-mf-tile-${escapeHtml(id)}" type="number" min="0" value="${this.mapFromTile(kind.id, id) || ''}" placeholder="tile id"></label>`).join('') +
+                        `<div style="color:var(--dd-muted);">Alt+click a tile with the Tiles tool to see its id. Classes with no tile are left alone.</div>` : ''}
+                    <button class="dd-btn dd-btn-primary" id="dd-mf-apply" type="button"${made ? '' : ' disabled'}>Apply</button>`;
+                const node = id => document.getElementById(id);
+                node('dd-mf-close').onclick = () => this.closeMapFrom();
+                node('dd-mf-kind').onchange = event => { state.kindId = event.target.value; state.key = null; render(); };
+                node('dd-mf-copy').onclick = async () => {
+                    const name = await D.Ui.prompt('A name for the copy', kind.name + ' (mine)', { title: 'Copy Kind' });
+                    const copy = name ? this.copyMapKind(kind.id, name) : null;
+                    if (copy) { state.kindId = copy.id; render(); }
+                };
+                const room = node('dd-mf-room'); if (room) room.onchange = () => { state.roomName = room.value; render(); };
+                const rough = node('dd-mf-rough'); if (rough) rough.onchange = () => { state.roughen = Number(rough.value) || 0; render(); };
+                node('dd-mf-thin').onchange = event => { state.thin = Number(event.target.value) || 0; render(); };
+                const pick = (id, field) => {
+                    node(id).onchange = async event => {
+                        const file = event.target.files && event.target.files[0];
+                        if (!file) return;
+                        try { state[field] = await this.loadMapFromPicture(file); if (field === 'picture') state.key = null; } catch (error) { state.error = error.message; }
+                        render();
+                    };
+                };
+                pick('dd-mf-picture', 'picture'); pick('dd-mf-heights', 'heights');
+                if (made) made.read.groups.forEach((g, i) => { node(`dd-mf-key-${i}`).onchange = event => { state.key[i] = event.target.value || null; render(); }; });
+                for (const id of used) { const input = node(`dd-mf-tile-${id}`); if (input) input.onchange = () => this.mapFromTile(kind.id, id, input.value); }
+                node('dd-mf-apply').onclick = () => { if (made) { this.applyMapFrom(made.plan, made.kind); this.closeMapFrom(); } };
+            };
+            document.body.appendChild(card);
+            render();
+            return card;
+        }
+    });
+
+    W.toolHooks.mapFrom = { overlay(g) { this.drawMapFromPlan(g); } };
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-map-from-btn', icon: 'picture', label: 'Picture to Map', title: 'Turn a drawing into tiles, hills and doodads, after agreeing a colour key' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = typeof document !== 'undefined' ? document.getElementById('dd-map-from-btn') : null;
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.openMapFrom(); };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25W: SAVE 3D MAP AS FILE (8.4.8)
+//==========================================================
+// Map → Save 3D Map as File writes the ground (the 3D view's terrain, or two triangles for a flat map) with the
+// map's tiles as its picture, and the standing doodads as upright pictures, into one .glb in screenshots/, for
+// Blender, a trailer or a 3D print. It asks first and says that the file carries the project's art.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, GW = D.GltfWrite;
+
+    Object.assign(W, {
+        mapGlbName(mapId, date = new Date()) {
+            const p = n => String(n).padStart(2, '0');
+            return `Map${String(mapId).padStart(3, '0')}_3d_${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}.glb`;
+        },
+
+        standingDoodads() {
+            const settings = D.Lighting.mapSettings(this.currentMapId());
+            return (D.doodads() || []).filter(d => d && d.bit && d.bit[0] === 3 && !d.line && !(d.model && d.model.path) &&
+                D.Depth.resolve(d) !== 'below' && D.Layers.visibleInGame(d, settings));
+        },
+
+        // A doodad's first frame as PNG bytes.
+        async framePng(d) {
+            const bmp = D.loadBitmap(d.bit[1]);
+            if (!bmp) return null;
+            if (bmp.isReady && !bmp.isReady()) await new Promise(resolve => bmp.addLoadListener(resolve));
+            const source = bmp._canvas || bmp._image || (bmp._baseTexture && bmp._baseTexture.resource && bmp._baseTexture.resource.source);
+            if (!source) return null;
+            const w = Math.max(1, Math.min(bmp.width, d.frameW || bmp.width)), h = Math.max(1, Math.min(bmp.height, d.frameH || bmp.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(source, d.frameX || 0, d.frameY || 0, w, h, 0, 0, w, h);
+            const encoded = canvas.toDataURL('image/png').split(',')[1];
+            return encoded ? Buffer.from(encoded, 'base64') : null;
+        },
+
+        async saveMapGlb(options = {}) {
+            const F = D.FS, scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null, spriteset = scene && scene._spriteset;
+            if (!D.Compat.isTest() || !F.fs || !spriteset || !window.$gameMap) { this.showToast('Open a map in a playtest to save it as a 3D file.', 'error'); return null; }
+            const values = options.values || await D.Ui.form({ title: 'Save 3D Map as File', ok: 'Save',
+                text: "Writes this map's ground and standing doodads as one .glb file in screenshots/, for Blender, a trailer or a 3D print. The file carries this project's art: share it only where the art's licences allow.",
+                fields: [
+                    { key: 'scale', label: 'Ground picture size', type: 'select', value: '0.5', options: [{ value: '1', label: 'Full' }, { value: '0.5', label: 'Half' }, { value: '0.25', label: 'Quarter' }] },
+                    { key: 'groundOnly', label: 'Ground only (no standing doodads)', type: 'checkbox', value: false }
+                ] });
+            if (!values) return null;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), tilesW = $gameMap.width(), tilesH = $gameMap.height();
+            const standing = values.groundOnly ? [] : this.standingDoodads();
+            // The ground's picture: tiles and floor decals; standing doodads are left out while it is drawn.
+            const hidden = [];
+            for (const sprite of spriteset._docsDoodadSprites || []) if (standing.includes(sprite._data) && sprite.renderable !== false) { sprite.renderable = false; hidden.push(sprite); }
+            let canvas;
+            try { canvas = D.MapExport.capture(spriteset, { scale: Number(values.scale) || 0.5 }).canvas; }
+            finally { for (const sprite of hidden) sprite.renderable = true; }
+            const picture = canvas.toDataURL('image/png').split(',')[1];
+            const T = D.Terrain, grid = T.grid ? T.grid(true) : null;
+            const ground = grid ? GW.groundFromTerrain(T.buildMesh(grid, 0, 0, tilesW, tilesH, tw, th, grid.style, T.light, 0), tw, th, tilesW * tw, tilesH * th) : GW.flatGround(tilesW, tilesH);
+            ground.image = { bytes: Buffer.from(picture, 'base64'), mime: 'image/png' };
+            ground.cutout = false;
+            const meshes = [ground], groups = new Map();
+            for (const d of standing) {
+                const key = `${d.bit[1]}|${d.frameX || 0}|${d.frameY || 0}|${d.frameW || 0}|${d.frameH || 0}`;
+                if (!groups.has(key)) groups.set(key, { d, items: [] });
+                const sx = d.scaleX === undefined ? 1 : d.scaleX, sy = d.scaleY === undefined ? 1 : d.scaleY;
+                groups.get(key).items.push({ x: d.x / tw, y: d.y / th, w: (d.frameW || 48) * Math.abs(sx) / tw, h: (d.frameH || 48) * Math.abs(sy) / th,
+                    ground: grid ? T.heightAt(grid, d.x / tw, d.y / th, grid.style) : 0, flipX: sx < 0 });
+            }
+            for (const { d, items } of groups.values()) {
+                const bytes = await (options.framePng || (x => this.framePng(x)))(d);
+                if (bytes) meshes.push(GW.quads(String(d.bit[1]).split('/').pop().replace(/\.[^.]+$/, ''), items, { bytes, mime: 'image/png' }));
+            }
+            const glb = GW.glb(meshes);
+            F.mkdirp('screenshots');
+            const out = 'screenshots/' + this.mapGlbName($gameMap.mapId());
+            F.atomicWriteFile(out, Buffer.from(glb.buffer, glb.byteOffset, glb.byteLength));
+            this.showToast(`Saved ${out} (${Math.round(glb.byteLength / 1024)} KB, ${meshes.length} mesh(es)).`, 'success');
+            try { if (typeof nw !== 'undefined' && nw.Shell) nw.Shell.showItemInFolder(F.path.resolve(out)); } catch (error) { /* no shell */ }
+            return out;
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-map-glb-btn', icon: 'box', label: 'Save 3D Map as File', title: 'Write the ground and standing doodads as a .glb for Blender, trailers or 3D printing' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = typeof document !== 'undefined' ? document.getElementById('dd-map-glb-btn') : null;
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.saveMapGlb(); };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25I: IMPORT MAP (7.1.6)
+//==========================================================
+// Map → Import Map: choose a Tiled (.tmj/.json) or LDtk (.ldtk) file, pick a level, read what will be made,
+// then Import. A new MZ map is written with the tile layers as picture layers (img/parallaxes), objects with
+// a tile as doodads (pictures cut into img/doodads/<name>/), collision as painted walls, and "empty tiles are
+// floor" on. Pictures are written whole or not at all; the map then opens. Close RPG Maker MZ's editor first:
+// it rewrites MapInfos.json when it saves.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, M = D.MapImport;
+    const escapeHtml = value => D.Security.escapeHtml(String(value));
+
+    Object.assign(W, {
+        // Reads a map file and everything it names, relative to its folder. Returns { model, file, levels }.
+        readImportMap(absolute, levelIndex = 0, io = {}) {
+            const fs = io.fs || D.FS.fs, path = io.path || D.FS.path, zlib = io.zlib || require('zlib');
+            const dir = path.dirname(absolute);
+            const readFile = rel => JSON.parse(fs.readFileSync(path.resolve(dir, rel), 'utf8'));
+            const json = JSON.parse(fs.readFileSync(absolute, 'utf8'));
+            const name = path.basename(absolute);
+            const inflate = (bytes, kind) => kind === 'gzip' ? zlib.gunzipSync(bytes) : zlib.inflateSync(bytes);
+            if (/\.ldtk$/i.test(absolute) || (json && Array.isArray(json.levels) && json.defs)) {
+                return { kind: 'ldtk', file: absolute, levels: M.levels(json), model: M.readLdtk(json, readFile, levelIndex, { file: name }) };
+            }
+            return { kind: 'tiled', file: absolute, levels: [], model: M.readTiled(json, readFile, { file: name, inflate }) };
+        },
+
+        importMapPlan(read, options = {}) {
+            const infos = D.FS.readJson('data/MapInfos.json') || window.$dataMapInfos || [];
+            const tile = window.$gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+            const tilesetId = options.tilesetId || (window.$dataMap && $dataMap.tilesetId) || 1;
+            const base = options.baseName || D.FS.path.basename(read.file).replace(/\.[^.]+$/, '');
+            return M.plan(read.model, { projectTile: tile, mapId: M.nextMapId(infos), baseName: base, mapName: options.mapName || base, tilesetId });
+        },
+
+        importImageUrl(dir, rel) {
+            const absolute = D.FS.path.resolve(dir, rel);
+            try { return require('url').pathToFileURL(absolute).href; } catch (error) { return 'file:///' + absolute.replace(/\\/g, '/'); }
+        },
+
+        loadImportImage(url) {
+            return new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error(`Could not read ${decodeURIComponent(String(url).split('/').pop())}`));
+                image.src = url;
+            });
+        },
+
+        // One file's pixels, drawn with its tiles' flips (Tiled: the diagonal first, then horizontal and vertical).
+        drawImportFile(file, images) {
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(file.width)); canvas.height = Math.max(1, Math.round(file.height));
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.globalAlpha = file.opacity === undefined ? 1 : file.opacity;
+            for (const t of file.draws) {
+                const image = images[t.image];
+                if (!image) continue;
+                ctx.save();
+                ctx.translate(t.x + t.dw / 2, t.y + t.dh / 2);
+                ctx.scale(t.flipX ? -1 : 1, t.flipY ? -1 : 1);
+                if (t.diagonal) ctx.transform(0, 1, 1, 0, 0, 0);
+                ctx.drawImage(image, t.sx, t.sy, t.w, t.h, -t.dw / 2, -t.dh / 2, t.dw, t.dh);
+                ctx.restore();
+            }
+            const encoded = canvas.toDataURL('image/png').split(',')[1];
+            if (!encoded) throw new Error(`${file.path} could not be drawn.`);
+            return Buffer.from(encoded, 'base64');
+        },
+
+        // Pictures to temporary names first, then all renamed; any failure removes what was written.
+        writeImportFiles(entries) {
+            const F = D.FS, fs = F.fs, path = F.path, stamp = `.ddimport-${Date.now().toString(36)}`;
+            const temps = [], done = [];
+            try {
+                for (const e of entries) if (F.existsSync(e.path)) throw new Error(`${e.path} already exists.`);
+                for (const e of entries) {
+                    F.mkdirp(path.dirname(e.path));
+                    fs.writeFileSync(e.path + stamp, e.bytes);
+                    temps.push(e.path + stamp);
+                }
+                for (const e of entries) { fs.renameSync(e.path + stamp, e.path); done.push(e.path); }
+                return { ok: true, written: done };
+            } catch (error) {
+                for (const p of temps) { try { if (F.existsSync(p)) fs.unlinkSync(p); } catch (ignored) { /* gone */ } }
+                for (const p of done) { try { fs.unlinkSync(p); } catch (ignored) { /* gone */ } }
+                return { ok: false, error: error.message || String(error) };
+            }
+        },
+
+        async runMapImport(read, plan, io = {}) {
+            const F = D.FS;
+            if (!D.Compat.isTest() || !F.fs) { this.showToast('Import Map works only in a playtest.', 'error'); return null; }
+            const progress = D.Ui.progress('Importing map', { delay: 300 });
+            try {
+                const dir = F.path.dirname(read.file), images = {};
+                const sources = Array.from(new Set(plan.files.flatMap(f => f.draws.map(t => t.image))));
+                progress.update(0, sources.length + plan.files.length, 'reading tilesets');
+                for (const [i, rel] of sources.entries()) {
+                    images[rel] = await (io.loadImage || (url => this.loadImportImage(url)))(this.importImageUrl(dir, rel));
+                    progress.update(i + 1, sources.length + plan.files.length);
+                }
+                const entries = [];
+                for (const [i, file] of plan.files.entries()) {
+                    entries.push({ path: file.path, bytes: (io.draw || ((f, imgs) => this.drawImportFile(f, imgs)))(file, images) });
+                    progress.update(sources.length + i + 1, sources.length + plan.files.length, file.path.split('/').pop());
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                const mapFile = D.Persistence.mapFilePath(plan.mapId);
+                if (F.existsSync(mapFile)) throw new Error(`${mapFile} already exists; close RPG Maker MZ and try again.`);
+                const written = this.writeImportFiles(entries);
+                if (!written.ok) throw new Error(written.error);
+                const infos = (F.readJson('data/MapInfos.json') || window.$dataMapInfos || []).slice();
+                infos[plan.mapId] = plan.mapInfo;
+                F.createTimestampedBackup('data/MapInfos.json');
+                if (!F.atomicWriteJson(mapFile, plan.map, 0) || !F.atomicWriteJson('data/MapInfos.json', infos, 0)) {
+                    for (const p of written.written) { try { F.fs.unlinkSync(p); } catch (ignored) { /* gone */ } }
+                    try { if (F.existsSync(mapFile)) F.fs.unlinkSync(mapFile); } catch (ignored) { /* gone */ }
+                    throw new Error('Could not write the new map files.');
+                }
+                window.$dataMapInfos = infos;
+                this.applyImportData(plan);
+                D.Persistence.saveMapOnly(plan.mapId);
+                if (D.AssetIndex && D.AssetIndex.indexPaths) await D.AssetIndex.indexPaths(written.written.filter(p => /^img\/doodads\//.test(p)), { save: true });
+                this.showToast(`Imported Map ${String(plan.mapId).padStart(3, '0')}: ${plan.files.length} picture(s), ${plan.doodads.length} doodad(s). Reopen the project in MZ to see it in the map list.`, 'success');
+                return plan.mapId;
+            } catch (error) {
+                this.showToast(`Import Map stopped; nothing was kept: ${error.message || error}`, 'error');
+                return null;
+            } finally {
+                progress.finish();
+            }
+        },
+
+        // The doodads, picture layers and walls of the new map, in the plugin's data.
+        applyImportData(plan) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            data[plan.mapId] = plan.doodads.map(row => {
+                const d = D.standardStruct();
+                d.bit = [3, row.path]; d.x = row.x; d.y = row.y; d.frameW = row.frameW; d.frameH = row.frameH;
+                if (row.scaleX !== 1) d.scaleX = row.scaleX;
+                if (row.scaleY !== 1) d.scaleY = row.scaleY;
+                if (row.name) d.name = row.name;
+                d.depth = 'sorted';
+                return d;
+            });
+            D.Lighting.setMapSettings(plan.mapId, { layers2d: plan.layers2d, emptyIsFloor: true });
+            if (plan.walls) D.Walls.set(plan.mapId, plan.walls);
+            D.Persistence.dirtyDoodads = true;
+        },
+
+        closeMapImport() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-map-import') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+            this._mapImport = null;
+        },
+
+        renderMapImportPlan(state) {
+            const plan = state.plan;
+            if (!plan) return state.error ? `<div style="color:var(--dd-danger, #f87171);">${escapeHtml(state.error)}</div>` : '<div>Choose a Tiled (.tmj, .json) or LDtk (.ldtk) file.</div>';
+            const layers = plan.files.filter(f => f.kind === 'layer'), pieces = plan.files.filter(f => f.kind === 'piece');
+            return `<div><b>Map ${String(plan.mapId).padStart(3, '0')}</b>, ${plan.width} × ${plan.height} tiles</div>
+                <div>${layers.length} picture layer(s): ${layers.map(f => escapeHtml(f.path.split('/').pop())).join(', ') || 'none'}</div>
+                <div>${plan.doodads.length} doodad(s) from ${pieces.length} picture(s) in img/doodads/</div>
+                <div>${plan.walls ? 'Collision painted from the collision layers.' : 'No collision layer.'} Empty tiles are floor.</div>
+                ${plan.notices.map(n => `<div style="color:var(--dd-muted);">${escapeHtml(n)}</div>`).join('')}`;
+        },
+
+        openMapImport() {
+            if (typeof document === 'undefined') return null;
+            this.closeMapImport();
+            const state = this._mapImport = { read: null, plan: null, error: '', level: 0 };
+            const card = document.createElement('div');
+            card.id = 'dd-map-import'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;top:80px;right:20px;width:360px;max-height:75vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;display:flex;flex-direction:column;gap:6px;';
+            const render = () => {
+                card.innerHTML = `<div class="dd-panel-head">Import Map <button class="dd-btn" id="dd-map-import-close" type="button">Close</button></div>
+                    <div style="color:var(--dd-muted);">Tile layers become picture layers, objects with a tile become doodads, collision layers become painted collision. Close RPG Maker MZ's editor first.</div>
+                    <input id="dd-map-import-file" type="file" accept=".tmj,.json,.ldtk">
+                    ${state.read && state.read.levels.length ? `<select id="dd-map-import-level">${state.read.levels.map(l => `<option value="${l.index}"${l.index === state.level ? ' selected' : ''}>${escapeHtml(l.name)}</option>`).join('')}</select>` : ''}
+                    ${this.renderMapImportPlan(state)}
+                    <button class="dd-btn dd-btn-primary" id="dd-map-import-run" type="button"${state.plan ? '' : ' disabled'}>Import</button>`;
+                const node = id => document.getElementById(id);
+                node('dd-map-import-close').onclick = () => this.closeMapImport();
+                node('dd-map-import-file').onchange = event => {
+                    const file = event.target.files && event.target.files[0];
+                    if (!file || !file.path) { state.error = 'Choose a file on this computer.'; render(); return; }
+                    state.file = file.path; state.level = 0; load();
+                };
+                const level = node('dd-map-import-level');
+                if (level) level.onchange = () => { state.level = Number(level.value) || 0; load(); };
+                node('dd-map-import-run').onclick = async () => {
+                    if (!state.plan) return;
+                    const mapId = await this.runMapImport(state.read, state.plan);
+                    if (mapId) { this.closeMapImport(); if (this.goToMap) this.goToMap(mapId); }
+                };
+            };
+            const load = () => {
+                try {
+                    state.read = this.readImportMap(state.file, state.level);
+                    state.plan = this.importMapPlan(state.read);
+                    state.error = '';
+                } catch (error) { state.plan = null; state.error = error.message || String(error); }
+                render();
+            };
+            document.body.appendChild(card);
+            render();
+            return card;
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-map-import-btn', icon: 'folder', label: 'Import Map', title: 'Make a new map from a Tiled or LDtk file' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = typeof document !== 'undefined' ? document.getElementById('dd-map-import-btn') : null;
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.openMapImport(); };
+        return result;
+    };
+
+    // Map settings: the switch the importer turns on, for parallax maps made by hand too.
+    W.mapSections.push({
+        render(settings) {
+            return `<details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="font-size: 11px; font-weight: bold;">Picture map</summary>
+                <label style="font-size: 10px;"><input id="dd-empty-floor" type="checkbox"${settings.emptyIsFloor === true ? ' checked' : ''} /> Empty tiles are floor</label>
+                <div style="font-size: 10px; color: var(--dd-faint);">For maps drawn with picture layers: a tile with nothing on it can be walked on. Paint collision where it can't.</div>
+            </details>`;
+        },
+        bind() {
+            const control = document.getElementById('dd-empty-floor');
+            if (control) control.onchange = () => this.setMapSetting('emptyIsFloor', control.checked ? true : undefined);
+        }
+    });
+})();
 // @editor-only
 //==========================================================
 // SECTION 25r: BACKGROUND AND OVERLAY LAYERS (MAP SETTINGS)
@@ -53861,12 +57578,147 @@ Object.assign(DocsDoodads.Workspace, {
     W.extraWorldSections = W.extraWorldSections || [];
     if (!W.extraWorldSections.some(section => section.title === 'Normal Maps')) {
         W.extraWorldSections.push({ title: 'Normal Maps', fields: [
-            { key: 'normalLight.enabled', label: 'Shade doodads and characters with _n.png companions (flat maps)', type: 'checkbox' },
-            { key: 'normalLight.maxLights', label: 'Nearby lights per picture', type: 'range', min: 1, max: 8, step: 1 }
+            { key: 'normalLight.enabled', label: 'Shade doodads and characters by their shape (flat maps)', type: 'checkbox' },
+            { key: 'normalLight.maxLights', label: 'Nearby lights per picture', type: 'range', min: 1, max: 8, step: 1 },
+            { key: 'normalLight.characters', label: 'Normal maps for characters', type: 'select', options: [
+                { value: 'file', label: 'Only with an _n.png file' }, { value: 'made', label: 'Made for me' }
+            ] }
         ] });
     }
 
+    // Details → Shading: the three choices of 8.3.1. Unset means Made for me at Strength 1, Rounded.
+    const sections = W.effectSections, defaults = W.propertyDefaults, apply = W.applyDoodadProperty;
+    W.effectSections = function() {
+        return sections.call(this).concat([{ title: 'Shading', fields: [
+            { key: 'shade.mode', label: 'Shading by shape (flat maps, when Normal Maps are on)', type: 'select', options: [
+                { value: 'made', label: 'Made for me' }, { value: 'file', label: 'From file (_n.png)' }, { value: 'off', label: 'Off' }
+            ] },
+            { key: 'shade.strength', label: 'Strength', type: 'range', min: 0.25, max: 4, step: 0.25 },
+            { key: 'shade.shape', label: 'Shape', type: 'select', options: [{ value: 'round', label: 'Rounded' }, { value: 'flat', label: 'Flat' }] }
+        ] }]);
+    };
+    W.propertyDefaults = function() { return Object.assign({}, defaults.call(this), { shade: Object.assign({}, N.shadeDefaults) }); };
+    W.applyDoodadProperty = function(item, key, value) {
+        const result = apply.call(this, item, key, value);
+        if (item && String(key).indexOf('shade.') === 0 && item.shade) {
+            const s = N.shade(item.shade), d = N.shadeDefaults;
+            if (s.mode === d.mode && s.strength === d.strength && s.shape === d.shape) delete item.shade;
+            else item.shade = s;
+        }
+        return result;
+    };
+
     Object.assign(W, {
+        normalGenJobs: [],
+        normalGenKeys: new Set(),
+        normalGenFailed: new Set(),
+        normalGenChecked: new Set(),
+        normalGenBusy: false,
+        normalGenPromise: null,
+
+        normalGenAllowed() {
+            const settings = D.World.settings().normalLight || {};
+            return Boolean(D.Compat.isTest() && D.FS.fs && D.FS.path && settings.enabled);
+        },
+
+        // The made map's name carries the picture's size and time, so an edited picture gets a new map.
+        normalGenTarget(key, source) {
+            const F = D.FS, stat = F.fs.statSync(F.path.resolve(source));
+            const hash = require('crypto').createHash('sha1').update(`${key}|${stat.size}|${Math.round(stat.mtimeMs)}`).digest('hex').slice(0, 24);
+            return `${N.generatedDir}/${hash}_n.png`;
+        },
+
+        queueNormalGen(request) {
+            if (!request || !request.key || !request.source || this.normalGenKeys.has(request.key) || this.normalGenFailed.has(request.key)) return false;
+            if (!this.normalGenAllowed()) return false;
+            this.normalGenKeys.add(request.key);
+            this.normalGenJobs.push(request);
+            this.runNormalGen();
+            return true;
+        },
+
+        // One job at a time, sliced over frames, with a progress pill only when it takes a while.
+        runNormalGen(options = {}) {
+            if (this.normalGenBusy) return this.normalGenPromise;
+            this.normalGenBusy = true;
+            const progress = D.Ui && typeof D.Ui.progress === 'function' ? D.Ui.progress('Making normal maps', { delay: 600 }) : null;
+            this.normalGenPromise = (async () => {
+                let done = 0;
+                try {
+                    while (this.normalGenJobs.length) {
+                        const job = this.normalGenJobs.shift();
+                        if (progress) progress.update(done, done + this.normalGenJobs.length + 1, String(job.source).split('/').pop());
+                        const made = await this.makeGeneratedNormal(job, options);
+                        if (!made) this.normalGenFailed.add(job.key);
+                        this.normalGenKeys.delete(job.key);
+                        done++;
+                    }
+                } finally {
+                    this.normalGenBusy = false;
+                    if (progress) progress.finish();
+                }
+                return done;
+            })();
+            return this.normalGenPromise;
+        },
+
+        async makeGeneratedNormal(job, options = {}) {
+            const F = D.FS;
+            try {
+                const source = N.cleanPath(job.source);
+                if (!source || !F.fs || !F.path) throw new Error('Normal maps can only be made in a playtest.');
+                const target = this.normalGenTarget(job.key, source);
+                if (!F.existsSync(target)) {
+                    const loader = options.loader || (path => this.loadPixels(D.LiveReload ? D.LiveReload.urlFor(path) : path));
+                    const picture = await loader(source);
+                    const steps = D.NormalGen.job(picture.data, picture.width, picture.height, { shape: job.shape, strength: job.strength, grid: job.grid });
+                    const budget = Math.max(1, Number(options.budget) || 8);
+                    let started = Date.now(), step = steps.next();
+                    while (!step.done) {
+                        if (Date.now() - started > budget) { await new Promise(resolve => setTimeout(resolve, 0)); started = Date.now(); }
+                        step = steps.next();
+                    }
+                    const zlib = require('zlib'), rgba = step.value;
+                    const bytes = D.AsepriteSheets.encodePng(picture.width, picture.height, new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.length), data => zlib.deflateSync(data));
+                    F.mkdirp(N.generatedDir);
+                    F.atomicWriteFile(target, Buffer.from(bytes));
+                }
+                this.recordGeneratedNormal(job.key, target);
+                return target;
+            } catch (error) {
+                D.Core.log(`Normal map for ${job.source} could not be made: ${error.message || error}`);
+                return null;
+            }
+        },
+
+        // The manifest keeps hand-made companions from the index and adds the made map; a replaced map's
+        // file is removed once nothing names it.
+        recordGeneratedNormal(key, target) {
+            const F = D.FS, onDisk = F.readJson(N.manifestPath);
+            const generated = Object.assign({}, N.cleanGenerated(N.manifest.generated), N.cleanGenerated(onDisk && onDisk.generated));
+            const old = generated[key];
+            generated[key] = target;
+            const normals = onDisk && onDisk.normals && typeof onDisk.normals === 'object' ? onDisk.normals : N.manifest.normals || {};
+            const manifest = { version: 1, normals, generated };
+            if (!F.atomicWriteJson(N.manifestPath, manifest, 2)) throw new Error('Could not write the normal-map manifest.');
+            N.setManifest(manifest);
+            if (old && old !== target && !Object.values(generated).includes(old)) {
+                try { F.fs.unlinkSync(F.path.resolve(old)); } catch (error) { /* already gone */ }
+            }
+            return N.manifest;
+        },
+
+        // Once a session per map: a picture edited since its map was made gets a new one.
+        checkGeneratedNormal(request) {
+            if (!request || !request.key || !request.path || this.normalGenChecked.has(request.key)) return false;
+            this.normalGenChecked.add(request.key);
+            if (!this.normalGenAllowed()) return false;
+            try {
+                if (this.normalGenTarget(request.key, N.cleanPath(request.source)) === request.path && D.FS.existsSync(request.path)) return false;
+            } catch (error) { return false; }
+            return this.queueNormalGen(request);
+        },
+
         normalMapEligible(asset) {
             const path = asset && N.cleanPath(asset.path);
             return Boolean(path && /^img\//i.test(path) && /\.(png|jpe?g|webp)$/i.test(path) && N.normalPath(path));
@@ -53908,11 +57760,15 @@ Object.assign(DocsDoodads.Workspace, {
         }
     });
 
+    N.requestGenerated = request => W.queueNormalGen(request);
+    N.checkGenerated = request => W.checkGeneratedNormal(request);
+
     const renderUsage = W.renderUsagePanel;
     W.renderUsagePanel = function(asset) {
         const html = renderUsage.call(this, asset);
         if (!this.normalMapEligible(asset)) return html;
-        const existing = asset.normalMap ? `Using ${D.Security.escapeHtml(asset.normalMap)}` : 'Makes a rough _n.png from brightness and edges; paint it by hand for best results.';
+        const existing = asset.normalMap ? `Using ${D.Security.escapeHtml(asset.normalMap)}`
+            : 'Doodads already get a normal map made for them when Normal Maps are on. This writes an _n.png beside the picture to paint over by hand.';
         return html + `<div style="border-top:1px solid var(--dd-line-soft);padding-top:8px;margin-top:8px;">
             <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Normal Map</div>
             <div style="font-size:10px;color:var(--dd-muted);margin-bottom:5px;">${existing}</div>
@@ -54557,7 +58413,7 @@ DocsDoodads.Ui.css += `
 `;
 
 Object.assign(DocsDoodads.Workspace, {
-    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [], templates: [] },
+    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [], templates: [], mapKinds: [] },
     _incomingPack: null,
 
     packSources() {
@@ -54569,7 +58425,8 @@ Object.assign(DocsDoodads.Workspace, {
             dress: D.World.get('dress.rules') || [],
             collections: (D.AssetIndex.data && D.AssetIndex.data.collections) || {},
             assetPath: id => { const a = D.AssetIndex.data.assets[id]; return a ? a.path : null; },
-            template: key => (D.EventTemplates.isCustom(key) ? D.EventTemplates.get(key) : null)
+            template: key => (D.EventTemplates.isCustom(key) ? D.EventTemplates.get(key) : null),
+            mapKinds: (window.$dataDocsDoodads && Array.isArray(window.$dataDocsDoodads.mapKinds)) ? window.$dataDocsDoodads.mapKinds : []
         };
     },
 
@@ -54626,7 +58483,8 @@ Object.assign(DocsDoodads.Workspace, {
         return {
             prefabs: new Set(D.Prefabs.ensureLoaded().map(p => p.id)),
             rooms: new Set(D.Rooms.ensureLoaded().map(r => r.id)),
-            biomes: new Set((D.World.get('biomes.list') || []).map(b => b && b.id))
+            biomes: new Set((D.World.get('biomes.list') || []).map(b => b && b.id)),
+            mapKinds: new Set(D.MapFrom.kinds(window.$dataDocsDoodads && window.$dataDocsDoodads.mapKinds).map(k => k.id))
         };
     },
 
@@ -54673,6 +58531,11 @@ Object.assign(DocsDoodads.Workspace, {
         if (ready.rooms.length) D.Rooms.save();
         if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
         if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
+        if (ready.mapKinds && ready.mapKinds.length) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            data.mapKinds = (Array.isArray(data.mapKinds) ? data.mapKinds : []).concat(ready.mapKinds.map(k => D.MapFrom.cleanKind(k)).filter(Boolean));
+            D.Persistence.dirtyDoodads = true;
+        }
         const templates = Object.keys(ready.templates).map(key => D.EventTemplates.addFromPack(key, ready.templates[key])).filter(Boolean);
         // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
         if (written.length && D.AssetIndex.indexPaths) await D.AssetIndex.indexPaths(written, { save: false });
@@ -54735,7 +58598,8 @@ Object.assign(DocsDoodads.Workspace, {
             ['biomes', 'Biomes', (src.biomes || []).filter(Boolean).map(b => [b.id, b.name])],
             ['dress', 'Dressing rules', (src.dress || []).map((r, i) => [i, (r && r.name) || 'Rule ' + (i + 1)])],
             ['collections', 'Collections', Object.keys(src.collections).map(n => [n, n])],
-            ['templates', 'Event templates', D.EventTemplates.custom().map(t => [t.key, t.name])]
+            ['templates', 'Event templates', D.EventTemplates.custom().map(t => [t.key, t.name])],
+            ['mapKinds', 'Kinds of map', (src.mapKinds || []).filter(Boolean).map(k => [k.id, k.name])]
         ];
         const listHtml = (key, items) => items.length
             ? items.map(([value, label], i) => `<label><input type="checkbox" id="dd-pk-${key}-${i}" ${sel[key].includes(value) ? 'checked' : ''} /> ${escapeHtml(String(label))}</label>`).join('')
@@ -54791,6 +58655,448 @@ Object.assign(DocsDoodads.Workspace, {
         if (card && card.parentNode) card.parentNode.removeChild(card);
     }
 });
+// @editor-only
+//==========================================================
+// SECTION 25P: THE PLAYTEST ON A PHONE (8.3.5)
+//==========================================================
+// A read-only web server for the project folder, on this computer's local network address only, started
+// from View → Phone Preview after the user agrees. Every address carries a random token; only the game's
+// own folders are served (never saves, dot files or the plugin's cache of backups and reports); only GET
+// and HEAD are answered. The phone runs the plugin with the editor off and reloads where it stood when a
+// data file is saved. It stops on Stop, when the editor closes and when the playtest window closes.
+DocsDoodads.LanPreview = {
+    server: null,
+    info: null,
+    sockets: null,
+    allowedTop: ['index.html', 'js', 'img', 'audio', 'data', 'fonts', 'css', 'effects', 'icon', 'movies', 'models'],
+    deniedData: ['docs_doodads_cache'],
+    pollEvery: 2000,
+    types: {
+        '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
+        '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+        '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
+        '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.webm': 'video/webm', '.mp4': 'video/mp4', '.woff': 'font/woff',
+        '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf', '.efk': 'application/octet-stream',
+        '.efkefc': 'application/octet-stream', '.gltf': 'model/gltf+json', '.glb': 'model/gltf-binary', '.bin': 'application/octet-stream',
+        '.wasm': 'application/wasm', '.txt': 'text/plain; charset=utf-8'
+    },
+
+    // Private IPv4 ranges a phone on the same Wi-Fi can reach. Loopback and public addresses are refused.
+    privateAddress(ip) {
+        const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(ip || ''));
+        if (!m) return false;
+        const [a, b] = [Number(m[1]), Number(m[2])];
+        if ([m[1], m[2], m[3], m[4]].some(part => Number(part) > 255)) return false;
+        return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+    },
+
+    // The first private address, home networks (192.168) before office ones; interfaces sorted by name.
+    pickAddress(interfaces) {
+        const found = [];
+        for (const name of Object.keys(interfaces || {}).sort()) {
+            for (const entry of interfaces[name] || []) {
+                const family = entry && (entry.family === 4 ? 'IPv4' : entry.family);
+                if (entry && family === 'IPv4' && !entry.internal && this.privateAddress(entry.address)) found.push(entry.address);
+            }
+        }
+        const rank = ip => ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : 2;
+        found.sort((a, b) => rank(a) - rank(b));
+        return found[0] || null;
+    },
+
+    // url → { status } to refuse, { status: 301, location }, { kind: 'changed' }, or { file, rel, index }.
+    resolveRequest(root, url, token, pathModule) {
+        const raw = String(url || '');
+        if (raw.length > 2048) return { status: 414 };
+        const cut = raw.search(/[?#]/), pathname = cut >= 0 ? raw.slice(0, cut) : raw;
+        const prefix = `/${token}/`;
+        if (!token || !/^[a-f0-9]{32}$/.test(token)) return { status: 404 };
+        if (pathname === `/${token}`) return { status: 301, location: prefix };
+        if (!pathname.startsWith(prefix)) return { status: 404 };
+        const rest = pathname.slice(prefix.length);
+        let parts;
+        try { parts = rest === '' ? ['index.html'] : rest.split('/').map(decodeURIComponent); } catch (error) { return { status: 400 }; }
+        if (parts.length === 1 && parts[0] === '__changed') return { kind: 'changed' };
+        for (const part of parts) {
+            // Windows drops trailing dots and spaces and expands 8.3 short names, so refuse those spellings.
+            if (!part || part === '.' || part === '..' || part.startsWith('.') || /[\\/\0:<>|"*?]/.test(part) || /[. ]$/.test(part) || /~\d/.test(part)) {
+                return { status: 404 };
+            }
+        }
+        const top = parts[0].toLowerCase();
+        if (!this.allowedTop.includes(top) || (top === 'index.html') !== (parts.length === 1)) return { status: 404 };
+        if (top === 'data' && parts.length > 2 && this.deniedData.includes(parts[1].toLowerCase())) return { status: 404 };
+        const file = pathModule.resolve(root, ...parts), rel = pathModule.relative(root, file);
+        if (!rel || rel.startsWith('..') || pathModule.isAbsolute(rel)) return { status: 404 };
+        return { file, rel: rel.split(pathModule.sep).join('/'), index: top === 'index.html' };
+    },
+
+    // The real file must still be inside the project and outside the denied folders after links are followed.
+    realAllowed(realRoot, realFile, pathModule) {
+        const rel = pathModule.relative(realRoot, realFile);
+        if (!rel || rel.startsWith('..') || pathModule.isAbsolute(rel)) return false;
+        const parts = rel.split(pathModule.sep).map(part => part.toLowerCase());
+        if (!this.allowedTop.includes(parts[0])) return false;
+        return !(parts[0] === 'data' && parts.length > 2 && this.deniedData.includes(parts[1]));
+    },
+
+    contentType(file) {
+        const match = /\.[^./\\]+$/.exec(String(file).toLowerCase());
+        return (match && this.types[match[0]]) || 'application/octet-stream';
+    },
+
+    // Runs on the phone, before the game: remember where the player stands, reload when a data file is
+    // saved, and start straight on that spot instead of the title. Plain, self-contained script.
+    phoneMain(config) {
+        var w = typeof window !== 'undefined' ? window : globalThis;
+        var key = 'docsPhonePreview';
+        var state = { last: null, stopped: false, patched: false, tries: 0 };
+        function spot() {
+            try {
+                if (w.$gameMap && w.$gamePlayer && w.$gameMap.mapId() > 0) {
+                    return { mapId: w.$gameMap.mapId(), x: w.$gamePlayer.x, y: w.$gamePlayer.y, d: w.$gamePlayer.direction() };
+                }
+            } catch (error) { /* not in a map yet */ }
+            return null;
+        }
+        function remember() {
+            var at = spot();
+            try { if (at) w.sessionStorage.setItem(key, JSON.stringify(at)); } catch (error) { /* private mode */ }
+        }
+        function takeSpot() {
+            try {
+                var raw = w.sessionStorage.getItem(key);
+                w.sessionStorage.removeItem(key);
+                var at = raw ? JSON.parse(raw) : null;
+                if (at && at.mapId > 0 && w.$dataMapInfos && w.$dataMapInfos[at.mapId]) return at;
+            } catch (error) { /* nothing kept */ }
+            return null;
+        }
+        function patch() {
+            if (state.patched) return true;
+            if (typeof w.Scene_Boot !== 'function' || !w.Scene_Boot.prototype.startNormalGame) return false;
+            var start = w.Scene_Boot.prototype.startNormalGame;
+            w.Scene_Boot.prototype.startNormalGame = function() {
+                var at = takeSpot();
+                if (!at) return start.apply(this, arguments);
+                w.DataManager.setupNewGame();
+                w.$gamePlayer.reserveTransfer(at.mapId, at.x, at.y, at.d || 2, 0);
+                w.SceneManager.goto(w.Scene_Map);
+            };
+            state.patched = true;
+            return true;
+        }
+        function waitForGame() {
+            if (!patch() && state.tries++ < 2400) w.setTimeout(waitForGame, 25);
+        }
+        function poll() {
+            if (state.stopped) return;
+            w.fetch(config.changed, { cache: 'no-store' }).then(function(response) { return response.ok ? response.json() : null; }).then(function(body) {
+                if (!body || typeof body.saved !== 'number') return;
+                if (state.last === null) state.last = body.saved;
+                else if (body.saved !== state.last) { state.last = body.saved; remember(); state.stopped = true; w.location.reload(); }
+            }).catch(function() { /* the computer stopped serving */ }).then(function() {
+                if (!state.stopped) w.setTimeout(poll, config.every || 2000);
+            });
+        }
+        waitForGame();
+        poll();
+        return state;
+    },
+
+    injectIndex(html) {
+        const script = `<script>(${this.phoneMain.toString().replace(/^phoneMain\s*\(/, 'function(')})(${JSON.stringify({ changed: '__changed', every: this.pollEvery })});</script>`;
+        const text = String(html);
+        const head = text.search(/<\/head>/i);
+        return head >= 0 ? text.slice(0, head) + script + text.slice(head) : script + text;
+    },
+
+    // The newest save among data/*.json and js/plugins.js, read at most once a second.
+    changedAt(ctx, now = Date.now()) {
+        if (ctx.changedCache && now - ctx.changedCache.at < 1000) return ctx.changedCache.value;
+        let newest = 0;
+        const fs = ctx.fs, path = ctx.path;
+        const look = file => { try { newest = Math.max(newest, Math.round(fs.statSync(file).mtimeMs)); } catch (error) { /* missing */ } };
+        try {
+            for (const name of fs.readdirSync(path.join(ctx.root, 'data'))) if (/\.json$/i.test(name)) look(path.join(ctx.root, 'data', name));
+        } catch (error) { /* no data folder */ }
+        look(path.join(ctx.root, 'js', 'plugins.js'));
+        ctx.changedCache = { at: now, value: newest };
+        return newest;
+    },
+
+    headers(extra = {}) {
+        return Object.assign({
+            'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+            'Cross-Origin-Resource-Policy': 'same-origin', 'X-Frame-Options': 'DENY'
+        }, extra);
+    },
+
+    refuse(res, status, extra = {}) {
+        const text = { 301: 'Moved', 400: 'Bad request', 404: 'Not found', 405: 'Only reading is allowed', 414: 'Address too long', 416: 'Range not satisfiable' }[status] || 'Error';
+        res.writeHead(status, this.headers(Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, extra)));
+        res.end(text);
+    },
+
+    handle(req, res, ctx) {
+        try {
+            if (req.method !== 'GET' && req.method !== 'HEAD') return this.refuse(res, 405, { Allow: 'GET, HEAD' });
+            const found = this.resolveRequest(ctx.root, req.url, ctx.token, ctx.path);
+            if (found.status === 301) return this.refuse(res, 301, { Location: found.location });
+            if (found.status) return this.refuse(res, found.status);
+            if (found.kind === 'changed') {
+                const body = JSON.stringify({ saved: this.changedAt(ctx) });
+                res.writeHead(200, this.headers({ 'Content-Type': 'application/json; charset=utf-8' }));
+                return res.end(req.method === 'HEAD' ? undefined : body);
+            }
+            let real, stat;
+            try {
+                real = (ctx.fs.realpathSync.native || ctx.fs.realpathSync)(found.file);
+                stat = ctx.fs.statSync(real);
+            } catch (error) { return this.refuse(res, 404); }
+            if (!stat.isFile() || !this.realAllowed(ctx.realRoot, real, ctx.path)) return this.refuse(res, 404);
+            const type = this.contentType(real);
+            if (found.index) {
+                const body = Buffer.from(this.injectIndex(ctx.fs.readFileSync(real, 'utf8')), 'utf8');
+                res.writeHead(200, this.headers({ 'Content-Type': type, 'Content-Length': body.length }));
+                return res.end(req.method === 'HEAD' ? undefined : body);
+            }
+            let start = 0, end = stat.size - 1, status = 200;
+            const extra = { 'Content-Type': type, 'Accept-Ranges': 'bytes' };
+            const range = req.headers && req.headers.range;
+            if (range) {
+                const m = /^bytes=(\d*)-(\d*)$/.exec(String(range).trim());
+                if (!m || (m[1] === '' && m[2] === '')) return this.refuse(res, 416, { 'Content-Range': `bytes */${stat.size}` });
+                if (m[1] === '') { start = Math.max(0, stat.size - Number(m[2])); }
+                else { start = Number(m[1]); if (m[2] !== '') end = Math.min(end, Number(m[2])); }
+                if (start > end || start >= stat.size) return this.refuse(res, 416, { 'Content-Range': `bytes */${stat.size}` });
+                status = 206;
+                extra['Content-Range'] = `bytes ${start}-${end}/${stat.size}`;
+            }
+            extra['Content-Length'] = stat.size ? end - start + 1 : 0;
+            res.writeHead(status, this.headers(extra));
+            if (req.method === 'HEAD' || !stat.size) return res.end();
+            const stream = ctx.fs.createReadStream(real, { start, end });
+            stream.on('error', () => res.destroy());
+            stream.pipe(res);
+        } catch (error) {
+            try { this.refuse(res, 404); } catch (ignored) { res.destroy(); }
+        }
+    },
+
+    async start(options = {}) {
+        if (this.server) return this.info;
+        const http = options.http || require('http'), os = options.os || require('os');
+        const path = options.path || require('path'), fs = options.fs || require('fs'), crypto = options.crypto || require('crypto');
+        const address = options.address || this.pickAddress(os.networkInterfaces());
+        if (!address || !this.privateAddress(address)) {
+            throw new Error('No local network address was found. Connect this computer to the same Wi-Fi as the phone.');
+        }
+        const root = path.resolve(options.root || '.');
+        const realRoot = (fs.realpathSync.native || fs.realpathSync)(root);
+        const token = options.token || crypto.randomBytes(16).toString('hex');
+        const ctx = { root, realRoot, token, fs, path, changedCache: null };
+        const sockets = new Set();
+        const server = http.createServer((req, res) => this.handle(req, res, ctx));
+        server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(Number(options.port) || 0, address, () => { server.removeListener('error', reject); resolve(); });
+        });
+        const port = server.address().port;
+        this.server = server; this.sockets = sockets;
+        this.info = { address, port, token, url: `http://${address}:${port}/${token}/` };
+        return this.info;
+    },
+
+    stop() {
+        const server = this.server;
+        if (!server) return false;
+        this.server = null; this.info = null;
+        try { server.close(); } catch (error) { /* already closed */ }
+        for (const socket of this.sockets || []) { try { socket.destroy(); } catch (error) { /* gone */ } }
+        this.sockets = null;
+        return true;
+    },
+
+    running() { return Boolean(this.server); }
+};
+
+(function() {
+    const D = DocsDoodads, W = D.Workspace, L = D.LanPreview;
+    const escapeHtml = value => D.Security.escapeHtml(String(value));
+
+    Object.assign(W, {
+        async startPhonePreview(options = {}) {
+            if (L.running()) { this.showPhonePreviewCard(); return L.info; }
+            if (!D.Compat.isTest() || typeof require !== 'function') {
+                this.showToast('Phone Preview works only in a playtest on this computer.', 'error');
+                return null;
+            }
+            const agreed = options.agreed || await D.Ui.confirm('Anyone on this network can see this project until you stop. ' +
+                'Only the game\'s own folders are served, read-only, at an address with a random code; saves, backups and reports are not. ' +
+                'Use it on a network you trust.', { title: 'Phone Preview', ok: 'Start' });
+            if (!agreed) return null;
+            try {
+                const info = await L.start(options);
+                this.showPhonePreviewCard();
+                return info;
+            } catch (error) {
+                this.showToast(`Phone Preview could not start: ${error.message || error}`, 'error');
+                return null;
+            }
+        },
+
+        stopPhonePreview() {
+            const stopped = L.stop();
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-phone-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+            if (stopped && this.mounted) this.showToast('Phone Preview stopped.');
+            return stopped;
+        },
+
+        drawQr(canvas, qr, scale = 4) {
+            const quiet = 4, size = (qr.size + quiet * 2) * scale;
+            canvas.width = size; canvas.height = size;
+            const context = canvas.getContext && canvas.getContext('2d');
+            if (!context) return false;
+            context.fillStyle = '#ffffff'; context.fillRect(0, 0, size, size);
+            context.fillStyle = '#000000';
+            qr.modules.forEach((row, y) => row.forEach((on, x) => { if (on) context.fillRect((x + quiet) * scale, (y + quiet) * scale, scale, scale); }));
+            return true;
+        },
+
+        showPhonePreviewCard() {
+            if (!L.info || typeof document === 'undefined') return null;
+            const old = document.getElementById('dd-phone-card');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+            const info = L.info, qr = D.Qr.encode(info.url, { ecc: 'M' });
+            const card = document.createElement('div');
+            card.id = 'dd-phone-card'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;top:80px;right:20px;width:300px;padding:12px;z-index:10040;font-size:11px;';
+            card.innerHTML = `<div class="dd-panel-head">Phone Preview <button class="dd-btn" id="dd-phone-stop" type="button">Stop</button></div>
+                <div>Anyone on this network can see this project until you stop. Scan with the phone's camera, on the same Wi-Fi.</div>
+                <canvas id="dd-phone-qr" style="display:block;margin:8px auto;image-rendering:pixelated;"></canvas>
+                <div style="word-break:break-all;user-select:text;"><code>${escapeHtml(info.url)}</code></div>
+                <div style="color:var(--dd-muted);margin-top:6px;">The phone runs the game with the editor off. Saving a map reloads it on the phone where the player stands. It stops when the editor closes.</div>`;
+            document.body.appendChild(card);
+            const canvas = document.getElementById('dd-phone-qr');
+            if (canvas) this.drawQr(canvas, qr, 4);
+            const stop = document.getElementById('dd-phone-stop');
+            if (stop) stop.onclick = () => this.stopPhonePreview();
+            return card;
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), view = all.find(menu => menu.id === 'view');
+        if (view) view.items.push({ id: 'dd-phone-btn', icon: 'eye', label: 'Phone Preview', title: 'Play this project on a phone on the same Wi-Fi (asks first)' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = typeof document !== 'undefined' ? document.getElementById('dd-phone-btn') : null;
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.startPhonePreview(); };
+        return result;
+    };
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('beforeunload', () => L.stop());
+    }
+})();
+// @editor-only
+//==========================================================
+// SECTION 25Q: WORKSPACE: PINS (9.1.6)
+//==========================================================
+// Right-click a tile: Add Pin Here, or Edit Pin and Delete Pin where there is one. Pins are kept in the project
+// and shown to players on the minimap and the world map once found. Each change is one undo step. Problems
+// lists a travel pin on this map whose tile nobody can stand on.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, P = D.Pins;
+    Object.assign(D.Ui.mapPalettes.standard, { pin: 0x22d3ee });
+    Object.assign(D.Ui.mapPalettes.safe, { pin: 0x56b4e9 });
+    D.Ui.mapColorMeanings.push(['pin', 'A pin players see on the minimap and world map']);
+
+    Object.assign(W, {
+        pinsStep(type, mapId, change) {
+            const before = P.copy(mapId), result = change(), after = P.copy(mapId);
+            if (JSON.stringify(before) === JSON.stringify(after)) return result;
+            const set = list => { P.put(mapId, JSON.parse(JSON.stringify(list))); D.Persistence.dirtyDoodads = true; };
+            P.put(mapId, JSON.parse(JSON.stringify(before)));
+            D.Undo.execute({ type, apply: () => set(after), revert: () => set(before) });
+            return result;
+        },
+
+        pinFields(pin) {
+            return [
+                { key: 'name', label: 'Name players see', value: pin ? pin.name : '', placeholder: 'Old Mill, Harbour Inn...' },
+                { key: 'icon', label: 'Icon (IconSet number)', type: 'number', value: pin ? pin.icon : 190 },
+                { key: 'travel', label: 'Players can fast travel here from the world map', type: 'checkbox', value: pin ? pin.travel : false },
+                { key: 'switchId', label: 'Only while switch # is ON (0 = always)', type: 'number', value: pin ? pin.switchId : 0 }
+            ];
+        },
+
+        async addPinAt(tileX, tileY) {
+            const mapId = this.currentMapId();
+            if (P.at(mapId, tileX, tileY)) return this.editPinAt(tileX, tileY);
+            const values = await D.Ui.form({ title: `Pin at ${tileX}, ${tileY}`, ok: 'Add Pin',
+                text: 'Shown on the minimap and the world map once the player has been near (or after Find Pin).', fields: this.pinFields(null) });
+            if (!values || !String(values.name || '').trim()) return null;
+            return this.pinsStep('add_pin', mapId, () => P.add(mapId, Object.assign({ x: tileX, y: tileY }, values)));
+        },
+
+        async editPinAt(tileX, tileY, mapId = this.currentMapId()) {
+            const pin = P.at(mapId, tileX, tileY);
+            if (!pin) return null;
+            const values = await D.Ui.form({ title: `Pin ${pin.id}`, text: 'A pin with no name is deleted. Commands can name it by its id or name.', ok: 'Save Pin', fields: this.pinFields(pin) });
+            if (!values) return null;
+            const id = pin.id;
+            return this.pinsStep(String(values.name || '').trim() ? 'edit_pin' : 'delete_pin', mapId, () => P.update(mapId, id, values));
+        },
+
+        deletePin(mapId, id) { return this.pinsStep('delete_pin', mapId, () => P.remove(mapId, id)); },
+
+        pinMenuItems(tileX, tileY) {
+            const mapId = this.currentMapId(), pin = P.at(mapId, tileX, tileY);
+            if (!pin) return [{ label: 'Add Pin Here...', icon: '📍', onClick: () => this.addPinAt(tileX, tileY) }];
+            return [
+                { label: `Edit Pin "${pin.name}"...`, icon: '📍', onClick: () => this.editPinAt(tileX, tileY) },
+                { label: 'Delete Pin', icon: '🗑️', danger: true, onClick: () => this.deletePin(mapId, pin.id) }
+            ];
+        },
+
+        drawPins(g) {
+            if (typeof $gameMap === 'undefined' || !$gameMap || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const pins = P.list(this.currentMapId());
+            if (!pins.length) return;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), colour = D.Ui.mapColor('pin');
+            for (const pin of pins) {
+                const x = $gameMap.adjustX(pin.x) * tw, y = $gameMap.adjustY(pin.y) * th;
+                // A flag in the tile's top-left corner; travel pins get a second, filled pennant.
+                g.lineStyle(2, 0x111111, 0.75); g.moveTo(x + 8, y + 6); g.lineTo(x + 8, y + 26);
+                g.beginFill(colour, 1); g.moveTo(x + 8, y + 6); g.lineTo(x + 22, y + 11); g.lineTo(x + 8, y + 16); g.endFill();
+                if (pin.travel) { g.beginFill(0xffffff, 0.95); g.drawCircle(x + 8, y + 27, 3); g.endFill(); }
+                g.lineStyle(0);
+            }
+        },
+
+        // Travel pins on this map whose tile is not one to stand on (MZ's passability or a doodad's collision).
+        pinProblems() {
+            if (typeof $gameMap === 'undefined' || !$gameMap) return [];
+            const mapId = this.currentMapId(), out = [];
+            const blocked = this.doodadBlockedTiles ? this.doodadBlockedTiles() : new Set();
+            for (const pin of P.list(mapId)) {
+                if (!pin.travel) continue;
+                const outside = pin.x >= $gameMap.width() || pin.y >= $gameMap.height();
+                const stand = !outside && [2, 4, 6, 8].some(dir => $gameMap.isPassable(pin.x, pin.y, dir)) && !blocked.has(pin.x + ',' + pin.y);
+                if (!stand) out.push({ kind: 'travelPin', mapId, x: pin.x, y: pin.y, text: `Travel pin "${pin.name}" lands where the player can't stand.` });
+            }
+            return out;
+        }
+    });
+
+    W.toolHooks.pins = { overlay(g) { this.drawPins(g); } };
+})();
 // @editor-only
 // These are real sprites made by the placement factory, with no entry in a map's saved data.
 Object.assign(DocsDoodads.Workspace, {
@@ -56173,6 +60479,159 @@ DocsDoodads.Workspace.toolPopovers.region = 'dd-region-popover';
 DocsDoodads.Workspace.brushSizeSteps.region = ['dd-region-rad', 1, 0, 6];
 // @editor-only
 //==========================================================
+// SECTION 25B: ROBOT TESTER (8.4.7)
+//==========================================================
+// Map → Test Every Map follows transfers from the game's start without playing. Map → Test This Map does the
+// same from where the player stands, then plays: each event the player can get to is run in its own
+// interpreter at many frames a step, with messages and choices answered, transfers and scene changes (battles,
+// shops, menus, game over) only recorded, and a frame limit. It records errors, events that never finish and
+// where they would have sent the player. The game is played on a copy: everything is put back afterwards.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, R = D.Robot;
+    const escapeHtml = value => D.Security.escapeHtml(String(value));
+
+    Object.assign(W, {
+        robotProject(onlyMapId) {
+            const F = D.FS, infos = F.readJson('data/MapInfos.json') || window.$dataMapInfos || [], maps = {}, names = {};
+            for (const info of infos) {
+                if (!info || (onlyMapId && info.id !== onlyMapId)) continue;
+                const live = info.id === this.currentMapId() && window.$gameMap && $gameMap._stagedMapData ? $gameMap._stagedMapData : null;
+                const data = live || (info.id === this.currentMapId() ? window.$dataMap : null) || F.readJson(D.Persistence.mapFilePath(info.id));
+                if (data) { maps[info.id] = data; names[info.id] = info.name; }
+            }
+            const tw = window.$gameMap ? $gameMap.tileWidth() : 48, th = window.$gameMap ? $gameMap.tileHeight() : 48;
+            return {
+                maps, names,
+                flags: id => { const ts = window.$dataTilesets && $dataTilesets[maps[id] && maps[id].tilesetId]; return (ts && ts.flags) || []; },
+                walls: id => {
+                    const saved = window.$dataDocsDoodads && $dataDocsDoodads.walls ? $dataDocsDoodads.walls[id] : null, grid = saved ? D.Walls.decode(saved) : null;
+                    return grid ? (x, y) => D.Walls.blocksTile(grid, x, y, tw, th) : null;
+                }
+            };
+        },
+
+        testEveryMap() {
+            const sys = window.$dataSystem || {};
+            const project = Object.assign(this.robotProject(), { start: { mapId: sys.startMapId, x: sys.startX, y: sys.startY } });
+            const result = R.explore(project);
+            this.showRobotReport('Test Every Map', result.findings, `${result.reached.length} of ${Object.keys(project.maps).length} map(s) reached from the start.`);
+            return result;
+        },
+
+        async testThisMap(options = {}) {
+            const mapId = this.currentMapId();
+            const project = Object.assign(this.robotProject(mapId), { start: { mapId, x: $gamePlayer.x, y: $gamePlayer.y } });
+            const result = R.explore(project);
+            const findings = result.findings.filter(f => f.kind !== 'missingMap' && f.kind !== 'deadEnd' && f.kind !== 'oneWay');
+            let played = null;
+            if (options.play !== false) played = await this.robotPlayThisMap(options);
+            if (played) findings.push(...played.findings);
+            this.showRobotReport('Test This Map', findings, played ? `Played ${played.events} event(s) on a copy of the game; everything was put back.` : 'Walked the map without playing its events.');
+            return { findings, played };
+        },
+
+        // Plays each event the player can reach, on a copy of the game's state.
+        async robotPlayThisMap(options = {}) {
+            if (!D.Compat.isTest() || typeof Game_Interpreter === 'undefined' || !window.DataManager || !DataManager.makeSaveContents || typeof JsonEx === 'undefined') return null;
+            if (D.Persistence.hasUnsavedWork && D.Persistence.hasUnsavedWork()) { this.showToast('Save the map first: the robot plays on a copy of the game and puts it back.', 'info'); return null; }
+            const mapId = $gameMap.mapId(), px = $gamePlayer.x, py = $gamePlayer.y, pd = $gamePlayer.direction();
+            const walk = { width: $gameMap.width(), height: $gameMap.height(), loopX: $gameMap.isLoopHorizontal(), loopY: $gameMap.isLoopVertical(),
+                canStep: (x, y, d) => $gamePlayer.canPass(x, y, d) };
+            const seen = D.MapCheck.reach({ x: px, y: py }, walk).seen;
+            const targets = $gameMap.events().filter(ev => ev && ev.page() && [0, 1, 2].includes(ev.page().trigger) && (ev.list() || []).length > 1 &&
+                D.MapCheck.nearReached(seen, walk.width, walk.height, ev.x, ev.y, { x: walk.loopX, y: walk.loopY })).map(ev => ({ id: ev.eventId(), x: ev.x, y: ev.y, name: ev.event().name }));
+            const snapshot = JsonEx.stringify(DataManager.makeSaveContents());
+            const saved = { push: SceneManager.push, goto: SceneManager.goto, reserve: Game_Player.prototype.reserveTransfer, error: console.error };
+            const findings = [];
+            let current = null;
+            SceneManager.push = scene => { if (current) current.scenes.push(scene && scene.name); };
+            SceneManager.goto = scene => { if (current) current.scenes.push(scene && scene.name); };
+            Game_Player.prototype.reserveTransfer = function(toMap, x, y) { if (current) current.transfers.push({ mapId: toMap, x, y }); };
+            console.error = function() { if (current) current.errors.push(Array.from(arguments).map(String).join(' ')); return saved.error.apply(console, arguments); };
+            const limit = Math.max(60, Number(options.limit) || 1800);
+            try {
+                for (const target of targets) {
+                    DataManager.extractSaveContents(JsonEx.parse(snapshot));
+                    const ev = $gameMap.event(target.id);
+                    if (!ev) continue;
+                    current = { transfers: [], scenes: [], errors: [] };
+                    const interpreter = new Game_Interpreter();
+                    interpreter.setup(ev.list(), target.id);
+                    const run = R.drive(() => {
+                        if ($gameMessage.isBusy()) {
+                            if ($gameMessage.isChoice()) $gameMessage.onChoice(0);
+                            if ($gameMessage.isNumberInput()) $gameVariables.setValue($gameMessage.numInputVariableId(), 0);
+                            if ($gameMessage.isItemChoice()) $gameVariables.setValue($gameMessage.itemChoiceVariableId(), 0);
+                            $gameMessage.clear();
+                        }
+                        interpreter.update();
+                        $gameMap.update(false);
+                        $gamePlayer.update(false);
+                        $gameScreen.update();
+                        return interpreter.isRunning();
+                    }, limit);
+                    const where = { mapId, x: target.x, y: target.y }, label = `EV${String(target.id).padStart(3, '0')}${target.name ? ' ' + target.name : ''}`;
+                    if (run.error) findings.push(Object.assign({ kind: 'robotError', text: `${label} stopped with an error: ${run.error}` }, where));
+                    else if (!run.done) findings.push(Object.assign({ kind: 'robotStuck', text: `${label} did not finish within ${limit} frames.` }, where));
+                    for (const message of current.errors.slice(0, 3)) findings.push(Object.assign({ kind: 'robotConsole', text: `${label} logged an error: ${message.slice(0, 200)}` }, where));
+                    for (const t of current.transfers) {
+                        const target2 = $dataMapInfos && $dataMapInfos[t.mapId];
+                        if (!target2) findings.push(Object.assign({ kind: 'robotTransfer', text: `${label} sends the player to Map ${t.mapId}, which does not exist.` }, where));
+                    }
+                }
+            } finally {
+                current = null;
+                SceneManager.push = saved.push; SceneManager.goto = saved.goto;
+                Game_Player.prototype.reserveTransfer = saved.reserve; console.error = saved.error;
+                DataManager.extractSaveContents(JsonEx.parse(snapshot));
+                $gamePlayer.reserveTransfer(mapId, px, py, pd, 0);
+            }
+            return { findings, events: targets.length };
+        },
+
+        closeRobotReport() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-robot-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        },
+
+        showRobotReport(title, findings, summary) {
+            if (typeof document === 'undefined') return null;
+            this.closeRobotReport();
+            const card = document.createElement('div');
+            card.id = 'dd-robot-card'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;top:80px;right:20px;width:400px;max-height:75vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;';
+            const rows = findings.slice(0, 200);
+            card.innerHTML = `<div class="dd-panel-head">${escapeHtml(title)} <button class="dd-btn" id="dd-robot-close" type="button">Close</button></div>
+                <div style="color:var(--dd-muted);margin-bottom:6px;">${escapeHtml(summary)} ${findings.length ? findings.length + ' finding(s).' : 'Nothing wrong was found.'}</div>
+                ${rows.map((f, i) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;"><span style="flex:1;">${escapeHtml(f.text)}</span>
+                    ${f.global ? '' : `<button class="dd-btn" type="button" id="dd-robot-go-${i}">Go To</button>`}</div>`).join('')}`;
+            document.body.appendChild(card);
+            document.getElementById('dd-robot-close').onclick = () => this.closeRobotReport();
+            rows.forEach((f, i) => { const go = document.getElementById(`dd-robot-go-${i}`); if (go) go.onclick = () => this.goToProblem(f); });
+            return card;
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) {
+            map.items.push({ id: 'dd-robot-map-btn', icon: 'person', label: 'Test This Map', title: 'A robot walks this map and plays its events on a copy of the game' });
+            map.items.push({ id: 'dd-robot-all-btn', icon: 'map', label: 'Test Every Map', title: 'Follow every transfer from the start: unreachable maps, dead ends, one-way doors, bad landings' });
+        }
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), node = id => (typeof document !== 'undefined' ? document.getElementById(id) : null);
+        const one = node('dd-robot-map-btn'), all = node('dd-robot-all-btn');
+        if (one) one.onclick = () => { this.showMoreMenu(false); this.testThisMap(); };
+        if (all) all.onclick = () => { this.showMoreMenu(false); this.testEveryMap(); };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
 // SECTION 25p: ROOM STAMPS (TOOL AND CARD)
 //==========================================================
 // More > Rooms: save a rectangle of the map (tiles, doodads, events) as a room stamp by dragging over it,
@@ -56448,6 +60907,192 @@ DocsDoodads.Workspace.toolHooks.room = {
         g.lineStyle(0);
     }
 };
+// @editor-only
+//==========================================================
+// SECTION 25R: ROPES IN THE EDITOR (9.3.2)
+//==========================================================
+// Path card → Draw a Rope Instead: press at one end and release at the other (Shift snaps to tile middles). The picked picture, if any, becomes the
+// rope's texture; otherwise it is a plain cord. A selected rope shows a handle at each end and one in the middle
+// for the sag; each drag is one Undo step. Details → Rope sets sag, thickness, colour, sway and hung things.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, R = D.Rope;
+    const handleRadius = 9;
+
+    Object.assign(W, {
+        ropeItems() { return this.selectionItems().filter(d => d && d.line && !d.locked); },
+
+        ropePoint(e) {
+            // Ends go where the pointer is (the top of a pole is rarely a tile corner); Shift snaps to tile middles.
+            const at = this.clientToMapCoords(e.clientX, e.clientY);
+            if (!e.shiftKey) return { x: Math.round(at.x), y: Math.round(at.y) };
+            const snapped = this.snapToTile(at), th = window.$gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+            return { x: snapped.x, y: snapped.y - th / 2 };
+        },
+
+        // Map points of a rope's handles: start, end and the middle of the sag.
+        ropeHandles(d) {
+            const l = R.normalize(d.line), x = Number(d.x) || 0, y = Number(d.y) || 0;
+            return { start: { x, y }, end: { x: x + l.x2, y: y + l.y2 }, sag: { x: x + l.x2 / 2, y: y + l.y2 / 2 + l.sag } };
+        },
+
+        ropeHandleAt(e) {
+            const at = this.clientToMapCoords(e.clientX, e.clientY);
+            const scale = this.ropeScreenScale();
+            for (const d of this.ropeItems()) {
+                const handles = this.ropeHandles(d);
+                for (const name of ['end', 'sag', 'start']) {
+                    if (Math.hypot(handles[name].x - at.x, handles[name].y - at.y) <= handleRadius / scale) return { d, name };
+                }
+            }
+            return null;
+        },
+
+        // Screen pixels per map pixel, so handles keep their size when the view is zoomed.
+        ropeScreenScale() {
+            const ss = typeof SceneManager !== 'undefined' && SceneManager._scene && SceneManager._scene._spriteset;
+            const m = ss && ss._baseSprite && ss._baseSprite.worldTransform;
+            return Math.max(0.25, m ? Math.hypot(m.a, m.b) || 1 : 1);
+        },
+
+        makeRopeDoodad(from, to, asset = this.selectedAsset) {
+            const d = D.standardStruct();
+            const picture = asset && asset.path && asset.type !== 'prefab' && asset.category !== 'Audio' && /\.(png|jpe?g|webp)$/i.test(asset.path);
+            d.bit = picture ? [3, asset.path] : [1, 0];
+            if (picture) { d.frameW = asset.frameW || asset.width || 48; d.frameH = asset.frameH || asset.height || 48; }
+            d.x = Math.round(from.x); d.y = Math.round(from.y);
+            const x2 = Math.round(to.x - from.x), y2 = Math.round(to.y - from.y);
+            d.line = R.normalize(Object.assign({}, R.defaults, { x2, y2, sag: Math.round(Math.min(96, Math.hypot(x2, y2) * 0.12)) }));
+            d.depth = 'above';
+            return d;
+        },
+
+        placeRope(from, to, asset) {
+            if (!window.$gameMap || Math.hypot(to.x - from.x, to.y - from.y) < 8) return null;
+            const d = this.makeRopeDoodad(from, to, asset);
+            const mapId = $gameMap.mapId();
+            const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+            D.Undo.execute(this.doodadListStep('place_rope', list, [d], true));
+            if (typeof this.selectDoodad === 'function') this.selectDoodad(d);
+            else { this.selectedDoodad = d; this.selectedDoodads = [d]; }
+            if (this.refreshInspector) this.refreshInspector();
+            return d;
+        },
+
+        startRopeTool() {
+            this.setPlacementTool('rope');
+            this.showToast(this.selectedAsset && this.selectedAsset.path ? `Press at one end and release at the other. ${this.selectedAsset.path.split('/').pop()} becomes the rope.`
+                : 'Press at one end and release at the other for a plain cord (pick a picture first for a textured rope).');
+        },
+
+        drawRopeOverlay(g) {
+            if (this.placementTool !== 'rope' || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const colour = D.Ui.mapColor('selection'), draft = this._ropeDraft;
+            if (draft) {
+                const a = D.mapToScreen(draft.from.x, draft.from.y), b = D.mapToScreen(draft.to.x, draft.to.y);
+                g.lineStyle(2, colour, 0.9); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.lineStyle(0);
+            }
+            for (const d of this.ropeItems()) {
+                const handles = this.ropeHandles(d);
+                for (const name of ['start', 'end', 'sag']) {
+                    const p = D.mapToScreen(handles[name].x, handles[name].y);
+                    g.lineStyle(2, 0x111111, 0.6); g.beginFill(name === 'sag' ? 0xffffff : colour, 0.95);
+                    g.drawCircle(p.x, p.y, name === 'sag' ? 5 : 6); g.endFill(); g.lineStyle(0);
+                }
+            }
+        }
+    });
+
+    W.toolHooks.rope = {
+        down(e) {
+            const handle = this.ropeHandleAt(e);
+            if (handle) {
+                this._ropeDrag = { d: handle.d, name: handle.name, before: this.snapshotDoodads([handle.d]) };
+                return true;
+            }
+            const p = this.ropePoint(e);
+            this._ropeDraft = { from: p, to: { x: p.x, y: p.y } };
+            return true;
+        },
+        move(e, stroking) {
+            if (!stroking) return;
+            const p = this.ropePoint(e);
+            if (this._ropeDraft) { this._ropeDraft.to = p; return; }
+            const drag = this._ropeDrag;
+            if (!drag) return;
+            const d = drag.d, l = R.normalize(d.line), endX = d.x + l.x2, endY = d.y + l.y2;
+            if (drag.name === 'end') { l.x2 = Math.round(p.x - d.x); l.y2 = Math.round(p.y - d.y); }
+            else if (drag.name === 'start') { d.x = Math.round(p.x); d.y = Math.round(p.y); l.x2 = Math.round(endX - d.x); l.y2 = Math.round(endY - d.y); }
+            else l.sag = Math.round(Math.max(0, p.y - (d.y + l.y2 / 2)));
+            d.line = R.normalize(l);
+            D.Persistence.dirtyDoodads = true;
+        },
+        up() {
+            this._suppressNextClick = true;
+            const draft = this._ropeDraft, drag = this._ropeDrag;
+            this._ropeDraft = null; this._ropeDrag = null;
+            if (draft) this.placeRope(draft.from, draft.to);
+            else if (drag) this.recordDoodadEdit([drag.d], drag.before, 'edit_rope');
+        },
+        overlay(g) { this.drawRopeOverlay(g); }
+    };
+
+    // Details → Rope, only when every selected doodad is a rope.
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        if (!items.length || !items.every(d => d && d.line)) return all;
+        const presets = [{ value: '', label: 'None' }].concat(D.LightPresets.list.map(p => ({ value: p.id, label: p.label })));
+        return all.concat([{ title: 'Rope', fields: [
+            { key: 'line.sag', label: 'Sag (pixels)', type: 'range', min: 0, max: 256, step: 1 },
+            { key: 'line.width', label: 'Thickness (plain cord)', type: 'range', min: 1, max: 16, step: 1 },
+            { key: 'line.color', label: 'Colour (plain cord)', type: 'color' },
+            { key: 'line.sway', label: 'Sways in the wind', type: 'range', min: 0, max: 2, step: 0.1 },
+            { key: 'line.hang.path', label: 'Hung picture (img/..., blank for none)', type: 'text' },
+            { key: 'line.hang.count', label: 'How many hang along it', type: 'range', min: 0, max: 24, step: 1 },
+            { key: 'line.hang.light', label: 'Each one gives light', type: 'select', options: presets }
+        ] }]);
+    };
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) {
+        if (String(key).indexOf('line.') === 0 && d && d.line) {
+            const l = R.normalize(d.line);
+            return key.slice(5).split('.').reduce((value, part) => value && value[part], l);
+        }
+        return get.call(this, d, key);
+    };
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (String(key).indexOf('line.') === 0) {
+            if (!d || !d.line) return;
+            const l = R.normalize(d.line), parts = key.slice(5).split('.');
+            const owner = parts.length > 1 ? l[parts[0]] : l;
+            if (owner && typeof owner === 'object') owner[parts[parts.length - 1]] = value;
+            d.line = R.normalize(l);
+            return;
+        }
+        return apply.call(this, d, key, value);
+    };
+
+    // A button on the Path card starts the Rope tool.
+    W.addRopeButton = function() {
+        const pop = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-path-popover') : null;
+        if (!pop || document.getElementById('dd-rope-btn') || typeof document.createElement !== 'function') return null;
+        const button = document.createElement('button');
+        button.className = 'dd-btn'; button.id = 'dd-rope-btn'; button.type = 'button';
+        button.textContent = 'Draw a Rope Instead';
+        button.title = 'A line between two points that sags and sways, with things hung along it';
+        button.style.cssText = 'width:100%;margin-top:6px;';
+        if (typeof pop.appendChild === 'function') pop.appendChild(button);
+        button.onclick = () => this.startRopeTool();
+        return button;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        this.addRopeButton();
+        return result;
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25: WORKSPACE: THE RULER
@@ -57811,6 +62456,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['editKey', 'Editor Toggle Key', 'F10', 'Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.'],
             ['photoModeKey', 'Photo Mode Key', 'P', 'Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.'],
             ['photoModeForbidSwitch', 'Forbid Photo Mode Switch', '0', 'While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).'],
+            ['fastTravelForbidSwitch', 'Forbid Fast Travel Switch', '0', 'While this switch is ON the world map shows pins but cannot travel (dungeons, cutscenes).'],
             ['editorMode', 'Editor Enabled', 'true', 'Enables the Asset Workspace and in-game editing tools during test play.'],
             ['dataFileName', 'Doodads Data File Name', 'DocsDoodads', 'Name of the doodads json file in data/ (without .json).'],
             ['doodadScaleMode', 'Doodad Scaling Mode', 'true', 'Texture scaling mode for doodad rendering.'],
@@ -59017,6 +63663,68 @@ DocsDoodads.Workspace.toolHooks.tiles = {
         const result = bind.apply(this, arguments), button = document.getElementById('dd-title-map-btn');
         if (button) button.onclick = () => { this.showMoreMenu(false); this.useThisViewAsTitle(); this.showTitleMapCard(); };
         return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25T: MOVING TOOLTIPS (8.2.3)
+//==========================================================
+// A main tool's tooltip plays a short drawn clip of the tool in use (DocsDoodads.ToolClipArt, built by
+// scripts/tool_clips.js), once the tooltip has been up for a moment. Never with Less motion (Look, or the
+// system's reduced-motion setting); other tooltips are unchanged.
+DocsDoodads.Ui.css += `
+#dd-tooltip .dd-tip-clip { display: block; margin-top: 6px; border-radius: 6px; image-rendering: pixelated; background-repeat: no-repeat;
+    animation-name: dd-tip-clip; animation-iteration-count: infinite; animation-direction: normal; }
+@keyframes dd-tip-clip { from { background-position: 0 0; } to { background-position: var(--dd-clip-end) 0; } }
+`;
+
+DocsDoodads.ToolClips = {
+    delay: 700,
+    scale: 2,
+    seconds: 1.6,
+
+    clipFor(el) {
+        const art = DocsDoodads.ToolClipArt, id = el && el.id;
+        return art && id && art.clips && Object.prototype.hasOwnProperty.call(art.clips, id) ? art.clips[id] : null;
+    },
+
+    // The clip element for a tooltip: a strip of frames stepped through with CSS.
+    element(url) {
+        const art = DocsDoodads.ToolClipArt, s = this.scale;
+        const clip = document.createElement('div');
+        clip.className = 'dd-tip-clip';
+        const width = art.frameW * s, height = art.frameH * s, total = width * art.frames;
+        clip.style.cssText = `width:${width}px;height:${height}px;background-image:url("${url}");background-size:${total}px ${height}px;` +
+            `animation-duration:${this.seconds}s;animation-timing-function:steps(${art.frames});--dd-clip-end:-${total}px;`;
+        clip.setAttribute('aria-hidden', 'true');
+        return clip;
+    },
+
+    // Called with each tooltip as it opens; adds the clip after the delay if the tooltip is still up.
+    decorate(el, tip, U = DocsDoodads.Ui) {
+        const url = this.clipFor(el);
+        if (!url || !tip || (U.lessMotion && U.lessMotion())) return null;
+        clearTimeout(this._timer);
+        this._timer = setTimeout(() => {
+            const shown = U._tooltip;
+            if (!shown || shown.tip !== tip || shown.el !== el || (U.lessMotion && U.lessMotion())) return;
+            tip.appendChild(this.element(url));
+        }, this.delay);
+        if (this._timer && typeof this._timer.unref === 'function') this._timer.unref();
+        return this._timer;
+    }
+};
+
+(function() {
+    const U = DocsDoodads.Ui, show = U.showTooltip, hide = U.hideTooltip;
+    U.showTooltip = function(el) {
+        const tip = show.call(this, el);
+        if (tip) DocsDoodads.ToolClips.decorate(el, tip, this);
+        return tip;
+    };
+    U.hideTooltip = function() {
+        clearTimeout(DocsDoodads.ToolClips._timer);
+        return hide.apply(this, arguments);
     };
 })();
 // @editor-only

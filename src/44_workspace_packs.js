@@ -15,7 +15,7 @@ DocsDoodads.Ui.css += `
 `;
 
 Object.assign(DocsDoodads.Workspace, {
-    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [], templates: [] },
+    packSelection: { prefabs: [], rooms: [], biomes: [], dress: [], collections: [], templates: [], mapKinds: [] },
     _incomingPack: null,
 
     packSources() {
@@ -27,7 +27,8 @@ Object.assign(DocsDoodads.Workspace, {
             dress: D.World.get('dress.rules') || [],
             collections: (D.AssetIndex.data && D.AssetIndex.data.collections) || {},
             assetPath: id => { const a = D.AssetIndex.data.assets[id]; return a ? a.path : null; },
-            template: key => (D.EventTemplates.isCustom(key) ? D.EventTemplates.get(key) : null)
+            template: key => (D.EventTemplates.isCustom(key) ? D.EventTemplates.get(key) : null),
+            mapKinds: (window.$dataDocsDoodads && Array.isArray(window.$dataDocsDoodads.mapKinds)) ? window.$dataDocsDoodads.mapKinds : []
         };
     },
 
@@ -84,7 +85,8 @@ Object.assign(DocsDoodads.Workspace, {
         return {
             prefabs: new Set(D.Prefabs.ensureLoaded().map(p => p.id)),
             rooms: new Set(D.Rooms.ensureLoaded().map(r => r.id)),
-            biomes: new Set((D.World.get('biomes.list') || []).map(b => b && b.id))
+            biomes: new Set((D.World.get('biomes.list') || []).map(b => b && b.id)),
+            mapKinds: new Set(D.MapFrom.kinds(window.$dataDocsDoodads && window.$dataDocsDoodads.mapKinds).map(k => k.id))
         };
     },
 
@@ -131,6 +133,11 @@ Object.assign(DocsDoodads.Workspace, {
         if (ready.rooms.length) D.Rooms.save();
         if (ready.biomes.length) this.setWorldSetting('biomes.list', (JSON.parse(JSON.stringify(D.World.get('biomes.list') || []))).concat(ready.biomes));
         if (ready.dress.length) this.setWorldSetting('dress.rules', (JSON.parse(JSON.stringify(D.World.get('dress.rules') || []))).concat(ready.dress));
+        if (ready.mapKinds && ready.mapKinds.length) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            data.mapKinds = (Array.isArray(data.mapKinds) ? data.mapKinds : []).concat(ready.mapKinds.map(k => D.MapFrom.cleanKind(k)).filter(Boolean));
+            D.Persistence.dirtyDoodads = true;
+        }
         const templates = Object.keys(ready.templates).map(key => D.EventTemplates.addFromPack(key, ready.templates[key])).filter(Boolean);
         // The Item Bag finds the new files, then they take the pack's slices and tags (only files it wrote).
         if (written.length && D.AssetIndex.indexPaths) await D.AssetIndex.indexPaths(written, { save: false });
@@ -193,7 +200,8 @@ Object.assign(DocsDoodads.Workspace, {
             ['biomes', 'Biomes', (src.biomes || []).filter(Boolean).map(b => [b.id, b.name])],
             ['dress', 'Dressing rules', (src.dress || []).map((r, i) => [i, (r && r.name) || 'Rule ' + (i + 1)])],
             ['collections', 'Collections', Object.keys(src.collections).map(n => [n, n])],
-            ['templates', 'Event templates', D.EventTemplates.custom().map(t => [t.key, t.name])]
+            ['templates', 'Event templates', D.EventTemplates.custom().map(t => [t.key, t.name])],
+            ['mapKinds', 'Kinds of map', (src.mapKinds || []).filter(Boolean).map(k => [k.id, k.name])]
         ];
         const listHtml = (key, items) => items.length
             ? items.map(([value, label], i) => `<label><input type="checkbox" id="dd-pk-${key}-${i}" ${sel[key].includes(value) ? 'checked' : ''} /> ${escapeHtml(String(label))}</label>`).join('')

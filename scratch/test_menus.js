@@ -53,7 +53,7 @@ const OLD = ['dd-slicer-btn', 'dd-postfx-btn', 'dd-vfx-btn', 'dd-history-btn', '
     const ids = menus.flatMap(m => m.items.map(i => i.id));
     for (const id of OLD) assert.strictEqual(ids.filter(x => x === id).length, 1, `${id} is in exactly one menu`);
     assert.strictEqual(new Set(ids).size, ids.length, 'no entry twice');
-    assert.deepStrictEqual(ids.filter(id => !OLD.includes(id)).sort(), ['dd-bookmarks-btn', 'dd-credits-btn', 'dd-generate-btn', 'dd-markreleased-btn', 'dd-moods-btn', 'dd-notes-btn', 'dd-notes-show-btn', 'dd-reach-btn', 'dd-ruler-btn', 'dd-settings-btn', 'dd-title-map-btn', 'dd-trace-btn', 'dd-trace-show-btn', 'dd-trails-btn'],
+    assert.deepStrictEqual(ids.filter(id => !OLD.includes(id)).sort(), ['dd-bookmarks-btn', 'dd-credits-btn', 'dd-generate-btn', 'dd-ground-btn', 'dd-map-from-btn', 'dd-map-glb-btn', 'dd-map-import-btn', 'dd-markreleased-btn', 'dd-moods-btn', 'dd-notes-btn', 'dd-notes-show-btn', 'dd-phone-btn', 'dd-reach-btn', 'dd-robot-all-btn', 'dd-robot-map-btn', 'dd-ruler-btn', 'dd-settings-btn', 'dd-title-map-btn', 'dd-trace-btn', 'dd-trace-show-btn', 'dd-trails-btn'],
         'new since the split includes Generate Map and the newer map/view tools');
     const where = id => menus.find(m => m.items.some(i => i.id === id)).id;
     assert.strictEqual(where('dd-problems-btn'), 'map');
@@ -71,7 +71,7 @@ const OLD = ['dd-slicer-btn', 'dd-postfx-btn', 'dd-vfx-btn', 'dd-history-btn', '
 // 2. The HTML comes from the same list: each id once, and a bar button per menu.
 {
     const html = ws.renderMenus();
-    for (const id of OLD.concat(['dd-reach-btn', 'dd-layout-select', 'dd-save-layout-btn', 'dd-del-layout-btn'])) {
+    for (const id of OLD.concat(['dd-reach-btn', 'dd-robot-all-btn', 'dd-robot-map-btn', 'dd-layout-select', 'dd-save-layout-btn', 'dd-del-layout-btn'])) {
         assert.strictEqual(html.split(`id="${id}"`).length - 1, 1, `${id} drawn once`);
     }
     for (const id of ['dd-more-menu', 'dd-menu-map', 'dd-menu-art', 'dd-menu-view']) assert.ok(html.includes(`id="${id}"`), id);

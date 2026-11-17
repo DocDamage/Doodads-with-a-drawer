@@ -29,7 +29,7 @@ DocsDoodads.Packs = {
     // sel: { prefabs: [ids], rooms: [ids], biomes: [ids], dress: [indexes], collections: [names], templates: [keys] }
     // src: { prefab(id), room(id), biomes: [], dress: [], collections: { name: [assetId] }, assetPath(id), template(key) }
     gather(sel, src, audioFile) {
-        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} };
+        const contents = { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {}, mapKinds: [] };
         const files = new Set();
         const addDoodads = list => (list || []).forEach(d => this.filesOfDoodad(d, audioFile).forEach(f => files.add(f)));
         const seenPrefab = new Set();
@@ -55,6 +55,11 @@ DocsDoodads.Packs = {
             if (!b) continue;
             contents.biomes.push(JSON.parse(JSON.stringify(b)));
             (b.entries || []).forEach(e => e && e.path && files.add(String(e.path)));
+        }
+        // Kinds of map made from pictures (8.5.3): plain data, no files.
+        for (const id of sel.mapKinds || []) {
+            const k = (src.mapKinds || []).find(x => x && x.id === id);
+            if (k) contents.mapKinds.push(JSON.parse(JSON.stringify(k)));
         }
         for (const i of sel.dress || []) {
             const r = (src.dress || [])[i];
@@ -124,7 +129,7 @@ DocsDoodads.Packs = {
         try { pack = JSON.parse(String(text)); } catch (e) { throw new Error('This file is not a doodad pack (it is not readable JSON).'); }
         if (!pack || pack.format !== this.format) throw new Error('This file is not a doodad pack.');
         if (Number(pack.version) > this.version) throw new Error('This pack was made by a newer Doc\'s Doodads; update the plugin to bring it in.');
-        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, pack.contents || {});
+        pack.contents = Object.assign({ prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {}, mapKinds: [] }, pack.contents || {});
         pack.files = pack.files || {};
         pack.library = pack.library || {};
         return pack;
@@ -171,7 +176,8 @@ DocsDoodads.Packs = {
             biomes: fresh(pack.contents.biomes, ids.biomes, 'biome_').out,
             dress: JSON.parse(JSON.stringify(pack.contents.dress || [])),
             collections: JSON.parse(JSON.stringify(pack.contents.collections || {})),
-            templates: JSON.parse(JSON.stringify(pack.contents.templates || {}))
+            templates: JSON.parse(JSON.stringify(pack.contents.templates || {})),
+            mapKinds: fresh(pack.contents.mapKinds, ids.mapKinds, 'kind_').out
         };
     },
 
