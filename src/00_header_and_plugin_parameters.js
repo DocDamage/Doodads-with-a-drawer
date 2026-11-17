@@ -337,6 +337,12 @@
  * @default 0
  * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
+ * @param saveFilePictures
+ * @text Pictures on save files
+ * @type boolean
+ * @default false
+ * @desc Add small map pictures, area names and game time to MZ's save list. About 8 KB maximum per picture.
+ *
  * @param comfortOptions
  * @text Comfort options
  * @type select
@@ -1613,6 +1619,27 @@
  * @option As World > Lighting
  * @value world
  * @default on
+ *
+ * @command storeLightLevel
+ * @text Store Light Level
+ * @desc Stores brightness at a map tile in a variable: 0 is dark, 1 is fully lit.
+ *
+ * @arg tileX
+ * @text Tile X
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg tileY
+ * @text Tile Y
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg variableId
+ * @text Store In Variable
+ * @type variable
+ * @default 1
  *
  * @command setMinimap
  * @text Show / Hide Minimap

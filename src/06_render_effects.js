@@ -373,7 +373,7 @@ DocsDoodads.Lighting = {
             const l = this.lightOf(d);
             // A state or an event can put the light out (it fades like an "after dark" lamp in game), and so can
             // its own switch or condition.
-            const on = (DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true) && (!this.lightWanted || this.lightWanted(l));
+            const on = (DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true) && (!this.lightWanted || this.lightWanted(l, ctx && ctx.gameplay));
             if (!on && !ctx) continue;
             let level = 1;
             if (ctx) {
@@ -409,6 +409,58 @@ DocsDoodads.Lighting = {
             });
         }
         return out;
+    },
+
+    // The same light sum feeds 3D tint and gameplay queries. `info` is { base:[r,g,b], lights } with
+    // channels in 0..1. Map queries opt into mapX/mapY, cone tests and the shared wall callback; the 3D
+    // renderer deliberately asks for the legacy distance-only sum so existing pictures keep exact bytes.
+    sampleAt(x, y, info, ctx = {}) {
+        if (!info || !info.base) return null;
+        let r = Number(info.base[0]) || 0, g = Number(info.base[1]) || 0, b = Number(info.base[2]) || 0;
+        const lights = info.lights || [];
+        for (let i = 0; i < lights.length; i++) {
+            const light = lights[i];
+            const lx = ctx.mapCoordinates && Number.isFinite(light.mapX) ? light.mapX : Number(light.x) || 0;
+            const ly = ctx.mapCoordinates && Number.isFinite(light.mapY) ? light.mapY : Number(light.y) || 0;
+            const dx = ctx.deltaX ? ctx.deltaX(x, lx) : x - lx;
+            const dy = ctx.deltaY ? ctx.deltaY(y, ly) : y - ly;
+            const reach = Math.max(1, Number(light.radius) || 0);
+            if (dx >= reach || dx <= -reach || dy >= reach || dy <= -reach) continue;
+            const distance = Math.hypot(dx, dy);
+            if (distance >= reach) continue;
+            if (ctx.shapes !== false && distance > 1e-9 && light.shape === 'cone') {
+                const at = Math.atan2(dy, dx) * 180 / Math.PI;
+                const difference = Math.abs(((at - (Number(light.angle) || 0) + 540) % 360) - 180);
+                if (difference > Math.max(2.5, Math.min(90, (Number(light.spread) || 60) / 2))) continue;
+            }
+            if (ctx.isWall && distance > 1e-9 && DocsDoodads.Occlusion
+                && DocsDoodads.Occlusion.appliesTo(light, ctx.occlusion || DocsDoodads.Occlusion.settings())) {
+                const visible = DocsDoodads.Occlusion.cast(lx, ly, dx / distance, dy / distance, distance,
+                    ctx.isWall, Number(ctx.tileWidth) || 48, Number(ctx.tileHeight) || 48,
+                    Math.floor(lx / (Number(ctx.tileWidth) || 48)), Math.floor(ly / (Number(ctx.tileHeight) || 48)));
+                if (visible < distance - 1e-6) continue;
+            }
+            const dist = distance / reach;
+            const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
+            const color = light.color >>> 0;
+            const k = fall * (Number(light.intensity) || 0) / 255;
+            r += ((color >> 16) & 255) * k;
+            g += ((color >> 8) & 255) * k;
+            b += (color & 255) * k;
+        }
+        return [Math.max(0, Math.min(1, r)), Math.max(0, Math.min(1, g)), Math.max(0, Math.min(1, b))];
+    },
+
+    colorAt(x, y, info, ctx) {
+        const color = this.sampleAt(x, y, info, ctx);
+        if (!color) return null;
+        const to = value => Math.max(0, Math.min(255, Math.round(value * 255)));
+        return (to(color[0]) << 16) | (to(color[1]) << 8) | to(color[2]);
+    },
+
+    levelAt(x, y, info, ctx) {
+        const color = this.sampleAt(x, y, info, ctx);
+        return color ? Math.max(0, Math.min(1, color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722)) : 0;
     },
 
     mixColor(from, to, p) {

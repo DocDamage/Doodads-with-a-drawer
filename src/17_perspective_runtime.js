@@ -178,23 +178,7 @@ DocsDoodads.Perspective.hexToRgb = function(hex) {
 
 // What light falls on a point: the ambient multiply colour plus nearby lights (like the lightmap).
 DocsDoodads.Perspective.lightAt = function(info, x, y) {
-    if (!info || !info.base) return null;
-    let r = info.base[0], g = info.base[1], b = info.base[2];
-    const lights = info.lights || [];
-    // Asked for every billboard: lights out of reach are passed over by a box test before the root.
-    for (let i = 0; i < lights.length; i++) {
-        const l = lights[i];
-        const reach = Math.max(1, l.radius), dx = l.x - x, dy = l.y - y;
-        if (dx >= reach || dx <= -reach || dy >= reach || dy <= -reach) continue;
-        const dist = Math.sqrt(dx * dx + dy * dy) / reach;
-        if (dist >= 1) continue;
-        const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
-        const color = l.color >>> 0;
-        const k = fall * (l.intensity || 0) / 255;
-        r += ((color >> 16) & 255) * k; g += ((color >> 8) & 255) * k; b += (color & 255) * k;
-    }
-    const to = v => Math.max(0, Math.min(255, Math.round(v * 255)));
-    return (to(r) << 16) | (to(g) << 8) | to(b);
+    return DocsDoodads.Lighting.colorAt(x, y, info, { shapes: false });
 };
 
 DocsDoodads.Perspective.multiplyTint = function(a, b) {

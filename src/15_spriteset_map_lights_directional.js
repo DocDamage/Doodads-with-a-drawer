@@ -119,22 +119,13 @@ DocsDoodads.Occlusion.outlineFor = function(light, rays) {
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.docsAddFlashlight = function(lights) {
         const F = DocsDoodads.Flashlight;
-        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
-        if (this._docs3d || typeof $gamePlayer === 'undefined' || !$gamePlayer || !F.isOn(switchValue)) return lights;
-        if ($gamePlayer.isTransparent && $gamePlayer.isTransparent()) return lights;
-        const s = F.settings();
+        if (this._docs3d || typeof $gamePlayer === 'undefined' || !$gamePlayer) return lights;
+        const light = F.descriptor($gamePlayer, $gameMap);
+        if (!light) return lights;
         const target = F.angleFor($gamePlayer.direction());
         this._docsFlashAngle = this._docsFlashAngle === undefined ? target : F.turn(this._docsFlashAngle, target);
-        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        lights.push({
-            doodad: null, flashlight: true,
-            x: $gamePlayer.screenX(), y: $gamePlayer.screenY() - th / 2,
-            mapX: ($gamePlayer._realX + 0.5) * tw, mapY: ($gamePlayer._realY + 0.5) * th,
-            radius: Math.max(16, Number(s.radius) || 280), color: DocsDoodads.Lighting.parseColor(s.color, 0xfff2cc),
-            intensity: Math.max(0, Math.min(1, Number(s.intensity) || 0.9)), flicker: 0, glow: 0.05, seed: 0,
-            shape: 'cone', angle: this._docsFlashAngle, spread: Math.max(5, Math.min(180, Number(s.spread) || 50)),
-            occlude: s.occlude ? 'on' : 'off'
-        });
+        light.angle = this._docsFlashAngle;
+        lights.push(light);
         return lights;
     };
 

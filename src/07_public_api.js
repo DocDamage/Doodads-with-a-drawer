@@ -455,6 +455,27 @@ DocsDoodads.api = {
     },
 
     /**
+     * Brightness at a map tile, from 0 (dark) to 1 (fully lit).
+     * @param {number} tileX
+     * @param {number} tileY
+     * @returns {number}
+     */
+    lightAt(tileX, tileY) {
+        return DocsDoodads.SightRuntime ? DocsDoodads.SightRuntime.levelAtTile(tileX, tileY) : 0;
+    },
+
+    /**
+     * Whether a tagged map event can currently see the player.
+     * @param {number} eventId
+     * @returns {boolean}
+     */
+    sees(eventId) {
+        if (!DocsDoodads.SightRuntime || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const event = $gameMap.event(Math.max(0, Math.floor(Number(eventId) || 0)));
+        return Boolean(event && DocsDoodads.SightRuntime.seesEvent(event));
+    },
+
+    /**
      * An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
      * @param {DocsTraversalAbility} ability
      * @param {boolean | null} on

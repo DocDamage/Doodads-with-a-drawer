@@ -697,6 +697,8 @@
                 range('lighting2d.rays', 'Shadow detail (rays per light)', 40, 360, 20),
                 check('lighting2d.blockDoodads', 'Doodads with collision stop light too'),
                 check('lighting2d.blockEvents', 'Events marked <block light> stop light (doors)'),
+                number('lighting2d.darkSwitchId', 'Switch ON while the player is in darkness (0 = none)'),
+                range('lighting2d.darkLevel', 'Counts as darkness below', 0, 1, 0.05),
                 check('lighting2d.flashlight.enabled', 'The player carries a flashlight (it points where they face)'),
                 number('lighting2d.flashlight.switchId', 'Only while switch # is ON (0 = always)'),
                 range('lighting2d.flashlight.radius', 'Flashlight reach', 60, 800, 10),

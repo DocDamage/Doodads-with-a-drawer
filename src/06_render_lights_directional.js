@@ -9,8 +9,8 @@
 Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '', switchId: 0, condition: '' });
 
 // A light on only while its switch is on and its condition (JavaScript) is true; the editor shows it anyway.
-DocsDoodads.Lighting.lightWanted = function(l) {
-    if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return true;
+DocsDoodads.Lighting.lightWanted = function(l, gameplay) {
+    if (!gameplay && DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return true;
     const sw = Number(l.switchId) || 0;
     if (sw > 0 && !(typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(sw))) return false;
     return !l.condition || DocsDoodads.Appearance.conditionPasses(l.condition);
@@ -44,7 +44,7 @@ DocsDoodads.LightPresets = {
 };
 
 DocsDoodads.Occlusion = {
-    defaults: { occlusion: false, wallRegions: '', rays: 160 },
+    defaults: { occlusion: false, wallRegions: '', rays: 160, darkSwitchId: 0, darkLevel: 0.3 },
 
     settings() {
         return Object.assign({}, this.defaults, DocsDoodads.World.settings().lighting2d || {});
@@ -59,6 +59,22 @@ DocsDoodads.Occlusion = {
 
     regions(text) {
         return new Set(String(text || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0));
+    },
+
+    // One callback over the exact wall grid and moving blockers used by rendered light masks. Looping maps
+    // wrap before lookup; outside a non-looping map is not a marked wall, matching the light outline.
+    wallQuery(map) {
+        map = map || (typeof $gameMap !== 'undefined' ? $gameMap : null);
+        const walls = this.wallsFor && this.wallsFor();
+        if (!map || !walls) return () => false;
+        const blockers = this.blockers && this.blockers();
+        return (x, y) => {
+            x = Math.floor(Number(x)); y = Math.floor(Number(y));
+            if (map.isLoopHorizontal && map.isLoopHorizontal()) x = map.roundX(x);
+            if (map.isLoopVertical && map.isLoopVertical()) y = map.roundY(y);
+            if (x < 0 || y < 0 || x >= walls.w || y >= walls.h) return false;
+            return walls.grid[y * walls.w + x] === 1 || Boolean(blockers && blockers.tiles.has(x + ',' + y));
+        };
     },
 
     // The outline a light reaches, in map pixels: [cx, cy, x1, y1, x2, y2, ...] (a fan from the light).
@@ -128,5 +144,22 @@ DocsDoodads.Flashlight = {
         let d = ((target - current + 540) % 360) - 180;
         if (Math.abs(d) <= step) return target;
         return (current + Math.sign(d) * step + 360) % 360;
+    },
+
+    descriptor(player, map, angle) {
+        if (!player || !map || !this.isOn(id => typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(id))) return null;
+        if (player.isTransparent && player.isTransparent()) return null;
+        const settings = this.settings(), tw = map.tileWidth(), th = map.tileHeight();
+        const target = this.angleFor(player.direction());
+        return {
+            doodad: null, flashlight: true,
+            x: player.screenX ? player.screenX() : (player._realX + 0.5) * tw,
+            y: player.screenY ? player.screenY() - th / 2 : (player._realY + 0.5) * th,
+            mapX: (player._realX + 0.5) * tw, mapY: (player._realY + 0.5) * th,
+            radius: Math.max(16, Number(settings.radius) || 280), color: DocsDoodads.Lighting.parseColor(settings.color, 0xfff2cc),
+            intensity: Math.max(0, Math.min(1, Number(settings.intensity) || 0.9)), flicker: 0, glow: 0.05, seed: 0,
+            shape: 'cone', angle: angle === undefined ? target : Number(angle), spread: Math.max(5, Math.min(180, Number(settings.spread) || 50)),
+            occlude: settings.occlude ? 'on' : 'off'
+        };
     }
 };
