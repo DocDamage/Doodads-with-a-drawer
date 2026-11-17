@@ -2,6 +2,10 @@
 
 ## Current milestone
 
+Paused safely at the user's request (16 November 2026). The specialist was interrupted
+while planning read-only. No server, MZ or NW.js was started. Resume with the full
+193-suite coverage run before further implementation.
+
 Continue the 67 buildable rows in `BACKLOG_7_PLAN.md`, `BACKLOG_8_PLAN.md` and
 `BACKLOG_9_PLAN.md` on local branch `feat/backlog-7-9`. Item 7.4.5 needs third-party
 plugins for a truthful compatibility list. Nothing is pushed or published.
@@ -30,7 +34,8 @@ called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 8.1.3 guessed placement defaults; 8.3.6 player Photo Mode; 9.1.2 Auto Effects Quality;
 7.3.8 first-person 3D camera; 9.4.3 art credit ledger; 9.2.6 seasonal climate;
 8.2.2 real map placement previews; 9.4.2 animated GIF/APNG import;
-9.1.4 save-file pictures; 9.1.7 flat-map battle backgrounds; 9.2.4 light and sight.
+9.1.4 save-file pictures; 9.1.7 flat-map battle backgrounds; 9.2.4 light and sight;
+9.1.3 title maps; 8.3.8 offline plain words; 8.3.7 playtest trails.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -64,8 +69,11 @@ the water bug are still pending. Do not claim this row is Done.
 | Save pictures: 9.1.4 | Complete locally | Bounded JPEG/info helpers, native map snapshot, save metadata, native list layout and parameter | Reviewed; image dimensions/size, asynchronous fallback, title preservation, subclass fallback and stale-cache targets passed |
 | Flat battlebacks: 9.1.7 | Complete locally | Shared visibility helper, flat/3D capture, named priority and map settings | Reviewed; capture/projection failure restoration, reflections, native fallback, names, engine lifecycle/character targets passed |
 | Light/sight: 9.2.4 | Complete locally | Shared light sum, raw gameplay snapshot, bounded LOS/actions, APIs/command, World darkness switch and event Details/cone | Root review fixed page precedence, stale API snapshots, reserved-common retry and inactive/editor pause; focused lighting, Perspective, UI and game-only suites passed |
-| Title map: 9.1.3 | Specialist, active | New pure/runtime/editor title parts and test | Architecture accepted: isolated constructor-built game context for update/render; native commands outside context; RED/GREEN next |
-| Plain words: 8.3.8 | Coordinator, active | Offline phrase rules and palette adapters | Offline phrase table, closed canonical commands, preview before Enter; RED/GREEN next |
+| Title map: 9.1.3 | Complete locally | Isolated flat title context, update/render, path and editor capture/card | Root review found shared fog/lamp/PostFX transient leakage; scoped caches and identity/throw/New Game regressions fixed; target and game-only suites passed |
+| Plain words: 8.3.8 | Complete locally | Offline translated phrase rules and closed palette values/plans | Reviewed; prior-Mood time restoration fixed, actual DOM Enter, preview isolation, one-step clock-darkness Undo and navigation targets passed |
+| Playtest trails: 8.3.7 | Complete locally | Bounded pure counts, gated/canonical local cache, report/import/Clear and viewport heat | Reviewed; menu pause timing, 16px death marks and stale async/navigation scope fixed; RED/GREEN, file ancestor isolation and real report controls passed |
+| Normal generation: 8.3.1 | Specialist, read-only architecture | Pixel normal generation, frame boundaries, async cache/Details/deploy | No writes during integration gate |
+| Phone Preview: 8.3.5 | Coordinator, architecture | Opt-in read-only LAN server, QR and save reload | Security-review skill read; no server started or source written |
 
 The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
@@ -86,11 +94,16 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Latest verification
 
-- Current gate: static PASS (217 editor parts, 80 runtime parts, 1,618 strings).
-  Full coverage PASS: 190/190 suites in 177.0 seconds; lines/statements 92.19%,
-  branches 77.92%, functions 86.97%. All thresholds passed and the repository stayed
-  unchanged. Save pictures, flat battlebacks and light/sight are included. Next small
-  follow-up excludes screen-fixed/UI lamps from gameplay light queries.
+- Current static gate PASS: 225 editor parts, 84 runtime parts, 1,650 strings.
+  Help/build/strings/types/game build and verify-project --skip-tests all passed.
+  Title, PlainWords, Trails and review-regression targets passed; the new complete
+  193-suite coverage run has NOT started. This is the next acceptance step on resume.
+- Most recent full coverage PASS: 190/190 suites in 177.0 seconds, before the
+  Title/PlainWords/Trails batch; lines/statements 92.19%, branches 77.92%,
+  functions 86.97%. All thresholds passed and the repository stayed unchanged.
+- Screen-fixed/UI lamps are now excluded from gameplay light queries (aec045f).
+  Title transient cache isolation is fixed (2a17e78); Trails review fixes and
+  actual import/Clear/Go To controls passed; PlainWords old-Mood ordering is fixed.
 - `npm audit --audit-level=moderate`: zero vulnerabilities (16 November 2026).
 - Red/green runtime tests exist for each row listed above.
 - Adjacent menus, weather/camera, postfx, inspector, regions, API and creator suites passed.
@@ -112,10 +125,11 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Continue with 9.1.3 isolated title maps and 8.3.8 offline plain words, then follow
+After resuming, run the pending full coverage gate, then continue with 8.3.1
+automatic normal maps and 8.3.5 Phone Preview, then follow
 the dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 35 other buildable rows still open, plus the external-plugin compatibility
+There are 32 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

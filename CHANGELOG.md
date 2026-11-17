@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A chosen flat map can run behind the title menu, with fixed time, season, weather, look and a looping camera path. Title update/render uses an isolated game context and renderer caches; starting a new game keeps its own state.
+- Find a Tool understands offline phrases such as “make it a rainy night”, fog, darker and bigger. It lists the exact commands before Enter; unknown/conflicting words run nothing. Translations can supply aliases, weather stays a preview, and authored changes use Undo.
+- Playtest trails count tile entries, standing game frames and Game Overs locally. View → Show Trails adds a bounded heat overlay, stops/deaths with Go To, JSON merging and Clear. Desktop tester builds can opt in; ordinary player builds do not record or write, and nothing is uploaded.
 - Optional save-file pictures reuse MZ's map snapshot as a JPEG under 8 KB, with area name and game time. Native rows handle old, missing and unreadable pictures; stale snapshots are cleared on returning to the map or loading another game.
 - Flat maps can supply lit, unblurred battle backgrounds. Shared capture hides characters, gear, shadows, reflections and HUD elements temporarily; named battlebacks win and capture failures keep MZ's fallback.
 - Events can see the player through a light-sensitive cone stopped by lighting walls. Details edits note/page tags and previews the cone; lightAt/sees APIs, Store Light Level and a configurable darkness switch support puzzles. Gameplay checks remain independent of visual quality.

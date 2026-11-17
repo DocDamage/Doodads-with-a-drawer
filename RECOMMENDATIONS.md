@@ -261,8 +261,8 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | 8.3.4 | **A ground brush.** Paint dirt, grass and stone with soft edges, off the grid. With the collision brush (7.3.2), this is parallax-style mapping inside the editor. | M |
 | 8.3.5 | **The playtest on a phone.** Serve the playtest on the local network, opened from a QR code, with edits showing as they are made. Also gives the Android numbers that item B and 7.3.4 wait for. | M |
 | 8.3.6 | **Built; MZ playtest pending.** **A photo mode for players.** Pause, move the camera, pick a Screen Look, save a picture. Capture is in the editor only. | S |
-| 8.3.7 | **Playtest trails.** Record where testers walk, stop and die, and draw it over the map in the editor, beside Check Reach. | M |
-| 8.3.8 | **Plain words in Find a Tool.** "Make it a rainy night", turned into `DocsDoodads.api` calls. Needs the user's own key for a language service and sends words off the computer, so it is off unless turned on. | M |
+| 8.3.7 | **Built; MZ playtest pending.** **Playtest trails.** Record where testers walk, stop and die, and draw it over the map in the editor, beside Check Reach. | M |
+| 8.3.8 | **Built; MZ playtest pending.** **Plain words in Find a Tool.** "Make it a rainy night", turned into `DocsDoodads.api` calls. Needs the user's own key for a language service and sends words off the computer, so it is off unless turned on. | M |
 
 ### 8.4 Things no one else does
 
@@ -305,7 +305,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 |---|---|---|
 | 9.1.1 | **Built; MZ playtest pending.** **Comfort options.** Options has two rows from the plugin, Motion Blur and Effects Quality, while the game can show lightning, flashes, shockwaves and a camera that looks ahead. Add Reduce Flashes and Less Camera Motion for the player. | S |
 | 9.1.2 | **Built; MZ playtest pending.** **Quality that looks after itself.** Effects Quality is a fixed choice. An Auto choice steps it down when frames stay low and back up when there is room. Goes with item B under What's left. | S |
-| 9.1.3 | **A title screen from a map.** Pick a map, a time, weather, a look and a camera path, and the title screen shows it live behind the menu. | S |
+| 9.1.3 | **Built; MZ playtest pending.** **A title screen from a map.** Pick a map, a time, weather, a look and a camera path, and the title screen shows it live behind the menu. | S |
 | 9.1.4 | **Built; MZ playtest pending.** **Pictures on save files.** A small picture of where the player was, with the place and the game's day and time, on each row of the save and load screens. | S |
 | 9.1.5 | **Built; MZ playtest pending.** **Area names.** Regions already drive camera rooms, looks and sounds. Give a region a name ("Old Quarter") and show it as MZ shows a map's name when the player walks in. | S |
 | 9.1.6 | **Pins and fast travel.** Pins on the minimap and the world map for towns, shops and quests, shown once found, and travel to a found pin from the world map. | S |

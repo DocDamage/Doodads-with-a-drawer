@@ -40,6 +40,9 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 ## Definition-of-done workflow
 
+- [ ] Capture a flat view as the title screen. Test both title-picture options, weather/time/season/look and a looping camera path; events never execute. New Game and Continue retain their own player, switches, wind, clock, explored state and effects after title termination, including a title reached from a foggy game map.
+- [ ] In Find a Tool, type “make it a rainy night” with and without an active Moods preview. Check the visible command plan before Enter, resulting time/weather, Undo for darkness/fog, translated aliases, unknown/negated/conflicting phrases and no network request.
+- [ ] Walk, wait, open a menu and Photo Mode, transfer, and reach Game Over. Show Trails; compare counts, heat/key and 16px markers; use Go To, scope, paging, JSON drop/import and Clear. Close/navigate during file reading and Clear confirmation; no stale card or deletion. Ordinary desktop builds write nothing unless tester trails is enabled.
 - [ ] Enable Pictures on save files; save from the menu in a named area at night. Check thumbnail, File/Autosave title, place and clock in Save and Load. Old saves, initial autosaves, bad/missing thumbnails and a custom save window retain a usable native layout.
 - [ ] Enable the flat-map battle background on Starting Town, Field Map and the cave. Verify lights/look/weather, no party/gear/shadows/reflections/HUD, correct side-view battler feet, restored map after victory, and named/changed battlebacks taking priority. Repeat the existing 3D battle setting.
 - [ ] Give an event a sight cone and self switch, then a common event. Test front/back, walls, dark versus flashlight, page overrides, reserved common events, looping seams, editor pause, Save/Load and game-only build. Compare lightAt/Store Light Level and the darkness switch on each Effects Quality.

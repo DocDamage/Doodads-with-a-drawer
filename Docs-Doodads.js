@@ -337,6 +337,12 @@
  * @default 0
  * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
+ * @param testerTrails
+ * @text Record trails in tester builds
+ * @type boolean
+ * @default false
+ * @desc Record local walk/stop/Game Over counts in desktop tester builds. Playtests record them automatically. No upload.
+ *
  * @param saveFilePictures
  * @text Pictures on save files
  * @type boolean
@@ -10637,12 +10643,17 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Save-file pictures and battle backgrounds",
         "anchor": "save-file-pictures-and-battle-backgrounds",
-        "firstParagraph": "- In MZ's Plugin Manager, Pictures on save files adds a small picture, the area's name (or map display name), and day/time/season to the native save and load list. It is off by default. Each picture is a JPEG of at most 8 KB, made from MZ's existing map snapshot when opening the menu. Saves made without a fresh map snapshot, including initial autosaves, keep the native row. Old saves and unreadable pictures also use the native layout; custom save windows may use the docsShot, docsPlace and docsClock info fields themselves. - Map Settings → Battle background (flat map) lets a battle use this map's current light, weather and look without MZ's blur. Characters, their gear/shadows/reflections, pictures and the minimap are left out. A named battleback, including Change Battle Back, takes priority. A 3D map uses its existing setting under 3D View."
+        "firstParagraph": "- Map → Use This View as the Title Screen captures a flat map's current view, preview time/season, weather and screen look. The card edits the looping camera path and whether MZ's title pictures stay over the map or are hidden. Use the ordinary title screen turns it off. The title animates the map without running event commands; its game objects, climate, lamp fades and screen effects are isolated from New Game and Continue. This first version uses flat maps. - In MZ's Plugin Manager, Pictures on save files adds a small picture, the area's name (or map display name), and day/time/season to the native save and load list. It is off by default. Each picture is a JPEG of at most 8 KB, made from MZ's existing map snapshot when opening the menu. Saves made without a fresh map snapshot, including initial autosaves, keep the native row. Old saves and unreadable pictures also use the native layout; custom save windows may use the docsShot, docsPlace and docsClock info fields themselves. - Map Settings → Battle background (flat map) lets a battle use this map's current light, weather and look without MZ's blur. Characters, their gear/shadows/reflections, pictures and the minimap are left out. A named battleback, including Change Battle Back, takes priority. A 3D map uses its existing setting under 3D View."
     },
     {
         "title": "Event sight and light levels",
         "anchor": "event-sight-and-light-levels",
         "firstParagraph": "- Pick an event and use Sight in Details to set range, spread, darkness sensitivity and either a self switch or common event. The cone is drawn while editing a flat map. A current page's sight tags take priority over note tags. Walls use World → Lighting wall regions, even when visual light occlusion is off. - Tags: <docs sight: 6, 90>, <docs sight light: 0.3>, and either <docs sight self switch: A> or <docs sight common event: 12>. Seeing triggers once until sight is lost; a busy common-event slot is retried. Darkness shortens the range to at least a quarter. - DocsDoodads.api.lightAt(tileX, tileY) reads brightness from 0 to 1; Store Light Level writes it to a variable. DocsDoodads.api.sees(eventId) checks a tagged event. World → Lighting can drive a chosen switch while the player is below a brightness threshold. Detection checks near-screen events five times per second, up to 24 per check, and does not depend on the player's Effects Quality."
+    },
+    {
+        "title": "Plain words and playtest trails",
+        "anchor": "plain-words-and-playtest-trails",
+        "firstParagraph": "- In Find a Tool, try “make it a rainy night”, “foggy and darker”, “bigger”, or “no rain”. The first row lists the exact resolved commands; Enter runs them. A line containing unknown or conflicting phrases produces no plain-word plan. Weather/time are previews; fog and map darkness are authored settings with Undo. Relative darkness overrides the map's clock-driven light as one undo step. This works offline. In a language file, translate the pipe-separated alias strings (for example rain|rainy|raining) into your own aliases, keeping | between alternatives; command identities stay fixed. - View → Show Trails displays a flat-map heat overlay with its colour key, accumulated stops and Game Over locations, Go To, and Clear for this map or every map. Menu, battle, Photo Mode and editor time are excluded. Counts have a tile budget; imports are bounded to 16 MB and deleted maps are ignored. - Desktop playtests record trails automatically and save data/docsdoodadscache/trails.json when the editor opens or the game closes. Record trails in tester builds is off by default; enable it only for a desktop tester build you want to record. It records counts and tile locations without player identifiers and makes no upload. Bring back the tester's JSON using the file picker or drop it onto the Trails card. Each import adds counts again. An unreadable existing file is preserved until you explicitly Clear it."
     },
     {
         "title": "Plugins and local reports",
@@ -10907,6 +10918,53 @@ DocsDoodads.Notes = {
             if (note.done) { total.done++; m.done++; } else { total.open++; m.open++; }
         }
         return total;
+    }
+};
+// @editor-only
+// Translations change these aliases, never the canonical commands they are allowed to select.
+DocsDoodads.PlainWords = {
+    phrases: [
+        { label: 'night|nighttime|at night', command: 'time 21:00', group: 'time' },
+        { label: 'morning|sunrise|dawn', command: 'time 06:00', group: 'time' },
+        { label: 'daytime|noon|midday', command: 'time 12:00', group: 'time' },
+        { label: 'evening|sunset|dusk', command: 'time 18:00', group: 'time' },
+        { label: 'rain|rainy|raining', command: 'weather rain', group: 'weather' },
+        { label: 'snow|snowy|snowing', command: 'weather snow', group: 'weather' },
+        { label: 'storm|stormy|thunderstorm', command: 'weather storm', group: 'weather' },
+        { label: 'no rain|clear weather|stop raining', command: 'weather none', group: 'weather' },
+        { label: 'fog|foggy|misty', command: 'fog on', group: 'fog' },
+        { label: 'no fog|clear fog|remove fog', command: 'fog off', group: 'fog' },
+        { label: 'darker|more dark|dim it', command: 'darkness darker', group: 'darkness' },
+        { label: 'brighter|lighter|less dark', command: 'darkness brighter', group: 'darkness' },
+        { label: 'bigger|larger|bigger editor', command: 'size bigger', group: 'size' },
+        { label: 'smaller|smaller editor', command: 'size smaller', group: 'size' }
+    ],
+    filler: { label: 'please|make|it|a|an|the|map|and|then|look|feel|with|some' },
+    tokens(text) { return String(text || '').normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) || []; },
+    parse(text, translate = value => value) {
+        if (typeof text !== 'string' || text.length > 256) return [];
+        const words = this.tokens(text);
+        if (!words.length || words.length > 40) return [];
+        const aliases = label => [label, String(translate(label) || '')].join('|').slice(0, 2048).split('|').slice(0, 48)
+            .map(value => this.tokens(value)).filter(value => value.length && value.length <= 10);
+        const entries = [];
+        for (const row of this.phrases) for (const tokens of aliases(row.label)) entries.push({ row, tokens });
+        entries.sort((a, b) => b.tokens.length - a.tokens.length);
+        const filler = new Set(aliases(this.filler.label).reduce((all, value) => all.concat(value), []));
+        const selected = new Map();
+        for (let i = 0; i < words.length;) {
+            const hit = entries.find(entry => entry.tokens.every((word, offset) => words[i + offset] === word));
+            if (hit) {
+                const prior = selected.get(hit.row.group);
+                if (prior && prior.command !== hit.row.command) return [];
+                selected.set(hit.row.group, { command: hit.row.command, group: hit.row.group });
+                i += hit.tokens.length;
+            } else if (filler.has(words[i])) i++;
+            else return []; // Never execute a partially understood line.
+        }
+        // Weather previews snapshot authored settings, so apply those settings before starting weather.
+        const order = ['time', 'darkness', 'fog', 'size', 'weather'];
+        return Array.from(selected.values()).sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group));
     }
 };
 // @editor-only
@@ -11861,6 +11919,62 @@ DocsDoodads.Tiles = {
         return 5 + Math.floor(id / 256);
     }
 };
+//==========================================================
+// SECTION 6D2: LIVE MAP TITLE SETTINGS
+//==========================================================
+DocsDoodads.World.defaults.title = {
+    mapId: 0, x: 0, y: 0, time: 480, season: 0,
+    weather: { type: 'none', power: 0 }, look: null, path: null, pictures: 'over'
+};
+
+DocsDoodads.TitleMap = {
+    weatherTypes: ['none', 'rain', 'storm', 'snow'],
+
+    normalize(raw) {
+        raw = raw && typeof raw === 'object' ? raw : {};
+        const number = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+        const weather = raw.weather && typeof raw.weather === 'object' ? raw.weather : {};
+        const type = this.weatherTypes.includes(weather.type) ? weather.type : 'none';
+        const points = raw.path && Array.isArray(raw.path.points) ? raw.path.points.slice(0, 64).map(point => ({
+            x: number(point && point.x, NaN), y: number(point && point.y, NaN)
+        })).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y)) : [];
+        const path = points.length > 1 ? {
+            points,
+            frames: Math.max(1, Math.min(36000, Math.round(number(raw.path.frames, 60)))),
+            ease: raw.path.ease === 'linear' ? 'linear' : 'smooth'
+        } : null;
+        let look = null;
+        if (raw.look && typeof raw.look === 'object' && !Array.isArray(raw.look)) {
+            try { look = JSON.parse(JSON.stringify(raw.look)); } catch (error) { look = {}; }
+        }
+        return {
+            mapId: Math.max(0, Math.floor(number(raw.mapId, 0))),
+            x: number(raw.x, 0), y: number(raw.y, 0),
+            time: DocsDoodads.TimeOfDay.wrap(number(raw.time, 480)),
+            season: Math.max(0, Math.floor(number(raw.season, 0))),
+            weather: { type, power: Math.max(0, Math.min(9, number(weather.power, 0))) },
+            look, path, pictures: raw.pictures === 'hide' ? 'hide' : 'over'
+        };
+    },
+
+    settings() { return this.normalize(DocsDoodads.World.settings().title); },
+
+    // Camera2D.pathAt supplies the same easing as cutscenes. Closing the points makes the title loop.
+    frame(settings, frame) {
+        const value = this.normalize(settings), path = value.path;
+        if (!path) return { x: value.x, y: value.y };
+        const points = path.points.concat([{ x: path.points[0].x, y: path.points[0].y }]);
+        const total = path.frames * path.points.length;
+        const n = ((Math.floor(Number(frame) || 0) % total) + total) % total;
+        const at = DocsDoodads.Camera2D.pathAt({ points, frames: path.frames, ease: path.ease }, n);
+        return { x: at.x, y: at.y };
+    },
+
+    displayFor(frame, map) {
+        if (!map) return { x: 0, y: 0 };
+        return { x: frame.x - (map.screenTileX() - 1) / 2, y: frame.y - (map.screenTileY() - 1) / 2 };
+    }
+};
 // @editor-only
 DocsDoodads.Trace = {
     filePattern: /^data\/docs_doodads_cache\/trace\/[a-f0-9]{64}\.(png|jpe?g|webp)$/,
@@ -11904,6 +12018,67 @@ DocsDoodads.Trace = {
         const w = trace.width, h = trace.height;
         return { scale: this.point(trace, { x: w, y: h }), rotate: this.point(trace, { x: w / 2, y: -24 / trace.scale }),
             corners: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }].map(p => this.point(trace, p)) };
+    }
+};
+// Bounded local heat data. The sampling cursor is transient and never part of an exported file.
+DocsDoodads.Trails = {
+    maxBytes: 16 * 1024 * 1024,
+    maxCells: 131072,
+    empty() { return { version: 1, maps: {} }; },
+    cell(data, mapId, x, y) {
+        const map = data.maps[String(mapId)] || (data.maps[String(mapId)] = {}), key = x + ',' + y;
+        if (!map[key]) {
+            if ((data._cells || 0) >= this.maxCells) return null;
+            map[key] = { steps: 0, frames: 0, deaths: 0 }; data._cells = (data._cells || 0) + 1;
+        }
+        return map[key];
+    },
+    sample(data, at) {
+        const prior = data.cursor, now = { mapId: Number(at.mapId), x: Math.floor(at.x), y: Math.floor(at.y), frame: Number(at.frame) };
+        if (!(now.mapId > 0) || !isFinite(now.x + now.y + now.frame) || now.x < 0 || now.y < 0) { delete data.cursor; return false; }
+        data.cursor = now;
+        const cell = this.cell(data, now.mapId, now.x, now.y);
+        if (!cell) return false;
+        if (prior && prior.mapId === now.mapId && (prior.x !== now.x || prior.y !== now.y)) cell.steps = Math.min(1e9, cell.steps + 1);
+        else if (prior && prior.mapId === now.mapId && !at.moving) cell.frames = Math.min(1e9, cell.frames + Math.max(0, Math.min(120, now.frame - prior.frame)));
+        return true;
+    },
+    death(data, mapId, x, y) {
+        if (!(mapId > 0) || !isFinite(x + y) || x < 0 || y < 0) return false;
+        const cell = this.cell(data, mapId, Math.floor(x), Math.floor(y));
+        if (!cell) return false;
+        cell.deaths = Math.min(1e9, cell.deaths + 1); return true;
+    },
+    clean(source, validMap = () => true) {
+        if (!source || source.version !== 1 || !source.maps || typeof source.maps !== 'object' || Array.isArray(source.maps)) throw new Error('Unsupported trails version.');
+        const out = this.empty(); let count = 0;
+        const number = value => Number.isFinite(Number(value)) ? Math.min(1e9, Math.max(0, Math.floor(Number(value)))) : 0;
+        for (const id of Object.keys(source.maps)) {
+            if (!/^[1-9]\d{0,3}$/.test(id) || !validMap(Number(id))) continue;
+            const map = source.maps[id];
+            if (!map || typeof map !== 'object' || Array.isArray(map)) continue;
+            for (const key of Object.keys(map)) {
+                if (!/^\d{1,4},\d{1,4}$/.test(key)) continue;
+                const value = map[key]; if (!value || typeof value !== 'object') continue;
+                const cell = { steps: number(value.steps), frames: number(value.frames), deaths: number(value.deaths) };
+                if (!cell.steps && !cell.frames && !cell.deaths) continue;
+                if (++count > this.maxCells) throw new Error('This trails file has too many tiles.');
+                (out.maps[id] || (out.maps[id] = {}))[key] = cell;
+            }
+        }
+        return out;
+    },
+    read(text, validMap) {
+        if (typeof text !== 'string' || text.length > this.maxBytes) throw new Error('This trails file is too large.');
+        return this.clean(JSON.parse(text), validMap);
+    },
+    merge(first, second, validMap) {
+        const out = this.clean(first, validMap), more = this.clean(second, validMap);
+        for (const id of Object.keys(more.maps)) for (const key of Object.keys(more.maps[id])) {
+            const a = (out.maps[id] || (out.maps[id] = {}))[key] || { steps: 0, frames: 0, deaths: 0 }, b = more.maps[id][key];
+            out.maps[id][key] = { steps: Math.min(1e9, a.steps + b.steps), frames: Math.min(1e9, a.frames + b.frames), deaths: Math.min(1e9, a.deaths + b.deaths) };
+        }
+        return this.clean(out, validMap);
     }
 };
 //==========================================================
@@ -25017,7 +25192,7 @@ DocsDoodads.SightRuntime = {
         const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
         const ambient = L.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings,
             override: fade ? fade.current : null, switchValue: id => $gameSwitches && $gameSwitches.value(id) });
-        const doodads = (DocsDoodads.doodads() || []).filter(d => d && d.light && d.light.enabled && !d._docsLeaving
+        const doodads = (DocsDoodads.doodads() || []).filter(d => d && d.posMode !== 0 && d.light && d.light.enabled && !d._docsLeaving
             && DocsDoodads.Layers.visibleInGame(d, mapSettings) && DocsDoodads.Appearance.isVisible(d, { editing: false }));
         const lights = L.collect(doodads, (x, y) => ({ x, y }), {
             darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1, freeze: true, gameplay: true
@@ -25131,6 +25306,312 @@ if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
         if (id && typeof $gameVariables !== 'undefined' && $gameVariables) $gameVariables.setValue(id,
             DocsDoodads.SightRuntime.levelAtTile(Number(args.tileX) || 0, Number(args.tileY) || 0));
     });
+}
+//==========================================================
+// SECTION 7N: ISOLATED LIVE MAP TITLE
+//==========================================================
+(function() {
+    const T = DocsDoodads.TitleMap;
+    const globals = ['$dataMap', '$gameTemp', '$gameSystem', '$gameScreen', '$gameTimer', '$gameMessage',
+        '$gameSwitches', '$gameVariables', '$gameSelfSwitches', '$gameActors', '$gameParty', '$gameTroop', '$gameMap', '$gamePlayer'];
+    const root = typeof window !== 'undefined' ? window : globalThis;
+    // These caches are renderer state rather than game data, but they are mutable and map-specific. A title
+    // spriteset must not reset the live game's climate, advance its lamp fades or consume its screen effects.
+    const transients = [
+        { id: 'climate', object: () => DocsDoodads.Climate,
+            keys: ['_key', '_plan', '_fog', '_fogComposite', '_fogPower', '_ownsWind', '_writing'],
+            fresh: { _key: null, _plan: null, _fog: null, _fogComposite: null, _fogPower: 0, _ownsWind: false, _writing: false } },
+        { id: 'lighting', object: () => DocsDoodads.Lighting, keys: ['_lampLevels'],
+            fresh: { _lampLevels: () => typeof WeakMap !== 'undefined' ? new WeakMap() : null } },
+        { id: 'postfx', object: () => DocsDoodads.PostFX, keys: ['_anims', '_resolved', '_runtimeFrame'],
+            fresh: { _anims: () => [], _resolved: null, _runtimeFrame: -1 } }
+    ];
+
+    T.captureGlobals = function() {
+        const out = {};
+        for (const key of globals) out[key] = root[key];
+        return out;
+    };
+    T.applyGlobals = function(values) { for (const key of globals) root[key] = values[key]; };
+    T.captureTransients = function() {
+        const state = {};
+        for (const spec of transients) {
+            const object = spec.object();
+            if (!object) continue;
+            state[spec.id] = {};
+            for (const key of spec.keys) state[spec.id][key] = {
+                own: Object.prototype.hasOwnProperty.call(object, key), value: object[key]
+            };
+        }
+        return state;
+    };
+    T.applyTransients = function(state) {
+        for (const spec of transients) {
+            const object = spec.object(), values = state && state[spec.id];
+            if (!object || !values) continue;
+            for (const key of spec.keys) {
+                const entry = values[key];
+                if (entry && entry.own) object[key] = entry.value;
+                else delete object[key];
+            }
+        }
+    };
+    T.freshTransients = function() {
+        const state = {};
+        for (const spec of transients) {
+            state[spec.id] = {};
+            for (const key of spec.keys) {
+                const value = spec.fresh[key];
+                state[spec.id][key] = { own: true, value: typeof value === 'function' ? value() : value };
+            }
+        }
+        return state;
+    };
+    T.withContext = function(context, fn) {
+        if (!context || typeof fn !== 'function') return undefined;
+        if (this._activeContext === context) return fn();
+        const before = this.captureGlobals(), beforeTransients = this.captureTransients(), previous = this._activeContext;
+        this.applyGlobals(context); this.applyTransients(context._docsTitleTransients); this._activeContext = context;
+        try { return fn(); }
+        finally {
+            for (const key of globals) context[key] = root[key];
+            context._docsTitleTransients = this.captureTransients();
+            this.applyGlobals(before); this.applyTransients(beforeTransients); this._activeContext = previous;
+        }
+    };
+
+    T.makeContext = function(dataMap, settings) {
+        const context = {
+            $dataMap: dataMap,
+            $gameTemp: new Game_Temp(), $gameSystem: new Game_System(), $gameScreen: new Game_Screen(),
+            $gameTimer: new Game_Timer(), $gameMessage: new Game_Message(), $gameSwitches: new Game_Switches(),
+            $gameVariables: new Game_Variables(), $gameSelfSwitches: new Game_SelfSwitches(), $gameActors: new Game_Actors(),
+            $gameParty: new Game_Party(), $gameTroop: new Game_Troop(), $gameMap: new Game_Map(), $gamePlayer: new Game_Player(),
+            settings
+        };
+        context._docsTitleTransients = this.freshTransients();
+        return context;
+    };
+
+    const minutes = DocsDoodads.Atmosphere.minutes, season = DocsDoodads.Atmosphere.season;
+    DocsDoodads.Atmosphere.minutes = function() {
+        return T._activeContext ? T._activeContext.settings.time : minutes.apply(this, arguments);
+    };
+    DocsDoodads.Atmosphere.season = function() {
+        return T._activeContext ? T._activeContext.settings.season : season.apply(this, arguments);
+    };
+    if (DocsDoodads.Climate && DocsDoodads.Climate.suppressed) {
+        const climateSuppressed = DocsDoodads.Climate.suppressed;
+        DocsDoodads.Climate.suppressed = function() {
+            return T._activeContext ? false : climateSuppressed.apply(this, arguments);
+        };
+    }
+
+    T.setupScene = function(scene, dataMap) {
+        const settings = scene._docsTitleSettings, context = this.makeContext(dataMap, settings);
+        scene._docsTitleContext = context;
+        this.withContext(context, () => {
+            $gameMap.setup(settings.mapId);
+            // The first release is deliberately flat; a map's saved 3D setting must not silently opt the title in.
+            $gameMap._docsCamera = { enabled: false };
+            $gamePlayer.locate(settings.x, settings.y);
+            if ($gamePlayer.setTransparent) $gamePlayer.setTransparent(true);
+            else $gamePlayer._transparent = true;
+            $gameSystem._docsSeason = settings.season;
+            if (settings.look !== null) $gameSystem._docsLook = { current: JSON.parse(JSON.stringify(settings.look)), framesLeft: 0 };
+            const climateWriting = DocsDoodads.Climate ? DocsDoodads.Climate._writing : undefined;
+            if (DocsDoodads.Climate) DocsDoodads.Climate._writing = true;
+            try { if ($gameScreen.changeWeather) $gameScreen.changeWeather(settings.weather.type, settings.weather.power, 0); }
+            finally { if (DocsDoodads.Climate) DocsDoodads.Climate._writing = climateWriting; }
+            const display = this.displayFor(this.frame(settings, 0), $gameMap);
+            $gameMap.setDisplayPos(display.x, display.y);
+            const spriteset = scene._docsTitleSpriteset = new Spriteset_Map();
+            const update = spriteset.update;
+            spriteset.update = function() {
+                if (T._updatingSpriteset === this) return update.apply(this, arguments);
+            };
+            const render = spriteset.render;
+            spriteset.render = function(renderer) { return T.withContext(context, () => render.call(this, renderer)); };
+        });
+        scene.addChildAt(scene._docsTitleSpriteset, 0);
+        if (settings.pictures === 'hide') {
+            if (scene._backSprite1) scene._backSprite1.visible = false;
+            if (scene._backSprite2) scene._backSprite2.visible = false;
+        }
+        scene._docsTitleFrame = 0;
+        return context;
+    };
+
+    T.updateScene = function(scene) {
+        const context = scene._docsTitleContext, spriteset = scene._docsTitleSpriteset;
+        if (!context || !spriteset) return;
+        this.withContext(context, () => {
+            if ($gameMap.refreshIfNeeded) $gameMap.refreshIfNeeded();
+            if ($gameMap.updateParallax) $gameMap.updateParallax();
+            for (const event of $gameMap.events ? $gameMap.events() : []) if (event && event.updateAnimation) event.updateAnimation();
+            if ($gameScreen.update) $gameScreen.update();
+            const display = this.displayFor(this.frame(context.settings, ++scene._docsTitleFrame), $gameMap);
+            $gameMap.setDisplayPos(display.x, display.y);
+            this._updatingSpriteset = spriteset;
+            try { spriteset.update(); } finally { this._updatingSpriteset = null; }
+        });
+    };
+
+    if (typeof Scene_Title === 'undefined') return;
+    const create = Scene_Title.prototype.create, ready = Scene_Title.prototype.isReady;
+    const update = Scene_Title.prototype.update, terminate = Scene_Title.prototype.terminate;
+    Scene_Title.prototype.create = function() {
+        const result = create.apply(this, arguments), settings = T.settings();
+        if (settings.mapId > 0) {
+            this._docsTitleSettings = settings;
+            this._docsTitlePreviousDataMap = root.$dataMap;
+            DataManager.loadMapData(settings.mapId);
+        }
+        return result;
+    };
+    Scene_Title.prototype.isReady = function() {
+        if (!ready.apply(this, arguments)) return false;
+        if (!this._docsTitleSettings || this._docsTitleContext) return true;
+        if (!DataManager.isMapLoaded()) return false;
+        const loaded = root.$dataMap;
+        root.$dataMap = this._docsTitlePreviousDataMap;
+        T.setupScene(this, loaded);
+        return true;
+    };
+    Scene_Title.prototype.update = function() {
+        T.updateScene(this);
+        return update.apply(this, arguments);
+    };
+    Scene_Title.prototype.terminate = function() {
+        const context = this._docsTitleContext, spriteset = this._docsTitleSpriteset;
+        try { return context ? T.withContext(context, () => terminate.apply(this, arguments)) : terminate.apply(this, arguments); }
+        finally {
+            if (context && spriteset) T.withContext(context, () => spriteset.destroy({ children: true }));
+            this._docsTitleSpriteset = null; this._docsTitleContext = null;
+        }
+    };
+})();
+Object.assign(DocsDoodads.Trails, {
+    allowed() {
+        return Boolean((typeof Utils !== 'undefined' && Utils.isOptionValid && Utils.isOptionValid('test')) ||
+            (this._testerEnabled === undefined ? parseBooleanParameter(parameters.testerTrails, false) : this._testerEnabled));
+    },
+    validMap(id) { return typeof $dataMapInfos !== 'undefined' && Boolean($dataMapInfos && $dataMapInfos[id]); },
+    storage() {
+        // A Node test runner (even one with mocked Utils) must never resolve its source folder as a game.
+        if (typeof require !== 'function' || typeof process === 'undefined' || !process.versions.nw ||
+            typeof Utils === 'undefined' || !Utils.isNwjs || !Utils.isNwjs()) return null;
+        const root = DocsDoodads.Capture.desktopRoot();
+        return root ? { fs: require('fs'), path: require('path'), root } : null;
+    },
+    location(create) {
+        const io = this.storage(); if (!io) return null;
+        const { fs, path } = io, root = fs.realpathSync(path.resolve(io.root));
+        const folder = path.resolve(root, 'data', 'docs_doodads_cache');
+        let ancestor = folder;
+        while (!fs.existsSync(ancestor) && path.dirname(ancestor) !== ancestor) ancestor = path.dirname(ancestor);
+        const inside = target => DocsDoodads.Capture.inside(root, target, path);
+        if (!inside(fs.realpathSync(ancestor))) throw new Error('Trails cache is outside the game.');
+        if (create) fs.mkdirSync(folder, { recursive: true });
+        if (!fs.existsSync(folder)) return null;
+        const canonical = fs.realpathSync(folder);
+        if (!inside(canonical)) throw new Error('Trails cache is outside the game.');
+        const file = path.join(canonical, 'trails.json');
+        if (fs.existsSync(file) && fs.lstatSync(file).isSymbolicLink()) throw new Error('Trails file must not be a link.');
+        return { fs, path, file };
+    },
+    data() {
+        if (!this._loaded) {
+            this._loaded = true; this._data = this.empty();
+            try {
+                const at = this.location(false);
+                if (at && at.fs.existsSync(at.file)) {
+                    if (at.fs.statSync(at.file).size > this.maxBytes) throw new Error('This trails file is too large.');
+                    this._data = this.read(at.fs.readFileSync(at.file, 'utf8'), id => this.validMap(id));
+                }
+            } catch (error) { this._loadError = error.message; }
+            this._data._cells = Object.values(this._data.maps).reduce((n, map) => n + Object.keys(map).length, 0);
+        }
+        return this._data || (this._data = this.empty());
+    },
+    record(at) {
+        if (!this.allowed() || !this.validMap(at.mapId)) return false;
+        const changed = this.sample(this.data(), at);
+        if (changed) this._dirty = true;
+        return changed;
+    },
+    tick() {
+        if (!this.allowed() || typeof Scene_Map === 'undefined' || typeof SceneManager === 'undefined' ||
+            !(SceneManager._scene instanceof Scene_Map) || !SceneManager._scene.isActive() ||
+            (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) || (DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active)) {
+            if (this._data) delete this._data.cursor;
+            return;
+        }
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gamePlayer === 'undefined' || !$gamePlayer) return;
+        this.record({ mapId: $gameMap.mapId(), x: $gamePlayer.x, y: $gamePlayer.y, frame: DocsDoodads.frameCount(),
+            moving: typeof $gamePlayer.isMoving === 'function' && $gamePlayer.isMoving() });
+        if (!this._unload && typeof window !== 'undefined' && window.addEventListener) {
+            this._unload = () => this.flush(); window.addEventListener('beforeunload', this._unload);
+        }
+    },
+    flush() {
+        if (!this.allowed() || !this._dirty || this._loadError) return false;
+        let temporary = null, at = null;
+        try {
+            at = this.location(true); if (!at) return false;
+            const text = JSON.stringify(this.clean(this.data(), id => this.validMap(id)));
+            if (text.length > this.maxBytes) return false;
+            temporary = at.file + '.tmp-' + Date.now() + '-' + (this._serial = (this._serial || 0) + 1);
+            at.fs.writeFileSync(temporary, text, { flag: 'wx' }); at.fs.renameSync(temporary, at.file);
+            temporary = null; this._dirty = false; this._writeError = null; return true;
+        } catch (error) { this._writeError = error.message; return false; }
+        finally { if (temporary && at) try { at.fs.unlinkSync(temporary); } catch (error) {} }
+    },
+    importText(text) {
+        const imported = this.read(text, id => this.validMap(id));
+        const merged = this.merge(this.data(), imported, id => this.validMap(id));
+        merged._cells = Object.values(merged.maps).reduce((n, map) => n + Object.keys(map).length, 0);
+        this._data = merged; this._dirty = true; return merged;
+    },
+    rows(kind, mapId) {
+        const rows = [], field = kind === 'deaths' ? 'deaths' : kind === 'steps' ? 'steps' : 'frames';
+        const data = this.data();
+        for (const id of Object.keys(data.maps)) {
+            if ((mapId && Number(id) !== Number(mapId)) || !this.validMap(Number(id))) continue;
+            for (const key of Object.keys(data.maps[id])) {
+                const cell = data.maps[id][key]; if (!cell[field]) continue;
+                const xy = key.split(',').map(Number); rows.push(Object.assign({ mapId: Number(id), x: xy[0], y: xy[1] }, cell));
+            }
+        }
+        return rows.sort((a, b) => b[field] - a[field] || a.mapId - b.mapId || a.y - b.y || a.x - b.x);
+    },
+    clear(mapId) {
+        this.data();
+        if (mapId) delete this._data.maps[String(mapId)]; else this._data = this.empty();
+        delete this._data.cursor; this._data._cells = Object.values(this._data.maps).reduce((n, map) => n + Object.keys(map).length, 0);
+        this._loadError = null; this._dirty = true; this.flush();
+    }
+});
+if (typeof Scene_Map !== 'undefined') {
+    const update = Scene_Map.prototype.update;
+    Scene_Map.prototype.update = function() { const result = update.apply(this, arguments); DocsDoodads.Trails.tick(); return result; };
+    for (const name of ['stop', 'terminate']) {
+        const original = Scene_Map.prototype[name];
+        Scene_Map.prototype[name] = function() {
+            if (DocsDoodads.Trails._data) delete DocsDoodads.Trails._data.cursor;
+            return typeof original === 'function' ? original.apply(this, arguments) : undefined;
+        };
+    }
+}
+if (typeof Scene_Gameover !== 'undefined') {
+    const create = Scene_Gameover.prototype.create;
+    Scene_Gameover.prototype.create = function() {
+        const T = DocsDoodads.Trails;
+        if (T.allowed() && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) && typeof $gameMap !== 'undefined' && $gameMap && typeof $gamePlayer !== 'undefined' && $gamePlayer && T.validMap($gameMap.mapId())) {
+            T.death(T.data(), $gameMap.mapId(), $gamePlayer.x, $gamePlayer.y); T._dirty = true;
+        }
+        return create.apply(this, arguments);
+    };
 }
 //==========================================================
 // SECTION 7C: TRAVERSAL (JUMP, GLIDE, SWIM, DIVE, FLY, CLIMB, ICE)
@@ -36873,6 +37354,7 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        if (DocsDoodads.Trails) { DocsDoodads.Trails.flush(); if (DocsDoodads.Trails._data) delete DocsDoodads.Trails._data.cursor; }
         if (DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
         DocsDoodads.SimpleMode.begin();
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
@@ -36929,6 +37411,7 @@ DocsDoodads.Workspace = {
         this.closeToastHistory();
         this.closeLookCard();
         this.closeMoods();
+        if (typeof this.hideTrails === 'function') this.hideTrails();
         this.closeTraceCard(true);
         this.stopQuestUi();
         this.closeMapTools();
@@ -54607,6 +55090,80 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 // @editor-only
+// All phrase plans resolve through the same closed set as explicitly typed palette values.
+(() => {
+    const W = DocsDoodads.Workspace, values = W.paletteValueCommands;
+    Object.assign(W, {
+        previewPaletteWeather(type) {
+            if (!this.mounted || typeof $gameScreen === 'undefined' || !$gameScreen) return;
+            this.endMoodPreview();
+            const weather = {};
+            for (const key of ['_weatherType', '_weatherPower', '_weatherPowerTarget', '_weatherDuration']) weather[key] = $gameScreen[key];
+            const M = DocsDoodads.Moods;
+            this._moodPreview = { mapId: this.currentMapId(), settings: M.clone(DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}),
+                time: this.previewMinutes, weather, wind: typeof $gameSystem !== 'undefined' && $gameSystem ? M.clone($gameSystem._docsWind) : undefined };
+            $gameScreen.changeWeather(type, type === 'none' ? 0 : 5, 0);
+            this.refreshMoodPreview();
+        },
+        plainValueCommands(query) {
+            const q = String(query || '').trim().toLowerCase();
+            const command = (label, run) => [{ label, group: 'Map / Look', run: () => { if (this.mounted) run(); } }];
+            const weather = /^weather (none|rain|snow|storm)$/.exec(q);
+            if (weather) return command(`Preview weather: ${weather[1]}`, () => this.previewPaletteWeather(weather[1]));
+            const size = /^size (bigger|smaller)$/.exec(q);
+            if (size) {
+                const scales = DocsDoodads.Ui.scales, current = Number(DocsDoodads.Ui.prefs().uiScale) || 1;
+                const available = scales.filter(value => size[1] === 'bigger' ? value > current : value < current);
+                const next = size[1] === 'bigger' ? available[0] : available[available.length - 1];
+                return next ? command(`Editor size ${Math.round(next * 100)}%`, () => this.setLook('uiScale', next)) : [];
+            }
+            const darkness = /^darkness (darker|brighter)$/.exec(q);
+            if (darkness) {
+                const ambient = Object.assign({ switchId: 0 }, DocsDoodads.currentAmbient(id => $gameSwitches.value(id)));
+                ambient.darkness = Math.max(0, Math.min(1, Number(ambient.darkness || 0) + (darkness[1] === 'darker' ? 0.15 : -0.15)));
+                return command(`Set map darkness to ${Math.round(ambient.darkness * 100)}%`, () => {
+                    this.endMoodPreview();
+                    const mapId = this.currentMapId(), M = DocsDoodads.Moods;
+                    const before = M.clone(DocsDoodads.Lighting.mapSettings(mapId));
+                    const after = Object.assign({}, before || {}, { ambient: M.clone(ambient), dayNight: 'off' });
+                    const write = value => { this.writeMapSettings(mapId, value); this.afterMapSettings(); };
+                    DocsDoodads.Undo.execute({ type: 'map_setting', label: 'Map darkness', apply: () => write(after), revert: () => write(before) });
+                });
+            }
+            const fog = /^fog (on|off)$/.exec(q);
+            if (fog) return command(fog[1] === 'on' ? 'Add fog to this map' : 'Remove fog layers from this map', () => {
+                this.endMoodPreview();
+                const own = DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {};
+                const layers = (own.layers2d || []).filter(layer => layer && (fog[1] === 'on' ? !layer.plainWords : layer.image !== '#fog'));
+                if (fog[1] === 'on') layers.push({ image: '#fog', place: 'front', opacity: 0.3, zoom: 2, follow: 1,
+                    scrollX: 0.2, scrollY: 0, blend: 'screen', wind: true, plainWords: true });
+                this.setMapSetting('layers2d', layers.length ? layers : undefined); this.afterMapSettings();
+            });
+            return [];
+        }
+    });
+    W.paletteValueCommands = function(query) {
+        const direct = values.call(this, query).concat(this.plainValueCommands(query));
+        if (direct.length) return direct;
+        const plan = DocsDoodads.PlainWords.parse(String(query || ''), text => DocsDoodads.I18n.t(text));
+        if (!plan.length) return [];
+        const steps = plan.map(step => values.call(this, step.command).concat(this.plainValueCommands(step.command))[0]);
+        if (steps.some(step => !step)) return [];
+        return [{ label: steps.map(step => step.label).join(' → '), group: 'These commands · Enter to run',
+            run: () => {
+                if (!this.mounted) return;
+                this.endMoodPreview();
+                for (const step of steps) step.run();
+            } }];
+    };
+    // Existing map-navigation and close hooks call closeMoods; end the weather preview before transfer.
+    const goToMap = W.goToMap;
+    W.goToMap = function(mapId) {
+        if (mapId && Number(mapId) !== this.currentMapId() && this._moodPreview) this.endMoodPreview();
+        return goToMap.apply(this, arguments);
+    };
+})();
+// @editor-only
 //==========================================================
 // SECTION 25: WORKSPACE: PLAY FROM HERE
 //==========================================================
@@ -57268,6 +57825,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['gridSnapShow', 'Show Grid Snap', 'false', 'Show visual grid overlay in editor by default.'],
             ['gridSnapWidth', 'Grid Snap Width', '0', "Width of the placement snapping grid in pixels (0 = the map's tile width)."],
             ['gridSnapHeight', 'Grid Snap Height', '0', "Height of the placement snapping grid in pixels (0 = the map's tile height)."],
+            ['testerTrails', 'Record trails in tester builds', 'false', 'Record local walk/stop/Game Over counts in desktop tester builds. Playtests record them automatically. No upload.'],
             ['saveFilePictures', 'Pictures on save files', 'false', "Add small map pictures, area names and game time to MZ's save list. About 8 KB maximum per picture."],
             ['comfortOptions', 'Comfort options', 'auto', "Show Reduce Flashes and Less Camera Motion in the player's Options."],
             ['startPlayersOnAuto', 'Start players on Auto', 'false', 'Start new player preferences with Auto Effects Quality; existing saved choices stay in control.'],
@@ -58360,6 +58918,108 @@ DocsDoodads.Workspace.toolHooks.tiles = {
     }
 };
 // @editor-only
+//==========================================================
+// SECTION 25D: USE THIS VIEW AS THE TITLE SCREEN
+//==========================================================
+(function() {
+    const W = DocsDoodads.Workspace, T = DocsDoodads.TitleMap;
+
+    Object.assign(W, {
+        titleLookInUse() {
+            const P = DocsDoodads.PostFX;
+            if (!P || this.postFxCompare || this.postFxPreview === false) return P ? P.normalizeLook(null) : {};
+            const world = DocsDoodads.World.settings(), mapSettings = DocsDoodads.Lighting.mapSettings(this.currentMapId());
+            const live = P.liveInputs(false);
+            return P.normalizeLook(P.resolveLook({ world, mapSettings, runtime: P.runtimeLook(), minutes: live.minutes, regionWeights: live.regionWeights }));
+        },
+
+        currentTitleView() {
+            if (typeof $gameMap === 'undefined' || !$gameMap) return null;
+            const current = T.settings(), camera = DocsDoodads.Camera2D.state();
+            const path = camera && camera.path && Array.isArray(camera.path.points) ? {
+                points: camera.path.points.map(point => ({ x: Number(point.x), y: Number(point.y) })),
+                frames: Number(camera.path.frames) || 60, ease: camera.path.ease === 'linear' ? 'linear' : 'smooth'
+            } : null;
+            return T.normalize({
+                mapId: $gameMap.mapId(),
+                x: $gameMap.displayX() + ($gameMap.screenTileX() - 1) / 2,
+                y: $gameMap.displayY() + ($gameMap.screenTileY() - 1) / 2,
+                time: this.previewMinutes == null ? DocsDoodads.Atmosphere.minutes() : this.previewMinutes,
+                season: this.previewSeason == null ? DocsDoodads.Atmosphere.season() : this.previewSeason,
+                weather: { type: $gameScreen.weatherType(), power: $gameScreen.weatherPower() },
+                look: this.titleLookInUse(), path, pictures: current.pictures
+            });
+        },
+
+        useThisViewAsTitle() {
+            if (DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active()) {
+                this.showToast('Live title maps currently use the flat view. Turn 3D View off, then try again.', 'info');
+                return false;
+            }
+            const settings = this.currentTitleView();
+            if (!settings || settings.mapId <= 0) return false;
+            this.setWorldSetting('title', settings);
+            this.showToast('This view is now the title screen. Playtest to check the title menu over it.', 'ok');
+            return true;
+        },
+
+        writeTitleOptions(next) {
+            this.setWorldSetting('title', T.normalize(next));
+            DocsDoodads.Persistence.dirtyDoodads = true;
+        },
+
+        showTitleMapCard() {
+            if (typeof document === 'undefined') return null;
+            let card = document.getElementById('dd-title-map-card');
+            if (card && card.remove) card.remove();
+            const s = T.settings(), U = DocsDoodads.Ui, esc = DocsDoodads.Security.escapeHtml;
+            card = document.createElement('div'); card.id = 'dd-title-map-card'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;left:50%;top:90px;transform:translateX(-50%);z-index:10045;width:360px;max-width:calc(100vw - 28px);padding:12px;display:grid;gap:7px;';
+            const points = s.path ? s.path.points.map(point => `${point.x},${point.y}`).join('; ') : '';
+            card.innerHTML = `<div class="dd-panel-head" style="font-weight:900;display:flex;justify-content:space-between;">Title map <button class="dd-btn" id="dd-title-map-close">${U.icon('close', 1)}</button></div>
+                <div style="font-size:11px;color:var(--dd-muted);">${s.mapId ? `Map ${s.mapId} at ${Math.round(s.x * 100) / 100}, ${Math.round(s.y * 100) / 100}` : 'Off: MZ uses its ordinary title pictures.'}</div>
+                <button class="dd-btn" id="dd-title-map-use">Use the current view</button>
+                <label class="dd-field"><span>Title pictures</span><select id="dd-title-map-pictures"><option value="over"${s.pictures === 'over' ? ' selected' : ''}>Keep them over the map</option><option value="hide"${s.pictures === 'hide' ? ' selected' : ''}>Hide them (keep title words)</option></select></label>
+                <label class="dd-field"><span>Time (minutes after midnight)</span><input id="dd-title-map-time" type="number" min="0" max="1439" value="${s.time}"></label>
+                <label class="dd-field"><span>Season # (first is 0)</span><input id="dd-title-map-season" type="number" min="0" value="${s.season}"></label>
+                <label class="dd-field"><span>Weather</span><select id="dd-title-map-weather">${T.weatherTypes.map(type => `<option${type === s.weather.type ? ' selected' : ''}>${esc(type)}</option>`).join('')}</select></label>
+                <label class="dd-field"><span>Weather power</span><input id="dd-title-map-power" type="number" min="0" max="9" step="0.5" value="${s.weather.power}"></label>
+                <label class="dd-field"><span>Looping camera points (x,y; x,y)</span><input id="dd-title-map-path" value="${esc(points)}"></label>
+                <label class="dd-field"><span>Frames for each leg</span><input id="dd-title-map-frames" type="number" min="1" max="36000" value="${s.path ? s.path.frames : 180}"></label>
+                <label class="dd-field"><span>Camera motion</span><select id="dd-title-map-ease"><option value="smooth"${!s.path || s.path.ease === 'smooth' ? ' selected' : ''}>Smooth</option><option value="linear"${s.path && s.path.ease === 'linear' ? ' selected' : ''}>Even</option></select></label>
+                <button class="dd-btn" id="dd-title-map-off">Use the ordinary title screen</button>`;
+            (this.container || document.body).appendChild(card);
+            const node = id => document.getElementById(id), commit = () => {
+                const now = T.settings(), pointsNow = DocsDoodads.Camera2D.parsePoints(node('dd-title-map-path').value);
+                this.writeTitleOptions(Object.assign({}, now, {
+                    pictures: node('dd-title-map-pictures').value, time: Number(node('dd-title-map-time').value),
+                    season: Number(node('dd-title-map-season').value),
+                    weather: { type: node('dd-title-map-weather').value, power: Number(node('dd-title-map-power').value) },
+                    path: pointsNow.length > 1 ? { points: pointsNow, frames: Number(node('dd-title-map-frames').value), ease: node('dd-title-map-ease').value } : null
+                }));
+            };
+            for (const id of ['dd-title-map-pictures','dd-title-map-time','dd-title-map-season','dd-title-map-weather','dd-title-map-power','dd-title-map-path','dd-title-map-frames','dd-title-map-ease']) node(id).onchange = commit;
+            node('dd-title-map-use').onclick = () => { if (this.useThisViewAsTitle()) this.showTitleMapCard(); };
+            node('dd-title-map-off').onclick = () => { this.writeTitleOptions({ mapId: 0 }); this.showTitleMapCard(); };
+            node('dd-title-map-close').onclick = () => card.remove();
+            return card;
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.splice(1, 0, { id: 'dd-title-map-btn', icon: 'picture', label: 'Use This View as the Title Screen', title: 'Show this live flat map behind the title menu' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = document.getElementById('dd-title-map-btn');
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.useThisViewAsTitle(); this.showTitleMapCard(); };
+        return result;
+    };
+})();
+// @editor-only
 // The trace belongs to the editor overlay, below its grid. It is never part of a capture.
 DocsDoodads.Ui.hints.trace = 'Trace: drag the picture to move it, its corner to scale, or the round handle to turn. Lock it to paint through it.';
 DocsDoodads.Ui.hints.traceFit = 'Two-point fit: click two places on the picture, then the two tiles they should match. Esc cancels.';
@@ -58671,6 +59331,125 @@ if (typeof Spriteset_Map !== 'undefined' && typeof Sprite !== 'undefined' && typ
         }
     };
 }
+// @editor-only
+Object.assign(DocsDoodads.Ui.mapPalettes.standard, { trailLow: 0x60a5fa, trailHigh: 0xf59e0b, trailDeath: 0xef4444 });
+Object.assign(DocsDoodads.Ui.mapPalettes.safe, { trailLow: 0x56b4e9, trailHigh: 0xe69f00, trailDeath: 0xd55e00 });
+DocsDoodads.Ui.mapColorMeanings.push(['trailLow', 'A lightly used playtest trail'], ['trailHigh', 'A heavily used playtest trail'], ['trailDeath', 'A playtest Game Over']);
+(() => {
+    const W = DocsDoodads.Workspace, T = DocsDoodads.Trails;
+    Object.assign(W, {
+        hideTrails() {
+            this._trailsShown = false;
+            this._trailsUiToken = (this._trailsUiToken || 0) + 1;
+            const card = document.getElementById('dd-trails-card'); if (card && card.remove) card.remove();
+        },
+        toggleTrails() { if (this._trailsShown) this.hideTrails(); else this.showTrails(); },
+        drawTrails(g) {
+            if (!this._trailsShown || !g || typeof $gameMap === 'undefined' || !$gameMap || DocsDoodads.Perspective.liveCamera()) return;
+            const map = T.data().maps[String(this.currentMapId())]; if (!map) return;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), dx = $gameMap.displayX(), dy = $gameMap.displayY();
+            const field = this._trailsMetric === 'stops' ? 'frames' : 'steps', U = DocsDoodads.Ui;
+            const rows = Math.ceil(Graphics.height / th) + 2, cols = Math.ceil(Graphics.width / tw) + 2;
+            for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+                const x = Math.floor(dx) - 1 + col, y = Math.floor(dy) - 1 + row;
+                const cell = map[$gameMap.roundX(x) + ',' + $gameMap.roundY(y)]; if (!cell) continue;
+                const sx = (x - dx) * tw, sy = (y - dy) * th;
+                if (cell[field]) {
+                    const high = field === 'steps' ? cell[field] >= 10 : cell[field] >= 600;
+                    g.beginFill(U.mapColor(high ? 'trailHigh' : 'trailLow'), high ? 0.6 : 0.3);
+                    g.drawRect(sx + 1, sy + 1, tw - 2, th - 2); g.endFill();
+                }
+                if (cell.deaths) {
+                    const inset = Math.max(2, Math.min(tw, th) / 4);
+                    g.lineStyle(3, U.mapColor('trailDeath'), 0.95); g.moveTo(sx + inset, sy + inset); g.lineTo(sx + tw - inset, sy + th - inset);
+                    g.moveTo(sx + tw - inset, sy + inset); g.lineTo(sx + inset, sy + th - inset); g.lineStyle(0);
+                }
+            }
+        },
+        async importTrailsFiles(files) {
+            const token = this._trailsUiToken;
+            let merged = 0;
+            for (const file of Array.from(files || []).slice(0, 16)) {
+                try {
+                    if (!/\.json$/i.test(file.name || '') || file.size > T.maxBytes) throw new Error('Choose a trails JSON file under 16 MB.');
+                    T.importText(await file.text()); merged++;
+                } catch (error) { this.showToast(error.message || String(error), 'error'); }
+            }
+            if (merged) {
+                T.flush();
+                if (this.mounted && token === this._trailsUiToken) {
+                    this.showToast(`Added ${merged} trails file(s). Importing again adds the counts again.`, 'success'); this.showTrails();
+                }
+            }
+            return merged;
+        },
+        showTrails() {
+            this.hideTrails(); this._trailsShown = true;
+            const metric = this._trailsMetric || 'steps', scope = this._trailsScope === 'all' ? 0 : this.currentMapId();
+            const stops = T.rows('stops', scope), deaths = T.rows('deaths', scope), page = Math.max(0, this._trailsPage || 0);
+            const all = stops.map(row => Object.assign({ kind: 'stop' }, row)).concat(deaths.map(row => Object.assign({ kind: 'death' }, row)));
+            const maxPage = Math.max(0, Math.ceil(all.length / 40) - 1), current = Math.min(page, maxPage);
+            const shown = all.slice(current * 40, current * 40 + 40), card = document.createElement('div');
+            card.id = 'dd-trails-card'; card.className = 'dd-glass';
+            card.style.cssText = 'position:fixed;top:80px;right:20px;width:390px;max-height:75vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;';
+            const colour = key => '#' + DocsDoodads.Ui.mapColor(key).toString(16).padStart(6, '0');
+            const label = row => row.kind === 'death' ? `${row.deaths} Game Over(s)` : `${(row.frames / 60).toFixed(1)} seconds stopped`;
+            card.innerHTML = `<div class="dd-panel-head">Playtest Trails <button class="dd-btn" id="dd-trails-close">Close</button></div>
+                <div>Counts stay on this computer. Drop a tester's trails.json here to add it. No names or player identifiers are recorded.</div>
+                <div><select id="dd-trails-scope"><option value="map"${scope ? ' selected' : ''}>This map</option><option value="all"${!scope ? ' selected' : ''}>Every map</option></select>
+                <select id="dd-trails-metric"><option value="steps"${metric === 'steps' ? ' selected' : ''}>Walking</option><option value="stops"${metric === 'stops' ? ' selected' : ''}>Stops</option></select></div>
+                <div><span style="color:${colour('trailLow')};">■</span> ${metric === 'steps' ? '1–9 tile entries' : 'Under 10 seconds stopped'}
+                <span style="color:${colour('trailHigh')};">■</span> ${metric === 'steps' ? '10+ entries' : '10+ seconds'}
+                <span style="color:${colour('trailDeath')};">×</span> Game Over</div>
+                <div>Heat is shown on flat maps. Stops count game frames while standing; battles, menus and editing are excluded.</div>
+                <input id="dd-trails-file" type="file" accept=".json,application/json" multiple>
+                <button class="dd-btn" id="dd-trails-clear">Clear ${scope ? 'this map' : 'every map'}</button>
+                ${T._loadError || T._writeError ? `<div>${escapeHtml(T._loadError || T._writeError)} Clear explicitly to replace unreadable stored trails.</div>` : ''}
+                <div>${all.length} stop/Game Over location(s). Page ${current + 1} of ${maxPage + 1}.
+                <button class="dd-btn" id="dd-trails-prev"${current ? '' : ' disabled'}>Previous</button><button class="dd-btn" id="dd-trails-next"${current < maxPage ? '' : ' disabled'}>Next</button></div>
+                ${shown.map((row, index) => `<div>${escapeHtml(label(row))} · Map ${row.mapId} (${row.x}, ${row.y}) <button class="dd-btn" id="dd-trails-go-${index}">Go To</button></div>`).join('')}`;
+            document.body.appendChild(card);
+            const node = id => document.getElementById(id);
+            node('dd-trails-close').onclick = () => this.hideTrails();
+            node('dd-trails-scope').onchange = event => { this._trailsScope = event.target.value; this._trailsPage = 0; this.showTrails(); };
+            node('dd-trails-metric').onchange = event => { this._trailsMetric = event.target.value; this.showTrails(); };
+            node('dd-trails-file').onchange = event => this.importTrailsFiles(event.target.files);
+            node('dd-trails-prev').onclick = () => { this._trailsPage = current - 1; this.showTrails(); };
+            node('dd-trails-next').onclick = () => { this._trailsPage = current + 1; this.showTrails(); };
+            node('dd-trails-clear').onclick = async () => {
+                const token = this._trailsUiToken;
+                if (await DocsDoodads.Ui.confirm('Clear these recorded trails? This cannot be undone.', { title: 'Clear trails', ok: 'Clear' }) &&
+                    this.mounted && this._trailsShown && token === this._trailsUiToken && (!scope || scope === this.currentMapId())) {
+                    T.clear(scope); this._trailsPage = 0; this.showTrails();
+                }
+            };
+            shown.forEach((row, index) => { node(`dd-trails-go-${index}`).onclick = () => this.goToProblem(row); });
+            card.ondragover = event => { event.preventDefault(); event.stopPropagation(); };
+            card.ondrop = event => { event.preventDefault(); event.stopPropagation(); this.importTrailsFiles(event.dataTransfer.files); };
+            return card;
+        }
+    });
+    W.toolHooks.trails = { overlay(graphics) { this.drawTrails(graphics); } };
+    const goToMap = W.goToMap;
+    W.goToMap = function(mapId) {
+        if (mapId && Number(mapId) !== this.currentMapId()) this.hideTrails();
+        return goToMap.apply(this, arguments);
+    };
+    const loaded = W.onMapLoaded;
+    W.onMapLoaded = function() { this.hideTrails(); return loaded.apply(this, arguments); };
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), view = all.find(menu => menu.id === 'view');
+        if (view) view.items.push({ id: 'dd-trails-btn', icon: 'path', label: 'Show Trails', title: 'See where playtesters walked, stopped and reached Game Over' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), button = document.getElementById('dd-trails-btn');
+        if (button) button.onclick = () => { this.showMoreMenu(false); this.toggleTrails(); };
+        return result;
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25Z: FINE-CELL COLLISION WALL BRUSH
