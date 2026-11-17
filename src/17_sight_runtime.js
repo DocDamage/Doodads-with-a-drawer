@@ -47,7 +47,7 @@ DocsDoodads.SightRuntime = {
         const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
         const ambient = L.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings,
             override: fade ? fade.current : null, switchValue: id => $gameSwitches && $gameSwitches.value(id) });
-        const doodads = (DocsDoodads.doodads() || []).filter(d => d && d.light && d.light.enabled && !d._docsLeaving
+        const doodads = (DocsDoodads.doodads() || []).filter(d => d && d.posMode !== 0 && d.light && d.light.enabled && !d._docsLeaving
             && DocsDoodads.Layers.visibleInGame(d, mapSettings) && DocsDoodads.Appearance.isVisible(d, { editing: false }));
         const lights = L.collect(doodads, (x, y) => ({ x, y }), {
             darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1, freeze: true, gameplay: true
