@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Climate rolls reproducible weather spans from the day, season and saved seed. World tables set rain/storm/snow/fog/wind chances and duration; indoor maps suppress it, event weather holds until Resume Climate, and the clock strip, forecast API and Store Forecast report coming days.
+- The 3D map can use a first-person camera at terrain-relative eye height, with eased quarter-turns, forward/back steps, optional click-to-lock mouse look and near-object fading. The player is hidden while followers stay visible; the editor borrows orbit view, and Photo Mode releases mouse look.
+- Art credits can be recorded per file or inherited from a folder, searched by author/licence, carried through packs and file moves, and written to CREDITS.txt for referenced art with the LPC section. Supplied readme/licence text is offered as a note; missing-credit Problems are opt-in.
+- New picture placements can start with conservative lamp, tree, bush, rock, building, fence, water, fire or sign settings. Saved defaults win; Details remembers or changes the kind, Settings turns guessing off, and Undo settings keeps the picture in place.
+- Player Photo Mode pauses the map while composing a picture, with bounded camera controls, looks, Hide Player and PNG saving. Desktop pictures stay under screenshots; browser games download them. Leaving or a capture failure restores camera, look and visibility.
+- Effects Quality adds Auto with delayed, eased frame-time decisions and a longer wait before raising detail. It remembers the settled level, respects fixed choices, and fades between quality levels; Start players on Auto is off by default.
 - Generate Map builds seeded dungeons or wilderness in the editor with preview/reroll and one-step undo, or before a runtime transfer from a saved seed/recipe. Room openings, biome tiles, dressing and required art work in the game-only build.
 - Heat haze bends flat-map air over campfires and lava, across a desert-road band or under water. It keeps the nearest eight visible sources, respects quality and reduced camera motion, and stays out of stitched map exports.
 - Mark as Released records names, states and map sizes. Later renames/deletions can keep old save names through undoable aliases; Problems and deployment highlight changed release data. New state changes keep names while older numeric saves still read.

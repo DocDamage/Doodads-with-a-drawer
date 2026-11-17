@@ -26,8 +26,9 @@ called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 9.1.5 area names; 9.2.1 nearness triggers; 7.1.4 NPC schedules; 8.5.1 tracing pictures;
 7.1.2 event pages and commands; 8.2.4 short searchable Details; 9.5.2 plugin checks and local reports;
 7.1.5 flat-map normal lighting; 8.4.4 BGM-reactive motion/lights/particles; 8.1.4 first-map quest;
-7.3.5 seeded generated maps; 9.5.3 save-safe changes; 9.3.3 heat haze.
-9.5.3 released-save snapshots and aliases; 9.3.3 flat-map heat haze.
+7.3.5 seeded generated maps; 9.5.3 save-safe changes; 9.3.3 heat haze;
+8.1.3 guessed placement defaults; 8.3.6 player Photo Mode; 9.1.2 Auto Effects Quality;
+7.3.8 first-person 3D camera; 9.4.3 art credit ledger; 9.2.6 seasonal climate.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -49,7 +50,12 @@ the water bug are still pending. Do not claim this row is Done.
 | Generated maps: 7.3.5 | Complete locally | Seeded pure/runtime/editor generator and room openings | Reviewed catalog/transactional behavior, save-load regeneration, alias readiness, shared placement code, full-frame art, viewport-bounded biome preview, live tile dimensions and stable room UIDs; targeted suites passed |
 | Save-safe changes: 9.5.3 | Complete locally | Shipped snapshots, aliases, named state storage, release UI and deploy reminder | Independent review fixed UID reuse/ownership, stale delete target, inferred renames, coherent disk snapshots and generated-map readiness; targeted regressions GREEN |
 | Heat haze: 9.3.3 | Complete locally | New pure/filter/editor parts and postFX hooks | Reviewed; anchor/rotation/zoom placement, export exclusion, pass order, quality and comfort tests GREEN; real GPU pending |
-| Player photo mode: 8.3.6 | Specialist | Shared capture game part, mode UI/lifecycle, narrow header/API/capture hooks | Architecture ready; implementation after integration gate |
+| Player photo mode: 8.3.6 | Complete locally | Shared capture game part, mode UI/lifecycle, narrow header/API/capture hooks | Reviewed; canonical screenshots path/no overwrites, browser save, capture failures, exact camera/look/visibility restoration, loop controls and game-only tests passed |
+| Guessed defaults: 8.1.3 | Complete locally | Pure guesses, metadata, factory, Details, placement action and preferences | Reviewed; non-doodad exclusion, explicit defaults, reindex memory, language, map-safe Undo settings and adjacent asset/look suites passed |
+| Auto quality: 9.1.2 | Complete locally | Pure hysteresis, shared resolved quality, sampling/fade and Options | Reviewed; fixed choices, last settled level, interrupted fades, config reload, pending transfer and adjacent normal/3D/Haze/comfort suites passed |
+| First-person camera: 7.3.8 | Complete locally | Pure/runtime/editor camera and controls | Reviewed; orbit fade regression, sequential map yaw, Photo lock release and focused runtime/game-only suites passed; MZ/GPU pending |
+| Art credits: 9.4.3 | Complete locally | Pure ledger, metadata/packs, search/import/Details and local credits output | Reviewed; indexed fallback clearing, inherited/fallback rename, room/state/model/normal refs, opt-in checks, supplied notes and adjacent pack/import/asset/Problems suites passed |
+| Seasonal climate: 9.2.6 | Complete locally | Seeded spans, weather holds/interiors, ephemeral fog/wind, World tables/forecast strip and commands/API | Reviewed; cross-save wind ownership and prototype-named seasons fixed; pure/runtime, UI Undo and adjacent atmosphere/world/map tools suites passed |
 
 The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
@@ -70,6 +76,19 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Latest verification
 
+- Current gate: static PASS (207 editor parts, 75 runtime parts, 1,606 strings).
+  Full coverage: 184/185 suites in 168.8 seconds; lines/statements 91.88%, branches
+  77.98%, functions 86.57%, all thresholds passed and no repository mutations.
+  The last failure was a strict window-open source assertion after inserting the
+  first-person listener cleanup. Window growth remains directly after mounted=true;
+  listener cleanup follows it synchronously. Window, first-person and Photo suites
+  now pass. All nine failures from the prior run passed targeted reruns. Repeat the
+  full gate after animated import and the placement preview batch.
+- Current continuation static gate: PASS (203 editor parts, 72 runtime parts, 1,591 strings).
+  Coverage ran 184 suites with 175 passing; nine integration failures identified eager first-person
+  document listeners, Photo registration ordering, a legacy capture-source assertion and expected
+  feature lists. Fixes and targeted reruns are in progress before the full rerun. The repository
+  stayed unchanged; thresholds passed (lines/statements 90.99%, branches 77.43%, functions 85.26%).
 - Current integration: static verify PASS (192 editor parts, 66 runtime parts, 1,553 strings).
   Full coverage PASS: 178/178 suites in 185.9 seconds; lines/statements 91.70%,
   branches 78.15%, functions 86.21%. All thresholds passed and the repository stayed
@@ -113,10 +132,11 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Continue rows 8.1.3 and 8.3.6, then 7.3.8. Follow the
+Continue row 9.4.2 animated import (specialist) and choose the next bounded editor item after
+the current integration gate. Follow the
 dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 46 other buildable rows still open, plus the external-plugin compatibility
+There are 40 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

@@ -64,10 +64,23 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 | **Show Grid Snap** (`gridSnapShow`) | Boolean | `false` | Shows the placement grid when the workspace opens (G toggles it). |
 | **Grid Snap Width / Height** (`gridSnapWidth`, `gridSnapHeight`) | Number | `0` | The snapping grid in pixels; `0` uses the map's tiles. Events always go on tiles. |
 | **Developer Diagnostics** (`devDiagnostics`) | Boolean | `false` | Enables detailed console logging in DevTools. |
+| **Photo Mode Key** (`photoModeKey`) | Combo | `P` | Opens player Photo Mode. Blank disables the key. |
+| **Forbid Photo Mode Switch** (`photoModeForbidSwitch`) | Switch | `0` | While on, blocks Photo Mode by key, command and script. |
+| **Comfort options** (`comfortOptions`) | Select | `auto` | Offers Reduce Flashes and Less Camera Motion when used, or always. |
+| **Also soften MZ flashes and shakes** (`softenMZEffects`) | Boolean | `false` | Applies the player’s comfort choices to MZ’s flash and shake commands. |
+| **Start players on Auto** (`startPlayersOnAuto`) | Boolean | `false` | Starts new preferences with Auto Effects Quality. Existing saved choices win. |
 
 ---
 
 ## 4. The Item Bag & Search
+
+### Guessed settings on new pictures
+
+A picture with a clear name, tag or folder can start with useful settings: a lamp is lit after dark, a tree has gentle sway and see-through, and water sits below characters. Ambiguous names and unknown pictures receive no guess. Character sheets are excluded. Saved depth, collision and other item defaults take priority. Older collision defaults are preserved.
+
+The item’s **Guessed** control in Details changes its kind, chooses None or guesses again. The choice stays in the library and affects new placements only. **Settings → Guess settings for new placements** turns this off on this computer. A placement message explains what changed; **Undo settings** removes the added settings while leaving the picture in place, and that edit can itself be undone. It does not overwrite later edits or a different map.
+
+Language files can add single-word matches in an optional `guessWords` object, for example `"guessWords": { "lamp": ["lampe"], "tree": ["arbre"] }`. English matching remains available; a match for two different kinds gives no guess.
 
 ### The editor at a glance
 
@@ -99,6 +112,12 @@ Press **F10** in a playtest. A new install starts the five-step **Your first map
 - **Problems** (Map): pictures (a state's own art too), common events and sounds missing from the project, doodads outside the map, lamps on maps that never get dark, events nobody can step on or that sit under a doodad's collision; for this map or every map. **Go To** shows each one; **Fix** (where there is a safe fix) replaces the art, removes the sound or moves the doodad inside.
 - **Check Reach** (in Problems, or the palette): shades every tile the player can walk to from where they stand (or **From a Tile...**), past walls, doodad collision and characters, and lists the doors, chests and transfers out of reach. "Only a character stands in the way" means a character blocks the only path; it may move during play.
 - **Capture** (More): **Save a Picture of the View** writes a PNG of the map as it is on screen (no editor outlines); **Orbit GIF (3D)** turns the 3D camera once round and saves a looping GIF (pick 12, 24 or 36 frames and a width). Both go into the project's `screenshots` folder.
+
+### Player Photo Mode
+
+During play, **P** opens Photo Mode on the current map. The map, events and timer pause while sprites keep rendering. Arrows move the flat camera within four tiles of the player, or turn the 3D view; the wheel zooms. Choose a screen look, hide the player and followers, then Save PNG. The controls stay out of the picture. Escape or Exit returns the exact camera, look, zoom and visibility from before composing. A failed capture also returns to play.
+
+Desktop games save uniquely named PNGs under `screenshots` beside the game; browser games download the image. Plugin Manager can change **Photo Mode Key** (blank disables it) and choose a **Forbid Photo Mode Switch** for story scenes. Events use **Open Photo Mode**, and scripts can call `DocsDoodads.api.photoMode()`. The switch guards all three entry points. This also works in the game-only build.
 - **Right-click menus** remember what you use: once a few actions repeat, longer menus open with a row of your most-used actions on top.
 - **Look** (View): the editor's **size** (100, 125 or 150%), its **theme** (Light, Dark, High contrast, or **Playful**: cream cards, teal and coral, pill buttons, in the style of the coming Character Creator) and the **map colours**: Standard, or **Colour-blind safe** (colours that stay apart for red-green and blue-yellow colour blindness) for the selection, guides, mirror line, paths, Old Saves, brushes, collision and blocked tiles, with a key to what each colour means. Kept on this computer. When the top bar doesn't fit (a small window, or 125% and 150%), the words under the tools go (resting on a tool still names it), then Map, Art and View fold into More, each under its name, then the bar takes a second row.
 - **Details** remembers which sections you opened or closed. The ☆ on a section's title pins it to the top; ★ unpins it.
@@ -242,6 +261,16 @@ Select a placed doodad (or several) and open Details' collapsible sections. Ever
 
 ## 8. World Atmosphere: Day & Night, Sun Shadows, See-Through, Water, Seasons, Motion Blur
 
+### Seasonal climate and forecasts
+
+Enable **World → Climate → Weather follows the season and day** and set a weather table for each named season. Each row chooses Clear, Rain, Storm, Snow, Fog or Windy, its power, chance and hours per spell. Chances are weights out of 100: an unassigned share is clear, and totals above 100 scale proportionally. Identical adjacent spells join. Fog adds temporary flat-map fog banks or closes in the 3D fog; Windy controls wind with MZ rain set to none. Authored picture layers stay intact.
+
+The **running game clock** counts days. Other time sources keep the climate on Day 1. A day, season and seed always produce the same spans; the seed is kept when a save first uses climate. The next seven days appear beside the clock scrubber. Forecasts assume the currently selected season until an event changes it; changing a season variable changes that assumption.
+
+Set **Climate on this map → None (indoors)** to hide climate weather while the calendar continues. A maker’s MZ **Set Weather** command holds automatic weather, fog and wind until **Resume Climate** (or `api.resumeClimate()`). Indoor suppression preserves held native weather for returning outside. The clock may advance in menus or battles; the climate applies the new span on returning to the map. Opening the editor previews time without claiming manual weather ownership.
+
+**Store Forecast** puts a readable report in a variable; `api.forecast(days)` returns day/season records with minute-based weather spans, up to 31 days. Reading a forecast does not create save state. Forecasts describe the climate table; an event’s held weather remains in control until resumed.
+
 These settings apply to the whole game. With nothing selected, Details shows the map panel. Its sections marked **All maps** hold them, and the Lighting section has three per-map switches. Everything is undoable and saved in `data/DocsDoodads.json`.
 
 ### Day and Night
@@ -353,7 +382,7 @@ a Mood keeps your own bundle in this project's map presets.
 - **Presets**: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it.
 - **Hold to Compare** shows the map without effects while the button is held. **Show while editing** turns effects off in the editor only.
 - **Affect pictures**: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected.
-- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14).
+- **Quality**: *Low* skips tilt-shift and uses a lighter bloom blur. Players also get an **Effects Quality** option in the Options menu (High, Medium, Low, Off, Auto). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14). Auto ignores map warm-up and long stalls, waits before lowering detail, waits longer before raising it, and remembers the settled level. Changes use a half-second frame fade or wait for an already pending transfer. **Start players on Auto** in Plugin Manager is off by default; existing player choices take priority.
 
 ### Looks by time and by region
 Under the effects, the card mixes looks in on top of the game-wide or map look:
@@ -651,6 +680,14 @@ The **Set Destination Marker** plugin command changes any of these mid-game. The
 
 ## 14. 3D View
 
+### First-person camera
+
+In this map’s 3D settings, **Camera → First person** puts the camera at the player’s feet plus **Eye height**, measured in tiles above the terrain. Look tilt and field of view have their own first-person settings. Up walks forward, Down steps back without turning the player away from an action event, and Left/Right turn 90 degrees with a short ease. The player’s own billboard disappears; followers remain. **Fade nearby billboards** keeps close props from filling the view and does not affect orbit maps.
+
+With **mouse look** enabled, click the game to capture the pointer. Mouse motion turns the view and movement follows its nearest tile direction. Escape, Photo Mode, opening the editor, changing maps or leaving the map scene releases the pointer. The editor uses orbit view for picking without changing the saved first-person setting. **Set Camera** accepts First person/Orbit plus eye height, mouse look and near fade; scripts use `api.camera3d(options, frames)`.
+
+First person needs standing scenery: use **Tileset objects** for B–E objects and terrain walls for cave walls. Flat roofs and treetops on the ground cannot make a convincing corridor at eye height. Real MZ/GPU cave, event-interaction and performance checks are pending.
+
 Any map can be shown in 3D. Open **3D View (this map)** in the map panel and tick **Show this map in 3D**.
 New to the 3D view? [Your First 3D Map](docs/FIRST_3D_MAP.md) is a short walkthrough with screenshots.
 - The map's tiles lie on a ground plane seen in perspective.
@@ -940,6 +977,14 @@ The **Maps** section of the map panel (shown when nothing is selected):
 ---
 
 ## 20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
+
+### Art credit ledger
+
+An item’s Details has **Set Credit…** and **Folder Credit…**, and the multi-pick bar can set the same credit on several files. Record author, licence/terms, source and a note. A file’s own record wins; otherwise it takes the nearest folder’s. **Clear this record / inherit folder** removes an override. Moving an item preserves its inherited credit. Hover cards show the author and licence; searches accept `author:`, `licence:` (or `license:`), `credit:none` and their minus-prefixed exclusions.
+
+Packs carry resolved credits with each file. When a dropped folder or ZIP contains a licence, credits or readme text, the importer offers to keep it as a folder note. It never chooses a licence from that text. Notes are bounded to 64 KB each and twenty per import. Review the supplied terms and enter the credit you intend to record.
+
+**Art → Write Credits** writes `CREDITS.txt`, asking before replacing an existing file. It includes referenced art from Where Used, plugin-only states/models/normal companions and the room catalog used by seeded generators; unused loose library art is excluded. The LPC section uses the existing recorded creator credits for referenced images. In Problems, **Check art credits** optionally lists referenced art missing an author or licence and opens its credit form. This ledger stores the maker’s information and does not judge what a licence permits.
 
 - **Where Used** (the asset's Details) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file.
 - **Rename/Move** renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under `img/`. Atlas metadata and the other audio format (`.ogg`/`.m4a`) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards.

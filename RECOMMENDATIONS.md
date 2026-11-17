@@ -202,7 +202,7 @@ Watching a new user (item E under What's left) comes before all of these.
 | 7.3.5 | **Built; MZ playtest pending.** **Generated maps.** Dressing rules, biomes, room stamps and prefabs are the parts of a dungeon or wilderness generator: in the editor (generate, then tidy by hand) or in the game from a seed. | L |
 | 7.3.6 | **A cutscene timeline.** Tracks for camera paths, doodad states, lights, weather, screen looks and character actions, played by one plugin command. Each is its own command today. | L |
 | 7.3.7 | **Light you can see in the air.** Rays through trees and windows, and shafts in fog, from the lightmap and the walls that already stop light. | M |
-| 7.3.8 | **A first-person 3D camera.** The 3D view has none. (VR, also asked for by users of other 3D plugins, would come after it.) | M |
+| 7.3.8 | **Built; MZ playtest pending.** **A first-person 3D camera.** The 3D view has none. (VR, also asked for by users of other 3D plugins, would come after it.) | M |
 
 ### 7.4 Asked for by users
 
@@ -238,7 +238,7 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 |---|---|---|
 | 8.1.1 | **Built; MZ playtest pending.** **Simple mode.** The top bar has ten tools and four menus. Open with Select, Stamp, Scatter and Tiles and a short Details panel, with a Show Everything switch. Find a Tool (Ctrl+K) still reaches the rest. | M |
 | 8.1.2 | **Built; MZ playtest pending.** **Moods.** One button sets light, look, weather and ambience together (Cosy Night Village, Rainy Forest, Cave), shown on the map while the pointer is on it. The parts are all there; the bundle is not. | S |
-| 8.1.3 | **Good settings on drop.** Guess from the file's name and shape: "lamp" gets a lantern light that comes on after dark; "tree" gets sway, see-through and a box round the trunk. One Undo puts it back. | M |
+| 8.1.3 | **Built; MZ playtest pending.** **Good settings on drop.** Guess from the file's name and shape: "lamp" gets a lantern light that comes on after dark; "tree" gets sway, see-through and a box round the trunk. One Undo puts it back. | M |
 | 8.1.4 | **Built; MZ playtest pending.** **A first-map quest.** In place of the welcome card, five steps that tick themselves off (place three trees, add a lamp, make it night, press Play). Goes with the sample project (7.1.8). | S |
 | 8.1.5 | **Built; MZ playtest pending.** **Help where you are.** A ? on each panel that opens its part of the guide, and the guide's headings in Find a Tool. | S |
 
@@ -260,7 +260,7 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | 8.3.3 | **More like this.** Lasso an area you like; the tool learns what sits next to what and fills a region in the same way. A form of 7.3.5 with no rules to write. | L |
 | 8.3.4 | **A ground brush.** Paint dirt, grass and stone with soft edges, off the grid. With the collision brush (7.3.2), this is parallax-style mapping inside the editor. | M |
 | 8.3.5 | **The playtest on a phone.** Serve the playtest on the local network, opened from a QR code, with edits showing as they are made. Also gives the Android numbers that item B and 7.3.4 wait for. | M |
-| 8.3.6 | **A photo mode for players.** Pause, move the camera, pick a Screen Look, save a picture. Capture is in the editor only. | S |
+| 8.3.6 | **Built; MZ playtest pending.** **A photo mode for players.** Pause, move the camera, pick a Screen Look, save a picture. Capture is in the editor only. | S |
 | 8.3.7 | **Playtest trails.** Record where testers walk, stop and die, and draw it over the map in the editor, beside Check Reach. | M |
 | 8.3.8 | **Plain words in Find a Tool.** "Make it a rainy night", turned into `DocsDoodads.api` calls. Needs the user's own key for a language service and sends words off the computer, so it is off unless turned on. | M |
 
@@ -304,7 +304,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | # | Suggestion | Size |
 |---|---|---|
 | 9.1.1 | **Built; MZ playtest pending.** **Comfort options.** Options has two rows from the plugin, Motion Blur and Effects Quality, while the game can show lightning, flashes, shockwaves and a camera that looks ahead. Add Reduce Flashes and Less Camera Motion for the player. | S |
-| 9.1.2 | **Quality that looks after itself.** Effects Quality is a fixed choice. An Auto choice steps it down when frames stay low and back up when there is room. Goes with item B under What's left. | S |
+| 9.1.2 | **Built; MZ playtest pending.** **Quality that looks after itself.** Effects Quality is a fixed choice. An Auto choice steps it down when frames stay low and back up when there is room. Goes with item B under What's left. | S |
 | 9.1.3 | **A title screen from a map.** Pick a map, a time, weather, a look and a camera path, and the title screen shows it live behind the menu. | S |
 | 9.1.4 | **Pictures on save files.** A small picture of where the player was, with the place and the game's day and time, on each row of the save and load screens. | S |
 | 9.1.5 | **Built; MZ playtest pending.** **Area names.** Regions already drive camera rooms, looks and sounds. Give a region a name ("Old Quarter") and show it as MZ shows a map's name when the player walks in. | S |
@@ -320,7 +320,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | 9.2.3 | **Bridges you walk over and under.** Regions mark a bridge's deck and its ends; the player and events keep a level, pass under or over, and do not bump into or talk to those on the other level. Flat maps first. Shares its hooks with 7.3.2 and 7.3.3. | M |
 | 9.2.4 | **Light and sight.** A script or event can ask how bright a tile is, and an event can see the player: in a cone, stopped by the walls that already stop light, and less far in the dark. For stealth and puzzles. | M |
 | 9.2.5 | **Doodads that ride and travel.** Motion is sway, bob, pulse, flicker and shimmer. Let a doodad ride on an event or the player (a lantern, a cart's load), or travel along a path (boats, clouds, platforms that carry the player). | M |
-| 9.2.6 | **Weather that picks itself.** A climate: the chance of rain, storm, snow, fog and wind per season, rolled from the calendar so the same day has the same weather after a load, with a forecast events can read. Interiors opt out. Goes with Moods (8.1.2). | S |
+| 9.2.6 | **Built; MZ playtest pending.** **Weather that picks itself.** A climate: the chance of rain, storm, snow, fog and wind per season, rolled from the calendar so the same day has the same weather after a load, with a forecast events can read. Interiors opt out. Goes with Moods (8.1.2). | S |
 
 ### 9.3 Life and look
 
@@ -336,7 +336,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 |---|---|---|
 | 9.4.1 | **Tileset flags in the editor.** Passability, ☆, ladder, bush, counter, damage floor and terrain tags still need a trip to MZ's database; the Regions tool shows terrain tags and cannot change them. Click them on the Tiles palette as in MZ, see the result at once, and save `Tilesets.json` with the same care as a map. | M |
 | 9.4.2 | **Animated GIF and APNG in.** The Item Bag takes PNG, JPEG and WebP. A dropped GIF or APNG becomes a frame strip with its frame count and speed set, so the placed doodad animates at once. | S |
-| 9.4.3 | **A licence ledger for all art.** Credits are written for LPC only. Keep an author, a licence and a source per file or folder (packs carry theirs), find art with none, and write one credits file for the art the game uses. | S |
+| 9.4.3 | **Built; MZ playtest pending.** **A licence ledger for all art.** Credits are written for LPC only. Keep an author, a licence and a source per file or folder (packs carry theirs), find art with none, and write one credits file for the art the game uses. | S |
 
 ### 9.5 Safer releases
 

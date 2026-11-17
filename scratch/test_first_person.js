@@ -137,7 +137,7 @@ assert.match(panel, /mode/);
 assert.match(panel, /eyeHeight/);
 assert.match(panel, /mouseLook/);
 const workspaceCore = fs.readFileSync(require('path').join(__dirname, '..', 'src', '37_workspace_core.js'), 'utf8');
-assert.match(workspaceCore, /this\.mounted = true;\s*if \(DocsDoodads\.Perspective[\s\S]{0,120}releaseMouseLook/,
+assert.match(workspaceCore, /this\.mounted = true;\s*DocsDoodads\.EditWindow\.onOpen\(\);\s*if \(DocsDoodads\.Perspective[\s\S]{0,120}releaseMouseLook/,
     'opening the editor synchronously removes visit-scoped first-person document input');
 const header = fs.readFileSync(require('path').join(__dirname, '..', 'src', '00_header_and_plugin_parameters.js'), 'utf8');
 assert.match(header, /@arg cameraMode/);

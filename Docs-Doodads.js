@@ -214,6 +214,24 @@
  * @default F10
  * @desc Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.
  *
+ * @param photoModeKey
+ * @text Photo Mode Key
+ * @type combo
+ * @option P
+ * @option F6
+ * @option F7
+ * @option F8
+ * @option F9
+ * @option Ctrl+P
+ * @default P
+ * @desc Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.
+ *
+ * @param photoModeForbidSwitch
+ * @text Forbid Photo Mode Switch
+ * @type switch
+ * @default 0
+ * @desc While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).
+ *
  * @param editorMode
  * @text Editor Enabled
  * @type boolean
@@ -329,6 +347,12 @@
  * @default auto
  * @desc Show Reduce Flashes and Less Camera Motion in the player's Options.
  *
+ * @param startPlayersOnAuto
+ * @text Start players on Auto
+ * @type boolean
+ * @default false
+ * @desc Start new player preferences with Auto Effects Quality; existing saved choices stay in control.
+ *
  * @param softenMZEffects
  * @text Also soften MZ flashes and shakes
  * @type boolean
@@ -340,6 +364,10 @@
  * @type boolean
  * @default false
  * @desc Enable diagnostics logging in Developer Tools console.
+ *
+ * @command openPhotoMode
+ * @text Open Photo Mode
+ * @desc Pauses the map and lets the player move the camera, choose a look, hide the party and save a PNG.
  *
  * @command storeAreaName
  * @text Store Area Name
@@ -425,6 +453,26 @@
  * @min 0
  * @max 59
  * @default 0
+ *
+ * @command resumeClimate
+ * @text Resume Climate
+ * @desc Let the seasonal climate control weather again after an event's Set Weather.
+ *
+ * @command storeForecast
+ * @text Store Forecast
+ * @desc Put the next days' weather report into a variable. Assumes the current season.
+ *
+ * @arg days
+ * @text Days
+ * @type number
+ * @min 1
+ * @max 31
+ * @default 7
+ *
+ * @arg variableId
+ * @text Report variable
+ * @type variable
+ * @default 1
  *
  * @command calendar
  * @text Calendar
@@ -1066,8 +1114,19 @@
  * @text Set Camera (3D)
  * @desc Moves the 3D camera. Blank fields keep their value.
  *
+ * @arg cameraMode
+ * @text Camera Mode
+ * @type select
+ * @option (keep)
+ * @value
+ * @option Orbit
+ * @value orbit
+ * @option First person
+ * @value first
+ * @default
+ *
  * @arg pitch
- * @text Tilt (degrees down, 20-89)
+ * @text Tilt (orbit, or first-person look)
  * @type string
  * @default
  *
@@ -1083,6 +1142,27 @@
  *
  * @arg fov
  * @text Field of View
+ * @type string
+ * @default
+ *
+ * @arg eyeHeight
+ * @text First-person Eye Height (tiles)
+ * @type string
+ * @default
+ *
+ * @arg mouseLook
+ * @text First-person Mouse Look
+ * @type select
+ * @option (keep)
+ * @value
+ * @option On (click game to capture mouse)
+ * @value on
+ * @option Off
+ * @value off
+ * @default
+ *
+ * @arg nearFade
+ * @text Near Billboard Fade (tiles)
  * @type string
  * @default
  *
@@ -1759,6 +1839,8 @@ DocsDoodads.Security = DocsDoodads.Security || {
 
 const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
+const photoModeKey = String(parameters.photoModeKey === undefined ? "P" : parameters.photoModeKey).trim();
+const photoModeForbidSwitch = Math.max(0, Math.round(parseNumberParameter(parameters.photoModeForbidSwitch, 0, 0, 9999)));
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
 const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
 // The release, as in package.json and the header's @plugindesc (verify checks that the three agree).
@@ -2271,6 +2353,98 @@ if (typeof ImageManager !== 'undefined' && typeof ImageManager.isReady === 'func
         return $.ImageManager_isReady_missingArt.call(this);
     };
 }
+//==========================================================
+// SECTION 4G: GAME-SAFE SCREEN CAPTURE
+//==========================================================
+// Rendering is shared by the editor's Capture card and player Photo Mode. Saving deliberately does
+// not use the editor filesystem: deployed desktop games may write only a generated PNG name beneath
+// their own screenshots directory, while browser games use the browser's download gesture.
+DocsDoodads.Capture = {
+    renderSceneCanvas(spriteset, renderer) {
+        renderer = renderer || (DocsDoodads.Compat && DocsDoodads.Compat.getRenderer ? DocsDoodads.Compat.getRenderer() : null);
+        if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
+        const outline = spriteset._docsSelectionOutline;
+        const outlineVisible = outline && outline.visible;
+        if (outline) outline.visible = false;
+        const hidden = [spriteset._docsTraceSprite].filter(Boolean).map(display => ({ display, visible: display.visible }));
+        for (const item of hidden) item.display.visible = false;
+        let rt = null;
+        try {
+            rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
+            renderer.render(spriteset, rt);
+            return renderer.extract.canvas(rt);
+        } finally {
+            if (rt) rt.destroy(true);
+            if (outline) outline.visible = outlineVisible;
+            for (const item of hidden) item.display.visible = item.visible;
+        }
+    },
+
+    name(kind, mapId, date) {
+        const d = date || new Date();
+        const pad = value => String(value).padStart(2, '0');
+        const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${String(d.getMilliseconds()).padStart(3, '0')}`;
+        return `${String(kind || 'photo').replace(/[^a-z0-9_-]/gi, '_')}_Map${String(Number(mapId) || 0).padStart(3, '0')}_${stamp}.png`;
+    },
+
+    safePngName(name) {
+        const base = String(name || 'photo.png').replace(/\\/g, '/').split('/').pop()
+            .replace(/\.png$/i, '').replace(/[^a-z0-9_.-]/gi, '_').replace(/^\.+/, '').slice(0, 160);
+        return (base || 'photo') + '.png';
+    },
+
+    desktopRoot() {
+        if (typeof require !== 'function' || typeof process === 'undefined') return null;
+        const path = require('path');
+        const main = process.mainModule && process.mainModule.filename;
+        return main ? path.dirname(main) : process.cwd();
+    },
+
+    inside(root, target, path) {
+        const relative = path.relative(root, target);
+        return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
+    },
+
+    saveCanvas(canvas, name) {
+        if (!canvas || typeof canvas.toDataURL !== 'function') throw new Error('The picture could not be rendered.');
+        const safe = this.safePngName(name);
+        const dataUrl = canvas.toDataURL('image/png');
+        if (!/^data:image\/png;base64,/.test(dataUrl)) throw new Error('The renderer did not make a PNG.');
+        const desktop = typeof Utils !== 'undefined' && Utils && typeof Utils.isNwjs === 'function' && Utils.isNwjs();
+        if (!desktop) {
+            if (typeof document === 'undefined' || !document.createElement) throw new Error('This browser cannot download the picture.');
+            const link = document.createElement('a');
+            link.download = safe; link.href = dataUrl; link.style.display = 'none';
+            if (document.body && document.body.appendChild) document.body.appendChild(link);
+            if (typeof link.click === 'function') link.click();
+            if (typeof link.remove === 'function') link.remove();
+            else if (link.parentNode) link.parentNode.removeChild(link);
+            return { kind: 'download', name: safe };
+        }
+        if (typeof require !== 'function' || typeof Buffer === 'undefined') throw new Error('Desktop picture saving is unavailable.');
+        const fs = require('fs'), path = require('path'), root = this.desktopRoot();
+        if (!root) throw new Error('The game folder could not be found.');
+        const canonicalRoot = fs.realpathSync(path.resolve(root));
+        const requestedFolder = path.resolve(canonicalRoot, 'screenshots');
+        fs.mkdirSync(requestedFolder, { recursive: true });
+        const folder = fs.realpathSync(requestedFolder);
+        if (folder === canonicalRoot || !this.inside(canonicalRoot, folder, path)) throw new Error('The screenshots folder is outside the game.');
+        const stem = path.basename(safe, '.png');
+        const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+        let out = null, fd = null;
+        for (let suffix = 0; suffix < 10000 && fd === null; suffix++) {
+            const candidate = path.resolve(folder, `${stem}${suffix ? `-${suffix}` : ''}.png`);
+            if (path.dirname(candidate) !== folder) throw new Error('The picture name is outside screenshots.');
+            try { fd = fs.openSync(candidate, 'wx'); out = candidate; }
+            catch (error) { if (!error || error.code !== 'EEXIST') throw error; }
+        }
+        if (fd === null) throw new Error('No unused picture name was available.');
+        try { fs.writeFileSync(fd, bytes); }
+        catch (error) { try { fs.closeSync(fd); } catch (closeError) {} try { fs.unlinkSync(out); } catch (unlinkError) {} throw error; }
+        fs.closeSync(fd);
+        return { kind: 'file', name: path.basename(out), path: out };
+    }
+};
 // Player choices are kept in MZ's config, independently of the maker's settings.
 DocsDoodads.Comfort = {
     choices() {
@@ -5347,6 +5521,19 @@ DocsDoodads.api = {
     },
 
     /**
+     * Reads deterministic weather spans for the next days, assuming the current season.
+     * @param {number} [days]
+     * @returns {object[]}
+     */
+    forecast(days = 7) { return DocsDoodads.Climate.forecast(days); },
+
+    /**
+     * Gives weather control back to the climate after an event's Set Weather.
+     * @returns {boolean}
+     */
+    resumeClimate() { return DocsDoodads.Climate.resume(); },
+
+    /**
      * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
      * @param {boolean | null} on
      * @returns {boolean}
@@ -5470,6 +5657,44 @@ DocsDoodads.api = {
     zoomTo(target, scale = 2, frames = 60) {
         const C = DocsDoodads.Camera2D;
         return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
+    },
+
+    /**
+     * Opens the player's Photo Mode on the current map. Returns false when its forbid switch is on.
+     * @returns {boolean}
+     */
+    photoMode() {
+        return DocsDoodads.PhotoMode.open();
+    },
+
+    /**
+     * Changes the current map's 3D camera for this visit. mode is 'orbit' or 'first'; first-person also
+     * accepts eyeHeight, pitch, fov, mouseLook and nearFade. Returns false on a flat/unloaded map.
+     * @param {object} options
+     * @param {number} [frames]
+     * @returns {boolean}
+     */
+    camera3d(options, frames = 0) {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gameMap.docsMoveCamera !== 'function') return false;
+        const input = options || {};
+        const P = DocsDoodads.Perspective;
+        const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
+        const current = P.active() || P.normalize(mine);
+        const target = {};
+        if (input.mode === 'first' || input.mode === 'orbit') target.mode = input.mode;
+        const mode = target.mode || current.mode;
+        for (const key of ['yaw', 'zoom', 'curvature', 'eyeHeight', 'nearFade']) {
+            if (input[key] !== undefined && input[key] !== null && input[key] !== '') target[key] = Number(input[key]);
+        }
+        if (input.pitch !== undefined && input.pitch !== null && input.pitch !== '') target[mode === 'first' ? 'firstPitch' : 'pitch'] = Number(input.pitch);
+        if (input.fov !== undefined && input.fov !== null && input.fov !== '') target[mode === 'first' ? 'firstFov' : 'fov'] = Number(input.fov);
+        if (input.mouseLook !== undefined) target.mouseLook = Boolean(input.mouseLook);
+        if (input.curve === 'flat' || input.curve === 'sphere' || input.curve === 'cylinder') target.curve = input.curve;
+        if (target.mode === 'first') $gameMap._docsFirstPersonMode = target.yaw !== undefined;
+        else if (target.mode === 'orbit') $gameMap._docsFirstPersonMode = false;
+        if ((target.mode === 'orbit' || target.mouseLook === false) && P.releaseMouseLook) P.releaseMouseLook();
+        $gameMap.docsMoveCamera(target, Number(frames) || 0);
+        return true;
     },
 
     // ---- The calendar (the running clock's days; World > Day and Night) ----
@@ -5811,7 +6036,9 @@ DocsDoodads.World = {
     merge(base, over) {
         const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
         for (const key of Object.keys(over || {})) {
-            base[key] = plain(base[key]) && plain(over[key]) ? this.merge(base[key], over[key]) : over[key];
+            const own = Object.prototype.hasOwnProperty.call(base, key) ? base[key] : undefined;
+            const value = plain(own) && plain(over[key]) ? this.merge(own, over[key]) : over[key];
+            Object.defineProperty(base, key, { value, writable: true, enumerable: true, configurable: true });
         }
         return base;
     },
@@ -6602,6 +6829,67 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         }
     });
 }
+//==========================================================
+// SECTION 5C3: SEEDED SEASONAL CLIMATE
+//==========================================================
+DocsDoodads.World.defaults.climate = { enabled: false, seed: 1, seasons: {} };
+DocsDoodads.World._cache = null;
+DocsDoodads.Climate = {
+    types: ['none', 'rain', 'storm', 'snow', 'fog', 'windy'],
+    settings() { return DocsDoodads.World.settings().climate; },
+    enabled() { return this.settings().enabled === true; },
+    normalizeRow(row) {
+        const r = row || {}, number = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+        return { type: this.types.includes(r.type) ? r.type : 'none', power: number(r.power, 5, 0, 9), chance: number(r.chance, 0, 0, 100), hours: number(r.hours, 6, 0.25, 24) };
+    },
+    // Chance is a weight out of 100; any unassigned share is clear. Hours is each chosen span's duration.
+    day(dayNumber, season, table, seed) {
+        const raw = Array.isArray(table) ? table : table && Object.prototype.hasOwnProperty.call(table, season) ? table[season] : [];
+        const rows = (Array.isArray(raw) ? raw : []).slice(0, 64).map(row => this.normalizeRow(row)).filter(row => row.chance > 0);
+        const sum = rows.reduce((total, row) => total + row.chance, 0);
+        if (!sum) return [{ start: 0, end: 1440, type: 'none', power: 0 }];
+        if (sum < 100) rows.push({ type: 'none', power: 0, chance: 100 - sum, hours: 6 });
+        const total = Math.max(100, sum);
+        let random = 2166136261;
+        for (const c of `${Math.max(1, Math.floor(Number(dayNumber) || 1))}|${String(season)}|${String(seed)}`) random = Math.imul(random ^ c.charCodeAt(0), 16777619) >>> 0;
+        const rand = () => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random / 4294967296; };
+        const spans = [];
+        for (let start = 0; start < 1440;) {
+            let roll = rand() * total, chosen = rows[rows.length - 1];
+            for (const row of rows) { roll -= row.chance; if (roll < 0) { chosen = row; break; } }
+            const end = Math.min(1440, start + Math.max(15, Math.round(chosen.hours * 60)));
+            const power = chosen.type === 'none' ? 0 : chosen.power, previous = spans[spans.length - 1];
+            if (previous && previous.type === chosen.type && previous.power === power) previous.end = end;
+            else spans.push({ start, end, type: chosen.type, power });
+            start = end;
+        }
+        return spans;
+    },
+    seed() {
+        const saved = typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsClimate;
+        const value = saved && Number.isFinite(Number(saved.seed)) ? saved.seed : this.settings().seed;
+        return (Number(value) || 0) >>> 0;
+    },
+    state(create) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
+        if (!$gameSystem._docsClimate && create) $gameSystem._docsClimate = { seed: this.seed(), held: false };
+        return $gameSystem._docsClimate || null;
+    },
+    season() {
+        const names = DocsDoodads.World.settings().seasons.names || ['Spring'];
+        const index = Math.max(0, DocsDoodads.Atmosphere.season());
+        return String(names[index] || names[0] || 'Spring');
+    },
+    forecast(days = 7) {
+        const count = Math.max(1, Math.min(31, Math.floor(Number(days) || 7))), today = Math.max(1, DocsDoodads.Calendar.day());
+        const season = this.season(), table = this.settings().seasons, seed = this.seed();
+        return Array.from({ length: count }, (_, index) => ({ day: today + index, season, spans: this.day(today + index, season, table, seed) }));
+    },
+    describe(forecast) {
+        const time = minute => DocsDoodads.TimeOfDay.format(minute === 1440 ? 0 : minute);
+        return forecast.map(day => `Day ${day.day}: ${day.spans.map(span => `${time(span.start)}–${span.end === 1440 ? '24:00' : time(span.end)} ${span.type === 'none' ? 'clear' : span.type}`).join(', ')}`).join('\n');
+    }
+};
 //==========================================================
 // SECTION 5D: POST-PROCESSING (LOOKS, PRESETS, PASSES, SCREEN EFFECTS, MAP IMAGE EXPORT)
 //==========================================================
@@ -7926,6 +8214,36 @@ DocsDoodads.SpatialSound = {
 };
 
 //==========================================================
+// SECTION 6Q: AUTOMATIC EFFECTS QUALITY
+//==========================================================
+DocsDoodads.AutoQuality = {
+    level: 0,
+    pending: null,
+    initial() { return { age: 0, average: 1000 / 60, slow: 0, fast: 0, wait: 0 }; },
+    // Negative means slower detail, positive means more detail. Time is milliseconds of valid frames.
+    step(state, frameMs) {
+        const dt = Number(frameMs);
+        if (!Number.isFinite(dt) || dt <= 0 || dt > 250) return 0;
+        state.age += dt;
+        state.average += (dt - state.average) * (1 - Math.exp(-dt / 700));
+        state.wait = Math.max(0, state.wait - dt);
+        if (state.age < 2000 || state.wait > 0) { state.slow = state.fast = 0; return 0; }
+        state.slow = state.average > 22 ? state.slow + dt : 0;
+        state.fast = state.average < 18 ? state.fast + dt : 0;
+        const change = state.slow >= 2400 ? -1 : state.fast >= 12000 ? 1 : 0;
+        if (change) { state.slow = state.fast = 0; state.wait = 3500; }
+        return change;
+    },
+    clamp(value) { return Math.max(0, Math.min(3, Math.round(Number(value) || 0))); },
+    defaultAuto() { return parseBooleanParameter(parameters.startPlayersOnAuto, false); }
+};
+
+// All renderers read this resolved choice. ConfigManager retains the player's literal Auto selection.
+DocsDoodads.qualityOption = function() {
+    const option = typeof ConfigManager !== 'undefined' ? Number(ConfigManager.docsFxQuality) || 0 : 0;
+    return option === 4 ? DocsDoodads.AutoQuality.clamp(DocsDoodads.AutoQuality.level) : Math.max(0, Math.min(3, option));
+};
+//==========================================================
 // SECTION 4I: SEEDED BIOME AND DRESSING PLANS (GAME-SAFE CORE)
 //==========================================================
 // One pure implementation is shared by editor brushes and generated maps in deployed games.
@@ -8054,6 +8372,76 @@ DocsDoodads.Dress = {
             }
         }
         return out;
+    }
+};
+// @editor-only
+// The ledger records the maker's statements; it never infers permissions from a licence name or text.
+DocsDoodads.Credits = {
+    licences: ['CC0', 'CC-BY 4.0', 'CC-BY-SA 4.0', 'OGA-BY 3.0', "Bought: see the shop's terms", 'My own'],
+    path(value, folder = false) {
+        const p = String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+        if (!/^(?:img|audio|models|movies|effects)(?:\/|$)/i.test(p) || /[:\x00-\x1f]/.test(p) || p.split('/').some(s => !s || s === '.' || s === '..')) return null;
+        return folder || p.includes('/') ? p : null;
+    },
+    normalize(credit) {
+        if (!credit || typeof credit !== 'object') return null;
+        const clean = (value, limit, multiline) => String(value || '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '').replace(/\r\n?/g, '\n')
+            .replace(multiline ? /[\t ]+$/gm : /\s+/g, multiline ? '' : ' ').trim().slice(0, limit);
+        const out = { author: clean(credit.author, 512), licence: clean(credit.licence, 256), source: clean(credit.source, 2048), note: clean(credit.note, 65536, true) };
+        return Object.values(out).some(Boolean) ? out : null;
+    },
+    of(file, metadata = {}) {
+        const path = this.path(file);
+        if (!path) return null;
+        const key = path.toLowerCase(), assets = metadata.assets || {}, folders = metadata.folderCredits || {};
+        const own = this.normalize(assets[key] && assets[key].credit) || this.normalize((metadata.fileCredits || {})[key]);
+        if (own) return own;
+        let folder = key.slice(0, key.lastIndexOf('/'));
+        while (folder) {
+            const credit = this.normalize(folders[folder]);
+            if (credit) return credit;
+            const slash = folder.lastIndexOf('/');
+            folder = slash < 0 ? '' : folder.slice(0, slash);
+        }
+        return null;
+    },
+    complete(credit) { return Boolean(credit && credit.author && credit.licence); },
+    missing(list) { return (list || []).filter(row => !this.complete(row.credit)); },
+    text(list) {
+        const groups = new Map();
+        for (const row of (list || []).slice().sort((a, b) => String(a.path).localeCompare(String(b.path)))) {
+            const credit = this.normalize(row.credit) || { author: '', licence: '', source: '', note: '' };
+            const key = JSON.stringify([credit.author, credit.licence]);
+            if (!groups.has(key)) groups.set(key, { credit, files: [], sources: new Set(), notes: new Set() });
+            const group = groups.get(key);
+            group.files.push(row.path);
+            if (credit.source) group.sources.add(credit.source);
+            if (credit.note) group.notes.add(credit.note);
+        }
+        const lines = ['ART CREDITS', '', 'Credit information recorded by the project maker.', ''];
+        for (const group of [...groups.values()].sort((a, b) => (a.credit.author + a.credit.licence).localeCompare(b.credit.author + b.credit.licence))) {
+            lines.push(group.credit.author || 'Author not recorded', 'Licence: ' + (group.credit.licence || 'not recorded'));
+            for (const file of group.files) lines.push('  ' + file);
+            for (const source of group.sources) lines.push('Source: ' + source);
+            for (const note of group.notes) lines.push('Note: ' + note);
+            lines.push('');
+        }
+        if (!groups.size) lines.push('(No referenced art found.)', '');
+        return lines.join('\n');
+    },
+    notesFromFiles(files) {
+        const out = [];
+        for (const file of files || []) {
+            const name = String(file.name || '').replace(/\\/g, '/');
+            if (!this.noteFile(name) || !file.data || file.data.length > 65536) continue;
+            const note = new TextDecoder('utf-8').decode(file.data).replace(/\x00/g, '').trim();
+            if (note) out.push({ name, note: note.slice(0, 65536) });
+            if (out.length >= 20) break;
+        }
+        return out;
+    },
+    noteFile(name) {
+        return /(?:^|\/)(?:licen[cs]e|copying|credits?|readme)(?:[._ -][^/]*)?$/i.test(String(name || '').replace(/\\/g, '/'));
     }
 };
 // @editor-only
@@ -8914,6 +9302,80 @@ DocsDoodads.Generate = {
     }
 };
 // @editor-only
+// Conservative defaults for new pictures. Shape alone never identifies an object.
+DocsDoodads.Guess = {
+    words: {
+        lamp: ['lamp', 'lamps', 'lantern', 'lanterns', 'torch', 'torches', 'streetlight'],
+        tree: ['tree', 'trees', 'oak', 'pine', 'fir', 'spruce', 'palm'],
+        bush: ['bush', 'bushes', 'shrub', 'shrubs', 'hedge'],
+        rock: ['rock', 'rocks', 'boulder', 'boulders', 'stone', 'stones'],
+        building: ['house', 'houses', 'building', 'buildings', 'hut', 'cottage', 'tower'],
+        fence: ['fence', 'fences', 'railing', 'palisade'],
+        water: ['water', 'pond', 'puddle', 'river', 'lake'],
+        fire: ['fire', 'campfire', 'flame', 'bonfire'],
+        sign: ['sign', 'signs', 'signpost']
+    },
+    fields: ['depth', 'light', 'motion', 'shadow', 'seeThrough', 'collision', 'particles'],
+    descriptions: {
+        lamp: 'lit after dark', tree: 'gentle sway, see-through and trunk collision',
+        bush: 'gentle sway and a solid base', rock: 'a solid base', building: 'a solid base',
+        fence: 'a thin wall', water: 'below characters', fire: 'warm light and embers', sign: 'a solid base'
+    },
+    tokens(text) {
+        return String(text || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().match(/[\p{L}]+/gu) || [];
+    },
+    kindOf(asset, extra = {}) {
+        const a = asset || {};
+        const tokens = new Set(this.tokens([a.name || a.fileName || '', a.folder || '', ...(Array.isArray(a.tags) ? a.tags : [])].join(' ')));
+        const matches = Object.keys(this.words).filter(kind => this.words[kind].concat(Array.isArray(extra[kind]) ? extra[kind].slice(0, 100).filter(w => typeof w === 'string' && w.length < 80) : [])
+            .some(word => { const parts = this.tokens(word); return parts.length === 1 && tokens.has(parts[0]); }));
+        return matches.length === 1 ? matches[0] : null;
+    },
+    settingsFor(kind) {
+        const sway = { type: 'sway', amount: 0.15, speed: 0.7 };
+        const collision = preset => ({ preset, shape: null });
+        if (kind === 'lamp' || kind === 'fire') return {
+            light: Object.assign({}, DocsDoodads.LightPresets.apply({}, kind === 'lamp' ? 'lantern' : 'campfire'), { enabled: true, when: kind === 'lamp' ? 'dark' : 'always' }),
+            ...(kind === 'fire' ? { particles: { enabled: true, preset: 'embers' } } : {})
+        };
+        if (kind === 'tree') return { motion: sway, seeThrough: 'on', collision: collision('trunk') };
+        if (kind === 'bush') return { motion: sway, collision: collision('bottomThird') };
+        if (['rock', 'building', 'sign'].includes(kind)) return { collision: collision('bottomThird') };
+        if (kind === 'fence') return { collision: collision('thinWall') };
+        if (kind === 'water') return { depth: 'below' };
+        return {};
+    },
+    kind(asset, extra) {
+        if (!asset || (asset.type && asset.type !== 'doodad')) return null;
+        if (asset.guess && Object.prototype.hasOwnProperty.call(asset.guess, 'kind')) return Object.prototype.hasOwnProperty.call(this.words, asset.guess.kind) ? asset.guess.kind : null;
+        const folder = String(asset.path || '').replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+        return this.kindOf(Object.assign({}, asset, { folder: asset.folder || folder }), extra);
+    },
+    merge(base, own) {
+        const out = JSON.parse(JSON.stringify(base));
+        for (const key of Object.keys(own || {})) {
+            if (['__proto__', 'prototype', 'constructor'].includes(key) || own[key] === undefined) continue;
+            const value = own[key];
+            out[key] = value && typeof value === 'object' && !Array.isArray(value)
+                ? this.merge(out[key] && typeof out[key] === 'object' ? out[key] : {}, value)
+                : JSON.parse(JSON.stringify(value));
+        }
+        return out;
+    },
+    apply(base, asset, enabled, extra) {
+        const guessed = enabled ? this.settingsFor(this.kind(asset, extra)) : {};
+        let out = this.merge(base, guessed);
+        const p = asset.placement || {}, defaults = p.defaults || {};
+        const own = {};
+        for (const key of this.fields) if (Object.prototype.hasOwnProperty.call(defaults, key)) own[key] = defaults[key];
+        if (DocsDoodads.Depth.modes.includes(p.depth || asset.depth)) own.depth = p.depth || asset.depth;
+        // Legacy collision metadata is authored. New entries explicitly mark their initial None.
+        if (asset.collision && (asset.collisionUserSet !== false || asset.collision.shape || asset.collision.preset !== 'none')) own.collision = asset.collision;
+        out = this.merge(out, own);
+        return out;
+    }
+};
+// @editor-only
 // Guide headings and the first paragraph of each section. Run npm run help after editing the guide.
 DocsDoodads.HelpIndex = [
     {
@@ -8942,9 +9404,19 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": ""
     },
     {
+        "title": "Guessed settings on new pictures",
+        "anchor": "guessed-settings-on-new-pictures",
+        "firstParagraph": "A picture with a clear name, tag or folder can start with useful settings: a lamp is lit after dark, a tree has gentle sway and see-through, and water sits below characters. Ambiguous names and unknown pictures receive no guess. Character sheets are excluded. Saved depth, collision and other item defaults take priority. Older collision defaults are preserved."
+    },
+    {
         "title": "The editor at a glance",
         "anchor": "the-editor-at-a-glance",
         "firstParagraph": "New installs start in Simple mode: Select, Stamp, Scatter and Tiles, with a short Details panel. Show Everything on the top bar brings back the full editor; Keep It Simple shortens it again. The same switch is in View → Look and Find a Tool. Ctrl+K and the keys still reach every tool. A hidden tool used that way stays on the bar until Done. Existing saved editor preferences keep the full editor on the first run after an update."
+    },
+    {
+        "title": "Player Photo Mode",
+        "anchor": "player-photo-mode",
+        "firstParagraph": "During play, P opens Photo Mode on the current map. The map, events and timer pause while sprites keep rendering. Arrows move the flat camera within four tiles of the player, or turn the 3D view; the wheel zooms. Choose a screen look, hide the player and followers, then Save PNG. The controls stay out of the picture. Escape or Exit returns the exact camera, look, zoom and visibility from before composing. A failed capture also returns to play."
     },
     {
         "title": "Navigation & Views",
@@ -8999,7 +9471,12 @@ DocsDoodads.HelpIndex = [
     {
         "title": "8. World Atmosphere: Day & Night, Sun Shadows, See-Through, Water, Seasons, Motion Blur",
         "anchor": "8-world-atmosphere-day--night-sun-shadows-see-through-water-seasons-motion-blur",
-        "firstParagraph": "These settings apply to the whole game. With nothing selected, Details shows the map panel. Its sections marked All maps hold them, and the Lighting section has three per-map switches. Everything is undoable and saved in data/DocsDoodads.json."
+        "firstParagraph": ""
+    },
+    {
+        "title": "Seasonal climate and forecasts",
+        "anchor": "seasonal-climate-and-forecasts",
+        "firstParagraph": "Enable World → Climate → Weather follows the season and day and set a weather table for each named season. Each row chooses Clear, Rain, Storm, Snow, Fog or Windy, its power, chance and hours per spell. Chances are weights out of 100: an unassigned share is clear, and totals above 100 scale proportionally. Identical adjacent spells join. Fog adds temporary flat-map fog banks or closes in the 3D fog; Windy controls wind with MZ rain set to none. Authored picture layers stay intact."
     },
     {
         "title": "Day and Night",
@@ -9084,7 +9561,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Looks and presets",
         "anchor": "looks-and-presets",
-        "firstParagraph": "Map → Moods opens bundles such as Rainy Forest, Cosy Night Village and Cave. Point or focus one to try it; leave to put the map back. Click to keep its light, look, fog and echo as one undo step. Other settings and your own picture layers stay as they were. Time, weather and wind are previews only: use the game's clock and weather commands for play. Save Current as a Mood keeps your own bundle in this project's map presets. - Editing: Game-wide look applies to every map and to battles. Editing: This map chooses what the current map uses: The game-wide look, No effects, or Its own look. A map's own look starts as a copy of the game-wide one. - Presets: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it. - Hold to Compare shows the map without effects while the button is held. Show while editing turns effects off in the editor only. - Affect pictures: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected. - Quality: Low skips tilt-shift and uses a lighter bloom blur. Players also get an Effects Quality option in the Options menu (High, Medium, Low, Off). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14)."
+        "firstParagraph": "Map → Moods opens bundles such as Rainy Forest, Cosy Night Village and Cave. Point or focus one to try it; leave to put the map back. Click to keep its light, look, fog and echo as one undo step. Other settings and your own picture layers stay as they were. Time, weather and wind are previews only: use the game's clock and weather commands for play. Save Current as a Mood keeps your own bundle in this project's map presets. - Editing: Game-wide look applies to every map and to battles. Editing: This map chooses what the current map uses: The game-wide look, No effects, or Its own look. A map's own look starts as a copy of the game-wide one. - Presets: Cinematic, Golden Hour, Dreamy, Retro CRT, Noir, Horror, Underwater, Miniature and Pixel Art. Apply one, then adjust it. - Hold to Compare shows the map without effects while the button is held. Show while editing turns effects off in the editor only. - Affect pictures: off by default, so pictures and the timer stay crisp. Message windows and menus are never affected. - Quality: Low skips tilt-shift and uses a lighter bloom blur. Players also get an Effects Quality option in the Options menu (High, Medium, Low, Off, Auto). It can lower the project's quality, never raise it, and it also scales the 3D view down (section 14). Auto ignores map warm-up and long stalls, waits before lowering detail, waits longer before raising it, and remembers the settled level. Changes use a half-second frame fade or wait for an already pending transfer. Start players on Auto in Plugin Manager is off by default; existing player choices take priority."
     },
     {
         "title": "Looks by time and by region",
@@ -9269,7 +9746,12 @@ DocsDoodads.HelpIndex = [
     {
         "title": "14. 3D View",
         "anchor": "14-3d-view",
-        "firstParagraph": "Any map can be shown in 3D. Open 3D View (this map) in the map panel and tick Show this map in 3D. New to the 3D view? Your First 3D Map is a short walkthrough with screenshots. - The map's tiles lie on a ground plane seen in perspective. - Characters, their gear and standing doodads (trees, lamps, statues, buildings) stand up as billboards. They shrink with distance and are drawn far to near. - Floor doodads (the Below characters layer), shadows, water reflections, the click-to-walk marker and the editor grid lie on the ground with the tiles."
+        "firstParagraph": ""
+    },
+    {
+        "title": "First-person camera",
+        "anchor": "first-person-camera",
+        "firstParagraph": "In this map’s 3D settings, Camera → First person puts the camera at the player’s feet plus Eye height, measured in tiles above the terrain. Look tilt and field of view have their own first-person settings. Up walks forward, Down steps back without turning the player away from an action event, and Left/Right turn 90 degrees with a short ease. The player’s own billboard disappears; followers remain. Fade nearby billboards keeps close props from filling the view and does not affect orbit maps."
     },
     {
         "title": "Camera",
@@ -9364,7 +9846,12 @@ DocsDoodads.HelpIndex = [
     {
         "title": "20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing",
         "anchor": "20-asset-management-where-used-renamemove-duplicates-live-reload-packing",
-        "firstParagraph": "- Where Used (the asset's Details) lists every map event, page, command, database entry (actors, enemies, tilesets, system, common events, troops), doodad, and prefab that uses the file. - Rename/Move renames or moves the file and updates every reference in one transaction, backing up changed files first. RPG Maker refers to most files by name inside a fixed folder, so those can be renamed but not moved to another folder; doodad images can move anywhere under img/. Atlas metadata and the other audio format (.ogg/.m4a) move with the file. Save first; if the project is open in RPG Maker MZ, reload it there afterwards. - Art → File Check → Find Unused Files lists files nothing references (engine system files are never listed). Plugins and scripts can also load files by name, so check before deleting. - Art → File Check → Find Duplicates finds byte-identical files and near-identical images (resized or re-saved). More Like This shows the images that look most like the selected one. Image fingerprints are computed once and cached in the library. - Live Reload: while the workspace is open, saving an image or sound in another program updates the Item Bag, thumbnails, and placed doodads within a moment. - MZ characters (Art → Characters, at the top): a creator made from the parts of RPG Maker MZ's own Character Generator, which come with RPG Maker MZ (Steam, official site). In a playtest the editor finds MZ's generator folder by itself, on Windows or inside the app on macOS (Choose... if MZ is somewhere else). Scan the Parts reads them (the scan lists any mask colour that is no colour slot, whose pixels keep their colour); they are read where they are and never copied into the project, and characters made from them may be used in games made with RPG Maker MZ. Open the MZ Creator is the same window as the LPC creator, with the same keys, gamepad and dice. Body type is Male, Female or Kid, and the pickers are the generator's: skin, face, ears, beast ears, eyes, eyebrows, nose, mouth, facial mark, front and rear hair, beard, clothing, cloak, accessories A and B, glasses, wing and tail. Colours are the character's colour slots, shared as in MZ's generator: the hair colour changes the front hair, rear hair, eyebrows and beard together; clothing has up to four colours, picked on tabs in its swatch's palette. A part offers every colour slot it has, on its face pictures or on its walking and battler pictures (a cloak's second colour, the eyes on the walking body). As drawn keeps a part's own colours; a ramp recolours it, keeping the shading. The stage plays the walk, the damaged pose, the face portrait and MZ's 18 battle motions. Export to RPG Maker writes MZ's own layouts: the walking character $Name.png, the damaged character $Namedamage[f3][d1].png (for Play Character Action or an event), the side-view battler img/svactors/Name.png and the face img/faces/Name.png, in the slot you pick. Characters are saved in data/DocsDoodadsMzCharacters.json with their colours. The colours are close to MZ's generator but not always identical: Doc's Doodads recolours by brightness. - Characters (Art → Characters) has a group for each library (MZ's generator, LPC, Memao), each folded or open as you last left it. The LPC group: where the LPC character library (a copy of the Universal LPC Spritesheet Character Generator: Code → Download ZIP on GitHub, or clone it; about 1.5 GB, free) is on this computer. Keep it outside the project: MZ's Deployment copies everything in the project folder, and the card warns if it is inside. Scan the Library reads its parts, colours and credits into the editor's cache (it says when the library has changed since). Only art that is safe to encrypt (CC0, OGA-BY) is on for a new project: CC-BY and CC-BY-SA art may not be locked away, which \"Encrypt image files\" does. Every picture made from the library has its artists recorded in data/DocsDoodadsCredits.json; Write CREDITSLPC.txt puts them in a file that ships with the game, and Problems says when it needs writing again and which pictures can't be encrypted. Try it shows a random character from the library walking (Shuffle for another, the arrows to turn it), to check the library reads and draws. Only art that is safe to encrypt is also at the top of the creator, with how many parts it lets through (for example 512 of 657). Where it hides parts in the tab you're on, a line says how many, with Show all parts to turn it off. Tick it again at the top to go back. Open the Creator makes a character: body, skin, head, ears and nose, face, hair and extras on the left; hat, mask, shirt, jacket, armour, cape, belt, gloves, trousers, shoes, weapons and back on the right, each with ◀ ▶ through what fits the body and a colour swatch (click it for every colour; right-click for the one before). The character walks on the stage; turn it, play its other animations (the parts that don't have one are named), and roll the dice for a new body or outfit. Save keeps it by name in data/DocsDoodadsCharacters.json; Load brings it back. Credits lists who drew what you are wearing. Click a row's value (or press Enter on it) to see all its choices at once in a grid of small pictures, None first, the one worn marked: type to find one by name, the arrows move, Enter or a click picks it, Esc clears what you typed and then closes (on a gamepad: the right stick opens it, the d-pad moves, A picks, B closes). MZ's tiles are the generator's own icons. The padlock at the start of a row (or L) keeps that row as it is when you roll the dice; the dice give a new face and hair on the same body type, and Shift+X a new body type too (one your locked parts fit, unless the body type row is locked). Ctrl+Z goes back a step (the last 20: changes, colours, rolls, loads). Memao's long hair, side hair and eyebrows take the hair's colour, shown by a chain where their swatch would be; click it (or K) to give one its own colour, and again to link it back. Keys: ↑ ↓ choose a row, ← → change it, Shift for its colour, C its next colour (a part with several, shown by a number on the swatch), Q/E tabs, [ or ] the other side, X/Y dice, Esc closes; Tab and Shift+Tab move between the buttons as in any dialog, and what changes is read out to screen readers. A gamepad works the same way (hold A for the next colour, hold X for a new body type, Y with a direction locks the row, Back with B undoes). The window follows its size: made smaller than 1120 pixels it shows one side at a time. In MZ's own window size the two sides take turns (Body & face / Outfit). Export to RPG Maker (name the character first) writes, as ticked: the classic walker $Name.png (MZ's 3-frame walk, which works without the plugin); the smooth walker $Name[f9][w2].png with $Nameidle[f2].png and $Namerun[f8].png, and the animation set that plays them (breathing after standing a moment, running when dashing); and the face in img/faces/Name.png, in the slot you pick from the sheet's eight faces, shown as they are now (the sheet's other faces are kept; held weapons and back gear are left out of it). Pick the sheets in MZ's database as for any character. Every file's artists are recorded and CREDITSLPC.txt is written again; a character using art that can't be encrypted says so. Exporting again asks before replacing pictures. Export recipe... and Import recipe... (under Load) keep one character in a file of its own, anywhere on the computer, to keep or give to someone; a recipe opens in the creator that made it (another creator says which to switch to), and parts the library no longer has are left out and named. With more than one library scanned, the list beside the creator's title switches to another (MZ, LPC or Memao) keeping the name, and each library's character is kept for coming back; Character Creator... in the palette (Ctrl+K) opens the one used last. Under the High contrast look the window is black on white too. Try on the player shows it on the player at once (this playtest only). Also in the export: a side-view battler (img/svactors/Name.png, MZ's 18 battle motions from the character's walk, idle, spellcast, guard, hurt, jump, thrust, slash, shoot and emote; pick it as the actor's battler) and actions for Play Character Action: $Nameslash[f6], $Namethrust[f8], $Namespellcast[f7], $Nameshoot[f13], $Namehurt[f6] and others you tick (sit, emote, jump, climb...). Good speeds: slash and thrust 12 frames a second, shoot 14, spellcast 10, hurt 8 (Hold the Last Frame for a fall). LPC figures fill less of their frame than MZ's own battlers, so they look a little smaller in battle. Big weapons (most swords, spears and polearms, which the library draws on 128- or 192-pixel frames) are drawn at their size. The stage shows the whole swing, and the sheets that use them get bigger frames standing on the character's feet like the rest (MZ splits a tagged sheet evenly, so nothing else is needed). Action sheets keep the whole frame (192 × 192), with the art below the feet, such as the tip of a downward thrust, and the plugin stands them on their feet; walkers and the battler, which work without the plugin, leave the few pixels below the feet out. A spear, katana or bow carried on 128-pixel frames gives the walkers 128 × 96 frames. The battler's cells grow to fit (192 × 128 for a big swing) with the body at its usual size, and battle animations still play on the figure as on any 64-pixel battler (the export notes the figure's height in the project's settings; [h64] in a battler's name does the same for other art). The export says which sheets are bigger. Backswing (the slash reverse action, $Nameslashreverse[f6]) plays the slash backwards, with the return-swing art of the weapons that have it (the club and boomerang swing that way on Slash too). Exported as Visual Equipment parts, a big weapon gets the same bigger frames, drawn on the same feet over the 64-pixel body. - Memao characters (Art → Characters, at the bottom): the asset pack of the Memao Sprite Sheet Creator by Sleeping Robot Games (bought separately, on itch.io). Unpack memao-assets.zip somewhere outside the project and choose that folder. Its export has Stand on the tile's bottom (on at first): every frame 6 pixels lower, so the feet are where MZ's own characters stand (a sheet whose frames reach their bottom is left as it was, and the export says which). Where the pack has more than one of a prop (the food, drink, book or easel of the Eat, Drink, Read and Paint animations), the Tools tab has a row to choose it; None is the pack's first. The pack's licence lets the sheets you make go into your games, but not the pack itself, or the sheets on their own; the editor reads the pack where it is and never copies it, and the card warns if the folder is inside the project. Scan the Assets reads its parts (names from its README, draw order from its zindexplayerlibrary.json). Open the Memao Creator is the same window as the LPC creator, with the same keys, gamepad and dice. The body type is the arms (Average, Dainty, Broad); sleeves follow them. Skin, hair, eyes and clothes take Doc's Doodads' colour ramps. Head, arms and ears follow the skin; sleeves follow their shirt or jacket. Other parts: horns, eyebrows, face, three layers of hair, glasses, two of headwear, back, shirt, jacket, bottom, waist, socks, shoes, neck, shoulders, middle and gloves, plus a Tools tab (sword, axe, field tool, scythe, seed bag, watering can) that shows in the animations that use them. The stage plays all 22 animations: walk, idle, run, slash, hurt, downed, death, pick up, strike, chop, reap, seed, water, eat, drink, laugh, wave, think, shrug, sit, read and paint. Export to RPG Maker writes 48-pixel frames, MZ's own size: $Name.png (classic), $Name[f7][w2].png with $Nameidle[f4] and $Namerun[f6] and their animation set, actions like $Namewave[f4], a side-view battler (432 × 288) and a face. Characters are saved in data/DocsDoodadsMemaoCharacters.json. Memao figures are small (about 16 × 32), so they look smaller than MZ's own characters. In a side-view battle, MZ also draws its own sprite for the equipped weapon; for a character that holds its weapon in the sheet, set the weapon type's attack motion to no image in the database. Credit to \"Memao\" is appreciated. - Your own creator parts: each Characters group has an optional My parts folder. Lay it out like that creator's normal source: MZ's TV, TVD, SV and Face folders; LPC's sheetdefinitions and spritesheets; or Memao's set folders and zindexplayerlibrary.json. Scan again to merge it with the main library. A part with the same identity is kept beside the original, and a folder/type the creator does not know becomes a row under a tab named for your folder. Saved characters and exported recipes remember that source; if the folder later moves or a part is removed, Load leaves that part out and names the folder that changed. Keep source-part folders outside the project so Deployment does not copy them into the game. - Doodad Packs (Art → Packs): tick prefabs (the prefabs inside them come too), rooms, biomes, dressing rules and collections, name the pack and Make Pack. It is one .ddpack file in the project's packs folder with the art, state pictures, sounds and models they use and those files' Item Bag entries (cut-up slices, tags, collision). It can also hold your event templates. In another project, Bring In a Pack or Zip... shows what is in it and which files differ from yours: Keep mine (the default) or Use the pack's (yours are backed up first). Items whose ids are already used are added as new ones. Only files in the project's own folders (img, audio, models, movies, effects) are ever written, never anything in data/. Making a pack with the name of one already in packs asks before replacing it, and packs and the files they bring are written whole or not at all. - A zip of art: Bring In a Pack or Zip... also takes a .zip. A pack inside it is brought in as a pack. Otherwise its pictures go in img/doodads/<zip name>/, keeping the zip's folders, and files already under img/, audio/, models/, movies/ or effects/ inside the zip keep that place. Names that would reach outside the project (.., a drive letter) are refused, other files (text, Mac folders) are left out and counted, a damaged file stops it before anything is written, and a zip that would unpack to more than 512 MB is refused. - Pack Map Art (map panel → Performance): copies the art the map's doodads use into a few sheets in img/doodads/packed/ so deployed games load fewer textures. Playtests keep using the original files unless you tick Use packed art in this playtest. The panel warns when a source image has changed since packing; pack again before deploying."
+        "firstParagraph": ""
+    },
+    {
+        "title": "Art credit ledger",
+        "anchor": "art-credit-ledger",
+        "firstParagraph": "An item’s Details has Set Credit… and Folder Credit…, and the multi-pick bar can set the same credit on several files. Record author, licence/terms, source and a note. A file’s own record wins; otherwise it takes the nearest folder’s. Clear this record / inherit folder removes an override. Moving an item preserves its inherited credit. Hover cards show the author and licence; searches accept author:, licence: (or license:), credit:none and their minus-prefixed exclusions."
     },
     {
         "title": "Character creators and My parts",
@@ -12257,7 +12744,8 @@ DocsDoodads.MapThumb = {
 // upright billboards at the projection of their foot point.
 DocsDoodads.Perspective = {
     defaults: {
-        enabled: false, pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
+        enabled: false, mode: 'orbit', pitch: 55, yaw: 0, fov: 50, zoom: 1, viewTiles: 40, fogStart: 12, fogEnd: 19,
+        eyeHeight: 0.8, firstPitch: 0, firstFov: 75, mouseLook: false, nearFade: 1,
         fogColor: '', skyColor: '#000000', voidColor: '#000000', rotate: false, smoothGround: false,
         curve: 'flat', curveRadius: 60, lean: true,
         water: true, waterStrength: 0.6, waterSpeed: 1, waterShine: 0.4, waterWakes: true,
@@ -12285,6 +12773,7 @@ DocsDoodads.Perspective = {
         const color = (v, fallback) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toLowerCase() : fallback);
         const out = {
             enabled: s.enabled === true,
+            mode: s.mode === 'first' ? 'first' : 'orbit',
             pitch: num(s.pitch, d.pitch, 20, 89),
             yaw: ((num(s.yaw, d.yaw, -100000, 100000) % 360) + 360) % 360,
             fov: num(s.fov, d.fov, 20, 100),
@@ -12325,7 +12814,12 @@ DocsDoodads.Perspective = {
             skyVideoSpeed: num(s.skyVideoSpeed, d.skyVideoSpeed, 0, 4),
             skyVideoDayNight: s.skyVideoDayNight !== false,
             skyVideoFlat: s.skyVideoFlat === true,
-            lodTiles: num(s.lodTiles, d.lodTiles, 0, 200)
+            lodTiles: num(s.lodTiles, d.lodTiles, 0, 200),
+            eyeHeight: num(s.eyeHeight, d.eyeHeight, 0.2, 2),
+            firstPitch: num(s.firstPitch, d.firstPitch, -45, 60),
+            firstFov: num(s.firstFov, d.firstFov, 40, 110),
+            mouseLook: s.mouseLook === true,
+            nearFade: num(s.nearFade, d.nearFade, 0, 4)
         };
         if (out.fogEnd <= out.fogStart) out.fogEnd = out.fogStart + 1;
         return out;
@@ -12493,9 +12987,14 @@ DocsDoodads.Perspective = {
         const F = { x: ct * sp, y: -ct * cp, z: -st };
         const R = { x: cp, y: sp, z: 0 };
         const U = { x: st * sp, y: -st * cp, z: ct };
-        const focal = (spec.height / 2) / Math.tan(spec.fov * rad / 2);
+        const baseFocal = (spec.height / 2) / Math.tan(spec.fov * rad / 2);
+        // An orbit's distance produces its zoom. A camera already placed at an eye instead changes its
+        // focal length, since moving the eye would no longer be first-person.
+        const focal = spec.eye ? baseFocal * (spec.zoom || 1) : baseFocal;
         const dist = focal / (spec.zoom || 1);
-        const C = { x: spec.target.x - F.x * dist, y: spec.target.y - F.y * dist, z: -F.z * dist };
+        const C = spec.eye
+            ? { x: Number(spec.eye.x) || 0, y: Number(spec.eye.y) || 0, z: Number(spec.eye.z) || 0 }
+            : { x: spec.target.x - F.x * dist, y: spec.target.y - F.y * dist, z: -F.z * dist };
         // Round worlds: a sphere or a cylinder (axis left-right) touching the ground at the target.
         const curve = (spec.curve === 'sphere' || spec.curve === 'cylinder') && spec.radius > 0 ? spec.curve : 'flat';
         return { C, F, R, U, focal, dist, width: spec.width, height: spec.height, target: spec.target,
@@ -12666,7 +13165,7 @@ DocsDoodads.Perspective = {
 
     // Eased camera moves. Yaw turns the short way round.
     startTween(from, to, frames) {
-        const keys = ['pitch', 'yaw', 'zoom', 'fov', 'curvature'];
+        const keys = ['pitch', 'yaw', 'zoom', 'fov', 'curvature', 'firstPitch', 'firstFov', 'eyeHeight'];
         const start = {}, end = {};
         for (const k of keys) {
             start[k] = from[k];
@@ -13866,6 +14365,77 @@ DocsDoodads.safeFrame = function(rect, width, height) {
     return { x, y, w: Math.max(1, Math.min(rect.w || width, width - x)), h: Math.max(1, Math.min(rect.h || height, height - y)) };
 };
 
+//==========================================================
+// SECTION 5I: PERSPECTIVE (3D) MODE: FIRST PERSON
+//==========================================================
+(function(P) {
+    'use strict';
+
+    const yawByDirection = { 8: 0, 9: 45, 6: 90, 3: 135, 2: 180, 1: 225, 4: 270, 7: 315 };
+
+    P.facingYaw = function(direction) {
+        return yawByDirection[Number(direction)] === undefined ? 0 : yawByDirection[Number(direction)];
+    };
+
+    P.directionForYaw = function(yaw) {
+        const q = ((Math.round((((Number(yaw) || 0) % 360) + 360) % 360 / 90) % 4) + 4) % 4;
+        return [8, 6, 2, 4][q];
+    };
+
+    // A loop-aware flat-space point at the player's feet, and an eye above the terrain there. Runtime
+    // may supply the exact render-texture target so camera and ground cannot differ by a wrapped tile.
+    P.firstPerson = function(settings, player, options) {
+        const s = this.normalize(settings);
+        const o = options || {};
+        const map = o.map || (typeof $gameMap !== 'undefined' ? $gameMap : null);
+        const tw = Number(o.tileWidth) || (map && map.tileWidth ? map.tileWidth() : 48);
+        const th = Number(o.tileHeight) || (map && map.tileHeight ? map.tileHeight() : 48);
+        const rx = Number(player && (player._realX !== undefined ? player._realX : player.x)) || 0;
+        const ry = Number(player && (player._realY !== undefined ? player._realY : player.y)) || 0;
+        const target = o.target || {
+            x: (map && map.adjustX ? map.adjustX(rx) : rx) * tw + tw / 2,
+            y: (map && map.adjustY ? map.adjustY(ry) : ry) * th + th
+        };
+        const ground = Number(o.groundHeight) || 0;
+        const direction = player && typeof player.direction === 'function' ? player.direction() : player && player._direction;
+        const yaw = Number.isFinite(Number(o.yaw)) ? ((Number(o.yaw) % 360) + 360) % 360 : this.facingYaw(direction);
+        return {
+            target: { x: target.x, y: target.y },
+            eye: { x: target.x, y: target.y, z: ground + s.eyeHeight * th },
+            pitch: s.firstPitch,
+            yaw,
+            fov: s.firstFov,
+            zoom: s.zoom
+        };
+    };
+
+    P.nearFadeAlpha = function(distance, range) {
+        const r = Math.max(0, Number(range) || 0);
+        if (!r) return 1;
+        return Math.max(0, Math.min(1, (Number(distance) || 0) / r));
+    };
+
+    P.hideFirstPersonPlayer = function(sprite, settings, player) {
+        return Boolean(settings && settings.mode === 'first' && sprite && sprite._character && sprite._character === player);
+    };
+
+    P.firstInput = function(rawDirection, yaw) {
+        const raw = Number(rawDirection) || 0;
+        if (raw === 4) return { direction: 0, turn: -90, backstep: false };
+        if (raw === 6) return { direction: 0, turn: 90, backstep: false };
+        const forward = this.directionForYaw(yaw);
+        if (raw === 8) return { direction: forward, turn: 0, backstep: false };
+        if (raw === 2) return { direction: 10 - forward, turn: 0, backstep: true };
+        return { direction: 0, turn: 0, backstep: false };
+    };
+
+    // Opening the workspace gets the familiar orbit view; this is a copy, so closing returns to the
+    // saved first-person camera without changing the map or making an undo step.
+    P.forDisplay = function(settings, editing) {
+        if (!settings || !editing || settings.mode !== 'first') return settings;
+        return Object.assign({}, settings, { mode: 'orbit' });
+    };
+})(DocsDoodads.Perspective);
 //==========================================================
 // SECTION 19-R: DOODAD COLLISION RUNTIME
 //==========================================================
@@ -15616,10 +16186,10 @@ DocsDoodads.fxQualityOffered = function() {
 
 // Options menu: players can switch motion blur off and lower the effects quality
 // (post-processing and the 3D view).
-DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off'];
+DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off', 'Auto'];
 if (typeof ConfigManager !== 'undefined') {
     ConfigManager.docsMotionBlur = true;
-    ConfigManager.docsFxQuality = 0;
+    ConfigManager.docsFxQuality = DocsDoodads.AutoQuality.defaultAuto() ? 4 : 0;
     ConfigManager.docsReduceFlashes = false;
     ConfigManager.docsLessCameraMotion = false;
     $.ConfigManager_makeData = ConfigManager.makeData;
@@ -15635,7 +16205,7 @@ if (typeof ConfigManager !== 'undefined') {
     ConfigManager.applyData = function(config) {
         $.ConfigManager_applyData.call(this, config);
         this.docsMotionBlur = config && 'docsMotionBlur' in config ? Boolean(config.docsMotionBlur) : true;
-        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(3, Number(config.docsFxQuality) || 0)) : 0;
+        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(DocsDoodads.fxQualityLabels.length - 1, Math.round(Number(config.docsFxQuality) || 0))) : (DocsDoodads.AutoQuality.defaultAuto() ? 4 : 0);
         this.docsReduceFlashes = Boolean(config && config.docsReduceFlashes === true);
         this.docsLessCameraMotion = Boolean(config && config.docsLessCameraMotion === true);
     };
@@ -15655,7 +16225,7 @@ if (typeof Window_Options !== 'undefined') {
             this.addCommand('Less Camera Motion', 'docsLessCameraMotion');
         }
     };
-    // Effects Quality cycles High > Medium > Low > Off.
+    // Effects Quality cycles through the current label list, including Auto.
     $.Window_Options_statusText = Window_Options.prototype.statusText;
     Window_Options.prototype.statusText = function(index) {
         if (this.commandSymbol(index) === 'docsFxQuality') return DocsDoodads.fxQualityLabels[this.getConfigValue('docsFxQuality') || 0];
@@ -15663,7 +16233,8 @@ if (typeof Window_Options !== 'undefined') {
     };
     const shiftQuality = (win, delta, wrap) => {
         const value = (win.getConfigValue('docsFxQuality') || 0) + delta;
-        win.changeValue('docsFxQuality', wrap ? (value + 4) % 4 : Math.max(0, Math.min(3, value)));
+        const count = DocsDoodads.fxQualityLabels.length;
+        win.changeValue('docsFxQuality', wrap ? (value + count) % count : Math.max(0, Math.min(count - 1, value)));
     };
     $.Window_Options_processOk = Window_Options.prototype.processOk;
     Window_Options.prototype.processOk = function() {
@@ -15741,7 +16312,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
             look = this._docsExportLook;
             anim = null;
         }
-        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        const option = DocsDoodads.qualityOption();
         const quality = P.effectiveQuality(world.postfx.quality, option);
         const haze = this.docsHazeSources ? this.docsHazeSources(look, quality, hidden) : [];
         this._docsHazeInputs = { look, quality, hidden };
@@ -17423,7 +17994,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.updateDocsLayers2d = function(flat) {
         const L = DocsDoodads.MapLayers;
-        const mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        let mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        if (flat) mapSettings = DocsDoodads.Climate.mapLayers(mapSettings);
         const raw = mapSettings && Array.isArray(mapSettings.layers2d) ? mapSettings.layers2d : null;
         // In play the layers only change by being replaced: the list is read again when the settings' array
         // changes. The editor changes them in place, so there it compares the whole list every frame.
@@ -17951,7 +18523,7 @@ if (typeof Spriteset_Map !== 'undefined') {
 
     Spriteset_Map.prototype.docsNormalMax = function() {
         if (this._docs3d || DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active()) return 0;
-        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        const option = DocsDoodads.qualityOption();
         return N.effectiveMax(DocsDoodads.World.settings().normalLight, option);
     };
 
@@ -18969,6 +19541,128 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 }
 
 //==========================================================
+// SECTION 7Q: AUTOMATIC QUALITY SAMPLING AND TRANSITIONS
+//==========================================================
+Object.assign(DocsDoodads.AutoQuality, {
+    active() { return typeof ConfigManager !== 'undefined' && ConfigManager.docsFxQuality === 4; },
+    saveLevel() {
+        if (typeof ConfigManager === 'undefined') return;
+        ConfigManager.docsFxAutoLevel = this.clamp(this.level);
+        if (ConfigManager.save) {
+            try { const saved = ConfigManager.save(); if (saved && saved.catch) saved.catch(error => DocsDoodads.Core.log('Auto quality preference could not be saved', error)); }
+            catch (error) { DocsDoodads.Core.log('Auto quality preference could not be saved', error); }
+        }
+    },
+    clearFade(settle) {
+        const fade = this.fade;
+        this.fade = null;
+        if (!fade) return;
+        if (fade.sprite.parent && fade.sprite.parent.removeChild) fade.sprite.parent.removeChild(fade.sprite);
+        if (fade.sprite.destroy) fade.sprite.destroy({ texture: true, baseTexture: true });
+        if (settle && this.active()) this.saveLevel();
+    },
+    updateFade(now) {
+        const fade = this.fade;
+        if (!fade) return;
+        if (!this.active() || (typeof SceneManager !== 'undefined' && SceneManager._scene !== fade.scene)) { this.clearFade(true); return; }
+        fade.sprite.alpha = Math.max(0, 1 - (now - fade.start) / 500);
+        if (fade.sprite.alpha <= 0) { this.clearFade(); this.saveLevel(); }
+    },
+    request(level, spriteset, now) {
+        if (!this.active()) return false;
+        level = this.clamp(level);
+        if (level === this.level) return false;
+        if (typeof $gamePlayer !== 'undefined' && $gamePlayer && $gamePlayer.isTransferring && $gamePlayer.isTransferring()) {
+            this.pending = level;
+            return true;
+        }
+        this.clearFade(true);
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
+        let texture = null, sprite = null;
+        try {
+            if (scene && scene._spriteset === spriteset && scene.addChildAt && typeof PIXI !== 'undefined' && PIXI.Texture && PIXI.Texture.from && PIXI.Sprite) {
+                const canvas = DocsDoodads.Capture.renderSceneCanvas(spriteset);
+                if (canvas) {
+                    texture = PIXI.Texture.from(canvas);
+                    sprite = new PIXI.Sprite(texture);
+                    scene.addChildAt(sprite, scene.getChildIndex(spriteset) + 1);
+                    this.fade = { scene, sprite, start: now };
+                }
+            }
+        } catch (error) {
+            if (sprite && sprite.parent && sprite.parent.removeChild) sprite.parent.removeChild(sprite);
+            if (sprite && sprite.destroy) sprite.destroy({ texture: true, baseTexture: true });
+            else if (texture && texture.destroy) texture.destroy(true);
+            this.fade = null;
+            DocsDoodads.Core.log('Auto quality frame transition is unavailable', error);
+        }
+        this.level = level;
+        if (!this.fade) this.saveLevel();
+        return true;
+    },
+    onMap() {
+        this.clearFade(true);
+        if (this.pending !== null && this.active()) { this.level = this.clamp(this.pending); this.saveLevel(); }
+        this.pending = null;
+        this.state = this.initial();
+        this.lastTime = null;
+        this.map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+        this.mapId = this.map && this.map.mapId();
+    },
+    feed(now, spriteset) {
+        this.updateFade(now);
+        const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+        if (map !== this.map || map && map.mapId() !== this.mapId) this.onMap();
+        if (!this.active() || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)
+            || (DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active)
+            || (typeof document !== 'undefined' && document.hidden)) { this.lastTime = null; this.state = this.initial(); return; }
+        const dt = this.lastTime === null || this.lastTime === undefined ? 0 : now - this.lastTime;
+        this.lastTime = now;
+        const direction = this.step(this.state || (this.state = this.initial()), dt);
+        if (direction) this.request(this.level - direction, spriteset, now);
+    }
+});
+
+if (typeof ConfigManager !== 'undefined') {
+    const makeAutoData = ConfigManager.makeData, applyAutoData = ConfigManager.applyData;
+    ConfigManager.docsFxAutoLevel = 0;
+    ConfigManager.makeData = function() {
+        const config = makeAutoData.call(this);
+        config.docsFxAutoLevel = DocsDoodads.AutoQuality.clamp(this.docsFxAutoLevel);
+        return config;
+    };
+    ConfigManager.applyData = function(config) {
+        applyAutoData.call(this, config);
+        this.docsFxAutoLevel = DocsDoodads.AutoQuality.clamp(config && config.docsFxAutoLevel);
+        DocsDoodads.AutoQuality.level = this.docsFxAutoLevel;
+        DocsDoodads.AutoQuality.pending = null;
+        DocsDoodads.AutoQuality.onMap();
+    };
+}
+if (typeof Spriteset_Map !== 'undefined') {
+    DocsDoodads.spritesetSteps.push('updateDocsAutoQuality');
+    Spriteset_Map.prototype.updateDocsAutoQuality = function() {
+        const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+        DocsDoodads.AutoQuality.feed(now, this);
+    };
+}
+if (typeof Game_Map !== 'undefined') {
+    const setupAutoMap = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        const result = setupAutoMap.call(this, mapId);
+        DocsDoodads.AutoQuality.onMap();
+        return result;
+    };
+}
+if (typeof Scene_Map !== 'undefined') {
+    const terminateAutoMap = Scene_Map.prototype.terminate;
+    Scene_Map.prototype.terminate = function() {
+        DocsDoodads.AutoQuality.clearFade(true);
+        DocsDoodads.AutoQuality.lastTime = null;
+        if (terminateAutoMap) return terminateAutoMap.call(this);
+    };
+}
+//==========================================================
 // SECTION 23C: 2D CAMERA (RUNTIME AND PLUGIN COMMANDS)
 //==========================================================
 // Game_Player.updateScroll does the camera on flat maps. With no smoothing, no region bounds, no path
@@ -19136,6 +19830,111 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         s.path = null;
         s.free = target === 'free' ? 'event' : null;
         s.follow = target === 'event' ? Math.max(0, Number(args.eventId) || 0) : target === 'this' && this && this._eventId ? this._eventId : 0;
+    });
+}
+//==========================================================
+// SECTION 7C: CLIMATE WEATHER OWNERSHIP AND FORECAST COMMANDS
+//==========================================================
+Object.assign(DocsDoodads.Climate, {
+    reset() { this._key = null; this._plan = null; this._fog = null; this._fogComposite = null; },
+    suppressed() {
+        return this.enabled() && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)
+            && typeof $gameMap !== 'undefined' && $gameMap && (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).climate === 'none';
+    },
+    hold() {
+        const state = this.state(true);
+        if (state) state.held = true;
+        this.reset();
+        if (this._ownsWind) DocsDoodads.Wind.set('world');
+        this._ownsWind = false;
+    },
+    resume() {
+        const state = this.state(this.enabled());
+        if (!state) return false;
+        state.held = false; this.reset(); return true;
+    },
+    fogActive() { const state = this.state(); return this.enabled() && this._fog && !(state && state.held) && !this.suppressed() && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted); },
+    mapLayers(settings) {
+        if (!this.fogActive()) return settings;
+        const old = this._fogComposite;
+        if (old && old.settings === settings && old.fog === this._fog) return old.value;
+        const raw = settings && Array.isArray(settings.layers2d) ? settings.layers2d : [];
+        const value = Object.assign({}, settings || {}, { layers2d: raw.concat([this._fog]) });
+        this._fogComposite = { settings, fog: this._fog, value };
+        return value;
+    },
+    perspective(settings) {
+        if (!settings || !this.fogActive()) return settings;
+        return Object.assign({}, settings, { fogStart: Math.min(settings.fogStart, 1), fogEnd: Math.min(settings.fogEnd, Math.max(4, 24 - this._fogPower * 2)) });
+    },
+    update(sceneActive) {
+        if (sceneActive === false || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)
+            || typeof Scene_Map === 'undefined' || typeof SceneManager === 'undefined' || !(SceneManager._scene instanceof Scene_Map)) return;
+        if (!this.enabled()) {
+            if (this._ownsWind) DocsDoodads.Wind.set('world');
+            this._ownsWind = false; this.reset(); return;
+        }
+        const state = this.state(true);
+        if (this.suppressed()) {
+            if (this._key !== 'indoors') {
+                if (!state.held || this._ownsWind) DocsDoodads.Wind.set(0, 30);
+                this._fog = null; this._key = 'indoors';
+            }
+            return;
+        }
+        if (state.held) return;
+        const day = Math.max(1, DocsDoodads.Calendar.day()), season = this.season(), table = this.settings().seasons, seed = state.seed;
+        let plan = this._plan;
+        if (!plan || plan.day !== day || plan.season !== season || plan.table !== table || plan.seed !== seed) this._plan = plan = { day, season, table, seed, spans: this.day(day, season, table, seed) };
+        const minutes = ((DocsDoodads.Atmosphere.minutes() % 1440) + 1440) % 1440;
+        const index = plan.spans.findIndex(span => minutes >= span.start && minutes < span.end), span = plan.spans[Math.max(0, index)];
+        const key = `${$gameMap.mapId()}:${day}:${season}:${seed}:${index}:${span.type}:${span.power}:${DocsDoodads.World._version}`;
+        if (this._key === key) return;
+        this._writing = true;
+        try { $gameScreen.changeWeather(['rain', 'storm', 'snow'].includes(span.type) ? span.type : 'none', span.power, 180); }
+        finally { this._writing = false; }
+        if (span.type === 'windy') { DocsDoodads.Wind.set(span.power / 9, 180, 'right'); this._ownsWind = true; }
+        else { DocsDoodads.Wind.set('world'); this._ownsWind = false; }
+        this._fogPower = span.power;
+        this._fog = span.type === 'fog' ? { image: '#fog', place: 'front', opacity: span.power / 12, follow: 0.5, scrollX: 0.2, scrollY: 0, zoom: 1, blend: 'normal', loopX: true, loopY: true, wind: true } : null;
+        this._key = key;
+    }
+});
+if (typeof Game_Screen !== 'undefined' && Game_Screen.prototype.changeWeather) {
+    const weather = Game_Screen.prototype.changeWeather, type = Game_Screen.prototype.weatherType, power = Game_Screen.prototype.weatherPower;
+    Game_Screen.prototype.changeWeather = function() {
+        const C = DocsDoodads.Climate;
+        if (!C._writing && C.enabled() && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) C.hold();
+        return weather.apply(this, arguments);
+    };
+    Game_Screen.prototype.weatherType = function() { return DocsDoodads.Climate.suppressed() ? 'none' : type.call(this); };
+    Game_Screen.prototype.weatherPower = function() { return DocsDoodads.Climate.suppressed() ? 0 : power.call(this); };
+}
+if (typeof Game_Map !== 'undefined') {
+    DocsDoodads.mapSteps.push('updateDocsClimate');
+    Game_Map.prototype.updateDocsClimate = function(active) { DocsDoodads.Climate.update(active); };
+    const setup = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(id) { DocsDoodads.Climate.reset(); return setup.call(this, id); };
+}
+if (typeof DataManager !== 'undefined' && DataManager.extractSaveContents) {
+    const extract = DataManager.extractSaveContents;
+    DataManager.extractSaveContents = function() {
+        const result = extract.apply(this, arguments);
+        DocsDoodads.Climate._ownsWind = false; DocsDoodads.Climate.reset(); return result;
+    };
+}
+if (typeof DataManager !== 'undefined' && DataManager.createGameObjects) {
+    const create = DataManager.createGameObjects;
+    DataManager.createGameObjects = function() {
+        const result = create.apply(this, arguments);
+        DocsDoodads.Climate._ownsWind = false; DocsDoodads.Climate.reset(); return result;
+    };
+}
+if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
+    PluginManager.registerCommand(pluginName, 'resumeClimate', () => DocsDoodads.Climate.resume());
+    PluginManager.registerCommand(pluginName, 'storeForecast', args => {
+        const id = Number(args.variableId) || 0;
+        if (id > 0 && typeof $gameVariables !== 'undefined' && $gameVariables) $gameVariables.setValue(id, DocsDoodads.Climate.describe(DocsDoodads.Climate.forecast(Number(args.days) || 7)));
     });
 }
 //==========================================================
@@ -19364,18 +20163,20 @@ DocsDoodads.Perspective.active = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
     const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
     const editing = !!(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
-    const quality = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+    const quality = DocsDoodads.qualityOption();
     // Asked for many times a frame: kept for the rest of the frame while nothing it depends on changes.
     const frame = typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
     const memo = this._activeMemo;
     const zoom = DocsDoodads.PlayerZoom ? DocsDoodads.PlayerZoom.level() : 1;
+    const climateFog = DocsDoodads.Climate.fogActive() ? DocsDoodads.Climate._fog : null;
     if (frame !== null && memo && memo.frame === frame && memo.mine === mine && memo.camera === $gameMap._docsCamera
-        && memo.editing === editing && memo.quality === quality && memo.zoom === zoom) return memo.s;
+        && memo.editing === editing && memo.quality === quality && memo.zoom === zoom && memo.climateFog === climateFog) return memo.s;
     let s = this.resolve(mine, $gameMap._docsCamera || null);
     // The editor shows the map as it was set; the player's Effects Quality and zoom apply in play.
     if (s && !editing) s = this.withQuality(s, quality);
     if (s && !editing && zoom !== 1) s = Object.assign({}, s, { zoom: s.zoom * zoom });
-    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, zoom, s };
+    if (s && !editing) s = DocsDoodads.Climate.perspective(s);
+    this._activeMemo = frame === null ? null : { frame, mine, camera: $gameMap._docsCamera, editing, quality, zoom, climateFog, s };
     return s;
 };
 
@@ -19872,7 +20673,13 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this.updateDocsStandTiles(s);
         const W = Graphics.width, H = Graphics.height;
         const radius = s.curve === 'flat' ? 0 : (s.curveRadius > 0 ? s.curveRadius * tw : P.fitRadius($gameMap.width(), tw));
-        const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H,
+        const target = { x: gw / 2, y: gh / 2 + th / 2 };
+        const first = s.mode === 'first' && typeof $gamePlayer !== 'undefined' && $gamePlayer
+            ? P.firstPerson(s, $gamePlayer, { target, yaw: s.yaw, tileWidth: tw, tileHeight: th,
+                groundHeight: DocsDoodads.Terrain.footHeightPxAtFlat(target.x, target.y, tw / 2) })
+            : null;
+        const cam = P._cam = P.camera({ target, eye: first && first.eye, pitch: first ? first.pitch : s.pitch,
+            yaw: first ? first.yaw : s.yaw, fov: first ? first.fov : s.fov, zoom: s.zoom, width: W, height: H,
             curve: s.curve, radius, lean: s.lean });
 
         // Ground pass: everything flat, with billboards switched off.
@@ -19947,6 +20754,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const items = [];
         for (const obj of billboards) {
             if (!obj.visible) continue;
+            if (P.hideFirstPersonPlayer(obj, s, typeof $gamePlayer !== 'undefined' ? $gamePlayer : null)) {
+                obj._docs3dOut = true;
+                obj._docs3dOutFrame = DocsDoodads.frameCount();
+                continue;
+            }
             const pivot = this.docsPivotOf(obj);
             const halfWidth = this.docsHalfWidthOf(obj);
             if (terrain) pivot.h = this.docsStandsOnDoodadRule(obj)
@@ -19982,11 +20794,14 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 continue;
             }
             if (obj.renderable === false && obj._docsCulled !== undefined) obj.renderable = true;
+            const nearAlpha = s.mode === 'first'
+                ? P.nearFadeAlpha(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), s.nearFade * Math.max(tw, th))
+                : 1;
             // A doodad with a 3D model is drawn as the model.
             if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
                 const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);
                 if (models) {
-                    for (const it of models) items.push(it);
+                    for (const it of models) { it.alpha = (it.alpha === undefined ? 1 : it.alpha) * nearAlpha; items.push(it); }
                     obj._docs3dMatrix = m;
                     obj._docs3dFrame = DocsDoodads.frameCount();
                     continue;
@@ -19999,9 +20814,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             obj._docs3dFrame = DocsDoodads.frameCount();
             // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
             items.push({ obj, depth: P.groundDepth(cam, pivot.x, pivot.y), bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
-                alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
+                alpha: (1 - fog) * nearAlpha, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
-        const see = this._docs3dSee = this.docsPlayerSeeThrough();
+        const see = this._docs3dSee = s.mode === 'first' ? null : this.docsPlayerSeeThrough();
         const hidden = this.docsSeeThroughBillboards(items, see);
         this.updateDocsSnowCaps(items, snow);
         for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
@@ -20602,6 +21417,7 @@ if (typeof Game_Map !== 'undefined') {
     Game_Map.prototype.setup = function(mapId) {
         this._docsCamera = null;
         this._docsCameraTween = null;
+        this._docsFirstPersonMode = false;
         $.Game_Map_setup_3d.call(this, mapId);
     };
 
@@ -20629,8 +21445,10 @@ if (typeof Game_Map !== 'undefined') {
 
     Game_Map.prototype.docsMoveCamera = function(target, frames) {
         const s = P.active() || P.normalize((DocsDoodads.Lighting.mapSettings(this.mapId()) || {}).perspective);
-        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov, curvature: P.curvatureOf(s, this.width()) };
+        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov, curvature: P.curvatureOf(s, this.width()),
+            firstPitch: s.firstPitch, firstFov: s.firstFov, eyeHeight: s.eyeHeight };
         this._docsCamera = Object.assign({}, this._docsCamera, from);
+        for (const key of ['mode', 'mouseLook', 'nearFade']) if (target[key] !== undefined && target[key] !== null) this._docsCamera[key] = target[key];
         // A new shape takes over at once; its roundness eases in from where the world is now.
         if (target.curve === 'sphere' || target.curve === 'cylinder') this._docsCamera.curve = target.curve;
         if (!frames || frames <= 0) {
@@ -20669,11 +21487,18 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         const relative = String(args.relative) === 'true';
         const s = DocsDoodads.Perspective.active() || DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
         const now = Object.assign({}, s, { curvature: DocsDoodads.Perspective.curvatureOf(s, $gameMap.width()) });
-        for (const key of ['pitch', 'yaw', 'zoom', 'fov', 'curvature']) {
+        const cameraMode = String(args.cameraMode || '').trim();
+        if (cameraMode === 'orbit' || cameraMode === 'first') target.mode = cameraMode;
+        const effectiveMode = target.mode || s.mode;
+        for (const key of ['pitch', 'yaw', 'zoom', 'fov', 'curvature', 'eyeHeight', 'nearFade']) {
             const raw = String(args[key] === undefined ? '' : args[key]).trim();
             if (raw === '') continue;
-            target[key] = relative && key !== 'zoom' ? now[key] + Number(raw) : Number(raw);
+            const targetKey = effectiveMode === 'first' && key === 'pitch' ? 'firstPitch' : effectiveMode === 'first' && key === 'fov' ? 'firstFov' : key;
+            target[targetKey] = relative && ['pitch', 'yaw', 'fov', 'curvature'].includes(key) ? now[targetKey] + Number(raw) : Number(raw);
         }
+        const mouseLook = String(args.mouseLook || '').trim();
+        if (mouseLook === 'on' || mouseLook === 'true') target.mouseLook = true;
+        else if (mouseLook === 'off' || mouseLook === 'false') target.mouseLook = false;
         if (target.curvature !== undefined) target.curvature = Math.max(0, Math.min(100, target.curvature));
         // "Flat" eases the curve out; a round shape switches and keeps (or eases to) its curvature.
         const curve = String(args.curve || '').trim();
@@ -20682,6 +21507,9 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
             target.curve = curve;
             if (target.curvature === undefined && now.curvature === 0) target.curvature = 10;
         }
+        if (target.mode === 'first') $gameMap._docsFirstPersonMode = target.yaw !== undefined;
+        else if (target.mode === 'orbit') $gameMap._docsFirstPersonMode = false;
+        if ((target.mode === 'orbit' || target.mouseLook === false) && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         $gameMap.docsMoveCamera(target, Number(args.duration) || 0);
         if (String(args.wait) === 'true' && Number(args.duration) > 0 && this && this.wait) this.wait(Number(args.duration));
     });
@@ -20707,8 +21535,10 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'resetCamera', function(args) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return;
         const mine = DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
-        $gameMap.docsMoveCamera({ pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov, curve: mine.curve,
-            curvature: DocsDoodads.Perspective.curvatureOf(mine, $gameMap.width()) }, Number(args.duration) || 0);
+        $gameMap._docsFirstPersonMode = false;
+        $gameMap.docsMoveCamera({ mode: mine.mode, pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov,
+            firstPitch: mine.firstPitch, firstFov: mine.firstFov, eyeHeight: mine.eyeHeight, mouseLook: mine.mouseLook,
+            nearFade: mine.nearFade, curve: mine.curve, curvature: DocsDoodads.Perspective.curvatureOf(mine, $gameMap.width()) }, Number(args.duration) || 0);
     });
 }
 
@@ -21923,6 +22753,168 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 }
 
 //==========================================================
+// SECTION 7I: PERSPECTIVE (3D) RUNTIME: FIRST PERSON
+//==========================================================
+(function(P) {
+    'use strict';
+
+    // The editor borrows orbit view without changing the saved map setting or the running camera.
+    const active = P.active;
+    P.active = function() {
+        const s = active.call(this);
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        return this.forDisplay(s, editing);
+    };
+
+    P.pointerCanvas = function() {
+        return typeof Graphics !== 'undefined' && (Graphics._canvas || (Graphics.app && Graphics.app.view)) || null;
+    };
+
+    P.exitPointerLock = function() {
+        if (typeof document === 'undefined') return;
+        const canvas = this.pointerCanvas();
+        if (canvas && document.pointerLockElement === canvas && typeof document.exitPointerLock === 'function') document.exitPointerLock();
+    };
+
+    // Mouse look is a visit-scoped input mode, not a permanent document listener. This matters in the
+    // editor too: its dialogs and shortcut router must not inherit first-person handlers from a map visit.
+    P.uninstallMouseLook = function() {
+        const doc = typeof document !== 'undefined' ? document : null;
+        if (this._firstMouseCanvas && this._firstMouseClick && typeof this._firstMouseCanvas.removeEventListener === 'function') {
+            this._firstMouseCanvas.removeEventListener('click', this._firstMouseClick);
+        }
+        if (doc && typeof doc.removeEventListener === 'function') {
+            if (this._firstMouseMove) doc.removeEventListener('mousemove', this._firstMouseMove, true);
+            if (this._firstMouseKeydown) doc.removeEventListener('keydown', this._firstMouseKeydown, true);
+        }
+        this._firstMouseCanvas = null;
+        this._firstMouseClick = null;
+        this._firstMouseMove = null;
+        this._firstMouseKeydown = null;
+        this._firstMouseInstalled = false;
+        this.exitPointerLock();
+    };
+
+    P.releaseMouseLook = function() {
+        this.uninstallMouseLook();
+    };
+
+    P.mouseLookAllowed = function() {
+        const s = this.active();
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const photo = Boolean(DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active);
+        const scene = typeof SceneManager !== 'undefined' && SceneManager._scene;
+        const mapScene = typeof Scene_Map === 'undefined' || scene instanceof Scene_Map;
+        return Boolean(s && s.mode === 'first' && s.mouseLook && !editing && !photo && mapScene);
+    };
+
+    P.installMouseLook = function() {
+        if (typeof document === 'undefined' || !this.mouseLookAllowed()) {
+            this.releaseMouseLook();
+            return false;
+        }
+        const canvas = this.pointerCanvas();
+        if (canvas && canvas !== this._firstMouseCanvas && typeof canvas.addEventListener === 'function') {
+            if (this._firstMouseCanvas && typeof this._firstMouseCanvas.removeEventListener === 'function') {
+                this._firstMouseCanvas.removeEventListener('click', this._firstMouseClick);
+            }
+            this._firstMouseCanvas = canvas;
+            this._firstMouseClick = () => {
+                const view = this.pointerCanvas();
+                if (!view || !this.mouseLookAllowed() || document.pointerLockElement === view || typeof view.requestPointerLock !== 'function') return;
+            // Pointer lock is requested only from this explicit player click.
+                view.requestPointerLock();
+            };
+            canvas.addEventListener('click', this._firstMouseClick);
+        }
+        if (this._firstMouseInstalled || typeof document.addEventListener !== 'function') return true;
+        this._firstMouseInstalled = true;
+        this._firstMouseMove = event => {
+            const view = this.pointerCanvas();
+            if (!view || document.pointerLockElement !== view || !this.mouseLookAllowed()) return;
+            const s = this.active();
+            const yaw = ((s.yaw + (Number(event.movementX) || 0) * 0.15) % 360 + 360) % 360;
+            const firstPitch = Math.max(-45, Math.min(60, s.firstPitch + (Number(event.movementY) || 0) * 0.12));
+            $gameMap._docsCamera = Object.assign({}, $gameMap._docsCamera, { yaw, firstPitch });
+            $gameMap._docsFirstPersonMode = true;
+            this._activeMemo = null;
+            if ($gamePlayer && $gamePlayer.setDirection) $gamePlayer.setDirection(this.directionForYaw(yaw));
+        };
+        this._firstMouseKeydown = event => {
+            if (event && (event.key === 'Escape' || event.code === 'Escape')) this.releaseMouseLook();
+        };
+        document.addEventListener('mousemove', this._firstMouseMove, true);
+        document.addEventListener('keydown', this._firstMouseKeydown, true);
+        return true;
+    };
+
+    if (typeof Game_Map !== 'undefined') {
+        const setup = Game_Map.prototype.setup;
+        Game_Map.prototype.setup = function(mapId) {
+            P.releaseMouseLook();
+            return setup.call(this, mapId);
+        };
+
+        const updateCamera = Game_Map.prototype.updateDocsCamera3d;
+        Game_Map.prototype.updateDocsCamera3d = function(sceneActive) {
+            updateCamera.call(this, sceneActive);
+            let s = P.active();
+            const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+            if (s && s.mode === 'first' && !editing && !this._docsFirstPersonMode && typeof $gamePlayer !== 'undefined' && $gamePlayer) {
+                const yaw = P.facingYaw($gamePlayer.direction());
+                this._docsCamera = Object.assign({}, this._docsCamera, { yaw });
+                this._docsFirstPersonMode = true;
+                P._activeMemo = null;
+                s = Object.assign({}, s, { yaw });
+            }
+            const photo = Boolean(DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active);
+            if (s && s.mode === 'first' && s.mouseLook && !editing && !photo && sceneActive) P.installMouseLook();
+            else P.releaseMouseLook();
+        };
+    }
+
+    if (typeof Game_Player !== 'undefined') {
+        const getInputDirection = Game_Player.prototype.getInputDirection;
+        Game_Player.prototype.getInputDirection = function() {
+            const s = P.active();
+            if (!s || s.mode !== 'first' || typeof Input === 'undefined') return getInputDirection.call(this);
+            const raw = Number(Input.dir4) || 0;
+            const move = P.firstInput(raw, s.yaw);
+            if (move.turn) {
+                const triggered = typeof Input.isTriggered !== 'function'
+                    || Input.isTriggered(move.turn < 0 ? 'left' : 'right');
+                if (triggered && !$gameMap._docsCameraTween) {
+                    const yaw = s.yaw + move.turn;
+                    $gameMap.docsMoveCamera({ yaw }, 10);
+                    $gameMap._docsFirstPersonMode = true;
+                    this.setDirection(P.directionForYaw(yaw));
+                }
+                this._docsFirstBackstep = false;
+                return 0;
+            }
+            this._docsFirstBackstep = move.backstep;
+            return move.direction;
+        };
+
+        const executeMove = Game_Player.prototype.executeMove;
+        Game_Player.prototype.executeMove = function(direction) {
+            const backstep = this._docsFirstBackstep;
+            const facing = this.direction();
+            this._docsFirstBackstep = false;
+            executeMove.call(this, direction);
+            if (backstep) this.setDirection(facing);
+        };
+    }
+
+    if (typeof Scene_Map !== 'undefined') {
+        const terminate = Scene_Map.prototype.terminate;
+        Scene_Map.prototype.terminate = function() {
+            P.releaseMouseLook();
+            return terminate.call(this);
+        };
+    }
+})(DocsDoodads.Perspective);
+//==========================================================
 // SECTION 23B2: DRAWING 3D MODELS (PER-PIXEL LIGHT, NORMAL MAPS, CPU AND GPU)
 //==========================================================
 // Models are lit per pixel: each part carries its normals (and tangents, for a normal map) in map space,
@@ -22520,6 +23512,314 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         return best;
     };
+}
+//==========================================================
+// SECTION 23P: PLAYER PHOTO MODE
+//==========================================================
+// Photo Mode stays on Scene_Map so its sprites keep rendering, but updateMain is paused. All temporary
+// camera/look/visibility changes are snapshots: leaving, transferring or a scene failure restores them.
+DocsDoodads.PhotoMode = {
+    active: false,
+    state: null,
+    key: photoModeKey,
+    forbidSwitch: photoModeForbidSwitch,
+    maxPanTiles: 4,
+
+    clone(value) {
+        return value === undefined || value === null ? value : JSON.parse(JSON.stringify(value));
+    },
+
+    fields(object, names) {
+        const out = {};
+        for (const name of names) out[name] = { own: Object.prototype.hasOwnProperty.call(object, name), value: this.clone(object[name]) };
+        return out;
+    },
+
+    restoreFields(object, saved) {
+        if (!object || !saved) return;
+        for (const name of Object.keys(saved)) {
+            if (saved[name].own) object[name] = this.clone(saved[name].value);
+            else delete object[name];
+        }
+    },
+
+    forbidden() {
+        return this.forbidSwitch > 0 && typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(this.forbidSwitch);
+    },
+
+    partySprites(spriteset) {
+        if (!spriteset || !Array.isArray(spriteset._characterSprites) || typeof $gamePlayer === 'undefined') return [];
+        const followers = $gamePlayer.followers && $gamePlayer.followers().data ? $gamePlayer.followers().data() : [];
+        return spriteset._characterSprites.filter(sprite => sprite && (sprite._character === $gamePlayer || followers.includes(sprite._character)));
+    },
+
+    open(scene) {
+        if (this.active) return true;
+        scene = scene || (typeof SceneManager !== 'undefined' ? SceneManager._scene : null);
+        if (this.forbidden() || !scene || typeof Scene_Map === 'undefined' || !(scene instanceof Scene_Map)
+            || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const spriteset = scene._spriteset;
+        if (!spriteset) return false;
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
+        const map = $gameMap, mapId = map.mapId();
+        const visibility = this.partySprites(spriteset).map(sprite => ({ sprite, visible: sprite.visible }));
+        this.state = {
+            scene, spriteset, map, mapId, x: map.displayX(), y: map.displayY(), visibility, hidePlayer: false,
+            mapFields: this.fields(map, ['_docsCam2d', '_docsCamera', '_docsCameraTween']),
+            screen: typeof $gameScreen !== 'undefined' && $gameScreen
+                ? this.fields($gameScreen, ['_zoomX', '_zoomY', '_zoomScale', '_zoomScaleTarget', '_zoomDuration']) : null,
+            look: typeof $gameSystem !== 'undefined' && $gameSystem
+                ? this.fields($gameSystem, ['_docsLook']) : null,
+            cameraExternal: DocsDoodads.Camera2D ? DocsDoodads.Camera2D._external : undefined,
+            card: null, lastError: ''
+        };
+        this.active = true;
+        try {
+            if (!(DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active()) && DocsDoodads.Camera2D) {
+                const camera = DocsDoodads.Camera2D.state();
+                if (camera) { camera.path = null; camera.hold = null; camera.follow = 0; camera.free = 'event'; }
+                DocsDoodads.Camera2D._external = false;
+            }
+            this.state.card = this.createUi();
+            if (typeof Input !== 'undefined' && Input.clear) Input.clear();
+            return true;
+        } catch (error) {
+            this.close();
+            console.warn('[DocsDoodads] Photo Mode could not open:', error);
+            return false;
+        }
+    },
+
+    close() {
+        const state = this.state;
+        if (!state) { this.active = false; return false; }
+        this.active = false;
+        this.state = null;
+        for (const item of state.visibility) if (item.sprite) item.sprite.visible = item.visible;
+        if (typeof $gameMap !== 'undefined' && $gameMap === state.map && $gameMap.mapId() === state.mapId) {
+            $gameMap.setDisplayPos(state.x, state.y);
+            this.restoreFields($gameMap, state.mapFields);
+            if (typeof $gameScreen !== 'undefined' && $gameScreen) this.restoreFields($gameScreen, state.screen);
+        }
+        if (DocsDoodads.Camera2D) DocsDoodads.Camera2D._external = state.cameraExternal;
+        if (typeof $gameSystem !== 'undefined' && $gameSystem) this.restoreFields($gameSystem, state.look);
+        if (state.card) {
+            if (typeof state.card.remove === 'function') state.card.remove();
+            else if (state.card.parentNode) state.card.parentNode.removeChild(state.card);
+        }
+        if (typeof Input !== 'undefined' && Input.clear) Input.clear();
+        return true;
+    },
+
+    pan(dx, dy) {
+        const state = this.state, map = state && state.map;
+        if (!this.active || !map || map !== $gameMap) return false;
+        const three = DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active();
+        if (three) {
+            const current = map._docsCamera || {};
+            const resolved = DocsDoodads.Perspective.active() || {};
+            map._docsCameraTween = null;
+            map._docsCamera = Object.assign({}, current, {
+                yaw: ((Number(current.yaw !== undefined ? current.yaw : resolved.yaw) || 0) + Number(dx) * 5 + 360) % 360,
+                pitch: Math.max(20, Math.min(89, (Number(current.pitch !== undefined ? current.pitch : resolved.pitch) || 55) + Number(dy) * 3))
+            });
+            return true;
+        }
+        const sw = map.screenTileX(), sh = map.screenTileY(), player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        const px = player ? Number(player.x) || 0 : state.x + sw / 2, py = player ? Number(player.y) || 0 : state.y + sh / 2;
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+        const maxX = Math.max(0, map.width() - sw), maxY = Math.max(0, map.height() - sh);
+        const wantedX = map.displayX() + Number(dx) * 0.5 + sw / 2;
+        const wantedY = map.displayY() + Number(dy) * 0.5 + sh / 2;
+        let x, y;
+        if (map.isLoopHorizontal()) {
+            const offset = clamp(map.deltaX(wantedX, px), -this.maxPanTiles, this.maxPanTiles);
+            x = map.roundX(px + offset - sw / 2);
+        } else {
+            const center = clamp(wantedX, px - this.maxPanTiles, px + this.maxPanTiles);
+            x = clamp(center - sw / 2, 0, maxX);
+        }
+        if (map.isLoopVertical()) {
+            const offset = clamp(map.deltaY(wantedY, py), -this.maxPanTiles, this.maxPanTiles);
+            y = map.roundY(py + offset - sh / 2);
+        } else {
+            const center = clamp(wantedY, py - this.maxPanTiles, py + this.maxPanTiles);
+            y = clamp(center - sh / 2, 0, maxY);
+        }
+        map.setDisplayPos(x, y);
+        return true;
+    },
+
+    zoomBy(amount) {
+        if (!this.active || typeof $gameScreen === 'undefined' || !$gameScreen) return false;
+        const map = this.state.map;
+        const three = DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active();
+        if (three) {
+            const current = map._docsCamera || {}, resolved = DocsDoodads.Perspective.active() || {};
+            const zoom = Math.max(0.25, Math.min(4, (Number(current.zoom !== undefined ? current.zoom : resolved.zoom) || 1) + Number(amount)));
+            map._docsCameraTween = null; map._docsCamera = Object.assign({}, current, { zoom });
+            return true;
+        }
+        const current = Number($gameScreen._zoomScale) || (typeof $gameScreen.zoomScale === 'function' ? Number($gameScreen.zoomScale()) : 1) || 1;
+        const zoom = Math.max(0.5, Math.min(4, current + Number(amount)));
+        const x = Graphics.width / 2, y = Graphics.height / 2;
+        if (typeof $gameScreen.setZoom === 'function') $gameScreen.setZoom(x, y, zoom);
+        else Object.assign($gameScreen, { _zoomX: x, _zoomY: y, _zoomScale: zoom, _zoomScaleTarget: zoom, _zoomDuration: 0 });
+        return true;
+    },
+
+    selectLook(id) {
+        if (!this.active || typeof $gameSystem === 'undefined' || !$gameSystem) return false;
+        if (id === 'original') this.restoreFields($gameSystem, this.state.look);
+        else if (!DocsDoodads.PostFX.setLook(String(id), 0)) return false;
+        return true;
+    },
+
+    setHidePlayer(hidden) {
+        if (!this.active) return false;
+        this.state.hidePlayer = hidden !== false;
+        for (const item of this.state.visibility) if (item.sprite) item.sprite.visible = this.state.hidePlayer ? false : item.visible;
+        return true;
+    },
+
+    save() {
+        const state = this.state;
+        if (!this.active || !state || typeof $gameMap === 'undefined' || $gameMap !== state.map || $gameMap.mapId() !== state.mapId) return null;
+        try {
+            const canvas = DocsDoodads.Capture.renderSceneCanvas(state.spriteset);
+            if (!canvas) throw new Error('The map is not ready to capture.');
+            const result = DocsDoodads.Capture.saveCanvas(canvas, DocsDoodads.Capture.name('photo', state.mapId));
+            this.setStatus(result.kind === 'file' ? `Saved ${result.path}` : `Downloaded ${result.name}`);
+            return result;
+        } catch (error) {
+            state.lastError = error.message;
+            this.setStatus(error.message, true);
+            this.close();
+            return null;
+        }
+    },
+
+    setStatus(text, error) {
+        const card = this.state && this.state.card;
+        const status = card && card.querySelector ? card.querySelector('[data-photo-status]') : null;
+        if (status) { status.textContent = text; status.style.color = error ? '#ff9c9c' : '#d7ffe1'; }
+    },
+
+    createUi() {
+        if (typeof document === 'undefined' || !document.createElement || !document.body) return null;
+        const card = document.createElement('div');
+        if (this.state) this.state.card = card;
+        card.id = 'docs-photo-mode';
+        card.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:99999;max-width:calc(100vw - 24px);padding:10px 12px;border-radius:12px;background:rgba(10,14,22,.88);color:white;font:13px sans-serif;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.5)';
+        const looks = [{ id: 'original', label: 'Original' }].concat((DocsDoodads.PostFX.presets || []).map(preset => ({ id: preset.id, label: preset.label })));
+        card.innerHTML = `<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:7px">${looks.map(look => `<button type="button" data-photo-look="${look.id}">${look.label}</button>`).join('')}</div>
+            <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap"><span>Arrows: camera &nbsp; Wheel: zoom</span><button type="button" data-photo-hide>Hide Player</button><button type="button" data-photo-save>Save PNG</button><button type="button" data-photo-close>Exit</button></div>
+            <div data-photo-status style="font-size:11px;min-height:14px;margin-top:5px;color:#cbd3df"></div>`;
+        document.body.appendChild(card);
+        if (card.querySelectorAll) for (const button of Array.from(card.querySelectorAll('[data-photo-look]'))) {
+            button.onclick = () => this.selectLook(button.getAttribute('data-photo-look'));
+        }
+        const hide = card.querySelector ? card.querySelector('[data-photo-hide]') : null;
+        const save = card.querySelector ? card.querySelector('[data-photo-save]') : null;
+        const close = card.querySelector ? card.querySelector('[data-photo-close]') : null;
+        if (hide) hide.onclick = () => { this.setHidePlayer(!this.state.hidePlayer); hide.textContent = this.state.hidePlayer ? 'Show Player' : 'Hide Player'; };
+        if (save) save.onclick = () => this.save();
+        if (close) close.onclick = () => this.close();
+        return card;
+    },
+
+    keyMatches(event) {
+        const parts = String(this.key || '').split('+').map(part => part.trim()).filter(Boolean);
+        if (!parts.length) return false;
+        let code = '', ctrl = false, shift = false, alt = false;
+        for (const part of parts) {
+            const lower = part.toLowerCase();
+            if (lower === 'ctrl' || lower === 'control' || lower === 'cmd') ctrl = true;
+            else if (lower === 'shift') shift = true;
+            else if (lower === 'alt' || lower === 'option') alt = true;
+            else code = /^[a-z]$/i.test(part) ? `Key${part.toUpperCase()}` : /^[0-9]$/.test(part) ? `Digit${part}` : part;
+        }
+        return Boolean(code && event && event.code === code && Boolean(event.ctrlKey || event.metaKey) === ctrl
+            && Boolean(event.shiftKey) === shift && Boolean(event.altKey) === alt);
+    },
+
+    onKey(event) {
+        if (!this.active) {
+            if (!event.repeat && this.keyMatches(event) && this.open()) { if (event.preventDefault) event.preventDefault(); return true; }
+            return false;
+        }
+        const code = event.code || event.key;
+        const move = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[code];
+        let handled = true;
+        if (move) this.pan(move[0], move[1]);
+        else if (code === 'Escape') this.close();
+        else if (code === 'KeyH' || code === 'h' || code === 'H') this.setHidePlayer(!this.state.hidePlayer);
+        else if (code === 'KeyS' || code === 's' || code === 'S') this.save();
+        else handled = false;
+        if (handled && event.preventDefault) event.preventDefault();
+        if (handled && event.stopPropagation) event.stopPropagation();
+        return handled;
+    },
+
+    onWheel(event) {
+        if (!this.active) return false;
+        this.zoomBy(Number(event.deltaY) > 0 ? -0.15 : 0.15);
+        if (event.preventDefault) event.preventDefault();
+        if (event.stopPropagation) event.stopPropagation();
+        return true;
+    }
+};
+
+if (typeof Scene_Map !== 'undefined') {
+    $.Scene_Map_updateMain_photo = Scene_Map.prototype.updateMain;
+    Scene_Map.prototype.updateMain = function() {
+        if (DocsDoodads.PhotoMode.active && DocsDoodads.PhotoMode.state.scene === this) return;
+        if ($.Scene_Map_updateMain_photo) return $.Scene_Map_updateMain_photo.call(this);
+    };
+    $.Scene_Map_isMenuCalled_photo = Scene_Map.prototype.isMenuCalled;
+    Scene_Map.prototype.isMenuCalled = function() {
+        if (DocsDoodads.PhotoMode.active) return false;
+        return $.Scene_Map_isMenuCalled_photo ? $.Scene_Map_isMenuCalled_photo.call(this) : false;
+    };
+    $.Scene_Map_onMapLoaded_photo = Scene_Map.prototype.onMapLoaded;
+    Scene_Map.prototype.onMapLoaded = function() {
+        if (DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
+        if ($.Scene_Map_onMapLoaded_photo) return $.Scene_Map_onMapLoaded_photo.call(this);
+    };
+    $.Scene_Map_terminate_photo = Scene_Map.prototype.terminate;
+    Scene_Map.prototype.terminate = function() {
+        if (DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
+        if ($.Scene_Map_terminate_photo) return $.Scene_Map_terminate_photo.call(this);
+    };
+}
+
+if (typeof Game_Map !== 'undefined') {
+    $.Game_Map_setup_photo = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        if (DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
+        return $.Game_Map_setup_photo.call(this, mapId);
+    };
+}
+
+if (typeof Game_Player !== 'undefined') {
+    $.Game_Player_canMove_photo = Game_Player.prototype.canMove;
+    Game_Player.prototype.canMove = function() {
+        if (DocsDoodads.PhotoMode.active) return false;
+        return $.Game_Player_canMove_photo.call(this);
+    };
+}
+
+if (typeof Sprite_Character !== 'undefined') {
+    $.Sprite_Character_updateVisibility_photo = Sprite_Character.prototype.updateVisibility;
+    Sprite_Character.prototype.updateVisibility = function() {
+        if ($.Sprite_Character_updateVisibility_photo) $.Sprite_Character_updateVisibility_photo.call(this);
+        const photo = DocsDoodads.PhotoMode;
+        if (photo.active && photo.state && photo.state.hidePlayer && photo.partySprites(photo.state.spriteset).includes(this)) this.visible = false;
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
+    PluginManager.registerCommand(pluginName, 'openPhotoMode', () => DocsDoodads.PhotoMode.open());
 }
 //==========================================================
 // SECTION 17C: EVENT SCHEDULE RUNTIME
@@ -24278,6 +25578,9 @@ DocsDoodads.AssetIndex = {
                 preset: "none",
                 shape: null
             },
+            collisionUserSet: existing ? existing.collisionUserSet !== false : false,
+            ...(existing && existing.guess ? { guess: existing.guess } : {}),
+            ...(existing && existing.credit ? { credit: existing.credit } : {}),
             usage: existing && existing.usage ? existing.usage : { lastUsedAt: 0, useCount: 0 }
         };
 
@@ -24382,6 +25685,7 @@ DocsDoodads.AssetIndex = {
     recordUsage(assetId) {
         const asset = this.data.assets[assetId];
         if (!asset) return;
+        DocsDoodads.Workspace.rememberAssetGuess(asset);
         const u = asset.usage = asset.usage || { lastUsedAt: 0, useCount: 0 };
         u.useCount = (u.useCount || 0) + 1;
         u.lastUsedAt = Date.now();
@@ -25101,8 +26405,9 @@ DocsDoodads.Packs = {
     },
 
     // A pack from what was gathered. readFile(path) gives the bytes (a Buffer or Uint8Array) or null;
-    // library(path) gives the file's Item Bag entry or null. Files that couldn't be read are listed.
-    build(name, gathered, readFile, library) {
+    // library(path) gives the file's Item Bag entry or null; creditOf(path) optionally resolves inherited credits.
+    // Files that couldn't be read are listed. These callbacks keep project state out of this pure builder.
+    build(name, gathered, readFile, library, creditOf) {
         const pack = { format: this.format, version: this.version, name: String(name || 'Pack').trim() || 'Pack', createdAt: Date.now(),
             contents: gathered.contents, library: {}, files: {}, missing: [] };
         for (const p of gathered.files) {
@@ -25111,11 +26416,13 @@ DocsDoodads.Packs = {
             if (!bytes) { pack.missing.push(p); continue; }
             pack.files[p] = this.toBase64(bytes);
             const entry = library ? library(p) : null;
+            const keep = {};
             if (entry) {
-                const keep = {};
-                for (const k of ['tags', 'slice', 'placement', 'collision', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
-                pack.library[p] = keep;
+                for (const k of ['tags', 'slice', 'placement', 'collision', 'collisionUserSet', 'guess', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
             }
+            const credit = DocsDoodads.Credits.normalize(entry && entry.credit) || (creditOf ? DocsDoodads.Credits.normalize(creditOf(p)) : null);
+            if (credit) keep.credit = credit;
+            if (entry || credit) pack.library[p] = keep;
         }
         return pack;
     },
@@ -25390,19 +26697,24 @@ DocsDoodads.Zip = {
     // A .ddpack inside the zip is returned as { packText } instead.
     asPack(zipName, read, Packs) {
         const pack = read.files.find(f => /\.ddpack$/i.test(f.name));
-        if (pack) return { packText: new TextDecoder('utf-8').decode(pack.data), name: pack.name };
+        if (pack) return { packText: new TextDecoder('utf-8').decode(pack.data), name: pack.name, creditNotes: DocsDoodads.Credits.notesFromFiles(read.files) };
         const base = String(zipName || 'Art').replace(/\\/g, '/').split('/').pop().replace(/\.zip$/i, '').replace(/[^\w\- ]+/g, '').trim() || 'Art';
         const out = { format: Packs.format, version: Packs.version, name: base, createdAt: Date.now(),
             contents: { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, library: {}, files: {}, missing: [] };
-        const left = read.unsafe.slice();
+        const left = read.unsafe.slice(), routed = [];
         for (const f of read.files) {
             // Folders of the zip's own (MyArt/img/...) are looked through for the project's folders.
             const inside = f.name.match(/(?:^|\/)((?:img|audio|models|movies|effects)\/.+)$/i);
             const target = inside ? inside[1] : /\.(png|jpe?g|webp|gif)$/i.test(f.name) ? `img/doodads/${base}/${f.name}` : null;
             if (!target || /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db)/i.test(f.name) || !Packs.safePath(target)) { left.push(f.name); continue; }
             out.files[target] = Packs.toBase64(f.data);
+            routed.push({ original: f.name, target });
         }
         out.leftOut = left;
+        out.creditNotes = DocsDoodads.Credits.notesFromFiles(read.files).map(note => {
+            const folder = note.name.includes('/') ? note.name.slice(0, note.name.lastIndexOf('/') + 1) : '';
+            return Object.assign(note, { paths: routed.filter(file => file.original.startsWith(folder)).map(file => file.target) });
+        });
         return { pack: out };
     }
 };
@@ -28709,10 +30021,11 @@ DocsDoodads.Search = {
             animated: null,
             collections: [],
             used: null,
+            authors: [], licences: [], creditMissing: null,
             negative: [],
             // Prefixed terms with a minus, e.g. -tag:"deep woods", leave matching assets out.
             categories: [],
-            exclude: { types: [], tags: [], folders: [], collections: [], categories: [] }
+            exclude: { types: [], tags: [], folders: [], collections: [], categories: [], authors: [], licences: [] }
         };
         if (!queryString) return tokens;
 
@@ -28726,18 +30039,20 @@ DocsDoodads.Search = {
             parts.push(prefix + val);
         }
 
-        const lists = { type: 'types', tag: 'tags', folder: 'folders', collection: 'collections', category: 'categories' };
+        const lists = { type: 'types', tag: 'tags', folder: 'folders', collection: 'collections', category: 'categories', author: 'authors', licence: 'licences', license: 'licences' };
         const yes = value => /^(yes|true|1)$/.test(value) ? true : /^(no|false|0)$/.test(value) ? false : null;
         for (const part of parts) {
             const negated = part.startsWith('-');
             const p = negated ? part.slice(1) : part;
-            const m = /^(type|tag|folder|collection|category|favorite|animated|used):(.*)$/i.exec(p);
+            const m = /^(type|tag|folder|collection|category|favorite|animated|used|author|licence|license|credit):(.*)$/i.exec(p);
             const key = m ? m[1].toLowerCase() : null;
             const value = (m ? m[2] : p).replace(/["']/g, '').toLowerCase();
             // A lone "-" (still being typed) or an empty "tag:" means nothing yet.
             if (!value) continue;
             if (lists[key]) {
                 (negated ? tokens.exclude[lists[key]] : tokens[lists[key]]).push(value);
+            } else if (key === 'credit') {
+                if (['none', 'no', 'yes', 'recorded'].includes(value)) tokens.creditMissing = ['none', 'no'].includes(value) !== negated;
             } else if (key) {
                 const flag = yes(value);
                 if (flag !== null) tokens[key] = negated ? !flag : flag;
@@ -28751,6 +30066,16 @@ DocsDoodads.Search = {
     },
 
     matches(asset, parsed) {
+        if ((parsed.authors && parsed.authors.length) || (parsed.licences && parsed.licences.length) || parsed.creditMissing !== null && parsed.creditMissing !== undefined
+            || parsed.exclude && ((parsed.exclude.authors && parsed.exclude.authors.length) || (parsed.exclude.licences && parsed.exclude.licences.length))) {
+            const credit = DocsDoodads.Credits.normalize(asset.credit) || DocsDoodads.Credits.of(asset.path, DocsDoodads.AssetIndex.data);
+            for (const [key, field] of [['authors', 'author'], ['licences', 'licence']]) {
+                const value = String(credit && credit[field] || '').toLowerCase();
+                if (parsed[key] && parsed[key].length && !parsed[key].some(term => value.includes(term))) return false;
+                if (parsed.exclude && parsed.exclude[key] && parsed.exclude[key].some(term => value.includes(term))) return false;
+            }
+            if (parsed.creditMissing !== null && parsed.creditMissing !== undefined && !DocsDoodads.Credits.complete(credit) !== parsed.creditMissing) return false;
+        }
         for (const neg of parsed.negative) {
             if ((asset.fileName && asset.fileName.toLowerCase().includes(neg)) || (asset.path && asset.path.toLowerCase().includes(neg))) {
                 return false;
@@ -32785,6 +34110,21 @@ DocsDoodads.Import = {
         return { files, errors, relativeDirs };
     },
 
+    readCreditNotes(files) {
+        const FS = DocsDoodads.FS, C = DocsDoodads.Credits, out = [];
+        for (const file of files || []) {
+            if (!C.noteFile(file)) continue;
+            try {
+                const stat = FS.fs.statSync(file);
+                if (!stat.isFile() || stat.size > 65536) continue;
+                const note = C.notesFromFiles([{ name: FS.path.basename(file), data: FS.fs.readFileSync(file) }])[0];
+                if (note) out.push(Object.assign(note, { sourceFolder: FS.path.dirname(file) }));
+                if (out.length >= 20) break;
+            } catch (error) { /* A credit note cannot stop importing the art. */ }
+        }
+        return out;
+    },
+
     // Plain-language summary of a runAssetImport result for the toast.
     describeResult(result) {
         const path = DocsDoodads.FS.path;
@@ -32844,6 +34184,7 @@ DocsDoodads.Import = {
 
         // The Add Files card has already walked the dropped folders; its list is used as it is.
         const collected = options.collected || this.collectFiles(sourcePaths);
+        plan.creditNotes = this.readCreditNotes(collected.files);
         plan.errors.push(...collected.errors);
         const reserved = new Map();
         const reservedKey = destination => process.platform === 'win32' ? destination.toLowerCase() : destination;
@@ -33193,6 +34534,7 @@ DocsDoodads.I18n = {
         this.name = (table && table.language) || (this.lang === 'en' ? 'English' : this.lang);
         this.exact = {};
         this.patterns = [];
+        this.guessWords = table && table.guessWords && typeof table.guessWords === 'object' ? table.guessWords : {};
         const strings = table && table.strings && typeof table.strings === 'object' ? table.strings : {};
         for (const key of Object.keys(strings)) {
             const value = strings[key];
@@ -34406,6 +35748,7 @@ DocsDoodads.Workspace = {
 
     open() {
         if (!editorMode || !DocsDoodads.Compat.isTest() || !DocsDoodads.Compat.isNwjs() || this.mounted) return;
+        if (DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active) DocsDoodads.PhotoMode.close();
         DocsDoodads.SimpleMode.begin();
         this.showCollision = DocsDoodads.Ui.prefs().collisionOverlay === true;
         this.showSounds = DocsDoodads.Ui.prefs().soundOverlay === true;
@@ -34422,6 +35765,7 @@ DocsDoodads.Workspace = {
         window.addEventListener('resize', this._onWindowResize);
         this.mounted = true;
         DocsDoodads.EditWindow.onOpen();
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }
@@ -35275,6 +36619,7 @@ DocsDoodads.Workspace = {
         on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
         on('dd-generate-btn', () => { this.showMoreMenu(false); this.showGenerateCard(); });
         on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
+        on('dd-credits-btn', () => { this.showMoreMenu(false); this.writeArtCredits(); });
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });
@@ -35716,6 +37061,7 @@ DocsDoodads.Workspace = {
                 { id: 'dd-lpc-btn', icon: 'person', label: 'Characters', title: "Character creators: RPG Maker MZ's generator parts, the LPC library and the Memao assets on this computer" },
                 { id: 'dd-packs-btn', icon: 'box', label: 'Packs', title: 'Put prefabs, rooms, biomes and their art in one file for another project, or bring one in' },
                 { id: 'dd-vfx-btn', icon: 'sparkle', label: 'Effects Maker', title: 'Make sparkles, smoke, fire and other effects' },
+                { id: 'dd-credits-btn', icon: 'info', label: 'Write Credits', title: 'Write CREDITS.txt for art in use, including LPC credits' },
                 { id: 'dd-tools-btn', icon: 'wrench', label: 'File Check', title: 'Find copies of the same file and files nothing uses' }
             ] },
             { id: 'view', label: 'View', icon: 'eye', title: 'What the map shows while editing, Screen Looks, the editor\'s look and panel sizes', layouts: true, items: [
@@ -36594,6 +37940,7 @@ DocsDoodads.Workspace = {
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
+            ${this.renderAssetGuess(a)}
             ${this.renderAssetSeasonControl(a)}
             ${this.renderAssetPlacementTools(a)}
             ${this.renderUsagePanel(a)}
@@ -36636,6 +37983,7 @@ DocsDoodads.Workspace = {
         colSel.onchange = (e) => {
             const shape = e.target.value === 'custom' ? (a.collision.shape || { x: 0.2, y: 0.6, w: 0.6, h: 0.4 }) : null;
             a.collision = { preset: e.target.value, shape };
+            a.collisionUserSet = true;
             DocsDoodads.AssetIndex.saveSoon();
         };
         document.getElementById('dd-asset-trace-col').onclick = () => this.traceAssetCollision(a);
@@ -36659,6 +38007,7 @@ DocsDoodads.Workspace = {
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
+        this.bindAssetGuess(a);
         this.bindAssetSeasonControl(a);
         this.bindAssetPlacementTools(a);
         this.bindUsagePanel(a);
@@ -39661,7 +41010,7 @@ DocsDoodads.Workspace = {
             const extra = section.extra === 'keyframes' ? this.renderKeyframeEditor() : section.extra === 'seasons' ? this.renderSeasonEditor()
                 : section.extra === 'animsets' ? this.renderAnimSetEditor() : section.extra === 'visual' ? this.renderVisualTryOn()
                 : section.extra === 'biomes' ? this.renderBiomeEditor() : section.extra === 'dress' ? this.renderDressEditor()
-                : section.extra === 'ambience' ? this.renderAmbienceEditor() : '';
+                : section.extra === 'ambience' ? this.renderAmbienceEditor() : section.extra === 'climate' ? this.renderClimateEditor() : '';
             return `
                 <details id="dd-world-sec-${si}" ${this._openWorldSections[section.title] ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
                     <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">${section.title}</summary>
@@ -39712,6 +41061,7 @@ DocsDoodads.Workspace = {
         this.bindBiomeEditor();
         this.bindDressEditor();
         this.bindAmbienceEditor();
+        this.bindClimateEditor();
     },
 
     renderKeyframeEditor() {
@@ -40123,6 +41473,7 @@ DocsDoodads.Workspace = {
                 return null;
             }
             asset.collision = { preset: 'custom', shape };
+            asset.collisionUserSet = true;
             DocsDoodads.AssetIndex.saveSoon();
             this.showToast(`Collision traced for ${asset.fileName}; new placements will use it.`);
             this.refreshInspector();
@@ -40134,8 +41485,8 @@ DocsDoodads.Workspace = {
     },
 
     // A new doodad for an asset (library entry or drag payload) at a map position.
-    newDoodadFromAsset(asset, x, y) {
-        const d = DocsDoodads.standardStruct();
+    newDoodadFromAsset(asset, x, y, guessing = true) {
+        let d = DocsDoodads.standardStruct();
         d.bit = [3, asset.path];
         d.x = x;
         d.y = y;
@@ -40146,6 +41497,7 @@ DocsDoodads.Workspace = {
         d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
         const collision = asset.collision || {};
         d.collision = { preset: collision.preset || "none", shape: collision.shape ? JSON.parse(JSON.stringify(collision.shape)) : null };
+        d = DocsDoodads.Guess.apply(d, this.guessAsset(asset), guessing && this.guessEnabled(), this.guessWords());
         DocsDoodads.MapLinks.ensureUid(d);
         const layer = this.layerOnThisMap(this.activeLayer);
         if (layer !== 'main') d.layer = layer;
@@ -40681,6 +42033,8 @@ DocsDoodads.Workspace = {
         const library = JSON.parse(JSON.stringify(DocsDoodads.AssetIndex.data));
         const oldId = oldPath.toLowerCase(), newId = newPath.toLowerCase();
         const entry = library.assets[oldId] || JSON.parse(JSON.stringify(asset));
+        const inheritedCredit = DocsDoodads.Credits.of(oldPath, DocsDoodads.AssetIndex.data);
+        if (!DocsDoodads.Credits.normalize(entry.credit) && inheritedCredit && oldPath.split('/').slice(0, -1).join('/') !== newPath.split('/').slice(0, -1).join('/')) entry.credit = inheritedCredit;
         delete library.assets[oldId];
         entry.id = newId;
         entry.path = newPath;
@@ -40691,12 +42045,21 @@ DocsDoodads.Workspace = {
         const oldNormalId = oldNormal ? oldNormal.toLowerCase() : '', newNormalId = newNormal ? newNormal.toLowerCase() : '';
         if (oldNormalId && newNormalId && library.assets[oldNormalId]) {
             const normalEntry = library.assets[oldNormalId];
+            const normalCredit = DocsDoodads.Credits.of(oldNormal, DocsDoodads.AssetIndex.data);
+            if (!DocsDoodads.Credits.normalize(normalEntry.credit) && normalCredit && oldNormal.split('/').slice(0, -1).join('/') !== newNormal.split('/').slice(0, -1).join('/')) normalEntry.credit = normalCredit;
             delete library.assets[oldNormalId];
             normalEntry.id = newNormalId;
             normalEntry.path = newNormal;
             normalEntry.fileName = newNormal.split('/').pop();
             normalEntry.category = DocsDoodads.AssetIndex.detectCategory(newNormal);
             library.assets[newNormalId] = normalEntry;
+        }
+        if (library.fileCredits) for (const [from, to] of [[oldId, newId], [oldNormalId, newNormalId]]) {
+            if (!from || !to || from === to || !Object.prototype.hasOwnProperty.call(library.fileCredits, from)) continue;
+            const credit = DocsDoodads.Credits.normalize(library.fileCredits[from]), assetEntry = library.assets[to];
+            if (credit && assetEntry && !DocsDoodads.Credits.normalize(assetEntry.credit)) assetEntry.credit = credit;
+            else if (credit && !assetEntry) library.fileCredits[to] = credit;
+            delete library.fileCredits[from];
         }
         for (const members of Object.values(library.collections || {})) {
             if (Array.isArray(members)) members.forEach((id, i) => {
@@ -41159,6 +42522,7 @@ DocsDoodads.Workspace = {
             DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
+            const baseline = this.newDoodadFromAsset(asset, coords.x, coords.y, false);
             const placed = this.withMirrors(this.newDoodadFromAsset(asset, coords.x, coords.y));
             if (placed.length === 0) {
                 this.showToast(this.levelGroundMessage, 'info');
@@ -41168,9 +42532,9 @@ DocsDoodads.Workspace = {
             const mapId = $gameMap.mapId();
             const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
             DocsDoodads.Undo.execute(this.doodadListStep('place_doodad', list, placed, true));
-            this.showToast("Placed Doodad on Map!");
+            this.guessedPlacementToast(asset, placed, baseline);
         }
-        DocsDoodads.AssetIndex.recordUsage(asset.id);
+        DocsDoodads.AssetIndex.recordUsage(asset.id || String(asset.path || '').toLowerCase());
     },
 
     // The selected doodads, or the one selected doodad.
@@ -42649,6 +44013,7 @@ DocsDoodads.Workspace = {
                     };
                     cmd.type = this.placementTool === 'biome' ? 'biome_paint' : 'scatter_doodads';
                     DocsDoodads.Undo.execute(cmd);
+                    this.rememberGuessPlacements(batch);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
             }
@@ -43451,6 +44816,11 @@ DocsDoodads.Workspace = {
 
         // Only the files just written are indexed, not every folder walked again.
         await DocsDoodads.AssetIndex.indexPaths(result.imported);
+        const FS = DocsDoodads.FS, written = new Set(result.imported.map(file => FS.path.resolve(file)));
+        await this.offerCreditNotes(plan.creditNotes, note => plan.operations.filter(op => {
+            const relative = FS.path.relative(note.sourceFolder, op.source);
+            return written.has(FS.path.resolve(op.destination)) && relative !== '..' && !relative.startsWith('..' + FS.path.sep) && !FS.path.isAbsolute(relative);
+        }).map(op => op.relativeDestination));
         this.refreshDrawerCards();
 
         if (options.autoSlice) {
@@ -43882,23 +45252,7 @@ Object.assign(DocsDoodads.Workspace, {
     renderSceneCanvas() {
         const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
         const spriteset = scene && scene._spriteset;
-        const renderer = this.renderer();
-        if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
-        const outline = spriteset._docsSelectionOutline;
-        const wasVisible = outline ? outline.visible : null;
-        if (outline) outline.visible = false;
-        const trace = spriteset._docsTraceSprite;
-        const traceVisible = trace ? trace.visible : null;
-        if (trace) trace.visible = false;
-        const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
-        try {
-            renderer.render(spriteset, rt);
-            return renderer.extract.canvas(rt);
-        } finally {
-            rt.destroy(true);
-            if (outline) outline.visible = wasVisible;
-            if (trace) trace.visible = traceVisible;
-        }
+        return DocsDoodads.Capture.renderSceneCanvas(spriteset, this.renderer());
     },
 
     captureName(kind, ext) {
@@ -44041,6 +45395,79 @@ Object.assign(DocsDoodads.Workspace, {
         return quick.length >= 2 ? quick : [];
     }
 });
+// @editor-only
+Object.assign(DocsDoodads.Workspace, {
+    climateRows(name) {
+        const table = DocsDoodads.World.get('climate.seasons') || {};
+        return Object.prototype.hasOwnProperty.call(table, name) && Array.isArray(table[name]) ? table[name].slice(0, 64).map(row => DocsDoodads.Climate.normalizeRow(row)) : [];
+    },
+    setClimateRows(name, rows) {
+        const table = JSON.parse(JSON.stringify(DocsDoodads.World.get('climate.seasons') || {}));
+        Object.defineProperty(table, name, { value: rows.slice(0, 64).map(row => DocsDoodads.Climate.normalizeRow(row)), writable: true, enumerable: true, configurable: true });
+        this.setWorldSetting('climate.seasons', table);
+        this.refreshInspector();
+    },
+    renderClimateEditor() {
+        const C = DocsDoodads.Climate, names = DocsDoodads.World.settings().seasons.names || ['Spring'];
+        return `<div style="font-size: 10px; color: var(--dd-faint);">Chances are weights out of 100; the remainder is clear. Each chosen spell lasts Hours. Forecasts assume the current season until an event changes it. The running clock counts days.</div>` + names.map((name, si) => {
+            const rows = this.climateRows(name);
+            return `<div style="margin-top: 8px;"><b>${escapeHtml(name)}</b><div style="display: grid; grid-template-columns: 1fr 44px 48px 44px 22px; gap: 3px; font-size: 10px;"><span>Weather</span><span>Power</span><span>Chance</span><span>Hours</span><span></span>${rows.map((row, ri) => {
+                const number = (key, min, max, step) => `<input id="dd-cl-${si}-${ri}-${key}" type="number" min="${min}" max="${max}" step="${step}" value="${row[key]}" title="${escapeHtml(name)} ${key}" style="width: 100%; box-sizing: border-box;" />`;
+                return `<select id="dd-cl-${si}-${ri}-type" title="${escapeHtml(name)} weather">${C.types.map(type => `<option value="${type}"${type === row.type ? ' selected' : ''}>${type === 'none' ? 'Clear' : type}</option>`).join('')}</select>${number('power', 0, 9, 1)}${number('chance', 0, 100, 1)}${number('hours', 0.25, 24, 0.25)}<button type="button" class="dd-btn" id="dd-cl-${si}-${ri}-del" title="Remove weather rule">×</button>`;
+            }).join('')}</div><button type="button" class="dd-btn" id="dd-cl-${si}-add"${rows.length >= 64 ? ' disabled' : ''}>Add Weather</button></div>`;
+        }).join('');
+    },
+    bindClimateEditor() {
+        const names = DocsDoodads.World.settings().seasons.names || ['Spring'];
+        names.forEach((name, si) => {
+            this.climateRows(name).forEach((row, ri) => {
+                for (const key of ['type', 'power', 'chance', 'hours']) {
+                    const control = document.getElementById(`dd-cl-${si}-${ri}-${key}`);
+                    if (control) control.onchange = () => {
+                        const rows = this.climateRows(name);
+                        if (!rows[ri]) return;
+                        rows[ri][key] = key === 'type' ? control.value : Number(control.value);
+                        this.setClimateRows(name, rows);
+                    };
+                }
+                const remove = document.getElementById(`dd-cl-${si}-${ri}-del`);
+                if (remove) remove.onclick = () => { const rows = this.climateRows(name); rows.splice(ri, 1); this.setClimateRows(name, rows); };
+            });
+            const add = document.getElementById(`dd-cl-${si}-add`);
+            if (add) add.onclick = () => this.setClimateRows(name, this.climateRows(name).concat([{ type: 'rain', power: 5, chance: 25, hours: 6 }]));
+        });
+    },
+    climateForecastCells() {
+        const C = DocsDoodads.Climate;
+        return C.forecast(7).map(day => `<span style="flex: 1; min-width: 42px; font-size: 10px;" title="${escapeHtml(C.describe([day]))}">Day ${day.day}<br>${escapeHtml(day.spans[0].type === 'none' ? 'Clear' : day.spans[0].type)}</span>`).join('');
+    },
+    renderClimateForecast() {
+        return `<div id="dd-climate-forecast" aria-label="Seven day forecast" style="display: ${DocsDoodads.Climate.enabled() ? 'flex' : 'none'}; gap: 4px; flex-wrap: wrap;">${DocsDoodads.Climate.enabled() ? this.climateForecastCells() : ''}</div>`;
+    },
+    updateClimateForecast() {
+        const el = document.getElementById('dd-climate-forecast');
+        if (!el) return;
+        const C = DocsDoodads.Climate, key = `${DocsDoodads.World._version}:${DocsDoodads.Calendar.day()}:${C.season()}:${C.seed()}`;
+        el.style.display = C.enabled() ? 'flex' : 'none';
+        if (this._climateForecastKey !== key) { this._climateForecastKey = key; el.innerHTML = C.enabled() ? this.climateForecastCells() : ''; }
+    }
+});
+{
+    const W = DocsDoodads.Workspace, sections = W.worldSections;
+    W.worldSections = function() {
+        return sections.call(this).concat([{ title: 'Climate', extra: 'climate', fields: [
+            { key: 'climate.enabled', label: 'Weather follows the season and day', type: 'checkbox' },
+            { key: 'climate.seed', label: 'Weather seed (new saves)', type: 'number', step: 1 }
+        ] }]);
+    };
+    W.mapSections.push({ render() {
+        const value = (DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).climate;
+        return `<details><summary>Climate on this map</summary><label>Automatic weather<select id="dd-climate-map"><option value="world"${value !== 'none' ? ' selected' : ''}>Game climate</option><option value="none"${value === 'none' ? ' selected' : ''}>None (indoors)</option></select></label></details>`;
+    }, bind() {
+        const control = document.getElementById('dd-climate-map');
+        if (control) control.onchange = () => this.setMapSetting('climate', control.value === 'none' ? 'none' : undefined);
+    } });
+}
 // @editor-only
 //==========================================================
 // SECTION 25s2: CHARACTER CREATOR GRID PICKER (TILES, FILTER, THUMBNAILS)
@@ -44694,6 +46121,137 @@ DocsDoodads.CreatorKits = {
         tryOnPlayer: (ws, names) => ws.tryLpcOnPlayer(names, false)
     }
 };
+// @editor-only
+Object.assign(DocsDoodads.Workspace, {
+    setAssetCredits(items, credit) {
+        const C = DocsDoodads.Credits, value = C.normalize(credit), data = DocsDoodads.AssetIndex.data, assets = data.assets;
+        let count = 0;
+        for (const asset of items || []) {
+            if (!asset) continue;
+            const key = asset.id || String(asset.path || '').toLowerCase();
+            if (assets[key] === asset) {
+                if (value) asset.credit = Object.assign({}, value); else delete asset.credit;
+                if (data.fileCredits) delete data.fileCredits[key];
+            } else if (asset.creditOnly && C.path(asset.path)) {
+                const files = data.fileCredits = data.fileCredits || {};
+                if (value) files[key] = Object.assign({}, value); else delete files[key];
+            } else continue;
+            count++;
+        }
+        if (count) DocsDoodads.AssetIndex.saveSoon();
+        return count;
+    },
+    setFolderCredit(folder, credit) {
+        const C = DocsDoodads.Credits, key = C.path(folder, true);
+        if (!key) return false;
+        const data = DocsDoodads.AssetIndex.data, folders = data.folderCredits = data.folderCredits || {};
+        const value = C.normalize(credit);
+        if (value) folders[key.toLowerCase()] = value; else delete folders[key.toLowerCase()];
+        DocsDoodads.AssetIndex.saveSoon();
+        return true;
+    },
+    async editArtCredit(items, forFolder = false) {
+        const D = DocsDoodads, C = D.Credits, data = D.AssetIndex.data;
+        items = (items || []).filter(Boolean);
+        if (!items.length) return false;
+        let folder = String(items[0].path || '').replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+        if (forFolder) {
+            folder = await D.Ui.prompt('Which project folder should supply these credits?', folder, { title: 'Folder credit', ok: 'Continue', icon: 'folder' });
+            if (!folder) return false;
+            if (!C.path(folder, true)) { this.showToast('Choose a folder under img, audio, models, movies or effects.', 'warning'); return false; }
+            folder = C.path(folder, true);
+        }
+        const current = (forFolder ? C.normalize((data.folderCredits || {})[folder.toLowerCase()]) : C.of(items[0].path, data)) || {};
+        const custom = !C.licences.includes(current.licence), clear = 'Clear this record / inherit folder';
+        const values = await D.Ui.form({ title: forFolder ? `Credit for ${folder}` : `Credit for ${items.length} file(s)`,
+            text: 'Record the author and terms supplied with the art. Clear this record to inherit its folder. No licence permissions are inferred.', ok: 'Keep Credit', icon: 'info',
+            fields: [
+                { key: 'author', label: 'Author', value: current.author || '' },
+                { key: 'preset', label: 'Licence', value: custom ? 'Other (use text below)' : current.licence, choices: C.licences.concat(['Other (use text below)', clear]) },
+                { key: 'licence', label: 'Other licence / terms', value: custom ? current.licence || '' : '' },
+                { key: 'source', label: 'Source / shop link', value: current.source || '' },
+                { key: 'note', label: 'Note / supplied licence text', value: current.note || '', type: 'textarea' }
+            ] });
+        if (!values || D.AssetIndex.data !== data) return false;
+        const credit = values.preset === clear ? null : { author: values.author, licence: values.preset === 'Other (use text below)' ? values.licence : values.preset, source: values.source, note: values.note };
+        const changed = forFolder ? this.setFolderCredit(folder, credit) : this.setAssetCredits(items, credit);
+        if (changed) { this.showToast('Kept the art credit.'); this.refreshInspector(); this.refreshDrawerCards(); }
+        return changed;
+    },
+    renderAssetCredit(asset) {
+        const credit = DocsDoodads.Credits.of(asset.path, DocsDoodads.AssetIndex.data);
+        const label = credit ? [credit.author || 'Author not recorded', credit.licence || 'Licence not recorded'].join(' — ') : 'No credit recorded';
+        return `<div style="margin-top: 10px; font-size: 11px;"><b>Credit</b><div>${escapeHtml(label)}</div><button type="button" class="dd-btn" id="dd-credit-file">Set Credit…</button> <button type="button" class="dd-btn" id="dd-credit-folder">Folder Credit…</button>${credit && credit.note ? `<details><summary>Supplied note</summary><pre style="white-space: pre-wrap; max-height: 180px; overflow-y: auto;">${escapeHtml(credit.note)}</pre></details>` : ''}</div>`;
+    },
+    bindAssetCredit(asset) {
+        const file = document.getElementById('dd-credit-file'), folder = document.getElementById('dd-credit-folder');
+        if (file) file.onclick = () => this.editArtCredit([asset]);
+        if (folder) folder.onclick = () => this.editArtCredit([asset], true);
+    },
+    usedCreditEntries() {
+        const D = DocsDoodads, index = this.refreshUsageIndex(), data = D.AssetIndex.data;
+        const assets = Object.values(data.assets || {}).filter(Boolean), byPath = new Map();
+        for (const asset of assets) if (D.Usage.isUsed(asset, index) || asset.normalFor && D.Usage.isUsed({ path: asset.normalFor }, index)) byPath.set(asset.path.toLowerCase(), asset);
+        const database = {}, maps = {};
+        const read = path => { try { return this.readUsageFile(path); } catch (error) { return null; } };
+        for (const name of ['Actors', 'Armors', 'Weapons', 'States', 'Classes']) database[name] = window['$data' + name] || read(`data/${name}.json`) || [];
+        for (const info of read('data/MapInfos.json') || window.$dataMapInfos || []) if (info) maps[info.id] = info.id === this.currentMapId() && window.$dataMap ? window.$dataMap : read(D.Persistence.mapFilePath(info.id));
+        const manifest = D.NormalLight.manifestFromAssets(data.assets || {});
+        const required = D.RequiredAssets.collect({ doodads: window.$dataDocsDoodads || {}, rooms: D.Rooms.ensureLoaded(), database, maps, normalManifest: manifest,
+            characters: assets.filter(asset => /^img\/characters\//i.test(asset.path)).map(asset => asset.fileName) });
+        for (const path of required) {
+            if (!D.Credits.path(path) || byPath.has(path.toLowerCase())) continue;
+            byPath.set(path.toLowerCase(), (data.assets || {})[path.toLowerCase()] || { id: path.toLowerCase(), path, fileName: path.split('/').pop(), creditOnly: true });
+        }
+        return [...byPath.values()].map(asset => ({ path: asset.path, credit: D.Credits.of(asset.path, data), asset })).sort((a, b) => a.path.localeCompare(b.path));
+    },
+    usedLpcCredits(rows) {
+        const data = this.lpcCredits ? this.lpcCredits() : DocsDoodads.Lpc.emptyCredits();
+        const used = new Set(rows.map(row => String(row.path).toLowerCase()));
+        return Object.assign({}, data, { images: Object.fromEntries(Object.entries(data.images || {}).filter(([path]) => used.has(path.toLowerCase()))) });
+    },
+    creditProblems() {
+        if (!DocsDoodads.Ui.prefs().checkArtCredits) return [];
+        const rows = this.usedCreditEntries(), lpc = this.usedLpcCredits(rows);
+        const lpcPaths = new Set(Object.entries(lpc.images).filter(([, record]) => record.files && record.files.length && record.files.every(file => !file.uncredited && file.authors && file.authors.length && file.licences && file.licences.length)).map(([path]) => path.toLowerCase()));
+        return DocsDoodads.Credits.missing(rows).filter(row => !lpcPaths.has(row.path.toLowerCase())).map(row => ({ kind: 'artCredits', global: true,
+            text: `${row.path}: author or licence not recorded.`, fix: { label: 'Set Credit', run: () => this.editArtCredit([row.asset]) } }));
+    },
+    async writeArtCredits() {
+        const D = DocsDoodads, FS = D.FS, rows = this.usedCreditEntries(), lpc = this.usedLpcCredits(rows);
+        const lpcPaths = new Set(Object.keys(lpc.images).map(path => path.toLowerCase()));
+        let text = D.Credits.text(rows.filter(row => row.credit || !lpcPaths.has(row.path.toLowerCase())));
+        if (lpcPaths.size) text += '\n' + D.Lpc.creditsTextFor(lpc, () => true);
+        if (FS.existsSync('CREDITS.txt') && !(await D.Ui.confirm('Replace CREDITS.txt with the credits of art currently in use?', { title: 'Write Credits', ok: 'Replace' }))) return false;
+        try {
+            FS.atomicWriteFile('CREDITS.txt', text, 'utf8');
+            this.showToast(`Wrote CREDITS.txt for ${rows.length} referenced art file(s).`, 'success');
+            return text;
+        } catch (error) { this.showToast('Could not write credits: ' + error.message, 'error'); return false; }
+    },
+    async offerCreditNotes(notes, targets) {
+        const D = DocsDoodads, data = D.AssetIndex.data;
+        for (const raw of (Array.isArray(notes) ? notes : []).slice(0, 20)) {
+            if (!raw || typeof raw.note !== 'string' || !raw.note.trim()) continue;
+            const note = Object.assign({}, raw, { name: String(raw.name || 'Supplied credit text').slice(0, 256), note: raw.note.slice(0, 65536) });
+            const folders = [...new Set((targets(note) || []).map(file => String(file).replace(/\\/g, '/').split('/').slice(0, -1).join('/')).filter(folder => D.Credits.path(folder, true)))];
+            if (!folders.length) continue;
+            const keep = await D.Ui.confirm(`Keep ${note.name} as a credit note for ${folders.join(', ')}? No licence will be guessed.\n\n${String(note.note).slice(0, 400)}`, { title: 'Keep supplied credit text?', ok: 'Keep Note' });
+            if (!keep || D.AssetIndex.data !== data) continue;
+            for (const folder of folders) {
+                const previous = D.Credits.normalize((data.folderCredits || {})[folder.toLowerCase()]) || {};
+                const text = [previous.note || '', note.name + '\n' + note.note].filter(Boolean).join('\n\n');
+                this.setFolderCredit(folder, Object.assign({}, previous, { note: text }));
+            }
+        }
+    }
+});
+// Both picture and sound Details already bind this shared footer.
+{
+    const W = DocsDoodads.Workspace, render = W.renderUsagePanel, bind = W.bindUsagePanel;
+    W.renderUsagePanel = function(asset) { return render.call(this, asset) + this.renderAssetCredit(asset); };
+    W.bindUsagePanel = function(asset) { const result = bind.call(this, asset); this.bindAssetCredit(asset); return result; };
+}
 // @editor-only
 //==========================================================
 // SECTION 25s: DOCKING THE ITEM BAG AND DETAILS
@@ -45733,6 +47291,39 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 // @editor-only
+// First-person fields join the existing per-map 3D panel; the same undoable map-settings writer saves them.
+(function(W) {
+    'use strict';
+    const fields = W.perspectiveFields;
+    W.perspectiveFields = function() {
+        const base = fields.call(this);
+        const mode = DocsDoodads.Perspective.normalize(this.perspectiveRaw()).mode;
+        const modeField = { key: 'mode', label: 'Camera', type: 'select', options: [
+            { value: 'orbit', label: 'Orbit above the player' },
+            { value: 'first', label: 'First person (player eye)' }
+        ] };
+        const at = Math.max(1, base.findIndex(f => f.key === 'pitch'));
+        base.splice(at, 0, modeField);
+        if (mode !== 'first') return base;
+        const withoutOrbitView = base.filter(f => f.key !== 'pitch' && f.key !== 'fov');
+        const modeAt = withoutOrbitView.findIndex(f => f.key === 'mode') + 1;
+        withoutOrbitView.splice(modeAt, 0,
+            { key: 'eyeHeight', label: 'Eye height (tiles above the ground)', type: 'range', min: 0.2, max: 2, step: 0.05 },
+            { key: 'firstPitch', label: 'Look tilt (negative looks up)', type: 'range', min: -45, max: 60, step: 1 },
+            { key: 'firstFov', label: 'First-person field of view', type: 'range', min: 40, max: 110, step: 1 },
+            { key: 'nearFade', label: 'Fade nearby billboards (tiles; 0 = off)', type: 'range', min: 0, max: 4, step: 0.1 },
+            { key: 'mouseLook', label: 'Click the game to use mouse look', type: 'checkbox' });
+        return withoutOrbitView;
+    };
+
+    const setField = W.setPerspectiveField;
+    W.setPerspectiveField = function(key, value, previousSettings) {
+        const out = setField.call(this, key, value, previousSettings);
+        if (key === 'mode') this.refreshInspector();
+        return out;
+    };
+})(DocsDoodads.Workspace);
+// @editor-only
 //==========================================================
 // SECTION 25z: GENERATED MAP CARD AND PREVIEW
 //==========================================================
@@ -45913,6 +47504,55 @@ DocsDoodads.Workspace.onMapLoaded = function() {
     this.closeGenerateCard();
     return generateMapLoaded.call(this);
 };
+// @editor-only
+Object.assign(DocsDoodads.Workspace, {
+    guessEnabled() { return DocsDoodads.Ui.prefs().guessOnDrop !== false; },
+    guessWords() { return DocsDoodads.I18n.guessWords || {}; },
+    guessAsset(asset) {
+        const key = asset && (asset.id || String(asset.path || '').toLowerCase());
+        return DocsDoodads.AssetIndex.data.assets[key] || asset;
+    },
+    guessKind(asset) { return DocsDoodads.Guess.kind(this.guessAsset(asset), this.guessWords()); },
+    rememberAssetGuess(asset) {
+        if (!asset || !this.guessEnabled() || asset.guess) return;
+        asset.guess = { kind: this.guessKind(asset), source: 'auto' };
+    },
+    rememberGuessPlacements(items) {
+        const paths = new Set((items || []).filter(d => d.bit && d.bit[0] === 3).map(d => String(d.bit[1]).toLowerCase()));
+        for (const key of paths) if (DocsDoodads.AssetIndex.data.assets[key]) DocsDoodads.AssetIndex.recordUsage(key);
+    },
+    setAssetGuess(asset, value) {
+        if (!asset) return false;
+        const kind = value === 'auto' ? DocsDoodads.Guess.kind(Object.assign({}, asset, { guess: null }), this.guessWords())
+            : (Object.prototype.hasOwnProperty.call(DocsDoodads.Guess.words, value) ? value : null);
+        asset.guess = { kind, source: value === 'auto' ? 'auto' : 'manual' };
+        DocsDoodads.AssetIndex.saveSoon();
+        return true;
+    },
+    renderAssetGuess(asset) {
+        const kind = this.guessKind(asset);
+        const options = [['auto', 'Guess again'], ['none', 'None']].concat(Object.keys(DocsDoodads.Guess.words).map(k => [k, k]));
+        return `<label style="display: block; font-size: 11px; margin-top: 8px;">Guessed: ${escapeHtml(kind || 'none')}<select id="dd-asset-guess" style="width: 100%;">${options.map(([id, label]) => `<option value="${id}"${id === (kind || 'none') ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label><div style="font-size: 10px; color: var(--dd-faint);">For new placements. Saved defaults take priority. Settings can turn guessing off.</div>`;
+    },
+    bindAssetGuess(asset) {
+        const control = document.getElementById('dd-asset-guess');
+        if (control) control.onchange = e => { this.setAssetGuess(asset, e.target.value); this.refreshInspector(); };
+    },
+    guessedPlacementToast(asset, placed, baseline) {
+        const kind = this.guessEnabled() ? this.guessKind(asset) : null;
+        const guess = kind && DocsDoodads.Guess.settingsFor(kind);
+        const changed = guess ? Object.keys(guess).filter(key => JSON.stringify(baseline[key]) !== JSON.stringify(placed[0][key])) : [];
+        if (!changed.length) { this.showToast('Placed Doodad on Map!'); return; }
+        const mapId = this.currentMapId(), list = window.$dataDocsDoodads[mapId];
+        const settings = placed.map(d => Object.fromEntries(changed.map(key => [key, JSON.stringify(d[key])])));
+        const labels = { light: placed[0].light && placed[0].light.enabled ? (placed[0].light.when === 'dark' ? 'lit after dark' : 'light') : 'light settings', motion: 'gentle sway', seeThrough: 'see-through', collision: `${placed[0].collision && placed[0].collision.preset} collision`, particles: 'embers', depth: 'below characters' };
+        this.showToast(`Placed ${kind}: ${changed.map(key => labels[key]).join(', ')}.`, 'success', { action: { label: 'Undo settings', run: () => {
+            if (this.currentMapId() !== mapId || window.$dataDocsDoodads[mapId] !== list) return;
+            const targets = placed.filter((d, i) => list.includes(d) && !d.locked && changed.every(key => JSON.stringify(d[key]) === settings[i][key]));
+            this.editDoodads(targets, d => { for (const key of changed) { if (baseline[key] === undefined) delete d[key]; else d[key] = JSON.parse(JSON.stringify(baseline[key])); } }, 'undo_guessed_settings');
+        } } });
+    }
+});
 // @editor-only
 (function() {
     const W = DocsDoodads.Workspace, H = DocsDoodads.Haze, sections = W.effectSections, defaults = W.propertyDefaults;
@@ -46196,6 +47836,8 @@ Object.assign(DocsDoodads.Workspace, {
         const used = asset.type === 'prefab' || !index ? null : (index.get(DocsDoodads.Usage.keyOf(asset.path)) || []).length;
         const depth = DocsDoodads.Depth.modes.includes(asset.placement && asset.placement.depth) ? asset.placement.depth : DocsDoodads.Depth.suggestFor(asset);
         const facts = [];
+        const credit = DocsDoodads.Credits.of(asset.path, DocsDoodads.AssetIndex.data);
+        if (asset.type !== 'prefab') facts.push(['Credit', credit ? [credit.author || 'Author not recorded', credit.licence || 'Licence not recorded'].join(' / ') : 'not recorded']);
         if (asset.width && asset.height) facts.push(['Size', `${asset.width} × ${asset.height} px`]);
         facts.push(['Frames', frames && frames.length > 1 ? `${frames.length} (animated)` : '1']);
         if (asset.category !== 'Audio' && asset.type !== 'prefab') facts.push(['Depth', (DocsDoodads.Depth.labels[depth] || depth).replace(/ \(.*\)$/, '')]);
@@ -46469,6 +48111,7 @@ Object.assign(DocsDoodads.Workspace, {
             <label>Map colours<select id="dd-look-colors">${option('standard', 'Standard', U.mapColorMode())}${option('safe', 'Colour-blind safe', U.mapColorMode())}</select></label>
             <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" id="dd-look-bigwin" ${DocsDoodads.EditWindow.enabled() ? 'checked' : ''} /> Bigger window while editing</label>
             <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" id="dd-look-simple" ${DocsDoodads.SimpleMode.enabled() ? 'checked' : ''} /> Keep It Simple</label>
+            <label style="flex-direction: row; align-items: center; gap: 6px;"><input type="checkbox" id="dd-look-guess" ${this.guessEnabled() ? 'checked' : ''} /> Guess settings for new placements</label>
             <div class="dd-label" style="margin: 2px 0 0;">What the map colours mean</div>
             <div class="dd-look-key" id="dd-look-key">${U.mapColorMeanings.map(([name, text]) =>
                 `<div><span class="dd-swatch" style="background: ${hex(U.mapColor(name))};"></span>${escapeHtml(text)}</div>`).join('')}</div>
@@ -46481,6 +48124,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (bigWindow) bigWindow.onchange = e => DocsDoodads.EditWindow.setEnabled(Boolean(e.target.checked), this.mounted);
         const simple = document.getElementById('dd-look-simple');
         if (simple) simple.onchange = e => this.setSimpleMode(Boolean(e.target.checked));
+        const guessing = document.getElementById('dd-look-guess');
+        if (guessing) guessing.onchange = e => U.setPref('guessOnDrop', Boolean(e.target.checked));
         const close = document.getElementById('dd-look-close');
         if (close) close.onclick = () => this.closeLookCard();
         return card;
@@ -48490,7 +50135,7 @@ Object.assign(DocsDoodads.Workspace, {
         ['missingArt', 'Missing pictures'], ['missingEvent', 'Missing common events'], ['missingSound', 'Missing sounds'], ['badCondition', 'Conditions that don\'t run'], ['offMap', 'Off the map'],
         ['darkLamp', 'Lamps that never show'], ['blockedEvent', 'Events that can\'t be reached or touched'], ['unreachable', 'Out of reach'],
         // Project-wide, from the LPC character library (44_workspace_lpc_library.js).
-        ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out']
+        ['lpcEncrypt', 'Pictures that can\'t be encrypted'], ['lpcCredits', 'Credits to write out'], ['artCredits', 'Art without credits']
     ],
 
     // ---- Collecting problems ----
@@ -48631,6 +50276,7 @@ Object.assign(DocsDoodads.Workspace, {
         const clash = DocsDoodads.Clash, plugins = window.$plugins || [];
         if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
         if (this.shippedProblems && this.shippedRelease()) out = out.concat(this.shippedProblems());
+        if (this.creditProblems) out = out.concat(this.creditProblems());
         return out;
     },
 
@@ -48783,6 +50429,7 @@ Object.assign(DocsDoodads.Workspace, {
             <div class="dd-panel-head"><span class="dd-grow">${U.icon('help', 1)} Problems (${problems.length})</span>
                 <button class="dd-btn dd-fold" id="dd-pr-close" type="button" title="Close">${U.icon('close', 1)}</button></div>
             <div class="dd-pr-tools">
+                <label><input type="checkbox" id="dd-pr-credits" ${U.prefs().checkArtCredits ? 'checked' : ''} /> Check art credits</label>
                 <select id="dd-pr-scope"><option value="map"${this._problemScope === 'map' ? ' selected' : ''}>This map</option><option value="all"${this._problemScope === 'all' ? ' selected' : ''}>Every map</option></select>
                 <button class="dd-btn" id="dd-pr-refresh" type="button">Check Again</button>
                 <button class="dd-btn" id="dd-pr-reach" type="button" title="Where the player can walk from where they stand">Check Reach</button>
@@ -48835,6 +50482,8 @@ Object.assign(DocsDoodads.Workspace, {
         const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
         on('dd-pr-close', () => this.closeProblems());
         on('dd-pr-refresh', () => this.renderProblems());
+        const credits = document.getElementById('dd-pr-credits');
+        if (credits) credits.onchange = () => { U.setPref('checkArtCredits', Boolean(credits.checked)); this.renderProblems(); };
         on('dd-pr-reach', () => this.checkReach());
         on('dd-pr-reach-tile', () => this.setPlacementTool('reach'));
         on('dd-pr-reach-clear', () => this.clearReach());
@@ -49229,6 +50878,7 @@ Object.assign(DocsDoodads.Workspace, {
                     </select>
                     <button class="dd-btn" id="dd-clock-now" type="button" title="Back to the game's own time and season"${previewing || season >= 0 ? '' : ' disabled'}>Now</button>
                 </div>
+                ${this.renderClimateForecast()}
             </div>`;
     },
 
@@ -49265,6 +50915,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (now) now.disabled = !previewing && !(this.previewSeason >= 0);
         const season = document.getElementById('dd-clock-season');
         if (season && resetSeason) season.value = '-1';
+        this.updateClimateForecast();
     },
 
     playClock() {
@@ -51300,7 +52951,7 @@ Object.assign(DocsDoodads.Workspace, {
         const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
             gathered.contents.dress.length + Object.keys(gathered.contents.collections).length + Object.keys(gathered.contents.templates || {}).length;
         if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
-        const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
+        const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null, p => D.Credits.of(p, D.AssetIndex.data));
         const out = FS.path.join('packs', P.fileName(pack.name));
         if (FS.existsSync(out) && !(await D.Ui.confirm(`${out.replace(/\\/g, '/')} is already there. Replace it with this pack?`,
             { title: 'Replace the pack?', ok: 'Replace', danger: true }))) return null;
@@ -51341,6 +52992,7 @@ Object.assign(DocsDoodads.Workspace, {
             const read = D.Zip.read(D.FS.fs.readFileSync(filePath), require('zlib').inflateRawSync);
             const found = D.Zip.asPack(filePath, read, D.Packs);
             pack = found.packText !== undefined ? D.Packs.parse(found.packText) : D.Packs.parse(JSON.stringify(found.pack));
+            if (found.packText !== undefined && found.creditNotes) pack.creditNotes = found.creditNotes;
             leftOut = found.pack ? found.pack.leftOut : read.unsafe;
             if (!found.packText && !Object.keys(pack.files).length) throw new Error('There are no pictures in this zip to bring in.');
         } else {
@@ -51384,6 +53036,10 @@ Object.assign(DocsDoodads.Workspace, {
             const entry = D.AssetIndex.data.assets[p.toLowerCase()];
             const from = pack.library[p];
             if (entry && from) { Object.assign(entry, JSON.parse(JSON.stringify(from))); entries++; }
+            else if (from && D.Credits.normalize(from.credit)) {
+                const files = D.AssetIndex.data.fileCredits = D.AssetIndex.data.fileCredits || {};
+                files[p.toLowerCase()] = D.Credits.normalize(from.credit); entries++;
+            }
         }
         for (const name of Object.keys(ready.collections)) {
             for (const p of ready.collections[name]) if (D.AssetIndex.data.assets[p.toLowerCase()]) D.AssetIndex.addAssetToCollection(p.toLowerCase(), name);
@@ -51392,6 +53048,7 @@ Object.assign(DocsDoodads.Workspace, {
             D.AssetIndex.rebuildList();
             if (D.AssetIndex.save) D.AssetIndex.save();
         }
+        await this.offerCreditNotes(pack.creditNotes, note => written.filter(path => !Array.isArray(note.paths) || note.paths.includes(path)));
         if (this.refreshDrawerCards) this.refreshDrawerCards();
         this._incomingPack = null;
         const kept = plan.conflicts.length && incoming.conflict !== 'replace' ? `; kept your own ${plan.conflicts.length} file(s) that differ` : '';
@@ -53449,12 +55106,13 @@ Object.assign(DocsDoodads.Workspace, {
         }
         bar.innerHTML = `<span style="flex-basis: 100%;">${count} picked (Ctrl or Shift + click)</span>
             <button class="dd-btn" type="button" id="dd-bb-tag">Tag</button><button class="dd-btn" type="button" id="dd-bb-fav">★</button>
-            <button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
+            <button class="dd-btn" type="button" id="dd-bb-credit">Set Credit…</button><button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
             <button class="dd-btn" type="button" id="dd-bb-del">Delete</button><button class="dd-btn" type="button" id="dd-bb-clear" title="Pick none">✕</button>`;
         const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
         on('dd-bb-tag', () => this.bagBatch('tag'));
         on('dd-bb-fav', () => this.bagBatch('favorite'));
         on('dd-bb-col', () => this.bagBatch('collection'));
+        on('dd-bb-credit', () => this.editArtCredit(this.bagPickedAssets()));
         on('dd-bb-move', () => this.bagBatch('move'));
         on('dd-bb-del', () => this.bagBatch('delete'));
         on('dd-bb-clear', () => this.clearBagPicks());
@@ -54308,6 +55966,8 @@ Object.assign(DocsDoodads.Workspace, {
     pluginParameterSettings() {
         const specs = [
             ['editKey', 'Editor Toggle Key', 'F10', 'Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.'],
+            ['photoModeKey', 'Photo Mode Key', 'P', 'Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.'],
+            ['photoModeForbidSwitch', 'Forbid Photo Mode Switch', '0', 'While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).'],
             ['editorMode', 'Editor Enabled', 'true', 'Enables the Asset Workspace and in-game editing tools during test play.'],
             ['dataFileName', 'Doodads Data File Name', 'DocsDoodads', 'Name of the doodads json file in data/ (without .json).'],
             ['doodadScaleMode', 'Doodad Scaling Mode', 'true', 'Texture scaling mode for doodad rendering.'],
@@ -54323,6 +55983,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['gridSnapWidth', 'Grid Snap Width', '0', "Width of the placement snapping grid in pixels (0 = the map's tile width)."],
             ['gridSnapHeight', 'Grid Snap Height', '0', "Height of the placement snapping grid in pixels (0 = the map's tile height)."],
             ['comfortOptions', 'Comfort options', 'auto', "Show Reduce Flashes and Less Camera Motion in the player's Options."],
+            ['startPlayersOnAuto', 'Start players on Auto', 'false', 'Start new player preferences with Auto Effects Quality; existing saved choices stay in control.'],
             ['softenMZEffects', 'Also soften MZ flashes and shakes', 'false', "Apply the player's comfort choices to MZ's Flash Screen and Shake Screen commands too."],
             ['devDiagnostics', 'Developer Diagnostics', 'false', 'Enable diagnostics logging in Developer Tools console.']
         ];
@@ -54380,6 +56041,7 @@ Object.assign(DocsDoodads.Workspace, {
         [['dd-look-scale', 'Editor size', 'scale zoom'], ['dd-look-theme', 'Theme', 'dark light'], ['dd-look-colors', 'Map colours', 'color colour blind'],
             ['dd-look-bigwin', 'Bigger window while editing', 'maximize maximise full screen window size']]
             .concat([['dd-look-simple', 'Keep It Simple', 'simple mode show everything tools']])
+            .concat([['dd-look-guess', 'Guess settings for new placements', 'guess automatic lamp tree drop defaults']])
             .forEach(row => rows.push({ id: `look:${row[0]}`, controlId: row[0], label: row[1], words: row[2], where: 'Editor / Look', kind: 'look' }));
         rows.push({ id: 'autosave', controlId: 'dd-autosave-btn', label: 'Autosave', words: 'automatic save interval recovery', where: 'Editor / Saving', kind: 'autosave' });
         for (const shortcut of DocsDoodads.Shortcuts.list) rows.push({ id: `key:${shortcut.id}`, shortcutId: shortcut.id,
@@ -56315,6 +57977,39 @@ if (DocsDoodads.Compat.isTest()) {
         window.addEventListener('unhandledrejection', event => clash.record('error', [event.reason]));
     }
 }
+//==========================================================
+// SECTION 27: PLAYER PHOTO MODE INPUT
+//==========================================================
+// This final game-safe hook loads after the editor's central keyboard router. Deployed games do not
+// include that editor-only router, so Photo Mode still gets the same key and wheel controls there.
+(function(P) {
+    'use strict';
+
+    P.uninstallInput = function() {
+        const target = this._inputWindow;
+        if (target && typeof target.removeEventListener === 'function') {
+            if (this._keyHandler) target.removeEventListener('keydown', this._keyHandler, true);
+            if (this._wheelHandler) target.removeEventListener('wheel', this._wheelHandler, true);
+        }
+        this._inputWindow = null;
+        this._keyHandler = null;
+        this._wheelHandler = null;
+    };
+
+    P.installInput = function(target) {
+        if (!target || typeof target.addEventListener !== 'function') return false;
+        if (this._inputWindow === target && this._keyHandler && this._wheelHandler) return true;
+        this.uninstallInput();
+        this._inputWindow = target;
+        this._keyHandler = event => this.onKey(event);
+        this._wheelHandler = event => this.onWheel(event);
+        target.addEventListener('keydown', this._keyHandler, true);
+        target.addEventListener('wheel', this._wheelHandler, { capture: true, passive: false });
+        return true;
+    };
+
+    if (typeof window !== 'undefined') P.installInput(window);
+})(DocsDoodads.PhotoMode);
 //==========================================================
 // END DOC'S DOODADS PLUGIN
 //==========================================================

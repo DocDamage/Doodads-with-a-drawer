@@ -310,6 +310,16 @@ interface DocsDoodadsApi {
     setWind(strength: number | 'world', frames?: number, direction?: 'left' | 'right' | 'same'): object | null;
 
     /**
+     * Reads deterministic weather spans for the next days, assuming the current season.
+     */
+    forecast(days?: number): object[];
+
+    /**
+     * Gives weather control back to the climate after an event's Set Weather.
+     */
+    resumeClimate(): boolean;
+
+    /**
      * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
      */
     flashlight(on: boolean | null): boolean;
@@ -358,6 +368,17 @@ interface DocsDoodadsApi {
      * Zooms the flat map in on a tile ({ x, y }), a character or 'player' over frames; scale 1 goes back.
      */
     zoomTo(target: { x: number, y: number } | DocsCharacter | 'player', scale?: number, frames?: number): boolean;
+
+    /**
+     * Opens the player's Photo Mode on the current map. Returns false when its forbid switch is on.
+     */
+    photoMode(): boolean;
+
+    /**
+     * Changes the current map's 3D camera for this visit. mode is 'orbit' or 'first'; first-person also
+     * accepts eyeHeight, pitch, fov, mouseLook and nearFade. Returns false on a flat/unloaded map.
+     */
+    camera3d(options: object, frames?: number): boolean;
 
     /**
      * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.

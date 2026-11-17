@@ -157,8 +157,8 @@ DocsDoodads.Workspace = {
         this._onWindowResize = () => this.layoutPanels();
         window.addEventListener('resize', this._onWindowResize);
         this.mounted = true;
-        if (DocsDoodads.Perspective && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         DocsDoodads.EditWindow.onOpen();
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         if (window.$gameSystem && window.$gameSystem.docsDoodads) {
             window.$gameSystem.docsDoodads.editing = true;
         }

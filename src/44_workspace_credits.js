@@ -41,7 +41,7 @@ Object.assign(DocsDoodads.Workspace, {
         const current = (forFolder ? C.normalize((data.folderCredits || {})[folder.toLowerCase()]) : C.of(items[0].path, data)) || {};
         const custom = !C.licences.includes(current.licence), clear = 'Clear this record / inherit folder';
         const values = await D.Ui.form({ title: forFolder ? `Credit for ${folder}` : `Credit for ${items.length} file(s)`,
-            text: 'Record the author and terms supplied with the art. Blank fields clear this record; files then inherit their folder. No licence permissions are inferred.', ok: 'Keep Credit', icon: 'file',
+            text: 'Record the author and terms supplied with the art. Clear this record to inherit its folder. No licence permissions are inferred.', ok: 'Keep Credit', icon: 'info',
             fields: [
                 { key: 'author', label: 'Author', value: current.author || '' },
                 { key: 'preset', label: 'Licence', value: custom ? 'Other (use text below)' : current.licence, choices: C.licences.concat(['Other (use text below)', clear]) },
