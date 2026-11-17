@@ -71,6 +71,7 @@ Object.assign(DocsDoodads.Persistence, {
         if (!gameMap) return false;
         mapId = Number(mapId || gameMap.mapId());
         const W = DocsDoodads.Workspace, DF = DocsDoodads.DataFiles, FS = DocsDoodads.FS;
+        const ground = W && W.prepareGroundSave ? W.prepareGroundSave([mapId]) : null;
         const mapFile = this.mapFilePath(mapId);
         const snap = this.sessionSnapshots[mapFile], now = FS.stat(mapFile);
         if (snap && now && (snap.mtimeMs !== now.mtimeMs || snap.size !== now.size)) {
@@ -91,6 +92,9 @@ Object.assign(DocsDoodads.Persistence, {
         const trace = Object.assign({}, merged.trace || {});
         if (live.trace && live.trace[mapId]) trace[mapId] = live.trace[mapId]; else delete trace[mapId];
         if (Object.keys(trace).length) merged.trace = trace; else delete merged.trace;
+        const pins = Object.assign({}, merged.pins || {});
+        if (live.pins && live.pins[mapId]) pins[mapId] = live.pins[mapId]; else delete pins[mapId];
+        if (Object.keys(pins).length) merged.pins = pins; else delete merged.pins;
         const aliases = Object.assign({}, merged.aliases || {});
         if (live.aliases && live.aliases[mapId]) aliases[mapId] = live.aliases[mapId]; else delete aliases[mapId];
         if (Object.keys(aliases).length) merged.aliases = aliases; else delete merged.aliases;
@@ -123,6 +127,7 @@ Object.assign(DocsDoodads.Persistence, {
         this.dirtyMap = Object.keys(this.stagedMaps).length > 0 || (this._dirtyMap && !mapEntries.length);
         this.dirtyDoodads = still;
         this.touchedMaps.delete(mapId);
+        if (ground) W.writeGroundMasks(ground);
         if (!this.hasUnsavedWork()) { this.lastSavedAt = Date.now(); this.clearRecovery(); }
         W.showToast(this.hasUnsavedWork() ? 'Saved this map. Other maps still have unsaved changes.' : 'Saved this map. Everything is saved.');
         if (W.mounted) W.updateSaveState(!this.hasUnsavedWork());

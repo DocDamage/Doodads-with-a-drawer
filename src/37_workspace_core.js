@@ -252,6 +252,8 @@ DocsDoodads.Workspace = {
         this._roomDrag = null;
         this.stopVfxPreview();
         this.postFxCompare = false;
+        // Phone Preview (8.3.5) never outlives the editor.
+        if (typeof this.stopPhonePreview === 'function') this.stopPhonePreview();
         this.mounted = false;
         DocsDoodads.EditWindow.onClose();
         DocsDoodads.SimpleMode.end();
@@ -299,7 +301,8 @@ DocsDoodads.Workspace = {
         };
         const restoredNotes = restoreMetadata('notes');
         const restoredBookmarks = restoreMetadata('bookmarks');
-        if (restoredNotes || restoredBookmarks) DocsDoodads.Persistence.dirtyDoodads = true;
+        const restoredPins = restoreMetadata('pins');
+        if (restoredNotes || restoredBookmarks || restoredPins) DocsDoodads.Persistence.dirtyDoodads = true;
         if (recovery.stagedMap) {
             if (mapId === this.currentMapId()) {
                 $gameMap._stagedMapData = recovery.stagedMap;

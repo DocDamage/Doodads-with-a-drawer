@@ -147,6 +147,8 @@ DocsDoodads.Persistence = {
             return false;
         }
 
+        // The ground brush (8.3.4): each painted map names its mask before the data is written.
+        const ground = DocsDoodads.Workspace && DocsDoodads.Workspace.prepareGroundSave ? DocsDoodads.Workspace.prepareGroundSave() : null;
         const savedDoodads = DocsDoodads.DataFiles.readAll() || {};
         const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
@@ -188,6 +190,7 @@ DocsDoodads.Persistence = {
         this.dirtyDoodads = false;
         this.clearRecovery();
         // The files MZ's "Exclude unused files" can't see (22_required_assets.js); a failure doesn't stop the save.
+        if (ground) DocsDoodads.Workspace.writeGroundMasks(ground);
         try { if (DocsDoodads.RequiredAssets) DocsDoodads.RequiredAssets.write(); } catch (e) { DocsDoodads.Core.log('Required assets list not written.', e); }
         const extra = mapEntries.length > 1 ? ` (${mapEntries.length} maps)` : '';
         DocsDoodads.Workspace.showToast(`Project Saved${extra}! Reload maps in MZ before editing there.`);
@@ -276,6 +279,7 @@ DocsDoodads.Persistence = {
             // snapshots that have no field at all, and from an explicitly empty object or array.
             notes: Object.prototype.hasOwnProperty.call(data, 'notes') && data.notes !== undefined ? data.notes : null,
             bookmarks: Object.prototype.hasOwnProperty.call(data, 'bookmarks') && data.bookmarks !== undefined ? data.bookmarks : null,
+            pins: Object.prototype.hasOwnProperty.call(data, 'pins') && data.pins !== undefined ? data.pins : null,
             stagedMap: gameMap._stagedMapData
         };
         const count = this.changeCount, epoch = this._recoveryEpoch;

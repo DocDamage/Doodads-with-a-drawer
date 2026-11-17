@@ -1,0 +1,22 @@
+{
+  "type": "map", "orientation": "orthogonal", "infinite": false,
+  "width": 4, "height": 4, "tilewidth": 16, "tileheight": 16,
+  "tilesets": [
+    { "firstgid": 1, "name": "ground", "image": "tiles/ground.png", "imagewidth": 64, "imageheight": 32, "columns": 4, "tilewidth": 16, "tileheight": 16, "margin": 0, "spacing": 0, "tilecount": 8 },
+    { "firstgid": 9, "source": "tiles/props.tsj" }
+  ],
+  "layers": [
+    { "type": "tilelayer", "name": "Ground", "width": 4, "height": 4, "opacity": 1, "visible": true,
+      "data": [1, 2, 3, 4, 5, 6, 7, 8, 1, 2147483650, 3, 4, 5, 6, 7, 8] },
+    { "type": "objectgroup", "name": "Player", "visible": true, "objects": [
+      { "id": 1, "name": "Barrel", "type": "prop", "gid": 9, "x": 16, "y": 48, "width": 16, "height": 16, "visible": true },
+      { "id": 2, "name": "Start", "type": "point", "x": 8, "y": 8, "width": 0, "height": 0, "visible": true }
+    ] },
+    { "type": "tilelayer", "name": "Roofs", "width": 4, "height": 4, "opacity": 0.5, "visible": true,
+      "data": [0, 0, 0, 0, 0, 1073741834, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { "type": "objectgroup", "name": "Collision", "visible": true, "objects": [
+      { "id": 3, "name": "", "x": 0, "y": 0, "width": 32, "height": 16, "visible": true }
+    ] },
+    { "type": "tilelayer", "name": "Hidden", "width": 4, "height": 4, "visible": false, "data": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1] }
+  ]
+}

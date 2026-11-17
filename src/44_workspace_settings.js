@@ -25,6 +25,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['editKey', 'Editor Toggle Key', 'F10', 'Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.'],
             ['photoModeKey', 'Photo Mode Key', 'P', 'Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.'],
             ['photoModeForbidSwitch', 'Forbid Photo Mode Switch', '0', 'While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).'],
+            ['fastTravelForbidSwitch', 'Forbid Fast Travel Switch', '0', 'While this switch is ON the world map shows pins but cannot travel (dungeons, cutscenes).'],
             ['editorMode', 'Editor Enabled', 'true', 'Enables the Asset Workspace and in-game editing tools during test play.'],
             ['dataFileName', 'Doodads Data File Name', 'DocsDoodads', 'Name of the doodads json file in data/ (without .json).'],
             ['doodadScaleMode', 'Doodad Scaling Mode', 'true', 'Texture scaling mode for doodad rendering.'],

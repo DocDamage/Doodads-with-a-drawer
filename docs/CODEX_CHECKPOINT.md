@@ -1,5 +1,21 @@
 # Backlog 7–9 continuation
 
+## Next wave (17 November 2026, branch `feat/backlog-next`)
+
+PR #102 (the first waves) is merged into `main`. On `feat/backlog-next`, branched from `main`, these rows are built with source,
+automated tests and docs, and each still needs its MZ checks: 8.3.1 normal maps made for you; 8.3.5 Phone Preview;
+8.2.3 moving tooltips (drawn clips, not recorded); 9.1.6 pins and fast travel; 9.3.2 ropes and cables; 7.1.6 Tiled/LDtk
+import (with the new "Empty tiles are floor" map setting); 7.3.3 movement off the grid (player only; events stay on the
+grid and traversal switches to it); 8.5.2 picture to map; 8.5.3 kinds of map; 8.3.4 ground brush (three textures a mask,
+not four: alpha is premultiplied on upload); 8.4.7 robot tester; 8.4.8 save 3D map as .glb.
+
+Not exercised here: the robot's playing runner (needs MZ's Game_Interpreter, JsonEx and DataManager), the importer's
+canvas drawing with flips, Phone Preview on real phones, and every shader on a real GPU. Editing a kind's classes (8.5.3
+step 3) is not built: kinds can be copied and their tiles chosen. Nothing on this branch is committed yet.
+
+Still open: 7.1.8, 7.2.5, 7.3.1, 7.3.4, 7.3.6, 7.3.7, 8.3.2, 8.3.3, 8.4.1, 8.4.2, 8.4.3, 8.4.5, 8.4.6, 8.5.4, 8.5.5, 9.2.2,
+9.2.3, 9.2.5, 9.3.1, 9.4.1, and 7.4.5 (needs third-party plugins).
+
 ## Current milestone
 
 Backlog implementation remains paused at the user's request (16 November 2026).

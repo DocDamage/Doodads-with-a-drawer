@@ -24,12 +24,19 @@ DocsDoodads.RequiredAssets = {
                 if (d.bit && d.bit[0] === 3) add(d.bit[1]);
                 for (const st of (d.states && d.states.list) || []) if (st && st.path) add(st.path);
                 if (d.model && d.model.path) add(d.model.path);
+                if (d.line && d.line.hang && d.line.hang.path) add(d.line.hang.path);
             }
         }
         for (const room of sources.rooms || []) for (const doodad of (room && room.doodads) || []) {
             if (doodad && doodad.bit && doodad.bit[0] === 3) add(doodad.bit[1]);
             for (const state of (doodad && doodad.states && doodad.states.list) || []) if (state && state.path) add(state.path);
             if (doodad && doodad.model && doodad.model.path) add(doodad.model.path);
+            if (doodad && doodad.line && doodad.line.hang && doodad.line.hang.path) add(doodad.line.hang.path);
+        }
+        // The ground brush (8.3.4): a painted map's mask and its textures.
+        for (const settings of Object.values(data.mapSettings || {})) {
+            const ground = DocsDoodads.Ground && DocsDoodads.Ground.settings(settings);
+            if (ground && ground.mask) { add(ground.mask); for (const t of ground.textures) add(t); }
         }
         const world = data.world || {};
         for (const biome of (world.biomes && world.biomes.list) || []) for (const entry of (biome && biome.entries) || []) add(entry && entry.path);
@@ -76,6 +83,12 @@ DocsDoodads.RequiredAssets = {
         for (const file of Array.from(out)) add(normalFor(file));
         // MZ already knows the base actor/event sheet, so it may not be in `out`; its normal is still plugin art.
         for (const name of sheetNames) add(normalFor('img/characters/' + name + '.png'));
+        // Made normal maps (8.3.1) go with every picture the game draws; a stale key costs one small file.
+        const made = normalManifest && normalManifest.generated && typeof normalManifest.generated === 'object' ? normalManifest.generated : {};
+        const drawn = new Set(Array.from(out).map(file => String(file).toLowerCase()));
+        for (const name of sheetNames) drawn.add(('img/characters/' + name + '.png').toLowerCase());
+        const N = DocsDoodads.NormalLight;
+        for (const [key, file] of Object.entries(N ? N.cleanGenerated(made) : {})) if (drawn.has(N.sourceOfKey(key))) add(file);
         return Array.from(out).sort();
     },
 

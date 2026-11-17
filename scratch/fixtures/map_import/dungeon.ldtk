@@ -1,0 +1,17 @@
+{
+  "jsonVersion": "1.5.3", "defaultGridSize": 16,
+  "defs": { "tilesets": [ { "uid": 7, "identifier": "Dungeon", "relPath": "tiles/dungeon.png", "tileGridSize": 16 } ] },
+  "levels": [
+    { "identifier": "Level_0", "pxWid": 48, "pxHei": 32, "layerInstances": [
+      { "__identifier": "Entities", "__type": "Entities", "__gridSize": 16, "__cWid": 3, "__cHei": 2, "__opacity": 1, "visible": true,
+        "__pxTotalOffsetX": 0, "__pxTotalOffsetY": 0,
+        "entityInstances": [ { "__identifier": "Chest", "px": [24, 32], "width": 16, "height": 16, "__pivot": [0.5, 1], "__tile": { "tilesetUid": 7, "x": 32, "y": 0, "w": 16, "h": 16 } } ] },
+      { "__identifier": "Walls", "__type": "IntGrid", "__gridSize": 16, "__cWid": 3, "__cHei": 2, "__opacity": 1, "visible": true,
+        "__pxTotalOffsetX": 0, "__pxTotalOffsetY": 0, "intGridCsv": [1, 0, 0, 0, 0, 1], "autoLayerTiles": [] },
+      { "__identifier": "Floor", "__type": "Tiles", "__gridSize": 16, "__cWid": 3, "__cHei": 2, "__opacity": 1, "visible": true,
+        "__pxTotalOffsetX": 0, "__pxTotalOffsetY": 0, "__tilesetRelPath": "tiles/dungeon.png",
+        "gridTiles": [ { "px": [0, 0], "src": [0, 0], "f": 0, "t": 0 }, { "px": [16, 0], "src": [16, 0], "f": 1, "t": 1 }, { "px": [32, 16], "src": [0, 16], "f": 3, "t": 4 } ] }
+    ] },
+    { "identifier": "Level_1", "externalRelPath": "levels/second.ldtkl" }
+  ]
+}

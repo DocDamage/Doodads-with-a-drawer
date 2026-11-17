@@ -1,0 +1,4 @@
+{ "identifier": "Level_1", "pxWid": 16, "pxHei": 16, "layerInstances": [
+  { "__identifier": "Floor", "__type": "Tiles", "__gridSize": 16, "__cWid": 1, "__cHei": 1, "__opacity": 1, "visible": true,
+    "__pxTotalOffsetX": 0, "__pxTotalOffsetY": 0, "__tilesetRelPath": "tiles/dungeon.png", "gridTiles": [ { "px": [0, 0], "src": [16, 16], "f": 0, "t": 5 } ] }
+] }

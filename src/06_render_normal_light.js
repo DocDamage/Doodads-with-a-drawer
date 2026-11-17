@@ -7,6 +7,7 @@ DocsDoodads.NormalLight = {
     maxLights: 8,
     manifestPath: 'data/DocsDoodadsNormals.json',
     manifest: { version: 1, normals: {} },
+    _generatedSources: new Set(),
 
     cleanPath(value) {
         const path = String(value || '').replace(/\\/g, '/').replace(/^\.\//, '');
@@ -20,7 +21,93 @@ DocsDoodads.NormalLight = {
         return path.replace(/\.(png|jpe?g|webp)$/i, '_n.png');
     },
 
-    manifestFromAssets(assets) {
+    // Normal maps made for a picture (8.3.1) live here, under img/ so MZ's deployment encrypts them with the
+    // rest of the art; the asset index ignores the folder as it ignores _packed.
+    generatedDir: 'img/doodads/_normals',
+    shadeModes: ['made', 'file', 'off'],
+    shadeDefaults: { mode: 'made', strength: 1, shape: 'round' },
+
+    // A doodad's Shading: Made for me (a hand-made _n file still wins), From file only, or Off.
+    shade(value) {
+        const d = this.shadeDefaults, v = value && typeof value === 'object' ? value : {};
+        const mode = this.shadeModes.includes(v.mode) ? v.mode : d.mode;
+        const strength = Math.round(Math.max(0.25, Math.min(4, Number(v.strength) || d.strength)) * 100) / 100;
+        return { mode, strength, shape: v.shape === 'flat' ? 'flat' : 'round' };
+    },
+
+    // The frame grid a sprite shows: cell size and where its cells start, so every frame of a strip shares a key.
+    gridOf(frame) {
+        const w = Math.max(1, Math.round(Number(frame && frame.width) || 1));
+        const h = Math.max(1, Math.round(Number(frame && frame.height) || 1));
+        const x = Math.round(Number(frame && frame.x) || 0), y = Math.round(Number(frame && frame.y) || 0);
+        return { w, h, x: ((x % w) + w) % w, y: ((y % h) + h) % h };
+    },
+
+    generatedKey(source, shade, frame) {
+        const path = this.cleanPath(source);
+        if (!path) return null;
+        const s = this.shade(shade), g = this.gridOf(frame);
+        return `${path.toLowerCase()}|${s.shape}|${s.strength.toFixed(2)}|${g.w}x${g.h}+${g.x},${g.y}`;
+    },
+
+    sourceOfKey(key) {
+        const bar = String(key || '').indexOf('|');
+        return bar > 0 ? String(key).slice(0, bar) : null;
+    },
+
+    cleanGenerated(rows) {
+        const clean = {};
+        if (!rows || typeof rows !== 'object') return clean;
+        const prefix = this.generatedDir.toLowerCase() + '/';
+        for (const [key, value] of Object.entries(rows)) {
+            const path = this.cleanPath(value), source = this.cleanPath(this.sourceOfKey(key));
+            if (!source || String(key).length > 1024 || !path || !/_n\.png$/i.test(path) || !path.toLowerCase().startsWith(prefix)) continue;
+            clean[String(key)] = path;
+        }
+        return clean;
+    },
+
+    // The base path for each picture with a made map, for the packed-art check in the game.
+    generatedSources(generated) {
+        const out = new Set();
+        for (const key of Object.keys(generated || {})) out.add(this.sourceOfKey(key));
+        return out;
+    },
+
+    // Rename/Move keeps a picture's made maps: the file itself does not move, only its key.
+    renameGenerated(generated, from, to) {
+        const oldPath = this.cleanPath(from), newPath = this.cleanPath(to), out = {};
+        for (const [key, value] of Object.entries(generated || {})) {
+            if (oldPath && newPath && this.sourceOfKey(key) === oldPath.toLowerCase()) out[newPath.toLowerCase() + key.slice(oldPath.length)] = value;
+            else out[key] = value;
+        }
+        return out;
+    },
+
+    // Which normal map a sprite draws with, and the key of a made one that is still missing.
+    resolve(source, shade, frame, manifest = this.manifest) {
+        const s = this.shade(shade);
+        if (s.mode === 'off' || !this.cleanPath(source)) return { path: null, kind: null, key: null };
+        const file = this.pathFor(source, manifest);
+        if (file || s.mode === 'file') return { path: file, kind: file ? 'file' : null, key: null };
+        const key = this.generatedKey(source, s, frame);
+        const rows = manifest && manifest.generated;
+        const made = key && rows && typeof rows === 'object' ? rows[key] || null : null;
+        return { path: made, kind: made ? 'made' : null, key, missing: !made };
+    },
+
+    // True when a doodad's picture is drawn with a normal map, so the game keeps it off packed sheets.
+    mapsSource(path, data, manifest = this.manifest) {
+        const s = this.shade(data && data.shade);
+        if (s.mode === 'off') return false;
+        if (this.pathFor(path, manifest)) return true;
+        if (s.mode === 'file') return false;
+        const clean = this.cleanPath(path);
+        const sources = manifest === this.manifest && this._generatedSources ? this._generatedSources : this.generatedSources(manifest && manifest.generated);
+        return Boolean(clean && sources.has(clean.toLowerCase()));
+    },
+
+    manifestFromAssets(assets, generated = this.manifest && this.manifest.generated) {
         const byPath = new Map();
         for (const asset of Object.values(assets || {})) {
             const path = asset && this.cleanPath(asset.path);
@@ -38,7 +125,8 @@ DocsDoodads.NormalLight = {
             }
             if (base) normals[String(base.path).toLowerCase()] = String(normal.path);
         }
-        return { version: 1, normals };
+        const made = this.cleanGenerated(generated);
+        return Object.keys(made).length ? { version: 1, normals, generated: made } : { version: 1, normals };
     },
 
     setManifest(value) {
@@ -48,7 +136,9 @@ DocsDoodads.NormalLight = {
             const b = this.cleanPath(base), n = this.cleanPath(normal);
             if (b && n && /_n\.png$/i.test(n)) clean[b.toLowerCase()] = n;
         }
-        this.manifest = { version: 1, normals: clean };
+        const made = this.cleanGenerated(value && value.generated);
+        this.manifest = Object.keys(made).length ? { version: 1, normals: clean, generated: made } : { version: 1, normals: clean };
+        this._generatedSources = this.generatedSources(made);
         return this.manifest;
     },
 

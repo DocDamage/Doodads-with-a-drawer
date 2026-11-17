@@ -22,3 +22,7 @@ What follows from it:
   A report of a way to make a deployed game compile text from outside its own `data/` is a security issue.
 - Conditions that fail to compile or throw are treated as true and never stop the game; they are not a way to
   hide errors from the developer (Problems in More lists them).
+
+## Phone Preview opens a port
+
+View → Phone Preview (playtests only) starts a read-only web server so a phone on the same network can play the project. It never starts by itself: the user is told "Anyone on this network can see this project until you stop" and must agree. It binds to one private IPv4 address (10/8, 172.16/12 or 192.168/16), never to all interfaces or a public address, and every address carries a random 128-bit token. It answers GET and HEAD only, serves only the game folders (`index.html`, `js`, `img`, `audio`, `data`, `fonts`, `css`, `effects`, `icon`, `movies`, `models`), refuses dot files, `save/`, `data/docs_doodads_cache/` (backups and reports), Windows short names, trailing dots and links out of the project, and lists no folders. It stops on Stop, when the editor closes and when the playtest closes, and is not in the game build. Traffic is plain HTTP on the local network. A way to read a file outside those folders, or to reach the server without the token, is a security issue.

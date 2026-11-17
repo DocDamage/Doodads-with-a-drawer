@@ -101,7 +101,7 @@ Press **F10** in a playtest. A new install starts the five-step **Your first map
 - The menus hold the rest. **Map**: Map Settings, Find Doodads, Outliner, Rooms, Templates, Problems, Notes, Ruler, Check Reach, Save This Map, Autosave. **Art**: **Cut Up Sheet** (the slicer), Characters, Packs, **Effects Maker** (VFX), **File Check** (duplicates and unused files). **View**: Show Grid, Show Collision, Show Sounds, Listen, Show Speed, **Screen Looks** (post-processing and map image export), Show Notes, Bookmarks, Look and the panel layouts. **More**: **Find a Tool** (Ctrl+K), **Settings** (Ctrl+,), **Keys** (every keyboard shortcut, and changing them: section 23), Capture, **Old Saves** (save history), Messages, **Info** (numbers, cache and backups), **Sounds** on/off and **How to Use** (the welcome card again). In a menu the arrow keys move up and down, and left and right to the next menu; Esc closes it. Every entry is in Find a Tool too (as *View → Show Grid*, unless it is there under its own name).
 - **Item Bag** (left) and **Details** (right) fold away with their arrow buttons (or **H** for Details) to give the map room; click a folded strip to open it again. Folding, sounds and the welcome card are remembered on this computer.
 - The **hint bubble** at the bottom always says what to do next for the tool or the thing you have picked.
-- Rest the mouse on a button for its **tooltip**, with the shortcut in a key cap.
+- Rest the mouse on a button for its **tooltip**, with the shortcut in a key cap. On the ten main tools (Select, Stamp, Scatter, Paint, Path, Hills, Regions, Collision, Tiles and Mirror) a short clip of the tool in use plays after a moment; Less motion turns the clips off.
 - **Clock** (top of the map panel, when nothing is picked): drag to see the map at any time of day, pick a season to see its art, ▶ to run the day fast, **Now** to go back to the game's own time. It only changes what the editor shows.
 - **Show Sounds** (View): a circle for how far each sound source on a doodad or event reaches, and shaded tiles where a region sound plays. **Listen** (View): click a tile to hear what the player would hear there, sound sources, the region sound and ambience layers mixed at their volumes, with a list and Stop. Esc ends it.
 - **Show Speed** (View): frames a second, draw calls a frame, pictures loaded, doodads and lights on the map; numbers over a typical budget turn red with a hint (for many draw calls, pack the map's art). In play, doodads off the screen (or off the 3D view) are not drawn and their shadows and effects wait, so a big map costs about what is on screen; their lights still shine.
@@ -318,11 +318,35 @@ Enable **World → Normal Maps** to shade pictures and characters with nearby la
 
 Up to eight nearby lights contribute, including switched lamps and cones; Effects Quality caps this at eight, four, two or zero. Animation, state and seasonal art use their matching companions; character sheets can use `$Name_n.png`. Foreground sprites and upper tiles keep their own lighting, and wall masks limit lamp contribution. This first version is flat-map only. Real GPU checks with 200 mapped pictures and 20 lights are pending; the automated benchmark measures the stand-in engine.
 
+#### Made for me
+
+With Normal Maps on, a doodad with no `_n.png` gets a normal map made from its shape the first time it is lit in a playtest. The shape's edges are rounded off by their distance from the see-through pixels, with a little of the picture's brightness for surface detail. Every frame of a strip or sheet is made on its own, so frames never bleed into each other. The work runs in slices over several frames, with a progress pill if it takes a while. Made maps are kept in `img/doodads/_normals/` (hidden from the Item Bag), named in the normal-map manifest and listed for deployment with the pictures they shade. Editing a picture makes a new map and removes the old one.
+
+In a doodad's Details, **Shading** chooses **Made for me** (the default; a hand-made `_n.png` beside the picture still wins), **From file** (only a hand-made file) or **Off**. **Strength** sets how steep the slopes are; **Rounded** uses the shape, **Flat** only the brightness. **World → Normal Maps → Characters** can make maps for character sheets too; by default characters use only `_n.png` files. A deployed game never makes maps; it uses the ones made in playtests.
+
+### Phone Preview
+
+**View → Phone Preview** plays the running project on a phone on the same Wi-Fi. It asks first, because anyone on that network who has the address can see the project until you stop. A card shows a QR code and the address; scan it with the phone's camera. The phone runs the game with the editor off. When a map or other data file is saved, the phone reloads and starts again where the player was standing. **Stop** on the card, closing the editor or closing the playtest stops it.
+
+Only the game's own folders are served, read-only. Saves, the plugin's backups and reports, dot files and project settings are never served, and the address includes a random code. It works only in a playtest and is not in the game build. If no local network address is found, connect the computer to the same Wi-Fi as the phone. Phones need a browser that runs MZ games, and sound may start only after the first tap.
+
 ### Generated maps
 
 **Map → Generate Map** builds a seeded **Dungeon** or **Wilderness** in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. **Preview** changes nothing, **Reroll** advances the seed, and **Apply** writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map.
 
 Room stamps' **Doors** control uses edge notation such as `N2, E3, S2, W3` (north/south use x, east/west use y, starting at zero). The **Generate Map** plugin command or `api.generateMap(spec)` queues a target map before transfer and resolves a variable seed once. The save keeps only seed and recipe; the map regenerates before display and after loading a save. Generated named states/lights are retained until materialization succeeds. Both editor and game builds share the same placement rules, and generated art uses its full bitmap size. Real MZ transfer, visuals and deployment checks remain pending.
+
+### Ground brush
+
+**Map → Ground Brush** paints dirt, grass and stone with soft edges, off the grid, over the ground tiles and under every doodad and character. In its card, pick a picture in the Item Bag and choose **Use Picked** for one of the three texture slots (textures repeat across the map), choose a slot, and drag on the map. **Size**, **Strength** and **Soft edge** set the brush; right-drag erases. Painting one texture over another replaces it. Each stroke is one undo step.
+
+The painting is saved with the map as `img/doodads/ground/Map###_ground.png` (a quarter of the map's pixel size, one colour channel per texture); a map with nothing painted has no file. The mask and its textures are listed for deployment, and Rename/Move keeps the textures. Looping maps repeat it across the seam. This first version is for flat maps; three textures a map, because a picture's fourth (alpha) channel is changed by the browser when it loads.
+
+### Ropes and cables
+
+On the **Path** card choose **Draw a Rope Instead**, then press at one end and release at the other (hold Shift to snap the ends to tile middles). With a picture picked in the Item Bag, the picture is stretched along the rope; with none, it is a plain cord. A selected rope shows a handle at each end and one in the middle: drag the ends to move them and the middle to change the sag. Each drag is one Undo step.
+
+In Details, **Rope** sets the sag, the cord's thickness and colour, and how much it sways in the wind (the middle moves most; the ends never move). **Hung picture** and **How many** hang things along it, evenly spaced, such as bunting, lanterns or chains, and **Each one gives light** gives each a light preset that follows the sway. Ropes are drawn above characters by default; with **Sorted with characters** they sort by their lowest point. A rope ignores its doodad's size and turn. Hung pictures ship with the game and follow Rename/Move. This first version is for flat maps.
 
 ### Heat haze
 
@@ -461,6 +485,14 @@ Open **Art → Effects Maker**.
   - **Hold the Last Frame** keeps it there for sitting or sleeping.
   - The event can **wait** until the action finishes.
   - **Clear Character Action** returns the character to normal.
+
+### Movement off the grid
+
+**World → Movement → The player walks off the grid** lets the player move by pixels in eight directions instead of tile by tile. A small box at their feet (24 × 16 pixels by default; set its size there) slides along painted collision, doodad bodies, MZ's impassable tiles and one-way tile edges, and the boxes of events that stand like characters. A box that just clips a corner is nudged round it. Touch and mouse destinations follow the tile path and walk it freely.
+
+The player's tile (what events, regions, encounters, terrain tags and other plugins read) is the tile under the box. Reaching a new tile counts as a step: the party walks, floor events start and encounters count. Pushing into an event that starts on touch starts it, and the action button looks one tile in front of the box. Followers walk the player's trail a tile apart.
+
+Events, vehicles, forced move routes, jumps and traversal (flying, swimming, climbing, ice) stay on the grid; the player steps onto the nearest tile while they run. It is off by default. Plugins that also change how the player moves (pixel movement, 8-direction or analog movement plugins) are likely to clash with it; use one or the other.
 
 ### Traversal
 Open **Traversal** in the map panel (*All maps*) to give the player more ways to get around. Each ability can need a switch (0 = always), and **Set Traversal** (plugin command) turns one on or off for this game, or back to these settings (the player learns to swim). **Traversal Action** makes the player jump, take off, land or dive from an event, as if they pressed the key.
@@ -987,6 +1019,45 @@ The **Maps** section of the map panel (shown when nothing is selected):
 - **Map pictures**: after a map has been opened, its tabs, Go to Map list, Go to map rows in Find a Tool and World View show a small picture of its tiles and doodads. A map without a cached picture has a plain tile with its name until it gets one. Pictures are refreshed when the map opens, is saved or is left; they are disposable files under `data/docs_doodads_cache/maps/` and are never added to the game's saved data. Unsaved pictures stay in memory and go away when changes are discarded. Saving changes to another map invalidates that map's old picture; it is redrawn when opened, while unchanged maps keep theirs.
 - **World View** draws the map and its linked neighbours to scale with their map pictures and edge-crossing doodads in orange. Click a map to go there.
 - Looping (world) maps wrap doodads, lights, outlines and clicks with the camera, the same way MZ's characters wrap.
+
+### Robot tester
+
+**Map → Test Every Map** follows the game from its start without playing: it walks each map from where the player arrives (MZ's passage rules, painted collision and events that stand like characters) and follows every Transfer Player it can get to. It lists maps nobody can reach, transfers that land outside a map, on a missing map or on a tile nobody can stand on, maps with no way out (dead ends), one-way trips with no way back, and transfers set by variables (which it cannot follow). Doodad collision on other maps is not counted.
+
+**Map → Test This Map** walks this map from where the player stands, then plays it: each event the player can get to is run in its own interpreter, many frames at a time, with messages answered, the first choice picked, and transfers, battles, shops, menus and game over only noted. It lists errors, events that do not finish within 30 seconds of game time, console errors and transfers to missing maps. Save the map first: the robot plays on a copy of the game's state (switches, variables, items) and puts everything back afterwards. Each finding has **Go To**.
+
+### Save 3D Map as File
+
+**Map → Save 3D Map as File** writes this map as one `.glb` file in `screenshots/` for Blender, a trailer or a 3D print: the ground (the 3D view's hills and walls, or two triangles for a flat map) with the map's tiles as its picture, and each standing doodad as an upright picture (floor decals stay in the ground picture). Choose the ground picture's size, or **Ground only**. One tile is one metre and +Y is up. It asks first: the file carries the project's art, so share it only where the art's licences allow. 3D models and ropes are not written in this version.
+
+### Picture to Map
+
+**Map → Picture to Map** turns a drawing into this map's tiles, hills and doodads. First choose the **kind of map**, because it sets the scale, the key and the rules:
+
+- **Overworld**: coast, grassland, forest, mountains, roads, desert, snow, and a red mark for each town or dungeon (it becomes a marker on the plan). Lone specks of land in the sea are smoothed away, and with a heights picture high ground becomes mountains.
+- **Town or castle**: a building outline gets walls round a roof and one door on the side facing the nearest street; a street crossing a town wall becomes a gate.
+- **Dungeon or cave**: dark lines are walls, what they close in is floor, a one-tile gap in a wall is a door, and a stairs mark is kept. **Cave walls** roughens the walls (the same seed gives the same cave).
+- **Room**: one outline becomes walls with a floor inside, with doors and windows on its edges, and the room's name (such as Bedroom) marks where its furniture goes.
+
+Then choose the picture (and, if you like, a grey picture for heights: dark low, light high). The picture is sampled at one colour per tile (the commonest colour, so edges stay sharp) and its colours are grouped into at most twelve. The card says how many picture pixels make a tile and warns under two. **Ignore lines** removes labels and grid lines up to the chosen thickness. Each colour group gets a class, guessed from its colour (blues to water, greens to grass or forest, greys to stone or road) and always changeable; **Leave alone** keeps those tiles as they are. Give each class the tile it uses (Alt+click a tile with the Tiles tool to see its id); the choice is remembered for this tileset. The plan shows on the map as you change it.
+
+**Apply** paints the tiles (autotiles join up with their neighbours), regions and heights, scatters a class's biome art (a class named Forest uses a biome called Forest), and records the kind in the map's settings, all as one undo step. Classes with no tile are left alone and listed. **Copy Kind** makes your own kind from one of these, kept with the project and carried in doodad packs; changing its classes is not in this version.
+
+### Import a Tiled or LDtk map
+
+**Map → Import Map** makes a new MZ map from a Tiled map (`.tmj`, or `.json` saved from Tiled) or one level of an LDtk project (`.ldtk`). Close RPG Maker MZ's editor first: it rewrites the map list when it saves. Choose the file (and the level), read what will be made, then **Import**.
+
+Tiled and LDtk tiles are not MZ tiles, so each tile layer becomes one picture in `img/parallaxes/`, shown as a picture layer that moves with the map. Layers above an object layer named **Player** (or above the first object layer) are drawn over the map; the rest are drawn behind it. Objects with a tile become doodads, with their pictures cut into `img/doodads/<map name>/`; objects without a picture are listed and left out. A Tiled layer whose name contains "collision", "solid" or "wall", or an LDtk IntGrid layer, becomes painted collision. Tiles of another size are scaled to the project's, and the card says so. Flipped and rotated Tiled tiles, external tilesets (`.tsj`), CSV or base64 (zlib or gzip) layers and LDtk levels in their own files are read; infinite Tiled maps, zstd compression and image layers are not.
+
+The new map has no tiles, so **Map Settings → Picture map → Empty tiles are floor** is turned on: a tile with nothing on it can be walked on, and painted collision and doodads still stop the player. The same switch helps any parallax map drawn by hand. Pictures are written whole or not at all, `MapInfos.json` is backed up first, and the new map opens when it is done. Reopen the project in MZ to see it in the map list. An import cannot be undone; delete the map in MZ to remove it.
+
+### Pins and fast travel
+
+Right-click a tile and choose **Add Pin Here** to mark a town, shop or quest for players. Give it a name, an IconSet icon, and optionally a switch it needs. Tick **fast travel** to let players travel there from the world map. **Edit Pin** and **Delete Pin** are on the same menu, and each change is one Undo step. Pins are saved with the project and drawn as small flags in the editor.
+
+An event can carry a pin too: `<docs pin: 87, Inn>` in its note or in a comment on its page. The pin follows the event and its page; event pins are for display only. Players see a pin on the minimap and on **Show World Map** once it is found: when its tile is explored (with the minimap's fog of war), or when they come within the minimap's radius (without it), or after **Find Pin**. **Hide Pin** hides or shows one; found and hidden pins are kept in the save.
+
+On the world map, with travel pins found, the arrow keys choose one, OK asks, and OK again travels; Cancel goes back. **Open Fast Travel** opens the same screen from a signpost or an item. The **Forbid Fast Travel Switch** parameter stops travel while it is ON, for dungeons or cutscenes. Problems lists a travel pin on this map whose tile nobody can stand on. Pins on deleted maps are skipped.
 
 ---
 

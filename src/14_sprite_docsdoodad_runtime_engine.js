@@ -107,7 +107,7 @@ if (typeof PIXI !== 'undefined') {
             this._loadedPath = path;
             // A packed region has different UVs from its full-size `_n` companion. Keep mapped normal art on
             // its original sheet so both samplers use the same frame.
-            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.pathFor(path);
+            const normalMapped = DocsDoodads.NormalLight && DocsDoodads.NormalLight.mapsSource(path, this._data);
             const packed = !normalMapped && path === bit[1] && DocsDoodads.Packer.shouldUse() && typeof $gameMap !== 'undefined' && $gameMap
                 ? DocsDoodads.Packer.resolve(DocsDoodads.Packer.forMap($gameMap.mapId()), this._data) : null;
             this._regionOrigin = packed ? { x: packed.x, y: packed.y } : null;

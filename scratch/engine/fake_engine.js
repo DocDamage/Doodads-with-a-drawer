@@ -173,9 +173,11 @@ function install() {
     class Filter { constructor(v, f, uniforms) { this.uniforms = Object.assign({}, uniforms); this.enabled = true; } apply() {} }
     class BlurFilter extends Filter { constructor(strength = 8, quality = 4) { super(); this.blur = strength; this.quality = quality; } }
     class AlphaFilter extends Filter { constructor(alpha = 1) { super(); this.alpha = alpha; } }
+    // A stand-in rope: keeps its texture and the very points it was given, as PIXI.SimpleRope does.
+    class SimpleRope extends Container { constructor(texture, points) { super(); this.texture = texture; this.points = points; } }
     class ColorMatrixFilter extends Filter { constructor() { super(); this.matrix = []; } reset() {} brightness() {} saturate() {} hue() {} }
     g.PIXI = {
-        Point, ObservablePoint: Point, Matrix, Rectangle, BaseTexture, Texture, RenderTexture, Container, Sprite, TilingSprite: PixiTilingSprite, Graphics, Geometry, Shader, Mesh, Filter,
+        Point, ObservablePoint: Point, Matrix, Rectangle, BaseTexture, Texture, RenderTexture, Container, Sprite, TilingSprite: PixiTilingSprite, Graphics, Geometry, Shader, Mesh, SimpleRope, Filter,
         filters: { BlurFilter, AlphaFilter, ColorMatrixFilter }, Buffer, Transform,
         BLEND_MODES: { NORMAL: 0, ADD: 1, MULTIPLY: 2, SCREEN: 3 }, SCALE_MODES: { NEAREST: 0, LINEAR: 1 }, CLEAR_MODES: { NO: 0, YES: 1, BLIT: 2, CLEAR: 1 },
         DRAW_MODES: { TRIANGLES: 4 }, settings: {}, utils: { hex2rgb: h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255] }
@@ -359,7 +361,8 @@ function install() {
         regionId(x, y) { return this.isValid(x, y) ? this.tileId(x, y, 5) : 0; } terrainTag() { return 0; }
         // MZ's checkPassage: from the top layer down, skipping empty and star (no effect) tiles; a direction
         // bit clear means passable that way.
-        isPassable(x, y, d) { const flags = (this.tileset() || {}).flags || []; const bit = (1 << (d / 2 - 1)) & 0x0f;
+        isPassable(x, y, d) { return this.checkPassage(x, y, (1 << (d / 2 - 1)) & 0x0f); }
+        checkPassage(x, y, bit) { const flags = (this.tileset() || {}).flags || [];
             for (const id of this.layeredTiles(x, y)) { if (!id) continue; const f = flags[id] || 0; if ((f & 0x10) !== 0) continue; if ((f & bit) === 0) return true; if ((f & bit) === bit) return false; } return false; }
         isBoatPassable() { return false; } isShipPassable() { return false; } isAirshipLandOk() { return true; } isLadder() { return false; } isBush() { return false; } isCounter() { return false; } isDamageFloor() { return false; }
         events() { return this._events.filter(Boolean); } event(id) { return this._events[id]; } eventsXy(x, y) { return this.events().filter(e => e.pos(x, y)); } eventsXyNt(x, y) { return this.eventsXy(x, y); }

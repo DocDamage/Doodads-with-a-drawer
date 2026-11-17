@@ -137,7 +137,15 @@ DocsDoodads.Usage = {
             if (!Array.isArray(list)) continue;
             list.forEach((d, i) => {
                 if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'doodads', `${mapLabel(id)} · doodad #${i + 1}`);
+                // Pictures hung on a rope (9.3.2).
+                if (d && d.line && d.line.hang) pathRef(d.line.hang, 'path', 'doodads', `${mapLabel(id)} · doodad #${i + 1} (hung on a rope)`);
             });
+        }
+        // Ground brush textures (8.3.4) named in a map's settings.
+        const allSettings = sources.doodads && sources.doodads.mapSettings;
+        for (const [id, settings] of Object.entries(allSettings || {})) {
+            const textures = settings && settings.ground && Array.isArray(settings.ground.textures) ? settings.ground.textures : [];
+            textures.forEach((t, i) => pathRef(textures, i, 'doodads', `${mapLabel(id)} · ground texture ${i + 1}`));
         }
         // Seasonal variants may only be reachable through the season table.
         const world = sources.doodads && sources.doodads.world;
@@ -147,7 +155,10 @@ DocsDoodads.Usage = {
         });
         for (const prefab of sources.prefabs || []) {
             const label = `Prefab "${prefab.name}"`;
-            (prefab.doodads || []).forEach(d => { if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'prefabs', label); });
+            (prefab.doodads || []).forEach(d => {
+                if (d && d.bit && d.bit[0] === 3) pathRef(d.bit, 1, 'prefabs', label);
+                if (d && d.line && d.line.hang) pathRef(d.line.hang, 'path', 'prefabs', label + ' (hung on a rope)');
+            });
             pathRef(prefab, 'thumbnail', 'prefabs', label + ' thumbnail', true);
         }
     },
@@ -302,7 +313,7 @@ DocsDoodads.LiveReload = {
     classify(root, filename) {
         if (!filename) return null;
         const rel = String(filename).replace(/\\/g, '/').replace(/^\/+/, '');
-        if (rel.split('/').some(part => part === '_packed' || part.startsWith('.'))) return null;
+        if (rel.split('/').some(part => part === '_packed' || part === '_normals' || part.startsWith('.'))) return null;
         if (/\.(tmp|bak)$|\.(dd|qj)(import|txn)-|~$/i.test(rel)) return null;
         if (!DocsDoodads.AssetIndex.isSupportedAssetFile(rel)) return null;
         return `${root}/${rel}`;
