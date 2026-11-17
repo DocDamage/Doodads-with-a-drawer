@@ -237,5 +237,83 @@ DocsDoodads.Generate = {
         if (points.length === 1) paths.push(points[0]);
         return { kind: 'wilderness', seed, w, h, biomes, biomeIds, points, paths,
             entrance: Object.assign({}, points[0]), exit: Object.assign({}, points[points.length - 1]) };
+    },
+
+    list(value) {
+        if (Array.isArray(value)) return value.map(String).map(s => s.trim()).filter(Boolean);
+        return String(value || '').split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+    },
+
+    recipe(raw = {}, map = null) {
+        const kind = String(raw.kind || 'dungeon').toLowerCase() === 'wilderness' ? 'wilderness' : 'dungeon';
+        const w = Math.floor(Number(raw.w || raw.width || (map && map.width) || 0));
+        const h = Math.floor(Number(raw.h || raw.height || (map && map.height) || 0));
+        this.dimensions({ w, h });
+        let biomes = raw.biomes;
+        if (typeof biomes === 'string' && /^\s*[\[{]/.test(biomes)) {
+            try { biomes = JSON.parse(biomes); } catch (error) { biomes = []; }
+        }
+        if (!Array.isArray(biomes)) biomes = this.list(biomes).map(id => ({ id, weight: 1 }));
+        biomes = biomes.map((biome, index) => typeof biome === 'string' ? { id: biome, weight: 1, tile: 0 } : {
+            id: String(biome && biome.id || `biome${index + 1}`), weight: Math.max(0, Number(biome && biome.weight) || 0),
+            tile: Math.max(0, Math.floor(Number(biome && (biome.tile || biome.tileId)) || 0))
+        }).filter(biome => biome.id && biome.weight > 0);
+        let points = raw.points;
+        if (typeof points === 'string') points = points.split(';').map(pair => pair.split(',').map(Number)).filter(pair => pair.length === 2)
+            .map(pair => ({ x: pair[0], y: pair[1] }));
+        return {
+            kind, w, h, count: Math.max(1, Math.min(this.maxRooms, Math.floor(Number(raw.count || raw.roomCount)) || 6)),
+            roomIds: this.list(raw.roomIds || raw.rooms), biomes, points: Array.isArray(points) ? points : [],
+            floorTile: Math.max(0, Math.floor(Number(raw.floorTile) || 0)), wallTile: Math.max(0, Math.floor(Number(raw.wallTile) || 0)),
+            pathTile: Math.max(0, Math.floor(Number(raw.pathTile) || 0)), dress: raw.dress !== false && raw.dress !== 'false'
+        };
+    },
+
+    layout(recipe, seed, roomCatalog = []) {
+        const chosen = recipe.roomIds.length ? roomCatalog.filter(room => recipe.roomIds.includes(String(room.id))) : roomCatalog;
+        return recipe.kind === 'wilderness'
+            ? this.wilderness({ w: recipe.w, h: recipe.h, seed, biomes: recipe.biomes, points: recipe.points })
+            : this.dungeon({ w: recipe.w, h: recipe.h, seed, count: recipe.count, rooms: chosen });
+    },
+
+    // Turns a layout into reversible changes without mutating the source map. Tiles.paint is deliberately
+    // used here so generated autotile edges get the same MZ shapes as hand-painted tiles.
+    plan(layout, recipe, map, roomCatalog = [], options = {}) {
+        const work = { width: map.width, height: map.height, loopX: false, loopY: false, data: (map.data || []).slice() };
+        const brushRows = [], floor = new Set((layout.floor || []).map(tile => `${tile.x},${tile.y}`));
+        const path = new Set((layout.paths || []).map(tile => `${tile.x},${tile.y}`));
+        const biomeTiles = new Map((recipe.biomes || []).map(biome => [biome.id, biome.tile || recipe.floorTile]));
+        for (let y = 0; y < layout.h; y++) {
+            const row = [];
+            for (let x = 0; x < layout.w; x++) {
+                let id = recipe.wallTile;
+                if (layout.kind === 'dungeon' && floor.has(`${x},${y}`)) id = recipe.floorTile;
+                if (layout.kind === 'wilderness') id = path.has(`${x},${y}`) && recipe.pathTile ? recipe.pathTile
+                    : (biomeTiles.get(layout.biomeIds[y * layout.w + x]) || recipe.floorTile);
+                row.push(id);
+            }
+            brushRows.push(row);
+        }
+        const painted = DocsDoodads.Tiles.paint(work, 0, 0, { ids: brushRows, layer: 0 }, options.tables || {});
+        for (const change of painted) work.data[change.index] = change.after;
+        const doodads = [], events = [], usedIds = new Set((map.events || []).map((event, id) => event ? id : 0));
+        const allocate = () => { let id = 1; while (usedIds.has(id)) id++; usedIds.add(id); return id; };
+        if (layout.kind === 'dungeon') for (const placed of layout.rooms || []) {
+            const room = roomCatalog.find(item => String(item.id) === String(placed.templateId));
+            if (!room) continue;
+            const roomPlan = DocsDoodads.Rooms.place(room, work, { x: placed.x, y: placed.y }, {
+                tiles: true, doodads: true, events: true, keepUnder: true,
+                tileWidth: options.tileWidth || 48, tileHeight: options.tileHeight || 48,
+                groupId: `grp_gen_${layout.seed}_${placed.index}`, allocateEventId: allocate
+            });
+            for (const change of roomPlan.changes) work.data[change.index] = change.after;
+            doodads.push(...roomPlan.doodads); events.push(...roomPlan.events);
+        }
+        const changes = [];
+        for (let index = 0; index < work.data.length; index++) {
+            const before = Number(map.data[index]) || 0, after = Number(work.data[index]) || 0;
+            if (before !== after) changes.push({ index, before, after });
+        }
+        return { changes, doodads, events };
     }
 };

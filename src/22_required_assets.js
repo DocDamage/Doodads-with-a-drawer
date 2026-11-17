@@ -26,7 +26,14 @@ DocsDoodads.RequiredAssets = {
                 if (d.model && d.model.path) add(d.model.path);
             }
         }
+        for (const room of sources.rooms || []) for (const doodad of (room && room.doodads) || []) {
+            if (doodad && doodad.bit && doodad.bit[0] === 3) add(doodad.bit[1]);
+            for (const state of (doodad && doodad.states && doodad.states.list) || []) if (state && state.path) add(state.path);
+            if (doodad && doodad.model && doodad.model.path) add(doodad.model.path);
+        }
         const world = data.world || {};
+        for (const biome of (world.biomes && world.biomes.list) || []) for (const entry of (biome && biome.entries) || []) add(entry && entry.path);
+        for (const rule of (world.dress && world.dress.rules) || []) for (const entry of (rule && rule.entries) || []) add(entry && entry.path);
         for (const set of (world.seasons && world.seasons.sets) || []) for (const p of Object.values(set || {})) add(p);
         if (world.destination && world.destination.image) add('img/system/' + world.destination.image + '.png');
         for (const set of (world.characterAnim && world.characterAnim.sets) || []) {
@@ -85,7 +92,8 @@ DocsDoodads.RequiredAssets = {
         let characters = [];
         try { characters = FS.fs.readdirSync('img/characters').filter(f => /\.png$/i.test(f)); } catch (e) { characters = []; }
         const normalManifest = FS.readJson(DocsDoodads.NormalLight.manifestPath) || DocsDoodads.NormalLight.manifest;
-        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters, normalManifest });
+        const roomsData = FS.readJson('data/DocsDoodadsRooms.json') || {};
+        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, rooms: roomsData.rooms || [], database, maps, characters, normalManifest });
         const ok = FS.atomicWriteJson(this.path, { note: 'Files Doc\'s Doodads draws that MZ\'s "Exclude unused files" can\'t see. npm run deploy -- --restore <project> <deployed folder> puts them back.', files }, 2);
         return ok ? files : null;
     }

@@ -593,6 +593,13 @@ DocsDoodads.api = {
      */
     schedules(on = true) { return DocsDoodads.Schedules.setEnabled(on); },
 
+    /**
+     * Queues a seeded dungeon or wilderness recipe for a map. It is regenerated before that map sets up.
+     * @param {object} options
+     * @returns {{seed: number, recipe: object} | null}
+     */
+    generateMap(options) { return DocsDoodads.GenerateRuntime.queue(options || {}); },
+
     // ---- Clock, season and ambient light ----
     /**
      * The time of day in minutes (0-1439), or null when the clock is off.

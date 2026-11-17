@@ -110,10 +110,55 @@ assert.ok($dataMap.data.some(id => id === 4352), 'setup applies the generated wa
 assert.ok(($dataMap.events || []).some(e => e && e._docsGeneratedMap === 1), 'room events are materialized');
 assert.ok((D.doodads(1) || []).some(d => d && d._docsGeneratedMap === 1), 'room doodads are materialized');
 
+const generatedBeforeMissing = JSON.stringify({ map: $dataMap, doodads: D.doodads(1) });
+D.GenerateRuntime.queue({ mapId: 1, kind: 'dungeon', seed: 9, w: 24, h: 18, count: 2,
+    roomIds: 'room-that-was-deleted', floorTile: 2816, wallTile: 4352 });
+const oldWarn = console.warn; let generationWarning = '';
+console.warn = (...parts) => { generationWarning = parts.map(String).join(' '); };
+try { assert.strictEqual(D.GenerateRuntime.apply(1, $dataMap), null, 'a requested room missing from the loaded catalog cancels generation'); }
+finally { console.warn = oldWarn; }
+assert.match(generationWarning, /room stamp not loaded/i);
+assert.strictEqual(JSON.stringify({ map: $dataMap, doodads: D.doodads(1) }), generatedBeforeMissing,
+    'a failed recipe leaves the previous generated map intact');
+
 const apiRecord = D.api.generateMap({ mapId: 1, kind: 'wilderness', seed: 'api-seed', w: 16, h: 12,
     biomes: [{ id: 'forest', weight: 1 }], floorTile: 2816, pathTile: 1536 });
 assert.strictEqual(apiRecord.seed, G.seed('api-seed'));
 assert.ok(PluginManager._commands['Docs-Doodads:generateMap'], 'Generate Map plugin command is registered');
+
+const biomeLayout = G.wilderness({ w: 16, h: 12, seed: 77,
+    biomes: [{ id: 'forest', weight: 1 }, { id: 'marsh', weight: 1 }] });
+const biomeRecipe = G.recipe({ kind: 'wilderness', w: 16, h: 12, biomes: [
+    { id: 'forest', weight: 1, tile: 2816 }, { id: 'marsh', weight: 1, tile: 2912 }
+], floorTile: 2816 });
+const blankBiomeMap = { width: 16, height: 12, data: new Array(16 * 12 * 6).fill(0), events: [null] };
+const biomePlan = G.plan(biomeLayout, biomeRecipe, blankBiomeMap);
+const changedTiles = new Set(biomePlan.changes.filter(change => change.index < 16 * 12).map(change => D.Tiles.kind(change.after)));
+assert.ok(changedTiles.size >= 2, 'different wilderness biomes can paint different MZ tiles');
+D.World.set('biomes.list', [{ id: 'forest', name: 'Forest', spacing: 16, density: 20, edgeThin: 0, cluster: 0,
+    entries: [{ path: 'img/doodads/Pine.png', weight: 1, scaleMin: 1, scaleMax: 1 }] }]);
+D.World.set('dress.rules', [{ name: 'Rocks', where: 'open', chance: 1, spacing: 24,
+    entries: [{ path: 'img/doodads/Rock.png', weight: 1, scaleMin: 1, scaleMax: 1 }] }]);
+const artRecipe = G.recipe({ kind: 'wilderness', w: 16, h: 12,
+    biomes: [{ id: 'forest', weight: 1, tile: 2816 }], floorTile: 2816 });
+const artLayout = G.layout(artRecipe, 991, []);
+const runtimeArt = D.GenerateRuntime.decorations(artLayout, artRecipe, 1, 991, [], []);
+assert.ok(runtimeArt.some(d => d.bit[1] === 'img/doodads/Pine.png') && runtimeArt.some(d => d.bit[1] === 'img/doodads/Rock.png'),
+    'runtime generation uses both Biome.paint and Dress.plan art');
+assert.deepStrictEqual(D.GenerateRuntime.decorations(artLayout, artRecipe, 1, 991, [], []), runtimeArt,
+    'runtime decoration is seeded and deterministic');
+assert.deepStrictEqual(D.Workspace.generatedDecorations({ layout: artLayout, recipe: artRecipe, mapId: 1, seed: 991 }, [], []), runtimeArt,
+    'editor preview and game runtime materialize the same seeded biome and dressing art');
+
+// Loading a save does not always call Game_Map.setup. The pending post-extract path regenerates $dataMap
+// before Scene_Map creates its display objects.
+const loadedMap = { width: 16, height: 12, data: new Array(16 * 12 * 6).fill(0), events: [null], tilesetId: 1 };
+global.$dataMap = loadedMap;
+D.GenerateRuntime.queue({ mapId: 1, kind: 'wilderness', seed: 81, w: 16, h: 12,
+    biomes: [{ id: 'forest', weight: 1, tile: 2816 }], floorTile: 2816 });
+D.GenerateRuntime.afterExtract();
+assert.ok(D.GenerateRuntime.beforeLoadedScene(), 'save-load path regenerated without calling setup');
+assert.ok(loadedMap.data.some(Boolean), 'post-load generation restored tile data before display');
 
 // The editor owns one preview at a time. Apply delegates all map, doodad and event mutations to one
 // Undo command, so Undo returns the exact map snapshot.
@@ -130,19 +175,40 @@ D.Workspace.tileSize = () => ({ tw: 48, th: 48 });
 D.Workspace.afterTileEdit = () => {};
 D.Workspace.refreshSpriteset = () => {};
 D.Workspace.updateUndoButtons = () => {};
+D.Workspace.showToast = message => { D.Workspace._testToast = String(message); };
 D.Workspace.mounted = true;
 D.Workspace.generateOptions = { kind: 'dungeon', w: 16, h: 12, count: 2, seed: 'editor', roomIds: ['cross-room'], floorTile: 2816, wallTile: 4352 };
 D.GenerateRuntime.setRooms([roomWithContents]);
+D.Rooms.list = [roomWithContents]; D.Rooms.loaded = true;
 const preview = D.Workspace.previewGeneratedMap(false);
-assert.ok(preview && preview.layout.rooms.length, 'preview creates an overlay-only layout');
-D.Workspace.applyGeneratedMap();
+assert.ok(preview && preview.layout.rooms.length, `preview creates an overlay-only layout (${D.Workspace._testToast || 'no error'})`);
+assert.ok(D.Generate.plan(preview.layout, preview.recipe, editorMap, [roomWithContents]).changes.length > 0,
+    'preview materializes to a non-empty reversible tile plan');
+assert.strictEqual(D.Workspace.applyGeneratedMap(), true, 'preview can be applied on the same map');
 assert.notStrictEqual(JSON.stringify(editorMap), beforeEditor, 'Apply changes the staged map');
 assert.strictEqual(D.Undo.undoStack[D.Undo.undoStack.length - 1].type, 'generate_map');
 D.Undo.undo();
 assert.strictEqual(JSON.stringify(editorMap), beforeEditor, 'one Undo restores tiles and events exactly');
+assert.ok(D.Workspace.menus().some(menu => menu.id === 'map' && menu.items.some(item => item.id === 'dd-generate-btn')),
+    'Generate Map is an actual Map-menu command');
+
+D.Workspace.liveMapData = () => editorMap;
+D.Workspace.previewGeneratedMap(false);
+const replacementMap = { width: 16, height: 12, data: new Array(16 * 12 * 6).fill(0), events: [null] };
+D.Workspace.liveMapData = () => replacementMap;
+assert.strictEqual(D.Workspace.applyGeneratedMap(), false, 'a same-id map reload cannot receive an old asynchronous preview');
+D.Workspace.liveMapData = () => editorMap;
+D.Workspace.previewGeneratedMap(false);
+D.Workspace.setPlacementTool(null);
+assert.strictEqual(D.Workspace._generatedPreview, null, 'Escape or another tool discards the overlay-only preview');
 global.$dataDocsDoodads = oldDoodads;
 
-const required = D.RequiredAssets.collect({ doodads: {}, rooms: [roomWithContents] });
+const required = D.RequiredAssets.collect({ doodads: { world: {
+    biomes: { list: [{ entries: [{ path: 'img/doodads/Pine.png' }] }] },
+    dress: { rules: [{ entries: [{ path: 'img/doodads/Rock.png' }] }] }
+} }, rooms: [roomWithContents] });
 assert.ok(required.includes('img/doodads/Chest.png'), 'room-stamp art is kept by Exclude unused files deployment');
+assert.ok(required.includes('img/doodads/Pine.png') && required.includes('img/doodads/Rock.png'),
+    'generated biome and dressing art is kept by Exclude unused files deployment');
 
 console.log('Generated maps: deterministic BSP rooms, stamp doors, reachability, limits, wilderness noise and paths passed.');

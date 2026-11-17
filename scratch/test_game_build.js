@@ -28,6 +28,14 @@ vm.runInThisContext(game.text, { filename: 'Docs-Doodads.game.js' });
 const D = global.DocsDoodads;
 assert.ok(D && D.Collision && D.Packer && D.Layers, 'runtime dependencies remain');
 assert.strictEqual(D.Workspace, undefined, 'editor workspace is absent');
+assert.ok(D.Generate && D.GenerateRuntime && D.Rooms && D.Tiles, 'generated-map parts remain without the editor');
+const authoredMapData = $dataMap.data.slice();
+D.GenerateRuntime.queue({ mapId: 1, kind: 'dungeon', seed: 17, w: 24, h: 18, count: 2, floorTile: 2816, wallTile: 4352 });
+$gameMap.setup(1);
+assert.ok($dataMap.data.some(tileId => tileId === 4352), 'a seeded map is generated before game-only map setup');
+delete $gameSystem._docsGeneratedMaps[1];
+$dataMap.data = authoredMapData;
+$gameMap.setup(1);
 
 const door = E.doodad(5, 5, {
     name: 'Runtime Door', uid: 'runtime-door', frameW: 48, frameH: 48,

@@ -102,6 +102,10 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if (tool !== 'generate' && this._generatedPreview) {
+            this._generatedPreview = null;
+            if (this.redrawOverlay) this.redrawOverlay();
+        }
         if (tool !== 'traceFit') this._traceFit = null;
         if (tool !== 'trace' && this._traceDrag) this.endTraceDrag();
         if (DocsDoodads.SimpleMode.enabled()) {
@@ -181,6 +185,7 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        if (typeof this.closeGenerateCard === 'function') this.closeGenerateCard();
         this.closeEventCommandEditor();
         this.cancelEventTransferPick(false);
         if (DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
@@ -1003,6 +1008,7 @@ DocsDoodads.Workspace = {
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
+        on('dd-generate-btn', () => { this.showMoreMenu(false); this.showGenerateCard(); });
         on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });

@@ -1598,6 +1598,90 @@
  * @type number
  * @desc 0 for this map.
  * @default 0
+ *
+ * @command generateMap
+ * @text Generate Map
+ * @desc Queue a seeded dungeon or wilderness. It is built before the target map appears and regenerated from its seed after loading a save.
+ *
+ * @arg mapId
+ * @text Target Map
+ * @type number
+ * @min 1
+ * @default 1
+ *
+ * @arg kind
+ * @text Kind
+ * @type select
+ * @option Dungeon
+ * @value dungeon
+ * @option Wilderness
+ * @value wilderness
+ * @default dungeon
+ *
+ * @arg seedVariable
+ * @text Seed Variable
+ * @type variable
+ * @desc Read once when this command runs. 0 uses Seed below.
+ * @default 0
+ *
+ * @arg seed
+ * @text Seed
+ * @type text
+ * @default 1
+ *
+ * @arg w
+ * @text Width
+ * @type number
+ * @min 8
+ * @max 256
+ * @default 30
+ *
+ * @arg h
+ * @text Height
+ * @type number
+ * @min 8
+ * @max 256
+ * @default 24
+ *
+ * @arg count
+ * @text Rooms
+ * @type number
+ * @min 1
+ * @max 64
+ * @default 6
+ *
+ * @arg roomIds
+ * @text Room Stamp IDs
+ * @type text
+ * @desc Comma-separated; blank uses every saved room.
+ *
+ * @arg biomes
+ * @text Biomes
+ * @type text
+ * @desc Wilderness biome IDs, comma-separated, or a JSON array with weights.
+ *
+ * @arg points
+ * @text Path Points
+ * @type text
+ * @desc Wilderness points as x,y; x,y.
+ *
+ * @arg floorTile
+ * @text Floor Tile ID
+ * @type number
+ * @min 0
+ * @default 2816
+ *
+ * @arg wallTile
+ * @text Wall Tile ID
+ * @type number
+ * @min 0
+ * @default 4352
+ *
+ * @arg pathTile
+ * @text Path Tile ID
+ * @type number
+ * @min 0
+ * @default 0
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
