@@ -179,33 +179,20 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype.dest
     };
 }
 
-// Battles on 3D maps can use the map itself as the background: when MZ takes its snapshot for the
-// battle, the 3D view is drawn again from a low camera, without characters, pictures or the minimap.
+// Both flat and 3D maps can become an unblurred battle background; 3D also uses a low camera.
 if (typeof Spriteset_Map !== 'undefined' && typeof Bitmap !== 'undefined' && Bitmap.snap) {
     Spriteset_Map.prototype.docsBattleSnapshot = function(s) {
-        const hidden = [];
-        const hide = obj => { if (obj && obj.visible) { obj.visible = false; hidden.push(obj); } };
-        for (const sp of this._characterSprites || []) {
-            hide(sp);
-            hide(sp._docsShadow);
-            for (const layer of sp._docsVisualSprites || []) hide(layer);
-        }
-        hide(this._pictureContainer);
-        hide(this._timerSprite);
-        hide(this._docsMinimap);
-        hide(this._destinationSprite);
         const saved = $gameMap._docsCamera;
-        $gameMap._docsCamera = Object.assign({}, saved, DocsDoodads.Perspective.battleCamera(s));
-        let bitmap = null;
-        try {
-            this.updateDocsPerspective();
-            bitmap = Bitmap.snap(this);
-        } finally {
-            $gameMap._docsCamera = saved;
-            for (const obj of hidden) obj.visible = true;
-            this.updateDocsPerspective();
-        }
-        return bitmap;
+        return DocsDoodads.BattleCapture.withHidden(this, conceal => {
+            try {
+                if (s) {
+                    $gameMap._docsCamera = Object.assign({}, saved, DocsDoodads.Perspective.battleCamera(s));
+                    this.updateDocsPerspective();
+                    conceal(); // projection may have refreshed the minimap or created a gear sprite
+                }
+                return Bitmap.snap(this);
+            } finally { if (s) $gameMap._docsCamera = saved; }
+        }, () => { if (s) this.updateDocsPerspective(); });
     };
 }
 
@@ -215,9 +202,12 @@ if (typeof Scene_Map !== 'undefined') {
         $.Scene_Map_snapForBattleBackground_3d.call(this);
         if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
         DocsDoodads.Perspective.releaseBattleBack();
+        if (DocsDoodads.BattleCapture.named()) return;
         const s = DocsDoodads.Perspective.active();
-        if (s && s.battleBack && this._spriteset && this._spriteset.docsBattleSnapshot) {
-            $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s);
+        const flat = !s && (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).battleBack === true;
+        if (((s && s.battleBack) || flat) && this._spriteset && this._spriteset.docsBattleSnapshot) {
+            try { $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s || null); }
+            catch (err) { /* retain MZ's already-created background if capture is unavailable */ }
         }
     };
 }
@@ -226,13 +216,13 @@ if (typeof Sprite_Battleback !== 'undefined') {
     $.Sprite_Battleback_battleback1Bitmap_3d = Sprite_Battleback.prototype.battleback1Bitmap;
     Sprite_Battleback.prototype.battleback1Bitmap = function() {
         const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
-        return back || $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
+        return (back && !DocsDoodads.BattleCapture.named()) ? back : $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
     };
     $.Sprite_Battleback_battleback2Bitmap_3d = Sprite_Battleback.prototype.battleback2Bitmap;
     // The map picture covers both layers; the second is left empty (one blank picture, shared).
     Sprite_Battleback.prototype.battleback2Bitmap = function() {
         const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
-        if (!back) return $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
+        if (!back || DocsDoodads.BattleCapture.named()) return $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
         if (!DocsDoodads.Perspective._blankBack || !DocsDoodads.Perspective._blankBack.baseTexture) DocsDoodads.Perspective._blankBack = new Bitmap(1, 1);
         return DocsDoodads.Perspective._blankBack;
     };
