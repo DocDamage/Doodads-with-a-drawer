@@ -112,6 +112,16 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Enable World → Normal Maps to shade pictures and characters with nearby lamps. Put Treen.png beside Tree.png, with the same dimensions, or pick the art and choose Make Normal Map in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together."
     },
     {
+        "title": "Generated maps",
+        "anchor": "generated-maps",
+        "firstParagraph": "Map → Generate Map builds a seeded Dungeon or Wilderness in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. Preview changes nothing, Reroll advances the seed, and Apply writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map."
+    },
+    {
+        "title": "Heat haze",
+        "anchor": "heat-haze",
+        "firstParagraph": "In a doodad's Heat haze section choose Campfire, Lava, Desert Road (a horizontal band) or Under Water (the whole screen), then adjust radius, strength and upward drift. The selected circle's radius shows on the map. The Heat Screen Look adds a road-like band. At most eight visible sources bend the map before bloom; Low/Off quality removes the pass, and Less Camera Motion halves it. Empty maps add no heat pass. This first version is flat-map only, and stitched map exports omit screen distortion. GPU appearance checks are pending."
+    },
+    {
         "title": "With the music",
         "anchor": "with-the-music",
         "firstParagraph": "In a doodad's Motion or Light section, With the music chooses Bass, Middle or Treble. Music strength blends between its usual amount and the music's energy. Plants can sway and lamps can pulse together. In Particles, Emits → On a music kick sends a burst at a bass onset. Only BGM drives these effects; sound effects do not. Silent or muted BGM gives zero energy. Scripts can read DocsDoodads.api.beat() for low, mid, high (0–1) and kick for this frame. One analyser is shared and released when unused."
@@ -465,6 +475,11 @@ DocsDoodads.HelpIndex = [
         "title": "22. Project Safety, Conflict Detection & Crash Recovery",
         "anchor": "22-project-safety-conflict-detection--crash-recovery",
         "firstParagraph": "Editing real map data in playtest mode requires rigorous file protection:"
+    },
+    {
+        "title": "Keeping released saves working",
+        "anchor": "keeping-released-saves-working",
+        "firstParagraph": "Before distributing a version, choose More → Mark as Released, save first if asked, and give the release a name. data/DocsDoodadsShipped.json records named doodads, their states and map sizes. Problems → Released saves then shows missing or apparently renamed names, removed/reordered states and resized maps. The deploy tool reminds you when recorded source data changed."
     },
     {
         "title": "23. Complete Keyboard Shortcuts Cheat Sheet",

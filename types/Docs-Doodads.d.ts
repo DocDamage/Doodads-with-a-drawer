@@ -390,6 +390,11 @@ interface DocsDoodadsApi {
     schedules(on?: boolean): boolean;
 
     /**
+     * Queues a seeded dungeon or wilderness recipe for a map. It is regenerated before that map sets up.
+     */
+    generateMap(options: object): {seed: number, recipe: object} | null;
+
+    /**
      * The time of day in minutes (0-1439), or null when the clock is off.
      */
     time(): number | null;

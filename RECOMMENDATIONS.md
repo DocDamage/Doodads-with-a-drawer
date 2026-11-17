@@ -199,7 +199,7 @@ Watching a new user (item E under What's left) comes before all of these.
 | 7.3.2 | **Built; MZ playtest pending.** **A collision brush.** Collision is set per doodad (presets, Trace from Art, a box). A brush that paints walls of any shape on the map, for parallax-style maps. | M |
 | 7.3.3 | **Movement off the grid.** The player and events moving by pixels against doodad and painted collision, as an option. | L |
 | 7.3.4 | **Baking for phones.** At deploy time, draw each map's still doodads and their shadows into a few big pictures. Drawing only what is on screen took a 3,000-doodad map from 12,000 draw calls to 150; baking is the next step for phones. Needs item B's test on real hardware, and an Android device, to measure. | L |
-| 7.3.5 | **Generated maps.** Dressing rules, biomes, room stamps and prefabs are the parts of a dungeon or wilderness generator: in the editor (generate, then tidy by hand) or in the game from a seed. | L |
+| 7.3.5 | **Built; MZ playtest pending.** **Generated maps.** Dressing rules, biomes, room stamps and prefabs are the parts of a dungeon or wilderness generator: in the editor (generate, then tidy by hand) or in the game from a seed. | L |
 | 7.3.6 | **A cutscene timeline.** Tracks for camera paths, doodad states, lights, weather, screen looks and character actions, played by one plugin command. Each is its own command today. | L |
 | 7.3.7 | **Light you can see in the air.** Rays through trees and windows, and shafts in fog, from the lightmap and the walls that already stop light. | M |
 | 7.3.8 | **A first-person 3D camera.** The 3D view has none. (VR, also asked for by users of other 3D plugins, would come after it.) | M |
@@ -328,7 +328,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 |---|---|---|
 | 9.3.1 | **Ambient creatures.** Particles do not react. Birds that scatter when the player comes near and come back, butterflies by day, fish under water that dart away. Not events: no collision, nothing saved. | M |
 | 9.3.2 | **Ropes and cables.** A line between two points that sags and sways with the wind, plain or textured, with things hung along it: bunting, power lines, chains, strings of lanterns. | S |
-| 9.3.3 | **Heat haze.** Shockwave bends the whole screen once. A haze setting on a doodad (a campfire, a lava vent) or a map (a desert road, under water) bends what is behind it, all the time. | S |
+| 9.3.3 | **Built; MZ playtest pending.** **Heat haze.** Shockwave bends the whole screen once. A haze setting on a doodad (a campfire, a lava vent) or a map (a desert road, under water) bends what is behind it, all the time. | S |
 
 ### 9.4 Editor and art
 
@@ -344,4 +344,4 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 |---|---|---|
 | 9.5.1 | **Tool built; real-runtime references and regression validation pending.** **A playtest that runs itself.** The suites run on a stand-in engine in Node; the water bug of 15 November only showed on a real GPU, and its probe is still pasted into DevTools by hand. `npm run playtest` starts MZ's runtime on a copy of the test project, visits Starting Town, Field Map and the cave, flat and in 3D, and compares frames with kept pictures. | M |
 | 9.5.2 | **Built; MZ playtest pending.** **Plugin clash check and a report bundle.** 7.4.5 is a list to publish. From the same table, Problems says which enabled plugins clash or need another order; and Save a Report gathers versions, the GPU, the plugin list and recent errors into one file for a bug report. Nothing is sent anywhere. | S |
-| 9.5.3 | **Save-safe changes.** States and lights are kept in saves by a doodad's Name. Mark a release, and the editor warns when a rename, a delete or a changed state list would lose what players' saves hold, and keeps the old name working. | S |
+| 9.5.3 | **Built; MZ playtest pending.** **Save-safe changes.** States and lights are kept in saves by a doodad's Name. Mark a release, and the editor warns when a rename, a delete or a changed state list would lose what players' saves hold, and keeps the old name working. | S |

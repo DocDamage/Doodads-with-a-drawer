@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Generate Map builds seeded dungeons or wilderness in the editor with preview/reroll and one-step undo, or before a runtime transfer from a saved seed/recipe. Room openings, biome tiles, dressing and required art work in the game-only build.
+- Heat haze bends flat-map air over campfires and lava, across a desert-road band or under water. It keeps the nearest eight visible sources, respects quality and reduced camera motion, and stays out of stitched map exports.
+- Mark as Released records names, states and map sizes. Later renames/deletions can keep old save names through undoable aliases; Problems and deployment highlight changed release data. New state changes keep names while older numeric saves still read.
 - Flat maps can shade doodads and characters from `_n.png` companions and nearby lamps. Normal maps follow animated frames, art moves and deployment; a generator supplies a rough starting map. Quality controls the light count; real GPU performance validation is pending.
 - New installs get a five-step first-map quest with observed progress, control hints, sample art and remembered Skip/Not Now. How to Use and Find a Tool can replay it.
 - Motion and lamps can follow shared Bass, Middle or Treble bands from BGM; particles can burst on a kick. The analyser is lazy, ignores sound effects and is released when unused. `api.beat()` exposes the bands.

@@ -25,7 +25,9 @@ called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 8.1.2 Moods; 8.1.5 context help; 8.2.1 editing window; 9.1.1 comfort options;
 9.1.5 area names; 9.2.1 nearness triggers; 7.1.4 NPC schedules; 8.5.1 tracing pictures;
 7.1.2 event pages and commands; 8.2.4 short searchable Details; 9.5.2 plugin checks and local reports;
-7.1.5 flat-map normal lighting; 8.4.4 BGM-reactive motion/lights/particles; 8.1.4 first-map quest.
+7.1.5 flat-map normal lighting; 8.4.4 BGM-reactive motion/lights/particles; 8.1.4 first-map quest;
+7.3.5 seeded generated maps; 9.5.3 save-safe changes; 9.3.3 heat haze.
+9.5.3 released-save snapshots and aliases; 9.3.3 flat-map heat haze.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -44,7 +46,10 @@ the water bug are still pending. Do not claim this row is Done.
 | Plugin report: 9.5.2 | Complete locally | New clash/report parts and Info/Problems hooks | Reviewed; conditional-alias and removed-observer fixes pass regression tests |
 | With the music: 8.4.4 | Complete locally | Beat game parts, Motion/Lighting, particles and API | Review fixes passed: real-emitter initial kick burst, read failures, stop/replacement and map-terminate cleanup |
 | First-map quest: 8.1.4 | Complete locally | Pure steps, corner card, first-run hook and save/play observation | Review fixes passed: temporary Not Now, blocked storage fallback, async play, failed saves and map identity |
-| Generated maps: 7.3.5 | Specialist | Seeded pure/runtime/editor generator and room openings | Architecture investigated; implementation starts after integration gate |
+| Generated maps: 7.3.5 | Complete locally | Seeded pure/runtime/editor generator and room openings | Reviewed catalog/transactional behavior, save-load regeneration, alias readiness, shared placement code, full-frame art, viewport-bounded biome preview, live tile dimensions and stable room UIDs; targeted suites passed |
+| Save-safe changes: 9.5.3 | Complete locally | Shipped snapshots, aliases, named state storage, release UI and deploy reminder | Independent review fixed UID reuse/ownership, stale delete target, inferred renames, coherent disk snapshots and generated-map readiness; targeted regressions GREEN |
+| Heat haze: 9.3.3 | Complete locally | New pure/filter/editor parts and postFX hooks | Reviewed; anchor/rotation/zoom placement, export exclusion, pass order, quality and comfort tests GREEN; real GPU pending |
+| Player photo mode: 8.3.6 | Specialist | Shared capture game part, mode UI/lifecycle, narrow header/API/capture hooks | Architecture ready; implementation after integration gate |
 
 The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
@@ -59,10 +64,16 @@ runner during edits: it checks that the entire repository stays unchanged.
 - Do not start MZ, `Game.exe` or `nw.exe`; the owner handles real playtests.
 - Mark implemented rows “Built; MZ playtest pending”, never “Done” without that evidence.
 - Keep original art, private project data, configuration and existing work intact.
+- When 8.4.1 Decorate and 8.4.2 remembering worlds are built, extend Shipped snapshots and
+  runtime name cleanup to include their saved placement data.
 - Preserve Doc and Qiu Jiu credits; do not add attribution trailers.
 
 ## Latest verification
 
+- Current integration: static verify PASS (192 editor parts, 66 runtime parts, 1,553 strings).
+  Full coverage PASS: 178/178 suites in 185.9 seconds; lines/statements 91.70%,
+  branches 78.15%, functions 86.21%. All thresholds passed and the repository stayed
+  unchanged during the run. Generated maps, Shipped safety and heat haze are included.
 - Latest continuation gate: static verify PASS (181 editor parts, 57 runtime parts, 1,507 strings).
   Coverage ran 173 suites with 172 passing; the one failure was a legacy source-inspection assertion
   hidden by the plugin-report wrapper. Plugin findings now join the original Problems collector;
@@ -102,10 +113,10 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Resume first-wave rows 7.3.5, 7.3.8 and 8.3.6. Then follow the
+Continue rows 8.1.3 and 8.3.6, then 7.3.8. Follow the
 dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 49 other buildable rows still open, plus the external-plugin compatibility
+There are 46 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

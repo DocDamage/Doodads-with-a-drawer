@@ -283,6 +283,16 @@ Enable **World → Normal Maps** to shade pictures and characters with nearby la
 
 Up to eight nearby lights contribute, including switched lamps and cones; Effects Quality caps this at eight, four, two or zero. Animation, state and seasonal art use their matching companions; character sheets can use `$Name_n.png`. Foreground sprites and upper tiles keep their own lighting, and wall masks limit lamp contribution. This first version is flat-map only. Real GPU checks with 200 mapped pictures and 20 lights are pending; the automated benchmark measures the stand-in engine.
 
+### Generated maps
+
+**Map → Generate Map** builds a seeded **Dungeon** or **Wilderness** in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. **Preview** changes nothing, **Reroll** advances the seed, and **Apply** writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map.
+
+Room stamps' **Doors** control uses edge notation such as `N2, E3, S2, W3` (north/south use x, east/west use y, starting at zero). The **Generate Map** plugin command or `api.generateMap(spec)` queues a target map before transfer and resolves a variable seed once. The save keeps only seed and recipe; the map regenerates before display and after loading a save. Generated named states/lights are retained until materialization succeeds. Both editor and game builds share the same placement rules, and generated art uses its full bitmap size. Real MZ transfer, visuals and deployment checks remain pending.
+
+### Heat haze
+
+In a doodad's **Heat haze** section choose **Campfire**, **Lava**, **Desert Road** (a horizontal band) or **Under Water** (the whole screen), then adjust radius, strength and upward drift. The selected circle's radius shows on the map. The **Heat** Screen Look adds a road-like band. At most eight visible sources bend the map before bloom; Low/Off quality removes the pass, and Less Camera Motion halves it. Empty maps add no heat pass. This first version is flat-map only, and stitched map exports omit screen distortion. GPU appearance checks are pending.
+
 ### With the music
 
 In a doodad's **Motion** or **Light** section, **With the music** chooses Bass, Middle or Treble. **Music strength** blends between its usual amount and the music's energy. Plants can sway and lamps can pulse together. In **Particles**, **Emits → On a music kick** sends a burst at a bass onset. Only BGM drives these effects; sound effects do not. Silent or muted BGM gives zero energy. Scripts can read `DocsDoodads.api.beat()` for `low`, `mid`, `high` (0–1) and `kick` for this frame. One analyser is shared and released when unused.
@@ -1004,6 +1014,14 @@ Editing real map data in playtest mode requires rigorous file protection:
 9. **Manual Backup Restore**: Open **More → Info → Restore Project Backup…**, select the current map, doodad data (this map's file with **Doodad Files: One file per map**), or asset library, and choose a snapshot. The backup JSON and path are validated, and the current file receives another timestamped safety backup before restoration.
 
 ---
+
+### Keeping released saves working
+
+Before distributing a version, choose **More → Mark as Released**, save first if asked, and give the release a name. `data/DocsDoodadsShipped.json` records named doodads, their states and map sizes. **Problems → Released saves** then shows missing or apparently renamed names, removed/reordered states and resized maps. The deploy tool reminds you when recorded source data changed.
+
+Renaming or deleting the last doodad with a released name asks about its saved states and lights. **Keep the Old Name Working** adds an alias to the new name; for deletion, choose another existing name. The name change and alias undo together. Existing saved values at the destination take priority. Chains of renames keep working. **Rename/Delete without an Alias** leaves the warning for you to assess. Choosing Cancel or changing maps/selection while the question is open applies nothing.
+
+New state changes store a state's name when available, so later reordering can preserve it. Numbers from older saves still read as indices; review reordering warnings before shipping. On loading a map, aliases migrate saved states/lights and names no longer on that map are removed. Invalid cyclic aliases preserve their saved values for repair. **Save This Map** saves only that map's aliases along with its other edits.
 
 ## 23. Complete Keyboard Shortcuts Cheat Sheet
 

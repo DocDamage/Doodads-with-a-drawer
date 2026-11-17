@@ -1598,6 +1598,90 @@
  * @type number
  * @desc 0 for this map.
  * @default 0
+ *
+ * @command generateMap
+ * @text Generate Map
+ * @desc Queue a seeded dungeon or wilderness. It is built before the target map appears and regenerated from its seed after loading a save.
+ *
+ * @arg mapId
+ * @text Target Map
+ * @type number
+ * @min 1
+ * @default 1
+ *
+ * @arg kind
+ * @text Kind
+ * @type select
+ * @option Dungeon
+ * @value dungeon
+ * @option Wilderness
+ * @value wilderness
+ * @default dungeon
+ *
+ * @arg seedVariable
+ * @text Seed Variable
+ * @type variable
+ * @desc Read once when this command runs. 0 uses Seed below.
+ * @default 0
+ *
+ * @arg seed
+ * @text Seed
+ * @type text
+ * @default 1
+ *
+ * @arg w
+ * @text Width
+ * @type number
+ * @min 8
+ * @max 256
+ * @default 30
+ *
+ * @arg h
+ * @text Height
+ * @type number
+ * @min 8
+ * @max 256
+ * @default 24
+ *
+ * @arg count
+ * @text Rooms
+ * @type number
+ * @min 1
+ * @max 64
+ * @default 6
+ *
+ * @arg roomIds
+ * @text Room Stamp IDs
+ * @type text
+ * @desc Comma-separated; blank makes plain rooms.
+ *
+ * @arg biomes
+ * @text Biomes
+ * @type text
+ * @desc Wilderness biome IDs, comma-separated, or a JSON array with weights.
+ *
+ * @arg points
+ * @text Path Points
+ * @type text
+ * @desc Wilderness points as x,y; x,y.
+ *
+ * @arg floorTile
+ * @text Floor Tile ID
+ * @type number
+ * @min 0
+ * @default 2816
+ *
+ * @arg wallTile
+ * @text Wall Tile ID
+ * @type number
+ * @min 0
+ * @default 4352
+ *
+ * @arg pathTile
+ * @text Path Tile ID
+ * @type number
+ * @min 0
+ * @default 0
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -2767,6 +2851,88 @@ DocsDoodads.FrameAnim = {
         }
     }
 };
+DocsDoodads.Haze = {
+    presets: {
+        campfire: { radius: 96, strength: 3, speed: 1, shape: 'circle' },
+        lava: { radius: 160, strength: 6, speed: 0.7, shape: 'circle' },
+        desert: { radius: 90, strength: 4, speed: 0.5, shape: 'band' },
+        underwater: { radius: 300, strength: 2, speed: 0.4, shape: 'screen' }
+    },
+    normalize(value) {
+        if (!value || value.preset === 'none') return null;
+        const raw = Object.assign({}, this.presets[value.preset] || this.presets.campfire, value);
+        const number = (v, fallback, min, max) => Number.isFinite(Number(v)) ? Math.max(min, Math.min(max, Number(v))) : fallback;
+        return { radius: number(raw.radius, 96, 1, 1200), strength: number(raw.strength, 3, 0, 20), speed: number(raw.speed, 1, 0, 5),
+            shape: ['circle', 'band', 'screen'].includes(raw.shape) ? raw.shape : 'circle' };
+    },
+    collect(doodads, display = {}, max = 8) {
+        const width = Number(display.width) || 816, height = Number(display.height) || 624;
+        const scale = Number(display.scale) || 1, out = [];
+        for (const item of doodads || []) {
+            const settings = this.normalize(item && item.haze);
+            if (!settings || !settings.strength || item.visible === false) continue;
+            const point = display.project ? display.project(Number(item.x) || 0, Number(item.y) || 0) : { x: (Number(item.x) || 0) - (Number(display.x) || 0), y: (Number(item.y) || 0) - (Number(display.y) || 0) };
+            const radius = settings.radius * scale;
+            if (settings.shape === 'band') point.x = width / 2;
+            if (settings.shape === 'screen') { point.x = width / 2; point.y = height / 2; }
+            if (settings.shape !== 'screen' && (point.y + radius < 0 || point.y - radius > height
+                || settings.shape !== 'band' && (point.x + radius < 0 || point.x - radius > width))) continue;
+            out.push(Object.assign({}, settings, point, { radius, distance: Math.hypot(point.x - width / 2, point.y - height / 2) }));
+        }
+        out.sort((a, b) => a.distance - b.distance);
+        return out.slice(0, Math.max(0, Math.min(8, Math.floor(Number(max) || 0))));
+    },
+    uniforms(sources, time, lessMotion, into = {}) {
+        const circles = into.uHaze || new Array(32).fill(0), speeds = into.uHazeSpeed || new Array(8).fill(0), shapes = into.uHazeShape || new Array(8).fill(0);
+        circles.fill(0); speeds.fill(0); shapes.fill(0);
+        sources.slice(0, 8).forEach((source, index) => {
+            circles[index * 4] = source.x; circles[index * 4 + 1] = source.y; circles[index * 4 + 2] = source.radius;
+            circles[index * 4 + 3] = source.strength * (lessMotion ? 0.5 : 1);
+            speeds[index] = source.speed; shapes[index] = source.shape === 'screen' ? 2 : source.shape === 'band' ? 1 : 0;
+        });
+        return Object.assign(into, { uHaze: circles, uHazeSpeed: speeds, uHazeShape: shapes, uHazeCount: Math.min(8, sources.length), uTime: Number(time) || 0 });
+    },
+    spriteCentre(sprite, global = true) {
+        const frame = sprite.texture && sprite.texture.frame || { width: 0, height: 0 };
+        const anchor = sprite.anchor || { x: 0, y: 0 }, scale = sprite.scale || { x: 1, y: 1 }, skew = sprite.skew || { x: 0, y: 0 };
+        const angle = Number(sprite.rotation) || 0, dx = (0.5 - anchor.x) * frame.width, dy = (0.5 - anchor.y) * frame.height;
+        const x = sprite.x + Math.cos(angle + skew.y) * scale.x * dx - Math.sin(angle - skew.x) * scale.y * dy;
+        const y = sprite.y + Math.sin(angle + skew.y) * scale.x * dx + Math.cos(angle - skew.x) * scale.y * dy;
+        const parent = global && sprite.parent && sprite.parent.worldTransform;
+        return parent ? { x: parent.a * x + parent.c * y + parent.tx, y: parent.b * x + parent.d * y + parent.ty } : { x, y };
+    },
+    usedInProject() {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads || {};
+        return Object.keys(data).some(key => /^\d+$/.test(key) && Array.isArray(data[key]) && data[key].some(item => item && item.haze && item.haze.preset !== 'none'));
+    },
+    fragment: fragmentPrecision + `
+varying vec2 vTextureCoord;
+uniform sampler2D uSampler;
+uniform vec4 inputSize;
+uniform vec4 inputClamp;
+uniform vec4 outputFrame;
+uniform vec4 uHaze[8];
+uniform float uHazeSpeed[8];
+uniform float uHazeShape[8];
+uniform float uHazeCount;
+uniform float uTime;
+void main(void) {
+    vec2 point = outputFrame.xy + vTextureCoord * inputSize.xy;
+    vec2 bend = vec2(0.0);
+    for (int i = 0; i < 8; i++) {
+        if (float(i) < uHazeCount) {
+            float distanceToSource = length(point - uHaze[i].xy);
+            if (uHazeShape[i] > 0.5) distanceToSource = abs(point.y - uHaze[i].y);
+            float weight = 1.0 - smoothstep(0.0, max(1.0, uHaze[i].z), distanceToSource);
+            if (uHazeShape[i] > 1.5) weight = 1.0;
+            float phase = point.y * 0.12 + uTime * uHazeSpeed[i] * 3.0;
+            bend.x += sin(phase + sin(point.x * 0.045 + phase * 0.3)) * uHaze[i].w * weight;
+            bend.y += sin(point.x * 0.08 - phase * 0.6) * uHaze[i].w * weight * 0.18;
+        }
+    }
+    gl_FragColor = texture2D(uSampler, clamp(vTextureCoord + bend * inputSize.zw, inputClamp.xy, inputClamp.zw));
+}`
+};
 //==========================================================
 // SECTION 5A2: SHAPED LIGHTS, PRESETS, WALL SHADOWS, FLASHLIGHT
 //==========================================================
@@ -3113,7 +3279,9 @@ DocsDoodads.NormalLight = {
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
             const gx = -sample(x - 1, y - 1) + sample(x + 1, y - 1) - 2 * sample(x - 1, y) + 2 * sample(x + 1, y) - sample(x - 1, y + 1) + sample(x + 1, y + 1);
             const gy = -sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1) + sample(x - 1, y + 1) + 2 * sample(x, y + 1) + sample(x + 1, y + 1);
-            const nx0 = -gx * strength, ny0 = -gy * strength, length = Math.hypot(nx0, ny0, 1);
+            // The shader flips an OpenGL-style green-up normal into screen-down coordinates. A height
+            // that increases down the source therefore encodes +Y, which the shader turns uphill (-Y).
+            const nx0 = -gx * strength, ny0 = gy * strength, length = Math.hypot(nx0, ny0, 1);
             const at = (y * width + x) * 4;
             out[at] = Math.round((nx0 / length * 0.5 + 0.5) * 255);
             out[at + 1] = Math.round((ny0 / length * 0.5 + 0.5) * 255);
@@ -3615,6 +3783,10 @@ DocsDoodads.States = {
     find(d, which) {
         const list = this.list(d);
         if (which === null || which === undefined || which === '') return -1;
+        if (typeof which === 'string') {
+            const named = list.findIndex(state => state && String(state.name || '').trim().toLowerCase() === which.trim().toLowerCase());
+            if (named >= 0) return named;
+        }
         if (typeof which === 'number' || /^\d+$/.test(String(which).trim())) {
             const n = Number(which);
             return n >= 0 && n < list.length ? n : -1;
@@ -3717,11 +3889,14 @@ DocsDoodads.WorldState = {
         return this.mapId(mapId) + '/' + id;
     },
 
-    handle(nameOrDoodad) {
-        if (nameOrDoodad && typeof nameOrDoodad === 'object') return this.idOf(nameOrDoodad);
+    handle(nameOrDoodad, mapId) {
+        if (nameOrDoodad && typeof nameOrDoodad === 'object') {
+            return this.idOf(nameOrDoodad);
+        }
         const name = String(nameOrDoodad || '').trim();
         if (!name) return '';
-        return /^uid:/.test(name) ? name : 'name:' + name.toLowerCase();
+        const id = /^uid:/.test(name) ? name : 'name:' + name.toLowerCase();
+        return DocsDoodads.Shipped ? DocsDoodads.Shipped.resolveId(id, this.mapId(mapId)) : id;
     },
 
     // The name events know a doodad by (its uid when it has no name).
@@ -3754,7 +3929,7 @@ DocsDoodads.WorldState = {
     // The doodads with this name (or the given doodad) on a map (this map when 0).
     doodadsNamed(name, mapId) {
         if (name && typeof name === 'object') return [name];
-        const id = this.handle(name);
+        const id = this.handle(name, mapId);
         if (!id) return [];
         const list = typeof DocsDoodads.doodads === 'function' ? DocsDoodads.doodads(this.mapId(mapId)) || [] : [];
         return list.filter(d => d && this.idOf(d) === id);
@@ -3771,7 +3946,7 @@ DocsDoodads.WorldState = {
         const m = this.mapId(mapId);
         const d = this.doodadsNamed(name, m)[0];
         if (d) return DocsDoodads.States.index(d, m);
-        const id = this.handle(name);
+        const id = this.handle(name, m);
         const v = id ? this.store(false).states[this.key(m, id)] : undefined;
         return typeof v === 'number' ? v : -1;
     },
@@ -3782,7 +3957,7 @@ DocsDoodads.WorldState = {
         const m = this.mapId(mapId);
         const d = this.doodadsNamed(name, m)[0];
         if (d) return DocsDoodads.States.name(d, m);
-        const id = this.handle(name);
+        const id = this.handle(name, m);
         const v = id ? this.store(false).states[this.key(m, id)] : undefined;
         return v === undefined || v === null ? '' : String(v);
     },
@@ -3795,7 +3970,7 @@ DocsDoodads.WorldState = {
     // Sets a named doodad's state on a map (this map when 0): a state name, its number, 'next', or
     // '' to go back to following its switch or variable.
     setState(name, which, mapId) {
-        const id = this.handle(name);
+        const id = this.handle(name, mapId);
         if (!id) return false;
         const m = this.mapId(mapId);
         const key = this.key(m, id);
@@ -3804,6 +3979,7 @@ DocsDoodads.WorldState = {
         const told = () => { if (DocsDoodads.api) DocsDoodads.api.emit('state', { name: this.nameOf(name), state: this.state(name, m), mapId: m }); };
         if (raw === '') {
             delete states[key];
+            const owners = this.store().liveNames; if (owners && owners.states) delete owners.states[key];
             told();
             return true;
         }
@@ -3812,12 +3988,14 @@ DocsDoodads.WorldState = {
             if (!d) return false;
             const n = DocsDoodads.States.list(d).length;
             if (n < 2) return false;
-            states[key] = (DocsDoodads.States.index(d, m) + 1) % n;
+            const next = (DocsDoodads.States.index(d, m) + 1) % n;
+            if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('states', name, m, id);
+            states[key] = String(DocsDoodads.States.list(d)[next].name || '').trim() || next;
             told();
             return true;
         }
         // Only states the doodad has, so a typo doesn't leave a dead key in every save.
-        if (d && DocsDoodads.States.find(d, raw) < 0) {
+        if (d && DocsDoodads.States.find(d, which) < 0) {
             const names = DocsDoodads.States.list(d).map((s, i) => String((s && s.name) || i)).join(', ');
             console.warn(`[DocsDoodads] "${this.nameOf(name)}" has no state "${raw}"; its states are: ${names || 'none'}.`);
             return false;
@@ -3826,7 +4004,10 @@ DocsDoodads.WorldState = {
             console.warn(`[DocsDoodads] no doodad named "${this.nameOf(name)}" on map ${m}.`);
             return false;
         }
-        states[key] = /^\d+$/.test(raw) ? Number(raw) : raw;
+        const index = d ? DocsDoodads.States.find(d, which) : -1;
+        const named = index >= 0 ? String(DocsDoodads.States.list(d)[index].name || '').trim() : '';
+        if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('states', name, m, id);
+        states[key] = named || (/^\d+$/.test(raw) ? Number(raw) : raw);
         told();
         return true;
     },
@@ -3835,7 +4016,7 @@ DocsDoodads.WorldState = {
     light(name, mapId) {
         const d = this.doodadsNamed(name, mapId)[0];
         if (!d) {
-            const id = this.handle(name);
+            const id = this.handle(name, mapId);
             const v = id ? this.store(false).lights[this.key(mapId, id)] : undefined;
             return typeof v === 'boolean' ? v : null;
         }
@@ -3844,12 +4025,16 @@ DocsDoodads.WorldState = {
 
     // on: true, false, or null to go back to the doodad's own setting.
     setLight(name, on, mapId) {
-        const id = this.handle(name);
+        const id = this.handle(name, mapId);
         if (!id) return false;
         const key = this.key(mapId, id);
         const lights = this.store().lights;
-        if (on === null || on === undefined || on === '') delete lights[key];
-        else lights[key] = Boolean(on === true || on === 'true' || on === 'on' || on === 1);
+        if (on === null || on === undefined || on === '') {
+            delete lights[key]; const owners = this.store().liveNames; if (owners && owners.lights) delete owners.lights[key];
+        } else {
+            if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('lights', name, this.mapId(mapId), id);
+            lights[key] = Boolean(on === true || on === 'true' || on === 'on' || on === 1);
+        }
         if (DocsDoodads.api) DocsDoodads.api.emit('light', { name: this.nameOf(name), on: this.light(name, mapId), mapId: this.mapId(mapId) });
         return true;
     },
@@ -5324,6 +5509,13 @@ DocsDoodads.api = {
      */
     schedules(on = true) { return DocsDoodads.Schedules.setEnabled(on); },
 
+    /**
+     * Queues a seeded dungeon or wilderness recipe for a map. It is regenerated before that map sets up.
+     * @param {object} options
+     * @returns {{seed: number, recipe: object} | null}
+     */
+    generateMap(options) { return DocsDoodads.GenerateRuntime.queue(options || {}); },
+
     // ---- Clock, season and ambient light ----
     /**
      * The time of day in minutes (0-1439), or null when the clock is off.
@@ -5399,6 +5591,121 @@ DocsDoodads.api = {
             return DocsDoodads.setAmbient(DocsDoodads.currentAmbient(switchValue), Number(frames) || 0, true);
         }
         return DocsDoodads.setAmbient({ darkness: Math.max(0, Math.min(1, Number(darkness) || 0)), color: color || DocsDoodads.Lighting.ambientDefaults.color }, Number(frames) || 0);
+    }
+};
+// Released data and save-name compatibility. The pure snapshot/diff also runs in deployment tooling.
+DocsDoodads.Shipped = {
+    path: 'data/DocsDoodadsShipped.json',
+    name(value) { return String(value || '').trim().toLowerCase(); },
+    traceName(aliases, mapId, name) {
+        const first = this.name(name), map = aliases && aliases[Number(mapId)] || {};
+        let current = first;
+        const seen = new Set();
+        for (;;) {
+            const key = Object.prototype.hasOwnProperty.call(map, 'name:' + current) ? 'name:' + current : current;
+            if (!Object.prototype.hasOwnProperty.call(map, key)) break;
+            if (seen.has(current)) return { name: first, valid: false };
+            seen.add(current); current = this.name(map[key]);
+            if (!current) return { name: first, valid: false };
+        }
+        return { name: current, valid: true };
+    },
+    resolveName(aliases, mapId, name) { return this.traceName(aliases, mapId, name).name; },
+    resolveId(id, mapId) {
+        if (!String(id || '').startsWith('name:')) return id;
+        const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+        return 'name:' + this.resolveName(data && data.aliases, mapId, id.slice(5));
+    },
+    snapshot(data, sizes = {}, version = '') {
+        const names = {}, states = {}, stateKeys = {}, items = {};
+        for (const mapId of Object.keys(data || {}).filter(id => /^\d+$/.test(id) && Array.isArray(data[id])).sort((a, b) => Number(a) - Number(b))) {
+            names[mapId] = []; items[mapId] = [];
+            for (const item of data[mapId]) {
+                const name = String(item && item.name || '').trim();
+                if (!name) continue;
+                const id = this.name(name), key = mapId + '/' + id;
+                if (!names[mapId].some(value => this.name(value) === id)) names[mapId].push(name);
+                const list = item.states && Array.isArray(item.states.list) ? item.states.list : [];
+                if (!states[key]) {
+                    states[key] = list.map(state => String(state && state.name || ''));
+                    stateKeys[key] = list.map(state => state && String(state.name || '').trim() ? 'name:' + this.name(state.name) : 'unnamed:' + JSON.stringify(state || {}));
+                }
+                items[mapId].push({ name, uid: String(item.uid || ''), art: item.bit && String(item.bit[1] || '') || '', x: Number(item.x) || 0, y: Number(item.y) || 0 });
+            }
+        }
+        return { version: String(version), date: '', names, states, stateKeys, maps: JSON.parse(JSON.stringify(sizes || {})), items, aliases: JSON.parse(JSON.stringify(data && data.aliases || {})) };
+    },
+    latest(value) {
+        if (!value) return null;
+        if (Array.isArray(value.releases)) return value.releases[value.releases.length - 1] || null;
+        if (Array.isArray(value)) return value[value.length - 1] || null;
+        return value.names ? value : null;
+    },
+    diff(before, now) {
+        before = this.latest(before);
+        if (!before || !now) return [];
+        const out = [], add = (type, mapId, text, more) => out.push(Object.assign({ type, mapId: Number(mapId), text, kind: 'shipped', global: true }, more || {}));
+        for (const [mapId, oldNames] of Object.entries(before.names || {})) {
+            const currentNames = now.names[mapId] || [];
+            for (const oldName of oldNames) {
+                const oldId = this.name(oldName), resolved = this.resolveName(now.aliases, mapId, oldName);
+                const found = currentNames.find(name => this.name(name) === resolved);
+                if (!found) {
+                    const oldItem = (before.items && before.items[mapId] || []).find(item => this.name(item.name) === oldId);
+                    const matches = oldItem ? (now.items[mapId] || []).filter(item => oldItem.uid ? item.uid === oldItem.uid : item.art === oldItem.art && item.x === oldItem.x && item.y === oldItem.y) : [];
+                    if (matches.length === 1) add('renamed', mapId, 'Map ' + mapId + ': released name ' + oldName + ' appears renamed to ' + matches[0].name + '.', { oldName, newName: matches[0].name });
+                    else add('nameGone', mapId, 'Map ' + mapId + ': players\' saves know the missing name ' + oldName + '.', { oldName });
+                    continue;
+                }
+                const oldKey = mapId + '/' + oldId, newKey = mapId + '/' + this.name(found);
+                const previous = before.stateKeys && before.stateKeys[oldKey] || ((before.states || {})[oldKey] || []).map(name => 'name:' + this.name(name));
+                const current = now.stateKeys && now.stateKeys[newKey] || ((now.states || {})[newKey] || []).map(name => 'name:' + this.name(name));
+                previous.forEach((key, index) => {
+                    const next = current.indexOf(key), label = ((before.states || {})[oldKey] || [])[index] || 'state ' + index;
+                    if (next < 0) add('stateGone', mapId, oldName + ': released ' + label + ' is missing.', { oldName, state: label });
+                    else if (next !== index) add('stateMoved', mapId, oldName + ': released ' + label + ' moved from ' + index + ' to ' + next + '; older numeric saves need care.', { oldName, state: label });
+                });
+            }
+        }
+        for (const [mapId, size] of Object.entries(before.maps || {})) if (now.maps[mapId] && JSON.stringify(size) !== JSON.stringify(now.maps[mapId])) {
+            add('mapResized', mapId, 'Map ' + mapId + ' changed size from ' + size.join(' × ') + ' to ' + now.maps[mapId].join(' × ') + '; saved exploration may be reset.');
+        }
+        return out;
+    },
+    migrateSaved(mapId) {
+        const W = DocsDoodads.WorldState;
+        if (!W || !W.anySaved() || !W.mapLoaded(mapId)) return;
+        const generated = typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsGeneratedMaps && $gameSystem._docsGeneratedMaps[mapId];
+        if (generated && DocsDoodads.GenerateRuntime && !DocsDoodads.GenerateRuntime.isMaterialized(mapId)) return;
+        const items = DocsDoodads.doodads(mapId).filter(Boolean);
+        const prefix = W.mapId(mapId) + '/', valid = new Set(items.map(item => W.idOf(item)));
+        const store = W.store(false);
+        for (const field of ['states', 'lights']) {
+            const values = store[field];
+            for (const key of Object.keys(values)) {
+                if (!key.startsWith(prefix)) continue;
+                const oldId = key.slice(prefix.length);
+                const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
+                if (oldId.startsWith('name:') && !this.traceName(data && data.aliases, mapId, oldId.slice(5)).valid) continue;
+                const owners = store.liveNames && store.liveNames[field] || {};
+                const owned = typeof owners[key] === 'string' ? items.find(item => item.uid === owners[key]) : null;
+                if (typeof owners[key] === 'string' && !owned) { delete values[key]; delete owners[key]; continue; }
+                const id = owned ? W.idOf(owned) : owners[key] && valid.has(oldId) ? oldId : this.resolveId(oldId, W.mapId(mapId)), target = prefix + id;
+                if (!valid.has(id)) { delete values[key]; delete owners[key]; continue; }
+                if (target !== key) {
+                    if (!Object.prototype.hasOwnProperty.call(values, target)) { values[target] = values[key]; if (owners[key]) owners[target] = owners[key]; }
+                    delete values[key]; delete owners[key];
+                }
+            }
+        }
+    },
+    // Object API calls address the actual placed object. A reused historic name must not be migrated
+    // into its predecessor's alias on the next load; old saves have no ownership marker and still migrate.
+    markObject(field, object, mapId, id) {
+        if (!object || typeof object !== 'object' || this.resolveId(id, mapId) === id) return;
+        const store = DocsDoodads.WorldState.store(), owners = store.liveNames = store.liveNames || {};
+        const values = owners[field] = owners[field] || {};
+        values[DocsDoodads.WorldState.key(mapId, id)] = object.uid || true;
     }
 };
 //==========================================================
@@ -6304,6 +6611,10 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 DocsDoodads.PostFX = {
     // neutral: the value at which a parameter does nothing (used when blending an effect in or out).
     effects: [
+        { id: 'heat', label: 'Heat haze (flat maps)', screenSpace: true, params: [
+            { key: 'strength', label: 'Strength (pixels)', min: 0, max: 12, step: 0.5, def: 3, neutral: 0 },
+            { key: 'speed', label: 'Upward drift speed', min: 0, max: 3, step: 0.1, def: 0.5, neutral: 0.5 }
+        ] },
         { id: 'bloom', label: 'Bloom', params: [
             { key: 'threshold', label: 'Threshold', min: 0, max: 1, step: 0.05, def: 0.7, neutral: 1 },
             { key: 'intensity', label: 'Intensity', min: 0, max: 3, step: 0.05, def: 0.8, neutral: 0 },
@@ -6354,6 +6665,7 @@ DocsDoodads.PostFX = {
     ],
 
     presets: [
+        { id: 'heat', label: 'Heat', look: { heat: { enabled: true, strength: 3, speed: 0.5 } } },
         { id: 'cinematic', label: 'Cinematic', look: {
             color: { enabled: true, contrast: 1.12, saturation: 0.92, shadows: '#1f6f8b', highlights: '#f0a35e', split: 0.35 },
             vignette: { enabled: true, amount: 0.35, softness: 0.5 }, grain: { enabled: true, amount: 0.06 } } },
@@ -6511,9 +6823,10 @@ DocsDoodads.PostFX = {
 
     gradeIds: ['color', 'vignette', 'grain', 'aberration', 'lens', 'crt', 'pixelate', 'sharpen'],
 
-    passes(look, quality, anim) {
+    passes(look, quality, anim, haze) {
         if (quality === 'off') return [];
         const out = [];
+        if (haze && haze.length && quality !== 'low') out.push('haze');
         if ((look && look.bloom.enabled) || (anim && anim.bloom > 0)) out.push('bloom');
         if (look && look.tiltShift.enabled && quality !== 'low') out.push('tiltShift');
         const animated = anim && ((anim.zoom !== undefined && anim.zoom !== 1) || (anim.shock && anim.shock[3] > 0) || anim.aberration > 0);
@@ -7612,6 +7925,137 @@ DocsDoodads.SpatialSound = {
     }
 };
 
+//==========================================================
+// SECTION 4I: SEEDED BIOME AND DRESSING PLANS (GAME-SAFE CORE)
+//==========================================================
+// One pure implementation is shared by editor brushes and generated maps in deployed games.
+DocsDoodads.Scatter = {
+    rng(seed) {
+        let state = (Number(seed) || 1) >>> 0;
+        return function() {
+            state = (state + 0x6d2b79f5) >>> 0;
+            let value = state;
+            value = Math.imul(value ^ value >>> 15, value | 1);
+            value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+            return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        };
+    },
+    candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
+        const accepted = [], others = (existing || []).slice(), attempts = maxAttempts || Math.max(30, count * 30);
+        for (let i = 0; i < attempts && accepted.length < count; i++) {
+            const angle = rng() * Math.PI * 2, distance = radius * Math.sqrt(rng());
+            const point = { x: center.x + Math.cos(angle) * distance, y: center.y + Math.sin(angle) * distance };
+            if (minDistance > 0 && others.some(other => Math.hypot(other.x - point.x, other.y - point.y) < minDistance)) continue;
+            accepted.push(point); others.push(point);
+        }
+        return accepted;
+    }
+};
+
+const generatedValueNoise = (x, y) => {
+    const hash = (i, j) => { const value = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return value - Math.floor(value); };
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    const top = hash(ix, iy) * (1 - sx) + hash(ix + 1, iy) * sx;
+    const bottom = hash(ix, iy + 1) * (1 - sx) + hash(ix + 1, iy + 1) * sx;
+    return top * (1 - sy) + bottom * sy;
+};
+
+DocsDoodads.Biome = {
+    normalizeEntry(entry) {
+        if (!entry || !entry.path) return null;
+        const number = (value, fallback, min, max) => { const n = Number(value); return value === undefined || value === null || value === '' || !isFinite(n) ? fallback : Math.max(min, Math.min(max, n)); };
+        const scaleMin = number(entry.scaleMin, 1, 0.1, 5);
+        return { path: String(entry.path), weight: number(entry.weight, 1, 0, 100), scaleMin,
+            scaleMax: Math.max(scaleMin, number(entry.scaleMax, scaleMin, 0.1, 5)) };
+    },
+    normalize(biome) {
+        biome = biome || {};
+        const number = (value, fallback, min, max) => { const n = Number(value); return value === undefined || value === null || value === '' || !isFinite(n) ? fallback : Math.max(min, Math.min(max, n)); };
+        return { id: String(biome.id || ''), name: String(biome.name || 'Biome'),
+            entries: (Array.isArray(biome.entries) ? biome.entries : []).map(entry => this.normalizeEntry(entry)).filter(Boolean),
+            spacing: number(biome.spacing, 40, 4, 500), density: Math.round(number(biome.density, 6, 1, 60)),
+            edgeThin: number(biome.edgeThin, 0.5, 0, 1), cluster: number(biome.cluster, 0.3, 0, 1), flip: biome.flip !== false };
+    },
+    find(id, list) { return (list || []).find(biome => biome && biome.id === id) || null; },
+    pickEntry(entries, rng) {
+        const total = (entries || []).reduce((sum, entry) => sum + entry.weight, 0);
+        if (!(total > 0)) return null;
+        let value = rng() * total;
+        for (const entry of entries) { value -= entry.weight; if (value < 0) return entry; }
+        return entries[entries.length - 1];
+    },
+    keep(point, center, radius, biome, rng) {
+        const distance = Math.min(1, Math.hypot(point.x - center.x, point.y - center.y) / Math.max(1, radius));
+        if (biome.cluster > 0 && generatedValueNoise(point.x / 96, point.y / 96) < biome.cluster * 0.6) return false;
+        return !(biome.edgeThin > 0 && rng() > 1 - biome.edgeThin * distance * distance);
+    },
+    paint(biome, center, radius, existing, rng) {
+        const points = DocsDoodads.Scatter.candidates(center, radius, biome.spacing, existing, biome.density, rng), out = [];
+        for (const point of points) {
+            if (!this.keep(point, center, radius, biome, rng)) continue;
+            const entry = this.pickEntry(biome.entries, rng);
+            if (!entry) continue;
+            out.push({ path: entry.path, x: Math.round(point.x), y: Math.round(point.y),
+                scale: entry.scaleMin + (entry.scaleMax - entry.scaleMin) * rng(), flipX: biome.flip && rng() < 0.5 });
+        }
+        return out;
+    }
+};
+
+DocsDoodads.Dress = {
+    places: [
+        { value: 'waterEdge', label: 'Along water edges' },
+        { value: 'wallBase', label: 'At the foot of walls and cliffs' },
+        { value: 'nearRegion', label: 'Beside a region (paths, roads)' },
+        { value: 'region', label: 'Inside a region' },
+        { value: 'terrain', label: 'On a terrain tag' },
+        { value: 'open', label: 'Open ground' }
+    ],
+    normalize(rule) {
+        rule = rule || {};
+        const number = (value, fallback, min, max) => { const n = Number(value); return value === undefined || value === null || value === '' || !isFinite(n) ? fallback : Math.max(min, Math.min(max, n)); };
+        const spacing = number(rule.spacing, 0, 0, 500);
+        return { name: String(rule.name || 'Rule'), where: this.places.some(place => place.value === rule.where) ? rule.where : 'open',
+            param: Math.round(number(rule.param, 0, 0, 255)), chance: number(rule.chance, 0.35, 0, 1), spacing,
+            minGap: Math.max(spacing, 40), entries: (Array.isArray(rule.entries) ? rule.entries : []).map(entry => DocsDoodads.Biome.normalizeEntry(entry)).filter(Boolean) };
+    },
+    tilesFor(rule, query) {
+        const out = [], inside = (x, y) => x >= 0 && y >= 0 && x < query.width && y < query.height;
+        const near4 = (x, y, test) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inside(x + dx, y + dy) && test(x + dx, y + dy));
+        for (let y = 0; y < query.height; y++) for (let x = 0; x < query.width; x++) {
+            if (!query.isPassable(x, y) || query.isWater(x, y) || query.hasEvent(x, y) || query.hasGround && !query.hasGround(x, y)) continue;
+            let keep = false;
+            switch (rule.where) {
+                case 'waterEdge': keep = near4(x, y, query.isWater); break;
+                case 'wallBase': keep = inside(x, y - 1) && !query.isPassable(x, y - 1) && !query.isWater(x, y - 1); break;
+                case 'nearRegion': keep = query.regionId(x, y) !== rule.param && near4(x, y, (a, b) => query.regionId(a, b) === rule.param); break;
+                case 'region': keep = query.regionId(x, y) === rule.param; break;
+                case 'terrain': keep = query.terrainTag(x, y) === rule.param; break;
+                default: keep = query.regionId(x, y) === 0;
+            }
+            if (keep) out.push({ x, y });
+        }
+        return out;
+    },
+    plan(rules, query, existing, tileW, tileH, rng) {
+        const out = [], taken = (existing || []).map(point => ({ x: point.x, y: point.y, old: true }));
+        for (const source of rules || []) {
+            const rule = this.normalize(source);
+            if (!rule.entries.length || rule.chance <= 0) continue;
+            for (const tile of this.tilesFor(rule, query)) {
+                if (rng() >= rule.chance) continue;
+                const point = { x: (tile.x + 0.25 + 0.5 * rng()) * tileW, y: (tile.y + 0.6 + 0.35 * rng()) * tileH };
+                if (taken.some(other => Math.hypot(other.x - point.x, other.y - point.y) < (other.old ? rule.minGap : rule.spacing))) continue;
+                const entry = DocsDoodads.Biome.pickEntry(rule.entries, rng);
+                const placement = { path: entry.path, x: Math.round(point.x), y: Math.round(point.y),
+                    scale: entry.scaleMin + (entry.scaleMax - entry.scaleMin) * rng(), flipX: rng() < 0.5, rule: rule.name };
+                out.push(placement); taken.push({ x: placement.x, y: placement.y, old: false });
+            }
+        }
+        return out;
+    }
+};
 // @editor-only
 DocsDoodads.DetailsShort = {
     defaults: {
@@ -7861,148 +8305,6 @@ DocsDoodads.Symmetry = {
         if ((sym.mode === 'x' || sym.mode === 'xy') && !onX) copy(mx, d.y, true);
         if ((sym.mode === 'y' || sym.mode === 'xy') && !onY) copy(d.x, my, false);
         if (sym.mode === 'xy' && !onX && !onY) copy(mx, my, true);
-        return out;
-    }
-};
-
-// 2D value noise in [0, 1], for patchy clusters.
-const valueNoise2 = (x, y) => {
-    const hash = (i, j) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); };
-    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    const top = hash(ix, iy) * (1 - sx) + hash(ix + 1, iy) * sx;
-    const bottom = hash(ix, iy + 1) * (1 - sx) + hash(ix + 1, iy + 1) * sx;
-    return top * (1 - sy) + bottom * sy;
-};
-
-// Biomes: a weighted mix of art painted with spacing, thinner at the brush edge, in natural patches.
-DocsDoodads.Biome = {
-    normalizeEntry(e) {
-        if (!e || !e.path) return null;
-        const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
-        const scaleMin = num(e.scaleMin, 1, 0.1, 5);
-        return { path: String(e.path), weight: num(e.weight, 1, 0, 100), scaleMin, scaleMax: Math.max(scaleMin, num(e.scaleMax, scaleMin, 0.1, 5)) };
-    },
-
-    normalize(b) {
-        b = b || {};
-        const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
-        return {
-            id: String(b.id || ''), name: String(b.name || 'Biome'),
-            entries: (Array.isArray(b.entries) ? b.entries : []).map(e => this.normalizeEntry(e)).filter(Boolean),
-            spacing: num(b.spacing, 40, 4, 500), density: Math.round(num(b.density, 6, 1, 60)),
-            edgeThin: num(b.edgeThin, 0.5, 0, 1), cluster: num(b.cluster, 0.3, 0, 1),
-            flip: b.flip !== false
-        };
-    },
-
-    find(id, list) {
-        return (list || []).find(b => b && b.id === id) || null;
-    },
-
-    pickEntry(entries, rng) {
-        const total = (entries || []).reduce((n, e) => n + e.weight, 0);
-        if (!(total > 0)) return null;
-        let r = rng() * total;
-        for (const e of entries) {
-            r -= e.weight;
-            if (r < 0) return e;
-        }
-        return entries[entries.length - 1];
-    },
-
-    keep(point, center, radius, biome, rng) {
-        const d = Math.min(1, Math.hypot(point.x - center.x, point.y - center.y) / Math.max(1, radius));
-        if (biome.cluster > 0 && valueNoise2(point.x / 96, point.y / 96) < biome.cluster * 0.6) return false;
-        if (biome.edgeThin > 0 && rng() > 1 - biome.edgeThin * d * d) return false;
-        return true;
-    },
-
-    // One dab of the brush: placements { path, x, y, scale, flipX }.
-    paint(biome, center, radius, existing, rng) {
-        const points = DocsDoodads.Scatter.candidates(center, radius, biome.spacing, existing, biome.density, rng);
-        const out = [];
-        for (const p of points) {
-            if (!this.keep(p, center, radius, biome, rng)) continue;
-            const entry = this.pickEntry(biome.entries, rng);
-            if (!entry) continue;
-            out.push({ path: entry.path, x: Math.round(p.x), y: Math.round(p.y),
-                scale: entry.scaleMin + (entry.scaleMax - entry.scaleMin) * rng(), flipX: biome.flip && rng() < 0.5 });
-        }
-        return out;
-    }
-};
-
-// Map dressing rules: where props belong, read from the tiles.
-DocsDoodads.Dress = {
-    places: [
-        { value: 'waterEdge', label: 'Along water edges' },
-        { value: 'wallBase', label: 'At the foot of walls and cliffs' },
-        { value: 'nearRegion', label: 'Beside a region (paths, roads)' },
-        { value: 'region', label: 'Inside a region' },
-        { value: 'terrain', label: 'On a terrain tag' },
-        { value: 'open', label: 'Open ground' }
-    ],
-
-    normalize(rule) {
-        rule = rule || {};
-        const num = (v, def, min, max) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? def : Math.max(min, Math.min(max, n)); };
-        const spacing = num(rule.spacing, 0, 0, 500);
-        return {
-            name: String(rule.name || 'Rule'),
-            where: this.places.some(p => p.value === rule.where) ? rule.where : 'open',
-            param: Math.round(num(rule.param, 0, 0, 255)),
-            chance: num(rule.chance, 0.35, 0, 1),
-            spacing,
-            // Keeps clear of props already on the map, so dressing twice never stacks.
-            minGap: Math.max(spacing, 40),
-            entries: (Array.isArray(rule.entries) ? rule.entries : []).map(e => DocsDoodads.Biome.normalizeEntry(e)).filter(Boolean)
-        };
-    },
-
-    // query: { width, height, isWater(x,y), isPassable(x,y), regionId(x,y), terrainTag(x,y), hasEvent(x,y), hasGround(x,y)? }
-    tilesFor(rule, q) {
-        const out = [];
-        const inside = (x, y) => x >= 0 && y >= 0 && x < q.width && y < q.height;
-        const near4 = (x, y, test) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inside(x + dx, y + dy) && test(x + dx, y + dy));
-        for (let y = 0; y < q.height; y++) {
-            for (let x = 0; x < q.width; x++) {
-                if (!q.isPassable(x, y) || q.isWater(x, y) || q.hasEvent(x, y)) continue;
-                if (q.hasGround && !q.hasGround(x, y)) continue;
-                let ok = false;
-                switch (rule.where) {
-                    case 'waterEdge': ok = near4(x, y, q.isWater); break;
-                    case 'wallBase': ok = inside(x, y - 1) && !q.isPassable(x, y - 1) && !q.isWater(x, y - 1); break;
-                    case 'nearRegion': ok = q.regionId(x, y) !== rule.param && near4(x, y, (a, b) => q.regionId(a, b) === rule.param); break;
-                    case 'region': ok = q.regionId(x, y) === rule.param; break;
-                    case 'terrain': ok = q.terrainTag(x, y) === rule.param; break;
-                    default: ok = q.regionId(x, y) === 0;
-                }
-                if (ok) out.push({ x, y });
-            }
-        }
-        return out;
-    },
-
-    // Placements for every rule: { path, x, y, scale, flipX, rule }.
-    plan(rules, q, existing, tileW, tileH, rng) {
-        const out = [];
-        const taken = (existing || []).map(p => ({ x: p.x, y: p.y, old: true }));
-        for (const raw of rules || []) {
-            const rule = this.normalize(raw);
-            if (!rule.entries.length || rule.chance <= 0) continue;
-            for (const t of this.tilesFor(rule, q)) {
-                if (rng() >= rule.chance) continue;
-                const p = { x: (t.x + 0.25 + 0.5 * rng()) * tileW, y: (t.y + 0.6 + 0.35 * rng()) * tileH };
-                const crowded = taken.some(o => Math.hypot(o.x - p.x, o.y - p.y) < (o.old ? rule.minGap : rule.spacing));
-                if (crowded) continue;
-                const entry = DocsDoodads.Biome.pickEntry(rule.entries, rng);
-                const placement = { path: entry.path, x: Math.round(p.x), y: Math.round(p.y),
-                    scale: entry.scaleMin + (entry.scaleMax - entry.scaleMin) * rng(), flipX: rng() < 0.5, rule: rule.name };
-                out.push(placement);
-                taken.push({ x: placement.x, y: placement.y, old: false });
-            }
-        }
         return out;
     }
 };
@@ -8289,6 +8591,328 @@ DocsDoodads.Quest = {
     ],
     progress(state) { return this.steps.map(step => Object.assign({}, step, { done: Boolean(step.done(state || {})) })); }
 };
+//==========================================================
+// SECTION 4G: SEEDED MAP GENERATION
+//==========================================================
+// Pure layouts shared by the editor and game. A seed is resolved once, then the same small PRNG is passed
+// through every choice; generated maps never depend on Math.random or on frame timing.
+DocsDoodads.Generate = {
+    minSide: 8,
+    maxSide: 256,
+    maxCells: 65536,
+    maxRooms: 64,
+    sides: ['north', 'east', 'south', 'west'],
+
+    seed(value) {
+        if (typeof value === 'number' && isFinite(value)) return Math.floor(value) >>> 0;
+        const text = String(value === undefined || value === null ? '' : value);
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i++) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+    },
+
+    rng(seed) {
+        let state = this.seed(seed);
+        return function() {
+            state = (state + 0x6d2b79f5) >>> 0;
+            let value = state;
+            value = Math.imul(value ^ value >>> 15, value | 1);
+            value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+            return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        };
+    },
+
+    dimensions(spec) {
+        const w = Math.floor(Number(spec && spec.w));
+        const h = Math.floor(Number(spec && spec.h));
+        if (!Number.isInteger(w) || !Number.isInteger(h) || w < this.minSide || h < this.minSide
+            || w > this.maxSide || h > this.maxSide || w * h > this.maxCells) {
+            throw new Error(`Generated map size must be ${this.minSide}-${this.maxSide} tiles per side and at most ${this.maxCells} tiles.`);
+        }
+        return { w, h };
+    },
+
+    int(rng, min, max) {
+        min = Math.ceil(min); max = Math.floor(max);
+        return max <= min ? min : min + Math.floor(rng() * (max - min + 1));
+    },
+
+    opposite(side) {
+        return { north: 'south', south: 'north', east: 'west', west: 'east' }[side] || '';
+    },
+
+    normalizeDoor(door, w, h) {
+        if (!door || !this.sides.includes(door.side)) return null;
+        const x = Math.floor(Number(door.x)), y = Math.floor(Number(door.y));
+        if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) return null;
+        if (door.side === 'north' && y !== 0 || door.side === 'south' && y !== h - 1
+            || door.side === 'west' && x !== 0 || door.side === 'east' && x !== w - 1) return null;
+        return { x, y, side: door.side };
+    },
+
+    normalizeRoom(room) {
+        if (!room) return null;
+        const w = Math.floor(Number(room.w)), h = Math.floor(Number(room.h));
+        if (w < 3 || h < 3 || w > 64 || h > 64) return null;
+        const seen = new Set(), doors = [];
+        for (const raw of room.doors || []) {
+            const door = this.normalizeDoor(raw, w, h);
+            const key = door && `${door.x},${door.y},${door.side}`;
+            if (door && !seen.has(key)) { seen.add(key); doors.push(door); }
+        }
+        return { id: String(room.id || ''), name: String(room.name || room.id || 'Room'), w, h, doors };
+    },
+
+    splitLeaves(w, h, count, candidates, rng) {
+        const widest = candidates.length ? Math.max(...candidates.map(room => room.w)) : 3;
+        const tallest = candidates.length ? Math.max(...candidates.map(room => room.h)) : 3;
+        const minW = Math.max(3, widest), minH = Math.max(3, tallest);
+        const leaves = [{ x: 1, y: 1, w: w - 2, h: h - 2 }];
+        while (leaves.length < count) {
+            let pick = -1, score = -1;
+            for (let i = 0; i < leaves.length; i++) {
+                const leaf = leaves[i], canV = leaf.w >= minW * 2, canH = leaf.h >= minH * 2;
+                if (!canV && !canH) continue;
+                const value = leaf.w * leaf.h;
+                if (value > score) { score = value; pick = i; }
+            }
+            if (pick < 0) break;
+            const leaf = leaves.splice(pick, 1)[0];
+            const canV = leaf.w >= minW * 2, canH = leaf.h >= minH * 2;
+            const vertical = canV && (!canH || leaf.w / Math.max(1, leaf.h) > 1.2 || leaf.w / Math.max(1, leaf.h) >= 0.8 && rng() < 0.5);
+            if (vertical) {
+                const cut = this.int(rng, minW, leaf.w - minW);
+                leaves.push({ x: leaf.x, y: leaf.y, w: cut, h: leaf.h }, { x: leaf.x + cut, y: leaf.y, w: leaf.w - cut, h: leaf.h });
+            } else {
+                const cut = this.int(rng, minH, leaf.h - minH);
+                leaves.push({ x: leaf.x, y: leaf.y, w: leaf.w, h: cut }, { x: leaf.x, y: leaf.y + cut, w: leaf.w, h: leaf.h - cut });
+            }
+        }
+        return leaves;
+    },
+
+    doorAt(room, side, toward) {
+        if (side === 'east') return { x: room.x + room.w - 1, y: room.y + Math.max(1, Math.min(room.h - 2, toward.y - room.y)), side };
+        if (side === 'west') return { x: room.x, y: room.y + Math.max(1, Math.min(room.h - 2, toward.y - room.y)), side };
+        if (side === 'south') return { x: room.x + Math.max(1, Math.min(room.w - 2, toward.x - room.x)), y: room.y + room.h - 1, side };
+        return { x: room.x + Math.max(1, Math.min(room.w - 2, toward.x - room.x)), y: room.y, side: 'north' };
+    },
+
+    doorPair(a, b) {
+        const pairs = [];
+        for (const da of a.doors || []) for (const db of b.doors || []) {
+            if (this.opposite(da.side) !== db.side) continue;
+            const one = Object.assign({ room: a.index }, da), two = Object.assign({ room: b.index }, db);
+            pairs.push({ one, two, distance: Math.abs(one.x - two.x) + Math.abs(one.y - two.y) });
+        }
+        pairs.sort((x, y) => x.distance - y.distance || x.one.y - y.one.y || x.one.x - y.one.x || x.two.y - y.two.y || x.two.x - y.two.x);
+        if (pairs.length) return pairs[0];
+        if (a.templateId || b.templateId) return null;
+        const dx = b.cx - a.cx, dy = b.cy - a.cy;
+        let side;
+        if (Math.abs(dx) >= Math.abs(dy)) side = dx >= 0 ? 'east' : 'west';
+        else side = dy >= 0 ? 'south' : 'north';
+        return { one: Object.assign({ room: a.index }, this.doorAt(a, side, b)),
+            two: Object.assign({ room: b.index }, this.doorAt(b, this.opposite(side), a)) };
+    },
+
+    corridor(from, to, rng) {
+        const out = [{ x: from.x, y: from.y }];
+        let x = from.x, y = from.y;
+        const horizontalFirst = rng() < 0.5;
+        const stepX = () => { while (x !== to.x) { x += x < to.x ? 1 : -1; out.push({ x, y }); } };
+        const stepY = () => { while (y !== to.y) { y += y < to.y ? 1 : -1; out.push({ x, y }); } };
+        if (horizontalFirst) { stepX(); stepY(); } else { stepY(); stepX(); }
+        return out;
+    },
+
+    dungeon(spec = {}) {
+        const { w, h } = this.dimensions(spec), seed = this.seed(spec.seed), rng = this.rng(seed);
+        const candidates = (Array.isArray(spec.rooms) ? spec.rooms : []).map(room => this.normalizeRoom(room)).filter(Boolean);
+        const asked = Array.isArray(spec.rooms) ? Number(spec.count) || Math.min(8, Math.max(1, Math.floor(w * h / 120))) : Number(spec.rooms || spec.count);
+        const count = Math.max(1, Math.min(this.maxRooms, Math.floor(asked) || 6));
+        if (candidates.length && count > 1 && candidates.every(room => room.doors.length === 0)) {
+            throw new Error('Selected room stamps need edge door openings before they can be connected.');
+        }
+        const leaves = this.splitLeaves(w, h, count, candidates, rng);
+        const rooms = [];
+        for (const leaf of leaves) {
+            const fitting = candidates.filter(room => room.w <= leaf.w && room.h <= leaf.h);
+            if (candidates.length && !fitting.length) continue;
+            const template = fitting.length ? fitting[this.int(rng, 0, fitting.length - 1)] : null;
+            const rw = template ? template.w : this.int(rng, 3, Math.max(3, leaf.w - (leaf.w > 5 ? 1 : 0)));
+            const rh = template ? template.h : this.int(rng, 3, Math.max(3, leaf.h - (leaf.h > 5 ? 1 : 0)));
+            const x = this.int(rng, leaf.x, leaf.x + leaf.w - rw), y = this.int(rng, leaf.y, leaf.y + leaf.h - rh);
+            const room = { index: rooms.length, x, y, w: rw, h: rh, cx: x + Math.floor(rw / 2), cy: y + Math.floor(rh / 2),
+                templateId: template ? template.id : null, doors: [] };
+            if (template) room.doors = template.doors.map(door => ({ x: x + door.x, y: y + door.y, side: door.side, room: room.index }));
+            rooms.push(room);
+        }
+        if (!rooms.length) throw new Error('No selected room stamp fits inside this generated map size.');
+        const floor = new Set(), corridors = [], doors = [];
+        for (const room of rooms) for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) floor.add(`${x},${y}`);
+        for (let i = 1; i < rooms.length; i++) {
+            const room = rooms[i];
+            let nearest = rooms[0], distance = Infinity;
+            for (let j = 0; j < i; j++) {
+                const other = rooms[j], d = Math.abs(room.cx - other.cx) + Math.abs(room.cy - other.cy);
+                if (d < distance) { distance = d; nearest = other; }
+            }
+            const pair = this.doorPair(nearest, room);
+            if (!pair) throw new Error(`Room stamps ${nearest.templateId || nearest.index} and ${room.templateId || room.index} have no compatible facing doors.`);
+            doors.push(pair.one, pair.two);
+            const path = this.corridor(pair.one, pair.two, rng);
+            corridors.push(path);
+            for (const tile of path) floor.add(`${tile.x},${tile.y}`);
+        }
+        const entrance = { x: rooms[0].cx, y: rooms[0].cy };
+        let far = rooms[0], farDistance = -1;
+        for (const room of rooms) {
+            const distance = Math.abs(room.cx - entrance.x) + Math.abs(room.cy - entrance.y);
+            if (distance > farDistance) { far = room; farDistance = distance; }
+        }
+        const exit = { x: far.cx, y: far.cy };
+        return { kind: 'dungeon', seed, w, h, rooms, corridors, doors, entrance, exit,
+            floor: Array.from(floor, key => { const [x, y] = key.split(',').map(Number); return { x, y }; }).sort((a, b) => a.y - b.y || a.x - b.x) };
+    },
+
+    hash2(x, y, seed) {
+        let value = Math.imul(x | 0, 0x1f123bb5) ^ Math.imul(y | 0, 0x5f356495) ^ seed;
+        value = Math.imul(value ^ value >>> 16, 0x45d9f3b);
+        value = Math.imul(value ^ value >>> 16, 0x45d9f3b);
+        return ((value ^ value >>> 16) >>> 0) / 4294967295;
+    },
+
+    noise(x, y, seed) {
+        const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+        const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+        const a = this.hash2(ix, iy, seed) * (1 - sx) + this.hash2(ix + 1, iy, seed) * sx;
+        const b = this.hash2(ix, iy + 1, seed) * (1 - sx) + this.hash2(ix + 1, iy + 1, seed) * sx;
+        return a * (1 - sy) + b * sy;
+    },
+
+    pathBetween(from, to, rng) {
+        const out = [{ x: from.x, y: from.y }];
+        let x = from.x, y = from.y;
+        while (x !== to.x || y !== to.y) {
+            const moveX = x !== to.x && (y === to.y || rng() < 0.5);
+            if (moveX) x += x < to.x ? 1 : -1;
+            else y += y < to.y ? 1 : -1;
+            out.push({ x, y });
+        }
+        return out;
+    },
+
+    wilderness(spec = {}) {
+        const { w, h } = this.dimensions(spec), seed = this.seed(spec.seed), rng = this.rng(seed ^ 0x9e3779b9);
+        const biomes = (Array.isArray(spec.biomes) ? spec.biomes : []).map((biome, index) => typeof biome === 'string'
+            ? { id: biome, weight: 1 } : { id: String(biome && biome.id || `biome${index + 1}`), weight: Math.max(0, Number(biome && biome.weight) || 0) }).filter(b => b.id && b.weight > 0);
+        if (!biomes.length) throw new Error('Wilderness generation needs at least one biome.');
+        const total = biomes.reduce((sum, b) => sum + b.weight, 0), scale = Math.max(2, Math.min(64, Number(spec.scale) || 8));
+        const biomeIds = new Array(w * h);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const value = (this.noise(x / scale, y / scale, seed) * 0.65 + this.noise(x / (scale / 2), y / (scale / 2), seed ^ 0x85ebca6b) * 0.35) * total;
+            let cursor = value, picked = biomes[biomes.length - 1].id;
+            for (const biome of biomes) { cursor -= biome.weight; if (cursor <= 0) { picked = biome.id; break; } }
+            biomeIds[y * w + x] = picked;
+        }
+        const rawPoints = Array.isArray(spec.points) && spec.points.length ? spec.points : [{ x: 1, y: Math.floor(h / 2) }, { x: w - 2, y: Math.floor(h / 2) }];
+        const points = rawPoints.map(point => ({ x: Math.max(0, Math.min(w - 1, Math.floor(Number(point.x) || 0))),
+            y: Math.max(0, Math.min(h - 1, Math.floor(Number(point.y) || 0))) }));
+        const paths = [];
+        for (let i = 1; i < points.length; i++) {
+            const leg = this.pathBetween(points[i - 1], points[i], rng);
+            paths.push(...(i > 1 ? leg.slice(1) : leg));
+        }
+        if (points.length === 1) paths.push(points[0]);
+        return { kind: 'wilderness', seed, w, h, biomes, biomeIds, points, paths,
+            entrance: Object.assign({}, points[0]), exit: Object.assign({}, points[points.length - 1]) };
+    },
+
+    list(value) {
+        if (Array.isArray(value)) return value.map(String).map(s => s.trim()).filter(Boolean);
+        return String(value || '').split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+    },
+
+    recipe(raw = {}, map = null) {
+        const kind = String(raw.kind || 'dungeon').toLowerCase() === 'wilderness' ? 'wilderness' : 'dungeon';
+        const w = Math.floor(Number(raw.w || raw.width || (map && map.width) || 0));
+        const h = Math.floor(Number(raw.h || raw.height || (map && map.height) || 0));
+        this.dimensions({ w, h });
+        let biomes = raw.biomes;
+        if (typeof biomes === 'string' && /^\s*[\[{]/.test(biomes)) {
+            try { biomes = JSON.parse(biomes); } catch (error) { biomes = []; }
+        }
+        if (!Array.isArray(biomes)) biomes = this.list(biomes).map(id => ({ id, weight: 1 }));
+        biomes = biomes.map((biome, index) => typeof biome === 'string' ? { id: biome, weight: 1, tile: 0 } : {
+            id: String(biome && biome.id || `biome${index + 1}`), weight: Math.max(0, Number(biome && biome.weight) || 0),
+            tile: Math.max(0, Math.floor(Number(biome && (biome.tile || biome.tileId)) || 0))
+        }).filter(biome => biome.id && biome.weight > 0);
+        let points = raw.points;
+        if (typeof points === 'string') points = points.split(';').map(pair => pair.split(',').map(Number)).filter(pair => pair.length === 2)
+            .map(pair => ({ x: pair[0], y: pair[1] }));
+        return {
+            kind, w, h, count: Math.max(1, Math.min(this.maxRooms, Math.floor(Number(raw.count || raw.roomCount)) || 6)),
+            roomIds: this.list(raw.roomIds || raw.rooms), biomes, points: Array.isArray(points) ? points : [],
+            floorTile: Math.max(0, Math.floor(Number(raw.floorTile) || 0)), wallTile: Math.max(0, Math.floor(Number(raw.wallTile) || 0)),
+            pathTile: Math.max(0, Math.floor(Number(raw.pathTile) || 0)), dress: raw.dress !== false && raw.dress !== 'false'
+        };
+    },
+
+    layout(recipe, seed, roomCatalog = []) {
+        const chosen = recipe.roomIds.length ? roomCatalog.filter(room => recipe.roomIds.includes(String(room.id))) : [];
+        return recipe.kind === 'wilderness'
+            ? this.wilderness({ w: recipe.w, h: recipe.h, seed, biomes: recipe.biomes, points: recipe.points })
+            : this.dungeon({ w: recipe.w, h: recipe.h, seed, count: recipe.count, rooms: chosen });
+    },
+
+    // Turns a layout into reversible changes without mutating the source map. Tiles.paint is deliberately
+    // used here so generated autotile edges get the same MZ shapes as hand-painted tiles.
+    plan(layout, recipe, map, roomCatalog = [], options = {}) {
+        const work = { width: map.width, height: map.height, loopX: false, loopY: false, data: (map.data || []).slice() };
+        const brushRows = [], floor = new Set((layout.floor || []).map(tile => `${tile.x},${tile.y}`));
+        const path = new Set((layout.paths || []).map(tile => `${tile.x},${tile.y}`));
+        const biomeTiles = new Map((recipe.biomes || []).map(biome => [biome.id, biome.tile || recipe.floorTile]));
+        for (let y = 0; y < layout.h; y++) {
+            const row = [];
+            for (let x = 0; x < layout.w; x++) {
+                let id = recipe.wallTile;
+                if (layout.kind === 'dungeon' && floor.has(`${x},${y}`)) id = recipe.floorTile;
+                if (layout.kind === 'wilderness') id = path.has(`${x},${y}`) && recipe.pathTile ? recipe.pathTile
+                    : (biomeTiles.get(layout.biomeIds[y * layout.w + x]) || recipe.floorTile);
+                row.push(id);
+            }
+            brushRows.push(row);
+        }
+        const painted = DocsDoodads.Tiles.paint(work, 0, 0, { ids: brushRows, layer: 0 }, options.tables || {});
+        for (const change of painted) work.data[change.index] = change.after;
+        const doodads = [], events = [], usedIds = new Set((map.events || []).map((event, id) => event ? id : 0));
+        const allocate = () => { let id = 1; while (usedIds.has(id)) id++; usedIds.add(id); return id; };
+        if (layout.kind === 'dungeon') for (const placed of layout.rooms || []) {
+            const room = roomCatalog.find(item => String(item.id) === String(placed.templateId));
+            if (!room) continue;
+            const roomPlan = DocsDoodads.Rooms.place(room, work, { x: placed.x, y: placed.y }, {
+                tiles: true, doodads: true, events: true, keepUnder: true,
+                tileWidth: options.tileWidth || 48, tileHeight: options.tileHeight || 48,
+                groupId: `grp_gen_${layout.seed}_${placed.index}`, allocateEventId: allocate
+            });
+            roomPlan.doodads.forEach((doodad, index) => {
+                doodad.uid = `dd_gen_${Number(options.mapId) || 0}_${layout.seed}_room_${placed.index}_${index}`;
+            });
+            for (const change of roomPlan.changes) work.data[change.index] = change.after;
+            doodads.push(...roomPlan.doodads); events.push(...roomPlan.events);
+        }
+        const changes = [];
+        for (let index = 0; index < work.data.length; index++) {
+            const before = Number(map.data[index]) || 0, after = Number(work.data[index]) || 0;
+            if (before !== after) changes.push({ index, before, after });
+        }
+        return { changes, doodads, events };
+    }
+};
 // @editor-only
 // Guide headings and the first paragraph of each section. Run npm run help after editing the guide.
 DocsDoodads.HelpIndex = [
@@ -8401,6 +9025,16 @@ DocsDoodads.HelpIndex = [
         "title": "Normal maps on flat maps",
         "anchor": "normal-maps-on-flat-maps",
         "firstParagraph": "Enable World → Normal Maps to shade pictures and characters with nearby lamps. Put Treen.png beside Tree.png, with the same dimensions, or pick the art and choose Make Normal Map in Details for a rough map from its brightness and edges. Hand-painted normals give better results. Normal companions are hidden from the Item Bag and included in the required-art list for deployment. Renaming or moving a picture keeps its companion and manifest together."
+    },
+    {
+        "title": "Generated maps",
+        "anchor": "generated-maps",
+        "firstParagraph": "Map → Generate Map builds a seeded Dungeon or Wilderness in an area that fits the current MZ map. Choose a seed, size and floor/wall/path tile IDs, then room stamps or biomes. Each wilderness biome can use a different tile ID. Preview changes nothing, Reroll advances the seed, and Apply writes autotile-shaped tiles, stamp events/doodads and seeded biome/dressing art as one undo step. Unchecked room stamps mean plain rooms. A selected stamp that is missing or has no compatible door openings stops generation without changing the map."
+    },
+    {
+        "title": "Heat haze",
+        "anchor": "heat-haze",
+        "firstParagraph": "In a doodad's Heat haze section choose Campfire, Lava, Desert Road (a horizontal band) or Under Water (the whole screen), then adjust radius, strength and upward drift. The selected circle's radius shows on the map. The Heat Screen Look adds a road-like band. At most eight visible sources bend the map before bloom; Low/Off quality removes the pass, and Less Camera Motion halves it. Empty maps add no heat pass. This first version is flat-map only, and stitched map exports omit screen distortion. GPU appearance checks are pending."
     },
     {
         "title": "With the music",
@@ -8756,6 +9390,11 @@ DocsDoodads.HelpIndex = [
         "title": "22. Project Safety, Conflict Detection & Crash Recovery",
         "anchor": "22-project-safety-conflict-detection--crash-recovery",
         "firstParagraph": "Editing real map data in playtest mode requires rigorous file protection:"
+    },
+    {
+        "title": "Keeping released saves working",
+        "anchor": "keeping-released-saves-working",
+        "firstParagraph": "Before distributing a version, choose More → Mark as Released, save first if asked, and give the release a name. data/DocsDoodadsShipped.json records named doodads, their states and map sizes. Problems → Released saves then shows missing or apparently renamed names, removed/reordered states and resized maps. The deploy tool reminds you when recorded source data changed."
     },
     {
         "title": "23. Complete Keyboard Shortcuts Cheat Sheet",
@@ -9180,6 +9819,84 @@ DocsDoodads.Clash = {
         const sanitize = value => Array.isArray(value) ? value.map(sanitize) : value && typeof value === 'object'
             ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitize(item)])) : typeof value === 'string' ? clean(value) : value;
         return 'Doc\'s Doodads local diagnostic report\n' + JSON.stringify(sanitize(report), null, 2) + '\n';
+    }
+};
+//==========================================================
+// SECTION 4H: ROOM STAMPS (GAME-SAFE CORE)
+//==========================================================
+DocsDoodads.Rooms = {
+    layers: 6, list: [], loaded: false,
+
+    sideName(value) {
+        const key = String(value || '').trim().toLowerCase();
+        return { n: 'north', north: 'north', e: 'east', east: 'east', s: 'south', south: 'south', w: 'west', west: 'west' }[key] || '';
+    },
+    normalizeDoor(door, w, h) {
+        const side = this.sideName(door && door.side), x = Math.floor(Number(door && door.x)), y = Math.floor(Number(door && door.y));
+        if (!side || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= w || y >= h) return null;
+        if ((side === 'north' && y !== 0) || (side === 'south' && y !== h - 1)
+            || (side === 'west' && x !== 0) || (side === 'east' && x !== w - 1)) return null;
+        return { x, y, side };
+    },
+    parseDoors(text, w, h) {
+        const out = [], seen = new Set();
+        for (const part of String(text || '').split(/[,;\n]+/)) {
+            const match = /^\s*(north|east|south|west|n|e|s|w)\s*[:=]?\s*(\d+)\s*$/i.exec(part);
+            if (!match) continue;
+            const side = this.sideName(match[1]), along = Number(match[2]);
+            const door = this.normalizeDoor(side === 'north' ? { x: along, y: 0, side }
+                : side === 'south' ? { x: along, y: h - 1, side }
+                    : side === 'west' ? { x: 0, y: along, side } : { x: w - 1, y: along, side }, w, h);
+            const key = door && `${door.x},${door.y},${door.side}`;
+            if (door && !seen.has(key)) { seen.add(key); out.push(door); }
+        }
+        return out;
+    },
+    formatDoors(doors) {
+        const initial = { north: 'N', east: 'E', south: 'S', west: 'W' };
+        const order = { north: 0, east: 1, south: 2, west: 3 };
+        return (doors || []).slice().sort((a, b) => order[a.side] - order[b.side]
+            || (a.side === 'north' || a.side === 'south' ? a.x - b.x : a.y - b.y))
+            .map(door => initial[door.side] + (door.side === 'north' || door.side === 'south' ? door.x : door.y)).join(', ');
+    },
+    index(w, h, x, y, z) { return (z * h + y) * w + x; },
+    rectBetween(a, b, mapW, mapH) {
+        const x0 = Math.max(0, Math.min(a.x, b.x)), y0 = Math.max(0, Math.min(a.y, b.y));
+        const x1 = Math.min(mapW - 1, Math.max(a.x, b.x)), y1 = Math.min(mapH - 1, Math.max(a.y, b.y));
+        return { x: x0, y: y0, w: Math.max(0, x1 - x0 + 1), h: Math.max(0, y1 - y0 + 1) };
+    },
+    place(room, map, at, options = {}) {
+        const W = Number(map.width) || 0, H = Number(map.height) || 0;
+        const tw = options.tileWidth || 48, th = options.tileHeight || 48, keepUnder = options.keepUnder !== false;
+        const out = { changes: [], doodads: [], events: [] }, inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+        if (options.tiles !== false) for (let z = 0; z < this.layers; z++) for (let y = 0; y < room.h; y++) for (let x = 0; x < room.w; x++) {
+            const mx = at.x + x, my = at.y + y;
+            if (!inMap(mx, my)) continue;
+            const after = Number((room.tiles || [])[this.index(room.w, room.h, x, y, z)]) || 0;
+            if (keepUnder && after === 0 && z > 0) continue;
+            const index = this.index(W, H, mx, my, z), before = Number(map.data[index]) || 0;
+            if (before !== after) out.changes.push({ index, before, after });
+        }
+        const sx = tw / (room.tileWidth || tw), sy = th / (room.tileHeight || th), groupId = options.groupId || null;
+        if (options.doodads !== false) for (const source of room.doodads || []) {
+            const doodad = JSON.parse(JSON.stringify(source));
+            doodad.x = Math.round(at.x * tw + source.x * sx); doodad.y = Math.round(at.y * th + source.y * sy);
+            if (groupId && (room.doodads || []).length > 1) doodad.groupId = groupId;
+            if (inMap(Math.floor(doodad.x / tw), Math.floor((doodad.y - 1) / th))) out.doodads.push(doodad);
+        }
+        if (options.events !== false) for (const source of room.events || []) {
+            const x = at.x + source.dx, y = at.y + source.dy;
+            if (!inMap(x, y)) continue;
+            const event = JSON.parse(JSON.stringify(source));
+            delete event.dx; delete event.dy; event.x = x; event.y = y;
+            event.id = options.allocateEventId ? options.allocateEventId(event) : null; out.events.push(event);
+        }
+        return out;
+    },
+    summary(room) {
+        const n = (room.doodads || []).length, e = (room.events || []).length, d = (room.doors || []).length;
+        return `${room.w} x ${room.h} tiles` + (d ? `, ${d} opening${d === 1 ? '' : 's'}` : '')
+            + (n ? `, ${n} doodad${n === 1 ? '' : 's'}` : '') + (e ? `, ${e} event${e === 1 ? '' : 's'}` : '');
     }
 };
 // @editor-only
@@ -9639,6 +10356,223 @@ DocsDoodads.SimpleMode = {
             const fields = this.basicFields[s.title];
             return fields ? Object.assign({}, s, { fields: s.fields.filter(f => fields.includes(f.key)) }) : s;
         });
+    }
+};
+//==========================================================
+// SECTION 19D: TILE PAINTING (MZ TILES AND AUTOTILES)
+//==========================================================
+// Painting MZ's own tiles in a playtest, autotiles included. Tile ids follow MZ: B-E sheets 0-1023, A5
+// 1536+, autotiles from 2048 as kind * 48 + shape. An autotile's shape comes from its neighbours: each
+// quarter of the tile takes a piece from the autotile's block, chosen by whether the tiles beside and
+// diagonal to that corner are the same kind; the shape is the entry of MZ's own table (Tilemap's floor,
+// wall or waterfall table, passed in) with those four pieces. The map edge counts as the same kind.
+DocsDoodads.Tiles = {
+    B: 0, C: 256, D: 512, E: 768, A5: 1536, A1: 2048, A2: 2816, A3: 4352, A4: 5888, MAX: 8192,
+    sheets: ['A1', 'A2', 'A3', 'A4', 'A5', 'B', 'C', 'D', 'E'],
+
+    isAutotile(id) { return id >= this.A1 && id < this.MAX; },
+    kind(id) { return Math.floor((id - this.A1) / 48); },
+    shape(id) { return (id - this.A1) % 48; },
+    make(kind, shape) { return this.A1 + kind * 48 + shape; },
+    isA1(id) { return id >= this.A1 && id < this.A2; },
+    isA2(id) { return id >= this.A2 && id < this.A3; },
+    isA3(id) { return id >= this.A3 && id < this.A4; },
+    isA4(id) { return id >= this.A4 && id < this.MAX; },
+    isWaterfall(id) { return this.isA1(id) && id >= this.A1 + 192 && this.kind(id) % 2 === 1; },
+    isRoof(id) { return this.isA3(id) && this.kind(id) % 16 < 8; },
+    isWallTop(id) { return this.isA4(id) && this.kind(id) % 16 < 8; },
+    isWallSide(id) { return (this.isA3(id) || this.isA4(id)) && this.kind(id) % 16 >= 8; },
+    // 'floor', 'wall', 'waterfall' or null (not an autotile).
+    type(id) {
+        if (!this.isAutotile(id)) return null;
+        if (this.isWaterfall(id)) return 'waterfall';
+        if (this.isRoof(id) || this.isWallSide(id)) return 'wall';
+        return 'floor';
+    },
+
+    // The four pieces [TL, TR, BL, BR] as [x, y] half-tiles in the autotile's block, from its neighbours.
+    // n: { l, r, u, d, ul, ur, dl, dr } (true = the same kind there).
+    pieces(type, n) {
+        if (type === 'waterfall') return [[n.l ? 2 : 0, 0], [n.r ? 1 : 3, 0], [n.l ? 2 : 0, 1], [n.r ? 1 : 3, 1]];
+        if (type === 'wall') return [[n.l ? 2 : 0, n.u ? 2 : 0], [n.r ? 1 : 3, n.u ? 2 : 0], [n.l ? 2 : 0, n.d ? 1 : 3], [n.r ? 1 : 3, n.d ? 1 : 3]];
+        const corner = (h, v, diag, cx, cy, inner) => (h && v && !diag ? inner : [h ? cx[0] : cx[1], v ? cy[0] : cy[1]]);
+        return [
+            corner(n.l, n.u, n.ul, [2, 0], [4, 2], [2, 0]),
+            corner(n.r, n.u, n.ur, [1, 3], [4, 2], [3, 0]),
+            corner(n.l, n.d, n.dl, [2, 0], [3, 5], [2, 1]),
+            corner(n.r, n.d, n.dr, [1, 3], [3, 5], [3, 1])
+        ];
+    },
+
+    // The shape in a table ([[x, y] x 4] per shape) with these pieces; the closest one if none matches.
+    shapeFor(pieces, table) {
+        if (!Array.isArray(table) || !table.length) return 0;
+        let best = 0, bestScore = -1;
+        for (let s = 0; s < table.length; s++) {
+            const row = table[s];
+            let score = 0;
+            for (let i = 0; i < 4; i++) if (row[i] && row[i][0] === pieces[i][0] && row[i][1] === pieces[i][1]) score++;
+            if (score === 4) return s;
+            if (score > bestScore) { bestScore = score; best = s; }
+        }
+        return best;
+    },
+
+    index(w, h, x, y, z) { return (z * h + y) * w + x; },
+
+    // The autotile at (x, y, z) with its shape worked out again from the tiles around it.
+    // map: { width, height, data, loopX, loopY }; tables: { floor, wall, waterfall }.
+    reshape(map, x, y, z, tables) {
+        const W = map.width, H = map.height;
+        const id = Number(map.data[this.index(W, H, x, y, z)]) || 0;
+        const type = this.type(id);
+        if (!type) return id;
+        const k = this.kind(id);
+        const same = (dx, dy) => {
+            let tx = x + dx, ty = y + dy;
+            if (map.loopX) tx = (tx % W + W) % W;
+            if (map.loopY) ty = (ty % H + H) % H;
+            if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
+            const other = Number(map.data[this.index(W, H, tx, ty, z)]) || 0;
+            return this.isAutotile(other) && this.kind(other) === k;
+        };
+        const n = { l: same(-1, 0), r: same(1, 0), u: same(0, -1), d: same(0, 1), ul: same(-1, -1), ur: same(1, -1), dl: same(-1, 1), dr: same(1, 1) };
+        const table = tables && tables[type];
+        return this.make(k, this.shapeFor(this.pieces(type, n), table));
+    },
+
+    // Which layer a picked tile goes on when the layer is 'auto': ground autotiles and A5 on 0 (A1's
+    // rocks and A2's overlays on 1), B-E on the upper layers (2, or 3 over a tile already on 2).
+    autoLayer(id, upperBusy) {
+        if (this.isAutotile(id)) {
+            const k = this.kind(id);
+            if (this.isA1(id) && (k === 2 || k === 3)) return 1;
+            return 0;
+        }
+        if (id >= this.A5) return 0;
+        return upperBusy ? 3 : 2;
+    },
+
+    // What painting does: [{ index, before, after }] for a brush of tiles (ids: rows of tile ids, a
+    // rectangle picked from the palette) with its top-left at (x, y). layer: 0-3 or 'auto'; erase clears.
+    paint(map, x, y, brush, tables) {
+        const W = map.width, H = map.height;
+        const changes = new Map();
+        const get = i => (changes.has(i) ? changes.get(i).after : Number(map.data[i]) || 0);
+        const set = (i, v) => {
+            const before = changes.has(i) ? changes.get(i).before : Number(map.data[i]) || 0;
+            changes.set(i, { index: i, before, after: v });
+        };
+        const view = { width: W, height: H, loopX: map.loopX, loopY: map.loopY, data: { length: W * H * 6 } };
+        view.data = new Proxy({}, { get: (t, k) => (k === 'length' ? W * H * 6 : get(Number(k))) });
+        const touched = [];
+        const rows = brush.erase ? [[0]] : brush.ids;
+        for (let r = 0; r < rows.length; r++) {
+            for (let c = 0; c < rows[r].length; c++) {
+                const tx = x + c, ty = y + r;
+                if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+                const id = brush.erase ? 0 : Number(rows[r][c]) || 0;
+                if (brush.erase) {
+                    // The eraser takes the top tile off (the layer picked, or the highest one used).
+                    const layers = brush.layer === 'auto' || brush.layer === undefined ? [3, 2, 1, 0] : [Number(brush.layer)];
+                    const z = layers.find(l => get(this.index(W, H, tx, ty, l)) !== 0);
+                    if (z === undefined) continue;
+                    set(this.index(W, H, tx, ty, z), 0);
+                    touched.push([tx, ty, z]);
+                    continue;
+                }
+                let z = brush.layer === 'auto' || brush.layer === undefined ? null : Number(brush.layer);
+                if (z === null) {
+                    const upper2 = get(this.index(W, H, tx, ty, 2));
+                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id);
+                    // A third upper tile: the one on 3 moves down to 2 and the new one goes on top.
+                    if (z === 3) {
+                        const on3 = get(this.index(W, H, tx, ty, 3));
+                        if (on3 && on3 !== id) set(this.index(W, H, tx, ty, 2), on3);
+                    }
+                }
+                set(this.index(W, H, tx, ty, z), id);
+                touched.push([tx, ty, z]);
+            }
+        }
+        // Autotiles painted and the ones around them take their shapes from their new neighbours.
+        const again = new Set();
+        for (const [tx, ty, z] of touched) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    let nx = tx + dx, ny = ty + dy;
+                    if (map.loopX) nx = (nx % W + W) % W;
+                    if (map.loopY) ny = (ny % H + H) % H;
+                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+                    again.add(nx + ',' + ny + ',' + z);
+                }
+            }
+        }
+        for (const key of again) {
+            const [nx, ny, z] = key.split(',').map(Number);
+            const i = this.index(W, H, nx, ny, z);
+            const id = get(i);
+            if (!this.isAutotile(id)) continue;
+            const next = this.reshape(view, nx, ny, z, tables);
+            if (next !== id) set(i, next);
+        }
+        return Array.from(changes.values()).filter(c => c.before !== c.after);
+    },
+
+    // The top tile at a spot, for picking it up: { id, layer } (null when the spot is empty).
+    topAt(map, x, y) {
+        for (const z of [3, 2, 1, 0]) {
+            const id = Number(map.data[this.index(map.width, map.height, x, y, z)]) || 0;
+            if (id) return { id: this.isAutotile(id) ? this.make(this.kind(id), 0) : id, layer: z };
+        }
+        return null;
+    },
+
+    // ---- The palette: tiles on the tileset pictures ----
+    // Where an autotile kind's sample sits on its sheet (tiles), as MZ draws it (first animation frame).
+    kindPosition(kind) {
+        const tx = kind % 8, ty = Math.floor(kind / 8);
+        if (kind < 16) {
+            if (kind === 0) return { sheet: 0, x: 0, y: 0 };
+            if (kind === 1) return { sheet: 0, x: 0, y: 3 };
+            if (kind === 2) return { sheet: 0, x: 6, y: 0 };
+            if (kind === 3) return { sheet: 0, x: 6, y: 3 };
+            let bx = Math.floor(tx / 4) * 8;
+            const by = ty * 6 + (Math.floor(tx / 2) % 2) * 3;
+            bx += kind % 2 === 0 ? 0 : 6;
+            return { sheet: 0, x: bx, y: by };
+        }
+        if (kind < 48) return { sheet: 1, x: tx * 2, y: (ty - 2) * 3 };
+        if (kind < 80) return { sheet: 2, x: tx * 2, y: (ty - 6) * 2 };
+        return { sheet: 3, x: tx * 2, y: Math.floor((ty - 10) * 2.5 + (ty % 2 === 1 ? 0.5 : 0)) };
+    },
+
+    // The tile id under a tile position on a sheet (0 A1 ... 8 E), or 0.
+    idAt(sheet, x, y) {
+        if (x < 0 || y < 0) return 0;
+        if (sheet >= 5) return (sheet - 5) * 256 + (x >= 8 ? 128 : 0) + y * 8 + (x % 8);
+        if (sheet === 4) return x < 8 && y < 16 ? this.A5 + y * 8 + x : 0;
+        // Autotiles: the block the position falls in.
+        const kinds = sheet === 0 ? 16 : sheet === 1 ? 32 : 48;
+        const first = sheet === 0 ? 0 : sheet === 1 ? 16 : sheet === 2 ? 48 : 80;
+        for (let k = first; k < first + kinds; k++) {
+            const p = this.kindPosition(k);
+            if (p.sheet !== sheet) continue;
+            const wide = sheet === 0 && k >= 4 && k % 2 === 1 ? 2 : 2;
+            const tall = sheet === 2 || (sheet === 3 && Math.floor(k / 8) % 2 === 1) ? 2 : 3;
+            if (x >= p.x && x < p.x + wide && y >= p.y && y < p.y + tall) return this.make(k, 0);
+        }
+        return 0;
+    },
+
+    // The sheet a tile id is on (0 A1 ... 8 E).
+    sheetOf(id) {
+        if (id >= this.A4) return 3;
+        if (id >= this.A3) return 2;
+        if (id >= this.A2) return 1;
+        if (id >= this.A1) return 0;
+        if (id >= this.A5) return 4;
+        return 5 + Math.floor(id / 256);
     }
 };
 // @editor-only
@@ -14661,6 +15595,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
 
 // Post-processing is offered in Options only when the project uses it.
 DocsDoodads.PostFX.offeredInOptions = function() {
+    if (DocsDoodads.Haze && DocsDoodads.Haze.usedInProject()) return true;
     const pf = DocsDoodads.World.settings().postfx;
     if (!pf.enabled) return false;
     if (this.isActive(this.normalizeLook(pf.look))) return true;
@@ -14808,7 +15743,9 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
         const quality = P.effectiveQuality(world.postfx.quality, option);
-        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim);
+        const haze = this.docsHazeSources ? this.docsHazeSources(look, quality, hidden) : [];
+        this._docsHazeInputs = { look, quality, hidden };
+        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim, haze);
         const target = world.postfx.includePictures ? this : this._baseSprite;
         const other = target === this ? this._baseSprite : this;
         if (!target) return;
@@ -14816,6 +15753,10 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const f = this._docsPostFx;
         const ours = [];
         if (f) {
+            if (passes.includes('haze') && f.haze) {
+                DocsDoodads.Haze.uniforms(haze, DocsDoodads.frameCount() / 60, DocsDoodads.Comfort.choices().lessCameraMotion, f.haze.uniforms);
+                ours.push(f.haze);
+            }
             if (passes.includes('bloom')) {
                 const bloom = look ? look.bloom : P.defaultLook().bloom;
                 const parts = f.bloom._docsParts;
@@ -14849,7 +15790,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
                 ours.push(f.grade);
             }
         }
-        const all = f ? [f.bloom, f.tiltH, f.tiltV, f.grade] : [];
+        const all = f ? [f.haze, f.bloom, f.tiltH, f.tiltV, f.grade] : [];
         const strip = list => (list || []).filter(filter => !all.includes(filter));
         // The other container may still hold our filters from before "Affect pictures" changed.
         if (other && other.filters && other.filters.some(filter => all.includes(filter))) other.filters = strip(other.filters);
@@ -16301,6 +17242,44 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 
+(function() {
+    if (typeof Spriteset_Base === 'undefined' || typeof PIXI === 'undefined' || !PIXI.Filter) return;
+    const H = DocsDoodads.Haze;
+    Spriteset_Base.prototype.docsHazeSources = function(look, quality, hidden) {
+        if (hidden || this._docsExportLook !== undefined || quality === 'low' || quality === 'off' || this._docs3d || typeof Spriteset_Map === 'undefined' || !(this instanceof Spriteset_Map)) return [];
+        const matrix = this._baseSprite && this._baseSprite.worldTransform;
+        const display = { width: Graphics.width, height: Graphics.height, scale: matrix ? Math.hypot(matrix.a, matrix.b) : 1 };
+        const items = [];
+        for (const sprite of this._docsDoodadSprites || []) {
+            const data = sprite._data;
+            if (!data || !data.haze || !sprite.visible || sprite.renderable === false) continue;
+            items.push(Object.assign(H.spriteCentre(sprite), { haze: data.haze }));
+        }
+        if (look && look.heat && look.heat.enabled && look.heat.strength > 0) {
+            // The preset's band is in screen space and bypasses the map transform.
+            const local = H.collect(items, display);
+            local.push({ x: Graphics.width / 2, y: Graphics.height * 0.65, radius: Graphics.height * 0.2, strength: look.heat.strength, speed: look.heat.speed, shape: 'band', distance: Graphics.height * 0.15 });
+            return local.sort((a, b) => a.distance - b.distance).slice(0, 8);
+        }
+        return H.collect(items, display);
+    };
+    const create = Spriteset_Base.prototype.createDocsPostFxFilters;
+    Spriteset_Base.prototype.createDocsPostFxFilters = function() {
+        const filters = create.call(this);
+        if (filters) {
+            filters.haze = new PIXI.Filter(undefined, H.fragment, H.uniforms([], 0, false));
+            const apply = filters.haze.apply, spriteset = this;
+            filters.haze.apply = function() {
+                if (spriteset._docsHazeInputs) {
+                    const input = spriteset._docsHazeInputs;
+                    H.uniforms(spriteset.docsHazeSources(input.look, input.quality, input.hidden), DocsDoodads.frameCount() / 60, DocsDoodads.Comfort.choices().lessCameraMotion, this.uniforms);
+                }
+                return apply.apply(this, arguments);
+            };
+        }
+        return filters;
+    };
+})();
 //==========================================================
 // SECTION 15L: NAMES AND ICONS OVER EVENTS
 //==========================================================
@@ -18158,6 +19137,193 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         s.free = target === 'free' ? 'event' : null;
         s.follow = target === 'event' ? Math.max(0, Number(args.eventId) || 0) : target === 'this' && this && this._eventId ? this._eventId : 0;
     });
+}
+//==========================================================
+// SECTION 17D: GENERATED MAP RUNTIME
+//==========================================================
+DocsDoodads.GenerateRuntime = {
+    rooms: [],
+    setRooms(rooms) { this.rooms = Array.isArray(rooms) ? rooms.filter(Boolean) : []; return this.rooms; },
+    requestRooms() {
+        if (typeof DataManager === 'undefined' || typeof DataManager.docsRequest !== 'function') return;
+        DataManager.docsRequest('data/DocsDoodadsRooms.json', xhr => {
+            if (xhr.status >= 400 || !xhr.responseText) return this.setRooms([]);
+            try { this.setRooms((JSON.parse(xhr.responseText) || {}).rooms); }
+            catch (error) { this.setRooms([]); console.warn('[DocsDoodads] Room stamps could not be read:', error); }
+        });
+    },
+    records() {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
+        return $gameSystem._docsGeneratedMaps = $gameSystem._docsGeneratedMaps || {};
+    },
+    isMaterialized(mapId) {
+        const entry = this._materialized && this._materialized[Number(mapId) || 0];
+        return Boolean(entry && typeof $dataMap !== 'undefined' && entry.map === $dataMap);
+    },
+    queue(raw = {}) {
+        const records = this.records();
+        if (!records) return null;
+        const mapId = Math.max(1, Math.floor(Number(raw.mapId) || (typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 1)));
+        const recipe = DocsDoodads.Generate.recipe(raw);
+        const seed = DocsDoodads.Generate.seed(raw.seed);
+        if (this._materialized) delete this._materialized[mapId];
+        return records[mapId] = { seed, recipe };
+    },
+    command(args = {}) {
+        const variableId = Math.max(0, Math.floor(Number(args.seedVariable) || 0));
+        const value = variableId && typeof $gameVariables !== 'undefined' && $gameVariables ? $gameVariables.value(variableId) : args.seed;
+        return this.queue(Object.assign({}, args, { seed: value === '' || value === undefined ? Date.now() : value }));
+    },
+    sourceFor(map) {
+        if (!this._sources) this._sources = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+        if (!this._sources) return { data: (map.data || []).slice(), events: JSON.parse(JSON.stringify(map.events || [])) };
+        let source = this._sources.get(map);
+        if (!source) {
+            source = { data: (map.data || []).slice(), events: JSON.parse(JSON.stringify(map.events || [])) };
+            this._sources.set(map, source);
+        }
+        return source;
+    },
+    makeDoodad(placement, mapId, seed, index) {
+        const doodad = DocsDoodads.standardStruct();
+        doodad.bit = [3, placement.path]; doodad.x = Math.round(placement.x); doodad.y = Math.round(placement.y);
+        doodad.scaleX = placement.scale * (placement.flipX ? -1 : 1); doodad.scaleY = placement.scale;
+        // Generated definitions name art rather than an editor-library record. Start without a guessed tile-sized
+        // frame, then use the full bitmap in both editor and game builds as soon as it is available.
+        doodad.frameW = Number(placement.frameW) || 0; doodad.frameH = Number(placement.frameH) || 0;
+        if ((!doodad.frameW || !doodad.frameH) && typeof DocsDoodads.loadBitmap === 'function') {
+            const bitmap = DocsDoodads.loadBitmap(placement.path);
+            if (bitmap && bitmap.addLoadListener) bitmap.addLoadListener(loaded => {
+                if (!doodad.bit || doodad.bit[1] !== placement.path) return;
+                if (!doodad.frameW) doodad.frameW = loaded.width;
+                if (!doodad.frameH) doodad.frameH = loaded.height;
+            });
+        }
+        doodad.dressed = true;
+        doodad.uid = `dd_gen_${mapId}_${seed}_${index}`; doodad._docsGeneratedMap = mapId;
+        return doodad;
+    },
+    decorations(layout, recipe, mapId, seed, existing, events) {
+        const tw = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+        const th = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileHeight ? $gameMap.tileHeight() : 48;
+        const definitions = DocsDoodads.World.get('biomes.list') || [], rng = DocsDoodads.Generate.rng(seed ^ 0x6c8e9cf5), placements = [];
+        if (layout.kind === 'wilderness') for (const chosen of recipe.biomes) {
+            const raw = DocsDoodads.Biome.find(chosen.id, definitions), biome = raw && DocsDoodads.Biome.normalize(raw);
+            if (!biome || !biome.entries.length) continue;
+            const tiles = [];
+            for (let i = 0; i < layout.biomeIds.length; i++) if (layout.biomeIds[i] === chosen.id) tiles.push({ x: i % layout.w, y: Math.floor(i / layout.w) });
+            if (!tiles.length) continue;
+            const center = { x: (tiles.reduce((sum, tile) => sum + tile.x, 0) / tiles.length + 0.5) * tw,
+                y: (tiles.reduce((sum, tile) => sum + tile.y, 0) / tiles.length + 0.5) * th };
+            const radius = Math.max(tw, th) * Math.sqrt(tiles.length / Math.PI);
+            for (const placement of DocsDoodads.Biome.paint(biome, center, radius, existing.concat(placements), rng)) {
+                const tx = Math.floor(placement.x / tw), ty = Math.floor(placement.y / th);
+                if (layout.biomeIds[ty * layout.w + tx] === chosen.id) placements.push(placement);
+            }
+        }
+        if (recipe.dress) {
+            const floor = new Set((layout.floor || []).map(tile => `${tile.x},${tile.y}`));
+            const eventTiles = new Set((events || []).map(event => `${event.x},${event.y}`));
+            const query = { width: layout.w, height: layout.h, isWater: () => false,
+                isPassable: (x, y) => layout.kind === 'wilderness' || floor.has(`${x},${y}`),
+                regionId: () => 0, terrainTag: () => 0, hasEvent: (x, y) => eventTiles.has(`${x},${y}`), hasGround: () => true };
+            placements.push(...DocsDoodads.Dress.plan(DocsDoodads.World.get('dress.rules') || [], query,
+                existing.concat(placements), tw, th, rng));
+        }
+        return placements.map((placement, index) => this.makeDoodad(placement, mapId, seed, index));
+    },
+    prepare(mapId, map, record) {
+        if (record.recipe.w > map.width || record.recipe.h > map.height) {
+            throw new Error(`Generated map is ${record.recipe.w}x${record.recipe.h}, larger than its MZ map ${map.width}x${map.height}.`);
+        }
+        const missing = record.recipe.roomIds.filter(id => !this.rooms.some(room => String(room.id) === id));
+        if (missing.length) throw new Error(`Room stamp${missing.length === 1 ? '' : 's'} not loaded: ${missing.join(', ')}`);
+        const source = this.sourceFor(map), base = Object.assign({}, map, {
+            data: source.data.slice(), events: JSON.parse(JSON.stringify(source.events))
+        });
+        const layout = DocsDoodads.Generate.layout(record.recipe, record.seed, this.rooms);
+        const systemTile = typeof $dataSystem !== 'undefined' && $dataSystem ? Number($dataSystem.tileSize) : 0;
+        const tileWidth = typeof $gameMap !== 'undefined' && $gameMap && typeof $gameMap.tileWidth === 'function'
+            ? Number($gameMap.tileWidth()) : systemTile;
+        const tileHeight = typeof $gameMap !== 'undefined' && $gameMap && typeof $gameMap.tileHeight === 'function'
+            ? Number($gameMap.tileHeight()) : systemTile;
+        const plan = DocsDoodads.Generate.plan(layout, record.recipe, base, this.rooms, {
+            mapId, tileWidth: tileWidth || 48, tileHeight: tileHeight || 48
+        });
+        const current = typeof $dataDocsDoodads !== 'undefined' && $dataDocsDoodads && Array.isArray($dataDocsDoodads[mapId]) ? $dataDocsDoodads[mapId] : [];
+        const authored = current.filter(doodad => !doodad || doodad._docsGeneratedMap !== mapId);
+        plan.doodads.push(...this.decorations(layout, record.recipe, mapId, record.seed, authored.concat(plan.doodads), plan.events));
+        return { source, layout, plan, authored };
+    },
+    apply(mapId, map) {
+        const records = this.records(), record = records && records[mapId];
+        this._materialized = this._materialized || {};
+        delete this._materialized[mapId];
+        if (!record || !map || !Array.isArray(map.data)) return null;
+        let ready;
+        try { ready = this.prepare(mapId, map, record); }
+        catch (error) {
+            console.warn(`[DocsDoodads] Map ${mapId} was not generated:`, error);
+            return null;
+        }
+        const { source, layout, plan, authored } = ready;
+        map.data = source.data.slice(); map.events = JSON.parse(JSON.stringify(source.events));
+        for (const change of plan.changes) map.data[change.index] = change.after;
+        map.events = map.events || [null];
+        for (const event of plan.events) { event._docsGeneratedMap = mapId; map.events[event.id] = event; }
+        if (typeof $dataDocsDoodads !== 'undefined' && $dataDocsDoodads) {
+            const list = $dataDocsDoodads[mapId] = authored;
+            for (const doodad of plan.doodads) { doodad._docsGeneratedMap = mapId; list.push(doodad); }
+        }
+        this._materialized[mapId] = { map, seed: record.seed };
+        return { layout, plan };
+    },
+    afterExtract() { this._materialized = {}; this._afterSaveLoad = true; },
+    beforeLoadedScene() {
+        if (!this._afterSaveLoad) return null;
+        this._afterSaveLoad = false;
+        const mapId = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0;
+        const generated = this.apply(mapId, typeof $dataMap !== 'undefined' ? $dataMap : null);
+        if (generated && DocsDoodads.Shipped && DocsDoodads.Shipped.migrateSaved) DocsDoodads.Shipped.migrateSaved(mapId);
+        return generated;
+    }
+};
+
+if (typeof DataManager !== 'undefined' && typeof DataManager.loadDatabase === 'function') {
+    $.DataManager_loadDatabase_generate = DataManager.loadDatabase;
+    DataManager.loadDatabase = function() {
+        $.DataManager_loadDatabase_generate.call(this);
+        DocsDoodads.GenerateRuntime.requestRooms();
+    };
+    if (typeof DataManager.extractSaveContents === 'function') {
+        $.DataManager_extractSaveContents_generate = DataManager.extractSaveContents;
+        DataManager.extractSaveContents = function(contents) {
+            $.DataManager_extractSaveContents_generate.call(this, contents);
+            DocsDoodads.GenerateRuntime.afterExtract();
+        };
+    }
+}
+
+if (typeof Game_Map !== 'undefined') {
+    $.Game_Map_setup_generate = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        const generated = DocsDoodads.GenerateRuntime.apply(Number(mapId) || 0, typeof $dataMap !== 'undefined' ? $dataMap : null);
+        const result = $.Game_Map_setup_generate.call(this, mapId);
+        if (generated && DocsDoodads.Shipped && DocsDoodads.Shipped.migrateSaved) DocsDoodads.Shipped.migrateSaved(mapId);
+        return result;
+    };
+}
+
+if (typeof Scene_Map !== 'undefined' && typeof Scene_Map.prototype.onMapLoaded === 'function') {
+    $.Scene_Map_onMapLoaded_generate = Scene_Map.prototype.onMapLoaded;
+    Scene_Map.prototype.onMapLoaded = function() {
+        DocsDoodads.GenerateRuntime.beforeLoadedScene();
+        return $.Scene_Map_onMapLoaded_generate.call(this);
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'generateMap', args => DocsDoodads.GenerateRuntime.command(args));
 }
 if (typeof Game_Map !== 'undefined') {
     Game_Map.prototype.updateDocsBeat = function() { DocsDoodads.Beat.idle(); };
@@ -21614,6 +22780,21 @@ if (typeof DataManager !== 'undefined') {
         };
     }
 }
+(function() {
+    const S = DocsDoodads.Shipped;
+    if (typeof Game_Map !== 'undefined') {
+        const setup = Game_Map.prototype.setup;
+        Game_Map.prototype.setup = function(mapId) { const result = setup.call(this, mapId); if (this === window.$gameMap) S.migrateSaved(mapId); return result; };
+    }
+    if (typeof DataManager !== 'undefined' && typeof DataManager.extractSaveContents === 'function') {
+        const extract = DataManager.extractSaveContents;
+        DataManager.extractSaveContents = function(contents) {
+            const result = extract.call(this, contents);
+            if (window.$gameMap) S.migrateSaved($gameMap.mapId());
+            return result;
+        };
+    }
+})();
 //==========================================================
 // SECTION 7C: TRAVERSAL (JUMP, GLIDE, SWIM, DIVE, FLY, CLIMB, ICE)
 //==========================================================
@@ -24049,7 +25230,14 @@ DocsDoodads.RequiredAssets = {
                 if (d.model && d.model.path) add(d.model.path);
             }
         }
+        for (const room of sources.rooms || []) for (const doodad of (room && room.doodads) || []) {
+            if (doodad && doodad.bit && doodad.bit[0] === 3) add(doodad.bit[1]);
+            for (const state of (doodad && doodad.states && doodad.states.list) || []) if (state && state.path) add(state.path);
+            if (doodad && doodad.model && doodad.model.path) add(doodad.model.path);
+        }
         const world = data.world || {};
+        for (const biome of (world.biomes && world.biomes.list) || []) for (const entry of (biome && biome.entries) || []) add(entry && entry.path);
+        for (const rule of (world.dress && world.dress.rules) || []) for (const entry of (rule && rule.entries) || []) add(entry && entry.path);
         for (const set of (world.seasons && world.seasons.sets) || []) for (const p of Object.values(set || {})) add(p);
         if (world.destination && world.destination.image) add('img/system/' + world.destination.image + '.png');
         for (const set of (world.characterAnim && world.characterAnim.sets) || []) {
@@ -24108,7 +25296,8 @@ DocsDoodads.RequiredAssets = {
         let characters = [];
         try { characters = FS.fs.readdirSync('img/characters').filter(f => /\.png$/i.test(f)); } catch (e) { characters = []; }
         const normalManifest = FS.readJson(DocsDoodads.NormalLight.manifestPath) || DocsDoodads.NormalLight.manifest;
-        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, database, maps, characters, normalManifest });
+        const roomsData = FS.readJson('data/DocsDoodadsRooms.json') || {};
+        const files = this.collect({ doodads: window.$dataDocsDoodads || {}, rooms: roomsData.rooms || [], database, maps, characters, normalManifest });
         const ok = FS.atomicWriteJson(this.path, { note: 'Files Doc\'s Doodads draws that MZ\'s "Exclude unused files" can\'t see. npm run deploy -- --restore <project> <deployed folder> puts them back.', files }, 2);
         return ok ? files : null;
     }
@@ -30225,35 +31414,7 @@ DocsDoodads.Paths = {
     }
 };
 
-DocsDoodads.Scatter = {
-    // Small seeded generator so a stroke can be reproduced in tests.
-    rng(seed) {
-        let a = (Number(seed) || 1) >>> 0;
-        return () => {
-            a = (a + 0x6D2B79F5) >>> 0;
-            let t = a;
-            t = Math.imul(t ^ (t >>> 15), t | 1);
-            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-        };
-    },
-
-    // Poisson-disk style dart throwing: no two props closer than minDistance, existing props included.
-    candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
-        const accepted = [];
-        const others = (existing || []).slice();
-        const attempts = maxAttempts || Math.max(30, count * 30);
-        for (let i = 0; i < attempts && accepted.length < count; i++) {
-            const angle = rng() * Math.PI * 2;
-            const dist = radius * Math.sqrt(rng());
-            const p = { x: center.x + Math.cos(angle) * dist, y: center.y + Math.sin(angle) * dist };
-            if (minDistance > 0 && others.some(o => Math.hypot(o.x - p.x, o.y - p.y) < minDistance)) continue;
-            accepted.push(p);
-            others.push(p);
-        }
-        return accepted;
-    },
-
+Object.assign(DocsDoodads.Scatter, {
     parseIdList(text) {
         return String(text || '').split(/[^0-9]+/).filter(Boolean).map(n => parseInt(n, 10)).filter(n => n > 0);
     },
@@ -30278,7 +31439,7 @@ DocsDoodads.Scatter = {
             hue: Math.round(jitter(settings.hueJitter))
         };
     }
-};
+});
 
 DocsDoodads.Guides = {
     rectOf(d) {
@@ -30703,363 +31864,43 @@ DocsDoodads.MapLinks = {
 
 // @editor-only
 //==========================================================
-// SECTION 19C: ROOM STAMPS
+// SECTION 19C: ROOM STAMPS (EDITOR STORAGE AND CAPTURE)
 //==========================================================
-// A rectangle of map saved as a stamp: its tiles (all six layers: four tile layers, shadows and
-// regions), the doodads standing in it and the events on it, to place again here or on another map.
-// Stamps are kept in data/DocsDoodadsRooms.json. Tiles are MZ's map data (index (z * h + y) * w + x).
-DocsDoodads.Rooms = {
+Object.assign(DocsDoodads.Rooms, {
     filePath: 'data/DocsDoodadsRooms.json',
-    layers: 6,
-    list: [],
-    loaded: false,
-
     load() {
         const data = DocsDoodads.FS.readJson(this.filePath);
         this.list = data && Array.isArray(data.rooms) ? data.rooms : [];
         this.loaded = true;
         return this.list;
     },
-
-    ensureLoaded() {
-        if (!this.loaded) this.load();
-        return this.list;
-    },
-
-    save() {
-        return DocsDoodads.FS.atomicWriteJson(this.filePath, { version: 1, rooms: this.ensureLoaded() });
-    },
-
-    get(id) {
-        return this.ensureLoaded().find(r => r.id === id) || null;
-    },
-
-    add(room) {
-        this.ensureLoaded().push(room);
-        return room;
-    },
-
+    ensureLoaded() { if (!this.loaded) this.load(); return this.list; },
+    save() { return DocsDoodads.FS.atomicWriteJson(this.filePath, { version: 2, rooms: this.ensureLoaded() }); },
+    get(id) { return this.ensureLoaded().find(room => room.id === id) || null; },
+    add(room) { this.ensureLoaded().push(room); return room; },
     remove(id) {
-        const i = this.ensureLoaded().findIndex(r => r.id === id);
-        if (i >= 0) this.list.splice(i, 1);
-        return i >= 0;
+        const index = this.ensureLoaded().findIndex(room => room.id === id);
+        if (index >= 0) this.list.splice(index, 1);
+        return index >= 0;
     },
-
-    index(w, h, x, y, z) {
-        return (z * h + y) * w + x;
-    },
-
-    // The rectangle between two tiles, inside the map.
-    rectBetween(a, b, mapW, mapH) {
-        const x0 = Math.max(0, Math.min(a.x, b.x)), y0 = Math.max(0, Math.min(a.y, b.y));
-        const x1 = Math.min(mapW - 1, Math.max(a.x, b.x)), y1 = Math.min(mapH - 1, Math.max(a.y, b.y));
-        return { x: x0, y: y0, w: Math.max(0, x1 - x0 + 1), h: Math.max(0, y1 - y0 + 1) };
-    },
-
-    // map: { width, height, data }; rect in tiles; doodads (pixels) and events (tiles) of the map.
-    capture(name, map, rect, doodads, events, tw = 48, th = 48) {
+    capture(name, map, rect, doodads, events, tw = 48, th = 48, doors = []) {
         const W = Number(map.width) || 0, H = Number(map.height) || 0;
         const tiles = new Array(rect.w * rect.h * this.layers).fill(0);
-        for (let z = 0; z < this.layers; z++) {
-            for (let y = 0; y < rect.h; y++) {
-                for (let x = 0; x < rect.w; x++) {
-                    tiles[this.index(rect.w, rect.h, x, y, z)] = Number(map.data[this.index(W, H, rect.x + x, rect.y + y, z)]) || 0;
-                }
-            }
+        for (let z = 0; z < this.layers; z++) for (let y = 0; y < rect.h; y++) for (let x = 0; x < rect.w; x++) {
+            tiles[this.index(rect.w, rect.h, x, y, z)] = Number(map.data[this.index(W, H, rect.x + x, rect.y + y, z)]) || 0;
         }
         const left = rect.x * tw, top = rect.y * th, right = (rect.x + rect.w) * tw, bottom = (rect.y + rect.h) * th;
-        // A doodad belongs to the room when it stands in it (its anchor point, at its foot).
-        const inside = (doodads || []).filter(d => d && d.x >= left && d.x < right && d.y > top && d.y <= bottom && !d.mirrorOf);
+        const inside = (doodads || []).filter(doodad => doodad && doodad.x >= left && doodad.x < right && doodad.y > top && doodad.y <= bottom && !doodad.mirrorOf);
         return {
-            id: DocsDoodads.Prefabs.newId('room_'),
-            name: String(name || 'Room').trim() || 'Room',
-            createdAt: Date.now(),
-            w: rect.w, h: rect.h, tileWidth: tw, tileHeight: th,
-            tiles,
-            doodads: inside.map(d => Object.assign(DocsDoodads.Prefabs.cleanDoodad(d), { x: d.x - left, y: d.y - top })),
-            events: (events || []).filter(e => e && e.x >= rect.x && e.x < rect.x + rect.w && e.y >= rect.y && e.y < rect.y + rect.h)
-                .map(e => Object.assign(JSON.parse(JSON.stringify(e)), { dx: e.x - rect.x, dy: e.y - rect.y }))
+            id: DocsDoodads.Prefabs.newId('room_'), name: String(name || 'Room').trim() || 'Room', createdAt: Date.now(),
+            w: rect.w, h: rect.h, tileWidth: tw, tileHeight: th, tiles,
+            doors: (doors || []).map(door => this.normalizeDoor(door, rect.w, rect.h)).filter(Boolean),
+            doodads: inside.map(doodad => Object.assign(DocsDoodads.Prefabs.cleanDoodad(doodad), { x: doodad.x - left, y: doodad.y - top })),
+            events: (events || []).filter(event => event && event.x >= rect.x && event.x < rect.x + rect.w && event.y >= rect.y && event.y < rect.y + rect.h)
+                .map(event => Object.assign(JSON.parse(JSON.stringify(event)), { dx: event.x - rect.x, dy: event.y - rect.y }))
         };
-    },
-
-    // What placing the room with its top-left on tile (at.x, at.y) does. options: { tiles, doodads, events
-    // (each on unless false), keepUnder (a tile layer the room leaves empty keeps the map's tile), tileWidth,
-    // tileHeight, allocateEventId }. Returns { changes: [{ index, before, after }], doodads, events }; the
-    // map is not changed here. Parts outside the map are left off.
-    place(room, map, at, options = {}) {
-        const W = Number(map.width) || 0, H = Number(map.height) || 0;
-        const tw = options.tileWidth || 48, th = options.tileHeight || 48;
-        const keepUnder = options.keepUnder !== false;
-        const out = { changes: [], doodads: [], events: [] };
-        const inMap = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
-        if (options.tiles !== false) {
-            for (let z = 0; z < this.layers; z++) {
-                for (let y = 0; y < room.h; y++) {
-                    for (let x = 0; x < room.w; x++) {
-                        const mx = at.x + x, my = at.y + y;
-                        if (!inMap(mx, my)) continue;
-                        const after = Number(room.tiles[this.index(room.w, room.h, x, y, z)]) || 0;
-                        // Empty upper layers and no region in the room leave the map's own.
-                        if (keepUnder && after === 0 && z > 0) continue;
-                        const index = this.index(W, H, mx, my, z);
-                        const before = Number(map.data[index]) || 0;
-                        if (before !== after) out.changes.push({ index, before, after });
-                    }
-                }
-            }
-        }
-        // Doodads keep where they stood in the room; their size scales with a different tile size.
-        const sx = tw / (room.tileWidth || tw), sy = th / (room.tileHeight || th);
-        if (options.doodads !== false) {
-            const groupId = 'grp_' + DocsDoodads.Prefabs.newId('rm_');
-            for (const src of room.doodads || []) {
-                const d = JSON.parse(JSON.stringify(src));
-                d.x = Math.round(at.x * tw + src.x * sx);
-                d.y = Math.round(at.y * th + src.y * sy);
-                if (!inMap(Math.floor(d.x / tw), Math.floor((d.y - 1) / th))) continue;
-                if ((room.doodads || []).length > 1) d.groupId = groupId;
-                out.doodads.push(d);
-            }
-        }
-        if (options.events !== false) {
-            for (const src of room.events || []) {
-                const x = at.x + src.dx, y = at.y + src.dy;
-                if (!inMap(x, y)) continue;
-                const e = JSON.parse(JSON.stringify(src));
-                delete e.dx;
-                delete e.dy;
-                e.x = x;
-                e.y = y;
-                e.id = options.allocateEventId ? options.allocateEventId(e) : null;
-                out.events.push(e);
-            }
-        }
-        return out;
-    },
-
-    summary(room) {
-        const n = (room.doodads || []).length, e = (room.events || []).length;
-        return `${room.w} x ${room.h} tiles` + (n ? `, ${n} doodad${n === 1 ? '' : 's'}` : '') + (e ? `, ${e} event${e === 1 ? '' : 's'}` : '');
     }
-};
-// @editor-only
-//==========================================================
-// SECTION 19D: TILE PAINTING (MZ TILES AND AUTOTILES)
-//==========================================================
-// Painting MZ's own tiles in a playtest, autotiles included. Tile ids follow MZ: B-E sheets 0-1023, A5
-// 1536+, autotiles from 2048 as kind * 48 + shape. An autotile's shape comes from its neighbours: each
-// quarter of the tile takes a piece from the autotile's block, chosen by whether the tiles beside and
-// diagonal to that corner are the same kind; the shape is the entry of MZ's own table (Tilemap's floor,
-// wall or waterfall table, passed in) with those four pieces. The map edge counts as the same kind.
-DocsDoodads.Tiles = {
-    B: 0, C: 256, D: 512, E: 768, A5: 1536, A1: 2048, A2: 2816, A3: 4352, A4: 5888, MAX: 8192,
-    sheets: ['A1', 'A2', 'A3', 'A4', 'A5', 'B', 'C', 'D', 'E'],
-
-    isAutotile(id) { return id >= this.A1 && id < this.MAX; },
-    kind(id) { return Math.floor((id - this.A1) / 48); },
-    shape(id) { return (id - this.A1) % 48; },
-    make(kind, shape) { return this.A1 + kind * 48 + shape; },
-    isA1(id) { return id >= this.A1 && id < this.A2; },
-    isA2(id) { return id >= this.A2 && id < this.A3; },
-    isA3(id) { return id >= this.A3 && id < this.A4; },
-    isA4(id) { return id >= this.A4 && id < this.MAX; },
-    isWaterfall(id) { return this.isA1(id) && id >= this.A1 + 192 && this.kind(id) % 2 === 1; },
-    isRoof(id) { return this.isA3(id) && this.kind(id) % 16 < 8; },
-    isWallTop(id) { return this.isA4(id) && this.kind(id) % 16 < 8; },
-    isWallSide(id) { return (this.isA3(id) || this.isA4(id)) && this.kind(id) % 16 >= 8; },
-    // 'floor', 'wall', 'waterfall' or null (not an autotile).
-    type(id) {
-        if (!this.isAutotile(id)) return null;
-        if (this.isWaterfall(id)) return 'waterfall';
-        if (this.isRoof(id) || this.isWallSide(id)) return 'wall';
-        return 'floor';
-    },
-
-    // The four pieces [TL, TR, BL, BR] as [x, y] half-tiles in the autotile's block, from its neighbours.
-    // n: { l, r, u, d, ul, ur, dl, dr } (true = the same kind there).
-    pieces(type, n) {
-        if (type === 'waterfall') return [[n.l ? 2 : 0, 0], [n.r ? 1 : 3, 0], [n.l ? 2 : 0, 1], [n.r ? 1 : 3, 1]];
-        if (type === 'wall') return [[n.l ? 2 : 0, n.u ? 2 : 0], [n.r ? 1 : 3, n.u ? 2 : 0], [n.l ? 2 : 0, n.d ? 1 : 3], [n.r ? 1 : 3, n.d ? 1 : 3]];
-        const corner = (h, v, diag, cx, cy, inner) => (h && v && !diag ? inner : [h ? cx[0] : cx[1], v ? cy[0] : cy[1]]);
-        return [
-            corner(n.l, n.u, n.ul, [2, 0], [4, 2], [2, 0]),
-            corner(n.r, n.u, n.ur, [1, 3], [4, 2], [3, 0]),
-            corner(n.l, n.d, n.dl, [2, 0], [3, 5], [2, 1]),
-            corner(n.r, n.d, n.dr, [1, 3], [3, 5], [3, 1])
-        ];
-    },
-
-    // The shape in a table ([[x, y] x 4] per shape) with these pieces; the closest one if none matches.
-    shapeFor(pieces, table) {
-        if (!Array.isArray(table) || !table.length) return 0;
-        let best = 0, bestScore = -1;
-        for (let s = 0; s < table.length; s++) {
-            const row = table[s];
-            let score = 0;
-            for (let i = 0; i < 4; i++) if (row[i] && row[i][0] === pieces[i][0] && row[i][1] === pieces[i][1]) score++;
-            if (score === 4) return s;
-            if (score > bestScore) { bestScore = score; best = s; }
-        }
-        return best;
-    },
-
-    index(w, h, x, y, z) { return (z * h + y) * w + x; },
-
-    // The autotile at (x, y, z) with its shape worked out again from the tiles around it.
-    // map: { width, height, data, loopX, loopY }; tables: { floor, wall, waterfall }.
-    reshape(map, x, y, z, tables) {
-        const W = map.width, H = map.height;
-        const id = Number(map.data[this.index(W, H, x, y, z)]) || 0;
-        const type = this.type(id);
-        if (!type) return id;
-        const k = this.kind(id);
-        const same = (dx, dy) => {
-            let tx = x + dx, ty = y + dy;
-            if (map.loopX) tx = (tx % W + W) % W;
-            if (map.loopY) ty = (ty % H + H) % H;
-            if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
-            const other = Number(map.data[this.index(W, H, tx, ty, z)]) || 0;
-            return this.isAutotile(other) && this.kind(other) === k;
-        };
-        const n = { l: same(-1, 0), r: same(1, 0), u: same(0, -1), d: same(0, 1), ul: same(-1, -1), ur: same(1, -1), dl: same(-1, 1), dr: same(1, 1) };
-        const table = tables && tables[type];
-        return this.make(k, this.shapeFor(this.pieces(type, n), table));
-    },
-
-    // Which layer a picked tile goes on when the layer is 'auto': ground autotiles and A5 on 0 (A1's
-    // rocks and A2's overlays on 1), B-E on the upper layers (2, or 3 over a tile already on 2).
-    autoLayer(id, upperBusy) {
-        if (this.isAutotile(id)) {
-            const k = this.kind(id);
-            if (this.isA1(id) && (k === 2 || k === 3)) return 1;
-            return 0;
-        }
-        if (id >= this.A5) return 0;
-        return upperBusy ? 3 : 2;
-    },
-
-    // What painting does: [{ index, before, after }] for a brush of tiles (ids: rows of tile ids, a
-    // rectangle picked from the palette) with its top-left at (x, y). layer: 0-3 or 'auto'; erase clears.
-    paint(map, x, y, brush, tables) {
-        const W = map.width, H = map.height;
-        const changes = new Map();
-        const get = i => (changes.has(i) ? changes.get(i).after : Number(map.data[i]) || 0);
-        const set = (i, v) => {
-            const before = changes.has(i) ? changes.get(i).before : Number(map.data[i]) || 0;
-            changes.set(i, { index: i, before, after: v });
-        };
-        const view = { width: W, height: H, loopX: map.loopX, loopY: map.loopY, data: { length: W * H * 6 } };
-        view.data = new Proxy({}, { get: (t, k) => (k === 'length' ? W * H * 6 : get(Number(k))) });
-        const touched = [];
-        const rows = brush.erase ? [[0]] : brush.ids;
-        for (let r = 0; r < rows.length; r++) {
-            for (let c = 0; c < rows[r].length; c++) {
-                const tx = x + c, ty = y + r;
-                if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
-                const id = brush.erase ? 0 : Number(rows[r][c]) || 0;
-                if (brush.erase) {
-                    // The eraser takes the top tile off (the layer picked, or the highest one used).
-                    const layers = brush.layer === 'auto' || brush.layer === undefined ? [3, 2, 1, 0] : [Number(brush.layer)];
-                    const z = layers.find(l => get(this.index(W, H, tx, ty, l)) !== 0);
-                    if (z === undefined) continue;
-                    set(this.index(W, H, tx, ty, z), 0);
-                    touched.push([tx, ty, z]);
-                    continue;
-                }
-                let z = brush.layer === 'auto' || brush.layer === undefined ? null : Number(brush.layer);
-                if (z === null) {
-                    const upper2 = get(this.index(W, H, tx, ty, 2));
-                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id);
-                    // A third upper tile: the one on 3 moves down to 2 and the new one goes on top.
-                    if (z === 3) {
-                        const on3 = get(this.index(W, H, tx, ty, 3));
-                        if (on3 && on3 !== id) set(this.index(W, H, tx, ty, 2), on3);
-                    }
-                }
-                set(this.index(W, H, tx, ty, z), id);
-                touched.push([tx, ty, z]);
-            }
-        }
-        // Autotiles painted and the ones around them take their shapes from their new neighbours.
-        const again = new Set();
-        for (const [tx, ty, z] of touched) {
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dx = -1; dx <= 1; dx++) {
-                    let nx = tx + dx, ny = ty + dy;
-                    if (map.loopX) nx = (nx % W + W) % W;
-                    if (map.loopY) ny = (ny % H + H) % H;
-                    if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-                    again.add(nx + ',' + ny + ',' + z);
-                }
-            }
-        }
-        for (const key of again) {
-            const [nx, ny, z] = key.split(',').map(Number);
-            const i = this.index(W, H, nx, ny, z);
-            const id = get(i);
-            if (!this.isAutotile(id)) continue;
-            const next = this.reshape(view, nx, ny, z, tables);
-            if (next !== id) set(i, next);
-        }
-        return Array.from(changes.values()).filter(c => c.before !== c.after);
-    },
-
-    // The top tile at a spot, for picking it up: { id, layer } (null when the spot is empty).
-    topAt(map, x, y) {
-        for (const z of [3, 2, 1, 0]) {
-            const id = Number(map.data[this.index(map.width, map.height, x, y, z)]) || 0;
-            if (id) return { id: this.isAutotile(id) ? this.make(this.kind(id), 0) : id, layer: z };
-        }
-        return null;
-    },
-
-    // ---- The palette: tiles on the tileset pictures ----
-    // Where an autotile kind's sample sits on its sheet (tiles), as MZ draws it (first animation frame).
-    kindPosition(kind) {
-        const tx = kind % 8, ty = Math.floor(kind / 8);
-        if (kind < 16) {
-            if (kind === 0) return { sheet: 0, x: 0, y: 0 };
-            if (kind === 1) return { sheet: 0, x: 0, y: 3 };
-            if (kind === 2) return { sheet: 0, x: 6, y: 0 };
-            if (kind === 3) return { sheet: 0, x: 6, y: 3 };
-            let bx = Math.floor(tx / 4) * 8;
-            const by = ty * 6 + (Math.floor(tx / 2) % 2) * 3;
-            bx += kind % 2 === 0 ? 0 : 6;
-            return { sheet: 0, x: bx, y: by };
-        }
-        if (kind < 48) return { sheet: 1, x: tx * 2, y: (ty - 2) * 3 };
-        if (kind < 80) return { sheet: 2, x: tx * 2, y: (ty - 6) * 2 };
-        return { sheet: 3, x: tx * 2, y: Math.floor((ty - 10) * 2.5 + (ty % 2 === 1 ? 0.5 : 0)) };
-    },
-
-    // The tile id under a tile position on a sheet (0 A1 ... 8 E), or 0.
-    idAt(sheet, x, y) {
-        if (x < 0 || y < 0) return 0;
-        if (sheet >= 5) return (sheet - 5) * 256 + (x >= 8 ? 128 : 0) + y * 8 + (x % 8);
-        if (sheet === 4) return x < 8 && y < 16 ? this.A5 + y * 8 + x : 0;
-        // Autotiles: the block the position falls in.
-        const kinds = sheet === 0 ? 16 : sheet === 1 ? 32 : 48;
-        const first = sheet === 0 ? 0 : sheet === 1 ? 16 : sheet === 2 ? 48 : 80;
-        for (let k = first; k < first + kinds; k++) {
-            const p = this.kindPosition(k);
-            if (p.sheet !== sheet) continue;
-            const wide = sheet === 0 && k >= 4 && k % 2 === 1 ? 2 : 2;
-            const tall = sheet === 2 || (sheet === 3 && Math.floor(k / 8) % 2 === 1) ? 2 : 3;
-            if (x >= p.x && x < p.x + wide && y >= p.y && y < p.y + tall) return this.make(k, 0);
-        }
-        return 0;
-    },
-
-    // The sheet a tile id is on (0 A1 ... 8 E).
-    sheetOf(id) {
-        if (id >= this.A4) return 3;
-        if (id >= this.A3) return 2;
-        if (id >= this.A2) return 1;
-        if (id >= this.A1) return 0;
-        if (id >= this.A5) return 4;
-        return 5 + Math.floor(id / 256);
-    }
-};
+});
 // @editor-only
 //==========================================================
 // SECTION 20: DocsDoodads.UNDO (COMMAND-BASED HISTORY STACK)
@@ -31629,6 +32470,9 @@ Object.assign(DocsDoodads.Persistence, {
         const trace = Object.assign({}, merged.trace || {});
         if (live.trace && live.trace[mapId]) trace[mapId] = live.trace[mapId]; else delete trace[mapId];
         if (Object.keys(trace).length) merged.trace = trace; else delete merged.trace;
+        const aliases = Object.assign({}, merged.aliases || {});
+        if (live.aliases && live.aliases[mapId]) aliases[mapId] = live.aliases[mapId]; else delete aliases[mapId];
+        if (Object.keys(aliases).length) merged.aliases = aliases; else delete merged.aliases;
 
         const owner = gameMap._stagedMapData && (gameMap._stagedMapDataId !== undefined ? gameMap._stagedMapDataId : gameMap.mapId());
         const mapEntries = gameMap._stagedMapData && Number(owner) === mapId ? [{ path: mapFile, data: gameMap._stagedMapData, indent: 2 }] : [];
@@ -33523,6 +34367,10 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if (tool !== 'generate' && this._generatedPreview) {
+            this._generatedPreview = null;
+            if (this.redrawOverlay) this.redrawOverlay();
+        }
         if (tool !== 'traceFit') this._traceFit = null;
         if (tool !== 'trace' && this._traceDrag) this.endTraceDrag();
         if (DocsDoodads.SimpleMode.enabled()) {
@@ -33602,6 +34450,7 @@ DocsDoodads.Workspace = {
 
     close() {
         if (!this.mounted) return;
+        if (typeof this.closeGenerateCard === 'function') this.closeGenerateCard();
         this.closeEventCommandEditor();
         this.cancelEventTransferPick(false);
         if (DocsDoodads.AssetIndex.flushUsage) DocsDoodads.AssetIndex.flushUsage();
@@ -34424,6 +35273,7 @@ DocsDoodads.Workspace = {
         on('dd-look-btn', () => { this.showMoreMenu(false); this.showLookCard(); });
         on('dd-keys-btn', () => { this.showMoreMenu(false); this.showShortcutsCard(); });
         on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
+        on('dd-generate-btn', () => { this.showMoreMenu(false); this.showGenerateCard(); });
         on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
@@ -34471,6 +35321,7 @@ DocsDoodads.Workspace = {
         };
 
         document.getElementById('dd-diag-btn').onclick = () => this.openDiagnosticsModal();
+        document.getElementById('dd-markreleased-btn').onclick = () => this.markAsReleased();
         document.getElementById('dd-tools-btn').onclick = () => this.showAssetTools();
         document.getElementById('dd-postfx-btn').onclick = () => this.showPostFxBuilder();
         document.getElementById('dd-vfx-btn').onclick = () => this.showVfxBuilder();
@@ -34851,6 +35702,7 @@ DocsDoodads.Workspace = {
                 { id: 'dd-find-btn', icon: 'search', label: 'Find Doodads', title: 'Find doodads on this map or every map, by picture, name, tag, layer, light, sound...' },
                 { id: 'dd-outliner-btn', icon: 'grid', label: 'Outliner', title: "This map's doodads by layer: hide, lock, pick, solo a layer" },
                 { id: 'dd-rooms-btn', icon: 'map', label: 'Rooms', title: 'Save part of the map (tiles, doodads, events) as a room stamp and place it again', key: 'rooms' },
+                { id: 'dd-generate-btn', icon: 'sparkle', label: 'Generate Map', title: 'Preview and apply a seeded dungeon or wilderness as one undo step' },
                 { id: 'dd-templates-btn', icon: 'person', label: 'Templates', title: 'Rename, sort and delete your own event templates' },
                 { id: 'dd-problems-btn', icon: 'help', label: 'Problems', title: 'Missing pictures and sounds, doodads off the map, lamps that never show, places out of reach' },
                 { id: 'dd-notes-btn', icon: 'info', label: 'Notes', title: 'Notes and to-dos pinned to tiles on this map or every map (seen only in the editor)' },
@@ -34886,6 +35738,7 @@ DocsDoodads.Workspace = {
                 { id: 'dd-history-btn', icon: 'folder', label: 'Old Saves', title: 'Compare with earlier saves and bring single things back' },
                 { id: 'dd-messages-btn', icon: 'history', label: 'Messages', title: "Read the editor's recent messages again" },
                 { id: 'dd-diag-btn', icon: 'info', label: 'Info', title: 'Numbers, cache and backups' },
+                { id: 'dd-markreleased-btn', icon: 'history', label: 'Mark as Released', title: 'Remember the names, states and map sizes players\' saves know' },
                 { id: 'dd-sound-btn', icon: 'sound', label: () => (DocsDoodads.Ui.prefs().sounds === false ? 'Sounds: Off' : 'Sounds: On'), span: 'dd-sound-label', title: 'Little sounds when you use the tools' },
                 { id: 'dd-help-btn', icon: 'help', label: 'How to Use', title: 'How to use the editor' }
             ] }
@@ -44880,6 +45733,220 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 // @editor-only
+//==========================================================
+// SECTION 25z: GENERATED MAP CARD AND PREVIEW
+//==========================================================
+DocsDoodads.Ui.css += `
+#dd-generate-card { position: fixed; top: 88px; right: 286px; z-index: 10045; width: 330px; max-width: calc(100vw - 30px); padding: 12px; display: grid; gap: 8px; }
+#dd-generate-card .dd-gen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#dd-generate-card label { display: grid; gap: 2px; font-size: 10px; color: var(--dd-muted); }
+#dd-generate-card input, #dd-generate-card select { width: 100%; box-sizing: border-box; }
+`;
+
+DocsDoodads.Ui.hints.generate = 'Generated map preview: change the recipe or Reroll, then Apply once. Escape leaves the map unchanged.';
+
+Object.assign(DocsDoodads.Workspace, {
+    generateOptions: { kind: 'dungeon', seed: '1', w: 30, h: 24, count: 6, roomIds: [], biomes: [], floorTile: 2816, wallTile: 4352, pathTile: 0 },
+
+    generatedRooms() {
+        const rooms = DocsDoodads.Rooms.ensureLoaded ? DocsDoodads.Rooms.ensureLoaded() : DocsDoodads.GenerateRuntime.rooms;
+        DocsDoodads.GenerateRuntime.setRooms(rooms);
+        return rooms;
+    },
+
+    readGenerateCard() {
+        if (typeof document === 'undefined' || !document.getElementById('dd-generate-card')) return this.generateOptions;
+        const value = id => { const element = document.getElementById(id); return element ? element.value : ''; };
+        const checked = id => { const element = document.getElementById(id); return Boolean(element && element.checked); };
+        const rooms = this.generatedRooms();
+        this.generateOptions = {
+            kind: value('dd-gen-kind') || 'dungeon', seed: value('dd-gen-seed'), w: Number(value('dd-gen-w')), h: Number(value('dd-gen-h')),
+            count: Number(value('dd-gen-count')), floorTile: Number(value('dd-gen-floor')), wallTile: Number(value('dd-gen-wall')),
+            pathTile: Number(value('dd-gen-path')), roomIds: rooms.filter((room, index) => checked(`dd-gen-room-${index}`)).map(room => room.id),
+            biomes: (DocsDoodads.World.get('biomes.list') || []).map((biome, index) => checked(`dd-gen-biome-${index}`)
+                ? { id: biome.id, weight: 1, tile: Number(value(`dd-gen-biome-tile-${index}`)) || 0 } : null).filter(Boolean)
+        };
+        return this.generateOptions;
+    },
+
+    previewGeneratedMap(reroll) {
+        const map = this.liveMapData(), mapId = this.currentMapId();
+        if (!map) return null;
+        const raw = this.readGenerateCard();
+        if (reroll) {
+            raw.seed = String((DocsDoodads.Generate.seed(raw.seed) + 1) >>> 0);
+            const input = typeof document !== 'undefined' ? document.getElementById('dd-gen-seed') : null;
+            if (input) input.value = raw.seed;
+        }
+        try {
+            const recipe = DocsDoodads.Generate.recipe(raw, map);
+            if (recipe.w > map.width || recipe.h > map.height) throw new Error(`Preview must fit this ${map.width} x ${map.height} MZ map.`);
+            const rooms = this.generatedRooms(), missing = recipe.roomIds.filter(id => !rooms.some(room => String(room.id) === id));
+            if (missing.length) throw new Error(`Room stamp not found: ${missing.join(', ')}`);
+            const seed = DocsDoodads.Generate.seed(raw.seed), layout = DocsDoodads.Generate.layout(recipe, seed, rooms);
+            this._generatedPreview = { mapId, map, seed, recipe, layout,
+                pathKeys: new Set((layout.paths || []).map(tile => `${tile.x},${tile.y}`)) };
+            this.setPlacementTool('generate');
+            if (this.redrawOverlay) this.redrawOverlay();
+            return this._generatedPreview;
+        } catch (error) {
+            this._generatedPreview = null;
+            if (this.showToast) this.showToast(error.message, 'error');
+            return null;
+        }
+    },
+
+    generatedDecorations(preview, existing, events) {
+        return DocsDoodads.GenerateRuntime.decorations(preview.layout, preview.recipe, preview.mapId, preview.seed, existing, events);
+    },
+
+    applyGeneratedMap() {
+        const preview = this._generatedPreview, map = this.liveMapData(), mapId = this.currentMapId();
+        if (!preview || !map || preview.mapId !== mapId || preview.map !== map) return false;
+        const staged = DocsDoodads.Persistence.stagedFor() || map, events = staged.events || map.events || [null];
+        const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+        const rooms = this.generatedRooms(), missing = preview.recipe.roomIds.filter(id => !rooms.some(room => String(room.id) === id));
+        if (missing.length) { if (this.showToast) this.showToast(`Room stamp not found: ${missing.join(', ')}`, 'error'); return false; }
+        const planMap = Object.assign({}, map, { events });
+        const tile = this.tileSize();
+        const plan = DocsDoodads.Generate.plan(preview.layout, preview.recipe, planMap, rooms, {
+            mapId, tileWidth: tile.tw, tileHeight: tile.th
+        });
+        plan.doodads.push(...this.generatedDecorations(preview, list.concat(plan.doodads), plan.events));
+        for (const doodad of plan.doodads) doodad._docsGeneratedMap = mapId;
+        for (const event of plan.events) event._docsGeneratedMap = mapId;
+        const beforeEvents = JSON.parse(JSON.stringify(events));
+        const beforeMapEvents = map.events && map.events !== events ? JSON.parse(JSON.stringify(map.events)) : null;
+        DocsDoodads.Undo.execute({
+            type: 'generate_map', label: `Generate ${preview.recipe.kind} map`,
+            apply: () => {
+                plan.changes.forEach(change => this.setMapTile(mapId, change.index, change.after));
+                plan.doodads.forEach(doodad => { if (!list.includes(doodad)) list.push(doodad); });
+                plan.events.forEach(event => { events[event.id] = event; if (map.events && map.events !== events) map.events[event.id] = event; });
+                DocsDoodads.Persistence.dirtyDoodads = true; DocsDoodads.Persistence.dirtyMap = true;
+                this.afterTileEdit(); this.refreshSpriteset();
+            },
+            revert: () => {
+                plan.changes.forEach(change => this.setMapTile(mapId, change.index, change.before));
+                plan.doodads.forEach(doodad => { const index = list.indexOf(doodad); if (index >= 0) list.splice(index, 1); });
+                events.splice(0, events.length, ...JSON.parse(JSON.stringify(beforeEvents)));
+                if (beforeMapEvents) map.events.splice(0, map.events.length, ...JSON.parse(JSON.stringify(beforeMapEvents)));
+                this.afterTileEdit(); this.refreshSpriteset();
+            }
+        });
+        this._generatedPreview = null;
+        this.setPlacementTool(null);
+        if (this.showToast) this.showToast(`Generated ${preview.recipe.kind} from seed ${preview.seed}. Undo restores the whole map.`, 'success');
+        return true;
+    },
+
+    closeGenerateCard() {
+        this._generatedPreview = null;
+        const card = typeof document !== 'undefined' ? document.getElementById('dd-generate-card') : null;
+        if (card && card.parentNode) card.parentNode.removeChild(card);
+        if (this.placementTool === 'generate') this.setPlacementTool(null);
+    },
+
+    showGenerateCard() {
+        if (typeof document === 'undefined') return null;
+        const U = DocsDoodads.Ui, rooms = this.generatedRooms(), biomes = DocsDoodads.World.get('biomes.list') || [], o = this.generateOptions;
+        let card = document.getElementById('dd-generate-card');
+        if (!card) { card = document.createElement('div'); card.id = 'dd-generate-card'; card.className = 'dd-glass'; document.body.appendChild(card); }
+        const input = (id, label, value, type = 'number') => `<label>${label}<input id="${id}" type="${type}" value="${escapeHtml(String(value))}" /></label>`;
+        card.innerHTML = `<div class="dd-panel-head"><span class="dd-grow">${U.icon('map', 1)} Generate Map</span><button class="dd-btn" id="dd-gen-close">${U.icon('close', 1)}</button></div>
+            <div class="dd-gen-grid"><label>Kind<select id="dd-gen-kind"><option value="dungeon" ${o.kind === 'dungeon' ? 'selected' : ''}>Dungeon</option><option value="wilderness" ${o.kind === 'wilderness' ? 'selected' : ''}>Wilderness</option></select></label>
+            ${input('dd-gen-seed', 'Seed', o.seed, 'text')}${input('dd-gen-w', 'Width', o.w)}${input('dd-gen-h', 'Height', o.h)}${input('dd-gen-count', 'Rooms', o.count)}
+            ${input('dd-gen-floor', 'Floor tile ID', o.floorTile)}${input('dd-gen-wall', 'Wall tile ID', o.wallTile)}${input('dd-gen-path', 'Path tile ID', o.pathTile)}</div>
+            <div><b>Room stamps</b> ${rooms.map((room, index) => `<label><input type="checkbox" id="dd-gen-room-${index}" ${(o.roomIds || []).includes(room.id) ? 'checked' : ''}/> ${escapeHtml(room.name)}</label>`).join('') || '<small>No saved rooms; plain rooms will be used.</small>'}</div>
+            <div><b>Wilderness biomes</b> ${biomes.map((biome, index) => { const picked = (o.biomes || []).find(item => item.id === biome.id); return `<label style="grid-template-columns:auto 1fr 70px;align-items:center"><input type="checkbox" id="dd-gen-biome-${index}" ${picked ? 'checked' : ''}/> ${escapeHtml(biome.name)} <input type="number" id="dd-gen-biome-tile-${index}" value="${picked && picked.tile || o.floorTile}" title="MZ tile ID for this biome"/></label>`; }).join('') || '<small>Make a biome in Map Details first.</small>'}</div>
+            <div style="display:flex;gap:6px"><button class="dd-btn" id="dd-gen-preview">Preview</button><button class="dd-btn" id="dd-gen-reroll">Reroll</button><button class="dd-btn dd-btn-primary" id="dd-gen-apply">Apply</button></div>
+            <small>Preview changes nothing. Apply writes tiles, room events and doodads as one undo step.</small>`;
+        const on = (id, fn) => { const element = document.getElementById(id); if (element) element.onclick = fn; };
+        on('dd-gen-close', () => this.closeGenerateCard()); on('dd-gen-preview', () => this.previewGeneratedMap(false));
+        on('dd-gen-reroll', () => this.previewGeneratedMap(true)); on('dd-gen-apply', () => this.applyGeneratedMap());
+        return card;
+    }
+});
+
+DocsDoodads.Workspace.toolHooks.generate = {
+    overlay(g) {
+        const preview = this._generatedPreview;
+        if (!preview || preview.mapId !== this.currentMapId() || !g || typeof $gameMap === 'undefined') return;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), color = DocsDoodads.Ui.mapColor('selection');
+        if (preview.layout.kind === 'dungeon') {
+            g.lineStyle(1, color, 0.7); g.beginFill(color, 0.12);
+            for (const room of preview.layout.rooms) g.drawRect($gameMap.adjustX(room.x) * tw, $gameMap.adjustY(room.y) * th, room.w * tw, room.h * th);
+            g.endFill(); g.lineStyle(0);
+            return;
+        }
+        // A 256x256 recipe is still only a screenful of work each frame. The screen-cell coordinates keep
+        // loop-map seams covered without walking every generated cell or rebuilding a path lookup.
+        const layout = preview.layout, width = layout.w, height = layout.h;
+        const displayX = $gameMap.displayX(), displayY = $gameMap.displayY();
+        const across = Math.ceil($gameMap.screenTileX()) + 2, down = Math.ceil($gameMap.screenTileY()) + 2;
+        const startX = Math.floor(displayX) - 1, startY = Math.floor(displayY) - 1;
+        const loopX = $gameMap.isLoopHorizontal(), loopY = $gameMap.isLoopVertical();
+        const ids = (preview.recipe.biomes || []).map(biome => biome.id);
+        const colors = ['selection', 'brushPaint', 'guideSpacing', 'guideTile', 'mirror', 'added', 'changed', 'warning'];
+        const pathKeys = preview.pathKeys || new Set();
+        g.lineStyle(0);
+        for (let sy = startY; sy < startY + down; sy++) for (let sx = startX; sx < startX + across; sx++) {
+            if ((!loopX && (sx < 0 || sx >= width)) || (!loopY && (sy < 0 || sy >= height))) continue;
+            const x = loopX ? ((sx % width) + width) % width : sx, y = loopY ? ((sy % height) + height) % height : sy;
+            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            const biomeId = layout.biomeIds[y * width + x];
+            if (biomeId !== undefined && biomeId !== null) {
+                const index = Math.max(0, ids.indexOf(biomeId));
+                g.beginFill(DocsDoodads.Ui.mapColor(colors[index % colors.length]), 0.14);
+                g.drawRect((sx - displayX) * tw, (sy - displayY) * th, tw, th); g.endFill();
+            }
+            if (pathKeys.has(`${x},${y}`)) {
+                g.beginFill(DocsDoodads.Ui.mapColor('path'), 0.3);
+                g.drawRect((sx - displayX) * tw, (sy - displayY) * th, tw, th); g.endFill();
+            }
+        }
+    }
+};
+
+const generateMapLoaded = DocsDoodads.Workspace.onMapLoaded;
+DocsDoodads.Workspace.onMapLoaded = function() {
+    this.closeGenerateCard();
+    return generateMapLoaded.call(this);
+};
+// @editor-only
+(function() {
+    const W = DocsDoodads.Workspace, H = DocsDoodads.Haze, sections = W.effectSections, defaults = W.propertyDefaults;
+    W.effectSections = function() {
+        return sections.call(this).concat([{ title: 'Heat haze', fields: [
+            { key: 'haze.preset', label: 'Air distortion (flat maps)', type: 'select', options: [{ value: 'none', label: 'Off' }, { value: 'campfire', label: 'Campfire' }, { value: 'lava', label: 'Lava' }, { value: 'desert', label: 'Desert Road' }, { value: 'underwater', label: 'Under Water' }] },
+            { key: 'haze.radius', label: 'Radius / band height (pixels)', type: 'range', min: 8, max: 600, step: 8 },
+            { key: 'haze.strength', label: 'Strength (pixels)', type: 'range', min: 0, max: 12, step: 0.5 },
+            { key: 'haze.speed', label: 'Upward drift speed', type: 'range', min: 0, max: 3, step: 0.1 }
+        ] }]);
+    };
+    W.propertyDefaults = function() { return Object.assign({}, defaults.call(this), { haze: Object.assign({ preset: 'none' }, H.presets.campfire) }); };
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(item, key, value) {
+        if (key === 'haze.preset') {
+            if (value === 'none') delete item.haze;
+            else if (H.presets[value]) item.haze = Object.assign({ preset: value }, H.presets[value]);
+            return;
+        }
+        return apply.call(this, item, key, value);
+    };
+    W.toolHooks.haze = { overlay(g) {
+        if (DocsDoodads.Perspective.liveCamera()) return;
+        for (const item of this.selectionItems()) {
+            const haze = H.normalize(item.haze); if (!haze || haze.shape !== 'circle') continue;
+            const spriteset = typeof SceneManager !== 'undefined' && SceneManager._scene && SceneManager._scene._spriteset;
+            const sprite = spriteset && (spriteset._docsDoodadSprites || []).find(view => view._data === item);
+            if (!sprite) continue;
+            const at = H.spriteCentre(sprite, false);
+            g.lineStyle(1, DocsDoodads.Ui.mapColor('selection'), 0.6); g.drawCircle(at.x, at.y, haze.radius); g.lineStyle(0);
+        }
+    } };
+})();
+// @editor-only
 DocsDoodads.Help = {
     panels: [
         ['item bag', '4. The Item Bag'], ['details', '7. Depth'], ['collision', '16. Direct Physical'],
@@ -47563,6 +48630,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (typeof this.lpcProblems === 'function') out = out.concat(this.lpcProblems());
         const clash = DocsDoodads.Clash, plugins = window.$plugins || [];
         if (clash) out = out.concat(clash.check(plugins), clash.hookFindings(plugins));
+        if (this.shippedProblems && this.shippedRelease()) out = out.concat(this.shippedProblems());
         return out;
     },
 
@@ -51613,7 +52681,7 @@ DocsDoodads.Workspace.brushSizeSteps.region = ['dd-region-rad', 1, 0, 6];
 DocsDoodads.Ui.css += `
 #dd-rooms-card { position: fixed; top: 90px; right: 280px; z-index: 10045; width: 300px; max-width: calc(100vw - 32px); max-height: calc(100vh - 120px); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 #dd-rooms-card .dd-room-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-#dd-rooms-card .dd-room-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 4px; align-items: center; padding: 4px 6px; border-radius: 8px; font-size: 11px; }
+#dd-rooms-card .dd-room-row { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 4px; align-items: center; padding: 4px 6px; border-radius: 8px; font-size: 11px; }
 #dd-rooms-card .dd-room-row.dd-active { background: var(--dd-primary-soft); }
 #dd-rooms-card .dd-room-row small { display: block; color: var(--dd-faint); font-size: 10px; }
 #dd-rooms-card label { display: flex; align-items: center; gap: 6px; font-size: 11px; }
@@ -51682,10 +52750,12 @@ Object.assign(DocsDoodads.Workspace, {
         const values = await DocsDoodads.Ui.form({
             title: 'Save a room', icon: 'map', ok: 'Save Room',
             text: `${rect.w} x ${rect.h} tiles from (${rect.x}, ${rect.y}): its tiles, the doodads standing in it and the events on it.`,
-            fields: [{ key: 'name', label: 'Name', value: 'Room ' + (R.ensureLoaded().length + 1) }]
+            fields: [{ key: 'name', label: 'Name', value: 'Room ' + (R.ensureLoaded().length + 1) },
+                { key: 'openings', label: 'Door openings on edges', value: '', placeholder: 'N2, E3, S2, W3',
+                    help: 'N/S use the x coordinate; E/W use y, starting at 0.' }]
         });
         if (!values || !String(values.name || '').trim() || !this.mounted) return null;
-        const room = R.capture(values.name, map, rect, DocsDoodads.doodads() || [], events, tw, th);
+        const room = R.capture(values.name, map, rect, DocsDoodads.doodads() || [], events, tw, th, R.parseDoors(values.openings, rect.w, rect.h));
         R.add(room);
         R.save();
         this.showToast(`Saved room "${room.name}" (${R.summary(room)}).`, 'success');
@@ -51706,6 +52776,7 @@ Object.assign(DocsDoodads.Workspace, {
         const plan = R.place(room, map, at, {
             tiles: t.tiles, doodads: t.doodads, events: t.events && Boolean(staged && staged.events), keepUnder: t.keepUnder,
             tileWidth: tw, tileHeight: th,
+            groupId: 'grp_' + DocsDoodads.Prefabs.newId('rm_'),
             allocateEventId: () => {
                 const id = DocsDoodads.Events.allocateSafeId(staged);
                 staged.events[id] = { id, reserved: true };
@@ -51752,6 +52823,16 @@ Object.assign(DocsDoodads.Workspace, {
         this.refreshRoomsCard();
     },
 
+    async editRoomOpenings(id) {
+        const room = DocsDoodads.Rooms.get(id);
+        if (!room) return;
+        const text = await DocsDoodads.Ui.prompt('Edge openings: N/S use x, E/W use y. Example: N2, E3, S2, W3',
+            DocsDoodads.Rooms.formatDoors(room.doors), { title: 'Room door openings', ok: 'Save Openings', icon: 'map' });
+        if (text === null || text === undefined || DocsDoodads.Rooms.get(id) !== room) return;
+        room.doors = DocsDoodads.Rooms.parseDoors(text, room.w, room.h);
+        DocsDoodads.Rooms.save(); this.refreshRoomsCard();
+    },
+
     async deleteRoom(id) {
         const room = DocsDoodads.Rooms.get(id);
         if (!room) return;
@@ -51785,6 +52866,7 @@ Object.assign(DocsDoodads.Workspace, {
                 <div class="dd-room-row${t.roomId === r.id && this.placementTool === 'room' ? ' dd-active' : ''}">
                     <span>${escapeHtml(r.name)}<small>${escapeHtml(R.summary(r))}</small></span>
                     <button class="dd-btn" id="dd-room-place-${i}" type="button" title="Click the map where its top-left corner goes">Place</button>
+                    <button class="dd-btn" id="dd-room-doors-${i}" type="button" title="Mark door openings on the room's edges">Doors</button>
                     <button class="dd-btn" id="dd-room-rename-${i}" type="button" title="Rename">${U.icon('wrench', 1)}</button>
                     <button class="dd-btn" id="dd-room-delete-${i}" type="button" title="Delete">${U.icon('trash', 1)}</button>
                 </div>`).join('') : '<div style="font-size: 11px; color: var(--dd-faint); line-height: 1.4;">No rooms yet. Save one from the map: a house, a shop counter, a camp, then place it again anywhere.</div>'}</div>
@@ -51799,6 +52881,7 @@ Object.assign(DocsDoodads.Workspace, {
         on('dd-rooms-capture', () => this.startRoomCapture());
         rooms.forEach((r, i) => {
             on(`dd-room-place-${i}`, () => this.pickRoom(r.id));
+            on(`dd-room-doors-${i}`, () => this.editRoomOpenings(r.id));
             on(`dd-room-rename-${i}`, () => this.renameRoom(r.id));
             on(`dd-room-delete-${i}`, () => this.deleteRoom(r.id));
         });
@@ -53412,6 +54495,147 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 // @editor-only
+(function() {
+    const D = DocsDoodads, W = D.Workspace, S = D.Shipped, U = D.Ui;
+    Object.assign(W, {
+        shippedRelease() {
+            const stat = D.FS.stat(S.path), signature = stat ? stat.mtimeMs + ':' + stat.size : '';
+            if (!this._shippedCache || this._shippedCache.signature !== signature) this._shippedCache = { signature, value: S.latest(stat ? D.FS.readJson(S.path) : null) };
+            return this._shippedCache.value;
+        },
+        shippedCurrent(version = '', recordHashes = false) {
+            if (recordHashes) return this.shippedDiskSnapshot(version);
+            const sizes = {};
+            const ids = new Set(Object.keys(window.$dataDocsDoodads || {}).filter(id => /^\d+$/.test(id)).map(Number));
+            for (const map of this.mapEntries()) ids.add(Number(map.id));
+            for (const id of ids) {
+                const file = D.Persistence.mapFilePath(id), map = D.FS.readJson(file);
+                if (map && map.width && map.height) sizes[id] = [map.width, map.height];
+                else if (id === this.currentMapId() && window.$gameMap) sizes[id] = [$gameMap.width(), $gameMap.height()];
+            }
+            return S.snapshot(window.$dataDocsDoodads || {}, sizes, version);
+        },
+        shippedDiskSnapshot(version) {
+            const bytes = new Map(), crypto = require('crypto'), DF = D.DataFiles;
+            const read = (file, required = false) => {
+                if (!bytes.has(file)) bytes.set(file, D.FS.existsSync(file) ? D.FS.readFileSync(file) : null);
+                const text = bytes.get(file);
+                if (required && text === null) throw new Error('Missing released-data file: ' + file);
+                return text;
+            };
+            const main = JSON.parse(read(DF.mainPath()) || '{}');
+            const disk = DF.merge(main, id => JSON.parse(read(DF.mapPath(id), true)));
+            const normalized = D.migrateData(JSON.parse(JSON.stringify(disk)), 'doodads');
+            if (JSON.stringify(DF.stable(normalized)) !== JSON.stringify(DF.stable(window.$dataDocsDoodads || {}))) {
+                throw new Error('Saved doodad data differs from the editor. Reload or save before marking a release.');
+            }
+            const sizes = {}, infos = JSON.parse(read('data/MapInfos.json') || 'null');
+            const ids = new Set(Object.keys(disk).filter(id => /^\d+$/.test(id)).map(Number));
+            for (const map of Array.isArray(infos) ? infos : this.mapEntries()) if (map && Number(map.id) > 0) ids.add(Number(map.id));
+            for (const id of ids) {
+                const text = read(D.Persistence.mapFilePath(id));
+                const map = text === null ? null : JSON.parse(text);
+                if (map && map.width && map.height) sizes[id] = [map.width, map.height];
+            }
+            const snapshot = S.snapshot(disk, sizes, version);
+            snapshot.fileHashes = Object.fromEntries(Array.from(bytes).map(([file, text]) => [file, text === null ? null : crypto.createHash('sha256').update(text).digest('hex')]));
+            return snapshot;
+        },
+        shippedProblems() { return S.diff(this.shippedRelease(), this.shippedCurrent()); },
+        async markAsReleased() {
+            if (!D.FS.writable() || !D.FS.fs) return false;
+            if (D.Persistence.hasUnsavedWork()) {
+                if (!(await U.confirm('Save the project before recording the names and states players\' saves will know?', { title: 'Mark as Released', ok: 'Save and Continue' }))) return false;
+                if (!D.Persistence.saveAll()) return false;
+            }
+            const values = await U.form({ title: 'Mark as Released', text: 'Records names, states and map sizes to warn about later save-breaking changes.', ok: 'Mark Release', fields: [{ key: 'version', label: 'Release name or version', value: pluginVersion }] });
+            const version = String(values && values.version || '').trim().slice(0, 80);
+            if (!version) return false;
+            const value = D.FS.readJson(S.path), previous = S.latest(value);
+            if (value && !previous && !Array.isArray(value.releases) && !Array.isArray(value)) { this.showToast('The release-history format is not recognized; keep it intact and check the file.', 'error'); return false; }
+            const releases = Array.isArray(value) ? value.slice() : value && Array.isArray(value.releases) ? value.releases.slice() : previous ? [previous] : [];
+            if (releases.some(release => release.version === version) && !(await U.confirm('Replace the recorded snapshot for ' + version + '?', { title: 'Replace Release Snapshot', ok: 'Replace', danger: true }))) return false;
+            let snapshot;
+            try { snapshot = this.shippedCurrent(version, true); }
+            catch (error) { this.showToast('Could not read the release files: ' + error.message, 'error'); return false; }
+            snapshot.date = new Date().toISOString();
+            const next = { version: 1, releases: releases.filter(release => release.version !== version).concat([snapshot]) };
+            if (!D.FS.atomicWriteJson(S.path, next, 2)) return false;
+            this._shippedCache = null; this.showToast('Recorded release ' + version + '. Future save-name changes will be checked.', 'success');
+            return true;
+        },
+        shippedNames(mapId) {
+            const release = this.shippedRelease();
+            return new Set((release && release.names[mapId] || []).map(name => S.resolveName((window.$dataDocsDoodads || {}).aliases, mapId, name)));
+        },
+        shippedHazards(items) {
+            const mapId = this.currentMapId(), names = this.shippedNames(mapId), picked = new Set(items);
+            const remaining = new Set(D.doodads(mapId).filter(item => item && !picked.has(item)).map(item => S.name(item.name)));
+            return Array.from(new Set(items.map(item => S.name(item.name)).filter(name => name && names.has(name) && !remaining.has(name))));
+        },
+        withShippedAliases(mapId, changes, action) {
+            const before = JSON.parse(JSON.stringify((window.$dataDocsDoodads.aliases || {})[mapId] || {})), after = JSON.parse(JSON.stringify(before));
+            for (const [oldName, newName] of changes) {
+                const old = S.name(oldName), next = S.name(newName);
+                delete after[next]; delete after['name:' + next];
+                if (old !== next) after['name:' + old] = next;
+            }
+            const set = value => {
+                const data = window.$dataDocsDoodads;
+                if (!data.aliases) data.aliases = {};
+                if (Object.keys(value).length) data.aliases[mapId] = JSON.parse(JSON.stringify(value)); else delete data.aliases[mapId];
+                if (!Object.keys(data.aliases).length) delete data.aliases;
+                D.Persistence.dirtyDoodads = true;
+            };
+            const execute = D.Undo.execute;
+            D.Undo.execute = function(command) {
+                const apply = command.apply, revert = command.revert;
+                command.apply = function() { const result = apply.call(this); set(after); return result; };
+                command.revert = function() { const result = revert.call(this); set(before); return result; };
+                return execute.call(this, command);
+            };
+            try { return action(); } finally { D.Undo.execute = execute; }
+        },
+        shippedIdentity(items) { return { mapId: this.currentMapId(), items: items.slice(), selection: this.selectionItems().slice() }; },
+        shippedIdentityMatches(identity) {
+            const selection = this.selectionItems();
+            return identity.mapId === this.currentMapId() && identity.items.every(item => D.doodads(identity.mapId).includes(item))
+                && selection.length === identity.selection.length && selection.every((item, index) => item === identity.selection[index]);
+        },
+        async confirmShippedChange(items, target, action) {
+            const hazards = this.shippedHazards(items);
+            if (!hazards.length) return action();
+            const identity = this.shippedIdentity(items), candidates = target === null ? Array.from(new Set(D.doodads(identity.mapId).filter(item => item && !items.includes(item)).map(item => String(item.name || '').trim()).filter(Boolean))) : [];
+            const canKeep = target !== null ? Boolean(S.name(target)) : candidates.length > 0;
+            const choices = [{ label: 'Cancel', value: null }];
+            if (canKeep) choices.push({ label: 'Keep the Old Name Working', value: 'keep', main: true });
+            choices.push({ label: target === null ? 'Delete without an Alias' : 'Rename without an Alias', value: 'change', kind: 'danger' });
+            const choice = await U.choose('Players\' saves know ' + hazards.join(', ') + '. Keep their saved states and lights attached to another name? Existing saved values for that target take priority.', choices, { title: 'Released Save Names', icon: 'history' });
+            if (!choice || !this.shippedIdentityMatches(identity)) { this.refreshInspector(); return false; }
+            let next = target;
+            if (choice === 'keep' && target === null) {
+                const picked = await U.form({ title: 'Keep the Old Name Working', ok: 'Keep and Delete', fields: [{ key: 'target', label: 'Existing name to receive saved states and lights', type: 'select', value: candidates[0], options: candidates.map(name => ({ value: name, label: name })) }] });
+                if (!picked || !candidates.includes(picked.target) || !this.shippedIdentityMatches(identity)) return false;
+                next = picked.target;
+                if (!D.doodads(identity.mapId).some(item => item && !items.includes(item) && String(item.name || '').trim() === next)) return false;
+            }
+            const result = choice === 'keep' ? this.withShippedAliases(identity.mapId, hazards.map(name => [name, next]), action) : action();
+            this.refreshInspector(); return result;
+        }
+    });
+    const set = W.setDoodadProperty;
+    W.setDoodadProperty = function(items, key, value) {
+        if (key !== 'name' || !this.shippedHazards(items).length || items.every(item => S.name(item.name) === S.name(value))) return set.call(this, items, key, value);
+        return this.confirmShippedChange(items, String(value || '').trim(), () => set.call(this, items, key, value));
+    };
+    const remove = W.deleteSelectedDoodad;
+    W.deleteSelectedDoodad = function() {
+        const items = this.selectionItems().filter(item => !item.locked);
+        return this.shippedHazards(items).length ? this.confirmShippedChange(items, null, () => remove.call(this)) : remove.call(this);
+    };
+    W.problemGroups.push(['shipped', 'Released saves']);
+})();
+// @editor-only
 //==========================================================
 // SECTION 25m: KEYBOARD SHORTCUTS CARD
 //==========================================================
@@ -54804,7 +56028,9 @@ DocsDoodads.Workspace.paletteCommands = function() {
     W.setDoodadProperty = function(items, key, value) {
         const before = items.map(item => JSON.stringify(this.getDoodadProperty(item, key)));
         const result = set.call(this, items, key, value);
-        if (items.some((item, index) => JSON.stringify(this.getDoodadProperty(item, key)) !== before[index])) R.record(items.map(item => R.kind(item)), key);
+        const record = () => { if (items.some((item, index) => JSON.stringify(this.getDoodadProperty(item, key)) !== before[index])) R.record(items.map(item => R.kind(item)), key); };
+        if (result && typeof result.then === 'function') return result.then(value => { record(); return value; });
+        record();
         return result;
     };
     const editEvent = W.editSelectedEvent;
