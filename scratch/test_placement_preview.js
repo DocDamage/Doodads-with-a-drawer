@@ -64,9 +64,24 @@ const planned = W.planPathPlacement(W.pathPoints.concat([at]), asset, W.pathSett
 assert.deepStrictEqual(pathPreview, planned.slice(0, 12).map(d => [d.x, d.y, d.rotation]));
 W.removeGhost();
 // Capture removes preview sprites, their effects and their contribution to light before rendering.
+D.World.set('reflections.enabled', true);
+ss.updateDocsWaterMask = () => true;
+ss.updateDocsReflections();
+const reflectionBaseline = ss._docsReflectLayer._docsPool.filter(sprite => sprite.visible).length;
 W.showPlacementPreview(asset, at, 'stamp');
-const renderer = { render() { assert.ok(!ss._docsDoodadSprites.some(sprite => sprite._docsPlacementPreview)); }, extract: { canvas: () => E.makeCanvas(816, 624) } };
+ss.updateDocsReflections();
+assert.ok(ss._docsReflectLayer._docsPool.filter(sprite => sprite.visible).length > reflectionBaseline, 'a rendered preview has its own pooled reflection');
+const liveLight = window.$dataDocsDoodads[1].find(d => d.light && d.light.enabled);
+D.Lighting._lampLevels.set(liveLight, 0.3);
+$gameSystem._docsAmbientFade = D.Lighting.startFade({ darkness: 0.1, color: '#ffffff' }, { darkness: 0.6, color: '#112233' }, 60);
+const fadeBefore = JSON.stringify($gameSystem._docsAmbientFade);
+const renderer = { render() {
+    assert.ok(!ss._docsDoodadSprites.some(sprite => sprite._docsPlacementPreview));
+    assert.strictEqual(ss._docsReflectLayer._docsPool.filter(sprite => sprite.visible).length, reflectionBaseline, 'capture also excludes the pooled preview reflection');
+}, extract: { canvas: () => E.makeCanvas(816, 624) } };
 assert.ok(D.Capture.renderSceneCanvas(ss, renderer)); assert.strictEqual(W._placementPreview, null);
+assert.strictEqual(JSON.stringify($gameSystem._docsAmbientFade), fadeBefore, 'removing a preview does not advance the saved ambient fade');
+assert.strictEqual(D.Lighting._lampLevels.get(liveLight), 0.3, 'the render-only refresh does not advance live lamp fades');
 W.showPlacementPreview(asset, at, 'stamp'); W.placementTool = 'stamp'; W.setPlacementTool(null);
 assert.strictEqual(W._placementPreview, null, 'tool changes remove previews');
 W.placementTool = 'brush'; W.brushSettings.density = 60; W.brushSettings.radius = 200;

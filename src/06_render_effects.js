@@ -381,8 +381,10 @@ DocsDoodads.Lighting = {
                 const levels = this._lampLevels;
                 level = levels && levels.has(d) ? levels.get(d) : target;
                 const step = ctx.step > 0 ? ctx.step : 1;
-                level = level < target ? Math.min(target, level + step) : Math.max(target, level - step);
-                if (levels) levels.set(d, level);
+                if (!ctx.freeze) {
+                    level = level < target ? Math.min(target, level + step) : Math.max(target, level - step);
+                    if (levels) levels.set(d, level);
+                }
                 if (level <= 0) continue;
             }
             const at = d.posMode !== 0 ? toScreen(d.x, d.y) : { x: d.x, y: d.y };

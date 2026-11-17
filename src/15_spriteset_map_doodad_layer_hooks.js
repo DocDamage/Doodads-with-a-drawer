@@ -348,12 +348,12 @@ if (typeof Spriteset_Map !== 'undefined') {
         for (let i = 0; i < pool.length; i++) pool[i].visible = i < count;
     };
 
-    Spriteset_Map.prototype.updateDocsLighting = function() {
+    Spriteset_Map.prototype.updateDocsLighting = function(freeze) {
         if (!this._docsLightOverlay || typeof $gameMap === 'undefined' || !$gameMap) return;
         const Lighting = DocsDoodads.Lighting;
         const workspace = DocsDoodads.Workspace;
         const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
-        if (fade) {
+        if (fade && !freeze) {
             Lighting.stepFade(fade);
             if (fade.framesLeft <= 0 && fade.clearWhenDone) $gameSystem._docsAmbientFade = null;
         }
@@ -370,7 +370,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (d && d.light && d.light.enabled) visibleData.push(d);
         }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
-            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
+            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30, freeze: Boolean(freeze) });
         // In 3D the ground is lit around the lamp's base: the height offset would land the pool behind it.
         if (this._docs3d) {
             for (const l of lights) l.y -= Number(Lighting.lightOf(l.doodad).offsetY) || 0;

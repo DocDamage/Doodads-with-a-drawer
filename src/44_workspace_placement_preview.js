@@ -55,7 +55,8 @@ Object.assign(DocsDoodads.Workspace, {
         if (!state || spriteset && spriteset !== state.spriteset) return;
         this._placementPreview = null;
         state.spriteset.removeSomeDocsDoodads(state.items);
-        if (state.spriteset.updateDocsLighting) state.spriteset.updateDocsLighting();
+        if (state.spriteset.updateDocsReflections) state.spriteset.updateDocsReflections();
+        if (state.spriteset.updateDocsLighting) state.spriteset.updateDocsLighting(true);
     },
     showPlacementPreview(asset, coords, tool = 'stamp') {
         const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null, spriteset = scene && scene._spriteset;

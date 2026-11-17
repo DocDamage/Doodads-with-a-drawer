@@ -90,7 +90,7 @@ DocsDoodads.Packs = {
             const entry = library ? library(p) : null;
             const keep = {};
             if (entry) {
-                for (const k of ['tags', 'slice', 'placement', 'collision', 'collisionUserSet', 'guess', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
+                for (const k of ['tags', 'slice', 'placement', 'animation', 'collision', 'collisionUserSet', 'guess', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
             }
             const credit = DocsDoodads.Credits.normalize(entry && entry.credit) || (creditOf ? DocsDoodads.Credits.normalize(creditOf(p)) : null);
             if (credit) keep.credit = credit;
