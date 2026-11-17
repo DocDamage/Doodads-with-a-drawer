@@ -16,6 +16,10 @@ DocsDoodads.GenerateRuntime = {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return null;
         return $gameSystem._docsGeneratedMaps = $gameSystem._docsGeneratedMaps || {};
     },
+    isMaterialized(mapId) {
+        const entry = this._materialized && this._materialized[Number(mapId) || 0];
+        return Boolean(entry && typeof $dataMap !== 'undefined' && entry.map === $dataMap);
+    },
     queue(raw = {}) {
         const records = this.records();
         if (!records) return null;
@@ -94,6 +98,8 @@ DocsDoodads.GenerateRuntime = {
     },
     apply(mapId, map) {
         const records = this.records(), record = records && records[mapId];
+        this._materialized = this._materialized || {};
+        delete this._materialized[mapId];
         if (!record || !map || !Array.isArray(map.data)) return null;
         let ready;
         try { ready = this.prepare(mapId, map, record); }
@@ -110,14 +116,17 @@ DocsDoodads.GenerateRuntime = {
             const list = $dataDocsDoodads[mapId] = authored;
             for (const doodad of plan.doodads) { doodad._docsGeneratedMap = mapId; list.push(doodad); }
         }
+        this._materialized[mapId] = { map, seed: record.seed };
         return { layout, plan };
     },
-    afterExtract() { this._afterSaveLoad = true; },
+    afterExtract() { this._materialized = {}; this._afterSaveLoad = true; },
     beforeLoadedScene() {
         if (!this._afterSaveLoad) return null;
         this._afterSaveLoad = false;
         const mapId = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0;
-        return this.apply(mapId, typeof $dataMap !== 'undefined' ? $dataMap : null);
+        const generated = this.apply(mapId, typeof $dataMap !== 'undefined' ? $dataMap : null);
+        if (generated && DocsDoodads.Shipped && DocsDoodads.Shipped.migrateSaved) DocsDoodads.Shipped.migrateSaved(mapId);
+        return generated;
     }
 };
 
@@ -139,8 +148,10 @@ if (typeof DataManager !== 'undefined' && typeof DataManager.loadDatabase === 'f
 if (typeof Game_Map !== 'undefined') {
     $.Game_Map_setup_generate = Game_Map.prototype.setup;
     Game_Map.prototype.setup = function(mapId) {
-        DocsDoodads.GenerateRuntime.apply(Number(mapId) || 0, typeof $dataMap !== 'undefined' ? $dataMap : null);
-        return $.Game_Map_setup_generate.call(this, mapId);
+        const generated = DocsDoodads.GenerateRuntime.apply(Number(mapId) || 0, typeof $dataMap !== 'undefined' ? $dataMap : null);
+        const result = $.Game_Map_setup_generate.call(this, mapId);
+        if (generated && DocsDoodads.Shipped && DocsDoodads.Shipped.migrateSaved) DocsDoodads.Shipped.migrateSaved(mapId);
+        return result;
     };
 }
 
