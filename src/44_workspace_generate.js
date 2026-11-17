@@ -50,7 +50,8 @@ Object.assign(DocsDoodads.Workspace, {
             const rooms = this.generatedRooms(), missing = recipe.roomIds.filter(id => !rooms.some(room => String(room.id) === id));
             if (missing.length) throw new Error(`Room stamp not found: ${missing.join(', ')}`);
             const seed = DocsDoodads.Generate.seed(raw.seed), layout = DocsDoodads.Generate.layout(recipe, seed, rooms);
-            this._generatedPreview = { mapId, map, seed, recipe, layout };
+            this._generatedPreview = { mapId, map, seed, recipe, layout,
+                pathKeys: new Set((layout.paths || []).map(tile => `${tile.x},${tile.y}`)) };
             this.setPlacementTool('generate');
             if (this.redrawOverlay) this.redrawOverlay();
             return this._generatedPreview;
@@ -135,10 +136,38 @@ DocsDoodads.Workspace.toolHooks.generate = {
         const preview = this._generatedPreview;
         if (!preview || preview.mapId !== this.currentMapId() || !g || typeof $gameMap === 'undefined') return;
         const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), color = DocsDoodads.Ui.mapColor('selection');
-        g.lineStyle(1, color, 0.7); g.beginFill(color, 0.12);
-        if (preview.layout.kind === 'dungeon') for (const room of preview.layout.rooms) g.drawRect($gameMap.adjustX(room.x) * tw, $gameMap.adjustY(room.y) * th, room.w * tw, room.h * th);
-        else for (const tile of preview.layout.paths) g.drawRect($gameMap.adjustX(tile.x) * tw, $gameMap.adjustY(tile.y) * th, tw, th);
-        g.endFill(); g.lineStyle(0);
+        if (preview.layout.kind === 'dungeon') {
+            g.lineStyle(1, color, 0.7); g.beginFill(color, 0.12);
+            for (const room of preview.layout.rooms) g.drawRect($gameMap.adjustX(room.x) * tw, $gameMap.adjustY(room.y) * th, room.w * tw, room.h * th);
+            g.endFill(); g.lineStyle(0);
+            return;
+        }
+        // A 256x256 recipe is still only a screenful of work each frame. The screen-cell coordinates keep
+        // loop-map seams covered without walking every generated cell or rebuilding a path lookup.
+        const layout = preview.layout, width = layout.w, height = layout.h;
+        const displayX = $gameMap.displayX(), displayY = $gameMap.displayY();
+        const across = Math.ceil($gameMap.screenTileX()) + 2, down = Math.ceil($gameMap.screenTileY()) + 2;
+        const startX = Math.floor(displayX) - 1, startY = Math.floor(displayY) - 1;
+        const loopX = $gameMap.isLoopHorizontal(), loopY = $gameMap.isLoopVertical();
+        const ids = (preview.recipe.biomes || []).map(biome => biome.id);
+        const colors = ['selection', 'brushPaint', 'guideSpacing', 'guideTile', 'mirror', 'added', 'changed', 'warning'];
+        const pathKeys = preview.pathKeys || new Set();
+        g.lineStyle(0);
+        for (let sy = startY; sy < startY + down; sy++) for (let sx = startX; sx < startX + across; sx++) {
+            if ((!loopX && (sx < 0 || sx >= width)) || (!loopY && (sy < 0 || sy >= height))) continue;
+            const x = loopX ? ((sx % width) + width) % width : sx, y = loopY ? ((sy % height) + height) % height : sy;
+            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            const biomeId = layout.biomeIds[y * width + x];
+            if (biomeId !== undefined && biomeId !== null) {
+                const index = Math.max(0, ids.indexOf(biomeId));
+                g.beginFill(DocsDoodads.Ui.mapColor(colors[index % colors.length]), 0.14);
+                g.drawRect((sx - displayX) * tw, (sy - displayY) * th, tw, th); g.endFill();
+            }
+            if (pathKeys.has(`${x},${y}`)) {
+                g.beginFill(DocsDoodads.Ui.mapColor('path'), 0.3);
+                g.drawRect((sx - displayX) * tw, (sy - displayY) * th, tw, th); g.endFill();
+            }
+        }
     }
 };
 
