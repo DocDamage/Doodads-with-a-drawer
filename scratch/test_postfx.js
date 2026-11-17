@@ -23,7 +23,7 @@ const P = DocsDoodads.PostFX;
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
 
 // 1. A look holds every effect; nothing is on by default.
-const ids = ['bloom', 'color', 'vignette', 'grain', 'aberration', 'lens', 'crt', 'pixelate', 'sharpen', 'tiltShift'];
+const ids = ['bloom', 'color', 'vignette', 'grain', 'aberration', 'lens', 'crt', 'pixelate', 'sharpen', 'tiltShift', 'heat'];
 const base = P.defaultLook();
 assert.deepStrictEqual(Object.keys(base).sort(), ids.slice().sort());
 assert.ok(ids.every(id => base[id].enabled === false));

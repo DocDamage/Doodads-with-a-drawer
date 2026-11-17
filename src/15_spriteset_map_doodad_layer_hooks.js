@@ -772,6 +772,7 @@ if (typeof Sprite_Character !== 'undefined' && typeof PIXI !== 'undefined') {
 
 // Post-processing is offered in Options only when the project uses it.
 DocsDoodads.PostFX.offeredInOptions = function() {
+    if (DocsDoodads.Haze && DocsDoodads.Haze.usedInProject()) return true;
     const pf = DocsDoodads.World.settings().postfx;
     if (!pf.enabled) return false;
     if (this.isActive(this.normalizeLook(pf.look))) return true;
@@ -919,7 +920,9 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         }
         const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
         const quality = P.effectiveQuality(world.postfx.quality, option);
-        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim);
+        const haze = this.docsHazeSources ? this.docsHazeSources(look, quality, hidden) : [];
+        this._docsHazeInputs = { look, quality, hidden };
+        const passes = hidden && this._docsExportLook === undefined ? [] : P.passes(look, quality, anim, haze);
         const target = world.postfx.includePictures ? this : this._baseSprite;
         const other = target === this ? this._baseSprite : this;
         if (!target) return;
@@ -927,6 +930,10 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
         const f = this._docsPostFx;
         const ours = [];
         if (f) {
+            if (passes.includes('haze') && f.haze) {
+                DocsDoodads.Haze.uniforms(haze, DocsDoodads.frameCount() / 60, DocsDoodads.Comfort.choices().lessCameraMotion, f.haze.uniforms);
+                ours.push(f.haze);
+            }
             if (passes.includes('bloom')) {
                 const bloom = look ? look.bloom : P.defaultLook().bloom;
                 const parts = f.bloom._docsParts;
@@ -960,7 +967,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
                 ours.push(f.grade);
             }
         }
-        const all = f ? [f.bloom, f.tiltH, f.tiltV, f.grade] : [];
+        const all = f ? [f.haze, f.bloom, f.tiltH, f.tiltV, f.grade] : [];
         const strip = list => (list || []).filter(filter => !all.includes(filter));
         // The other container may still hold our filters from before "Affect pictures" changed.
         if (other && other.filters && other.filters.some(filter => all.includes(filter))) other.filters = strip(other.filters);
