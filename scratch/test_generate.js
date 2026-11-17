@@ -107,6 +107,7 @@ assert.deepStrictEqual(Object.keys($gameSystem._docsGeneratedMaps[1]).sort(), ['
 assert.ok(!JSON.stringify($gameSystem._docsGeneratedMaps).includes('biomeIds'));
 $gameMap.setup(1);
 assert.ok($dataMap.data.some(id => id === 4352), 'setup applies the generated walls before the map is shown');
+assert.strictEqual(D.GenerateRuntime.isMaterialized(1), true, 'a successful setup records the exact materialized map object');
 assert.ok(($dataMap.events || []).some(e => e && e._docsGeneratedMap === 1), 'room events are materialized');
 assert.ok((D.doodads(1) || []).some(d => d && d._docsGeneratedMap === 1), 'room doodads are materialized');
 
@@ -118,6 +119,7 @@ console.warn = (...parts) => { generationWarning = parts.map(String).join(' '); 
 try { assert.strictEqual(D.GenerateRuntime.apply(1, $dataMap), null, 'a requested room missing from the loaded catalog cancels generation'); }
 finally { console.warn = oldWarn; }
 assert.match(generationWarning, /room stamp not loaded/i);
+assert.strictEqual(D.GenerateRuntime.isMaterialized(1), false, 'failed generation is never reported as materialized');
 assert.strictEqual(JSON.stringify({ map: $dataMap, doodads: D.doodads(1) }), generatedBeforeMissing,
     'a failed recipe leaves the previous generated map intact');
 
@@ -157,7 +159,13 @@ global.$dataMap = loadedMap;
 D.GenerateRuntime.queue({ mapId: 1, kind: 'wilderness', seed: 81, w: 16, h: 12,
     biomes: [{ id: 'forest', weight: 1, tile: 2816 }], floorTile: 2816 });
 D.GenerateRuntime.afterExtract();
+assert.strictEqual(D.GenerateRuntime.isMaterialized(1), false, 'extracting a save clears materialization until its map data is loaded');
+const migrateSaved = D.Shipped.migrateSaved; let migratedAfterGeneration = 0;
+D.Shipped.migrateSaved = mapId => { migratedAfterGeneration = mapId; };
 assert.ok(D.GenerateRuntime.beforeLoadedScene(), 'save-load path regenerated without calling setup');
+D.Shipped.migrateSaved = migrateSaved;
+assert.strictEqual(migratedAfterGeneration, 1, 'saved generated names migrate only after their doodads exist again');
+assert.strictEqual(D.GenerateRuntime.isMaterialized(1), true);
 assert.ok(loadedMap.data.some(Boolean), 'post-load generation restored tile data before display');
 
 // The editor owns one preview at a time. Apply delegates all map, doodad and event mutations to one
