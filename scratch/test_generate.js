@@ -110,6 +110,8 @@ assert.ok($dataMap.data.some(id => id === 4352), 'setup applies the generated wa
 assert.strictEqual(D.GenerateRuntime.isMaterialized(1), true, 'a successful setup records the exact materialized map object');
 assert.ok(($dataMap.events || []).some(e => e && e._docsGeneratedMap === 1), 'room events are materialized');
 assert.ok((D.doodads(1) || []).some(d => d && d._docsGeneratedMap === 1), 'room doodads are materialized');
+assert.throws(() => D.GenerateRuntime.queue({ mapId: 1, kind: 'dungeon', seed: 4, w: 2, h: 2 }), /size/i);
+assert.strictEqual(D.GenerateRuntime.isMaterialized(1), true, 'an invalid replacement recipe leaves the working materialization active');
 
 const generatedBeforeMissing = JSON.stringify({ map: $dataMap, doodads: D.doodads(1) });
 D.GenerateRuntime.queue({ mapId: 1, kind: 'dungeon', seed: 9, w: 24, h: 18, count: 2,
