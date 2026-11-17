@@ -39,6 +39,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['gridSnapShow', 'Show Grid Snap', 'false', 'Show visual grid overlay in editor by default.'],
             ['gridSnapWidth', 'Grid Snap Width', '0', "Width of the placement snapping grid in pixels (0 = the map's tile width)."],
             ['gridSnapHeight', 'Grid Snap Height', '0', "Height of the placement snapping grid in pixels (0 = the map's tile height)."],
+            ['saveFilePictures', 'Pictures on save files', 'false', "Add small map pictures, area names and game time to MZ's save list. About 8 KB maximum per picture."],
             ['comfortOptions', 'Comfort options', 'auto', "Show Reduce Flashes and Less Camera Motion in the player's Options."],
             ['startPlayersOnAuto', 'Start players on Auto', 'false', 'Start new player preferences with Auto Effects Quality; existing saved choices stay in control.'],
             ['softenMZEffects', 'Also soften MZ flashes and shakes', 'false', "Apply the player's comfort choices to MZ's Flash Screen and Shake Screen commands too."],

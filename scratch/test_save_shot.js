@@ -36,6 +36,8 @@ assert.strictEqual(snapCount,1, 'reuse native map snapshot, no second render');
 let info = DataManager.makeSavefileInfo();
 assert.strictEqual(info.docsShot, shot); assert.strictEqual(info.docsPlace,'Forest Gate');
 assert.strictEqual(info.docsClock.day,3);
+new Scene_Map().start(); assert.ok(!DataManager.makeSavefileInfo().docsShot, 'returning to map drops stale menu snapshot');
+new Scene_Map().terminate();
 const win = new Window_SavefileList();
 win.contents = { blt(...args) { win.blits = (win.blits||0)+1; win.blitArgs = args; } };
 win.lineHeight = () => 24; win.drawText = text => { win.text = text; };
@@ -47,6 +49,9 @@ assert.ok(win.blitArgs[6] >= 24 && win.nativeRect.x >= 160, 'preserve native Fil
 assert.ok(win.text.includes('Forest Gate') && win.text.includes('08:24'));
 win.drawContents({...info,docsShot:'bad'},rect); assert.strictEqual(win.nativeRect,rect);
 win.drawContents(info,{...rect,width:100}); assert.strictEqual(win.blits,1, 'small rows use native list');
+class CustomSaveList extends Window_SavefileList {}
+const custom = new CustomSaveList(); custom.drawContents(info,rect);
+assert.strictEqual(custom.nativeRect,rect, 'custom save-window subclasses retain their native layout');
 S.reset();
 info = DataManager.makeSavefileInfo(); assert.ok(!info.docsShot, 'no stale picture after a transfer/load');
 assert.strictEqual(info.docsPlace,'Forest Gate', 'metadata remains available without a snapshot');
