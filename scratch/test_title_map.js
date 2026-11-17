@@ -99,6 +99,7 @@ const original = ['$gameTemp','$gameSystem','$gameScreen','$gameMessage','$gameS
     .reduce((out, key) => (out[key] = global[key], out), {});
 D.World.set('title', { mapId: 7, x: 6, y: 5, time: 1260, season: 2, weather: { type: 'storm', power: 6 },
     look: {}, path: { points: [{ x: 6, y: 5 }, { x: 10, y: 5 }], frames: 2, ease: 'linear' }, pictures: 'hide' });
+$dataDocsDoodads.mapSettings[7] = { perspective: { enabled: true } };
 const titleData = { width: 24, height: 18, data: originalDataMap.data.slice(), tilesetId: 1, scrollType: 2,
     events: [null, { id: 1, name: 'Decoration', note: '', x: 7, y: 8, pages: [{ list: [] }] }], note: '', parallaxName: '' };
 const title = new Scene_Title(); title.create(); assert.strictEqual(loadId, 7); assert.strictEqual(title.isReady(), false);
@@ -107,6 +108,7 @@ assert.strictEqual($dataMap, originalDataMap); for (const key of Object.keys(ori
 assert.ok(title._docsTitleSpriteset instanceof Spriteset_Map); assert.strictEqual(title.children[0], title._docsTitleSpriteset, 'map is behind native title art');
 assert.strictEqual(title._backSprite1.visible, false); assert.strictEqual(title._backSprite2.visible, false);
 assert.strictEqual(title._docsTitleContext.$gamePlayer.isTransparent(), true); assert.strictEqual(title._docsTitleContext.$gamePlayer.x, 6);
+T.withContext(title._docsTitleContext, () => assert.strictEqual(D.Perspective.active(), null, 'the first title-map release remains flat even if the map uses 3D'));
 
 // Map event commands never update. Safe parallax, event animation, weather, path and the map sprites do.
 title.onNativeUpdate = () => { assert.strictEqual($gameMap, original.$gameMap, 'native title commands run in the caller context'); };
@@ -131,7 +133,8 @@ title.onNativeUpdate = () => { if (!madeNewGame) { madeNewGame = true; DataManag
 title.update();
 const newGame = { map: $gameMap, player: $gamePlayer, switches: $gameSwitches, system: $gameSystem };
 assert.strictEqual(newGame.player.x, 11); assert.strictEqual(newGame.switches.value(4), true);
-title.terminate(); assert.strictEqual(renderMap, title._docsLastTitleMap || title._docsTitleContext && title._docsTitleContext.$gameMap, 'native snapshot sees title objects');
+const titleMapAtSnapshot = title._docsTitleContext.$gameMap;
+title.terminate(); assert.strictEqual(renderMap, titleMapAtSnapshot, 'native snapshot sees title objects');
 assert.strictEqual($gameMap, newGame.map); assert.strictEqual($gamePlayer, newGame.player); assert.strictEqual($gameSystem._docsClock.minutes, 123);
 
 // Throwing from native snapshot also restores the already-created New Game.
