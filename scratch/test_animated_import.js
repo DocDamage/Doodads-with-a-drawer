@@ -214,6 +214,12 @@ async function main() {
         assert.strictEqual(plainResult.ok, false);
         assert.match(plainResult.errors[0].message, /\.apng|animated PNG|acTL/i, 'a non-animated .apng gets a useful error');
         assert.strictEqual(fs.existsSync(path.join(project, 'img', 'doodads', 'NotAnimated.png')), false);
+        const probeBomb = path.join(sourceDir, 'ProbeBomb.png');
+        fs.writeFileSync(probeBomb, Buffer.concat([baseApng.subarray(0, 33),
+            ...Array.from({ length: 4097 }, () => pngChunk('aaAa', Buffer.alloc(0))), baseApng.subarray(33)]));
+        const probePlan = D.Import.planBatch([probeBomb], { projectRoot: project, destination: 'img/doodads' });
+        assert.strictEqual(probePlan.operations.length, 0);
+        assert.match(probePlan.errors[0].message, /chunks|complex|4096/i, 'the lightweight PNG animation probe has the decoder chunk bound too');
 
         // Re-importing an APNG that already lives at its requested destination must never overwrite its
         // own source with the generated frame sheet, including when the source path reaches it by a link.
