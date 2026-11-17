@@ -212,6 +212,20 @@ assert.notStrictEqual(JSON.stringify(editorMap), beforeEditor, 'Apply changes th
 assert.strictEqual(D.Undo.undoStack[D.Undo.undoStack.length - 1].type, 'generate_map');
 D.Undo.undo();
 assert.strictEqual(JSON.stringify(editorMap), beforeEditor, 'one Undo restores tiles and events exactly');
+
+// Wilderness rerolls remain visible even when a seed happens to make no marked path cells. The overlay
+// visits only the on-screen tile range, not every cell of a maximum-size generated map.
+const largeBiomes = new Array(256 * 256).fill(0).map((unused, index) => index % 2 ? 'forest' : 'marsh');
+D.Workspace._generatedPreview = { mapId: 1, map: editorMap, recipe: { biomes: [{ id: 'forest' }, { id: 'marsh' }] },
+    layout: { kind: 'wilderness', w: 256, h: 256, biomeIds: largeBiomes, paths: [] } };
+const oldMapShape = { width: $gameMap.width, height: $gameMap.height, displayX: $gameMap.displayX, displayY: $gameMap.displayY };
+$gameMap.width = $gameMap.height = () => 256; $gameMap.displayX = () => 100; $gameMap.displayY = () => 80;
+const overlay = new PIXI.Graphics();
+D.Workspace.toolHooks.generate.overlay.call(D.Workspace, overlay);
+const cells = overlay.geometry.graphicsData;
+assert.ok(cells.length > 0 && cells.length < 500, `wilderness preview draws only visible biome cells (${cells.length})`);
+assert.ok(new Set(cells.map(cell => cell.fillStyle.color)).size >= 2, 'biome legend colours distinguish the generated areas');
+Object.assign($gameMap, oldMapShape);
 assert.ok(D.Workspace.menus().some(menu => menu.id === 'map' && menu.items.some(item => item.id === 'dd-generate-btn')),
     'Generate Map is an actual Map-menu command');
 
