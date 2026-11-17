@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Picture placement previews use the real map sprite, depth, animation, light, shadow and reflection, with a twelve-sprite limit for Scatter, Paint and Path. Brush random sequences stay unchanged; cleanup removes previews and their light/reflection contributions from captures without advancing game fades.
+- GIF and APNG files become bounded PNG frame sheets with timing and exact frame counts ready for placement. Disposal, transparency and common PNG colour types are decoded locally; source files survive even a same-path overwrite choice. Metadata travels through the real drawer drag and packs. Unsupported 16-bit/Adam7 APNGs receive a clear error.
 - Climate rolls reproducible weather spans from the day, season and saved seed. World tables set rain/storm/snow/fog/wind chances and duration; indoor maps suppress it, event weather holds until Resume Climate, and the clock strip, forecast API and Store Forecast report coming days.
 - The 3D map can use a first-person camera at terrain-relative eye height, with eased quarter-turns, forward/back steps, optional click-to-lock mouse look and near-object fading. The player is hidden while followers stay visible; the editor borrows orbit view, and Photo Mode releases mouse look.
 - Art credits can be recorded per file or inherited from a folder, searched by author/licence, carried through packs and file moves, and written to CREDITS.txt for referenced art with the LPC section. Supplied readme/licence text is offered as a note; missing-credit Problems are opt-in.

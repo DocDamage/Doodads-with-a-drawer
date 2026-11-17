@@ -183,6 +183,12 @@ The workspace features a multi-tiered slicing engine that segments composite she
 
 ## 6. Drag-and-Drop Placement & Modern Map Editing
 
+### A picture preview on the map
+
+While placing a picture doodad, the preview is a translucent version of the real map sprite. It sorts behind and in front of scenery by its base, animates, and shows its light, shadow and reflection. Scatter, Paint and Path preview up to twelve of the next placements. Their preview plans keep the random sequence and path jitter used by the committed stroke. The small HTML picture still follows a bag drag before it reaches the map; event and prefab drags retain their existing preview.
+
+Previews never enter map data, saved files or Undo. They disappear on Escape, tool/map changes, leaving the window, or closing the workspace. Capture and map export remove them, including pooled reflections and their light contribution, before drawing. Removing a preview does not advance ambient or lamp fades.
+
 ### Placing Assets
 - **Drag & Drop**: Drag any asset or slice from the Item Bag directly onto the live game map. A translucent **Ghost Follower** tracks your mouse with exact dimensions.
 - **Snapping**: Snaps to the map's tiles by default (or the Grid Snap Width / Height parameters). **Hold Alt** while dragging or dropping for free pixel-perfect placement.
@@ -944,6 +950,14 @@ Click the **Sounds** tab in the Item Bag to browse BGM, BGS, ME, and SE files:
 ---
 
 ## 18. Windows Explorer Native Drag-and-Drop Ingestion
+
+### Animated GIF and APNG
+
+Drop a GIF or APNG (`.png` or `.apng`), or choose it in **Add Files**, to make a PNG frame sheet. The original stays intact. The imported item has its frames, commonest delay and exact frame count set, so a picture placement plays immediately; **Cut Up Sheet** opens it like other sheets. Packs carry these animation defaults. Converting an APNG already at the target path chooses an unused name even if Overwrite was selected.
+
+GIF has up to 256 colours and no soft transparency; converting it does not restore those details. If frame delays differ, the importer says that the commonest delay is used for the whole animation, rounded to the game’s 60-frame clock. A one-frame file produces a still PNG.
+
+Animated inputs are limited to 64 MB, 512 frames and 32 million decoded pixels; no sheet side exceeds 4096 pixels. PNG header/chunk scanning is bounded. APNG accepts palette and grayscale depths 1/2/4/8 and RGB/RGBA/grayscale-alpha at 8 bits, including palette/colour-key transparency. Export 16-bit or Adam7-interlaced APNG as an 8-bit non-interlaced copy first. Invalid or oversized animation and cancellation leave no partial converted PNG. These readers stay out of the game-only build.
 
 Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window:
 - **Recursive Directory Support**: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files.

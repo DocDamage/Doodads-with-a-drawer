@@ -28,7 +28,8 @@ called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 7.1.5 flat-map normal lighting; 8.4.4 BGM-reactive motion/lights/particles; 8.1.4 first-map quest;
 7.3.5 seeded generated maps; 9.5.3 save-safe changes; 9.3.3 heat haze;
 8.1.3 guessed placement defaults; 8.3.6 player Photo Mode; 9.1.2 Auto Effects Quality;
-7.3.8 first-person 3D camera; 9.4.3 art credit ledger; 9.2.6 seasonal climate.
+7.3.8 first-person 3D camera; 9.4.3 art credit ledger; 9.2.6 seasonal climate;
+8.2.2 real map placement previews; 9.4.2 animated GIF/APNG import.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -56,6 +57,8 @@ the water bug are still pending. Do not claim this row is Done.
 | First-person camera: 7.3.8 | Complete locally | Pure/runtime/editor camera and controls | Reviewed; orbit fade regression, sequential map yaw, Photo lock release and focused runtime/game-only suites passed; MZ/GPU pending |
 | Art credits: 9.4.3 | Complete locally | Pure ledger, metadata/packs, search/import/Details and local credits output | Reviewed; indexed fallback clearing, inherited/fallback rename, room/state/model/normal refs, opt-in checks, supplied notes and adjacent pack/import/asset/Problems suites passed |
 | Seasonal climate: 9.2.6 | Complete locally | Seeded spans, weather holds/interiors, ephemeral fog/wind, World tables/forecast strip and commands/API | Reviewed; cross-save wind ownership and prototype-named seasons fixed; pure/runtime, UI Undo and adjacent atmosphere/world/map tools suites passed |
+| Placement preview: 8.2.2 | Complete locally | Real sprite pool, shared brush/path plans, capture/lifecycle hooks | Reviewed; stale pooled reflections and native fade preservation fixed; actual brush/Paint/path parity, pooling, capture and lifecycle targets passed |
+| Animated import: 9.4.2 | Complete locally | Bounded GIF/APNG readers, PNG sheet, transactions, index/drag/pack metadata and exact runtime frame count | Reviewed CRC/order/probe budgets, common colour types/transparency, source alias preservation, real drawer drag and new actor-file default; author defaults preserved; targets passed |
 
 The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
@@ -76,41 +79,11 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Latest verification
 
-- Current gate: static PASS (207 editor parts, 75 runtime parts, 1,606 strings).
-  Full coverage: 184/185 suites in 168.8 seconds; lines/statements 91.88%, branches
-  77.98%, functions 86.57%, all thresholds passed and no repository mutations.
-  The last failure was a strict window-open source assertion after inserting the
-  first-person listener cleanup. Window growth remains directly after mounted=true;
-  listener cleanup follows it synchronously. Window, first-person and Photo suites
-  now pass. All nine failures from the prior run passed targeted reruns. Repeat the
-  full gate after animated import and the placement preview batch.
-- Current continuation static gate: PASS (203 editor parts, 72 runtime parts, 1,591 strings).
-  Coverage ran 184 suites with 175 passing; nine integration failures identified eager first-person
-  document listeners, Photo registration ordering, a legacy capture-source assertion and expected
-  feature lists. Fixes and targeted reruns are in progress before the full rerun. The repository
-  stayed unchanged; thresholds passed (lines/statements 90.99%, branches 77.43%, functions 85.26%).
-- Current integration: static verify PASS (192 editor parts, 66 runtime parts, 1,553 strings).
-  Full coverage PASS: 178/178 suites in 185.9 seconds; lines/statements 91.70%,
-  branches 78.15%, functions 86.21%. All thresholds passed and the repository stayed
-  unchanged during the run. Generated maps, Shipped safety and heat haze are included.
-- Latest continuation gate: static verify PASS (181 editor parts, 57 runtime parts, 1,507 strings).
-  Coverage ran 173 suites with 172 passing; the one failure was a legacy source-inspection assertion
-  hidden by the plugin-report wrapper. Plugin findings now join the original Problems collector;
-  LPC library, plugin reports and map-check suites pass after that integration. No repository files
-  changed during the full run. Coverage passed: lines/statements 91.59%, branches 78.37%, functions 85.95%.
-- Normal-test isolation fixed: `DD_REPO_ROOT` is for source reads; the new normal test now always
-  creates its own temporary project. Confirmed fake-art/data artifacts were removed and the tracked
-  library fixture restored. The corrected test passed with explicit checks that repository data/art
-  stayed untouched. No user assets/configuration were intentionally changed.
-- Beat and quest review regressions pass, including actual emitter burst suppression, throwing/closed
-  audio, stop/map termination, blocked preferences, async Play From Here, unsuccessful saves and
-  saving a different map. Next full run is after the next bounded implementation batch.
-- Continuation static gate passed with 169 editor parts and 53 runtime parts. Coverage ran all
-  168 suites: 161 passed; seven old source-inspection checks failed after a close-method wrapper
-  and capture declaration changes. Integration moved the close hooks directly into the original
-  method and reordered capture setup; all seven failed suites plus event commands and trace
-  passed on targeted rerun. Full rerun is pending the next bounded batch. Coverage thresholds
-  passed: lines/statements 91.39%, branches 78.39%, functions 85.63%.
+- Current gate: static PASS (210 editor parts, 75 runtime parts, 1,606 strings).
+  Full coverage PASS: 187/187 suites in 176.5 seconds; lines/statements 92.14%,
+  branches 77.99%, functions 86.80%. All thresholds passed and the repository stayed
+  unchanged. Animated import, actual placement previews and all prior integration
+  fixes are included.
 - `npm audit --audit-level=moderate`: zero vulnerabilities (16 November 2026).
 - Red/green runtime tests exist for each row listed above.
 - Adjacent menus, weather/camera, postfx, inspector, regions, API and creator suites passed.
@@ -132,11 +105,10 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Continue row 9.4.2 animated import (specialist) and choose the next bounded editor item after
-the current integration gate. Follow the
-dependency order in the three plans. These and later rows are not implemented merely
+Continue with 9.2.4 event light/sight checks and 9.1.4 save-file pictures, then follow
+the dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 40 other buildable rows still open, plus the external-plugin compatibility
+There are 38 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

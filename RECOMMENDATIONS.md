@@ -247,7 +247,7 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | # | Suggestion | Size |
 |---|---|---|
 | 8.2.1 | **Built; MZ playtest pending.** **A bigger window while editing.** Grow the Playtest window to fill the screen when the editor opens and put it back on Done. Much less work than panels in their own window (7.2.5), for most of the gain. | S |
-| 8.2.2 | **A truer ghost of what will be placed.** There is a ghost today: a small picture that follows the pointer, over everything. Draw the item in the map as it will land instead, with its own size, shadow, light and depth, before the click. | S |
+| 8.2.2 | **Built; MZ playtest pending.** **A truer ghost of what will be placed.** There is a ghost today: a small picture that follows the pointer, over everything. Draw the item in the map as it will land instead, with its own size, shadow, light and depth, before the click. | S |
 | 8.2.3 | **Moving tooltips.** A tool's tooltip plays a two-second clip of the tool in use. | S |
 | 8.2.4 | **Built; MZ playtest pending.** **Details that starts short.** The three most used settings for the kind of thing picked, with the rest under More. | M |
 
@@ -335,7 +335,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | # | Suggestion | Size |
 |---|---|---|
 | 9.4.1 | **Tileset flags in the editor.** Passability, ☆, ladder, bush, counter, damage floor and terrain tags still need a trip to MZ's database; the Regions tool shows terrain tags and cannot change them. Click them on the Tiles palette as in MZ, see the result at once, and save `Tilesets.json` with the same care as a map. | M |
-| 9.4.2 | **Animated GIF and APNG in.** The Item Bag takes PNG, JPEG and WebP. A dropped GIF or APNG becomes a frame strip with its frame count and speed set, so the placed doodad animates at once. | S |
+| 9.4.2 | **Built; MZ playtest pending.** **Animated GIF and APNG in.** The Item Bag takes PNG, JPEG and WebP. A dropped GIF or APNG becomes a frame strip with its frame count and speed set, so the placed doodad animates at once. | S |
 | 9.4.3 | **Built; MZ playtest pending.** **A licence ledger for all art.** Credits are written for LPC only. Keep an author, a licence and a source per file or folder (packs carry theirs), find art with none, and write one credits file for the art the game uses. | S |
 
 ### 9.5 Safer releases

@@ -2363,6 +2363,7 @@ DocsDoodads.Capture = {
     renderSceneCanvas(spriteset, renderer) {
         renderer = renderer || (DocsDoodads.Compat && DocsDoodads.Compat.getRenderer ? DocsDoodads.Compat.getRenderer() : null);
         if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
+        if (typeof spriteset.removeDocsPlacementPreview === 'function') spriteset.removeDocsPlacementPreview();
         const outline = spriteset._docsSelectionOutline;
         const outlineVisible = outline && outline.visible;
         if (outline) outline.visible = false;
@@ -2931,8 +2932,10 @@ DocsDoodads.Lighting = {
                 const levels = this._lampLevels;
                 level = levels && levels.has(d) ? levels.get(d) : target;
                 const step = ctx.step > 0 ? ctx.step : 1;
-                level = level < target ? Math.min(target, level + step) : Math.max(target, level - step);
-                if (levels) levels.set(d, level);
+                if (!ctx.freeze) {
+                    level = level < target ? Math.min(target, level + step) : Math.max(target, level - step);
+                    if (levels) levels.set(d, level);
+                }
                 if (level <= 0) continue;
             }
             const at = d.posMode !== 0 ? toScreen(d.x, d.y) : { x: d.x, y: d.y };
@@ -8213,6 +8216,457 @@ DocsDoodads.SpatialSound = {
     }
 };
 
+// @editor-only
+//==========================================================
+// SECTION 11A: BOUNDED GIF/APNG READERS AND ANIMATED IMPORT
+//==========================================================
+(function() {
+    'use strict';
+
+    const limits = { inputBytes: 64 * 1024 * 1024, side: 4096, frames: 512, totalPixels: 32 * 1024 * 1024 };
+    const bytesOf = value => value instanceof Uint8Array ? value : new Uint8Array(value || 0);
+    const fail = message => { throw new Error(message); };
+    const checkInput = (bytes, name) => {
+        bytes = bytesOf(bytes);
+        if (bytes.length > limits.inputBytes) fail(`${name} is larger than the 64 MB animated-image limit.`);
+        return bytes;
+    };
+    const copy = value => new Uint8Array(value);
+    const read16le = (bytes, at) => bytes[at] | bytes[at + 1] << 8;
+    const read16be = (bytes, at) => bytes[at] << 8 | bytes[at + 1];
+    const read32be = (bytes, at) => ((bytes[at] * 0x1000000) + (bytes[at + 1] << 16) + (bytes[at + 2] << 8) + bytes[at + 3]) >>> 0;
+    const dimensions = (width, height, name) => {
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > limits.side || height > limits.side
+            || width * height > limits.totalPixels) fail(`${name} dimensions exceed the 4096-pixel or memory limit.`);
+    };
+    const cancelled = token => Boolean(token && (token.cancelled || token.isCancelled));
+    const checkCancelled = token => { if (cancelled(token)) { const error = new Error('Import cancelled.'); error.code = 'DD_IMPORT_CANCELLED'; throw error; } };
+
+    function gifSubBlocks(bytes, state) {
+        const parts = [];
+        let total = 0;
+        while (true) {
+            if (state.at >= bytes.length) fail('GIF is truncated inside a data block.');
+            const size = bytes[state.at++];
+            if (!size) break;
+            if (state.at + size > bytes.length) fail('GIF is truncated inside a data block.');
+            parts.push(bytes.subarray(state.at, state.at + size)); total += size; state.at += size;
+            if (total > limits.inputBytes) fail('GIF data exceeds the animated-image limit.');
+        }
+        const out = new Uint8Array(total);
+        let at = 0;
+        for (const part of parts) { out.set(part, at); at += part.length; }
+        return out;
+    }
+
+    function gifLzw(data, minimum, expected) {
+        if (minimum < 2 || minimum > 8) fail('GIF uses an invalid LZW code size.');
+        const clear = 1 << minimum, end = clear + 1;
+        let bit = 0, size, next, table;
+        const reset = () => {
+            size = minimum + 1; next = end + 1; table = new Array(4096);
+            for (let index = 0; index < clear; index++) table[index] = [index];
+        };
+        const code = () => {
+            if (bit + size > data.length * 8) return null;
+            let value = 0;
+            for (let i = 0; i < size; i++) value |= ((data[(bit + i) >> 3] >> ((bit + i) & 7)) & 1) << i;
+            bit += size;
+            return value;
+        };
+        reset();
+        const out = [];
+        let previous = null, ended = false;
+        while (true) {
+            const value = code();
+            if (value === null) break;
+            if (value === clear) { reset(); previous = null; continue; }
+            if (value === end) { ended = true; break; }
+            let entry = table[value];
+            if (!entry && value === next && previous) entry = previous.concat(previous[0]);
+            if (!entry) fail('GIF has invalid LZW data.');
+            if (out.length + entry.length > expected) fail('GIF frame expands beyond its rectangle.');
+            out.push(...entry);
+            if (previous && next < 4096) {
+                table[next++] = previous.concat(entry[0]);
+                if (next === (1 << size) && size < 12) size++;
+            }
+            previous = entry;
+        }
+        if (!ended || out.length !== expected) fail('GIF frame data is truncated.');
+        return Uint8Array.from(out);
+    }
+
+    DocsDoodads.GifRead = {
+        frames(input, options = {}) {
+            const bytes = checkInput(input, 'GIF');
+            if (bytes.length < 13 || String.fromCharCode(...bytes.subarray(0, 6)) !== 'GIF87a'
+                && String.fromCharCode(...bytes.subarray(0, 6)) !== 'GIF89a') fail('Not a complete GIF file.');
+            const state = { at: 6 }, width = read16le(bytes, state.at), height = read16le(bytes, state.at + 2);
+            dimensions(width, height, 'GIF');
+            const packed = bytes[state.at + 4], backgroundIndex = bytes[state.at + 5]; state.at += 7;
+            const readPalette = count => {
+                if (state.at + count * 3 > bytes.length) fail('GIF colour palette is truncated.');
+                const palette = [];
+                for (let i = 0; i < count; i++, state.at += 3) palette.push([bytes[state.at], bytes[state.at + 1], bytes[state.at + 2], 255]);
+                return palette;
+            };
+            const globalPalette = packed & 0x80 ? readPalette(1 << ((packed & 7) + 1)) : null;
+            const background = globalPalette && globalPalette[backgroundIndex] ? globalPalette[backgroundIndex] : [0, 0, 0, 0];
+            const canvas = new Uint8Array(width * height * 4);
+            for (let p = 0; p < width * height; p++) canvas.set(background, p * 4);
+            const frames = [];
+            let control = { disposal: 0, delay: 10, transparent: -1 }, prior = null;
+            const dispose = () => {
+                if (!prior) return;
+                if (prior.disposal === 2) {
+                    for (let y = 0; y < prior.h; y++) for (let x = 0; x < prior.w; x++) canvas.set(prior.clear, ((prior.y + y) * width + prior.x + x) * 4);
+                } else if (prior.disposal === 3 && prior.saved) canvas.set(prior.saved);
+                prior = null;
+            };
+            let trailer = false;
+            while (state.at < bytes.length) {
+                checkCancelled(options.cancellationToken);
+                const marker = bytes[state.at++];
+                if (marker === 0x3b) { trailer = true; break; }
+                if (marker === 0x21) {
+                    if (state.at >= bytes.length) fail('GIF extension is truncated.');
+                    const label = bytes[state.at++];
+                    if (label === 0xf9) {
+                        if (state.at + 6 > bytes.length || bytes[state.at++] !== 4) fail('GIF graphic control is truncated.');
+                        const flags = bytes[state.at++], delay = read16le(bytes, state.at); state.at += 2;
+                        const transparent = bytes[state.at++];
+                        if (bytes[state.at++] !== 0) fail('GIF graphic control has no terminator.');
+                        control = { disposal: flags >> 2 & 7, delay, transparent: flags & 1 ? transparent : -1 };
+                    } else gifSubBlocks(bytes, state);
+                    continue;
+                }
+                if (marker !== 0x2c) fail('GIF contains an unknown block.');
+                if (state.at + 9 > bytes.length) fail('GIF image descriptor is truncated.');
+                dispose();
+                const x = read16le(bytes, state.at), y = read16le(bytes, state.at + 2), w = read16le(bytes, state.at + 4), h = read16le(bytes, state.at + 6);
+                const imageFlags = bytes[state.at + 8]; state.at += 9;
+                if (!w || !h || x + w > width || y + h > height) fail('GIF frame rectangle is outside its canvas.');
+                if (frames.length + 1 > limits.frames || (frames.length + 1) * width * height > limits.totalPixels) fail('GIF has too many decoded pixels or frames.');
+                const palette = imageFlags & 0x80 ? readPalette(1 << ((imageFlags & 7) + 1)) : globalPalette;
+                if (!palette) fail('GIF frame has no colour palette.');
+                if (state.at >= bytes.length) fail('GIF frame data is truncated.');
+                const minimum = bytes[state.at++], indices = gifLzw(gifSubBlocks(bytes, state), minimum, w * h);
+                const rows = [];
+                if (imageFlags & 0x40) {
+                    for (const [start, step] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let row = start; row < h; row += step) rows.push(row);
+                } else for (let row = 0; row < h; row++) rows.push(row);
+                if (!frames.length && control.transparent === backgroundIndex) canvas.fill(0);
+                const saved = control.disposal === 3 ? copy(canvas) : null;
+                for (let sourceRow = 0; sourceRow < h; sourceRow++) for (let col = 0; col < w; col++) {
+                    const colourIndex = indices[sourceRow * w + col];
+                    if (colourIndex === control.transparent) continue;
+                    const colour = palette[colourIndex];
+                    if (!colour) fail('GIF frame refers to a missing palette colour.');
+                    canvas.set(colour, ((y + rows[sourceRow]) * width + x + col) * 4);
+                }
+                frames.push({ width, height, rgba: copy(canvas), delayMs: control.delay * 10 });
+                prior = { disposal: control.disposal, x, y, w, h, saved,
+                    clear: control.transparent === backgroundIndex ? [0, 0, 0, 0] : background };
+                control = { disposal: 0, delay: 10, transparent: -1 };
+            }
+            if (!trailer || !frames.length) fail('GIF has no complete picture.');
+            return frames;
+        }
+    };
+
+    function pngChunks(input) {
+        const bytes = checkInput(input, 'PNG');
+        const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+        if (bytes.length < 20 || !signature.every((value, index) => bytes[index] === value)) fail('Not a complete PNG file.');
+        const chunks = [];
+        let at = 8, ended = false;
+        while (at < bytes.length) {
+            if (chunks.length >= 4096) fail('PNG has too many chunks to import safely.');
+            if (at + 12 > bytes.length) fail('PNG chunk is truncated.');
+            const length = read32be(bytes, at), type = String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6], bytes[at + 7]);
+            if (length > limits.inputBytes || at + 12 + length > bytes.length) fail('PNG chunk is truncated or too large.');
+            const expectedCrc = read32be(bytes, at + 8 + length);
+            if (!DocsDoodads.AsepriteSheets || DocsDoodads.AsepriteSheets.crc32(bytes.subarray(at + 4, at + 8 + length)) !== expectedCrc) fail(`PNG ${type} chunk has a bad CRC.`);
+            chunks.push({ type, body: bytes.subarray(at + 8, at + 8 + length) });
+            at += 12 + length;
+            if (type === 'IEND') { ended = true; break; }
+        }
+        if (!ended) fail('PNG has no end chunk.');
+        if (at !== bytes.length) fail('PNG has data after its end chunk.');
+        return chunks;
+    }
+
+    function pngPixels(compressed, frame, header, palette, transparency, inflate) {
+        let inflated;
+        const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[header.colour];
+        const bitsPerPixel = channels * header.depth, stride = Math.ceil(frame.w * bitsPerPixel / 8);
+        const filterBytes = Math.max(1, Math.ceil(bitsPerPixel / 8)), expected = (stride + 1) * frame.h;
+        try { inflated = bytesOf(inflate(compressed, expected)); } catch (error) { fail(`APNG frame could not be inflated: ${error.message || error}`); }
+        if (inflated.length !== expected) fail('APNG frame has an unexpected amount of pixel data.');
+        const rows = new Uint8Array(stride * frame.h);
+        let previous = new Uint8Array(stride);
+        const paeth = (a, b, c) => { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; };
+        for (let y = 0; y < frame.h; y++) {
+            const filter = inflated[y * (stride + 1)], line = inflated.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+            if (filter > 4) fail('APNG frame uses an unknown PNG filter.');
+            const row = rows.subarray(y * stride, (y + 1) * stride);
+            for (let i = 0; i < stride; i++) {
+                const left = i >= filterBytes ? row[i - filterBytes] : 0, up = previous[i], corner = i >= filterBytes ? previous[i - filterBytes] : 0;
+                const add = filter === 1 ? left : filter === 2 ? up : filter === 3 ? Math.floor((left + up) / 2) : filter === 4 ? paeth(left, up, corner) : 0;
+                row[i] = (line[i] + add) & 255;
+            }
+            previous = row;
+        }
+        const out = new Uint8Array(frame.w * frame.h * 4);
+        const sample = (row, index) => {
+            if (header.depth === 8) return row[index];
+            const perByte = 8 / header.depth, byte = row[Math.floor(index / perByte)], shift = 8 - header.depth * (index % perByte + 1);
+            return byte >> shift & (1 << header.depth) - 1;
+        };
+        const maxSample = (1 << header.depth) - 1;
+        for (let y = 0; y < frame.h; y++) for (let x = 0; x < frame.w; x++) {
+            const row = rows.subarray(y * stride, (y + 1) * stride), p = y * frame.w + x, target = p * 4;
+            if (header.colour === 0) {
+                const grey = sample(row, x), display = Math.round(grey * 255 / maxSample);
+                out[target] = out[target + 1] = out[target + 2] = display;
+                out[target + 3] = transparency && transparency.grey === grey ? 0 : 255;
+            } else if (header.colour === 2) {
+                const source = x * 3, red = row[source], green = row[source + 1], blue = row[source + 2];
+                out[target] = red; out[target + 1] = green; out[target + 2] = blue;
+                out[target + 3] = transparency && transparency.rgb[0] === red && transparency.rgb[1] === green && transparency.rgb[2] === blue ? 0 : 255;
+            } else if (header.colour === 3) {
+                const index = sample(row, x), colour = palette[index];
+                if (!colour) fail('APNG frame refers to a missing palette colour.');
+                out[target] = colour[0]; out[target + 1] = colour[1]; out[target + 2] = colour[2];
+                out[target + 3] = transparency && index < transparency.palette.length ? transparency.palette[index] : 255;
+            } else if (header.colour === 4) {
+                const source = x * 2, grey = row[source];
+                out[target] = out[target + 1] = out[target + 2] = grey; out[target + 3] = row[source + 1];
+            } else {
+                const source = x * 4;
+                out[target] = row[source]; out[target + 1] = row[source + 1]; out[target + 2] = row[source + 2]; out[target + 3] = row[source + 3];
+            }
+        }
+        return out;
+    }
+
+    DocsDoodads.ApngRead = {
+        isAnimated(input) {
+            try { return pngChunks(input).some(chunk => chunk.type === 'acTL'); } catch (error) { return false; }
+        },
+        frames(input, inflate, options = {}) {
+            if (typeof inflate !== 'function') fail('APNG decoding needs an inflate function.');
+            const chunks = pngChunks(input), ihdr = chunks.find(chunk => chunk.type === 'IHDR');
+            if (!ihdr || chunks[0] !== ihdr || chunks.filter(chunk => chunk.type === 'IHDR').length !== 1 || ihdr.body.length !== 13) fail('PNG IHDR must be the first and only header chunk.');
+            const header = { width: read32be(ihdr.body, 0), height: read32be(ihdr.body, 4), depth: ihdr.body[8], colour: ihdr.body[9], compression: ihdr.body[10], filter: ihdr.body[11], interlace: ihdr.body[12] };
+            dimensions(header.width, header.height, 'APNG');
+            const allowedDepths = { 0: [1, 2, 4, 8], 2: [8], 3: [1, 2, 4, 8], 4: [8], 6: [8] };
+            if (!allowedDepths[header.colour] || !allowedDepths[header.colour].includes(header.depth) || header.compression || header.filter || header.interlace) {
+                fail('APNG colour types supported are non-interlaced palette/greyscale at 1, 2, 4 or 8 bits and RGB/RGBA at 8 bits; 16-bit and Adam7 APNG are not supported.');
+            }
+            const firstIdat = chunks.findIndex(chunk => chunk.type === 'IDAT'), animationAt = chunks.findIndex(chunk => chunk.type === 'acTL');
+            if (firstIdat < 0 || animationAt < 0) fail('PNG is not animated (acTL or IDAT is missing).');
+            if (animationAt > firstIdat) fail('APNG acTL must appear before the first IDAT chunk.');
+            if (chunks.filter(chunk => chunk.type === 'acTL').length !== 1) fail('APNG must contain one acTL chunk.');
+            const animation = chunks[animationAt];
+            if (animation.body.length !== 8) fail('APNG acTL has an invalid length.');
+            const paletteChunks = chunks.filter(chunk => chunk.type === 'PLTE'), transparencyChunks = chunks.filter(chunk => chunk.type === 'tRNS');
+            if (paletteChunks.length > 1 || transparencyChunks.length > 1) fail('APNG has duplicate palette or transparency chunks.');
+            const paletteAt = chunks.findIndex(chunk => chunk.type === 'PLTE'), transparencyAt = chunks.findIndex(chunk => chunk.type === 'tRNS');
+            if (paletteAt > firstIdat || transparencyAt > firstIdat) fail('APNG palette and transparency must appear before IDAT.');
+            let palette = null, transparency = null;
+            if (paletteChunks.length) {
+                const body = paletteChunks[0].body;
+                if (!body.length || body.length % 3 || body.length > 768) fail('APNG palette is invalid.');
+                palette = Array.from({ length: body.length / 3 }, (_, index) => Array.from(body.subarray(index * 3, index * 3 + 3)));
+            }
+            if (header.colour === 3 && !palette) fail('Indexed APNG has no palette.');
+            if (transparencyChunks.length) {
+                const body = transparencyChunks[0].body;
+                if (header.colour === 0 && body.length === 2) transparency = { grey: read16be(body, 0) };
+                else if (header.colour === 2 && body.length === 6) transparency = { rgb: [read16be(body, 0), read16be(body, 2), read16be(body, 4)] };
+                else if (header.colour === 3 && palette && body.length <= palette.length) transparency = { palette: body };
+                else fail('APNG tRNS transparency does not match its colour type.');
+            }
+            const expectedFrames = read32be(animation.body, 0);
+            if (!expectedFrames || expectedFrames > limits.frames) fail('APNG frame count exceeds the limit.');
+            const records = [];
+            let record = null, sequence = 0, sawIdat = false, firstControlBeforeIdat = false;
+            const finish = () => { if (record) { if (!record.parts.length) fail('APNG frame has no image data.'); records.push(record); record = null; } };
+            for (const chunk of chunks) {
+                checkCancelled(options.cancellationToken);
+                if (chunk.type === 'fcTL') {
+                    finish();
+                    if (chunk.body.length !== 26 || read32be(chunk.body, 0) !== sequence++) fail('APNG frame sequence is invalid.');
+                    const control = { w: read32be(chunk.body, 4), h: read32be(chunk.body, 8), x: read32be(chunk.body, 12), y: read32be(chunk.body, 16),
+                        delayNum: read16be(chunk.body, 20), delayDen: read16be(chunk.body, 22) || 100, dispose: chunk.body[24], blend: chunk.body[25] };
+                    if (!control.w || !control.h || control.x + control.w > header.width || control.y + control.h > header.height || control.dispose > 2 || control.blend > 1) fail('APNG frame control is outside its canvas or unsupported.');
+                    if (!sawIdat && records.length === 0 && (control.x || control.y || control.w !== header.width || control.h !== header.height)) fail('APNG default-image frame must cover the full IHDR canvas at offset 0.');
+                    if (!sawIdat && records.length === 0 && control.dispose === 2) control.dispose = 1;
+                    record = Object.assign(control, { parts: [] });
+                    if (!sawIdat && records.length === 0) firstControlBeforeIdat = true;
+                } else if (chunk.type === 'IDAT') {
+                    sawIdat = true;
+                    if (record && firstControlBeforeIdat && records.length === 0) record.parts.push(chunk.body);
+                } else if (chunk.type === 'fdAT') {
+                    if (!record || chunk.body.length < 5 || read32be(chunk.body, 0) !== sequence++) fail('APNG frame data sequence is invalid.');
+                    record.parts.push(chunk.body.subarray(4));
+                }
+            }
+            finish();
+            if (records.length !== expectedFrames || records.length * header.width * header.height > limits.totalPixels) fail('APNG frame count does not match acTL or exceeds the decoded-pixel limit.');
+            const canvas = new Uint8Array(header.width * header.height * 4), pictures = [];
+            for (const rec of records) {
+                checkCancelled(options.cancellationToken);
+                const compressedLength = rec.parts.reduce((sum, part) => sum + part.length, 0), compressed = new Uint8Array(compressedLength);
+                let at = 0; for (const part of rec.parts) { compressed.set(part, at); at += part.length; }
+                const source = pngPixels(compressed, rec, header, palette, transparency, inflate), saved = rec.dispose === 2 ? copy(canvas) : null;
+                for (let y = 0; y < rec.h; y++) for (let x = 0; x < rec.w; x++) {
+                    const si = (y * rec.w + x) * 4, di = ((rec.y + y) * header.width + rec.x + x) * 4;
+                    if (rec.blend === 0) canvas.set(source.subarray(si, si + 4), di);
+                    else {
+                        const sa = source[si + 3], da = canvas[di + 3], outA = sa + da * (255 - sa) / 255;
+                        if (outA <= 0) canvas.fill(0, di, di + 4);
+                        else {
+                            for (let channel = 0; channel < 3; channel++) canvas[di + channel] = Math.round((source[si + channel] * sa + canvas[di + channel] * da * (255 - sa) / 255) / outA);
+                            canvas[di + 3] = Math.round(outA);
+                        }
+                    }
+                }
+                pictures.push({ width: header.width, height: header.height, rgba: copy(canvas), delayMs: rec.delayNum * 1000 / rec.delayDen });
+                if (rec.dispose === 1) for (let y = 0; y < rec.h; y++) canvas.fill(0, ((rec.y + y) * header.width + rec.x) * 4, ((rec.y + y) * header.width + rec.x + rec.w) * 4);
+                else if (rec.dispose === 2) canvas.set(saved);
+            }
+            return pictures;
+        }
+    };
+
+    DocsDoodads.AnimatedImport = {
+        limits,
+        destinationName(filePath) {
+            const path = DocsDoodads.FS.path;
+            if (!path) return String(filePath || '').split(/[\\/]/).pop();
+            const name = path.basename(filePath), ext = path.extname(name);
+            return ['.gif', '.apng'].includes(ext.toLowerCase()) ? path.basename(name, ext) + '.png' : name;
+        },
+        sourceKind(filePath) {
+            const FS = DocsDoodads.FS, ext = FS.path ? FS.path.extname(filePath).toLowerCase() : '';
+            if (ext === '.gif') return 'gif';
+            if (!['.png', '.apng'].includes(ext) || !FS.fs) return null;
+            const namedApng = ext === '.apng';
+            const invalid = reason => {
+                if (namedApng) throw new Error(`${FS.path.basename(filePath)} is not an animated PNG: ${reason}`);
+                return null;
+            };
+            let fd = null;
+            try {
+                fd = FS.fs.openSync(filePath, 'r');
+                const stat = FS.fs.fstatSync(fd), head = Buffer.alloc(8);
+                if (stat.size < 20 || FS.fs.readSync(fd, head, 0, 8, 0) !== 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => head[i] === v)) return invalid('the PNG signature is missing.');
+                let at = 8;
+                let chunks = 0;
+                const chunk = Buffer.alloc(8);
+                while (at + 12 <= stat.size) {
+                    if (chunks >= 4096) {
+                        const error = new Error('PNG has too many chunks to inspect safely.');
+                        error.code = 'DD_ANIMATED_PROBE_LIMIT';
+                        throw error;
+                    }
+                    chunks++;
+                    if (FS.fs.readSync(fd, chunk, 0, 8, at) !== 8) return invalid('the PNG chunk table is truncated.');
+                    const length = chunk.readUInt32BE(0), type = chunk.toString('ascii', 4, 8);
+                    if (length > limits.inputBytes || at + 12 + length > stat.size) return invalid('a PNG chunk is truncated or too large.');
+                    if (type === 'acTL') return 'apng';
+                    if (type === 'IDAT' || type === 'IEND') return invalid('no acTL animation chunk appears before the image data.');
+                    at += 12 + length;
+                }
+                return invalid('the PNG chunk table is incomplete.');
+            } catch (error) {
+                if (namedApng || error && error.code === 'DD_ANIMATED_PROBE_LIMIT') throw error;
+                return null;
+            }
+            finally { if (fd !== null) try { FS.fs.closeSync(fd); } catch (error) {} }
+        },
+        pack(frames, deflate, options = {}) {
+            if (!Array.isArray(frames) || !frames.length) fail('Animated image has no frames.');
+            if (frames.length > limits.frames) fail('Animated image has too many frames.');
+            const width = Math.floor(Number(frames[0].width)), height = Math.floor(Number(frames[0].height));
+            dimensions(width, height, 'Animated image');
+            for (const item of frames) if (item.width !== width || item.height !== height || !item.rgba || item.rgba.length !== width * height * 4) fail('Animated image frames are not one complete size.');
+            const maxSide = Math.max(1, Math.min(limits.side, Math.floor(Number(options.maxSide) || limits.side)));
+            const maxAcross = Math.floor(maxSide / width), maxDown = Math.floor(maxSide / height);
+            if (!maxAcross || !maxDown || frames.length > maxAcross * maxDown) fail('Animated frames do not fit inside the 4096-pixel sheet limit.');
+            const xFrame = Math.min(frames.length, maxAcross), yFrame = Math.ceil(frames.length / xFrame);
+            const sheetWidth = width * xFrame, sheetHeight = height * yFrame, sheet = new Uint8Array(sheetWidth * sheetHeight * 4);
+            frames.forEach((item, index) => {
+                const col = index % xFrame, row = Math.floor(index / xFrame);
+                for (let y = 0; y < height; y++) sheet.set(item.rgba.subarray(y * width * 4, (y + 1) * width * 4), ((row * height + y) * sheetWidth + col * width) * 4);
+            });
+            const delays = frames.map(item => {
+                const value = Number(item.delayMs);
+                return Number.isFinite(value) && value >= 0 ? Math.max(1, Math.round(value)) : 100;
+            });
+            const counts = new Map(), first = new Map();
+            delays.forEach((delay, index) => { counts.set(delay, (counts.get(delay) || 0) + 1); if (!first.has(delay)) first.set(delay, index); });
+            const delay = Array.from(counts.keys()).sort((a, b) => counts.get(b) - counts.get(a) || first.get(a) - first.get(b))[0];
+            const regions = frames.map((item, index) => ({ x: index % xFrame * width, y: Math.floor(index / xFrame) * height, w: width, h: height }));
+            if (!DocsDoodads.AsepriteSheets || typeof DocsDoodads.AsepriteSheets.encodePng !== 'function') fail('PNG writer is unavailable.');
+            return { bytes: DocsDoodads.AsepriteSheets.encodePng(sheetWidth, sheetHeight, sheet, deflate), frameW: width, frameH: height,
+                xFrame, yFrame, frameCount: frames.length, frameUpdate: frames.length > 1 ? Math.max(1, Math.round(delay * 60 / 1000)) : 0,
+                variedDelay: new Set(delays).size > 1, delayMs: delay, regions };
+        },
+        preparePlan(plan, options = {}) {
+            const FS = DocsDoodads.FS, token = options.cancellationToken;
+            const result = { ok: false, cancelled: false, errors: [], warnings: [] };
+            if (!plan || !FS.fs || !FS.path) { result.errors.push({ message: 'Animated import needs filesystem access.' }); return result; }
+            try {
+                const zlib = options.zlib || require('zlib');
+                for (const operation of plan.operations || []) {
+                    checkCancelled(token);
+                    if (!operation.animatedKind) continue;
+                    const stat = FS.fs.statSync(operation.source);
+                    if (!stat.isFile() || stat.size > limits.inputBytes) fail(`${FS.path.basename(operation.source)} is larger than the 64 MB animated-image limit.`);
+                    const source = FS.fs.readFileSync(operation.source);
+                    const frames = operation.animatedKind === 'gif'
+                        ? DocsDoodads.GifRead.frames(source, { cancellationToken: token })
+                        : DocsDoodads.ApngRead.frames(source, (data, expected) => zlib.inflateSync(data, { maxOutputLength: expected }), { cancellationToken: token });
+                    const packed = this.pack(frames, data => zlib.deflateSync(data));
+                    operation.outputBytes = Buffer.from(packed.bytes);
+                    operation.animation = { frameW: packed.frameW, frameH: packed.frameH, xFrame: packed.xFrame, yFrame: packed.yFrame,
+                        frameCount: packed.frameCount, frameUpdate: packed.frameUpdate, regions: packed.regions };
+                    if (operation.animatedKind === 'gif') result.warnings.push(`${FS.path.basename(operation.source)}: GIF has 256 colours and no soft edges; the converted PNG keeps what the GIF contains.`);
+                    if (packed.variedDelay) result.warnings.push(`${FS.path.basename(operation.source)}: frames have different frame times; the commonest time is used.`);
+                }
+                plan.warnings = result.warnings.slice(); result.ok = true; return result;
+            } catch (error) {
+                result.cancelled = Boolean(error && error.code === 'DD_IMPORT_CANCELLED');
+                result.errors.push({ message: error && error.message ? error.message : String(error) });
+                return result;
+            }
+        },
+        metadataByPath(plan) {
+            const map = new Map(), path = DocsDoodads.FS.path;
+            for (const operation of plan && plan.operations || []) if (operation.kind === 'image') {
+                map.set(path.resolve(operation.destination).toLowerCase(), operation.animation || null);
+            }
+            return map;
+        },
+        applyToDoodad(doodad, asset) {
+            const animation = asset && asset.animation;
+            if (!doodad || !animation) return doodad;
+            const grid = Math.max(1, Math.round(Number(animation.xFrame) || 1)) * Math.max(1, Math.round(Number(animation.yFrame) || 1));
+            const count = Math.max(1, Math.min(grid, Math.round(Number(animation.frameCount) || grid)));
+            doodad.frameW = Math.max(1, Math.round(Number(animation.frameW) || doodad.frameW));
+            doodad.frameH = Math.max(1, Math.round(Number(animation.frameH) || doodad.frameH));
+            doodad.xFrame = Math.max(1, Math.round(Number(animation.xFrame) || 1));
+            doodad.yFrame = Math.max(1, Math.round(Number(animation.yFrame) || 1));
+            doodad.frameUpdate = count > 1 ? Math.max(1, Math.round(Number(animation.frameUpdate) || 1)) : 0;
+            doodad.anim = Object.assign({}, doodad.anim || {}, { mode: 'loop', frameCount: count });
+            return doodad;
+        }
+    };
+})();
 //==========================================================
 // SECTION 6Q: AUTOMATIC EFFECTS QUALITY
 //==========================================================
@@ -8249,14 +8703,19 @@ DocsDoodads.qualityOption = function() {
 // One pure implementation is shared by editor brushes and generated maps in deployed games.
 DocsDoodads.Scatter = {
     rng(seed) {
-        let state = (Number(seed) || 1) >>> 0;
-        return function() {
-            state = (state + 0x6d2b79f5) >>> 0;
-            let value = state;
-            value = Math.imul(value ^ value >>> 15, value | 1);
-            value ^= value + Math.imul(value ^ value >>> 7, value | 61);
-            return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        const make = initial => {
+            let state = initial;
+            const random = function() {
+                state = (state + 0x6d2b79f5) >>> 0;
+                let value = state;
+                value = Math.imul(value ^ value >>> 15, value | 1);
+                value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+                return ((value ^ value >>> 14) >>> 0) / 4294967296;
+            };
+            random.clone = () => make(state);
+            return random;
         };
+        return make((Number(seed) || 1) >>> 0);
     },
     candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
         const accepted = [], others = (existing || []).slice(), attempts = maxAttempts || Math.max(30, count * 30);
@@ -9444,6 +9903,11 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": ""
     },
     {
+        "title": "A picture preview on the map",
+        "anchor": "a-picture-preview-on-the-map",
+        "firstParagraph": "While placing a picture doodad, the preview is a translucent version of the real map sprite. It sorts behind and in front of scenery by its base, animates, and shows its light, shadow and reflection. Scatter, Paint and Path preview up to twelve of the next placements. Their preview plans keep the random sequence and path jitter used by the committed stroke. The small HTML picture still follows a bag drag before it reaches the map; event and prefab drags retain their existing preview."
+    },
+    {
         "title": "Placing Assets",
         "anchor": "placing-assets",
         "firstParagraph": "- Drag & Drop: Drag any asset or slice from the Item Bag directly onto the live game map. A translucent Ghost Follower tracks your mouse with exact dimensions. - Snapping: Snaps to the map's tiles by default (or the Grid Snap Width / Height parameters). Hold Alt while dragging or dropping for free pixel-perfect placement. - Stamp Mode: Click the Stamp tool in the top bar to click-to-place repeated props (grass, barrels, trees) across the map. Press Escape or right-click to exit. - Scatter & Settings: Click the Scatter tool to paint scattered props. Its card lets you tune Size, How many, Space between, and under Variety the size, tilt, flip and colour changes (props never land closer than Space between, including to props already there). Rules keep props on chosen regions or terrain tags and can skip impassable tiles (water, walls). A circle on the map shows the brush; right-drag erases the picked item inside it (one undo step a stroke; locked doodads and ones on hidden or locked layers stay). [ and ] make the brush smaller or bigger (Paint, Hills and Regions too). - Path Tool: Click Path, then click points on the map (tile-snapped; hold Alt for free points). Double-click or press Enter to place the selected asset evenly along the line; Backspace removes the last point. Settings: spacing, random offset, turning pieces along the path, and smoothing. Choose separate End and Corner pieces from the Item Bag for fences, walls, and rows of lamps. - Prefabs: Select doodads and click Save Prefab in Details. Events under the selection can be included. The selection becomes the prefab's first linked copy. Place prefabs from the Prefabs tab by dragging, with Stamp, or Place at Player. Copies are grouped. Edit one copy and click Update Prefab, then Sync Copies to rebuild every copy on every map from the master. Detach unlinks a copy. - A copy's own settings: change a setting in Details on one copy (a lamp's colour, a sign's switch, a Name) and it becomes that copy's own, marked ●: Sync Copies keeps it while the rest follows the master. Details lists a copy's own settings above its buttons; Use Prefab's gives one back to the master's value. Positions inside a copy always come from the prefab (move the whole copy, or Update Prefab). Update Prefab takes the copy's own settings into the master. - Prefabs inside prefabs: save a selection that holds a whole copy of another prefab and that prefab goes inside the new one (the new prefab's Details says what it holds, and the inner one's says what it is inside). Changing and syncing the inner prefab changes every copy of the prefabs that hold it too, and a copy's own settings for the inner doodads go in with it. Deleting an inner prefab leaves its doodads in the prefabs that held it. - Room stamps (Map → Rooms): Save a Room from the Map, then drag over part of the map. Its tiles (all four layers, shadows and regions), the doodads standing in it and the events on it become a room. Pick a room's Place and click where its top-left corner goes, on this map or any other; each placement is one undo step and is saved with the map. The ticks choose what to place (tiles, doodads, events). Keep tiles under empty ones (on by default) leaves the map's tile wherever the room has nothing on an upper layer. Parts that would fall off the map are left off; events get new ids. Autotile edges are copied as they were, so a room's border may want touching up in MZ. Rooms are kept in data/DocsDoodadsRooms.json. - Grab: Hold Alt and click any placed doodad or MZ event on the map (or use the Grab tool) to find and pick that asset or event template in the Item Bag."
@@ -9836,7 +10300,12 @@ DocsDoodads.HelpIndex = [
     {
         "title": "18. Windows Explorer Native Drag-and-Drop Ingestion",
         "anchor": "18-windows-explorer-native-drag-and-drop-ingestion",
-        "firstParagraph": "Drag images or audio files directly from Windows Explorer (Desktop, Downloads, asset folders) and drop them anywhere onto the game window: - Recursive Directory Support: Dragging an entire folder recursively imports all nested PNG, JPG, WEBP, and audio files. - Import Review Dialog: Before copying begins, choose automatic routing or one fixed project folder for the whole batch. - Automatic Routing (by the folder a file comes from, or by whole words in its name, so surface.png is not a face and tractor.png not an actor; the dialog lists where each file will go): - From a characters folder, a name starting with $ or !, or the word character, chara or actor (Actor1 counts) $\\rightarrow$ img/characters/ - The word face or portrait $\\rightarrow$ img/faces/ - The word tile, tiles or tileset, or MZ's tileset names (OutsideA2, InsideB) $\\rightarrow$ img/tilesets/ - The word parallax $\\rightarrow$ img/parallaxes/ - The word pic or picture $\\rightarrow$ img/pictures/ - Audio matching bgm/bgs/me $\\rightarrow$ audio/bgm/, audio/bgs/, audio/me/ - All other props $\\rightarrow$ img/doodads/ - Apply-to-All Collision Policy: Choose Keep Both, Skip, Overwrite, or Cancel on Collision for the batch. Keep Both is the safe default and produces names such as filename1.ext; byte-identical files are reported as duplicates instead of copied again. - Transactional Copy & Cancel: Imports show per-file progress and may be cancelled. If any copy fails or the batch is cancelled, files already copied by that batch are rolled back; explicitly overwritten files are restored. - Optional Slicer Launch: Enable the dialog checkbox to open the first imported image in the sprite slicer after indexing. - Auto Re-indexing: The workspace refreshes immediately without requiring a game restart."
+        "firstParagraph": ""
+    },
+    {
+        "title": "Animated GIF and APNG",
+        "anchor": "animated-gif-and-apng",
+        "firstParagraph": "Drop a GIF or APNG (.png or .apng), or choose it in Add Files, to make a PNG frame sheet. The original stays intact. The imported item has its frames, commonest delay and exact frame count set, so a picture placement plays immediately; Cut Up Sheet opens it like other sheets. Packs carry these animation defaults. Converting an APNG already at the target path chooses an unused name even if Overwrite was selected."
     },
     {
         "title": "19. Maps: Switching, Cross-Map Editing, Neighbours & World View",
@@ -14641,6 +15110,16 @@ DocsDoodads.frameCount = function() {
     return typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : 0;
 };
 
+// Imported sheets can wrap into a partly filled final row. The saved real count is optional (old sheets
+// use the whole grid) and is never allowed outside that grid, even if save data was hand-edited.
+DocsDoodads.FrameAnim.total = function(d) {
+    const side = value => Number.isFinite(Number(value)) ? Math.max(1, Math.min(65536, Math.round(Number(value)))) : 1;
+    const across = side(d && d.xFrame);
+    const down = side(d && d.yFrame);
+    const grid = across * down, saved = Math.round(Number(d && d.anim && d.anim.frameCount) || grid);
+    return Math.max(1, Math.min(grid, saved));
+};
+
 if (typeof PIXI !== 'undefined') {
     Sprite_DocsDoodad.prototype = Object.create(PIXI.Sprite.prototype);
     Sprite_DocsDoodad.prototype.constructor = Sprite_DocsDoodad;
@@ -14838,7 +15317,7 @@ if (typeof PIXI !== 'undefined') {
                     this._animSteps = (this._animSteps || 0) + 1;
                 }
             }
-            const total = (d.xFrame || 1) * (d.yFrame || 1);
+            const total = DocsDoodads.FrameAnim.total(d);
             const want = A.index(d, this._animSteps || 0, total);
             if (want !== this._currentFrame || this._animShownFor !== this._bmp) this.showFrame(want);
         }
@@ -15114,7 +15593,7 @@ if (typeof PIXI !== 'undefined') {
 
     // One frame on (looping).
     Sprite_DocsDoodad.prototype.updateFrameAnimation = function() {
-        const total = (this._data.xFrame || 1) * (this._data.yFrame || 1);
+        const total = DocsDoodads.FrameAnim.total(this._data);
         this.showFrame((this._currentFrame + 1) % total);
     };
 
@@ -15741,12 +16220,12 @@ if (typeof Spriteset_Map !== 'undefined') {
         for (let i = 0; i < pool.length; i++) pool[i].visible = i < count;
     };
 
-    Spriteset_Map.prototype.updateDocsLighting = function() {
+    Spriteset_Map.prototype.updateDocsLighting = function(freeze) {
         if (!this._docsLightOverlay || typeof $gameMap === 'undefined' || !$gameMap) return;
         const Lighting = DocsDoodads.Lighting;
         const workspace = DocsDoodads.Workspace;
         const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
-        if (fade) {
+        if (fade && !freeze) {
             Lighting.stepFade(fade);
             if (fade.framesLeft <= 0 && fade.clearWhenDone) $gameSystem._docsAmbientFade = null;
         }
@@ -15763,7 +16242,7 @@ if (typeof Spriteset_Map !== 'undefined') {
             if (d && d.light && d.light.enabled) visibleData.push(d);
         }
         const lights = Lighting.collect(visibleData, (x, y) => DocsDoodads.mapToScreen(x, y),
-            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30 });
+            { darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1 / 30, freeze: Boolean(freeze) });
         // In 3D the ground is lit around the lamp's base: the height offset would land the pool behind it.
         if (this._docs3d) {
             for (const l of lights) l.y -= Number(Lighting.lightOf(l.doodad).offsetY) || 0;
@@ -16442,6 +16921,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 
 // Full-map image export: renders each screen-sized piece with the camera moved there, then restores everything.
 DocsDoodads.MapExport.capture = function(spriteset, options = {}) {
+    if (spriteset && typeof spriteset.removeDocsPlacementPreview === 'function') spriteset.removeDocsPlacementPreview();
     const renderer = DocsDoodads.Compat.getRenderer();
     if (!renderer || !spriteset || typeof $gameMap === 'undefined' || !$gameMap) throw new Error('The map is not ready.');
     const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
@@ -25510,8 +25990,9 @@ DocsDoodads.AssetIndex = {
     async indexPaths(paths, options = {}) {
         const fs = DocsDoodads.FS.fs, path = DocsDoodads.FS.path;
         if (!fs || !path || !fs.promises) return 0;
-        const root = path.resolve('.');
+        const root = path.resolve(options.projectRoot || '.');
         const prefixes = this.roots.map(r => String(r).replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '').toLowerCase() + '/');
+        const animationByPath = options.animationByPath instanceof Map ? options.animationByPath : new Map();
         let indexed = 0;
         for (const p of paths || []) {
             const absolute = path.resolve(root, String(p));
@@ -25520,16 +26001,61 @@ DocsDoodads.AssetIndex = {
             try {
                 const stat = await fs.promises.stat(absolute);
                 if (!stat.isFile()) continue;
+                const previous = this.data.assets[assetPath.toLowerCase()];
+                const hasAuthoredPlacement = Boolean(previous && previous.placement);
+                const animationKey = absolute.toLowerCase(), hasAnimationDecision = animationByPath.has(animationKey);
+                if (hasAnimationDecision && previous) previous.entryRevision = -1;
                 this.indexFile(absolute, path.basename(absolute), path.extname(absolute).toLowerCase(), assetPath, stat);
+                const asset = this.data.assets[assetPath.toLowerCase()], animation = animationByPath.get(animationKey);
+                if (animation) {
+                    const applied = this.applyAnimation(asset, animation, true);
+                    if (applied && !hasAuthoredPlacement) asset.placement = Object.assign({}, asset.placement || {}, { defaultMode: 'doodad' });
+                }
+                else if (hasAnimationDecision && asset) {
+                    delete asset.animation;
+                    if (asset.slice && asset.slice.method === 'animated-import') asset.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
+                }
                 indexed++;
             } catch (error) {}
         }
         if (indexed) {
             this.data.generatedAt = Date.now();
-            this.linkNormalMaps();
-            if (options.save !== false) this.save();
+            const manifest = this.linkNormalMaps();
+            if (options.save !== false) {
+                const sameRoot = process.platform === 'win32' ? root.toLowerCase() === path.resolve('.').toLowerCase() : root === path.resolve('.');
+                if (options.projectRoot && !sameRoot) {
+                    DocsDoodads.FS.atomicWriteJson(path.join(root, options.libraryPath || this.libraryPath), this.data, 0);
+                    this.writeNormalManifest(path.join(root, DocsDoodads.NormalLight.manifestPath), manifest);
+                } else this.save();
+            }
         }
         return indexed;
+    },
+
+    normalizeAnimation(animation, width, height) {
+        if (!animation) return null;
+        const integer = (value, fallback) => Math.max(1, Math.round(Number(value) || fallback));
+        const frameW = integer(animation.frameW, 1), frameH = integer(animation.frameH, 1);
+        const xFrame = integer(animation.xFrame, 1), yFrame = integer(animation.yFrame, 1), grid = xFrame * yFrame;
+        const frameCount = Math.max(1, Math.min(grid, Math.round(Number(animation.frameCount) || grid)));
+        const frameUpdate = frameCount > 1 ? integer(animation.frameUpdate, 1) : 0;
+        if (!Number.isFinite(grid) || grid > 65536 || frameW * xFrame > Number(width) || frameH * yFrame > Number(height)) return null;
+        return { frameW, frameH, xFrame, yFrame, frameCount, frameUpdate };
+    },
+
+    applyAnimation(asset, animation, replaceSlice) {
+        if (!asset) return null;
+        const normalized = this.normalizeAnimation(animation, asset.width, asset.height);
+        if (!normalized) { delete asset.animation; return null; }
+        asset.animation = normalized;
+        if (replaceSlice) {
+            asset.slice = { status: 'auto', method: 'animated-import', confidence: 1, regions: Array.from({ length: normalized.frameCount }, (_, index) => ({
+                x: index % normalized.xFrame * normalized.frameW,
+                y: Math.floor(index / normalized.xFrame) * normalized.frameH,
+                w: normalized.frameW, h: normalized.frameH
+            })) };
+        }
+        return normalized;
     },
 
     indexFile(fullPath, fileName, ext, assetPath = fullPath, knownStat = null) {
@@ -25601,6 +26127,12 @@ DocsDoodads.AssetIndex = {
                     newEntry.slice = known;
                     newEntry.width = known.width;
                     newEntry.height = known.height;
+                }
+            }
+            if (existing && existing.animation) {
+                const kept = this.applyAnimation(newEntry, existing.animation, false);
+                if (!kept && newEntry.slice && newEntry.slice.method === 'animated-import') {
+                    newEntry.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
                 }
             }
         }
@@ -26418,7 +26950,7 @@ DocsDoodads.Packs = {
             const entry = library ? library(p) : null;
             const keep = {};
             if (entry) {
-                for (const k of ['tags', 'slice', 'placement', 'collision', 'collisionUserSet', 'guess', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
+                for (const k of ['tags', 'slice', 'placement', 'animation', 'collision', 'collisionUserSet', 'guess', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
             }
             const credit = DocsDoodads.Credits.normalize(entry && entry.credit) || (creditOf ? DocsDoodads.Credits.normalize(creditOf(p)) : null);
             if (credit) keep.credit = credit;
@@ -34007,7 +34539,7 @@ DocsDoodads.Audio = {
 // SECTION 24: DocsDoodads.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
 //==========================================================
 DocsDoodads.Import = {
-    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp']),
+    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.apng']),
     audioExtensions: new Set(['.ogg', '.m4a', '.wav']),
     destinations: [
         'img/doodads', 'img/characters', 'img/faces', 'img/parallaxes',
@@ -34133,7 +34665,8 @@ DocsDoodads.Import = {
             const parts = [`Imported ${result.imported.length} file(s)`];
             if (result.duplicates && result.duplicates.length) parts.push(`${result.duplicates.length} identical file(s) skipped`);
             if (result.skipped && result.skipped.length) parts.push(`${result.skipped.length} skipped because the name already exists`);
-            return parts.join(', ') + '.';
+            const warnings = result.warnings && result.warnings.length ? ` ${result.warnings.join(' ')}` : '';
+            return parts.join(', ') + '.' + warnings;
         }
         if (result.cancelled) return `Import cancelled${result.rolledBack ? '; copied files were rolled back' : ''}.`;
         const collision = (result.errors || []).find(error => error.message === 'Destination already exists.');
@@ -34166,6 +34699,24 @@ DocsDoodads.Import = {
             return false;
         } finally {
             for (const fd of [a, b]) if (fd !== null) { try { fs.closeSync(fd); } catch (e) {} }
+        }
+    },
+
+    // True for the same on-disk file even when one side reaches it through a directory junction or
+    // symbolic link. Animated imports generate different bytes, so their source must never also be the
+    // requested output (ordinary byte-equal imports can still use filesEqual above).
+    sameCanonicalFile(firstPath, secondPath) {
+        const fs = DocsDoodads.FS.fs;
+        if (!fs) return false;
+        try {
+            const realpath = fs.realpathSync.native || fs.realpathSync;
+            const first = realpath(firstPath), second = realpath(secondPath);
+            const normalize = value => process.platform === 'win32' ? String(value).toLowerCase() : String(value);
+            if (normalize(first) === normalize(second)) return true;
+            const a = fs.statSync(first), b = fs.statSync(second);
+            return Boolean(a.dev === b.dev && a.ino && a.ino === b.ino);
+        } catch (error) {
+            return false;
         }
     },
 
@@ -34220,16 +34771,29 @@ DocsDoodads.Import = {
                 continue;
             }
 
-            const fileName = path.basename(source);
+            let animatedKind = null;
+            try { animatedKind = DocsDoodads.AnimatedImport ? DocsDoodads.AnimatedImport.sourceKind(source) : null; }
+            catch (error) {
+                plan.errors.push({ path: source, message: error && error.message ? error.message : String(error) });
+                continue;
+            }
+            const fileName = animatedKind ? DocsDoodads.AnimatedImport.destinationName(source) : path.basename(source);
             const ext = path.extname(fileName);
             const base = path.basename(fileName, ext);
             let destination = path.join(targetFolder, fileName);
             let overwrite = false;
             let suffix = 0;
+            let protectingAnimatedSource = false;
 
             while (fs.existsSync(destination) || reserved.has(reservedKey(destination))) {
                 const comparisonSource = reserved.has(reservedKey(destination)) ? reserved.get(reservedKey(destination)) : destination;
-                if (this.filesEqual(source, comparisonSource)) {
+                if (animatedKind && (protectingAnimatedSource || this.sameCanonicalFile(source, comparisonSource))) {
+                    protectingAnimatedSource = true;
+                    suffix++;
+                    destination = path.join(targetFolder, `${base}_${suffix}${ext}`);
+                    continue;
+                }
+                if (!animatedKind && this.filesEqual(source, comparisonSource)) {
                     plan.duplicates.push({ source, destination });
                     destination = null;
                     break;
@@ -34263,7 +34827,8 @@ DocsDoodads.Import = {
                 destination,
                 relativeDestination: path.relative(plan.projectRoot, destination).replace(/\\/g, '/'),
                 overwrite,
-                kind: this.audioExtensions.has(path.extname(source).toLowerCase()) ? 'audio' : 'image'
+                kind: this.audioExtensions.has(path.extname(source).toLowerCase()) ? 'audio' : 'image',
+                ...(animatedKind ? { animatedKind } : {})
             });
         }
         return plan;
@@ -34281,6 +34846,7 @@ DocsDoodads.Import = {
             skipped: (plan && plan.skipped) ? plan.skipped.slice() : [],
             unsupported: (plan && plan.unsupported) ? plan.unsupported.slice() : [],
             errors: (plan && plan.errors) ? plan.errors.slice() : [],
+            warnings: (plan && plan.warnings) ? plan.warnings.slice() : [],
             rolledBack: false,
             cancelled: false
         };
@@ -34328,7 +34894,8 @@ DocsDoodads.Import = {
 
                 const temporary = `${operation.destination}.ddimport-${transactionId}-${index}.tmp`;
                 tempFiles.push(temporary);
-                await fsp.copyFile(operation.source, temporary);
+                if (operation.outputBytes) await fsp.writeFile(temporary, operation.outputBytes);
+                else await fsp.copyFile(operation.source, temporary);
                 if (existed) {
                     completed.push({ operation, existed, backup });
                     await fsp.copyFile(temporary, operation.destination);
@@ -35709,6 +36276,7 @@ DocsDoodads.Workspace = {
     mapSections: [],
 
     setPlacementTool(tool) {
+        if ((tool || null) !== this.placementTool && this.clearPlacementPreview) { this.clearPlacementPreview(); this._placementPathSeed = null; }
         if (tool !== 'generate' && this._generatedPreview) {
             this._generatedPreview = null;
             if (this.redrawOverlay) this.redrawOverlay();
@@ -37001,6 +37569,7 @@ DocsDoodads.Workspace = {
                 type: asset.type,
                 frameW: asset.width || 48,
                 frameH: asset.height || 48,
+                ...(asset.animation ? { animation: JSON.parse(JSON.stringify(asset.animation)) } : {}),
                 collision: asset.collision || { preset: "none" },
                 characterIndex: asset.placement.characterIndex || 0,
                 depth: asset.placement.depth,
@@ -38776,6 +39345,7 @@ DocsDoodads.Workspace = {
     },
 
     biomePaintAt(clientX, clientY) {
+        this.clearPlacementPreview();
         const coords = this.clientToMapCoords(clientX, clientY);
         const s = this.biomeSettings;
         if (this._lastDab && Math.hypot(this._lastDab.x - coords.x, this._lastDab.y - coords.y) < s.radius * 0.4) return;
@@ -41493,6 +42063,7 @@ DocsDoodads.Workspace = {
         // Drag payloads carry frameW/frameH; library assets carry width/height.
         d.frameW = asset.frameW || asset.width || 48;
         d.frameH = asset.frameH || asset.height || 48;
+        if (DocsDoodads.AnimatedImport) DocsDoodads.AnimatedImport.applyToDoodad(d, asset);
         const preferredDepth = (asset.placement && asset.placement.depth) || asset.depth;
         d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
         const collision = asset.collision || {};
@@ -42986,17 +43557,9 @@ DocsDoodads.Workspace = {
 
     placePath(points, asset, settings = this.pathSettings) {
         if (!asset || !points || points.length === 0) return [];
-        const samples = DocsDoodads.Paths.sample(points, settings.spacing, { smooth: settings.smooth });
-        const rng = DocsDoodads.Scatter.rng(Date.now());
-        const placed = samples.map(p => {
-            const special = (p.kind === 'start' || p.kind === 'end') ? settings.endAsset : p.kind === 'corner' ? settings.cornerAsset : null;
-            const jitter = Number(settings.jitter) || 0;
-            const x = Math.round(p.x + (jitter ? (rng() * 2 - 1) * jitter : 0));
-            const y = Math.round(p.y + (jitter ? (rng() * 2 - 1) * jitter : 0));
-            const d = this.newDoodadFromAsset(special || asset, x, y);
-            if (settings.alignToPath) d.rotation = Math.round(p.angle);
-            return d;
-        }).filter(d => DocsDoodads.Terrain.allowsDoodad(d, this.currentMapId()));
+        this.clearPlacementPreview();
+        const placed = this.planPathPlacement(points, asset, settings, this._placementPathSeed || Date.now());
+        this._placementPathSeed = null;
         const mapId = this.currentMapId();
         const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
         DocsDoodads.Undo.execute({
@@ -43806,6 +44369,7 @@ DocsDoodads.Workspace = {
         };
 
         this._onCanvasMouseDown = (e) => {
+            this.clearPlacementPreview();
             if (e.button === 1 && this.beginCameraDrag(e)) return;
             const hook = this.toolHooks[this.placementTool];
             const hookButton = hook && hook.buttons ? hook.buttons.includes(e.button) : e.button === 0;
@@ -43964,6 +44528,7 @@ DocsDoodads.Workspace = {
                     overlay.style.height = Math.abs(dy) + 'px';
                 }
             }
+            this.updateBrushPlacementPreview(e);
         };
 
         this._onCanvasMouseUp = (e) => {
@@ -44063,6 +44628,8 @@ DocsDoodads.Workspace = {
         if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
             window.addEventListener('mousemove', this._onCanvasMouseMove);
             window.addEventListener('mouseup', this._onCanvasMouseUp);
+            this._onPlacementPreviewBlur = () => this.removeGhost();
+            window.addEventListener('blur', this._onPlacementPreviewBlur);
         }
     },
 
@@ -44147,12 +44714,14 @@ DocsDoodads.Workspace = {
         if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
             if (this._onCanvasMouseMove) window.removeEventListener('mousemove', this._onCanvasMouseMove);
             if (this._onCanvasMouseUp) window.removeEventListener('mouseup', this._onCanvasMouseUp);
+            if (this._onPlacementPreviewBlur) window.removeEventListener('blur', this._onPlacementPreviewBlur);
         }
     },
 
     // Evenly spaced scatter: props keep minDistance from each other and from what is already there,
     // and only land where the region/terrain/passability rules allow.
     scatterAt(clientX, clientY) {
+        this.clearPlacementPreview();
         const coords = this.clientToMapCoords(clientX, clientY);
         const asset = this.selectedAsset;
         const b = this.brushSettings;
@@ -44808,6 +45377,8 @@ DocsDoodads.Workspace = {
 
     async runAssetImport(sourcePaths, options = {}) {
         const plan = DocsDoodads.Import.planBatch(sourcePaths, options);
+        const prepared = this.prepareAnimatedImport(plan, options.cancellationToken);
+        if (!prepared.ok) return this.animatedImportFailure(plan, prepared);
         const result = await DocsDoodads.Import.executeBatchAsync(plan, {
             cancellationToken: options.cancellationToken,
             onProgress: options.onProgress
@@ -44815,7 +45386,10 @@ DocsDoodads.Workspace = {
         if (!result.ok) return result;
 
         // Only the files just written are indexed, not every folder walked again.
-        await DocsDoodads.AssetIndex.indexPaths(result.imported);
+        await DocsDoodads.AssetIndex.indexPaths(result.imported, {
+            projectRoot: plan.projectRoot,
+            animationByPath: DocsDoodads.AnimatedImport.metadataByPath(plan)
+        });
         const FS = DocsDoodads.FS, written = new Set(result.imported.map(file => FS.path.resolve(file)));
         await this.offerCreditNotes(plan.creditNotes, note => plan.operations.filter(op => {
             const relative = FS.path.relative(note.sourceFolder, op.source);
@@ -44943,10 +45517,10 @@ DocsDoodads.Workspace = {
 
     // Each supported file and the folder it would go to, for the import card: chosen folder, or the guess.
     importPreviewRows(files, chosen) {
-        const I = DocsDoodads.Import, path = DocsDoodads.FS.path;
+        const I = DocsDoodads.Import;
         return (files || []).filter(f => I.isSupported(f)).map(source => ({
             source,
-            name: path.basename(source),
+            name: DocsDoodads.AnimatedImport.destinationName(source),
             folder: chosen && chosen !== 'auto' ? chosen : (I.detectDestination(source) || '?')
         }));
     },
@@ -45231,6 +45805,21 @@ DocsDoodads.Workspace = {
     }
 };
 
+// @editor-only
+// Animated files are decoded before the transaction writes its first destination. Metadata travels with
+// that same plan into the index, so a successful drop is ready to slice and play immediately.
+Object.assign(DocsDoodads.Workspace, {
+    prepareAnimatedImport(plan, cancellationToken) {
+        return DocsDoodads.AnimatedImport.preparePlan(plan, { cancellationToken });
+    },
+    animatedImportFailure(plan, prepared) {
+        return {
+            ok: false, imported: [], overwritten: [], duplicates: (plan.duplicates || []).slice(), skipped: (plan.skipped || []).slice(),
+            unsupported: (plan.unsupported || []).slice(), errors: (prepared.errors || []).slice(), rolledBack: false,
+            cancelled: prepared.cancelled === true, warnings: (prepared.warnings || []).slice()
+        };
+    }
+});
 // @editor-only
 //==========================================================
 // SECTION 25i: WORKSPACE CAPTURE AND QUICK MENU
@@ -53146,6 +53735,130 @@ Object.assign(DocsDoodads.Workspace, {
         if (card && card.parentNode) card.parentNode.removeChild(card);
     }
 });
+// @editor-only
+// These are real sprites made by the placement factory, with no entry in a map's saved data.
+Object.assign(DocsDoodads.Workspace, {
+    placementPreviewLimit: 12,
+    previewRng(key) {
+        this[key] = this[key] || DocsDoodads.Scatter.rng(Date.now());
+        return this[key].clone ? this[key].clone() : DocsDoodads.Scatter.rng(1);
+    },
+    planPathPlacement(points, asset, settings = this.pathSettings, seed = Date.now(), limit = Infinity) {
+        if (!asset || !points || !points.length) return [];
+        const rng = DocsDoodads.Scatter.rng(seed), jitter = Number(settings.jitter) || 0, out = [];
+        for (const point of DocsDoodads.Paths.sample(points, settings.spacing, { smooth: settings.smooth })) {
+            const special = point.kind === 'start' || point.kind === 'end' ? settings.endAsset : point.kind === 'corner' ? settings.cornerAsset : null;
+            const d = this.newDoodadFromAsset(special || asset, Math.round(point.x + (jitter ? (rng() * 2 - 1) * jitter : 0)), Math.round(point.y + (jitter ? (rng() * 2 - 1) * jitter : 0)));
+            if (settings.alignToPath) d.rotation = Math.round(point.angle);
+            if (DocsDoodads.Terrain.allowsDoodad(d, this.currentMapId())) out.push(d);
+            if (out.length >= limit) break;
+        }
+        return out;
+    },
+    placementPreviewItems(asset, coords, tool) {
+        const D = DocsDoodads, max = this.placementPreviewLimit;
+        if (tool === 'path') {
+            this._placementPathSeed = this._placementPathSeed || Date.now();
+            return this.planPathPlacement((this.pathPoints || []).concat([coords]), asset, this.pathSettings, this._placementPathSeed, max);
+        }
+        if (tool === 'brush' || tool === 'biome') {
+            const list = D.doodads(this.currentMapId()), query = this.scatterQuery();
+            const settings = tool === 'brush' ? this.brushSettings : this.biomeSettings;
+            const rng = this.previewRng(tool === 'brush' ? '_scatterRng' : '_biomeRng');
+            const raw = tool === 'biome' ? D.Biome.find(settings.biomeId, D.World.get('biomes.list') || []) : null;
+            if (tool === 'biome' && !raw) return [];
+            const biome = raw ? D.Biome.normalize(raw) : null;
+            const radius = Number(settings.radius) || 0, reach = radius + (biome ? biome.spacing : Number(settings.minDistance) || 0);
+            const existing = list.filter(d => Math.abs(d.x - coords.x) <= reach && Math.abs(d.y - coords.y) <= reach).map(d => ({ x: d.x, y: d.y }));
+            const rules = { regions: tool === 'brush' ? D.Scatter.parseIdList(settings.regions) : [], terrainTags: tool === 'brush' ? D.Scatter.parseIdList(settings.terrainTags) : [], avoidBlocked: Boolean(settings.avoidBlocked) };
+            const points = biome ? D.Biome.paint(biome, coords, radius, existing, rng)
+                : D.Scatter.candidates(coords, radius, Number(settings.minDistance) || 0, existing, Math.min(256, Number(settings.density) || 1), rng);
+            const out = [];
+            for (const point of points) {
+                if (!D.Scatter.allowed(point, rules, query)) continue;
+                const v = biome ? point : D.Scatter.variation(settings, rng);
+                const d = this.newDoodadFromAsset(biome ? this.assetByPath(point.path) : asset, Math.round(point.x), Math.round(point.y));
+                d.scaleX = v.scale * (v.flipX ? -1 : 1); d.scaleY = v.scale;
+                if (!biome) { d.rotation = v.rotation; if (v.hue) d.hue = v.hue; }
+                out.push(...this.withMirrors(d));
+                if (out.length >= max) break;
+            }
+            return out.slice(0, max);
+        }
+        return this.withMirrors(this.newDoodadFromAsset(asset, coords.x, coords.y)).slice(0, max);
+    },
+    clearPlacementPreview(spriteset) {
+        const state = this._placementPreview;
+        if (!state || spriteset && spriteset !== state.spriteset) return;
+        this._placementPreview = null;
+        state.spriteset.removeSomeDocsDoodads(state.items);
+        if (state.spriteset.updateDocsReflections) state.spriteset.updateDocsReflections();
+        if (state.spriteset.updateDocsLighting) state.spriteset.updateDocsLighting(true);
+    },
+    showPlacementPreview(asset, coords, tool = 'stamp') {
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null, spriteset = scene && scene._spriteset;
+        if (!this.mounted || !spriteset || !spriteset.addDocsDoodadSprites || !asset && tool !== 'biome'
+            || asset && (asset.category === 'Audio' || asset.type === 'prefab' || asset.placementMode === 'event' || asset.placement && asset.placement.defaultMode === 'event')) { this.clearPlacementPreview(); return 0; }
+        const items = this.placementPreviewItems(asset, coords, tool);
+        for (const d of items) { d.opacity = (d.opacity === undefined ? 1 : d.opacity) * 0.55; d._editorPreview = true; }
+        const key = JSON.stringify(items.map(d => [d.bit, d.frameX, d.frameY, d.frameW, d.frameH, d.xFrame, d.yFrame, d.frameUpdate]));
+        const old = this._placementPreview;
+        const reuse = old && old.spriteset === spriteset && old.map === $gameMap && old.mapId === this.currentMapId() && old.key === key
+            && old.sprites.every(sprite => sprite.parent && spriteset._docsDoodadSprites.includes(sprite));
+        if (reuse) {
+            old.items.forEach((d, i) => {
+                const uid = d.uid;
+                for (const field of Object.keys(d)) delete d[field];
+                Object.assign(d, items[i], { uid });
+                old.sprites[i].updatePlacement();
+            });
+        } else {
+            this.clearPlacementPreview();
+            if (!items.length) return 0;
+            spriteset.addDocsDoodadSprites(items);
+            const set = new Set(items), sprites = spriteset._docsDoodadSprites.filter(sprite => set.has(sprite._data));
+            for (const sprite of sprites) sprite._docsPlacementPreview = true;
+            this._placementPreview = { spriteset, map: $gameMap, mapId: this.currentMapId(), items, sprites, key };
+        }
+        spriteset.sortDocsDoodads();
+        return items.length;
+    },
+    placementPointerOnMap(x, y) {
+        const canvas = DocsDoodads.Compat.getCanvas();
+        if (!canvas || !canvas.getBoundingClientRect) return false;
+        const rect = canvas.getBoundingClientRect();
+        if (!(rect.width > 0 && rect.height > 0) || x < rect.left || y < rect.top || x >= rect.left + rect.width || y >= rect.top + rect.height) return false;
+        const target = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(x, y) : canvas;
+        return target === canvas || Boolean(canvas.contains && canvas.contains(target));
+    },
+    updateBrushPlacementPreview(event) {
+        if (!['brush', 'biome', 'path'].includes(this.placementTool)) return;
+        if (this.isBrushActive || event.altKey || !this.placementPointerOnMap(event.clientX, event.clientY)) { this.clearPlacementPreview(); return; }
+        let coords = this.clientToMapCoords(event.clientX, event.clientY);
+        if (this.placementTool === 'path') coords = this.snapToTile(coords);
+        this.showPlacementPreview(this.selectedAsset, coords, this.placementTool);
+    }
+});
+{
+    const W = DocsDoodads.Workspace, show = W.showGhost, remove = W.removeGhost;
+    W.showGhost = function(asset, x, y, alt) {
+        show.call(this, asset, x, y, alt);
+        const onMap = this.mounted && this.placementPointerOnMap(x, y);
+        if (onMap) {
+            const coords = this.clientToMapCoords(x, y);
+            if (!alt || this.activeDragPayload) this.showPlacementPreview(asset, alt ? coords : this.snapToTile(coords), 'stamp');
+            else this.clearPlacementPreview();
+        } else this.clearPlacementPreview();
+        const picture = asset && asset.category !== 'Audio' && asset.type !== 'prefab' && asset.placementMode !== 'event' && !(asset.placement && asset.placement.defaultMode === 'event');
+        if (this.ghostEl) this.ghostEl.style.display = onMap && picture ? 'none' : '';
+    };
+    W.removeGhost = function() { this.clearPlacementPreview(); this._placementPathSeed = null; return remove.call(this); };
+}
+if (typeof Spriteset_Map !== 'undefined') Spriteset_Map.prototype.removeDocsPlacementPreview = function() { DocsDoodads.Workspace.clearPlacementPreview(this); };
+if (typeof Game_Map !== 'undefined') {
+    const setup = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(id) { DocsDoodads.Workspace.removeGhost(); return setup.call(this, id); };
+}
 // @editor-only
 //==========================================================
 // SECTION 25: WORKSPACE: BOOKMARKS
