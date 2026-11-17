@@ -85,6 +85,9 @@ assert.deepStrictEqual(D.Rooms.parseDoors('N 2, east 1; south 3; W1; north 99', 
     { x: 3, y: 4, side: 'south' }, { x: 0, y: 1, side: 'west' }
 ]);
 assert.strictEqual(D.Rooms.formatDoors(stamp.doors), 'N2, E2, S2, W2');
+const plainRecipe = G.recipe({ kind: 'dungeon', w: 16, h: 12, count: 1, floorTile: 2816, wallTile: 4352 });
+assert.strictEqual(G.layout(plainRecipe, 5, [stamp]).rooms[0].templateId, null,
+    'leaving room stamps unselected makes plain rooms instead of silently using every saved stamp');
 
 const roomWithContents = Object.assign({}, stamp, {
     tiles: new Array(5 * 5 * 6).fill(0), tileWidth: 48, tileHeight: 48,
