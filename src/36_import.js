@@ -3,7 +3,7 @@
 // SECTION 24: DocsDoodads.IMPORT (TRANSACTIONAL EXPLORER INGESTION)
 //==========================================================
 DocsDoodads.Import = {
-    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']),
+    imageExtensions: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.apng']),
     audioExtensions: new Set(['.ogg', '.m4a', '.wav']),
     destinations: [
         'img/doodads', 'img/characters', 'img/faces', 'img/parallaxes',
@@ -166,6 +166,24 @@ DocsDoodads.Import = {
         }
     },
 
+    // True for the same on-disk file even when one side reaches it through a directory junction or
+    // symbolic link. Animated imports generate different bytes, so their source must never also be the
+    // requested output (ordinary byte-equal imports can still use filesEqual above).
+    sameCanonicalFile(firstPath, secondPath) {
+        const fs = DocsDoodads.FS.fs;
+        if (!fs) return false;
+        try {
+            const realpath = fs.realpathSync.native || fs.realpathSync;
+            const first = realpath(firstPath), second = realpath(secondPath);
+            const normalize = value => process.platform === 'win32' ? String(value).toLowerCase() : String(value);
+            if (normalize(first) === normalize(second)) return true;
+            const a = fs.statSync(first), b = fs.statSync(second);
+            return Boolean(a.dev === b.dev && a.ino && a.ino === b.ino);
+        } catch (error) {
+            return false;
+        }
+    },
+
     planBatch(sourcePaths, options = {}) {
         const fs = DocsDoodads.FS.fs;
         const path = DocsDoodads.FS.path;
@@ -217,16 +235,28 @@ DocsDoodads.Import = {
                 continue;
             }
 
-            const animatedKind = DocsDoodads.AnimatedImport ? DocsDoodads.AnimatedImport.sourceKind(source) : null;
+            let animatedKind = null;
+            try { animatedKind = DocsDoodads.AnimatedImport ? DocsDoodads.AnimatedImport.sourceKind(source) : null; }
+            catch (error) {
+                plan.errors.push({ path: source, message: error && error.message ? error.message : String(error) });
+                continue;
+            }
             const fileName = animatedKind ? DocsDoodads.AnimatedImport.destinationName(source) : path.basename(source);
             const ext = path.extname(fileName);
             const base = path.basename(fileName, ext);
             let destination = path.join(targetFolder, fileName);
             let overwrite = false;
             let suffix = 0;
+            let protectingAnimatedSource = false;
 
             while (fs.existsSync(destination) || reserved.has(reservedKey(destination))) {
                 const comparisonSource = reserved.has(reservedKey(destination)) ? reserved.get(reservedKey(destination)) : destination;
+                if (animatedKind && (protectingAnimatedSource || this.sameCanonicalFile(source, comparisonSource))) {
+                    protectingAnimatedSource = true;
+                    suffix++;
+                    destination = path.join(targetFolder, `${base}_${suffix}${ext}`);
+                    continue;
+                }
                 if (!animatedKind && this.filesEqual(source, comparisonSource)) {
                     plan.duplicates.push({ source, destination });
                     destination = null;

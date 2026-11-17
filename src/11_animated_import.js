@@ -330,30 +330,38 @@
             const path = DocsDoodads.FS.path;
             if (!path) return String(filePath || '').split(/[\\/]/).pop();
             const name = path.basename(filePath), ext = path.extname(name);
-            return ext.toLowerCase() === '.gif' ? path.basename(name, ext) + '.png' : name;
+            return ['.gif', '.apng'].includes(ext.toLowerCase()) ? path.basename(name, ext) + '.png' : name;
         },
         sourceKind(filePath) {
             const FS = DocsDoodads.FS, ext = FS.path ? FS.path.extname(filePath).toLowerCase() : '';
             if (ext === '.gif') return 'gif';
-            if (ext !== '.png' || !FS.fs) return null;
+            if (!['.png', '.apng'].includes(ext) || !FS.fs) return null;
+            const namedApng = ext === '.apng';
+            const invalid = reason => {
+                if (namedApng) throw new Error(`${FS.path.basename(filePath)} is not an animated PNG: ${reason}`);
+                return null;
+            };
             let fd = null;
             try {
                 fd = FS.fs.openSync(filePath, 'r');
                 const stat = FS.fs.fstatSync(fd), head = Buffer.alloc(8);
-                if (stat.size < 20 || FS.fs.readSync(fd, head, 0, 8, 0) !== 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => head[i] === v)) return null;
+                if (stat.size < 20 || FS.fs.readSync(fd, head, 0, 8, 0) !== 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => head[i] === v)) return invalid('the PNG signature is missing.');
                 let at = 8;
                 const chunk = Buffer.alloc(8);
                 while (at + 12 <= stat.size) {
-                    if (FS.fs.readSync(fd, chunk, 0, 8, at) !== 8) return null;
+                    if (FS.fs.readSync(fd, chunk, 0, 8, at) !== 8) return invalid('the PNG chunk table is truncated.');
                     const length = chunk.readUInt32BE(0), type = chunk.toString('ascii', 4, 8);
-                    if (length > limits.inputBytes || at + 12 + length > stat.size) return null;
+                    if (length > limits.inputBytes || at + 12 + length > stat.size) return invalid('a PNG chunk is truncated or too large.');
                     if (type === 'acTL') return 'apng';
-                    if (type === 'IDAT' || type === 'IEND') return null;
+                    if (type === 'IDAT' || type === 'IEND') return invalid('no acTL animation chunk appears before the image data.');
                     at += 12 + length;
                 }
-            } catch (error) { return null; }
+                return invalid('the PNG chunk table is incomplete.');
+            } catch (error) {
+                if (namedApng) throw error;
+                return null;
+            }
             finally { if (fd !== null) try { FS.fs.closeSync(fd); } catch (error) {} }
-            return null;
         },
         pack(frames, deflate, options = {}) {
             if (!Array.isArray(frames) || !frames.length) fail('Animated image has no frames.');
