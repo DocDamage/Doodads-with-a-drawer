@@ -147,7 +147,8 @@ T.withContext(title._docsTitleContext, () => {
     assert.notStrictEqual(D.PostFX._anims, callerPostAnims, 'title screen animations are isolated');
     D.Lighting.collect([titleLamp], { x: 0, y: 0 }, { darkness: 1, threshold: 0.3, step: 0.1 });
     D.Climate._fog = { image: '#title-fog' };
-    D.PostFX._anims.push({ type: 'shockwave' }); D.PostFX._resolved = { title: true }; D.PostFX._runtimeFrame = 456;
+    D.PostFX._anims.push({ type: 'bloomFlash', start: 999999, duration: 30, strength: 1, center: [0.5, 0.5] });
+    D.PostFX._resolved = { title: true }; D.PostFX._runtimeFrame = 456;
 });
 assertCallerRenderState('after title transient updates');
 

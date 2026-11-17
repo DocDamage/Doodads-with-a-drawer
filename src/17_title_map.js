@@ -6,6 +6,17 @@
     const globals = ['$dataMap', '$gameTemp', '$gameSystem', '$gameScreen', '$gameTimer', '$gameMessage',
         '$gameSwitches', '$gameVariables', '$gameSelfSwitches', '$gameActors', '$gameParty', '$gameTroop', '$gameMap', '$gamePlayer'];
     const root = typeof window !== 'undefined' ? window : globalThis;
+    // These caches are renderer state rather than game data, but they are mutable and map-specific. A title
+    // spriteset must not reset the live game's climate, advance its lamp fades or consume its screen effects.
+    const transients = [
+        { id: 'climate', object: () => DocsDoodads.Climate,
+            keys: ['_key', '_plan', '_fog', '_fogComposite', '_fogPower', '_ownsWind', '_writing'],
+            fresh: { _key: null, _plan: null, _fog: null, _fogComposite: null, _fogPower: 0, _ownsWind: false, _writing: false } },
+        { id: 'lighting', object: () => DocsDoodads.Lighting, keys: ['_lampLevels'],
+            fresh: { _lampLevels: () => typeof WeakMap !== 'undefined' ? new WeakMap() : null } },
+        { id: 'postfx', object: () => DocsDoodads.PostFX, keys: ['_anims', '_resolved', '_runtimeFrame'],
+            fresh: { _anims: () => [], _resolved: null, _runtimeFrame: -1 } }
+    ];
 
     T.captureGlobals = function() {
         const out = {};
@@ -13,20 +24,55 @@
         return out;
     };
     T.applyGlobals = function(values) { for (const key of globals) root[key] = values[key]; };
+    T.captureTransients = function() {
+        const state = {};
+        for (const spec of transients) {
+            const object = spec.object();
+            if (!object) continue;
+            state[spec.id] = {};
+            for (const key of spec.keys) state[spec.id][key] = {
+                own: Object.prototype.hasOwnProperty.call(object, key), value: object[key]
+            };
+        }
+        return state;
+    };
+    T.applyTransients = function(state) {
+        for (const spec of transients) {
+            const object = spec.object(), values = state && state[spec.id];
+            if (!object || !values) continue;
+            for (const key of spec.keys) {
+                const entry = values[key];
+                if (entry && entry.own) object[key] = entry.value;
+                else delete object[key];
+            }
+        }
+    };
+    T.freshTransients = function() {
+        const state = {};
+        for (const spec of transients) {
+            state[spec.id] = {};
+            for (const key of spec.keys) {
+                const value = spec.fresh[key];
+                state[spec.id][key] = { own: true, value: typeof value === 'function' ? value() : value };
+            }
+        }
+        return state;
+    };
     T.withContext = function(context, fn) {
         if (!context || typeof fn !== 'function') return undefined;
         if (this._activeContext === context) return fn();
-        const before = this.captureGlobals(), previous = this._activeContext;
-        this.applyGlobals(context); this._activeContext = context;
+        const before = this.captureGlobals(), beforeTransients = this.captureTransients(), previous = this._activeContext;
+        this.applyGlobals(context); this.applyTransients(context._docsTitleTransients); this._activeContext = context;
         try { return fn(); }
         finally {
             for (const key of globals) context[key] = root[key];
-            this.applyGlobals(before); this._activeContext = previous;
+            context._docsTitleTransients = this.captureTransients();
+            this.applyGlobals(before); this.applyTransients(beforeTransients); this._activeContext = previous;
         }
     };
 
     T.makeContext = function(dataMap, settings) {
-        return {
+        const context = {
             $dataMap: dataMap,
             $gameTemp: new Game_Temp(), $gameSystem: new Game_System(), $gameScreen: new Game_Screen(),
             $gameTimer: new Game_Timer(), $gameMessage: new Game_Message(), $gameSwitches: new Game_Switches(),
@@ -34,6 +80,8 @@
             $gameParty: new Game_Party(), $gameTroop: new Game_Troop(), $gameMap: new Game_Map(), $gamePlayer: new Game_Player(),
             settings
         };
+        context._docsTitleTransients = this.freshTransients();
+        return context;
     };
 
     const minutes = DocsDoodads.Atmosphere.minutes, season = DocsDoodads.Atmosphere.season;
