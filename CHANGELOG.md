@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Optional save-file pictures reuse MZ's map snapshot as a JPEG under 8 KB, with area name and game time. Native rows handle old, missing and unreadable pictures; stale snapshots are cleared on returning to the map or loading another game.
+- Flat maps can supply lit, unblurred battle backgrounds. Shared capture hides characters, gear, shadows, reflections and HUD elements temporarily; named battlebacks win and capture failures keep MZ's fallback.
+- Events can see the player through a light-sensitive cone stopped by lighting walls. Details edits note/page tags and previews the cone; lightAt/sees APIs, Store Light Level and a configurable darkness switch support puzzles. Gameplay checks remain independent of visual quality.
 - Picture placement previews use the real map sprite, depth, animation, light, shadow and reflection, with a twelve-sprite limit for Scatter, Paint and Path. Brush random sequences stay unchanged; cleanup removes previews and their light/reflection contributions from captures without advancing game fades.
 - GIF and APNG files become bounded PNG frame sheets with timing and exact frame counts ready for placement. Disposal, transparency and common PNG colour types are decoded locally; source files survive even a same-path overwrite choice. Metadata travels through the real drawer drag and packs. Unsupported 16-bit/Adam7 APNGs receive a clear error.
 - Climate rolls reproducible weather spans from the day, season and saved seed. World tables set rain/storm/snow/fog/wind chances and duration; indoor maps suppress it, event weather holds until Resume Climate, and the clock strip, forecast API and Store Forecast report coming days.

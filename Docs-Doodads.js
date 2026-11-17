@@ -337,6 +337,12 @@
  * @default 0
  * @desc Height of the placement snapping grid in pixels (0 = the map's tile height).
  *
+ * @param saveFilePictures
+ * @text Pictures on save files
+ * @type boolean
+ * @default false
+ * @desc Add small map pictures, area names and game time to MZ's save list. About 8 KB maximum per picture.
+ *
  * @param comfortOptions
  * @text Comfort options
  * @type select
@@ -1614,6 +1620,27 @@
  * @value world
  * @default on
  *
+ * @command storeLightLevel
+ * @text Store Light Level
+ * @desc Stores brightness at a map tile in a variable: 0 is dark, 1 is fully lit.
+ *
+ * @arg tileX
+ * @text Tile X
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg tileY
+ * @text Tile Y
+ * @type number
+ * @min 0
+ * @default 0
+ *
+ * @arg variableId
+ * @text Store In Variable
+ * @type variable
+ * @default 1
+ *
  * @command setMinimap
  * @text Show / Hide Minimap
  * @desc Hides the corner minimap for this playthrough (cutscenes, a dark cave), or shows it again on maps that have one.
@@ -2353,6 +2380,43 @@ if (typeof ImageManager !== 'undefined' && typeof ImageManager.isReady === 'func
         return $.ImageManager_isReady_missingArt.call(this);
     };
 }
+// Temporary visibility belongs to the capture, including objects outside the character's own tree.
+DocsDoodads.BattleCapture = {
+    named() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return false;
+        return ['battleback1Name', 'battleback2Name'].some(key => typeof $gameMap[key] === 'function' && Boolean($gameMap[key]()));
+    },
+    withHidden(spriteset, capture, afterRestore) {
+        const hidden = new Map();
+        const hide = object => {
+            if (!object || hidden.has(object)) return;
+            hidden.set(object, object.visible); object.visible = false;
+        };
+        if (typeof spriteset.removeDocsPlacementPreview === 'function') spriteset.removeDocsPlacementPreview();
+        const conceal = () => {
+            for (const sp of spriteset._characterSprites || []) {
+                hide(sp); hide(sp._docsShadow);
+                for (const layer of sp._docsVisualSprites || []) hide(layer);
+            }
+            for (const key of ['_pictureContainer', '_timerSprite', '_shadowSprite', '_docsMinimap', '_destinationSprite', '_docsTraceSprite', '_docsSelectionOutline']) hide(spriteset[key]);
+            for (const object of (spriteset._balloonSprites || []).concat(spriteset._animationSprites || [])) hide(object);
+            for (const object of hidden.keys()) object.visible = false;
+        };
+        const restore = () => { for (const [object, visible] of hidden) object.visible = visible; };
+        try {
+            conceal();
+            if (typeof spriteset.updateDocsReflections === 'function') spriteset.updateDocsReflections();
+            return capture(conceal);
+        } finally {
+            restore();
+            try { if (afterRestore) afterRestore(); }
+            finally {
+                restore();
+                if (typeof spriteset.updateDocsReflections === 'function') spriteset.updateDocsReflections();
+            }
+        }
+    }
+};
 //==========================================================
 // SECTION 4G: GAME-SAFE SCREEN CAPTURE
 //==========================================================
@@ -2924,7 +2988,7 @@ DocsDoodads.Lighting = {
             const l = this.lightOf(d);
             // A state or an event can put the light out (it fades like an "after dark" lamp in game), and so can
             // its own switch or condition.
-            const on = (DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true) && (!this.lightWanted || this.lightWanted(l));
+            const on = (DocsDoodads.WorldState ? DocsDoodads.WorldState.lightOn(d) : true) && (!this.lightWanted || this.lightWanted(l, ctx && ctx.gameplay));
             if (!on && !ctx) continue;
             let level = 1;
             if (ctx) {
@@ -2960,6 +3024,58 @@ DocsDoodads.Lighting = {
             });
         }
         return out;
+    },
+
+    // The same light sum feeds 3D tint and gameplay queries. `info` is { base:[r,g,b], lights } with
+    // channels in 0..1. Map queries opt into mapX/mapY, cone tests and the shared wall callback; the 3D
+    // renderer deliberately asks for the legacy distance-only sum so existing pictures keep exact bytes.
+    sampleAt(x, y, info, ctx = {}) {
+        if (!info || !info.base) return null;
+        let r = Number(info.base[0]) || 0, g = Number(info.base[1]) || 0, b = Number(info.base[2]) || 0;
+        const lights = info.lights || [];
+        for (let i = 0; i < lights.length; i++) {
+            const light = lights[i];
+            const lx = ctx.mapCoordinates && Number.isFinite(light.mapX) ? light.mapX : Number(light.x) || 0;
+            const ly = ctx.mapCoordinates && Number.isFinite(light.mapY) ? light.mapY : Number(light.y) || 0;
+            const dx = ctx.deltaX ? ctx.deltaX(x, lx) : x - lx;
+            const dy = ctx.deltaY ? ctx.deltaY(y, ly) : y - ly;
+            const reach = Math.max(1, Number(light.radius) || 0);
+            if (dx >= reach || dx <= -reach || dy >= reach || dy <= -reach) continue;
+            const distance = Math.hypot(dx, dy);
+            if (distance >= reach) continue;
+            if (ctx.shapes !== false && distance > 1e-9 && light.shape === 'cone') {
+                const at = Math.atan2(dy, dx) * 180 / Math.PI;
+                const difference = Math.abs(((at - (Number(light.angle) || 0) + 540) % 360) - 180);
+                if (difference > Math.max(2.5, Math.min(90, (Number(light.spread) || 60) / 2))) continue;
+            }
+            if (ctx.isWall && distance > 1e-9 && DocsDoodads.Occlusion
+                && DocsDoodads.Occlusion.appliesTo(light, ctx.occlusion || DocsDoodads.Occlusion.settings())) {
+                const visible = DocsDoodads.Occlusion.cast(lx, ly, dx / distance, dy / distance, distance,
+                    ctx.isWall, Number(ctx.tileWidth) || 48, Number(ctx.tileHeight) || 48,
+                    Math.floor(lx / (Number(ctx.tileWidth) || 48)), Math.floor(ly / (Number(ctx.tileHeight) || 48)));
+                if (visible < distance - 1e-6) continue;
+            }
+            const dist = distance / reach;
+            const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
+            const color = light.color >>> 0;
+            const k = fall * (Number(light.intensity) || 0) / 255;
+            r += ((color >> 16) & 255) * k;
+            g += ((color >> 8) & 255) * k;
+            b += (color & 255) * k;
+        }
+        return [Math.max(0, Math.min(1, r)), Math.max(0, Math.min(1, g)), Math.max(0, Math.min(1, b))];
+    },
+
+    colorAt(x, y, info, ctx) {
+        const color = this.sampleAt(x, y, info, ctx);
+        if (!color) return null;
+        const to = value => Math.max(0, Math.min(255, Math.round(value * 255)));
+        return (to(color[0]) << 16) | (to(color[1]) << 8) | to(color[2]);
+    },
+
+    levelAt(x, y, info, ctx) {
+        const color = this.sampleAt(x, y, info, ctx);
+        return color ? Math.max(0, Math.min(1, color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722)) : 0;
     },
 
     mixColor(from, to, p) {
@@ -3121,8 +3237,8 @@ void main(void) {
 Object.assign(DocsDoodads.Lighting.lightDefaults, { shape: 'round', angle: 90, spread: 60, occlude: 'world', preset: '', switchId: 0, condition: '' });
 
 // A light on only while its switch is on and its condition (JavaScript) is true; the editor shows it anyway.
-DocsDoodads.Lighting.lightWanted = function(l) {
-    if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return true;
+DocsDoodads.Lighting.lightWanted = function(l, gameplay) {
+    if (!gameplay && DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return true;
     const sw = Number(l.switchId) || 0;
     if (sw > 0 && !(typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(sw))) return false;
     return !l.condition || DocsDoodads.Appearance.conditionPasses(l.condition);
@@ -3156,7 +3272,7 @@ DocsDoodads.LightPresets = {
 };
 
 DocsDoodads.Occlusion = {
-    defaults: { occlusion: false, wallRegions: '', rays: 160 },
+    defaults: { occlusion: false, wallRegions: '', rays: 160, darkSwitchId: 0, darkLevel: 0.3 },
 
     settings() {
         return Object.assign({}, this.defaults, DocsDoodads.World.settings().lighting2d || {});
@@ -3171,6 +3287,22 @@ DocsDoodads.Occlusion = {
 
     regions(text) {
         return new Set(String(text || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0));
+    },
+
+    // One callback over the exact wall grid and moving blockers used by rendered light masks. Looping maps
+    // wrap before lookup; outside a non-looping map is not a marked wall, matching the light outline.
+    wallQuery(map) {
+        map = map || (typeof $gameMap !== 'undefined' ? $gameMap : null);
+        const walls = this.wallsFor && this.wallsFor();
+        if (!map || !walls) return () => false;
+        const blockers = this.blockers && this.blockers();
+        return (x, y) => {
+            x = Math.floor(Number(x)); y = Math.floor(Number(y));
+            if (map.isLoopHorizontal && map.isLoopHorizontal()) x = map.roundX(x);
+            if (map.isLoopVertical && map.isLoopVertical()) y = map.roundY(y);
+            if (x < 0 || y < 0 || x >= walls.w || y >= walls.h) return false;
+            return walls.grid[y * walls.w + x] === 1 || Boolean(blockers && blockers.tiles.has(x + ',' + y));
+        };
     },
 
     // The outline a light reaches, in map pixels: [cx, cy, x1, y1, x2, y2, ...] (a fan from the light).
@@ -3240,6 +3372,23 @@ DocsDoodads.Flashlight = {
         let d = ((target - current + 540) % 360) - 180;
         if (Math.abs(d) <= step) return target;
         return (current + Math.sign(d) * step + 360) % 360;
+    },
+
+    descriptor(player, map, angle) {
+        if (!player || !map || !this.isOn(id => typeof $gameSwitches !== 'undefined' && $gameSwitches && $gameSwitches.value(id))) return null;
+        if (player.isTransparent && player.isTransparent()) return null;
+        const settings = this.settings(), tw = map.tileWidth(), th = map.tileHeight();
+        const target = this.angleFor(player.direction());
+        return {
+            doodad: null, flashlight: true,
+            x: player.screenX ? player.screenX() : (player._realX + 0.5) * tw,
+            y: player.screenY ? player.screenY() - th / 2 : (player._realY + 0.5) * th,
+            mapX: (player._realX + 0.5) * tw, mapY: (player._realY + 0.5) * th,
+            radius: Math.max(16, Number(settings.radius) || 280), color: DocsDoodads.Lighting.parseColor(settings.color, 0xfff2cc),
+            intensity: Math.max(0, Math.min(1, Number(settings.intensity) || 0.9)), flicker: 0, glow: 0.05, seed: 0,
+            shape: 'cone', angle: angle === undefined ? target : Number(angle), spread: Math.max(5, Math.min(180, Number(settings.spread) || 50)),
+            occlude: settings.occlude ? 'on' : 'off'
+        };
     }
 };
 //==========================================================
@@ -4922,6 +5071,108 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 5A3: GAMEPLAY LIGHT LEVELS AND EVENT SIGHT
+//==========================================================
+DocsDoodads.Sight = {
+    defaults: { range: 6, spread: 90, minLevel: 0.3, selfSwitch: 'A', commonEvent: 0 },
+
+    facing(direction) {
+        return ({ 2: 90, 4: 180, 6: 0, 8: 270 })[Number(direction)] !== undefined
+            ? ({ 2: 90, 4: 180, 6: 0, 8: 270 })[Number(direction)] : Number(direction) || 0;
+    },
+
+    parse(text) {
+        text = String(text || '');
+        const cone = /<\s*docs\s+sight\s*:\s*(\d+(?:\.\d+)?)\s*(?:,\s*(\d+(?:\.\d+)?))?\s*>/i.exec(text);
+        if (!cone) return null;
+        const level = /<\s*docs\s+sight\s+light\s*:\s*(\d*\.?\d+)\s*>/i.exec(text);
+        const self = /<\s*docs\s+sight\s+self\s+switch\s*:\s*([a-d])\s*>/i.exec(text);
+        const common = /<\s*docs\s+sight\s+common\s+event\s*:\s*(\d+)\s*>/i.exec(text);
+        return {
+            range: Math.max(0.25, Math.min(100, Number(cone[1]) || this.defaults.range)),
+            spread: Math.max(1, Math.min(360, Number(cone[2]) || this.defaults.spread)),
+            minLevel: Math.max(0, Math.min(1, level ? Number(level[1]) : this.defaults.minLevel)),
+            selfSwitch: common ? '' : (self ? self[1].toUpperCase() : this.defaults.selfSwitch),
+            commonEvent: common ? Math.max(0, Math.floor(Number(common[1]) || 0)) : 0
+        };
+    },
+
+    strip(text) {
+        return String(text || '').replace(/<\s*docs\s+sight(?:\s+(?:light|self\s+switch|common\s+event))?\s*:[^>]*>\s*/gi, '')
+            .replace(/\n{3,}/g, '\n\n').trim();
+    },
+
+    lines(info) {
+        if (!info) return [];
+        const range = Math.max(0.25, Math.min(100, Number(info.range) || this.defaults.range));
+        const spread = Math.max(1, Math.min(360, Number(info.spread) || this.defaults.spread));
+        const minLevel = Math.max(0, Math.min(1, Number(info.minLevel)));
+        const lines = [`<docs sight: ${range}, ${spread}>`, `<docs sight light: ${Math.round(minLevel * 1000) / 1000}>`];
+        if (Number(info.commonEvent) > 0) lines.push(`<docs sight common event: ${Math.floor(Number(info.commonEvent))}>`);
+        else lines.push(`<docs sight self switch: ${/^[A-D]$/i.test(info.selfSwitch) ? String(info.selfSwitch).toUpperCase() : 'A'}>`);
+        return lines;
+    },
+
+    write(text, info) {
+        const kept = this.strip(text), lines = this.lines(info);
+        return [kept, lines.join('\n')].filter(Boolean).join(kept ? '\n' : '');
+    },
+
+    pageText(event, pageIndex) {
+        const page = event && event.pages && event.pages[pageIndex];
+        return ((page && page.list) || []).filter(command => command && (command.code === 108 || command.code === 408))
+            .map(command => String((command.parameters || [])[0] || '')).join('\n');
+    },
+
+    scope(event, pageIndex) {
+        const page = this.pageText(event, pageIndex);
+        return this.parse(page) ? { kind: 'page', pageIndex, text: page } : { kind: 'note', pageIndex, text: String(event && event.note || '') };
+    },
+
+    writePage(event, pageIndex, info) {
+        const page = event && event.pages && event.pages[pageIndex];
+        if (!page) return false;
+        const list = [], tag = /<\s*docs\s+sight/i;
+        for (const command of page.list || []) {
+            if (!command || (command.code !== 108 && command.code !== 408)) { list.push(command); continue; }
+            const text = String((command.parameters || [])[0] || '');
+            const kept = tag.test(text) ? this.strip(text) : text;
+            if (kept) list.push(Object.assign({}, command, { parameters: [kept] }));
+        }
+        let comment = false;
+        for (const command of list) {
+            if (command && (command.code === 108 || command.code === 408)) { command.code = comment ? 408 : 108; comment = true; }
+            else comment = false;
+        }
+        const at = list.length && list[list.length - 1] && list[list.length - 1].code === 0 ? list.length - 1 : list.length;
+        const added = this.lines(info).map((line, index) => ({ code: index ? 408 : 108, indent: 0, parameters: [line] }));
+        list.splice(at, 0, ...added); page.list = list;
+        return true;
+    },
+
+    // Points are tile centres. Darkness shortens full sight to one quarter at minimum; a wall always blocks.
+    sees(from, facing, target, options = {}) {
+        const dx = (Number(target && target.x) || 0) - (Number(from && from.x) || 0);
+        const dy = (Number(target && target.y) || 0) - (Number(from && from.y) || 0);
+        const distance = Math.hypot(dx, dy), range = Math.max(0, Number(options.range) || 0);
+        const minimum = Math.max(0, Math.min(1, Number(options.minLevel) || 0));
+        const level = Math.max(0, Math.min(1, Number(options.level) || 0));
+        const lightFactor = minimum > 0 ? Math.max(0.25, Math.min(1, level / minimum)) : 1;
+        if (distance > range * lightFactor + 1e-9) return false;
+        if (distance <= 1e-9) return true;
+        const spread = Math.max(1, Math.min(360, Number(options.spread) || 360));
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        const difference = Math.abs(((angle - this.facing(facing) + 540) % 360) - 180);
+        if (difference > spread / 2 + 1e-9) return false;
+        if (typeof options.isWall === 'function') {
+            const visible = DocsDoodads.Occlusion.cast(Number(from.x) || 0, Number(from.y) || 0, dx / distance, dy / distance,
+                distance, options.isWall, 1, 1, Math.floor(Number(from.x) || 0), Math.floor(Number(from.y) || 0));
+            if (visible < distance - 1e-6) return false;
+        }
+        return true;
+    }
+};
+//==========================================================
 // SECTION 5B2: MAP LAYERS (2D), WIND, LIGHTNING
 //==========================================================
 // Flat maps can have several picture layers behind the tiles (backgrounds) or over them (fog, clouds,
@@ -5545,6 +5796,27 @@ DocsDoodads.api = {
         if (typeof $gameSystem === 'undefined' || !$gameSystem) return false;
         $gameSystem._docsFlashlight = on === null || on === undefined ? undefined : Boolean(on);
         return true;
+    },
+
+    /**
+     * Brightness at a map tile, from 0 (dark) to 1 (fully lit).
+     * @param {number} tileX
+     * @param {number} tileY
+     * @returns {number}
+     */
+    lightAt(tileX, tileY) {
+        return DocsDoodads.SightRuntime ? DocsDoodads.SightRuntime.levelAtTile(tileX, tileY) : 0;
+    },
+
+    /**
+     * Whether a tagged map event can currently see the player.
+     * @param {number} eventId
+     * @returns {boolean}
+     */
+    sees(eventId) {
+        if (!DocsDoodads.SightRuntime || typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const event = $gameMap.event(Math.max(0, Math.floor(Number(eventId) || 0)));
+        return Boolean(event && DocsDoodads.SightRuntime.seesEvent(event));
     },
 
     /**
@@ -10363,6 +10635,16 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": ""
     },
     {
+        "title": "Save-file pictures and battle backgrounds",
+        "anchor": "save-file-pictures-and-battle-backgrounds",
+        "firstParagraph": "- In MZ's Plugin Manager, Pictures on save files adds a small picture, the area's name (or map display name), and day/time/season to the native save and load list. It is off by default. Each picture is a JPEG of at most 8 KB, made from MZ's existing map snapshot when opening the menu. Saves made without a fresh map snapshot, including initial autosaves, keep the native row. Old saves and unreadable pictures also use the native layout; custom save windows may use the docsShot, docsPlace and docsClock info fields themselves. - Map Settings → Battle background (flat map) lets a battle use this map's current light, weather and look without MZ's blur. Characters, their gear/shadows/reflections, pictures and the minimap are left out. A named battleback, including Change Battle Back, takes priority. A 3D map uses its existing setting under 3D View."
+    },
+    {
+        "title": "Event sight and light levels",
+        "anchor": "event-sight-and-light-levels",
+        "firstParagraph": "- Pick an event and use Sight in Details to set range, spread, darkness sensitivity and either a self switch or common event. The cone is drawn while editing a flat map. A current page's sight tags take priority over note tags. Walls use World → Lighting wall regions, even when visual light occlusion is off. - Tags: <docs sight: 6, 90>, <docs sight light: 0.3>, and either <docs sight self switch: A> or <docs sight common event: 12>. Seeing triggers once until sight is lost; a busy common-event slot is retried. Darkness shortens the range to at least a quarter. - DocsDoodads.api.lightAt(tileX, tileY) reads brightness from 0 to 1; Store Light Level writes it to a variable. DocsDoodads.api.sees(eventId) checks a tagged event. World → Lighting can drive a chosen switch while the player is below a brightness threshold. Detection checks near-screen events five times per second, up to 24 per check, and does not depend on the player's Effects Quality."
+    },
+    {
         "title": "Plugins and local reports",
         "anchor": "plugins-and-local-reports",
         "firstParagraph": "Map → Problems has a Plugins group for known order advisories and hooks a later plugin appears to bypass. The check observes normal map updates without running gameplay as a probe. It waits for repeated calls before flagging a hook that never delegates; a removed observer is labelled as an unverified change. Listed later plugins are candidates to investigate. The generated plugin notes distinguish order advice from compatibility playtests, which are still pending."
@@ -11030,6 +11312,54 @@ DocsDoodads.Packer = {
     shouldRequestManifest() {
         if (DocsDoodads.FS.fs) return this.manifestExists();
         return Boolean(typeof window !== 'undefined' && window.$dataDocsDoodads && window.$dataDocsDoodads.usesPacking);
+    }
+};
+// Small, bounded save-list pictures. No map renderer or editor state is needed.
+DocsDoodads.SaveShot = {
+    limit: 8192,
+    fit(width, height, max) {
+        const w = Number(width), h = Number(height), m = Number(max);
+        if (!(w > 0 && h > 0 && m > 0) || !isFinite(w + h + m)) return null;
+        const scale = Math.min(1, m / Math.max(w, h));
+        return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
+    },
+    text(value, length) { return String(value || '').replace(/[\x00-\x20]+/g, ' ').trim().slice(0, length); },
+    info(place, clock) {
+        const c = clock || {};
+        return { docsPlace: this.text(place, 120), docsClock: {
+            day: Math.max(0, Math.floor(Number(c.day) || 0)),
+            minutes: ((Math.floor(Number(c.minutes) || 0) % 1440) + 1440) % 1440,
+            season: this.text(c.season, 40)
+        } };
+    },
+    // Inspect JPEG dimensions before asking a browser decoder to allocate an image.
+    ok(shot, limit) {
+        if (typeof shot !== 'string' || shot.length > (limit || this.limit) ||
+            !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(shot)) return false;
+        try {
+            const bytes = atob(shot.slice(23));
+            const byte = i => bytes.charCodeAt(i);
+            if (byte(0) !== 255 || byte(1) !== 216 || byte(bytes.length - 2) !== 255 || byte(bytes.length - 1) !== 217) return false;
+            let p = 2;
+            while (p + 4 < bytes.length) {
+                if (byte(p++) !== 255) return false;
+                while (byte(p) === 255) p++;
+                const marker = byte(p++), n = byte(p) * 256 + byte(p + 1);
+                if (n < 2 || p + n > bytes.length) return false;
+                if (marker === 192 || marker === 193 || marker === 194) {
+                    const h = byte(p + 3) * 256 + byte(p + 4), w = byte(p + 5) * 256 + byte(p + 6);
+                    return n >= 8 && w > 0 && h > 0 && w <= 160 && h <= 160;
+                }
+                if (marker === 218 || marker === 217) return false;
+                p += n;
+            }
+        } catch (err) { /* malformed save-list metadata uses MZ's normal row */ }
+        return false;
+    },
+    clockText(clock) {
+        const c = this.info('', clock).docsClock;
+        const hh = String(Math.floor(c.minutes / 60)).padStart(2, '0'), mm = String(c.minutes % 60).padStart(2, '0');
+        return [c.day > 0 ? 'Day ' + c.day : '', hh + ':' + mm, c.season].filter(Boolean).join(' · ');
     }
 };
 // @editor-only
@@ -18745,22 +19075,13 @@ DocsDoodads.Occlusion.outlineFor = function(light, rays) {
 if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
     Spriteset_Map.prototype.docsAddFlashlight = function(lights) {
         const F = DocsDoodads.Flashlight;
-        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
-        if (this._docs3d || typeof $gamePlayer === 'undefined' || !$gamePlayer || !F.isOn(switchValue)) return lights;
-        if ($gamePlayer.isTransparent && $gamePlayer.isTransparent()) return lights;
-        const s = F.settings();
+        if (this._docs3d || typeof $gamePlayer === 'undefined' || !$gamePlayer) return lights;
+        const light = F.descriptor($gamePlayer, $gameMap);
+        if (!light) return lights;
         const target = F.angleFor($gamePlayer.direction());
         this._docsFlashAngle = this._docsFlashAngle === undefined ? target : F.turn(this._docsFlashAngle, target);
-        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
-        lights.push({
-            doodad: null, flashlight: true,
-            x: $gamePlayer.screenX(), y: $gamePlayer.screenY() - th / 2,
-            mapX: ($gamePlayer._realX + 0.5) * tw, mapY: ($gamePlayer._realY + 0.5) * th,
-            radius: Math.max(16, Number(s.radius) || 280), color: DocsDoodads.Lighting.parseColor(s.color, 0xfff2cc),
-            intensity: Math.max(0, Math.min(1, Number(s.intensity) || 0.9)), flicker: 0, glow: 0.05, seed: 0,
-            shape: 'cone', angle: this._docsFlashAngle, spread: Math.max(5, Math.min(180, Number(s.spread) || 50)),
-            occlude: s.occlude ? 'on' : 'off'
-        });
+        light.angle = this._docsFlashAngle;
+        lights.push(light);
         return lights;
     };
 
@@ -20811,23 +21132,7 @@ DocsDoodads.Perspective.hexToRgb = function(hex) {
 
 // What light falls on a point: the ambient multiply colour plus nearby lights (like the lightmap).
 DocsDoodads.Perspective.lightAt = function(info, x, y) {
-    if (!info || !info.base) return null;
-    let r = info.base[0], g = info.base[1], b = info.base[2];
-    const lights = info.lights || [];
-    // Asked for every billboard: lights out of reach are passed over by a box test before the root.
-    for (let i = 0; i < lights.length; i++) {
-        const l = lights[i];
-        const reach = Math.max(1, l.radius), dx = l.x - x, dy = l.y - y;
-        if (dx >= reach || dx <= -reach || dy >= reach || dy <= -reach) continue;
-        const dist = Math.sqrt(dx * dx + dy * dy) / reach;
-        if (dist >= 1) continue;
-        const fall = dist < 0.45 ? 1 - (dist / 0.45) * 0.45 : 0.55 * (1 - (dist - 0.45) / 0.55);
-        const color = l.color >>> 0;
-        const k = fall * (l.intensity || 0) / 255;
-        r += ((color >> 16) & 255) * k; g += ((color >> 8) & 255) * k; b += (color & 255) * k;
-    }
-    const to = v => Math.max(0, Math.min(255, Math.round(v * 255)));
-    return (to(r) << 16) | (to(g) << 8) | to(b);
+    return DocsDoodads.Lighting.colorAt(x, y, info, { shapes: false });
 };
 
 DocsDoodads.Perspective.multiplyTint = function(a, b) {
@@ -23041,33 +23346,20 @@ if (typeof Sprite_DocsDoodad !== 'undefined' && Sprite_DocsDoodad.prototype.dest
     };
 }
 
-// Battles on 3D maps can use the map itself as the background: when MZ takes its snapshot for the
-// battle, the 3D view is drawn again from a low camera, without characters, pictures or the minimap.
+// Both flat and 3D maps can become an unblurred battle background; 3D also uses a low camera.
 if (typeof Spriteset_Map !== 'undefined' && typeof Bitmap !== 'undefined' && Bitmap.snap) {
     Spriteset_Map.prototype.docsBattleSnapshot = function(s) {
-        const hidden = [];
-        const hide = obj => { if (obj && obj.visible) { obj.visible = false; hidden.push(obj); } };
-        for (const sp of this._characterSprites || []) {
-            hide(sp);
-            hide(sp._docsShadow);
-            for (const layer of sp._docsVisualSprites || []) hide(layer);
-        }
-        hide(this._pictureContainer);
-        hide(this._timerSprite);
-        hide(this._docsMinimap);
-        hide(this._destinationSprite);
         const saved = $gameMap._docsCamera;
-        $gameMap._docsCamera = Object.assign({}, saved, DocsDoodads.Perspective.battleCamera(s));
-        let bitmap = null;
-        try {
-            this.updateDocsPerspective();
-            bitmap = Bitmap.snap(this);
-        } finally {
-            $gameMap._docsCamera = saved;
-            for (const obj of hidden) obj.visible = true;
-            this.updateDocsPerspective();
-        }
-        return bitmap;
+        return DocsDoodads.BattleCapture.withHidden(this, conceal => {
+            try {
+                if (s) {
+                    $gameMap._docsCamera = Object.assign({}, saved, DocsDoodads.Perspective.battleCamera(s));
+                    this.updateDocsPerspective();
+                    conceal(); // projection may have refreshed the minimap or created a gear sprite
+                }
+                return Bitmap.snap(this);
+            } finally { if (s) $gameMap._docsCamera = saved; }
+        }, () => { if (s) this.updateDocsPerspective(); });
     };
 }
 
@@ -23077,9 +23369,12 @@ if (typeof Scene_Map !== 'undefined') {
         $.Scene_Map_snapForBattleBackground_3d.call(this);
         if (typeof $gameTemp === 'undefined' || !$gameTemp) return;
         DocsDoodads.Perspective.releaseBattleBack();
+        if (DocsDoodads.BattleCapture.named()) return;
         const s = DocsDoodads.Perspective.active();
-        if (s && s.battleBack && this._spriteset && this._spriteset.docsBattleSnapshot) {
-            $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s);
+        const flat = !s && (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).battleBack === true;
+        if (((s && s.battleBack) || flat) && this._spriteset && this._spriteset.docsBattleSnapshot) {
+            try { $gameTemp._docsBattleBack = this._spriteset.docsBattleSnapshot(s || null); }
+            catch (err) { /* retain MZ's already-created background if capture is unavailable */ }
         }
     };
 }
@@ -23088,13 +23383,13 @@ if (typeof Sprite_Battleback !== 'undefined') {
     $.Sprite_Battleback_battleback1Bitmap_3d = Sprite_Battleback.prototype.battleback1Bitmap;
     Sprite_Battleback.prototype.battleback1Bitmap = function() {
         const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
-        return back || $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
+        return (back && !DocsDoodads.BattleCapture.named()) ? back : $.Sprite_Battleback_battleback1Bitmap_3d.call(this);
     };
     $.Sprite_Battleback_battleback2Bitmap_3d = Sprite_Battleback.prototype.battleback2Bitmap;
     // The map picture covers both layers; the second is left empty (one blank picture, shared).
     Sprite_Battleback.prototype.battleback2Bitmap = function() {
         const back = typeof $gameTemp !== 'undefined' && $gameTemp ? $gameTemp._docsBattleBack : null;
-        if (!back) return $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
+        if (!back || DocsDoodads.BattleCapture.named()) return $.Sprite_Battleback_battleback2Bitmap_3d.call(this);
         if (!DocsDoodads.Perspective._blankBack || !DocsDoodads.Perspective._blankBack.baseTexture) DocsDoodads.Perspective._blankBack = new Bitmap(1, 1);
         return DocsDoodads.Perspective._blankBack;
     };
@@ -24301,6 +24596,104 @@ if (typeof Sprite_Character !== 'undefined') {
 if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
     PluginManager.registerCommand(pluginName, 'openPhotoMode', () => DocsDoodads.PhotoMode.open());
 }
+(() => {
+    const S = DocsDoodads.SaveShot;
+    S.enabled = () => parseBooleanParameter(parameters.saveFilePictures, false);
+    S.reset = function() { this._shot = null; };
+    S.capture = function() {
+        this.reset();
+        if (!this.enabled() || typeof SceneManager === 'undefined' || !SceneManager.backgroundBitmap) return;
+        try {
+            const bitmap = SceneManager.backgroundBitmap();
+            const size = bitmap && this.fit(bitmap.width, bitmap.height, 160);
+            if (!size || !bitmap.canvas) return;
+            const canvas = document.createElement('canvas');
+            canvas.width = size.width; canvas.height = size.height;
+            canvas.getContext('2d').drawImage(bitmap.canvas, 0, 0, size.width, size.height);
+            const shot = canvas.toDataURL('image/jpeg', 0.6);
+            if (this.ok(shot, this.limit)) this._shot = { mapId: $gameMap.mapId(), value: shot };
+        } catch (err) { /* tainted/unavailable canvas never prevents leaving or saving */ }
+    };
+    S.currentInfo = function() {
+        const area = DocsDoodads.Areas.current(), A = DocsDoodads.Atmosphere;
+        const names = DocsDoodads.World.settings().seasons.names || [];
+        const place = area ? area.name : typeof $gameMap.displayName === 'function' ? $gameMap.displayName() : '';
+        return this.info(place, { day: DocsDoodads.Calendar.day(), minutes: A.minutes(), season: names[A.season()] || '' });
+    };
+    S.clearImages = function() {
+        if (this._images) for (const entry of this._images.values()) if (entry.bitmap.destroy) entry.bitmap.destroy();
+        this._images = new Map();
+    };
+    S.image = function(shot) {
+        if (!this.ok(shot, this.limit)) return null;
+        const images = this._images || (this._images = new Map());
+        if (images.has(shot)) return images.get(shot);
+        if (images.size >= 24) {
+            const first = images.keys().next().value, old = images.get(first);
+            images.delete(first); if (old.bitmap.destroy) old.bitmap.destroy();
+        }
+        try {
+            const entry = { bitmap: Bitmap.load(shot), listeners: new WeakSet() };
+            images.set(shot, entry); return entry;
+        } catch (err) { return null; }
+    };
+    if (typeof Scene_Map !== 'undefined') {
+        const start = Scene_Map.prototype.start;
+        Scene_Map.prototype.start = function() { S.reset(); return start.apply(this, arguments); };
+        const terminate = Scene_Map.prototype.terminate;
+        Scene_Map.prototype.terminate = function() {
+            const result = terminate.apply(this, arguments);
+            if (typeof Scene_Battle !== 'undefined' && SceneManager.isNextScene(Scene_Battle)) S.reset();
+            else S.capture();
+            return result;
+        };
+    }
+    if (typeof Game_Map !== 'undefined') {
+        const setup = Game_Map.prototype.setup;
+        Game_Map.prototype.setup = function() { S.reset(); return setup.apply(this, arguments); };
+    }
+    if (typeof DataManager !== 'undefined') {
+        const makeInfo = DataManager.makeSavefileInfo;
+        DataManager.makeSavefileInfo = function() {
+            const info = makeInfo.apply(this, arguments);
+            if (S.enabled() && typeof $gameMap !== 'undefined' && $gameMap) {
+                Object.assign(info, S.currentInfo());
+                if (S._shot && S._shot.mapId === $gameMap.mapId()) info.docsShot = S._shot.value;
+            }
+            return info;
+        };
+        for (const name of ['createGameObjects', 'extractSaveContents']) {
+            if (typeof DataManager[name] !== 'function') continue;
+            const original = DataManager[name];
+            DataManager[name] = function() { S.reset(); return original.apply(this, arguments); };
+        }
+    }
+    if (typeof Window_SavefileList !== 'undefined' && typeof Window_SavefileList.prototype.drawContents === 'function') {
+        const draw = Window_SavefileList.prototype.drawContents;
+        Window_SavefileList.prototype.drawContents = function(info, rect) {
+            if (this.constructor !== Window_SavefileList || !S.enabled() || !info || !rect || rect.width < 300 || rect.height < 96) return draw.apply(this, arguments);
+            const entry = S.image(info.docsShot), bitmap = entry && entry.bitmap;
+            if (!bitmap || bitmap.isError()) return draw.apply(this, arguments);
+            if (!bitmap.isReady()) {
+                if (!entry.listeners.has(this)) {
+                    entry.listeners.add(this);
+                    bitmap.addLoadListener(() => {
+                        if (!this.destroyed && this.contents && typeof this.refresh === 'function') this.refresh();
+                    });
+                }
+                return draw.apply(this, arguments);
+            }
+            // drawItem has already drawn MZ's File 1 / Autosave title at the top left.
+            const line = this.lineHeight();
+            const size = S.fit(bitmap.width, bitmap.height, Math.min(160, rect.height - line - 8));
+            if (!size) return draw.apply(this, arguments);
+            this.contents.blt(bitmap, 0, 0, bitmap.width, bitmap.height, rect.x, rect.y + line + 4, size.width, size.height);
+            const x = rect.x + 172, width = rect.width - 172;
+            this.drawText([S.text(info.docsPlace,120), S.clockText(info.docsClock)].filter(Boolean).join(' · '), x, rect.y, width, 'left');
+            return draw.call(this, info, Object.assign({}, rect, { x, y: rect.y + line, width, height: rect.height - line }));
+        };
+    }
+})();
 //==========================================================
 // SECTION 17C: EVENT SCHEDULE RUNTIME
 //==========================================================
@@ -24575,6 +24968,170 @@ if (typeof DataManager !== 'undefined') {
         };
     }
 })();
+//==========================================================
+// SECTION 7M: LIGHT QUERIES AND EVENT SIGHT RUNTIME
+//==========================================================
+DocsDoodads.SightRuntime = {
+    cadence: 12,
+    budget: 24,
+    _cursor: 0,
+    _lastFrame: -1,
+    _lastSeen: typeof WeakMap !== 'undefined' ? new WeakMap() : null,
+    _info: null,
+    _mapScan: null,
+    _darkSwitchId: 0,
+
+    reset() {
+        this._cursor = 0; this._lastFrame = -1; this._info = null; this._mapScan = null;
+        this._lastSeen = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+    },
+
+    mapHas(dataMap) {
+        if (!dataMap) return false;
+        if (this._mapScan && this._mapScan.data === dataMap) return this._mapScan.has;
+        const tag = /<\s*docs\s+sight\s*:/i;
+        const has = (dataMap.events || []).some(event => event && (tag.test(String(event.note || '')) ||
+            (event.pages || []).some(page => (page.list || []).some(command => command && (command.code === 108 || command.code === 408)
+                && tag.test(String((command.parameters || [])[0] || ''))))));
+        this._mapScan = { data: dataMap, has };
+        return has;
+    },
+
+    infoFor(event) {
+        if (!event || event._erased || !event.page || !event.page()) return null;
+        const source = event.event ? event.event() : null;
+        const pageText = DocsDoodads.Sight.pageText(source, event._pageIndex);
+        const noteText = String(source && source.note || '');
+        const text = event._pageIndex + '|' + pageText + '|' + noteText;
+        const cache = this._eventInfo = this._eventInfo || (typeof WeakMap !== 'undefined' ? new WeakMap() : null);
+        const hit = cache && cache.get(event);
+        if (hit && hit.text === text) return hit.info;
+        const info = DocsDoodads.Sight.parse(pageText) || DocsDoodads.Sight.parse(noteText);
+        if (cache) cache.set(event, { text, info });
+        return info;
+    },
+
+    lightInfo() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return { base: [1, 1, 1], lights: [] };
+        const L = DocsDoodads.Lighting, world = DocsDoodads.World.settings(), mapSettings = L.mapSettings($gameMap.mapId());
+        const fade = typeof $gameSystem !== 'undefined' && $gameSystem ? $gameSystem._docsAmbientFade : null;
+        const ambient = L.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings,
+            override: fade ? fade.current : null, switchValue: id => $gameSwitches && $gameSwitches.value(id) });
+        const doodads = (DocsDoodads.doodads() || []).filter(d => d && d.light && d.light.enabled && !d._docsLeaving
+            && DocsDoodads.Layers.visibleInGame(d, mapSettings) && DocsDoodads.Appearance.isVisible(d, { editing: false }));
+        const lights = L.collect(doodads, (x, y) => ({ x, y }), {
+            darkness: ambient.darkness, threshold: world.time.lampThreshold, step: 1, freeze: true, gameplay: true
+        });
+        if (typeof $gamePlayer !== 'undefined' && DocsDoodads.Flashlight) {
+            const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
+            const spriteset = scene && scene._spriteset;
+            const flashlight = DocsDoodads.Flashlight.descriptor($gamePlayer, $gameMap, spriteset && spriteset._docsFlashAngle);
+            if (flashlight) lights.push(flashlight);
+        }
+        return { base: L.lightmapBase(ambient), lights };
+    },
+
+    context() {
+        const map = $gameMap, tw = map.tileWidth(), th = map.tileHeight();
+        return { mapCoordinates: true, tileWidth: tw, tileHeight: th, shapes: true,
+            isWall: DocsDoodads.Occlusion.wallQuery(map), occlusion: DocsDoodads.Occlusion.settings(),
+            deltaX: (x, lightX) => map.deltaX(x / tw, lightX / tw) * tw,
+            deltaY: (y, lightY) => map.deltaY(y / th, lightY / th) * th };
+    },
+
+    levelAtTile(tileX, tileY, info) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return 0;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        return DocsDoodads.Lighting.levelAt(($gameMap.roundX(Number(tileX) || 0) + 0.5) * tw,
+            ($gameMap.roundY(Number(tileY) || 0) + 0.5) * th, info || this.lightInfo(), this.context());
+    },
+
+    wallAt(x, y) { return DocsDoodads.Occlusion.wallQuery($gameMap)(x, y); },
+
+    seesEvent(event, info, level) {
+        info = info || this.infoFor(event);
+        if (!info || typeof $gamePlayer === 'undefined' || !$gamePlayer) return false;
+        const dx = $gameMap.deltaX($gamePlayer._realX, event._realX), dy = $gameMap.deltaY($gamePlayer._realY, event._realY);
+        const wall = (x, y) => this.wallAt($gameMap.roundX(event.x + x), $gameMap.roundY(event.y + y));
+        return DocsDoodads.Sight.sees({ x: 0.5, y: 0.5 }, event.direction(), { x: dx + 0.5, y: dy + 0.5 }, {
+            range: info.range, spread: info.spread, minLevel: info.minLevel,
+            level: level === undefined ? this.levelAtTile($gamePlayer._realX, $gamePlayer._realY) : level, isWall: wall
+        });
+    },
+
+    act(event, info) {
+        if (info.commonEvent > 0) {
+            if ($gameTemp.isCommonEventReserved && $gameTemp.isCommonEventReserved()) return false;
+            if (!$gameTemp.reserveCommonEvent) return false;
+            $gameTemp.reserveCommonEvent(info.commonEvent);
+            return true;
+        } else if (info.selfSwitch && typeof $gameSelfSwitches !== 'undefined' && $gameSelfSwitches) {
+            $gameSelfSwitches.setValue([$gameMap.mapId(), event.eventId(), info.selfSwitch], true);
+            return true;
+        }
+        return false;
+    },
+
+    update(force, sceneActive = true) {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return false;
+        if (!force && (sceneActive === false || DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return false;
+        const frame = DocsDoodads.frameCount();
+        if (!force && (frame === this._lastFrame || frame % this.cadence !== 0)) return false;
+        this._lastFrame = frame;
+        const settings = DocsDoodads.Occlusion.settings(), hasSight = this.mapHas($dataMap);
+        const darkSwitch = Math.max(0, Math.floor(Number(settings.darkSwitchId) || 0));
+        if (this._darkSwitchId && this._darkSwitchId !== darkSwitch && typeof $gameSwitches !== 'undefined' && $gameSwitches) {
+            $gameSwitches.setValue(this._darkSwitchId, false);
+        }
+        this._darkSwitchId = darkSwitch;
+        if (!hasSight && !darkSwitch) return true;
+        this._info = this.lightInfo();
+        const playerLevel = typeof $gamePlayer !== 'undefined' && $gamePlayer
+            ? this.levelAtTile($gamePlayer._realX, $gamePlayer._realY, this._info) : 0;
+        const rawDarkLevel = Number(settings.darkLevel);
+        const darkLevel = Number.isFinite(rawDarkLevel) ? Math.max(0, Math.min(1, rawDarkLevel)) : 0.3;
+        if (darkSwitch && typeof $gameSwitches !== 'undefined' && $gameSwitches) $gameSwitches.setValue(darkSwitch, playerLevel < darkLevel);
+        if (!hasSight) return true;
+        const events = $gameMap.events().filter(event => this.infoFor(event));
+        if (!events.length) return true;
+        const count = Math.min(this.budget, events.length);
+        for (let i = 0; i < count; i++) {
+            const event = events[(this._cursor + i) % events.length], info = this.infoFor(event);
+            const near = !event.isNearTheScreen || event.isNearTheScreen();
+            const seen = near && this.seesEvent(event, info, playerLevel);
+            const before = this._lastSeen && this._lastSeen.get(event) === true;
+            const acted = seen && !before ? this.act(event, info) : true;
+            if (this._lastSeen) this._lastSeen.set(event, seen && acted);
+        }
+        this._cursor = (this._cursor + count) % events.length;
+        return true;
+    }
+};
+
+if (typeof Game_Map !== 'undefined') {
+    const setup = Game_Map.prototype.setup, update = Game_Map.prototype.update;
+    Game_Map.prototype.setup = function(mapId) { const result = setup.call(this, mapId); DocsDoodads.SightRuntime.reset(); return result; };
+    Game_Map.prototype.update = function(sceneActive) { update.call(this, sceneActive); DocsDoodads.SightRuntime.update(false, sceneActive); };
+}
+
+if (typeof DataManager !== 'undefined') {
+    if (typeof DataManager.extractSaveContents === 'function') {
+        const extract = DataManager.extractSaveContents;
+        DataManager.extractSaveContents = function(contents) { const result = extract.call(this, contents); DocsDoodads.SightRuntime.reset(); DocsDoodads.SightRuntime._darkSwitchId = 0; return result; };
+    }
+    if (typeof DataManager.createGameObjects === 'function') {
+        const create = DataManager.createGameObjects;
+        DataManager.createGameObjects = function() { const result = create.call(this); DocsDoodads.SightRuntime.reset(); DocsDoodads.SightRuntime._darkSwitchId = 0; return result; };
+    }
+}
+
+if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
+    PluginManager.registerCommand(pluginName, 'storeLightLevel', args => {
+        const id = Math.max(0, Math.floor(Number(args.variableId) || 0));
+        if (id && typeof $gameVariables !== 'undefined' && $gameVariables) $gameVariables.setValue(id,
+            DocsDoodads.SightRuntime.levelAtTile(Number(args.tileX) || 0, Number(args.tileY) || 0));
+    });
+}
 //==========================================================
 // SECTION 7C: TRAVERSAL (JUMP, GLIDE, SWIM, DIVE, FLY, CLIMB, ICE)
 //==========================================================
@@ -41540,6 +42097,8 @@ DocsDoodads.Workspace = {
                 range('lighting2d.rays', 'Shadow detail (rays per light)', 40, 360, 20),
                 check('lighting2d.blockDoodads', 'Doodads with collision stop light too'),
                 check('lighting2d.blockEvents', 'Events marked <block light> stop light (doors)'),
+                number('lighting2d.darkSwitchId', 'Switch ON while the player is in darkness (0 = none)'),
+                range('lighting2d.darkLevel', 'Counts as darkness below', 0, 1, 0.05),
                 check('lighting2d.flashlight.enabled', 'The player carries a flashlight (it points where they face)'),
                 number('lighting2d.flashlight.switchId', 'Only while switch # is ON (0 = always)'),
                 range('lighting2d.flashlight.radius', 'Flashlight reach', 60, 800, 10),
@@ -47912,6 +48471,20 @@ Object.assign(DocsDoodads.Workspace, {
         return out;
     };
 })(DocsDoodads.Workspace);
+// @editor-only
+DocsDoodads.Workspace.mapSections.push({
+    render(settings) {
+        return `<details style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+            <summary style="font-size: 11px; font-weight: bold;">Battle background (flat map)</summary>
+            <label style="font-size: 10px;"><input id="dd-flat-battleback" type="checkbox"${settings.battleBack === true ? ' checked' : ''} /> Battles show this map, with its lights and look</label>
+            <div style="font-size: 10px; color: var(--dd-faint);">Characters and the corner map are hidden. A named battleback always wins. 3D maps use the choice under 3D View.</div>
+        </details>`;
+    },
+    bind() {
+        const control = document.getElementById('dd-flat-battleback');
+        if (control) control.onchange = () => this.setMapSetting('battleBack', control.checked ? true : undefined);
+    }
+});
 // @editor-only
 //==========================================================
 // SECTION 25z: GENERATED MAP CARD AND PREVIEW
@@ -56695,6 +57268,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['gridSnapShow', 'Show Grid Snap', 'false', 'Show visual grid overlay in editor by default.'],
             ['gridSnapWidth', 'Grid Snap Width', '0', "Width of the placement snapping grid in pixels (0 = the map's tile width)."],
             ['gridSnapHeight', 'Grid Snap Height', '0', "Height of the placement snapping grid in pixels (0 = the map's tile height)."],
+            ['saveFilePictures', 'Pictures on save files', 'false', "Add small map pictures, area names and game time to MZ's save list. About 8 KB maximum per picture."],
             ['comfortOptions', 'Comfort options', 'auto', "Show Reduce Flashes and Less Camera Motion in the player's Options."],
             ['startPlayersOnAuto', 'Start players on Auto', 'false', 'Start new player preferences with Auto Effects Quality; existing saved choices stay in control.'],
             ['softenMZEffects', 'Also soften MZ flashes and shakes', 'false', "Apply the player's comfort choices to MZ's Flash Screen and Shake Screen commands too."],
@@ -57232,6 +57806,105 @@ Object.assign(DocsDoodads.Workspace, {
         });
     }
 });
+// @editor-only
+//==========================================================
+// SECTION 25B: EVENT SIGHT DETAILS AND CONE OVERLAY
+//==========================================================
+(function() {
+    const W = DocsDoodads.Workspace, S = DocsDoodads.Sight, renderInspector = W.renderInspector;
+
+    Object.assign(W, {
+        selectedSightData() {
+            const selected = this.selectedEvent, gameEvent = selected && selected.gameEvent;
+            const event = this.selectedStagedEvent ? this.selectedStagedEvent() : selected && selected.stagedEvent;
+            const pageIndex = gameEvent ? gameEvent._pageIndex : 0;
+            return event ? { event, gameEvent, pageIndex, scope: S.scope(event, pageIndex) } : null;
+        },
+
+        eventSightInfo() {
+            const picked = this.selectedSightData();
+            return picked ? S.parse(picked.scope.text) : null;
+        },
+
+        editEventSight(info) {
+            const picked = this.selectedSightData();
+            if (!picked) return false;
+            const event = picked.event, gameEvent = picked.gameEvent;
+            const before = JSON.parse(JSON.stringify(event)), after = JSON.parse(JSON.stringify(event));
+            if (picked.scope.kind === 'page') S.writePage(after, picked.pageIndex, info);
+            else after.note = S.write(after.note, info);
+            if (JSON.stringify(before) === JSON.stringify(after)) return false;
+            const set = snapshot => {
+                for (const key of Object.keys(event)) delete event[key];
+                Object.assign(event, JSON.parse(JSON.stringify(snapshot)));
+                const live = gameEvent && gameEvent.event ? gameEvent.event() : null;
+                if (live && live !== event) { live.note = event.note; live.pages = JSON.parse(JSON.stringify(event.pages || [])); }
+                if (gameEvent && DocsDoodads.VisualEquip && DocsDoodads.VisualEquip._eventText) DocsDoodads.VisualEquip._eventText.delete(gameEvent);
+                if (DocsDoodads.SightRuntime) DocsDoodads.SightRuntime.reset();
+                if (gameEvent && gameEvent.refresh) gameEvent.refresh();
+                DocsDoodads.Persistence.dirtyMap = true;
+            };
+            DocsDoodads.Undo.execute({ type: 'event_sight', apply: () => set(after), revert: () => set(before) });
+            return true;
+        },
+
+        renderSightDetails() {
+            if (typeof document === 'undefined' || !this.selectedEvent) return null;
+            const content = document.getElementById('dd-inspector-content');
+            if (!content) return null;
+            const previous = document.getElementById('dd-event-sight');
+            if (previous && previous.remove) previous.remove();
+            const current = this.eventSightInfo() || Object.assign({}, S.defaults);
+            const section = document.createElement('div');
+            section.id = 'dd-event-sight'; section.style.cssText = 'margin-top:10px;border-top:1px solid var(--dd-line-soft);padding-top:8px;';
+            section.innerHTML = `
+                <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Sight</div>
+                <label class="dd-field"><span>Range (tiles)</span><input id="dd-sight-range" type="number" min="0.25" max="100" step="0.25" value="${current.range}"></label>
+                <label class="dd-field"><span>Cone width (degrees)</span><input id="dd-sight-spread" type="number" min="1" max="360" step="1" value="${current.spread}"></label>
+                <label class="dd-field"><span>Full range from light level</span><input id="dd-sight-level" type="number" min="0" max="1" step="0.05" value="${current.minLevel}"></label>
+                <label class="dd-field"><span>On seeing player</span><select id="dd-sight-action"><option value="self" ${current.commonEvent ? '' : 'selected'}>Turn on self switch</option><option value="common" ${current.commonEvent ? 'selected' : ''}>Run common event</option></select></label>
+                <label class="dd-field"><span>Self switch</span><select id="dd-sight-self">${['A','B','C','D'].map(letter => `<option ${current.selfSwitch === letter ? 'selected' : ''}>${letter}</option>`).join('')}</select></label>
+                <label class="dd-field"><span>Common event #</span><input id="dd-sight-common" type="number" min="1" step="1" value="${current.commonEvent || 1}"></label>
+                <button class="dd-btn" id="dd-sight-remove" type="button">Remove Sight</button>`;
+            content.appendChild(section);
+            const value = id => document.getElementById(id);
+            const save = () => {
+                const common = value('dd-sight-action').value === 'common';
+                const info = { range: Number(value('dd-sight-range').value), spread: Number(value('dd-sight-spread').value),
+                    minLevel: Number(value('dd-sight-level').value), selfSwitch: common ? '' : value('dd-sight-self').value,
+                    commonEvent: common ? Number(value('dd-sight-common').value) : 0 };
+                if (this.editEventSight(info)) this.refreshInspector();
+            };
+            for (const id of ['dd-sight-range', 'dd-sight-spread', 'dd-sight-level', 'dd-sight-action', 'dd-sight-self', 'dd-sight-common']) {
+                const field = value(id); if (field) field.onchange = save;
+            }
+            const remove = value('dd-sight-remove');
+            if (remove) remove.onclick = () => { if (this.editEventSight(null)) this.refreshInspector(); };
+            return section;
+        },
+
+        sightOverlayPoints() {
+            const selected = this.selectedEvent, event = selected && selected.gameEvent, info = this.eventSightInfo();
+            if (!event || !info || typeof $gameMap === 'undefined' || !$gameMap) return [];
+            return DocsDoodads.Occlusion.visibility(event.x, event.y, info.range, (x, y) => DocsDoodads.SightRuntime.wallAt(x, y), 1, 1,
+                { rays: 64, angle: S.facing(event.direction()), spread: info.spread });
+        },
+
+        drawSightOverlay(graphics) {
+            const points = this.sightOverlayPoints();
+            if (!graphics || points.length < 8 || (DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera())) return;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), originX = points[0], originY = points[1];
+            const sx = $gameMap.adjustX(originX) * tw, sy = $gameMap.adjustY(originY) * th;
+            const polygon = [sx, sy];
+            for (let i = 2; i < points.length; i += 2) polygon.push(sx + (points[i] - originX) * tw, sy + (points[i + 1] - originY) * th);
+            const color = DocsDoodads.Ui.mapColor('selection');
+            graphics.lineStyle(2, color, 0.9); graphics.beginFill(color, 0.12); graphics.drawPolygon(polygon); graphics.endFill(); graphics.lineStyle(0);
+        }
+    });
+
+    W.renderInspector = function() { renderInspector.call(this); if (this.selectedEvent) this.renderSightDetails(); };
+    W.toolHooks.sight = { overlay(graphics) { this.drawSightOverlay(graphics); } };
+})();
 // @editor-only
 Object.assign(DocsDoodads.Workspace, {
     simpleToolNames() { return Object.assign({ symmetry: 'dd-sym-btn' }, this.toolButtons); },

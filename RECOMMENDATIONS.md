@@ -306,10 +306,10 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | 9.1.1 | **Built; MZ playtest pending.** **Comfort options.** Options has two rows from the plugin, Motion Blur and Effects Quality, while the game can show lightning, flashes, shockwaves and a camera that looks ahead. Add Reduce Flashes and Less Camera Motion for the player. | S |
 | 9.1.2 | **Built; MZ playtest pending.** **Quality that looks after itself.** Effects Quality is a fixed choice. An Auto choice steps it down when frames stay low and back up when there is room. Goes with item B under What's left. | S |
 | 9.1.3 | **A title screen from a map.** Pick a map, a time, weather, a look and a camera path, and the title screen shows it live behind the menu. | S |
-| 9.1.4 | **Pictures on save files.** A small picture of where the player was, with the place and the game's day and time, on each row of the save and load screens. | S |
+| 9.1.4 | **Built; MZ playtest pending.** **Pictures on save files.** A small picture of where the player was, with the place and the game's day and time, on each row of the save and load screens. | S |
 | 9.1.5 | **Built; MZ playtest pending.** **Area names.** Regions already drive camera rooms, looks and sounds. Give a region a name ("Old Quarter") and show it as MZ shows a map's name when the player walks in. | S |
 | 9.1.6 | **Pins and fast travel.** Pins on the minimap and the world map for towns, shops and quests, shown once found, and travel to a found pin from the world map. | S |
-| 9.1.7 | **Flat maps as battle backgrounds.** The 3D view can be the battle background (5.4); a flat map cannot. Use the map where the player stands, with its light, time and weather, without the blur. | S |
+| 9.1.7 | **Built; MZ playtest pending.** **Flat maps as battle backgrounds.** The 3D view can be the battle background (5.4); a flat map cannot. Use the map where the player stands, with its light, time and weather, without the blur. | S |
 
 ### 9.2 The map as gameplay
 
@@ -318,7 +318,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | 9.2.1 | **Built; MZ playtest pending.** **Nearness triggers.** A doodad is touched by Action, a click or walking into it. Add "when the player comes within so many tiles", and "when they leave": doors that open, torches that light along a corridor. | S |
 | 9.2.2 | **Indoors by region.** Weather covers the whole map, though character shadows already stop at roof regions. Marked regions stop rain, snow and sun shadows, take their own darkness and quieten the rain, so a house can share a map with its street. | M |
 | 9.2.3 | **Bridges you walk over and under.** Regions mark a bridge's deck and its ends; the player and events keep a level, pass under or over, and do not bump into or talk to those on the other level. Flat maps first. Shares its hooks with 7.3.2 and 7.3.3. | M |
-| 9.2.4 | **Light and sight.** A script or event can ask how bright a tile is, and an event can see the player: in a cone, stopped by the walls that already stop light, and less far in the dark. For stealth and puzzles. | M |
+| 9.2.4 | **Built; MZ playtest pending.** **Light and sight.** A script or event can ask how bright a tile is, and an event can see the player: in a cone, stopped by the walls that already stop light, and less far in the dark. For stealth and puzzles. | M |
 | 9.2.5 | **Doodads that ride and travel.** Motion is sway, bob, pulse, flicker and shimmer. Let a doodad ride on an event or the player (a lantern, a cart's load), or travel along a path (boats, clouds, platforms that carry the player). | M |
 | 9.2.6 | **Built; MZ playtest pending.** **Weather that picks itself.** A climate: the chance of rain, storm, snow, fog and wind per season, rolled from the calendar so the same day has the same weather after a load, with a forecast events can read. Interiors opt out. Goes with Moods (8.1.2). | S |
 

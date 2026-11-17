@@ -1157,6 +1157,17 @@ With the mouse:
 
 ## 24. Troubleshooting & FAQ
 
+### Save-file pictures and battle backgrounds
+
+- In MZ's Plugin Manager, **Pictures on save files** adds a small picture, the area's name (or map display name), and day/time/season to the native save and load list. It is off by default. Each picture is a JPEG of at most 8 KB, made from MZ's existing map snapshot when opening the menu. Saves made without a fresh map snapshot, including initial autosaves, keep the native row. Old saves and unreadable pictures also use the native layout; custom save windows may use the `docsShot`, `docsPlace` and `docsClock` info fields themselves.
+- **Map Settings → Battle background (flat map)** lets a battle use this map's current light, weather and look without MZ's blur. Characters, their gear/shadows/reflections, pictures and the minimap are left out. A named battleback, including Change Battle Back, takes priority. A 3D map uses its existing setting under **3D View**.
+
+### Event sight and light levels
+
+- Pick an event and use **Sight** in Details to set range, spread, darkness sensitivity and either a self switch or common event. The cone is drawn while editing a flat map. A current page's sight tags take priority over note tags. Walls use **World → Lighting** wall regions, even when visual light occlusion is off.
+- Tags: `<docs sight: 6, 90>`, `<docs sight light: 0.3>`, and either `<docs sight self switch: A>` or `<docs sight common event: 12>`. Seeing triggers once until sight is lost; a busy common-event slot is retried. Darkness shortens the range to at least a quarter.
+- `DocsDoodads.api.lightAt(tileX, tileY)` reads brightness from 0 to 1; **Store Light Level** writes it to a variable. `DocsDoodads.api.sees(eventId)` checks a tagged event. World → Lighting can drive a chosen switch while the player is below a brightness threshold. Detection checks near-screen events five times per second, up to 24 per check, and does not depend on the player's Effects Quality.
+
 ### Plugins and local reports
 
 **Map → Problems** has a **Plugins** group for known order advisories and hooks a later plugin appears to bypass. The check observes normal map updates without running gameplay as a probe. It waits for repeated calls before flagging a hook that never delegates; a removed observer is labelled as an unverified change. Listed later plugins are candidates to investigate. The generated [plugin notes](docs/PLUGIN_COMPATIBILITY.md) distinguish order advice from compatibility playtests, which are still pending.

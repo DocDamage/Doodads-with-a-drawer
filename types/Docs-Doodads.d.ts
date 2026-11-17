@@ -325,6 +325,16 @@ interface DocsDoodadsApi {
     flashlight(on: boolean | null): boolean;
 
     /**
+     * Brightness at a map tile, from 0 (dark) to 1 (fully lit).
+     */
+    lightAt(tileX: number, tileY: number): number;
+
+    /**
+     * Whether a tagged map event can currently see the player.
+     */
+    sees(eventId: number): boolean;
+
+    /**
      * An ability (jump, glide, swim, dive, fly, climb, ice) on (true), off (false) or as set (null).
      */
     traversal(ability: DocsTraversalAbility, on: boolean | null): boolean;

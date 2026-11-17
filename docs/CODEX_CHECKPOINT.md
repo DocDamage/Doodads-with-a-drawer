@@ -29,7 +29,8 @@ called Done: 7.3.2 collision brush; 7.4.8 creator My parts; 8.1.1 Simple mode;
 7.3.5 seeded generated maps; 9.5.3 save-safe changes; 9.3.3 heat haze;
 8.1.3 guessed placement defaults; 8.3.6 player Photo Mode; 9.1.2 Auto Effects Quality;
 7.3.8 first-person 3D camera; 9.4.3 art credit ledger; 9.2.6 seasonal climate;
-8.2.2 real map placement previews; 9.4.2 animated GIF/APNG import.
+8.2.2 real map placement previews; 9.4.2 animated GIF/APNG import;
+9.1.4 save-file pictures; 9.1.7 flat-map battle backgrounds; 9.2.4 light and sight.
 
 9.5.1 has a screenshot runner, driver, comparator and mocked-subprocess tests; review
 fixes are complete. It has not run in real NW.js: references, repeatability and reintroducing
@@ -60,6 +61,12 @@ the water bug are still pending. Do not claim this row is Done.
 | Placement preview: 8.2.2 | Complete locally | Real sprite pool, shared brush/path plans, capture/lifecycle hooks | Reviewed; stale pooled reflections and native fade preservation fixed; actual brush/Paint/path parity, pooling, capture and lifecycle targets passed |
 | Animated import: 9.4.2 | Complete locally | Bounded GIF/APNG readers, PNG sheet, transactions, index/drag/pack metadata and exact runtime frame count | Reviewed CRC/order/probe budgets, common colour types/transparency, source alias preservation, real drawer drag and new actor-file default; author defaults preserved; targets passed |
 
+| Save pictures: 9.1.4 | Complete locally | Bounded JPEG/info helpers, native map snapshot, save metadata, native list layout and parameter | Reviewed; image dimensions/size, asynchronous fallback, title preservation, subclass fallback and stale-cache targets passed |
+| Flat battlebacks: 9.1.7 | Complete locally | Shared visibility helper, flat/3D capture, named priority and map settings | Reviewed; capture/projection failure restoration, reflections, native fallback, names, engine lifecycle/character targets passed |
+| Light/sight: 9.2.4 | Complete locally | Shared light sum, raw gameplay snapshot, bounded LOS/actions, APIs/command, World darkness switch and event Details/cone | Root review fixed page precedence, stale API snapshots, reserved-common retry and inactive/editor pause; focused lighting, Perspective, UI and game-only suites passed |
+| Title map: 9.1.3 | Specialist, active | New pure/runtime/editor title parts and test | Architecture accepted: isolated constructor-built game context for update/render; native commands outside context; RED/GREEN next |
+| Plain words: 8.3.8 | Coordinator, active | Offline phrase rules and palette adapters | Offline phrase table, closed canonical commands, preview before Enter; RED/GREEN next |
+
 The user requested continuous work through all remaining rows, with no stops after waves.
 The session permits two active agents including the coordinator. Use successive
 specialists, with disjoint files while both are editing. Do not run the full test
@@ -79,11 +86,11 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Latest verification
 
-- Current gate: static PASS (210 editor parts, 75 runtime parts, 1,606 strings).
-  Full coverage PASS: 187/187 suites in 176.5 seconds; lines/statements 92.14%,
-  branches 77.99%, functions 86.80%. All thresholds passed and the repository stayed
-  unchanged. Animated import, actual placement previews and all prior integration
-  fixes are included.
+- Current gate: static PASS (217 editor parts, 80 runtime parts, 1,618 strings).
+  Full coverage PASS: 190/190 suites in 177.0 seconds; lines/statements 92.19%,
+  branches 77.92%, functions 86.97%. All thresholds passed and the repository stayed
+  unchanged. Save pictures, flat battlebacks and light/sight are included. Next small
+  follow-up excludes screen-fixed/UI lamps from gameplay light queries.
 - `npm audit --audit-level=moderate`: zero vulnerabilities (16 November 2026).
 - Red/green runtime tests exist for each row listed above.
 - Adjacent menus, weather/camera, postfx, inspector, regions, API and creator suites passed.
@@ -105,10 +112,10 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-Continue with 9.2.4 event light/sight checks and 9.1.4 save-file pictures, then follow
+Continue with 9.1.3 isolated title maps and 8.3.8 offline plain words, then follow
 the dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
-There are 38 other buildable rows still open, plus the external-plugin compatibility
+There are 35 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
 but they have not been deleted. Nothing has been pushed, opened as a PR or published.

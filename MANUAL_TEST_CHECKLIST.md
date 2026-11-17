@@ -40,6 +40,9 @@ Use a disposable copy of an RPG Maker MZ project. Keep the editor closed while t
 
 ## Definition-of-done workflow
 
+- [ ] Enable Pictures on save files; save from the menu in a named area at night. Check thumbnail, File/Autosave title, place and clock in Save and Load. Old saves, initial autosaves, bad/missing thumbnails and a custom save window retain a usable native layout.
+- [ ] Enable the flat-map battle background on Starting Town, Field Map and the cave. Verify lights/look/weather, no party/gear/shadows/reflections/HUD, correct side-view battler feet, restored map after victory, and named/changed battlebacks taking priority. Repeat the existing 3D battle setting.
+- [ ] Give an event a sight cone and self switch, then a common event. Test front/back, walls, dark versus flashlight, page overrides, reserved common events, looping seams, editor pause, Save/Load and game-only build. Compare lightAt/Store Light Level and the darkness switch on each Effects Quality.
 - [ ] Press F10; the editor opens and the map remains interactive. On a first run the welcome card appears; the hint bubble changes as you pick a tool or an item.
 - [ ] Confirm cached assets appear immediately and indexing progress finishes without freezing.
 - [ ] Search by text and with `type:`, `tag:`, `folder:`, `category:`, `favorite:`, and a negative term (`-tag:`). Add items to a collection and pick it beside the search box.
