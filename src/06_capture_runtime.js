@@ -8,8 +8,10 @@ DocsDoodads.Capture = {
     renderSceneCanvas(spriteset, renderer) {
         renderer = renderer || (DocsDoodads.Compat && DocsDoodads.Compat.getRenderer ? DocsDoodads.Compat.getRenderer() : null);
         if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
-        const hidden = [spriteset._docsSelectionOutline, spriteset._docsTraceSprite].filter(Boolean)
-            .map(display => ({ display, visible: display.visible }));
+        const outline = spriteset._docsSelectionOutline;
+        const outlineVisible = outline && outline.visible;
+        if (outline) outline.visible = false;
+        const hidden = [spriteset._docsTraceSprite].filter(Boolean).map(display => ({ display, visible: display.visible }));
         for (const item of hidden) item.display.visible = false;
         let rt = null;
         try {
@@ -18,6 +20,7 @@ DocsDoodads.Capture = {
             return renderer.extract.canvas(rt);
         } finally {
             if (rt) rt.destroy(true);
+            if (outline) outline.visible = outlineVisible;
             for (const item of hidden) item.display.visible = item.visible;
         }
     },

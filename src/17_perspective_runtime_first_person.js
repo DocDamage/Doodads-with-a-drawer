@@ -16,10 +16,33 @@
         return typeof Graphics !== 'undefined' && (Graphics._canvas || (Graphics.app && Graphics.app.view)) || null;
     };
 
-    P.releaseMouseLook = function() {
+    P.exitPointerLock = function() {
         if (typeof document === 'undefined') return;
         const canvas = this.pointerCanvas();
         if (canvas && document.pointerLockElement === canvas && typeof document.exitPointerLock === 'function') document.exitPointerLock();
+    };
+
+    // Mouse look is a visit-scoped input mode, not a permanent document listener. This matters in the
+    // editor too: its dialogs and shortcut router must not inherit first-person handlers from a map visit.
+    P.uninstallMouseLook = function() {
+        const doc = typeof document !== 'undefined' ? document : null;
+        if (this._firstMouseCanvas && this._firstMouseClick && typeof this._firstMouseCanvas.removeEventListener === 'function') {
+            this._firstMouseCanvas.removeEventListener('click', this._firstMouseClick);
+        }
+        if (doc && typeof doc.removeEventListener === 'function') {
+            if (this._firstMouseMove) doc.removeEventListener('mousemove', this._firstMouseMove, true);
+            if (this._firstMouseKeydown) doc.removeEventListener('keydown', this._firstMouseKeydown, true);
+        }
+        this._firstMouseCanvas = null;
+        this._firstMouseClick = null;
+        this._firstMouseMove = null;
+        this._firstMouseKeydown = null;
+        this._firstMouseInstalled = false;
+        this.exitPointerLock();
+    };
+
+    P.releaseMouseLook = function() {
+        this.uninstallMouseLook();
     };
 
     P.mouseLookAllowed = function() {
@@ -32,7 +55,10 @@
     };
 
     P.installMouseLook = function() {
-        if (typeof document === 'undefined') return;
+        if (typeof document === 'undefined' || !this.mouseLookAllowed()) {
+            this.releaseMouseLook();
+            return false;
+        }
         const canvas = this.pointerCanvas();
         if (canvas && canvas !== this._firstMouseCanvas && typeof canvas.addEventListener === 'function') {
             if (this._firstMouseCanvas && typeof this._firstMouseCanvas.removeEventListener === 'function') {
@@ -47,9 +73,9 @@
             };
             canvas.addEventListener('click', this._firstMouseClick);
         }
-        if (this._firstMouseInstalled || typeof document.addEventListener !== 'function') return;
+        if (this._firstMouseInstalled || typeof document.addEventListener !== 'function') return true;
         this._firstMouseInstalled = true;
-        document.addEventListener('mousemove', event => {
+        this._firstMouseMove = event => {
             const view = this.pointerCanvas();
             if (!view || document.pointerLockElement !== view || !this.mouseLookAllowed()) return;
             const s = this.active();
@@ -59,13 +85,14 @@
             $gameMap._docsFirstPersonMode = true;
             this._activeMemo = null;
             if ($gamePlayer && $gamePlayer.setDirection) $gamePlayer.setDirection(this.directionForYaw(yaw));
-        });
-        document.addEventListener('keydown', event => {
+        };
+        this._firstMouseKeydown = event => {
             if (event && (event.key === 'Escape' || event.code === 'Escape')) this.releaseMouseLook();
-        });
+        };
+        document.addEventListener('mousemove', this._firstMouseMove, true);
+        document.addEventListener('keydown', this._firstMouseKeydown, true);
+        return true;
     };
-
-    P.installMouseLook();
 
     if (typeof Game_Map !== 'undefined') {
         const setup = Game_Map.prototype.setup;
@@ -76,7 +103,6 @@
 
         const updateCamera = Game_Map.prototype.updateDocsCamera3d;
         Game_Map.prototype.updateDocsCamera3d = function(sceneActive) {
-            P.installMouseLook();
             updateCamera.call(this, sceneActive);
             let s = P.active();
             const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
@@ -88,7 +114,8 @@
                 s = Object.assign({}, s, { yaw });
             }
             const photo = Boolean(DocsDoodads.PhotoMode && DocsDoodads.PhotoMode.active);
-            if (!s || s.mode !== 'first' || !s.mouseLook || editing || photo || !sceneActive) P.releaseMouseLook();
+            if (s && s.mode === 'first' && s.mouseLook && !editing && !photo && sceneActive) P.installMouseLook();
+            else P.releaseMouseLook();
         };
     }
 

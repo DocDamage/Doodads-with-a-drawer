@@ -255,11 +255,6 @@ DocsDoodads.PhotoMode = {
     }
 };
 
-if (typeof window !== 'undefined' && window.addEventListener) {
-    window.addEventListener('keydown', event => DocsDoodads.PhotoMode.onKey(event), true);
-    window.addEventListener('wheel', event => DocsDoodads.PhotoMode.onWheel(event), { capture: true, passive: false });
-}
-
 if (typeof Scene_Map !== 'undefined') {
     $.Scene_Map_updateMain_photo = Scene_Map.prototype.updateMain;
     Scene_Map.prototype.updateMain = function() {
