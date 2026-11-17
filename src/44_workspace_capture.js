@@ -19,23 +19,7 @@ Object.assign(DocsDoodads.Workspace, {
     renderSceneCanvas() {
         const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
         const spriteset = scene && scene._spriteset;
-        const renderer = this.renderer();
-        if (!spriteset || !renderer || typeof PIXI === 'undefined' || !PIXI.RenderTexture || !renderer.extract) return null;
-        const outline = spriteset._docsSelectionOutline;
-        const wasVisible = outline ? outline.visible : null;
-        if (outline) outline.visible = false;
-        const trace = spriteset._docsTraceSprite;
-        const traceVisible = trace ? trace.visible : null;
-        if (trace) trace.visible = false;
-        const rt = PIXI.RenderTexture.create({ width: Graphics.width, height: Graphics.height });
-        try {
-            renderer.render(spriteset, rt);
-            return renderer.extract.canvas(rt);
-        } finally {
-            rt.destroy(true);
-            if (outline) outline.visible = wasVisible;
-            if (trace) trace.visible = traceVisible;
-        }
+        return DocsDoodads.Capture.renderSceneCanvas(spriteset, this.renderer());
     },
 
     captureName(kind, ext) {

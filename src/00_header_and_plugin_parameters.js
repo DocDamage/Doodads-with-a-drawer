@@ -214,6 +214,24 @@
  * @default F10
  * @desc Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.
  *
+ * @param photoModeKey
+ * @text Photo Mode Key
+ * @type combo
+ * @option P
+ * @option F6
+ * @option F7
+ * @option F8
+ * @option F9
+ * @option Ctrl+P
+ * @default P
+ * @desc Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.
+ *
+ * @param photoModeForbidSwitch
+ * @text Forbid Photo Mode Switch
+ * @type switch
+ * @default 0
+ * @desc While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).
+ *
  * @param editorMode
  * @text Editor Enabled
  * @type boolean
@@ -340,6 +358,10 @@
  * @type boolean
  * @default false
  * @desc Enable diagnostics logging in Developer Tools console.
+ *
+ * @command openPhotoMode
+ * @text Open Photo Mode
+ * @desc Pauses the map and lets the player move the camera, choose a look, hide the party and save a PNG.
  *
  * @command storeAreaName
  * @text Store Area Name

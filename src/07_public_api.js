@@ -556,6 +556,14 @@ DocsDoodads.api = {
         return C.zoomTo(C.pointOf(target === 'player' && typeof $gamePlayer !== 'undefined' ? $gamePlayer : target), scale, frames);
     },
 
+    /**
+     * Opens the player's Photo Mode on the current map. Returns false when its forbid switch is on.
+     * @returns {boolean}
+     */
+    photoMode() {
+        return DocsDoodads.PhotoMode.open();
+    },
+
     // ---- The calendar (the running clock's days; World > Day and Night) ----
     /**
      * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.

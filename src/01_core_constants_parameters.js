@@ -61,6 +61,8 @@ DocsDoodads.Security = DocsDoodads.Security || {
 
 const escapeHtml = DocsDoodads.Security.escapeHtml;
 const editKey = String(parameters.editKey || "F10");
+const photoModeKey = String(parameters.photoModeKey === undefined ? "P" : parameters.photoModeKey).trim();
+const photoModeForbidSwitch = Math.max(0, Math.round(parseNumberParameter(parameters.photoModeForbidSwitch, 0, 0, 9999)));
 const editorMode = parseBooleanParameter(parameters.editorMode, true);
 const dataFileName = safeDataBaseName(parameters.dataFileName) + ".json";
 // The release, as in package.json and the header's @plugindesc (verify checks that the three agree).
