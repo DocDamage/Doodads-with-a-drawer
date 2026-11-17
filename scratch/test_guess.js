@@ -31,6 +31,9 @@ assert.strictEqual(G.apply(original, { ...tree, collisionUserSet: true }, true).
 assert.strictEqual(G.apply(original, { ...tree, placement: { depth: 'above' } }, true).depth, 'above');
 assert.strictEqual(G.apply(original, { ...lamp, guess: { kind: null } }, true).light, undefined, 'None is remembered');
 assert.strictEqual(G.apply(original, { ...lamp, type: 'character_sheet' }, true).light, undefined, 'character sheets are not guessed');
+for (const type of ['single_character', 'tileset', 'faceset', 'audio', 'prefab']) {
+    assert.strictEqual(G.kind({ ...tree, type }), null, `${type} art is not guessed`);
+}
 let saves = 0;
 D.AssetIndex.saveSoon = () => saves++;
 D.AssetIndex.data.assets = { [lamp.path.toLowerCase()]: lamp };

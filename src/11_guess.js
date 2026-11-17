@@ -43,7 +43,7 @@ DocsDoodads.Guess = {
         return {};
     },
     kind(asset, extra) {
-        if (!asset || ['character_sheet', 'prefab', 'audio'].includes(asset.type)) return null;
+        if (!asset || (asset.type && asset.type !== 'doodad')) return null;
         if (asset.guess && Object.prototype.hasOwnProperty.call(asset.guess, 'kind')) return Object.prototype.hasOwnProperty.call(this.words, asset.guess.kind) ? asset.guess.kind : null;
         const folder = String(asset.path || '').replace(/\\/g, '/').split('/').slice(0, -1).join('/');
         return this.kindOf(Object.assign({}, asset, { folder: asset.folder || folder }), extra);

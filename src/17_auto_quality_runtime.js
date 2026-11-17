@@ -11,17 +11,18 @@ Object.assign(DocsDoodads.AutoQuality, {
             catch (error) { DocsDoodads.Core.log('Auto quality preference could not be saved', error); }
         }
     },
-    clearFade() {
+    clearFade(settle) {
         const fade = this.fade;
         this.fade = null;
         if (!fade) return;
         if (fade.sprite.parent && fade.sprite.parent.removeChild) fade.sprite.parent.removeChild(fade.sprite);
         if (fade.sprite.destroy) fade.sprite.destroy({ texture: true, baseTexture: true });
+        if (settle && this.active()) this.saveLevel();
     },
     updateFade(now) {
         const fade = this.fade;
         if (!fade) return;
-        if (!this.active() || (typeof SceneManager !== 'undefined' && SceneManager._scene !== fade.scene)) { this.clearFade(); return; }
+        if (!this.active() || (typeof SceneManager !== 'undefined' && SceneManager._scene !== fade.scene)) { this.clearFade(true); return; }
         fade.sprite.alpha = Math.max(0, 1 - (now - fade.start) / 500);
         if (fade.sprite.alpha <= 0) { this.clearFade(); this.saveLevel(); }
     },
@@ -33,7 +34,7 @@ Object.assign(DocsDoodads.AutoQuality, {
             this.pending = level;
             return true;
         }
-        this.clearFade();
+        this.clearFade(true);
         const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
         let texture = null, sprite = null;
         try {
@@ -58,7 +59,7 @@ Object.assign(DocsDoodads.AutoQuality, {
         return true;
     },
     onMap() {
-        this.clearFade();
+        this.clearFade(true);
         if (this.pending !== null && this.active()) { this.level = this.clamp(this.pending); this.saveLevel(); }
         this.pending = null;
         this.state = this.initial();
@@ -114,7 +115,7 @@ if (typeof Game_Map !== 'undefined') {
 if (typeof Scene_Map !== 'undefined') {
     const terminateAutoMap = Scene_Map.prototype.terminate;
     Scene_Map.prototype.terminate = function() {
-        DocsDoodads.AutoQuality.clearFade();
+        DocsDoodads.AutoQuality.clearFade(true);
         DocsDoodads.AutoQuality.lastTime = null;
         if (terminateAutoMap) return terminateAutoMap.call(this);
     };
