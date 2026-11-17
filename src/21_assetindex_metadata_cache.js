@@ -248,11 +248,16 @@ DocsDoodads.AssetIndex = {
             try {
                 const stat = await fs.promises.stat(absolute);
                 if (!stat.isFile()) continue;
+                const previous = this.data.assets[assetPath.toLowerCase()];
+                const hasAuthoredPlacement = Boolean(previous && previous.placement);
                 const animationKey = absolute.toLowerCase(), hasAnimationDecision = animationByPath.has(animationKey);
-                if (hasAnimationDecision && this.data.assets[assetPath.toLowerCase()]) this.data.assets[assetPath.toLowerCase()].entryRevision = -1;
+                if (hasAnimationDecision && previous) previous.entryRevision = -1;
                 this.indexFile(absolute, path.basename(absolute), path.extname(absolute).toLowerCase(), assetPath, stat);
                 const asset = this.data.assets[assetPath.toLowerCase()], animation = animationByPath.get(animationKey);
-                if (animation) this.applyAnimation(asset, animation, true);
+                if (animation) {
+                    const applied = this.applyAnimation(asset, animation, true);
+                    if (applied && !hasAuthoredPlacement) asset.placement = Object.assign({}, asset.placement || {}, { defaultMode: 'doodad' });
+                }
                 else if (hasAnimationDecision && asset) {
                     delete asset.animation;
                     if (asset.slice && asset.slice.method === 'animated-import') asset.slice = { status: 'none', method: 'none', confidence: 1, regions: [] };
