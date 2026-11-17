@@ -640,6 +640,7 @@
                     ${DocsDoodads.Depth.modes.map(m => `<option value="${m}">${DocsDoodads.Depth.labels[m]}</option>`).join('')}
                 </select>
             </div>
+            ${this.renderAssetGuess(a)}
             ${this.renderAssetSeasonControl(a)}
             ${this.renderAssetPlacementTools(a)}
             ${this.renderUsagePanel(a)}
@@ -682,6 +683,7 @@
         colSel.onchange = (e) => {
             const shape = e.target.value === 'custom' ? (a.collision.shape || { x: 0.2, y: 0.6, w: 0.6, h: 0.4 }) : null;
             a.collision = { preset: e.target.value, shape };
+            a.collisionUserSet = true;
             DocsDoodads.AssetIndex.saveSoon();
         };
         document.getElementById('dd-asset-trace-col').onclick = () => this.traceAssetCollision(a);
@@ -705,6 +707,7 @@
         document.getElementById('dd-place-now-btn').onclick = () => {
             this.placeAssetOnMapCenter(a);
         };
+        this.bindAssetGuess(a);
         this.bindAssetSeasonControl(a);
         this.bindAssetPlacementTools(a);
         this.bindUsagePanel(a);

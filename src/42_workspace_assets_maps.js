@@ -54,6 +54,7 @@
                 return null;
             }
             asset.collision = { preset: 'custom', shape };
+            asset.collisionUserSet = true;
             DocsDoodads.AssetIndex.saveSoon();
             this.showToast(`Collision traced for ${asset.fileName}; new placements will use it.`);
             this.refreshInspector();
@@ -65,8 +66,8 @@
     },
 
     // A new doodad for an asset (library entry or drag payload) at a map position.
-    newDoodadFromAsset(asset, x, y) {
-        const d = DocsDoodads.standardStruct();
+    newDoodadFromAsset(asset, x, y, guessing = true) {
+        let d = DocsDoodads.standardStruct();
         d.bit = [3, asset.path];
         d.x = x;
         d.y = y;
@@ -77,6 +78,7 @@
         d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
         const collision = asset.collision || {};
         d.collision = { preset: collision.preset || "none", shape: collision.shape ? JSON.parse(JSON.stringify(collision.shape)) : null };
+        d = DocsDoodads.Guess.apply(d, this.guessAsset(asset), guessing && this.guessEnabled(), this.guessWords());
         DocsDoodads.MapLinks.ensureUid(d);
         const layer = this.layerOnThisMap(this.activeLayer);
         if (layer !== 'main') d.layer = layer;
@@ -1090,6 +1092,7 @@
             DocsDoodads.Undo.execute(cmd);
             this.showToast(`Created ${template.name} Event EV${String(newId).padStart(3, '0')}`);
         } else {
+            const baseline = this.newDoodadFromAsset(asset, coords.x, coords.y, false);
             const placed = this.withMirrors(this.newDoodadFromAsset(asset, coords.x, coords.y));
             if (placed.length === 0) {
                 this.showToast(this.levelGroundMessage, 'info');
@@ -1099,9 +1102,9 @@
             const mapId = $gameMap.mapId();
             const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
             DocsDoodads.Undo.execute(this.doodadListStep('place_doodad', list, placed, true));
-            this.showToast("Placed Doodad on Map!");
+            this.guessedPlacementToast(asset, placed, baseline);
         }
-        DocsDoodads.AssetIndex.recordUsage(asset.id);
+        DocsDoodads.AssetIndex.recordUsage(asset.id || String(asset.path || '').toLowerCase());
     },
 
     // The selected doodads, or the one selected doodad.

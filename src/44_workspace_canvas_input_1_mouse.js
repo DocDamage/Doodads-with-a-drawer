@@ -375,6 +375,7 @@
                     };
                     cmd.type = this.placementTool === 'biome' ? 'biome_paint' : 'scatter_doodads';
                     DocsDoodads.Undo.execute(cmd);
+                    this.rememberGuessPlacements(batch);
                     this.showToast(`Scattered ${batch.length} props!`);
                 }
             }

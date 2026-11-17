@@ -305,6 +305,8 @@ DocsDoodads.AssetIndex = {
                 preset: "none",
                 shape: null
             },
+            collisionUserSet: existing ? existing.collisionUserSet !== false : false,
+            ...(existing && existing.guess ? { guess: existing.guess } : {}),
             usage: existing && existing.usage ? existing.usage : { lastUsedAt: 0, useCount: 0 }
         };
 
@@ -409,6 +411,7 @@ DocsDoodads.AssetIndex = {
     recordUsage(assetId) {
         const asset = this.data.assets[assetId];
         if (!asset) return;
+        DocsDoodads.Workspace.rememberAssetGuess(asset);
         const u = asset.usage = asset.usage || { lastUsedAt: 0, useCount: 0 };
         u.useCount = (u.useCount || 0) + 1;
         u.lastUsedAt = Date.now();

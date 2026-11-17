@@ -38,6 +38,7 @@ DocsDoodads.I18n = {
         this.name = (table && table.language) || (this.lang === 'en' ? 'English' : this.lang);
         this.exact = {};
         this.patterns = [];
+        this.guessWords = table && table.guessWords && typeof table.guessWords === 'object' ? table.guessWords : {};
         const strings = table && table.strings && typeof table.strings === 'object' ? table.strings : {};
         for (const key of Object.keys(strings)) {
             const value = strings[key];
