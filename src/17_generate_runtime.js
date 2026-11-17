@@ -48,7 +48,18 @@ DocsDoodads.GenerateRuntime = {
         const doodad = DocsDoodads.standardStruct();
         doodad.bit = [3, placement.path]; doodad.x = Math.round(placement.x); doodad.y = Math.round(placement.y);
         doodad.scaleX = placement.scale * (placement.flipX ? -1 : 1); doodad.scaleY = placement.scale;
-        doodad.frameW = 48; doodad.frameH = 48; doodad.dressed = true;
+        // Generated definitions name art rather than an editor-library record. Start without a guessed tile-sized
+        // frame, then use the full bitmap in both editor and game builds as soon as it is available.
+        doodad.frameW = Number(placement.frameW) || 0; doodad.frameH = Number(placement.frameH) || 0;
+        if ((!doodad.frameW || !doodad.frameH) && typeof DocsDoodads.loadBitmap === 'function') {
+            const bitmap = DocsDoodads.loadBitmap(placement.path);
+            if (bitmap && bitmap.addLoadListener) bitmap.addLoadListener(loaded => {
+                if (!doodad.bit || doodad.bit[1] !== placement.path) return;
+                if (!doodad.frameW) doodad.frameW = loaded.width;
+                if (!doodad.frameH) doodad.frameH = loaded.height;
+            });
+        }
+        doodad.dressed = true;
         doodad.uid = `dd_gen_${mapId}_${seed}_${index}`; doodad._docsGeneratedMap = mapId;
         return doodad;
     },

@@ -77,35 +77,7 @@ DocsDoodads.Paths = {
     }
 };
 
-DocsDoodads.Scatter = {
-    // Small seeded generator so a stroke can be reproduced in tests.
-    rng(seed) {
-        let a = (Number(seed) || 1) >>> 0;
-        return () => {
-            a = (a + 0x6D2B79F5) >>> 0;
-            let t = a;
-            t = Math.imul(t ^ (t >>> 15), t | 1);
-            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-        };
-    },
-
-    // Poisson-disk style dart throwing: no two props closer than minDistance, existing props included.
-    candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
-        const accepted = [];
-        const others = (existing || []).slice();
-        const attempts = maxAttempts || Math.max(30, count * 30);
-        for (let i = 0; i < attempts && accepted.length < count; i++) {
-            const angle = rng() * Math.PI * 2;
-            const dist = radius * Math.sqrt(rng());
-            const p = { x: center.x + Math.cos(angle) * dist, y: center.y + Math.sin(angle) * dist };
-            if (minDistance > 0 && others.some(o => Math.hypot(o.x - p.x, o.y - p.y) < minDistance)) continue;
-            accepted.push(p);
-            others.push(p);
-        }
-        return accepted;
-    },
-
+Object.assign(DocsDoodads.Scatter, {
     parseIdList(text) {
         return String(text || '').split(/[^0-9]+/).filter(Boolean).map(n => parseInt(n, 10)).filter(n => n > 0);
     },
@@ -130,7 +102,7 @@ DocsDoodads.Scatter = {
             hue: Math.round(jitter(settings.hueJitter))
         };
     }
-};
+});
 
 DocsDoodads.Guides = {
     rectOf(d) {

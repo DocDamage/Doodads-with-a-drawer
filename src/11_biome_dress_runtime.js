@@ -1,10 +1,18 @@
 //==========================================================
 // SECTION 4I: SEEDED BIOME AND DRESSING PLANS (GAME-SAFE CORE)
 //==========================================================
-// The editor's full placement tools replace these same objects later in a full build. The game-only build
-// keeps the pure candidates used when a generated map is materialized from its seed.
-DocsDoodads.Scatter = DocsDoodads.Scatter || {
-    rng(seed) { return DocsDoodads.Generate.rng(seed); },
+// One pure implementation is shared by editor brushes and generated maps in deployed games.
+DocsDoodads.Scatter = {
+    rng(seed) {
+        let state = (Number(seed) || 1) >>> 0;
+        return function() {
+            state = (state + 0x6d2b79f5) >>> 0;
+            let value = state;
+            value = Math.imul(value ^ value >>> 15, value | 1);
+            value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+            return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        };
+    },
     candidates(center, radius, minDistance, existing, count, rng, maxAttempts) {
         const accepted = [], others = (existing || []).slice(), attempts = maxAttempts || Math.max(30, count * 30);
         for (let i = 0; i < attempts && accepted.length < count; i++) {
@@ -69,7 +77,14 @@ DocsDoodads.Biome = {
 };
 
 DocsDoodads.Dress = {
-    places: [{ value: 'waterEdge' }, { value: 'wallBase' }, { value: 'nearRegion' }, { value: 'region' }, { value: 'terrain' }, { value: 'open' }],
+    places: [
+        { value: 'waterEdge', label: 'Along water edges' },
+        { value: 'wallBase', label: 'At the foot of walls and cliffs' },
+        { value: 'nearRegion', label: 'Beside a region (paths, roads)' },
+        { value: 'region', label: 'Inside a region' },
+        { value: 'terrain', label: 'On a terrain tag' },
+        { value: 'open', label: 'Open ground' }
+    ],
     normalize(rule) {
         rule = rule || {};
         const number = (value, fallback, min, max) => { const n = Number(value); return value === undefined || value === null || value === '' || !isFinite(n) ? fallback : Math.max(min, Math.min(max, n)); };
