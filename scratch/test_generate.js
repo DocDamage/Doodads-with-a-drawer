@@ -96,6 +96,25 @@ const roomWithContents = Object.assign({}, stamp, {
 });
 for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) roomWithContents.tiles[(y * 5) + x] = 2816;
 
+// Room contents scale to the live project's non-default tile dimensions. Generated room props also
+// receive stable per-map/per-seed handles even though captured room templates deliberately omit UIDs.
+const smallRoomMap = { width: 16, height: 12, data: new Array(16 * 12 * 6).fill(0), events: [null] };
+const smallRoomLayout = { kind: 'dungeon', seed: 2468, w: 16, h: 12, floor: [], paths: [], rooms: [
+    { x: 2, y: 3, index: 0, templateId: 'cross-room' },
+    { x: 9, y: 3, index: 1, templateId: 'cross-room' }
+] };
+const smallRoomPlan = G.plan(smallRoomLayout, plainRecipe, smallRoomMap, [roomWithContents], {
+    mapId: 7, tileWidth: 16, tileHeight: 32
+});
+assert.deepStrictEqual(smallRoomPlan.doodads.map(doodad => [doodad.x, doodad.y]), [[56, 160], [168, 160]],
+    'captured room props scale independently to 16x32 project tiles');
+assert.deepStrictEqual(smallRoomPlan.doodads.map(doodad => doodad.uid), [
+    'dd_gen_7_2468_room_0_0', 'dd_gen_7_2468_room_1_0'
+], 'every generated room prop receives a deterministic unique object handle');
+assert.deepStrictEqual(G.plan(smallRoomLayout, plainRecipe, smallRoomMap, [roomWithContents], {
+    mapId: 7, tileWidth: 16, tileHeight: 32
+}).doodads, smallRoomPlan.doodads, 'generated room handles are stable for the same map and seed');
+
 // Runtime requests keep only the recipe and resolved seed. The same record is regenerated when the
 // target map is set up; generated arrays never enter $gameSystem/save contents.
 assert.ok(D.GenerateRuntime && typeof D.GenerateRuntime.queue === 'function', 'runtime generator exists in the ordinary game build');
@@ -108,7 +127,14 @@ const queued = D.GenerateRuntime.command({
 assert.strictEqual(queued.seed, 123456, 'the seed variable is resolved when the command runs');
 assert.deepStrictEqual(Object.keys($gameSystem._docsGeneratedMaps[1]).sort(), ['recipe', 'seed']);
 assert.ok(!JSON.stringify($gameSystem._docsGeneratedMaps).includes('biomeIds'));
-$gameMap.setup(1);
+const originalPlan = G.plan; let runtimePlanOptions;
+G.plan = function(...args) { runtimePlanOptions = args[4]; return originalPlan.apply(this, args); };
+const originalTileSize = $dataSystem.tileSize;
+$dataSystem.tileSize = 32;
+try { $gameMap.setup(1); }
+finally { $dataSystem.tileSize = originalTileSize; G.plan = originalPlan; }
+assert.deepStrictEqual([runtimePlanOptions.tileWidth, runtimePlanOptions.tileHeight], [32, 32],
+    'game regeneration passes the current project tile dimensions into the shared plan');
 assert.ok($dataMap.data.some(id => id === 4352), 'setup applies the generated walls before the map is shown');
 assert.strictEqual(D.GenerateRuntime.isMaterialized(1), true, 'a successful setup records the exact materialized map object');
 assert.ok(($dataMap.events || []).some(e => e && e._docsGeneratedMap === 1), 'room events are materialized');
@@ -194,7 +220,7 @@ global.$dataDocsDoodads = { 1: editorDoodads, mapSettings: {} };
 D.Workspace.liveMapData = () => editorMap;
 D.Workspace.currentMapId = () => 1;
 D.Workspace.regionTargets = () => ({ live: editorMap, staged: editorMap });
-D.Workspace.tileSize = () => ({ tw: 48, th: 48 });
+D.Workspace.tileSize = () => ({ tw: 16, th: 32 });
 D.Workspace.afterTileEdit = () => {};
 D.Workspace.refreshSpriteset = () => {};
 D.Workspace.updateUndoButtons = () => {};
@@ -207,7 +233,12 @@ const preview = D.Workspace.previewGeneratedMap(false);
 assert.ok(preview && preview.layout.rooms.length, `preview creates an overlay-only layout (${D.Workspace._testToast || 'no error'})`);
 assert.ok(D.Generate.plan(preview.layout, preview.recipe, editorMap, [roomWithContents]).changes.length > 0,
     'preview materializes to a non-empty reversible tile plan');
-assert.strictEqual(D.Workspace.applyGeneratedMap(), true, 'preview can be applied on the same map');
+let editorPlanOptions;
+G.plan = function(...args) { editorPlanOptions = args[4]; return originalPlan.apply(this, args); };
+try { assert.strictEqual(D.Workspace.applyGeneratedMap(), true, 'preview can be applied on the same map'); }
+finally { G.plan = originalPlan; }
+assert.deepStrictEqual([editorPlanOptions.tileWidth, editorPlanOptions.tileHeight], [16, 32],
+    'editor Apply translates its {tw,th} tile size into the shared plan contract');
 assert.notStrictEqual(JSON.stringify(editorMap), beforeEditor, 'Apply changes the staged map');
 assert.strictEqual(D.Undo.undoStack[D.Undo.undoStack.length - 1].type, 'generate_map');
 D.Undo.undo();
