@@ -45,6 +45,7 @@ DocsDoodads.PhotoMode = {
             || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) || typeof $gameMap === 'undefined' || !$gameMap) return false;
         const spriteset = scene._spriteset;
         if (!spriteset) return false;
+        if (DocsDoodads.Perspective && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         const map = $gameMap, mapId = map.mapId();
         const visibility = this.partySprites(spriteset).map(sprite => ({ sprite, visible: sprite.visible }));
         this.state = {

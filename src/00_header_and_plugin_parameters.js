@@ -1094,8 +1094,19 @@
  * @text Set Camera (3D)
  * @desc Moves the 3D camera. Blank fields keep their value.
  *
+ * @arg cameraMode
+ * @text Camera Mode
+ * @type select
+ * @option (keep)
+ * @value
+ * @option Orbit
+ * @value orbit
+ * @option First person
+ * @value first
+ * @default
+ *
  * @arg pitch
- * @text Tilt (degrees down, 20-89)
+ * @text Tilt (orbit, or first-person look)
  * @type string
  * @default
  *
@@ -1111,6 +1122,27 @@
  *
  * @arg fov
  * @text Field of View
+ * @type string
+ * @default
+ *
+ * @arg eyeHeight
+ * @text First-person Eye Height (tiles)
+ * @type string
+ * @default
+ *
+ * @arg mouseLook
+ * @text First-person Mouse Look
+ * @type select
+ * @option (keep)
+ * @value
+ * @option On (click game to capture mouse)
+ * @value on
+ * @option Off
+ * @value off
+ * @default
+ *
+ * @arg nearFade
+ * @text Near Billboard Fade (tiles)
  * @type string
  * @default
  *

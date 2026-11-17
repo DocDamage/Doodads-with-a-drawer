@@ -164,7 +164,13 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         this.updateDocsStandTiles(s);
         const W = Graphics.width, H = Graphics.height;
         const radius = s.curve === 'flat' ? 0 : (s.curveRadius > 0 ? s.curveRadius * tw : P.fitRadius($gameMap.width(), tw));
-        const cam = P._cam = P.camera({ target: { x: gw / 2, y: gh / 2 + th / 2 }, pitch: s.pitch, yaw: s.yaw, fov: s.fov, zoom: s.zoom, width: W, height: H,
+        const target = { x: gw / 2, y: gh / 2 + th / 2 };
+        const first = s.mode === 'first' && typeof $gamePlayer !== 'undefined' && $gamePlayer
+            ? P.firstPerson(s, $gamePlayer, { target, yaw: s.yaw, tileWidth: tw, tileHeight: th,
+                groundHeight: DocsDoodads.Terrain.footHeightPxAtFlat(target.x, target.y, tw / 2) })
+            : null;
+        const cam = P._cam = P.camera({ target, eye: first && first.eye, pitch: first ? first.pitch : s.pitch,
+            yaw: first ? first.yaw : s.yaw, fov: first ? first.fov : s.fov, zoom: s.zoom, width: W, height: H,
             curve: s.curve, radius, lean: s.lean });
 
         // Ground pass: everything flat, with billboards switched off.
@@ -239,6 +245,11 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         const items = [];
         for (const obj of billboards) {
             if (!obj.visible) continue;
+            if (P.hideFirstPersonPlayer(obj, s, typeof $gamePlayer !== 'undefined' ? $gamePlayer : null)) {
+                obj._docs3dOut = true;
+                obj._docs3dOutFrame = DocsDoodads.frameCount();
+                continue;
+            }
             const pivot = this.docsPivotOf(obj);
             const halfWidth = this.docsHalfWidthOf(obj);
             if (terrain) pivot.h = this.docsStandsOnDoodadRule(obj)
@@ -274,11 +285,12 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 continue;
             }
             if (obj.renderable === false && obj._docsCulled !== undefined) obj.renderable = true;
+            const nearAlpha = P.nearFadeAlpha(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), s.nearFade * Math.max(tw, th));
             // A doodad with a 3D model is drawn as the model.
             if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
                 const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);
                 if (models) {
-                    for (const it of models) items.push(it);
+                    for (const it of models) { it.alpha = (it.alpha === undefined ? 1 : it.alpha) * nearAlpha; items.push(it); }
                     obj._docs3dMatrix = m;
                     obj._docs3dFrame = DocsDoodads.frameCount();
                     continue;
@@ -291,9 +303,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             obj._docs3dFrame = DocsDoodads.frameCount();
             // Ground within the sprite's own width (plus half a tile) is drawn before it, not over it.
             items.push({ obj, depth: P.groundDepth(cam, pivot.x, pivot.y), bias: $gameMap.tileHeight() * 0.5 + halfWidth, z: obj.z || 0, spriteId: obj.spriteId || 0, matrix: isEffekseer ? null : m,
-                alpha: 1 - fog, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
+                alpha: (1 - fog) * nearAlpha, tint: light ? P.lightAt(light, pivot.x, pivot.y) : null });
         }
-        const see = this._docs3dSee = this.docsPlayerSeeThrough();
+        const see = this._docs3dSee = s.mode === 'first' ? null : this.docsPlayerSeeThrough();
         const hidden = this.docsSeeThroughBillboards(items, see);
         this.updateDocsSnowCaps(items, snow);
         for (const band of this.updateDocsWeather(s, cam, fogRange)) items.push(band);
@@ -894,6 +906,7 @@ if (typeof Game_Map !== 'undefined') {
     Game_Map.prototype.setup = function(mapId) {
         this._docsCamera = null;
         this._docsCameraTween = null;
+        this._docsFirstPersonMode = false;
         $.Game_Map_setup_3d.call(this, mapId);
     };
 
@@ -921,8 +934,10 @@ if (typeof Game_Map !== 'undefined') {
 
     Game_Map.prototype.docsMoveCamera = function(target, frames) {
         const s = P.active() || P.normalize((DocsDoodads.Lighting.mapSettings(this.mapId()) || {}).perspective);
-        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov, curvature: P.curvatureOf(s, this.width()) };
+        const from = { pitch: s.pitch, yaw: s.yaw, zoom: s.zoom, fov: s.fov, curvature: P.curvatureOf(s, this.width()),
+            firstPitch: s.firstPitch, firstFov: s.firstFov, eyeHeight: s.eyeHeight };
         this._docsCamera = Object.assign({}, this._docsCamera, from);
+        for (const key of ['mode', 'mouseLook', 'nearFade']) if (target[key] !== undefined && target[key] !== null) this._docsCamera[key] = target[key];
         // A new shape takes over at once; its roundness eases in from where the world is now.
         if (target.curve === 'sphere' || target.curve === 'cylinder') this._docsCamera.curve = target.curve;
         if (!frames || frames <= 0) {
@@ -961,11 +976,18 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         const relative = String(args.relative) === 'true';
         const s = DocsDoodads.Perspective.active() || DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
         const now = Object.assign({}, s, { curvature: DocsDoodads.Perspective.curvatureOf(s, $gameMap.width()) });
-        for (const key of ['pitch', 'yaw', 'zoom', 'fov', 'curvature']) {
+        const cameraMode = String(args.cameraMode || '').trim();
+        if (cameraMode === 'orbit' || cameraMode === 'first') target.mode = cameraMode;
+        const effectiveMode = target.mode || s.mode;
+        for (const key of ['pitch', 'yaw', 'zoom', 'fov', 'curvature', 'eyeHeight', 'nearFade']) {
             const raw = String(args[key] === undefined ? '' : args[key]).trim();
             if (raw === '') continue;
-            target[key] = relative && key !== 'zoom' ? now[key] + Number(raw) : Number(raw);
+            const targetKey = effectiveMode === 'first' && key === 'pitch' ? 'firstPitch' : effectiveMode === 'first' && key === 'fov' ? 'firstFov' : key;
+            target[targetKey] = relative && ['pitch', 'yaw', 'fov', 'curvature'].includes(key) ? now[targetKey] + Number(raw) : Number(raw);
         }
+        const mouseLook = String(args.mouseLook || '').trim();
+        if (mouseLook === 'on' || mouseLook === 'true') target.mouseLook = true;
+        else if (mouseLook === 'off' || mouseLook === 'false') target.mouseLook = false;
         if (target.curvature !== undefined) target.curvature = Math.max(0, Math.min(100, target.curvature));
         // "Flat" eases the curve out; a round shape switches and keeps (or eases to) its curvature.
         const curve = String(args.curve || '').trim();
@@ -974,6 +996,9 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
             target.curve = curve;
             if (target.curvature === undefined && now.curvature === 0) target.curvature = 10;
         }
+        if (target.mode === 'first') $gameMap._docsFirstPersonMode = target.yaw !== undefined;
+        else if (target.mode === 'orbit') $gameMap._docsFirstPersonMode = false;
+        if ((target.mode === 'orbit' || target.mouseLook === false) && DocsDoodads.Perspective.releaseMouseLook) DocsDoodads.Perspective.releaseMouseLook();
         $gameMap.docsMoveCamera(target, Number(args.duration) || 0);
         if (String(args.wait) === 'true' && Number(args.duration) > 0 && this && this.wait) this.wait(Number(args.duration));
     });
@@ -999,8 +1024,10 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     PluginManager.registerCommand(pluginName, 'resetCamera', function(args) {
         if (typeof $gameMap === 'undefined' || !$gameMap) return;
         const mine = DocsDoodads.Perspective.normalize((DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective);
-        $gameMap.docsMoveCamera({ pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov, curve: mine.curve,
-            curvature: DocsDoodads.Perspective.curvatureOf(mine, $gameMap.width()) }, Number(args.duration) || 0);
+        $gameMap._docsFirstPersonMode = false;
+        $gameMap.docsMoveCamera({ mode: mine.mode, pitch: mine.pitch, yaw: mine.yaw, zoom: mine.zoom, fov: mine.fov,
+            firstPitch: mine.firstPitch, firstFov: mine.firstFov, eyeHeight: mine.eyeHeight, mouseLook: mine.mouseLook,
+            nearFade: mine.nearFade, curve: mine.curve, curvature: DocsDoodads.Perspective.curvatureOf(mine, $gameMap.width()) }, Number(args.duration) || 0);
     });
 }
 

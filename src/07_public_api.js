@@ -564,6 +564,36 @@ DocsDoodads.api = {
         return DocsDoodads.PhotoMode.open();
     },
 
+    /**
+     * Changes the current map's 3D camera for this visit. mode is 'orbit' or 'first'; first-person also
+     * accepts eyeHeight, pitch, fov, mouseLook and nearFade. Returns false on a flat/unloaded map.
+     * @param {object} options
+     * @param {number} [frames]
+     * @returns {boolean}
+     */
+    camera3d(options, frames = 0) {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $gameMap.docsMoveCamera !== 'function') return false;
+        const input = options || {};
+        const P = DocsDoodads.Perspective;
+        const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
+        const current = P.active() || P.normalize(mine);
+        const target = {};
+        if (input.mode === 'first' || input.mode === 'orbit') target.mode = input.mode;
+        const mode = target.mode || current.mode;
+        for (const key of ['yaw', 'zoom', 'curvature', 'eyeHeight', 'nearFade']) {
+            if (input[key] !== undefined && input[key] !== null && input[key] !== '') target[key] = Number(input[key]);
+        }
+        if (input.pitch !== undefined && input.pitch !== null && input.pitch !== '') target[mode === 'first' ? 'firstPitch' : 'pitch'] = Number(input.pitch);
+        if (input.fov !== undefined && input.fov !== null && input.fov !== '') target[mode === 'first' ? 'firstFov' : 'fov'] = Number(input.fov);
+        if (input.mouseLook !== undefined) target.mouseLook = Boolean(input.mouseLook);
+        if (input.curve === 'flat' || input.curve === 'sphere' || input.curve === 'cylinder') target.curve = input.curve;
+        if (target.mode === 'first') $gameMap._docsFirstPersonMode = target.yaw !== undefined;
+        else if (target.mode === 'orbit') $gameMap._docsFirstPersonMode = false;
+        if ((target.mode === 'orbit' || target.mouseLook === false) && P.releaseMouseLook) P.releaseMouseLook();
+        $gameMap.docsMoveCamera(target, Number(frames) || 0);
+        return true;
+    },
+
     // ---- The calendar (the running clock's days; World > Day and Night) ----
     /**
      * Today's number, 1 on the first day of a new game; 0 when the clock doesn't run.
