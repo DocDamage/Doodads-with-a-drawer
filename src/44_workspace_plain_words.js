@@ -59,7 +59,11 @@
         const steps = plan.map(step => values.call(this, step.command).concat(this.plainValueCommands(step.command))[0]);
         if (steps.some(step => !step)) return [];
         return [{ label: steps.map(step => step.label).join(' → '), group: 'These commands · Enter to run',
-            run: () => { if (this.mounted) for (const step of steps) step.run(); } }];
+            run: () => {
+                if (!this.mounted) return;
+                this.endMoodPreview();
+                for (const step of steps) step.run();
+            } }];
     };
     // Existing map-navigation and close hooks call closeMoods; end the weather preview before transfer.
     const goToMap = W.goToMap;
