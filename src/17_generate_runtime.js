@@ -24,6 +24,7 @@ DocsDoodads.GenerateRuntime = {
         const records = this.records();
         if (!records) return null;
         const mapId = Math.max(1, Math.floor(Number(raw.mapId) || (typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 1)));
+        if (this._materialized) delete this._materialized[mapId];
         const recipe = DocsDoodads.Generate.recipe(raw);
         const seed = DocsDoodads.Generate.seed(raw.seed);
         return records[mapId] = { seed, recipe };
