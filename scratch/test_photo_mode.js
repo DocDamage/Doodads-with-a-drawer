@@ -9,6 +9,12 @@ E.install();
 E.setupWorld({ width: 40, height: 30, px: 12, py: 10 });
 PluginManager.parameters = name => name === 'Docs-Doodads'
     ? { photoModeKey: 'P', photoModeForbidSwitch: '9' } : {};
+const windowListeners = [];
+window.addEventListener = (type, fn, options) => windowListeners.push({ type, fn, options });
+window.removeEventListener = (type, fn) => {
+    const index = windowListeners.findIndex(listener => listener.type === type && listener.fn === fn);
+    if (index >= 0) windowListeners.splice(index, 1);
+};
 let ordinaryUpdates = 0;
 Scene_Map.prototype.updateMain = function() { ordinaryUpdates++; };
 Scene_Map.prototype.isMenuCalled = function() { return true; };
@@ -19,6 +25,12 @@ const Photo = D.PhotoMode;
 assert.ok(Photo && D.Capture, 'Photo Mode and its game-safe capture backend are in the ordinary build');
 assert.strictEqual(typeof D.api.photoMode, 'function', 'scripts have a public Photo Mode entry point');
 assert.ok(PluginManager._commands['Docs-Doodads:openPhotoMode'], 'Open Photo Mode is a plugin command');
+const keyListeners = windowListeners.filter(listener => listener.type === 'keydown');
+assert.ok(keyListeners.length >= 2, 'editor and game Photo Mode keyboard routing are both present in the full build');
+assert.notStrictEqual(keyListeners[0].fn, Photo._keyHandler,
+    'the central editor key handler remains first for legacy and workspace shortcut routing');
+assert.strictEqual(keyListeners[keyListeners.length - 1].fn, Photo._keyHandler,
+    'Photo Mode dispatch is installed by the final game-safe input hook');
 
 // The shared renderer always restores editor-only layers, including when PIXI fails mid-capture.
 const spriteset = new Spriteset_Map();

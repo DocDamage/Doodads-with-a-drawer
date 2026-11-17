@@ -14,9 +14,27 @@ global.TouchInput = { x: 0, y: 0 };
 global.Input = { dir4: 0, isTriggered: () => false };
 global.$dataDocsDoodads = { 1: [], mapSettings: { 1: { perspective: { enabled: true, mode: 'first', eyeHeight: 0.8, mouseLook: true } } } };
 
+// First-person input belongs only to an active mouse-look visit. Keep the real add/remove lifecycle
+// observable instead of accepting permanent document listeners that affect every ordinary map/editor.
+const documentListeners = [];
+const canvasListeners = [];
+document.addEventListener = (type, fn, options) => documentListeners.push({ type, fn, options });
+document.removeEventListener = (type, fn) => {
+    const index = documentListeners.findIndex(listener => listener.type === type && listener.fn === fn);
+    if (index >= 0) documentListeners.splice(index, 1);
+};
+Graphics._canvas.addEventListener = (type, fn, options) => canvasListeners.push({ type, fn, options });
+Graphics._canvas.removeEventListener = (type, fn) => {
+    const index = canvasListeners.findIndex(listener => listener.type === type && listener.fn === fn);
+    if (index >= 0) canvasListeners.splice(index, 1);
+};
+
 require('../Docs-Doodads.js');
 const P = DocsDoodads.Perspective;
 const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
+const listenersOf = (list, type) => list.filter(listener => listener.type === type);
+assert.strictEqual(listenersOf(documentListeners, 'mousemove').length, 0,
+    'loading an ordinary build does not install first-person document listeners eagerly');
 
 // 1. Persisted settings are conservative: existing maps stay orbit; first-person defaults to a wide,
 // level view with an eye 0.8 tile above the terrain.
@@ -131,6 +149,9 @@ P._activeMemo = null;
 let lockRequests = 0, lockReleases = 0;
 Graphics._canvas.requestPointerLock = () => { lockRequests++; };
 P.installMouseLook();
+assert.strictEqual(listenersOf(documentListeners, 'mousemove').length, 1, 'active first-person mouse look installs lazily');
+assert.strictEqual(listenersOf(documentListeners, 'keydown')[0].options, true, 'Escape is captured before game/editor input');
+assert.strictEqual(listenersOf(canvasListeners, 'click').length, 1);
 P._firstMouseClick();
 assert.strictEqual(lockRequests, 1, 'pointer lock is requested only by the canvas click handler');
 document.pointerLockElement = Graphics._canvas;
@@ -140,11 +161,16 @@ DocsDoodads.PhotoMode.createUi = () => ({ remove() {} });
 assert.strictEqual(DocsDoodads.PhotoMode.open(scene), true);
 assert.strictEqual(lockReleases, 1, 'opening Photo Mode releases first-person pointer lock immediately');
 assert.strictEqual(P.mouseLookAllowed(), false, 'Photo Mode blocks pointer movement and new lock requests');
+assert.strictEqual(listenersOf(documentListeners, 'mousemove').length, 0, 'Photo Mode removes mouse-look document input');
+assert.strictEqual(listenersOf(canvasListeners, 'click').length, 0, 'Photo Mode removes the pointer-lock click target');
 DocsDoodads.PhotoMode.close();
 DocsDoodads.PhotoMode.createUi = savedCreateUi;
+assert.strictEqual(listenersOf(documentListeners, 'mousemove').length, 0,
+    'closing Photo Mode does not leave or eagerly recreate input before the map resumes');
 document.pointerLockElement = Graphics._canvas;
 assert.strictEqual(DocsDoodads.api.camera3d({ mode: 'orbit', pitch: 60, fov: 55 }, 0), true);
 assert.strictEqual(lockReleases, 2, 'leaving first-person releases pointer lock');
+assert.strictEqual(listenersOf(documentListeners, 'mousemove').length, 0, 'leaving first-person uninstalls mouse movement');
 P._activeMemo = null;
 assert.deepStrictEqual([P.active().mode, P.active().pitch, P.active().fov], ['orbit', 60, 55]);
 E.frames(spriteset, 1);
