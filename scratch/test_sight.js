@@ -52,7 +52,8 @@ const hiddenSwitch = E.doodad(3, 5, { uid: 'switch', switch: [[22, true]], light
 const hiddenSeason = E.doodad(2, 5, { uid: 'season', seasons: [3], light: { enabled: true, radius: 180, intensity: 1 } });
 const hiddenLayer = E.doodad(1, 5, { uid: 'layer', layer: 'hidden', light: { enabled: true, radius: 180, intensity: 1 } });
 const stateOff = E.doodad(6, 5, { uid: 'stateOff', light: { enabled: true, radius: 180, intensity: 1 } });
-$dataDocsDoodads[1] = [lamp, hiddenCondition, hiddenSwitch, hiddenSeason, hiddenLayer, stateOff];
+const screenLamp = E.doodad(5, 5, { uid: 'screen', posMode: 0, light: { enabled: true, radius: 180, intensity: 1 } });
+$dataDocsDoodads[1] = [lamp, hiddenCondition, hiddenSwitch, hiddenSeason, hiddenLayer, stateOff, screenLamp];
 $dataDocsDoodads.mapSettings[1] = { ambient: { darkness: 0.9, color: '#000000' }, layers: [{ id: 'hidden', name: 'Hidden', gameHidden: true }] };
 D.World.set('lighting2d.darkSwitchId', 9); D.World.set('lighting2d.darkLevel', 0.3);
 const lightOn = D.WorldState.lightOn; D.WorldState.lightOn = d => d.uid !== 'stateOff';
@@ -60,6 +61,7 @@ const season = D.Atmosphere.season; D.Atmosphere.season = () => 0;
 const snapshot = R.lightInfo();
 D.WorldState.lightOn = lightOn; D.Atmosphere.season = season;
 assert.deepStrictEqual(snapshot.lights.filter(light => light.doodad).map(light => light.doodad.uid), ['visible'], 'raw queries honor condition, switch, season, layer and saved light state');
+assert.ok(!snapshot.lights.some(light => light.screenFixed), 'screen-fixed UI lamps do not occupy viewport-dependent world tiles');
 ConfigManager.docsFxQuality = 3;
 const darkQuality = R.levelAtTile(0, 0); ConfigManager.docsFxQuality = 0;
 assert.strictEqual(R.levelAtTile(0, 0), darkQuality, 'gameplay brightness is independent of Effects Quality');
