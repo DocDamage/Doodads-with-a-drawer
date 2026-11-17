@@ -8,25 +8,41 @@
             return this._shippedCache.value;
         },
         shippedCurrent(version = '', recordHashes = false) {
-            const sizes = {}, paths = new Set([D.DataFiles.mainPath()]);
+            if (recordHashes) return this.shippedDiskSnapshot(version);
+            const sizes = {};
             const ids = new Set(Object.keys(window.$dataDocsDoodads || {}).filter(id => /^\d+$/.test(id)).map(Number));
             for (const map of this.mapEntries()) ids.add(Number(map.id));
             for (const id of ids) {
                 const file = D.Persistence.mapFilePath(id), map = D.FS.readJson(file);
-                paths.add(file);
                 if (map && map.width && map.height) sizes[id] = [map.width, map.height];
                 else if (id === this.currentMapId() && window.$gameMap) sizes[id] = [$gameMap.width(), $gameMap.height()];
             }
-            for (const entry of D.DataFiles.entriesFor(window.$dataDocsDoodads || {})) paths.add(entry.path);
-            const snapshot = S.snapshot(window.$dataDocsDoodads || {}, sizes, version);
-            snapshot.fileHashes = {};
-            if (recordHashes && typeof require !== 'undefined') {
-                const crypto = require('crypto');
-                for (const file of paths) {
-                    const text = D.FS.existsSync(file) ? D.FS.readFileSync(file) : null;
-                    snapshot.fileHashes[file] = text === null ? null : crypto.createHash('sha256').update(text).digest('hex');
-                }
+            return S.snapshot(window.$dataDocsDoodads || {}, sizes, version);
+        },
+        shippedDiskSnapshot(version) {
+            const bytes = new Map(), crypto = require('crypto'), DF = D.DataFiles;
+            const read = (file, required = false) => {
+                if (!bytes.has(file)) bytes.set(file, D.FS.existsSync(file) ? D.FS.readFileSync(file) : null);
+                const text = bytes.get(file);
+                if (required && text === null) throw new Error('Missing released-data file: ' + file);
+                return text;
+            };
+            const main = JSON.parse(read(DF.mainPath()) || '{}');
+            const disk = DF.merge(main, id => JSON.parse(read(DF.mapPath(id), true)));
+            const normalized = D.migrateData(JSON.parse(JSON.stringify(disk)), 'doodads');
+            if (JSON.stringify(DF.stable(normalized)) !== JSON.stringify(DF.stable(window.$dataDocsDoodads || {}))) {
+                throw new Error('Saved doodad data differs from the editor. Reload or save before marking a release.');
             }
+            const sizes = {}, infos = JSON.parse(read('data/MapInfos.json') || 'null');
+            const ids = new Set(Object.keys(disk).filter(id => /^\d+$/.test(id)).map(Number));
+            for (const map of Array.isArray(infos) ? infos : this.mapEntries()) if (map && Number(map.id) > 0) ids.add(Number(map.id));
+            for (const id of ids) {
+                const text = read(D.Persistence.mapFilePath(id));
+                const map = text === null ? null : JSON.parse(text);
+                if (map && map.width && map.height) sizes[id] = [map.width, map.height];
+            }
+            const snapshot = S.snapshot(disk, sizes, version);
+            snapshot.fileHashes = Object.fromEntries(Array.from(bytes).map(([file, text]) => [file, text === null ? null : crypto.createHash('sha256').update(text).digest('hex')]));
             return snapshot;
         },
         shippedProblems() { return S.diff(this.shippedRelease(), this.shippedCurrent()); },
@@ -105,6 +121,7 @@
                 const picked = await U.form({ title: 'Keep the Old Name Working', ok: 'Keep and Delete', fields: [{ key: 'target', label: 'Existing name to receive saved states and lights', type: 'select', value: candidates[0], options: candidates.map(name => ({ value: name, label: name })) }] });
                 if (!picked || !candidates.includes(picked.target) || !this.shippedIdentityMatches(identity)) return false;
                 next = picked.target;
+                if (!D.doodads(identity.mapId).some(item => item && !items.includes(item) && String(item.name || '').trim() === next)) return false;
             }
             const result = choice === 'keep' ? this.withShippedAliases(identity.mapId, hazards.map(name => [name, next]), action) : action();
             this.refreshInspector(); return result;

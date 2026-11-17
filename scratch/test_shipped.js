@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('assert');
 const E = require('./engine/fake_engine'); E.install(); E.setupWorld();
+DataManager.extractSaveContents = function() {};
 require('../Docs-Doodads.js');
 const D = DocsDoodads, S = D.Shipped, W = D.WorldState;
 assert.ok(S, 'released-save compatibility rules exist');
@@ -11,6 +12,8 @@ assert.strictEqual(S.diff(null, S.snapshot(data, {})).length, 0, 'no release mea
 assert.strictEqual(S.diff(snap, S.snapshot(data, { 1: [20, 15] })).length, 0);
 const changed = JSON.parse(JSON.stringify(data)); changed[1][0].name = 'Door';
 assert.ok(S.diff(snap, S.snapshot(changed, { 1: [20, 15] })).some(p => p.type === 'renamed' && p.oldName === 'Gate' && p.newName === 'Door'));
+const replacementAtSamePlace = JSON.parse(JSON.stringify(changed)); replacementAtSamePlace[1][0].uid = 'different';
+assert.ok(S.diff(snap, S.snapshot(replacementAtSamePlace, { 1: [20, 15] })).some(p => p.type === 'nameGone'), 'a different UID at the same spot is a replacement, not a rename');
 assert.ok(S.diff(snap, S.snapshot({ 1: [] }, { 1: [20, 15] })).some(p => p.type === 'nameGone'));
 changed[1][0].name = 'Gate'; changed[1][0].states.list.reverse();
 assert.ok(S.diff(snap, S.snapshot(changed, { 1: [20, 15] })).some(p => p.type === 'stateMoved'));
@@ -21,7 +24,7 @@ const renamed = JSON.parse(JSON.stringify(gate)); renamed.name = 'Entrance';
 $dataDocsDoodads[1] = [renamed];
 $dataDocsDoodads.aliases = { 1: { gate: 'Door', door: 'Entrance' } };
 $gameSystem._docsWorldState = { states: { '1/name:gate': 1, '1/name:gone': 2, '2/name:other': 1 }, lights: { '1/name:gate': false } };
-S.migrateSaved(1);
+DataManager.extractSaveContents({});
 assert.strictEqual(W.state('Gate', 1), 'Open', 'old state follows a chain of renamed names');
 assert.strictEqual(W.light('Gate', 1), false, 'old light follows the same alias');
 assert.ok(!('1/name:gone' in W.store().states), 'deleted names are pruned only on the loaded map');
@@ -46,6 +49,21 @@ assert.strictEqual(S.resolveName({ 1: long }, 1, 'n0'), 'n200', 'long rename his
 $dataDocsDoodads.aliases[1].a = 'B'; $dataDocsDoodads.aliases[1].b = 'A';
 W.store().states['1/name:a'] = 'Open'; S.migrateSaved(1);
 assert.strictEqual(W.store().states['1/name:a'], 'Open', 'invalid alias metadata cannot erase a saved value');
+const reused = E.doodad(6, 6, { uid: 'new-gate', name: 'Gate', states: { list: [{ name: 'Closed' }, { name: 'Open' }] } });
+$dataDocsDoodads[1].push(reused);
+W.setState('Gate', 'Closed', 1); W.setState(reused, 'Open', 1); W.setLight(reused, true, 1);
+S.migrateSaved(1);
+assert.strictEqual(W.state(reused, 1), 'Open', 'an actual object with a reused historic name has its own state');
+assert.strictEqual(W.state('Gate', 1), 'Closed', 'historic string calls retain the alias');
+assert.strictEqual(W.light(reused, 1), true); assert.strictEqual(W.light('Gate', 1), false);
+W.setState(reused, '', 1); W.setLight(reused, null, 1);
+assert.ok(!W.store().liveNames.states['1/name:gate'] && !W.store().liveNames.lights['1/name:gate'], 'clearing values also clears ownership');
+W.setState(reused, 'Open', 1); reused.name = 'Reused Gate'; S.migrateSaved(1);
+assert.strictEqual(W.state(reused, 1), 'Open', 'UID ownership follows that actual object after a later rename');
+$dataDocsDoodads[1].splice($dataDocsDoodads[1].indexOf(reused), 1);
+const different = E.doodad(6, 6, { uid: 'third-gate', name: 'Reused Gate', states: reused.states }); $dataDocsDoodads[1].push(different);
+S.migrateSaved(1);
+assert.strictEqual(W.savedState(different, 1), undefined, 'a deleted UID cannot donate its object-owned state to a replacement with the same name');
 for (const split of [false, true]) {
     const entries = D.DataFiles.entriesFor($dataDocsDoodads, split), files = Object.fromEntries(entries.map(entry => [entry.path, entry.data]));
     const read = D.DataFiles.merge(entries[0].data, id => files[D.DataFiles.mapPath(id)]);

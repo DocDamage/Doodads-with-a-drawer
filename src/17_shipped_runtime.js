@@ -6,6 +6,10 @@
     }
     if (typeof DataManager !== 'undefined' && typeof DataManager.extractSaveContents === 'function') {
         const extract = DataManager.extractSaveContents;
-        DataManager.extractSaveContents = function(contents) { const result = extract.call(this, contents); if (window.$gameMap) S.migrateSaved($gameMap.mapId()); return result; };
+        DataManager.extractSaveContents = function(contents) {
+            const result = extract.call(this, contents);
+            if (window.$gameMap) S.migrateSaved($gameMap.mapId());
+            return result;
+        };
     }
 })();

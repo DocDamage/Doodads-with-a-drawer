@@ -139,8 +139,7 @@ DocsDoodads.WorldState = {
 
     handle(nameOrDoodad, mapId) {
         if (nameOrDoodad && typeof nameOrDoodad === 'object') {
-            const id = this.idOf(nameOrDoodad);
-            return DocsDoodads.Shipped ? DocsDoodads.Shipped.resolveId(id, this.mapId(mapId)) : id;
+            return this.idOf(nameOrDoodad);
         }
         const name = String(nameOrDoodad || '').trim();
         if (!name) return '';
@@ -228,6 +227,7 @@ DocsDoodads.WorldState = {
         const told = () => { if (DocsDoodads.api) DocsDoodads.api.emit('state', { name: this.nameOf(name), state: this.state(name, m), mapId: m }); };
         if (raw === '') {
             delete states[key];
+            const owners = this.store().liveNames; if (owners && owners.states) delete owners.states[key];
             told();
             return true;
         }
@@ -237,6 +237,7 @@ DocsDoodads.WorldState = {
             const n = DocsDoodads.States.list(d).length;
             if (n < 2) return false;
             const next = (DocsDoodads.States.index(d, m) + 1) % n;
+            if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('states', name, m, id);
             states[key] = String(DocsDoodads.States.list(d)[next].name || '').trim() || next;
             told();
             return true;
@@ -253,6 +254,7 @@ DocsDoodads.WorldState = {
         }
         const index = d ? DocsDoodads.States.find(d, which) : -1;
         const named = index >= 0 ? String(DocsDoodads.States.list(d)[index].name || '').trim() : '';
+        if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('states', name, m, id);
         states[key] = named || (/^\d+$/.test(raw) ? Number(raw) : raw);
         told();
         return true;
@@ -275,8 +277,12 @@ DocsDoodads.WorldState = {
         if (!id) return false;
         const key = this.key(mapId, id);
         const lights = this.store().lights;
-        if (on === null || on === undefined || on === '') delete lights[key];
-        else lights[key] = Boolean(on === true || on === 'true' || on === 'on' || on === 1);
+        if (on === null || on === undefined || on === '') {
+            delete lights[key]; const owners = this.store().liveNames; if (owners && owners.lights) delete owners.lights[key];
+        } else {
+            if (DocsDoodads.Shipped) DocsDoodads.Shipped.markObject('lights', name, this.mapId(mapId), id);
+            lights[key] = Boolean(on === true || on === 'true' || on === 'on' || on === 1);
+        }
         if (DocsDoodads.api) DocsDoodads.api.emit('light', { name: this.nameOf(name), on: this.light(name, mapId), mapId: this.mapId(mapId) });
         return true;
     },

@@ -57,7 +57,7 @@ DocsDoodads.Shipped = {
                 const found = currentNames.find(name => this.name(name) === resolved);
                 if (!found) {
                     const oldItem = (before.items && before.items[mapId] || []).find(item => this.name(item.name) === oldId);
-                    const matches = oldItem ? (now.items[mapId] || []).filter(item => item.uid && item.uid === oldItem.uid || item.art === oldItem.art && item.x === oldItem.x && item.y === oldItem.y) : [];
+                    const matches = oldItem ? (now.items[mapId] || []).filter(item => oldItem.uid ? item.uid === oldItem.uid : item.art === oldItem.art && item.x === oldItem.x && item.y === oldItem.y) : [];
                     if (matches.length === 1) add('renamed', mapId, 'Map ' + mapId + ': released name ' + oldName + ' appears renamed to ' + matches[0].name + '.', { oldName, newName: matches[0].name });
                     else add('nameGone', mapId, 'Map ' + mapId + ': players\' saves know the missing name ' + oldName + '.', { oldName });
                     continue;
@@ -80,7 +80,10 @@ DocsDoodads.Shipped = {
     migrateSaved(mapId) {
         const W = DocsDoodads.WorldState;
         if (!W || !W.anySaved() || !W.mapLoaded(mapId)) return;
-        const prefix = W.mapId(mapId) + '/', valid = new Set(DocsDoodads.doodads(mapId).filter(Boolean).map(item => W.idOf(item)));
+        const generated = typeof $gameSystem !== 'undefined' && $gameSystem && $gameSystem._docsGeneratedMaps && $gameSystem._docsGeneratedMaps[mapId];
+        if (generated && DocsDoodads.GenerateRuntime && !DocsDoodads.GenerateRuntime.isMaterialized(mapId)) return;
+        const items = DocsDoodads.doodads(mapId).filter(Boolean);
+        const prefix = W.mapId(mapId) + '/', valid = new Set(items.map(item => W.idOf(item)));
         const store = W.store(false);
         for (const field of ['states', 'lights']) {
             const values = store[field];
@@ -89,10 +92,24 @@ DocsDoodads.Shipped = {
                 const oldId = key.slice(prefix.length);
                 const data = typeof window !== 'undefined' ? window.$dataDocsDoodads : null;
                 if (oldId.startsWith('name:') && !this.traceName(data && data.aliases, mapId, oldId.slice(5)).valid) continue;
-                const id = this.resolveId(key.slice(prefix.length), W.mapId(mapId)), target = prefix + id;
-                if (!valid.has(id)) { delete values[key]; continue; }
-                if (target !== key) { if (!Object.prototype.hasOwnProperty.call(values, target)) values[target] = values[key]; delete values[key]; }
+                const owners = store.liveNames && store.liveNames[field] || {};
+                const owned = typeof owners[key] === 'string' ? items.find(item => item.uid === owners[key]) : null;
+                if (typeof owners[key] === 'string' && !owned) { delete values[key]; delete owners[key]; continue; }
+                const id = owned ? W.idOf(owned) : owners[key] && valid.has(oldId) ? oldId : this.resolveId(oldId, W.mapId(mapId)), target = prefix + id;
+                if (!valid.has(id)) { delete values[key]; delete owners[key]; continue; }
+                if (target !== key) {
+                    if (!Object.prototype.hasOwnProperty.call(values, target)) { values[target] = values[key]; if (owners[key]) owners[target] = owners[key]; }
+                    delete values[key]; delete owners[key];
+                }
             }
         }
+    },
+    // Object API calls address the actual placed object. A reused historic name must not be migrated
+    // into its predecessor's alias on the next load; old saves have no ownership marker and still migrate.
+    markObject(field, object, mapId, id) {
+        if (!object || typeof object !== 'object' || this.resolveId(id, mapId) === id) return;
+        const store = DocsDoodads.WorldState.store(), owners = store.liveNames = store.liveNames || {};
+        const values = owners[field] = owners[field] || {};
+        values[DocsDoodads.WorldState.key(mapId, id)] = object.uid || true;
     }
 };
