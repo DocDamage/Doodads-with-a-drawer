@@ -285,7 +285,9 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
                 continue;
             }
             if (obj.renderable === false && obj._docsCulled !== undefined) obj.renderable = true;
-            const nearAlpha = P.nearFadeAlpha(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), s.nearFade * Math.max(tw, th));
+            const nearAlpha = s.mode === 'first'
+                ? P.nearFadeAlpha(Math.hypot(pivot.x - cam.target.x, pivot.y - cam.target.y), s.nearFade * Math.max(tw, th))
+                : 1;
             // A doodad with a 3D model is drawn as the model.
             if (obj._data && obj._data.model && typeof Sprite_DocsDoodad !== 'undefined' && obj instanceof Sprite_DocsDoodad) {
                 const models = this.docsModelItems(obj, cam, pivot, fog, light ? P.lightAt(light, pivot.x, pivot.y) : null, s);

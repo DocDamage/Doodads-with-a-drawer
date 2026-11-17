@@ -147,6 +147,9 @@ assert.strictEqual(DocsDoodads.api.camera3d({ mode: 'orbit', pitch: 60, fov: 55 
 assert.strictEqual(lockReleases, 2, 'leaving first-person releases pointer lock');
 P._activeMemo = null;
 assert.deepStrictEqual([P.active().mode, P.active().pitch, P.active().fov], ['orbit', 60, 55]);
+E.frames(spriteset, 1);
+const orbitPlayer = spriteset._docs3dBillboards.items.find(item => item.obj === playerRender);
+assert.ok(orbitPlayer && orbitPlayer.alpha === 1, 'ordinary orbit keeps its player and near billboards fully opaque');
 
 // A same Game_Map object entering another first-person map gets that map's player-facing yaw; the old
 // map's initialized flag and runtime override cannot leak across setup.
