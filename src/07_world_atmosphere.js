@@ -101,7 +101,9 @@ DocsDoodads.World = {
     merge(base, over) {
         const plain = v => v !== null && typeof v === 'object' && !Array.isArray(v);
         for (const key of Object.keys(over || {})) {
-            base[key] = plain(base[key]) && plain(over[key]) ? this.merge(base[key], over[key]) : over[key];
+            const own = Object.prototype.hasOwnProperty.call(base, key) ? base[key] : undefined;
+            const value = plain(own) && plain(over[key]) ? this.merge(own, over[key]) : over[key];
+            Object.defineProperty(base, key, { value, writable: true, enumerable: true, configurable: true });
         }
         return base;
     },

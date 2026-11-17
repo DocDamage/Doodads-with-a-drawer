@@ -454,6 +454,26 @@
  * @max 59
  * @default 0
  *
+ * @command resumeClimate
+ * @text Resume Climate
+ * @desc Let the seasonal climate control weather again after an event's Set Weather.
+ *
+ * @command storeForecast
+ * @text Store Forecast
+ * @desc Put the next days' weather report into a variable. Assumes the current season.
+ *
+ * @arg days
+ * @text Days
+ * @type number
+ * @min 1
+ * @max 31
+ * @default 7
+ *
+ * @arg variableId
+ * @text Report variable
+ * @type variable
+ * @default 1
+ *
  * @command calendar
  * @text Calendar
  * @desc The running clock's days: go to a day, move days on, or put the day, the weekday or the named date in a variable.

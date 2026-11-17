@@ -41,7 +41,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
 
     Spriteset_Map.prototype.updateDocsLayers2d = function(flat) {
         const L = DocsDoodads.MapLayers;
-        const mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        let mapSettings = flat && typeof $gameMap !== 'undefined' && $gameMap ? DocsDoodads.Lighting.mapSettings($gameMap.mapId()) : null;
+        if (flat) mapSettings = DocsDoodads.Climate.mapLayers(mapSettings);
         const raw = mapSettings && Array.isArray(mapSettings.layers2d) ? mapSettings.layers2d : null;
         // In play the layers only change by being replaced: the list is read again when the settings' array
         // changes. The editor changes them in place, so there it compares the whole list every frame.

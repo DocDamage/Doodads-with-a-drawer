@@ -431,6 +431,19 @@ DocsDoodads.api = {
     },
 
     /**
+     * Reads deterministic weather spans for the next days, assuming the current season.
+     * @param {number} [days]
+     * @returns {object[]}
+     */
+    forecast(days = 7) { return DocsDoodads.Climate.forecast(days); },
+
+    /**
+     * Gives weather control back to the climate after an event's Set Weather.
+     * @returns {boolean}
+     */
+    resumeClimate() { return DocsDoodads.Climate.resume(); },
+
+    /**
      * The flashlight on (true), off (false) or as World > Lighting sets it (null). Returns false before a game is loaded.
      * @param {boolean | null} on
      * @returns {boolean}

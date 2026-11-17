@@ -53,6 +53,7 @@ Object.assign(DocsDoodads.Workspace, {
                     </select>
                     <button class="dd-btn" id="dd-clock-now" type="button" title="Back to the game's own time and season"${previewing || season >= 0 ? '' : ' disabled'}>Now</button>
                 </div>
+                ${this.renderClimateForecast()}
             </div>`;
     },
 
@@ -89,6 +90,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (now) now.disabled = !previewing && !(this.previewSeason >= 0);
         const season = document.getElementById('dd-clock-season');
         if (season && resetSeason) season.value = '-1';
+        this.updateClimateForecast();
     },
 
     playClock() {

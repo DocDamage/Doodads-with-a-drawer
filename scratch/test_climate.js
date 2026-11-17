@@ -9,6 +9,8 @@ global.Game_Screen = class {
     weatherPower() { return this._weatherPower; }
 };
 global.$gameScreen = new Game_Screen();
+DataManager.extractSaveContents = contents => { global.$gameSystem = contents.system; };
+DataManager.createGameObjects = () => { global.$gameSystem = { _docsWind: { from: 0.4, to: 0.4, frames: 0, elapsed: 0 } }; };
 require('../Docs-Doodads.js');
 const D = DocsDoodads, C = D.Climate, W = D.Workspace;
 assert.ok(C, 'seeded climate exists');
@@ -66,4 +68,34 @@ PluginManager.callCommand(null, 'Docs-Doodads', 'storeForecast', { days: '2', va
 assert.ok(String($gameVariables.value(9)).includes('Day'));
 assert.ok(W.renderClimateEditor().includes('Spring') && W.renderClimateForecast().includes('Day'));
 assert.ok(W.worldSections().some(section => section.title === 'Climate'));
+// Runtime ownership belongs to one loaded save. An old windy span must not delete a new save's manual wind.
+C._ownsWind = true;
+const incoming = { _docsClimate: { seed: 7, held: true }, _docsWind: { from: 0.3, to: 0.3, frames: 0, elapsed: 0 } };
+DataManager.extractSaveContents({ system: incoming });
+C.update(true); assert.strictEqual($gameSystem._docsWind.to, 0.3);
+assert.strictEqual(C._ownsWind, false);
+C._ownsWind = true;
+DataManager.createGameObjects();
+assert.strictEqual($gameSystem._docsWind.to, 0.4); assert.strictEqual(C._ownsWind, false);
+const special = JSON.parse('{"__proto__":[{"type":"snow","chance":100,"power":4,"hours":24}]}');
+D.World.set('climate.seasons', special);
+assert.ok(Object.prototype.hasOwnProperty.call(D.World.get('climate.seasons'), '__proto__'), 'season names survive settings merge as data');
+assert.strictEqual(C.day(1, '__proto__', D.World.get('climate.seasons'), 7)[0].type, 'snow');
+// World-table controls use the existing undoable writers, including add/remove and numeric editing.
+D.World.set('climate.seasons', { Spring: [{ type: 'rain', chance: 25, power: 5, hours: 6 }] });
+const controls = { 'dd-cl-0-add': {}, 'dd-cl-0-0-power': { value: '8' }, 'dd-climate-map': { value: 'none' } };
+const byId = document.getElementById;
+document.getElementById = id => controls[id] || null;
+W.refreshInspector = W.refreshSpriteset = () => {};
+W.bindClimateEditor(); controls['dd-cl-0-add'].onclick();
+assert.strictEqual(W.climateRows('Spring').length, 2);
+D.Undo.undo(); assert.strictEqual(W.climateRows('Spring').length, 1);
+W.bindClimateEditor(); controls['dd-cl-0-0-power'].onchange();
+assert.strictEqual(W.climateRows('Spring')[0].power, 8);
+D.Undo.undo(); assert.strictEqual(W.climateRows('Spring')[0].power, 5);
+const section = W.mapSections.find(section => section.render.call(W).includes('dd-climate-map'));
+section.bind.call(W); controls['dd-climate-map'].onchange();
+assert.strictEqual(D.Lighting.mapSettings(W.currentMapId()).climate, 'none');
+D.Undo.undo(); assert.notStrictEqual((D.Lighting.mapSettings(W.currentMapId()) || {}).climate, 'none');
+document.getElementById = byId;
 console.log('PASS seeded climate, shares, held weather, interiors, fog/wind, forecast and calendar lifecycle');

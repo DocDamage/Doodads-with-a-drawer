@@ -186,6 +186,18 @@ assert.strictEqual(Photo.onKey({ code: 'KeyP', preventDefault() { prevented = tr
 assert.strictEqual(prevented, true);
 Photo.close();
 
+// The central editor shortcut may open the workspace while composing. Restore Photo's snapshot before
+// the editor captures its own session; stop just after that boundary so this remains a focused fixture.
+assert.strictEqual(Photo.open(scene), true);
+const beginSimple = D.SimpleMode.begin;
+const editorNwjs = Utils.isNwjs;
+Utils.isNwjs = () => true;
+D.SimpleMode.begin = () => { throw new Error('stop-editor-mount'); };
+assert.throws(() => D.Workspace.open(), /stop-editor-mount/);
+assert.strictEqual(Photo.active, false, 'opening the editor returns Photo Mode to play before mounting');
+D.SimpleMode.begin = beginSimple;
+Utils.isNwjs = editorNwjs;
+
 // A same-scene map load closes without writing the old camera snapshot into the new map object.
 assert.strictEqual(Photo.open(scene), true);
 const nextMap = new Game_Map();
