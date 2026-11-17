@@ -203,6 +203,38 @@ async function main() {
         assert.deepStrictEqual(fs.readFileSync(sourceApng), apngBytes, 'the original APNG is preserved too');
         assert.ok(apngResult.warnings.some(message => /different frame times|commonest/i.test(message)));
         assert.strictEqual(D.AssetIndex.data.assets['img/doodads/weather.png'].animation.frameCount, 4);
+
+        const namedApng = path.join(sourceDir, 'Cloud.apng'); fs.writeFileSync(namedApng, apngBytes);
+        const namedResult = await D.Workspace.runAssetImport([namedApng], { projectRoot: project, destination: 'img/doodads' });
+        assert.strictEqual(namedResult.ok, true, JSON.stringify(namedResult.errors));
+        assert.strictEqual(fs.existsSync(path.join(project, 'img', 'doodads', 'Cloud.png')), true, 'the standard .apng extension imports to a playable PNG');
+        assert.deepStrictEqual(fs.readFileSync(namedApng), apngBytes, 'a named .apng source is preserved');
+        const plainApng = path.join(sourceDir, 'NotAnimated.apng'); fs.writeFileSync(plainApng, still.bytes);
+        const plainResult = await D.Workspace.runAssetImport([plainApng], { projectRoot: project, destination: 'img/doodads' });
+        assert.strictEqual(plainResult.ok, false);
+        assert.match(plainResult.errors[0].message, /\.apng|animated PNG|acTL/i, 'a non-animated .apng gets a useful error');
+        assert.strictEqual(fs.existsSync(path.join(project, 'img', 'doodads', 'NotAnimated.png')), false);
+
+        // Re-importing an APNG that already lives at its requested destination must never overwrite its
+        // own source with the generated frame sheet, including when the source path reaches it by a link.
+        const inPlace = path.join(project, 'img', 'doodads', 'InPlace.png'); fs.writeFileSync(inPlace, apngBytes);
+        const inPlaceResult = await D.Workspace.runAssetImport([inPlace], {
+            projectRoot: project, destination: 'img/doodads', collisionPolicy: 'overwrite'
+        });
+        assert.strictEqual(inPlaceResult.ok, true, JSON.stringify(inPlaceResult.errors));
+        assert.deepStrictEqual(fs.readFileSync(inPlace), apngBytes, 'an in-place APNG source is never replaced by its generated sheet');
+        assert.strictEqual(fs.existsSync(path.join(project, 'img', 'doodads', 'InPlace_1.png')), true, 'the generated sheet receives an unused name');
+        const linkedSource = path.join(sourceDir, 'InPlace.png');
+        let linked = false;
+        try { fs.symlinkSync(inPlace, linkedSource, process.platform === 'win32' ? 'file' : undefined); linked = true; } catch (error) {}
+        if (linked) {
+            const linkedResult = await D.Workspace.runAssetImport([linkedSource], {
+                projectRoot: project, destination: 'img/doodads', collisionPolicy: 'overwrite'
+            });
+            assert.strictEqual(linkedResult.ok, true, JSON.stringify(linkedResult.errors));
+            assert.deepStrictEqual(fs.readFileSync(inPlace), apngBytes, 'a linked alias cannot overwrite the canonical APNG source');
+            assert.strictEqual(fs.existsSync(path.join(project, 'img', 'doodads', 'InPlace_2.png')), true);
+        }
     } finally {
         process.chdir(oldCwd);
         fs.rmSync(root, { recursive: true, force: true });
