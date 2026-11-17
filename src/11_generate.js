@@ -270,7 +270,7 @@ DocsDoodads.Generate = {
     },
 
     layout(recipe, seed, roomCatalog = []) {
-        const chosen = recipe.roomIds.length ? roomCatalog.filter(room => recipe.roomIds.includes(String(room.id))) : roomCatalog;
+        const chosen = recipe.roomIds.length ? roomCatalog.filter(room => recipe.roomIds.includes(String(room.id))) : [];
         return recipe.kind === 'wilderness'
             ? this.wilderness({ w: recipe.w, h: recipe.h, seed, biomes: recipe.biomes, points: recipe.points })
             : this.dungeon({ w: recipe.w, h: recipe.h, seed, count: recipe.count, rooms: chosen });

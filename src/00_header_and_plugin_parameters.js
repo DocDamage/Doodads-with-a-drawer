@@ -1653,7 +1653,7 @@
  * @arg roomIds
  * @text Room Stamp IDs
  * @type text
- * @desc Comma-separated; blank uses every saved room.
+ * @desc Comma-separated; blank makes plain rooms.
  *
  * @arg biomes
  * @text Biomes
