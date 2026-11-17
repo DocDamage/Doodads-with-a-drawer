@@ -793,10 +793,10 @@ DocsDoodads.fxQualityOffered = function() {
 
 // Options menu: players can switch motion blur off and lower the effects quality
 // (post-processing and the 3D view).
-DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off'];
+DocsDoodads.fxQualityLabels = ['High', 'Medium', 'Low', 'Off', 'Auto'];
 if (typeof ConfigManager !== 'undefined') {
     ConfigManager.docsMotionBlur = true;
-    ConfigManager.docsFxQuality = 0;
+    ConfigManager.docsFxQuality = DocsDoodads.AutoQuality.defaultAuto() ? 4 : 0;
     ConfigManager.docsReduceFlashes = false;
     ConfigManager.docsLessCameraMotion = false;
     $.ConfigManager_makeData = ConfigManager.makeData;
@@ -812,7 +812,7 @@ if (typeof ConfigManager !== 'undefined') {
     ConfigManager.applyData = function(config) {
         $.ConfigManager_applyData.call(this, config);
         this.docsMotionBlur = config && 'docsMotionBlur' in config ? Boolean(config.docsMotionBlur) : true;
-        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(3, Number(config.docsFxQuality) || 0)) : 0;
+        this.docsFxQuality = config && 'docsFxQuality' in config ? Math.max(0, Math.min(DocsDoodads.fxQualityLabels.length - 1, Math.round(Number(config.docsFxQuality) || 0))) : (DocsDoodads.AutoQuality.defaultAuto() ? 4 : 0);
         this.docsReduceFlashes = Boolean(config && config.docsReduceFlashes === true);
         this.docsLessCameraMotion = Boolean(config && config.docsLessCameraMotion === true);
     };
@@ -832,7 +832,7 @@ if (typeof Window_Options !== 'undefined') {
             this.addCommand('Less Camera Motion', 'docsLessCameraMotion');
         }
     };
-    // Effects Quality cycles High > Medium > Low > Off.
+    // Effects Quality cycles through the current label list, including Auto.
     $.Window_Options_statusText = Window_Options.prototype.statusText;
     Window_Options.prototype.statusText = function(index) {
         if (this.commandSymbol(index) === 'docsFxQuality') return DocsDoodads.fxQualityLabels[this.getConfigValue('docsFxQuality') || 0];
@@ -840,7 +840,8 @@ if (typeof Window_Options !== 'undefined') {
     };
     const shiftQuality = (win, delta, wrap) => {
         const value = (win.getConfigValue('docsFxQuality') || 0) + delta;
-        win.changeValue('docsFxQuality', wrap ? (value + 4) % 4 : Math.max(0, Math.min(3, value)));
+        const count = DocsDoodads.fxQualityLabels.length;
+        win.changeValue('docsFxQuality', wrap ? (value + count) % count : Math.max(0, Math.min(count - 1, value)));
     };
     $.Window_Options_processOk = Window_Options.prototype.processOk;
     Window_Options.prototype.processOk = function() {
@@ -918,7 +919,7 @@ if (typeof Spriteset_Base !== 'undefined' && typeof PIXI !== 'undefined') {
             look = this._docsExportLook;
             anim = null;
         }
-        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        const option = DocsDoodads.qualityOption();
         const quality = P.effectiveQuality(world.postfx.quality, option);
         const haze = this.docsHazeSources ? this.docsHazeSources(look, quality, hidden) : [];
         this._docsHazeInputs = { look, quality, hidden };

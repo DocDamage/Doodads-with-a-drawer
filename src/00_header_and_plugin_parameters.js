@@ -347,6 +347,12 @@
  * @default auto
  * @desc Show Reduce Flashes and Less Camera Motion in the player's Options.
  *
+ * @param startPlayersOnAuto
+ * @text Start players on Auto
+ * @type boolean
+ * @default false
+ * @desc Start new player preferences with Auto Effects Quality; existing saved choices stay in control.
+ *
  * @param softenMZEffects
  * @text Also soften MZ flashes and shakes
  * @type boolean

@@ -23,6 +23,8 @@ Object.assign(DocsDoodads.Workspace, {
     pluginParameterSettings() {
         const specs = [
             ['editKey', 'Editor Toggle Key', 'F10', 'Key to open/close the editor in test play. Any key, or a chord such as Ctrl+F10 or Ctrl+Shift+E.'],
+            ['photoModeKey', 'Photo Mode Key', 'P', 'Opens Photo Mode on the map. Blank disables the key; the plugin command and script API still work.'],
+            ['photoModeForbidSwitch', 'Forbid Photo Mode Switch', '0', 'While this switch is ON Photo Mode cannot open (for cutscenes or story scenes).'],
             ['editorMode', 'Editor Enabled', 'true', 'Enables the Asset Workspace and in-game editing tools during test play.'],
             ['dataFileName', 'Doodads Data File Name', 'DocsDoodads', 'Name of the doodads json file in data/ (without .json).'],
             ['doodadScaleMode', 'Doodad Scaling Mode', 'true', 'Texture scaling mode for doodad rendering.'],
@@ -38,6 +40,7 @@ Object.assign(DocsDoodads.Workspace, {
             ['gridSnapWidth', 'Grid Snap Width', '0', "Width of the placement snapping grid in pixels (0 = the map's tile width)."],
             ['gridSnapHeight', 'Grid Snap Height', '0', "Height of the placement snapping grid in pixels (0 = the map's tile height)."],
             ['comfortOptions', 'Comfort options', 'auto', "Show Reduce Flashes and Less Camera Motion in the player's Options."],
+            ['startPlayersOnAuto', 'Start players on Auto', 'false', 'Start new player preferences with Auto Effects Quality; existing saved choices stay in control.'],
             ['softenMZEffects', 'Also soften MZ flashes and shakes', 'false', "Apply the player's comfort choices to MZ's Flash Screen and Shake Screen commands too."],
             ['devDiagnostics', 'Developer Diagnostics', 'false', 'Enable diagnostics logging in Developer Tools console.']
         ];
@@ -95,6 +98,7 @@ Object.assign(DocsDoodads.Workspace, {
         [['dd-look-scale', 'Editor size', 'scale zoom'], ['dd-look-theme', 'Theme', 'dark light'], ['dd-look-colors', 'Map colours', 'color colour blind'],
             ['dd-look-bigwin', 'Bigger window while editing', 'maximize maximise full screen window size']]
             .concat([['dd-look-simple', 'Keep It Simple', 'simple mode show everything tools']])
+            .concat([['dd-look-guess', 'Guess settings for new placements', 'guess automatic lamp tree drop defaults']])
             .forEach(row => rows.push({ id: `look:${row[0]}`, controlId: row[0], label: row[1], words: row[2], where: 'Editor / Look', kind: 'look' }));
         rows.push({ id: 'autosave', controlId: 'dd-autosave-btn', label: 'Autosave', words: 'automatic save interval recovery', where: 'Editor / Saving', kind: 'autosave' });
         for (const shortcut of DocsDoodads.Shortcuts.list) rows.push({ id: `key:${shortcut.id}`, shortcutId: shortcut.id,

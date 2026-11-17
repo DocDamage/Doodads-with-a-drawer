@@ -68,7 +68,7 @@ assert.ok(indexedControls.has('dd-cam2d-regions') && indexedControls.has('dd-min
 
 const header = fs.readFileSync(require.resolve('../src/00_header_and_plugin_parameters.js'), 'utf8');
 const headerParams = Array.from(header.matchAll(/^ \* @param ([^\r\n]+)/gm), m => m[1]);
-assert.strictEqual(headerParams.length, 18, 'fixture sees every header parameter, including comfort controls');
+assert.strictEqual(headerParams.length, 21, 'fixture sees every header parameter, including comfort, Photo Mode and Auto quality');
 assert.ok(headerParams.includes('comfortOptions') && headerParams.includes('softenMZEffects'));
 const params = index.filter(x => x.kind === 'plugin-parameter');
 assert.deepStrictEqual(params.map(x => x.param).sort(), headerParams.sort(), 'all and only header parameters are represented');

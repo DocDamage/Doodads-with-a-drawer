@@ -2,8 +2,14 @@
 const assert = require('assert');
 const E = require('./engine/fake_engine');
 E.install(); E.setupWorld();
+if (process.argv.includes('--default-auto')) PluginManager.parameters = () => ({ startPlayersOnAuto: 'true' });
 require('../Docs-Doodads.js');
 const D = DocsDoodads, A = D.AutoQuality;
+if (process.argv.includes('--default-auto')) {
+    ConfigManager.applyData({}); assert.strictEqual(ConfigManager.docsFxQuality, 4);
+    ConfigManager.applyData({ docsFxQuality: 2 }); assert.strictEqual(ConfigManager.docsFxQuality, 2);
+    console.log('PASS Auto default keeps existing choices'); process.exit(0);
+}
 assert.ok(A, 'automatic quality rules exist');
 let state = A.initial(), changes = [];
 for (let ms = 0; ms < 6000; ms += 40) { const direction = A.step(state, 40); if (direction) changes.push({ ms, direction }); }
@@ -49,5 +55,10 @@ A.request(2, scene._spriteset, 700); assert.strictEqual(A.level, 1); assert.stri
 A.onMap(); assert.strictEqual(A.level, 2); assert.strictEqual(A.pending, null);
 $gamePlayer.isTransferring = () => false;
 ConfigManager.docsFxQuality = 0; A.request(3, scene._spriteset, 800); assert.strictEqual(A.level, 2);
+ConfigManager.docsFxQuality = 4; A.pending = 3;
+ConfigManager.applyData({ docsFxQuality: 4, docsFxAutoLevel: 1 });
+assert.strictEqual(A.level, 1, 'loading player preferences discards an old pending transition');
 D.Capture.renderSceneCanvas = oldCapture; SceneManager._scene = oldScene; PIXI.Texture.from = oldFrom; PIXI.Sprite = oldSprite;
+const child = require('child_process').spawnSync(process.execPath, [__filename, '--default-auto'], { cwd: process.cwd(), stdio: 'inherit' });
+assert.strictEqual(child.status, 0);
 console.log('PASS automatic quality hysteresis, Options, persistence, fixed choices and frame fade');

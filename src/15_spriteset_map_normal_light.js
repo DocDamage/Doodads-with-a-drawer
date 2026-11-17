@@ -140,7 +140,7 @@
 
     Spriteset_Map.prototype.docsNormalMax = function() {
         if (this._docs3d || DocsDoodads.Perspective && DocsDoodads.Perspective.active && DocsDoodads.Perspective.active()) return 0;
-        const option = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+        const option = DocsDoodads.qualityOption();
         return N.effectiveMax(DocsDoodads.World.settings().normalLight, option);
     };
 

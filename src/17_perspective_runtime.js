@@ -10,7 +10,7 @@ DocsDoodads.Perspective.active = function() {
     if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId || !$gameMap.mapId()) return null;
     const mine = (DocsDoodads.Lighting.mapSettings($gameMap.mapId()) || {}).perspective;
     const editing = !!(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
-    const quality = typeof ConfigManager !== 'undefined' ? ConfigManager.docsFxQuality : 0;
+    const quality = DocsDoodads.qualityOption();
     // Asked for many times a frame: kept for the rest of the frame while nothing it depends on changes.
     const frame = typeof Graphics !== 'undefined' && Graphics.frameCount !== undefined ? Graphics.frameCount : null;
     const memo = this._activeMemo;
