@@ -13,7 +13,7 @@ class Game_Temp {
     requestAnimation() {}
     requestBalloon() {}
 }
-class Game_System { constructor() { this._docsFeatureOff = {}; } isSideView() { return false; } mainFontFace() { return 'sans-serif'; } }
+class Game_System { constructor() { this._docsFeatureOff = {}; this._docsWind = null; this._docsExplored = {}; } isSideView() { return false; } mainFontFace() { return 'sans-serif'; } }
 class Game_Screen {
     constructor() { this._weatherType = 'none'; this._weatherPower = 0; this.updates = 0; }
     changeWeather(type, power) { this._weatherType = type; this._weatherPower = power; }
@@ -94,12 +94,18 @@ off.create(); assert.strictEqual(loadId, 0); assert.strictEqual(off._docsTitleSp
 off.update(); off.terminate(); assert.strictEqual($gameMap, offMap);
 
 // A live title waits for its map, then restores the caller's database and every game object after setup.
+DataManager.setupNewGame();
+const newGameSummary = () => ({ player: [$gamePlayer.x, $gamePlayer.y], switch4: $gameSwitches.value(4),
+    clock: JSON.parse(JSON.stringify($gameSystem._docsClock)), wind: $gameSystem._docsWind,
+    explored: JSON.parse(JSON.stringify($gameSystem._docsExplored)) });
+const cleanNewGame = newGameSummary();
 const originalDataMap = $dataMap;
 const original = ['$gameTemp','$gameSystem','$gameScreen','$gameMessage','$gameSwitches','$gameVariables','$gameActors','$gameParty','$gameTroop','$gameMap','$gamePlayer']
     .reduce((out, key) => (out[key] = global[key], out), {});
 D.World.set('title', { mapId: 7, x: 6, y: 5, time: 1260, season: 2, weather: { type: 'storm', power: 6 },
     look: {}, path: { points: [{ x: 6, y: 5 }, { x: 10, y: 5 }], frames: 2, ease: 'linear' }, pictures: 'hide' });
-$dataDocsDoodads.mapSettings[7] = { perspective: { enabled: true } };
+D.World.set('climate.enabled', true);
+$dataDocsDoodads.mapSettings[7] = { perspective: { enabled: true }, climate: 'none' };
 const titleData = { width: 24, height: 18, data: originalDataMap.data.slice(), tilesetId: 1, scrollType: 2,
     events: [null, { id: 1, name: 'Decoration', note: '', x: 7, y: 8, pages: [{ list: [] }] }], note: '', parallaxName: '' };
 const title = new Scene_Title(); title.create(); assert.strictEqual(loadId, 7); assert.strictEqual(title.isReady(), false);
@@ -122,8 +128,15 @@ assert.strictEqual(title._docsTitleContext.$gameMap.displayX(), T.displayFor(T.f
 for (const key of Object.keys(original)) assert.strictEqual(global[key], original[key], key + ' restored after update');
 
 // Renderer work sees the title context, and an exception still restores the real game.
-title._docsTitleSpriteset._render = () => { renderMap = $gameMap; if (throwRender) throw new Error('render failed'); };
+let renderedEnvironment;
+title._docsTitleSpriteset._render = () => {
+    renderMap = $gameMap;
+    renderedEnvironment = { data: $dataMap, minutes: D.Atmosphere.minutes(), season: D.Atmosphere.season(),
+        weather: $gameScreen.weatherType(), look: $gameSystem._docsLook && $gameSystem._docsLook.current };
+    if (throwRender) throw new Error('render failed');
+};
 renderMap = null; title.render(Graphics.app.renderer); assert.strictEqual(renderMap, title._docsTitleContext.$gameMap);
+assert.deepStrictEqual(renderedEnvironment, { data: titleData, minutes: 1260, season: 2, weather: 'storm', look: {} });
 throwRender = true; assert.throws(() => title.render(Graphics.app.renderer), /render failed/); throwRender = false;
 assert.strictEqual($gameMap, original.$gameMap, 'render failure restores globals');
 
@@ -136,6 +149,7 @@ assert.strictEqual(newGame.player.x, 11); assert.strictEqual(newGame.switches.va
 const titleMapAtSnapshot = title._docsTitleContext.$gameMap;
 title.terminate(); assert.strictEqual(renderMap, titleMapAtSnapshot, 'native snapshot sees title objects');
 assert.strictEqual($gameMap, newGame.map); assert.strictEqual($gamePlayer, newGame.player); assert.strictEqual($gameSystem._docsClock.minutes, 123);
+assert.deepStrictEqual(newGameSummary(), cleanNewGame, 'title time, weather, wind, switches and explored tiles never reach New Game');
 
 // Throwing from native snapshot also restores the already-created New Game.
 const failing = new Scene_Title(); failing.create(); global.$dataMap = titleData; failing.isReady();
