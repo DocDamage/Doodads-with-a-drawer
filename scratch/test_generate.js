@@ -114,6 +114,7 @@ assert.ok((D.doodads(1) || []).some(d => d && d._docsGeneratedMap === 1), 'room 
 const generatedBeforeMissing = JSON.stringify({ map: $dataMap, doodads: D.doodads(1) });
 D.GenerateRuntime.queue({ mapId: 1, kind: 'dungeon', seed: 9, w: 24, h: 18, count: 2,
     roomIds: 'room-that-was-deleted', floorTile: 2816, wallTile: 4352 });
+assert.strictEqual(D.GenerateRuntime.isMaterialized(1), false, 'queuing a new recipe invalidates the previously materialized seed');
 const oldWarn = console.warn; let generationWarning = '';
 console.warn = (...parts) => { generationWarning = parts.map(String).join(' '); };
 try { assert.strictEqual(D.GenerateRuntime.apply(1, $dataMap), null, 'a requested room missing from the loaded catalog cancels generation'); }
