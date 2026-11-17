@@ -347,8 +347,15 @@
                 const stat = FS.fs.fstatSync(fd), head = Buffer.alloc(8);
                 if (stat.size < 20 || FS.fs.readSync(fd, head, 0, 8, 0) !== 8 || ![137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => head[i] === v)) return invalid('the PNG signature is missing.');
                 let at = 8;
+                let chunks = 0;
                 const chunk = Buffer.alloc(8);
                 while (at + 12 <= stat.size) {
+                    if (chunks >= 4096) {
+                        const error = new Error('PNG has too many chunks to inspect safely.');
+                        error.code = 'DD_ANIMATED_PROBE_LIMIT';
+                        throw error;
+                    }
+                    chunks++;
                     if (FS.fs.readSync(fd, chunk, 0, 8, at) !== 8) return invalid('the PNG chunk table is truncated.');
                     const length = chunk.readUInt32BE(0), type = chunk.toString('ascii', 4, 8);
                     if (length > limits.inputBytes || at + 12 + length > stat.size) return invalid('a PNG chunk is truncated or too large.');
@@ -358,7 +365,7 @@
                 }
                 return invalid('the PNG chunk table is incomplete.');
             } catch (error) {
-                if (namedApng) throw error;
+                if (namedApng || error && error.code === 'DD_ANIMATED_PROBE_LIMIT') throw error;
                 return null;
             }
             finally { if (fd !== null) try { FS.fs.closeSync(fd); } catch (error) {} }
