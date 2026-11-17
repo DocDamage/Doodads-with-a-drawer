@@ -39,13 +39,21 @@ assert.strictEqual(JSON.stringify(window.$dataDocsDoodads),before,'weather and c
 W.endMoodPreview(); assert.strictEqual(JSON.stringify($gameScreen),savedWeather,'existing preview lifecycle restores weather');
 const dark=W.paletteValueCommands('darkness darker')[0]; assert.ok(dark);
 dark.run(); const value=D.Lighting.mapSettings(1).ambient.darkness; assert.ok(value>0);
-D.Undo.undo(); assert.ok(!D.Lighting.mapSettings(1).ambient || !D.Lighting.mapSettings(1).ambient.darkness,'authored change uses Undo');
+D.Undo.undo(); const reverted=D.Lighting.mapSettings(1)||{};
+assert.ok(!reverted.ambient || !reverted.ambient.darkness,'authored change uses Undo');
+D.World.set('time.source','clock');
+D.World.set('time.keyframes',[{time:0,darkness:0.7,color:'#101830'},{time:1439,darkness:0.7,color:'#101830'}]);
+const litBefore=D.currentAmbient(id=>$gameSwitches.value(id)).darkness;
+W.paletteValueCommands('darkness darker')[0].run();
+assert.ok(D.currentAmbient(id=>$gameSwitches.value(id)).darkness>litBefore,'darker works when the map follows the clock');
+D.Undo.undo();assert.strictEqual(D.currentAmbient(id=>$gameSwitches.value(id)).darkness,litBefore,'one Undo restores clock-driven light');
+D.World.set('time.source','off');
 W.paletteValueCommands('fog on')[0].run();
 assert.ok(D.Lighting.mapSettings(1).layers2d.some(layer=>layer.image==='#fog'));
 W.paletteValueCommands('fog on')[0].run();
 assert.strictEqual(D.Lighting.mapSettings(1).layers2d.filter(layer=>layer.plainWords).length,1,'no duplicate fog layers');
 W.paletteValueCommands('fog off')[0].run();
-assert.ok(!D.Lighting.mapSettings(1).layers2d || !D.Lighting.mapSettings(1).layers2d.some(layer=>layer.image==='#fog'));
+assert.ok(!((D.Lighting.mapSettings(1)||{}).layers2d||[]).some(layer=>layer.image==='#fog'));
 assert.strictEqual(W.paletteValueCommands('rainy nonsense').length,0);
 assert.strictEqual(requests,0,'no network for known or unknown text');
 // Exercise the real palette input and Enter handler with a tiny DOM.
