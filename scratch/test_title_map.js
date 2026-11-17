@@ -102,6 +102,31 @@ const cleanNewGame = newGameSummary();
 const originalDataMap = $dataMap;
 const original = ['$gameTemp','$gameSystem','$gameScreen','$gameMessage','$gameSwitches','$gameVariables','$gameActors','$gameParty','$gameTroop','$gameMap','$gamePlayer']
     .reduce((out, key) => (out[key] = global[key], out), {});
+const callerClimate = { key: 'live-game', plan: { day: 8 }, fog: { image: '#fog', opacity: 0.6 },
+    composite: { live: true }, power: 7, ownsWind: true, writing: false };
+Object.assign(D.Climate, { _key: callerClimate.key, _plan: callerClimate.plan, _fog: callerClimate.fog,
+    _fogComposite: callerClimate.composite, _fogPower: callerClimate.power,
+    _ownsWind: callerClimate.ownsWind, _writing: callerClimate.writing });
+const callerLampLevels = new WeakMap(), titleLamp = { x: 96, y: 96,
+    light: { enabled: true, when: 'dark', radius: 96, intensity: 1, color: '#ffffff' } };
+callerLampLevels.set(titleLamp, 0.37); D.Lighting._lampLevels = callerLampLevels;
+const callerPostAnims = [{ type: 'bloomFlash', start: 0, duration: 30, strength: 1 }];
+const callerPostResolved = { live: true };
+Object.assign(D.PostFX, { _anims: callerPostAnims, _resolved: callerPostResolved, _runtimeFrame: 123 });
+const assertCallerRenderState = label => {
+    assert.strictEqual(D.Climate._key, callerClimate.key, label + ' climate key');
+    assert.strictEqual(D.Climate._plan, callerClimate.plan, label + ' climate plan');
+    assert.strictEqual(D.Climate._fog, callerClimate.fog, label + ' climate fog');
+    assert.strictEqual(D.Climate._fogComposite, callerClimate.composite, label + ' climate composite');
+    assert.strictEqual(D.Climate._fogPower, callerClimate.power, label + ' climate power');
+    assert.strictEqual(D.Climate._ownsWind, callerClimate.ownsWind, label + ' climate wind ownership');
+    assert.strictEqual(D.Climate._writing, callerClimate.writing, label + ' climate write guard');
+    assert.strictEqual(D.Lighting._lampLevels, callerLampLevels, label + ' lamp cache identity');
+    assert.strictEqual(callerLampLevels.get(titleLamp), 0.37, label + ' lamp cache value');
+    assert.strictEqual(D.PostFX._anims, callerPostAnims, label + ' screen animation list');
+    assert.strictEqual(D.PostFX._resolved, callerPostResolved, label + ' resolved look cache');
+    assert.strictEqual(D.PostFX._runtimeFrame, 123, label + ' runtime look frame');
+};
 D.World.set('title', { mapId: 7, x: 6, y: 5, time: 1260, season: 2, weather: { type: 'storm', power: 6 },
     look: {}, path: { points: [{ x: 6, y: 5 }, { x: 10, y: 5 }], frames: 2, ease: 'linear' }, pictures: 'hide' });
 D.World.set('climate.enabled', true);
@@ -111,10 +136,20 @@ const titleData = { width: 24, height: 18, data: originalDataMap.data.slice(), t
 const title = new Scene_Title(); title.create(); assert.strictEqual(loadId, 7); assert.strictEqual(title.isReady(), false);
 global.$dataMap = titleData; assert.strictEqual(title.isReady(), true);
 assert.strictEqual($dataMap, originalDataMap); for (const key of Object.keys(original)) assert.strictEqual(global[key], original[key], key + ' restored after setup');
+assertCallerRenderState('after title setup');
 assert.ok(title._docsTitleSpriteset instanceof Spriteset_Map); assert.strictEqual(title.children[0], title._docsTitleSpriteset, 'map is behind native title art');
 assert.strictEqual(title._backSprite1.visible, false); assert.strictEqual(title._backSprite2.visible, false);
 assert.strictEqual(title._docsTitleContext.$gamePlayer.isTransparent(), true); assert.strictEqual(title._docsTitleContext.$gamePlayer.x, 6);
 T.withContext(title._docsTitleContext, () => assert.strictEqual(D.Perspective.active(), null, 'the first title-map release remains flat even if the map uses 3D'));
+T.withContext(title._docsTitleContext, () => {
+    assert.strictEqual(D.Climate._fog, null, 'a clear title does not inherit the live game fog');
+    assert.notStrictEqual(D.Lighting._lampLevels, callerLampLevels, 'title lamps have their own fade cache');
+    assert.notStrictEqual(D.PostFX._anims, callerPostAnims, 'title screen animations are isolated');
+    D.Lighting.collect([titleLamp], { x: 0, y: 0 }, { darkness: 1, threshold: 0.3, step: 0.1 });
+    D.Climate._fog = { image: '#title-fog' };
+    D.PostFX._anims.push({ type: 'shockwave' }); D.PostFX._resolved = { title: true }; D.PostFX._runtimeFrame = 456;
+});
+assertCallerRenderState('after title transient updates');
 
 // Map event commands never update. Safe parallax, event animation, weather, path and the map sprites do.
 title.onNativeUpdate = () => { assert.strictEqual($gameMap, original.$gameMap, 'native title commands run in the caller context'); };
@@ -139,6 +174,7 @@ renderMap = null; title.render(Graphics.app.renderer); assert.strictEqual(render
 assert.deepStrictEqual(renderedEnvironment, { data: titleData, minutes: 1260, season: 2, weather: 'storm', look: {} });
 throwRender = true; assert.throws(() => title.render(Graphics.app.renderer), /render failed/); throwRender = false;
 assert.strictEqual($gameMap, original.$gameMap, 'render failure restores globals');
+assertCallerRenderState('after render failure');
 
 // New Game is invoked by the native command window outside the title context, before title terminate.
 let madeNewGame = false;
@@ -150,6 +186,7 @@ const titleMapAtSnapshot = title._docsTitleContext.$gameMap;
 title.terminate(); assert.strictEqual(renderMap, titleMapAtSnapshot, 'native snapshot sees title objects');
 assert.strictEqual($gameMap, newGame.map); assert.strictEqual($gamePlayer, newGame.player); assert.strictEqual($gameSystem._docsClock.minutes, 123);
 assert.deepStrictEqual(newGameSummary(), cleanNewGame, 'title time, weather, wind, switches and explored tiles never reach New Game');
+assertCallerRenderState('after New Game and title terminate');
 
 // Throwing from native snapshot also restores the already-created New Game.
 const failing = new Scene_Title(); failing.create(); global.$dataMap = titleData; failing.isReady();
