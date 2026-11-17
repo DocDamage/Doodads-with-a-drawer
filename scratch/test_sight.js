@@ -40,6 +40,9 @@ assert.deepStrictEqual(parsed, { range: 7, spread: 80, minLevel: 0.35, selfSwitc
 const rewritten = S.write('<docs label: Guard>\n<docs sight: 2, 30>\n<docs sight common event: 4>', { range: 9, spread: 120, minLevel: 0.2, selfSwitch: '', commonEvent: 8 });
 assert.ok(rewritten.includes('<docs label: Guard>') && rewritten.includes('<docs sight: 9, 120>') && rewritten.includes('<docs sight common event: 8>'));
 assert.ok(!rewritten.includes('common event: 4'));
+const scopedEvent = { note: '<docs sight: 2, 30>', pages: [{ list: [{ code: 108, indent: 0, parameters: ['<docs sight: 9, 110>'] }] }] };
+const scopedGameEvent = new Game_Event(1, 9); scopedGameEvent.event = () => scopedEvent; scopedGameEvent.page = () => scopedEvent.pages[0]; scopedGameEvent._pageIndex = 0;
+assert.strictEqual(R.infoFor(scopedGameEvent).range, 9, 'an active-page sight tag overrides a conflicting note tag, as Details says');
 
 // Runtime snapshots include all map lamps (not only sprites on screen), but use exactly the game's actual
 // visibility gates. Effects Quality must not affect either a query or sight.
@@ -50,27 +53,43 @@ const hiddenSeason = E.doodad(2, 5, { uid: 'season', seasons: [3], light: { enab
 const hiddenLayer = E.doodad(1, 5, { uid: 'layer', layer: 'hidden', light: { enabled: true, radius: 180, intensity: 1 } });
 const stateOff = E.doodad(6, 5, { uid: 'stateOff', light: { enabled: true, radius: 180, intensity: 1 } });
 $dataDocsDoodads[1] = [lamp, hiddenCondition, hiddenSwitch, hiddenSeason, hiddenLayer, stateOff];
-$dataDocsDoodads.mapSettings[1] = { layers: [{ id: 'hidden', name: 'Hidden', gameHidden: true }] };
+$dataDocsDoodads.mapSettings[1] = { ambient: { darkness: 0.9, color: '#000000' }, layers: [{ id: 'hidden', name: 'Hidden', gameHidden: true }] };
 D.World.set('lighting2d.darkSwitchId', 9); D.World.set('lighting2d.darkLevel', 0.3);
-D.World.set('ambient.darkness', 0.9); D.World.set('ambient.color', '#000000');
 const lightOn = D.WorldState.lightOn; D.WorldState.lightOn = d => d.uid !== 'stateOff';
+const season = D.Atmosphere.season; D.Atmosphere.season = () => 0;
 const snapshot = R.lightInfo();
-D.WorldState.lightOn = lightOn;
+D.WorldState.lightOn = lightOn; D.Atmosphere.season = season;
 assert.deepStrictEqual(snapshot.lights.filter(light => light.doodad).map(light => light.doodad.uid), ['visible'], 'raw queries honor condition, switch, season, layer and saved light state');
 ConfigManager.docsFxQuality = 3;
 const darkQuality = R.levelAtTile(0, 0); ConfigManager.docsFxQuality = 0;
 assert.strictEqual(R.levelAtTile(0, 0), darkQuality, 'gameplay brightness is independent of Effects Quality');
+const lampLevel = D.api.lightAt(5, 5), farLevel = D.api.lightAt(0, 0);
+assert.ok(lampLevel > farLevel, `the public query reaches an offscreen map lamp, not a sprite-only list (${lampLevel} > ${farLevel})`);
+const liveInfo = R.lightInfo; R._info = { base: [1, 1, 1], lights: [] }; R.lightInfo = () => ({ base: [0, 0, 0], lights: [] });
+assert.strictEqual(R.levelAtTile(0, 0), 0, 'an explicit query never reuses the previous cadence snapshot');
+R.lightInfo = liveInfo; R._info = null;
+const rawInfo = R.lightInfo; let noTagBuilds = 0;
+R.lightInfo = function() { noTagBuilds++; return rawInfo.call(this); };
+D.World.set('lighting2d.darkSwitchId', 0); $dataMap.events = [null]; R.reset(); R.update(true);
+assert.strictEqual(noTagBuilds, 0, 'a map with no sight tags and no dark switch skips the light snapshot entirely');
+R.lightInfo = rawInfo; D.World.set('lighting2d.darkSwitchId', 9);
 
 // A tagged guard sees across a looping seam, acts once per acquisition, updates the dark switch, and an
 // untagged/offscreen event does no ray work. Sight still blocks on walls when visual light occlusion is off.
 $dataMap.scrollType = 2;
 $dataMap.events[1] = { id: 1, name: 'Guard', note: '<docs sight: 6, 90>\n<docs sight self switch: B>', x: 11, y: 5, pages: [{ list: [] }] };
 $dataMap.events[2] = { id: 2, name: 'Civilian', note: '', x: 4, y: 5, pages: [{ list: [] }] };
+$dataMap.events[3] = { id: 3, name: 'Far guard', note: '<docs sight: 8, 90>', x: 8, y: 5, pages: [{ list: [] }] };
 const guard = new Game_Event(1, 1); guard.locate(11, 5); guard.setDirection(6); guard.isNearTheScreen = () => true;
 const civilian = new Game_Event(1, 2); civilian.locate(4, 5); civilian.isNearTheScreen = () => false;
-$gameMap._events = [null, guard, civilian]; $gamePlayer.locate(0, 5);
+const farGuard = new Game_Event(1, 3); farGuard.locate(8, 5); farGuard.setDirection(4); farGuard.isNearTheScreen = () => false;
+$gameMap._events = [null, guard, civilian, farGuard]; $gamePlayer.locate(0, 5);
+const runtimeLevelAt = R.levelAtTile, runtimeWallAt = R.wallAt;
+const runtimeSeesEvent = R.seesEvent; let offscreenSightCalls = 0;
+R.seesEvent = function(event, ...args) { if (event === farGuard) offscreenSightCalls++; return runtimeSeesEvent.call(this, event, ...args); };
 R.reset(); R.levelAtTile = () => 1; R.wallAt = () => false; R.update(true);
 assert.strictEqual($gameSelfSwitches.value([1, 1, 'B']), true, 'loop-shortest sight turns on the chosen self switch');
+assert.strictEqual(offscreenSightCalls, 0, 'tagged events outside the screen budget do no light or wall query');
 $gameSelfSwitches.setValue([1, 1, 'B'], false); R.update(true);
 assert.strictEqual($gameSelfSwitches.value([1, 1, 'B']), false, 'continuous sight does not retrigger until it is lost');
 $gamePlayer.locate(6, 5); R.update(true); $gamePlayer.locate(0, 5); R.update(true);
@@ -79,16 +98,20 @@ R.levelAtTile = () => 0.1; R.update(true); assert.strictEqual($gameSwitches.valu
 
 $dataMap.events[1].note = '<docs sight: 6, 90>\n<docs sight common event: 7>';
 if (D.VisualEquip._eventText) D.VisualEquip._eventText.delete(guard);
-reservedCommonEvent = 0; R.reset(); R.levelAtTile = () => 1; R.wallAt = () => false; R.update(true);
+reservedCommonEvent = 3; R.reset(); R.levelAtTile = () => 1; R.wallAt = () => false; R.update(true);
+assert.strictEqual(reservedCommonEvent, 3, 'sight never overwrites an already reserved common event');
+reservedCommonEvent = 0; R.update(true);
 assert.strictEqual(reservedCommonEvent, 7);
 reservedCommonEvent = 3; $gamePlayer.locate(6, 5); R.update(true); $gamePlayer.locate(0, 5); R.update(true);
 assert.strictEqual(reservedCommonEvent, 3, 'sight never overwrites an already reserved common event');
 
+R.levelAtTile = runtimeLevelAt; R.wallAt = runtimeWallAt; R.seesEvent = runtimeSeesEvent; R.reset();
 assert.strictEqual(typeof D.api.lightAt, 'function');
 assert.strictEqual(typeof D.api.sees, 'function');
 const store = Object.keys(PluginManager._commands).find(key => /:storeLightLevel$/.test(key));
 assert.ok(store); R.levelAtTile = () => 0.625; PluginManager._commands[store]({ tileX: '3', tileY: '4', variableId: '12' });
 assert.strictEqual($gameVariables.value(12), 0.625);
+R.levelAtTile = runtimeLevelAt;
 
 // Editor writes only the active scope, through one undo step, and exposes/draws the picked event's cone.
 const staged = JSON.parse(JSON.stringify($dataMap.events[1]));
@@ -101,6 +124,15 @@ commands[0].revert(); assert.ok(staged.note.includes('<docs sight: 6, 90>'));
 commands[0].apply();
 const cone = W.sightOverlayPoints(); assert.ok(cone.length >= 8 && cone[0] === guard.x && cone[1] === guard.y, 'picked event cone uses the shared wall outline');
 assert.ok(String(W.renderSightDetails).includes('Sight'));
+
+staged.pages.push({ list: [{ code: 108, indent: 0, parameters: ['<docs sight: 3, 40>'] }, { code: 0, indent: 0, parameters: [] }] });
+const inactiveBefore = JSON.stringify(staged.pages[1].list);
+staged.pages[0].list = [{ code: 108, indent: 0, parameters: ['<docs label: Page guard>'] }, { code: 408, indent: 0, parameters: ['<docs sight: 4, 50>'] }, { code: 0, indent: 0, parameters: [] }];
+guard._pageIndex = 0;
+assert.strictEqual(W.selectedSightData().scope.kind, 'page');
+assert.strictEqual(W.editEventSight({ range: 5, spread: 60, minLevel: 0.2, selfSwitch: 'C', commonEvent: 0 }), true);
+assert.strictEqual(JSON.stringify(staged.pages[1].list), inactiveBefore, 'editing the active page preserves inactive page sight tags');
+assert.strictEqual(staged.pages[0].list[0].code, 108, 'removing a sight line never leaves an orphaned comment continuation');
 D.Undo.execute = execute;
 
 console.log('PASS light scalar/color, occlusion, sight cone/darkness/flashlight, runtime actions, API and editor');
