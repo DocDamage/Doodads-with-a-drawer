@@ -2,13 +2,15 @@
 
 ## Current milestone
 
-Paused safely at the user's request (16 November 2026). The specialist was interrupted
-while planning read-only. No server, MZ or NW.js was started. Resume with the full
-193-suite coverage run before further implementation.
+Backlog implementation remains paused at the user's request (16 November 2026).
+The specialist was interrupted while planning read-only. The user subsequently
+authorized committing, pushing the branch and opening a GitHub PR. The full 193-suite
+coverage gate now passes. No server, MZ or NW.js was started.
 
 Continue the 67 buildable rows in `BACKLOG_7_PLAN.md`, `BACKLOG_8_PLAN.md` and
 `BACKLOG_9_PLAN.md` on local branch `feat/backlog-7-9`. Item 7.4.5 needs third-party
-plugins for a truthful compatibility list. Nothing is pushed or published.
+plugins for a truthful compatibility list. Branch publication for review is authorized;
+no release or deployment has been requested.
 
 ## Recovery
 
@@ -96,12 +98,11 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 - Current static gate PASS: 225 editor parts, 84 runtime parts, 1,650 strings.
   Help/build/strings/types/game build and verify-project --skip-tests all passed.
-  Title, PlainWords, Trails and review-regression targets passed; the new complete
-  193-suite coverage run has NOT started. This is the next acceptance step on resume.
-- Most recent full coverage PASS: 190/190 suites in 177.0 seconds, before the
-  Title/PlainWords/Trails batch; lines/statements 92.19%, branches 77.92%,
-  functions 86.97%. All thresholds passed and the repository stayed unchanged.
-- Screen-fixed/UI lamps are now excluded from gameplay light queries (aec045f).
+- Full integration coverage PASS: 193/193 suites in 171.8 seconds (16 November 2026).
+  Lines/statements 92.21%, branches 78.00%, functions 86.88%; all thresholds passed
+  and the repository stayed unchanged during the run. This includes the complete
+  Title/PlainWords/Trails batch and review regressions.
+- Screen-fixed/UI lamps are excluded from gameplay light queries (aec045f).
   Title transient cache isolation is fixed (2a17e78); Trails review fixes and
   actual import/Clear/Go To controls passed; PlainWords old-Mood ordering is fixed.
 - `npm audit --audit-level=moderate`: zero vulnerabilities (16 November 2026).
@@ -125,11 +126,12 @@ runner during edits: it checks that the entire repository stays unchanged.
 
 ## Remaining work
 
-After resuming, run the pending full coverage gate, then continue with 8.3.1
-automatic normal maps and 8.3.5 Phone Preview, then follow
+After resuming feature work, continue with 8.3.1 automatic normal maps and
+8.3.5 Phone Preview, then follow
 the dependency order in the three plans. These and later rows are not implemented merely
 because their plain rules exist. The broad 67-row objective remains in progress.
 
 There are 32 other buildable rows still open, plus the external-plugin compatibility
 item 7.4.5. Preserve the original three partial Claude worktrees; recovery is integrated,
-but they have not been deleted. Nothing has been pushed, opened as a PR or published.
+but they have not been deleted. Branch publication for review is authorized; no
+release or deployment has been requested.
