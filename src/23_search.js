@@ -13,10 +13,11 @@ DocsDoodads.Search = {
             animated: null,
             collections: [],
             used: null,
+            authors: [], licences: [], creditMissing: null,
             negative: [],
             // Prefixed terms with a minus, e.g. -tag:"deep woods", leave matching assets out.
             categories: [],
-            exclude: { types: [], tags: [], folders: [], collections: [], categories: [] }
+            exclude: { types: [], tags: [], folders: [], collections: [], categories: [], authors: [], licences: [] }
         };
         if (!queryString) return tokens;
 
@@ -30,18 +31,20 @@ DocsDoodads.Search = {
             parts.push(prefix + val);
         }
 
-        const lists = { type: 'types', tag: 'tags', folder: 'folders', collection: 'collections', category: 'categories' };
+        const lists = { type: 'types', tag: 'tags', folder: 'folders', collection: 'collections', category: 'categories', author: 'authors', licence: 'licences', license: 'licences' };
         const yes = value => /^(yes|true|1)$/.test(value) ? true : /^(no|false|0)$/.test(value) ? false : null;
         for (const part of parts) {
             const negated = part.startsWith('-');
             const p = negated ? part.slice(1) : part;
-            const m = /^(type|tag|folder|collection|category|favorite|animated|used):(.*)$/i.exec(p);
+            const m = /^(type|tag|folder|collection|category|favorite|animated|used|author|licence|license|credit):(.*)$/i.exec(p);
             const key = m ? m[1].toLowerCase() : null;
             const value = (m ? m[2] : p).replace(/["']/g, '').toLowerCase();
             // A lone "-" (still being typed) or an empty "tag:" means nothing yet.
             if (!value) continue;
             if (lists[key]) {
                 (negated ? tokens.exclude[lists[key]] : tokens[lists[key]]).push(value);
+            } else if (key === 'credit') {
+                if (['none', 'no', 'yes', 'recorded'].includes(value)) tokens.creditMissing = ['none', 'no'].includes(value) !== negated;
             } else if (key) {
                 const flag = yes(value);
                 if (flag !== null) tokens[key] = negated ? !flag : flag;
@@ -55,6 +58,16 @@ DocsDoodads.Search = {
     },
 
     matches(asset, parsed) {
+        if ((parsed.authors && parsed.authors.length) || (parsed.licences && parsed.licences.length) || parsed.creditMissing !== null && parsed.creditMissing !== undefined
+            || parsed.exclude && ((parsed.exclude.authors && parsed.exclude.authors.length) || (parsed.exclude.licences && parsed.exclude.licences.length))) {
+            const credit = DocsDoodads.Credits.normalize(asset.credit) || DocsDoodads.Credits.of(asset.path, DocsDoodads.AssetIndex.data);
+            for (const [key, field] of [['authors', 'author'], ['licences', 'licence']]) {
+                const value = String(credit && credit[field] || '').toLowerCase();
+                if (parsed[key] && parsed[key].length && !parsed[key].some(term => value.includes(term))) return false;
+                if (parsed.exclude && parsed.exclude[key] && parsed.exclude[key].some(term => value.includes(term))) return false;
+            }
+            if (parsed.creditMissing !== null && parsed.creditMissing !== undefined && !DocsDoodads.Credits.complete(credit) !== parsed.creditMissing) return false;
+        }
         for (const neg of parsed.negative) {
             if ((asset.fileName && asset.fileName.toLowerCase().includes(neg)) || (asset.path && asset.path.toLowerCase().includes(neg))) {
                 return false;

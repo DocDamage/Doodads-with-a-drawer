@@ -106,6 +106,21 @@ DocsDoodads.Import = {
         return { files, errors, relativeDirs };
     },
 
+    readCreditNotes(files) {
+        const FS = DocsDoodads.FS, C = DocsDoodads.Credits, out = [];
+        for (const file of files || []) {
+            if (!C.noteFile(file)) continue;
+            try {
+                const stat = FS.fs.statSync(file);
+                if (!stat.isFile() || stat.size > 65536) continue;
+                const note = C.notesFromFiles([{ name: FS.path.basename(file), data: FS.fs.readFileSync(file) }])[0];
+                if (note) out.push(Object.assign(note, { sourceFolder: FS.path.dirname(file) }));
+                if (out.length >= 20) break;
+            } catch (error) { /* A credit note cannot stop importing the art. */ }
+        }
+        return out;
+    },
+
     // Plain-language summary of a runAssetImport result for the toast.
     describeResult(result) {
         const path = DocsDoodads.FS.path;
@@ -165,6 +180,7 @@ DocsDoodads.Import = {
 
         // The Add Files card has already walked the dropped folders; its list is used as it is.
         const collected = options.collected || this.collectFiles(sourcePaths);
+        plan.creditNotes = this.readCreditNotes(collected.files);
         plan.errors.push(...collected.errors);
         const reserved = new Map();
         const reservedKey = destination => process.platform === 'win32' ? destination.toLowerCase() : destination;

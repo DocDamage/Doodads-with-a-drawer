@@ -307,6 +307,7 @@ DocsDoodads.AssetIndex = {
             },
             collisionUserSet: existing ? existing.collisionUserSet !== false : false,
             ...(existing && existing.guess ? { guess: existing.guess } : {}),
+            ...(existing && existing.credit ? { credit: existing.credit } : {}),
             usage: existing && existing.usage ? existing.usage : { lastUsedAt: 0, useCount: 0 }
         };
 

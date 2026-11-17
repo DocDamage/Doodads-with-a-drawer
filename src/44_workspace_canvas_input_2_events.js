@@ -332,6 +332,11 @@
 
         // Only the files just written are indexed, not every folder walked again.
         await DocsDoodads.AssetIndex.indexPaths(result.imported);
+        const FS = DocsDoodads.FS, written = new Set(result.imported.map(file => FS.path.resolve(file)));
+        await this.offerCreditNotes(plan.creditNotes, note => plan.operations.filter(op => {
+            const relative = FS.path.relative(note.sourceFolder, op.source);
+            return written.has(FS.path.resolve(op.destination)) && relative !== '..' && !relative.startsWith('..' + FS.path.sep) && !FS.path.isAbsolute(relative);
+        }).map(op => op.relativeDestination));
         this.refreshDrawerCards();
 
         if (options.autoSlice) {

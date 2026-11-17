@@ -14,6 +14,8 @@ assert.deepStrictEqual(C.of('img/doodads/forest-extra/Oak.png', metadata), root,
 metadata.assets['img/doodads/forest/oak.png'] = { credit: own };
 assert.deepStrictEqual(C.of('img/doodads/forest/Oak.png', metadata), own);
 assert.strictEqual(C.of('../private.png', metadata), null);
+metadata.fileCredits = { 'models/lamp.gltf': own };
+assert.deepStrictEqual(C.of('models/Lamp.gltf', metadata), own, 'non-image credits use the same inheritance rules');
 const entries = [{ path: 'img/A.png', credit: root }, { path: 'img/B.png', credit: leaf }, { path: 'img/C.png', credit: own }, { path: 'img/D.png', credit: null }];
 const text = C.text(entries);
 for (const value of ['Ada', 'Bo', 'Cy', 'CC0', 'CC-BY 4.0', 'My own', 'img/A.png', 'img/D.png']) assert.ok(text.includes(value), value);
@@ -24,12 +26,14 @@ Object.assign(asset, { id: 'img/doodads/forest/oak.png', path: 'img/doodads/fore
 assert.strictEqual(D.Search.filter([asset], 'author:Cy licence:"My own"').length, 1);
 assert.strictEqual(D.Search.filter([asset], 'credit:none').length, 0);
 assert.strictEqual(D.Search.filter([asset], '-author:Cy').length, 0);
-assert.strictEqual(D.Search.filter([{ ...asset, path: 'img/missing.png' }], 'credit:none').length, 1);
+assert.strictEqual(D.Search.filter([{ ...asset, credit: null, path: 'img/missing.png' }], 'credit:none').length, 1);
 const pack = D.Packs.build('Credits', { contents: {}, files: [asset.path] }, () => Buffer.from('PNG'), () => asset);
 assert.deepStrictEqual(D.Packs.parse(JSON.stringify(pack)).library[asset.path].credit, own, 'pack round trip retains own credits');
 const inherited = { ...asset }; delete inherited.credit;
-const folderPack = D.Packs.build('Folder', { contents: {}, files: [inherited.path] }, () => Buffer.from('PNG'), () => inherited);
+metadata.assets[asset.id] = inherited;
+const folderPack = D.Packs.build('Folder', { contents: {}, files: [inherited.path] }, () => Buffer.from('PNG'), () => inherited, p => C.of(p, metadata));
 assert.deepStrictEqual(folderPack.library[inherited.path].credit, leaf, 'inherited credits travel with the file');
+metadata.assets[asset.id] = asset;
 let saved = 0;
 D.AssetIndex.saveSoon = () => saved++;
 W.setAssetCredits([asset], root);

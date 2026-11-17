@@ -614,6 +614,8 @@
         const library = JSON.parse(JSON.stringify(DocsDoodads.AssetIndex.data));
         const oldId = oldPath.toLowerCase(), newId = newPath.toLowerCase();
         const entry = library.assets[oldId] || JSON.parse(JSON.stringify(asset));
+        const inheritedCredit = DocsDoodads.Credits.of(oldPath, DocsDoodads.AssetIndex.data);
+        if (!DocsDoodads.Credits.normalize(entry.credit) && inheritedCredit && oldPath.split('/').slice(0, -1).join('/') !== newPath.split('/').slice(0, -1).join('/')) entry.credit = inheritedCredit;
         delete library.assets[oldId];
         entry.id = newId;
         entry.path = newPath;
@@ -624,12 +626,21 @@
         const oldNormalId = oldNormal ? oldNormal.toLowerCase() : '', newNormalId = newNormal ? newNormal.toLowerCase() : '';
         if (oldNormalId && newNormalId && library.assets[oldNormalId]) {
             const normalEntry = library.assets[oldNormalId];
+            const normalCredit = DocsDoodads.Credits.of(oldNormal, DocsDoodads.AssetIndex.data);
+            if (!DocsDoodads.Credits.normalize(normalEntry.credit) && normalCredit && oldNormal.split('/').slice(0, -1).join('/') !== newNormal.split('/').slice(0, -1).join('/')) normalEntry.credit = normalCredit;
             delete library.assets[oldNormalId];
             normalEntry.id = newNormalId;
             normalEntry.path = newNormal;
             normalEntry.fileName = newNormal.split('/').pop();
             normalEntry.category = DocsDoodads.AssetIndex.detectCategory(newNormal);
             library.assets[newNormalId] = normalEntry;
+        }
+        if (library.fileCredits) for (const [from, to] of [[oldId, newId], [oldNormalId, newNormalId]]) {
+            if (!from || !to || from === to || !Object.prototype.hasOwnProperty.call(library.fileCredits, from)) continue;
+            const credit = DocsDoodads.Credits.normalize(library.fileCredits[from]), assetEntry = library.assets[to];
+            if (credit && assetEntry && !DocsDoodads.Credits.normalize(assetEntry.credit)) assetEntry.credit = credit;
+            else if (credit && !assetEntry) library.fileCredits[to] = credit;
+            delete library.fileCredits[from];
         }
         for (const members of Object.values(library.collections || {})) {
             if (Array.isArray(members)) members.forEach((id, i) => {

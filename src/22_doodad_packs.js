@@ -77,8 +77,9 @@ DocsDoodads.Packs = {
     },
 
     // A pack from what was gathered. readFile(path) gives the bytes (a Buffer or Uint8Array) or null;
-    // library(path) gives the file's Item Bag entry or null. Files that couldn't be read are listed.
-    build(name, gathered, readFile, library) {
+    // library(path) gives the file's Item Bag entry or null; creditOf(path) optionally resolves inherited credits.
+    // Files that couldn't be read are listed. These callbacks keep project state out of this pure builder.
+    build(name, gathered, readFile, library, creditOf) {
         const pack = { format: this.format, version: this.version, name: String(name || 'Pack').trim() || 'Pack', createdAt: Date.now(),
             contents: gathered.contents, library: {}, files: {}, missing: [] };
         for (const p of gathered.files) {
@@ -87,11 +88,13 @@ DocsDoodads.Packs = {
             if (!bytes) { pack.missing.push(p); continue; }
             pack.files[p] = this.toBase64(bytes);
             const entry = library ? library(p) : null;
+            const keep = {};
             if (entry) {
-                const keep = {};
-                for (const k of ['tags', 'slice', 'placement', 'collision', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
-                pack.library[p] = keep;
+                for (const k of ['tags', 'slice', 'placement', 'collision', 'collisionUserSet', 'guess', 'favorite']) if (entry[k] !== undefined) keep[k] = JSON.parse(JSON.stringify(entry[k]));
             }
+            const credit = DocsDoodads.Credits.normalize(entry && entry.credit) || (creditOf ? DocsDoodads.Credits.normalize(creditOf(p)) : null);
+            if (credit) keep.credit = credit;
+            if (entry || credit) pack.library[p] = keep;
         }
         return pack;
     },

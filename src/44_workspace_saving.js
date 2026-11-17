@@ -383,12 +383,13 @@ Object.assign(DocsDoodads.Workspace, {
         }
         bar.innerHTML = `<span style="flex-basis: 100%;">${count} picked (Ctrl or Shift + click)</span>
             <button class="dd-btn" type="button" id="dd-bb-tag">Tag</button><button class="dd-btn" type="button" id="dd-bb-fav">★</button>
-            <button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
+            <button class="dd-btn" type="button" id="dd-bb-credit">Set Credit…</button><button class="dd-btn" type="button" id="dd-bb-col">Collection</button><button class="dd-btn" type="button" id="dd-bb-move">Move</button>
             <button class="dd-btn" type="button" id="dd-bb-del">Delete</button><button class="dd-btn" type="button" id="dd-bb-clear" title="Pick none">✕</button>`;
         const on = (id, run) => { const el = document.getElementById(id); if (el) el.onclick = run; };
         on('dd-bb-tag', () => this.bagBatch('tag'));
         on('dd-bb-fav', () => this.bagBatch('favorite'));
         on('dd-bb-col', () => this.bagBatch('collection'));
+        on('dd-bb-credit', () => this.editArtCredit(this.bagPickedAssets()));
         on('dd-bb-move', () => this.bagBatch('move'));
         on('dd-bb-del', () => this.bagBatch('delete'));
         on('dd-bb-clear', () => this.clearBagPicks());

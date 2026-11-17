@@ -86,19 +86,24 @@ DocsDoodads.Zip = {
     // A .ddpack inside the zip is returned as { packText } instead.
     asPack(zipName, read, Packs) {
         const pack = read.files.find(f => /\.ddpack$/i.test(f.name));
-        if (pack) return { packText: new TextDecoder('utf-8').decode(pack.data), name: pack.name };
+        if (pack) return { packText: new TextDecoder('utf-8').decode(pack.data), name: pack.name, creditNotes: DocsDoodads.Credits.notesFromFiles(read.files) };
         const base = String(zipName || 'Art').replace(/\\/g, '/').split('/').pop().replace(/\.zip$/i, '').replace(/[^\w\- ]+/g, '').trim() || 'Art';
         const out = { format: Packs.format, version: Packs.version, name: base, createdAt: Date.now(),
             contents: { prefabs: [], rooms: [], biomes: [], dress: [], collections: {}, templates: {} }, library: {}, files: {}, missing: [] };
-        const left = read.unsafe.slice();
+        const left = read.unsafe.slice(), routed = [];
         for (const f of read.files) {
             // Folders of the zip's own (MyArt/img/...) are looked through for the project's folders.
             const inside = f.name.match(/(?:^|\/)((?:img|audio|models|movies|effects)\/.+)$/i);
             const target = inside ? inside[1] : /\.(png|jpe?g|webp|gif)$/i.test(f.name) ? `img/doodads/${base}/${f.name}` : null;
             if (!target || /(^|\/)(__MACOSX|\.DS_Store|Thumbs\.db)/i.test(f.name) || !Packs.safePath(target)) { left.push(f.name); continue; }
             out.files[target] = Packs.toBase64(f.data);
+            routed.push({ original: f.name, target });
         }
         out.leftOut = left;
+        out.creditNotes = DocsDoodads.Credits.notesFromFiles(read.files).map(note => {
+            const folder = note.name.includes('/') ? note.name.slice(0, note.name.lastIndexOf('/') + 1) : '';
+            return Object.assign(note, { paths: routed.filter(file => file.original.startsWith(folder)).map(file => file.target) });
+        });
         return { pack: out };
     }
 };

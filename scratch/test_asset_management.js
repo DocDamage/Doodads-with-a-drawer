@@ -113,6 +113,7 @@ DocsDoodads.AssetIndex.rebuildList();
 DocsDoodads.Persistence.dirtyDoodads = false;
 DocsDoodads.Persistence.dirtyMap = false;
 const people = DocsDoodads.AssetIndex.data.assets['img/characters/people1.png'];
+DocsDoodads.AssetIndex.data.fileCredits = { [people.id]: { author: 'Character Artist', licence: 'My own', source: '', note: '' } };
 
 const blocked = ws.renameAsset(people, 'img/doodads/People1.png');
 assert.strictEqual(blocked.ok, false);
@@ -128,6 +129,8 @@ const routeCmd = readJson('data/Map001.json').events[1].pages[0].list[2];
 assert.strictEqual(routeCmd.parameters[1].list[0].parameters[0], 'Townsfolk', "move route image changes are updated");
 assert.strictEqual(readJson('data/Map001.json').events[1].pages[0].list[3].parameters[0].parameters[0], 'Townsfolk', "and their editor display lines");
 const rekeyed = DocsDoodads.AssetIndex.data.assets['img/characters/townsfolk.png'];
+assert.strictEqual(rekeyed.credit.author, 'Character Artist', 'fallback file credits move into the renamed entry');
+assert.strictEqual(DocsDoodads.AssetIndex.data.fileCredits[people.id], undefined, 'the old path cannot resurrect fallback credits');
 assert.ok(rekeyed && rekeyed.favorite === true && rekeyed.tags[0] === 'crowd', "tags and favourites move with the file");
 assert.strictEqual(DocsDoodads.AssetIndex.data.assets['img/characters/people1.png'], undefined);
 assert.ok(renamed.changedFiles.includes('data/Map001.json') && renamed.changedFiles.includes('data/Map002.json'));
@@ -135,6 +138,8 @@ assert.ok(fs.readdirSync(path.join(sandbox, 'data/docs_doodads_cache/backups')).
 
 // Moving a doodad image to a new folder updates doodads, prefabs and its sidecar metadata.
 const oakAsset = DocsDoodads.AssetIndex.data.assets['img/doodads/trees/oak.png'];
+oakAsset.credit = {};
+DocsDoodads.AssetIndex.data.folderCredits = { 'img/doodads/trees': { author: 'Tree Artist', licence: 'My own', source: '', note: '' } };
 const moved = ws.renameAsset(oakAsset, 'img/doodads/forest/OldOak.png');
 assert.ok(moved.ok, moved.error);
 assert.ok(exists('img/doodads/forest/OldOak.png') && exists('img/doodads/forest/OldOak.json'), "image and its atlas metadata move together");
@@ -142,6 +147,7 @@ assert.strictEqual(oak.bit[1], 'img/doodads/forest/OldOak.png');
 assert.strictEqual(readJson('data/DocsDoodads.json')[1][0].bit[1], 'img/doodads/forest/OldOak.png');
 assert.strictEqual(DocsDoodads.Prefabs.list[0].doodads[0].bit[1], 'img/doodads/forest/OldOak.png');
 assert.strictEqual(DocsDoodads.Prefabs.list[0].thumbnail, 'img/doodads/forest/OldOak.png');
+assert.strictEqual(DocsDoodads.AssetIndex.data.assets['img/doodads/forest/oldoak.png'].credit.author, 'Tree Artist', 'moving files retains inherited authorship');
 
 // Unsaved work must be saved first, and a failed write puts the file back.
 DocsDoodads.Persistence.dirtyDoodads = true;

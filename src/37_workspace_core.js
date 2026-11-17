@@ -1010,6 +1010,7 @@ DocsDoodads.Workspace = {
         on('dd-rooms-btn', () => { this.showMoreMenu(false); this.showRoomsCard(); });
         on('dd-generate-btn', () => { this.showMoreMenu(false); this.showGenerateCard(); });
         on('dd-packs-btn', () => { this.showMoreMenu(false); this.showPacksCard(); });
+        on('dd-credits-btn', () => { this.showMoreMenu(false); this.writeArtCredits(); });
         on('dd-lpc-btn', () => { this.showMoreMenu(false); this.showLpcCard(); });
         on('dd-capture-btn', () => { this.showMoreMenu(false); this.showCaptureCard(); });
         on('dd-problems-btn', () => { this.showMoreMenu(false); this.showProblems(); });

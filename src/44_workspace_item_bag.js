@@ -140,6 +140,8 @@ Object.assign(DocsDoodads.Workspace, {
         const used = asset.type === 'prefab' || !index ? null : (index.get(DocsDoodads.Usage.keyOf(asset.path)) || []).length;
         const depth = DocsDoodads.Depth.modes.includes(asset.placement && asset.placement.depth) ? asset.placement.depth : DocsDoodads.Depth.suggestFor(asset);
         const facts = [];
+        const credit = DocsDoodads.Credits.of(asset.path, DocsDoodads.AssetIndex.data);
+        if (asset.type !== 'prefab') facts.push(['Credit', credit ? [credit.author || 'Author not recorded', credit.licence || 'Licence not recorded'].join(' / ') : 'not recorded']);
         if (asset.width && asset.height) facts.push(['Size', `${asset.width} × ${asset.height} px`]);
         facts.push(['Frames', frames && frames.length > 1 ? `${frames.length} (animated)` : '1']);
         if (asset.category !== 'Audio' && asset.type !== 'prefab') facts.push(['Depth', (DocsDoodads.Depth.labels[depth] || depth).replace(/ \(.*\)$/, '')]);

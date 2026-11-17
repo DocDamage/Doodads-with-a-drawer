@@ -54,7 +54,7 @@ Object.assign(DocsDoodads.Workspace, {
         const total = gathered.contents.prefabs.length + gathered.contents.rooms.length + gathered.contents.biomes.length +
             gathered.contents.dress.length + Object.keys(gathered.contents.collections).length + Object.keys(gathered.contents.templates || {}).length;
         if (!total) { this.showToast('Pick something to put in the pack first.', 'info'); return null; }
-        const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null);
+        const pack = P.build(name, gathered, p => this.readProjectFile(p), p => D.AssetIndex.data.assets[p.toLowerCase()] || null, p => D.Credits.of(p, D.AssetIndex.data));
         const out = FS.path.join('packs', P.fileName(pack.name));
         if (FS.existsSync(out) && !(await D.Ui.confirm(`${out.replace(/\\/g, '/')} is already there. Replace it with this pack?`,
             { title: 'Replace the pack?', ok: 'Replace', danger: true }))) return null;
@@ -95,6 +95,7 @@ Object.assign(DocsDoodads.Workspace, {
             const read = D.Zip.read(D.FS.fs.readFileSync(filePath), require('zlib').inflateRawSync);
             const found = D.Zip.asPack(filePath, read, D.Packs);
             pack = found.packText !== undefined ? D.Packs.parse(found.packText) : D.Packs.parse(JSON.stringify(found.pack));
+            if (found.packText !== undefined && found.creditNotes) pack.creditNotes = found.creditNotes;
             leftOut = found.pack ? found.pack.leftOut : read.unsafe;
             if (!found.packText && !Object.keys(pack.files).length) throw new Error('There are no pictures in this zip to bring in.');
         } else {
@@ -138,6 +139,10 @@ Object.assign(DocsDoodads.Workspace, {
             const entry = D.AssetIndex.data.assets[p.toLowerCase()];
             const from = pack.library[p];
             if (entry && from) { Object.assign(entry, JSON.parse(JSON.stringify(from))); entries++; }
+            else if (from && D.Credits.normalize(from.credit)) {
+                const files = D.AssetIndex.data.fileCredits = D.AssetIndex.data.fileCredits || {};
+                files[p.toLowerCase()] = D.Credits.normalize(from.credit); entries++;
+            }
         }
         for (const name of Object.keys(ready.collections)) {
             for (const p of ready.collections[name]) if (D.AssetIndex.data.assets[p.toLowerCase()]) D.AssetIndex.addAssetToCollection(p.toLowerCase(), name);
@@ -146,6 +151,7 @@ Object.assign(DocsDoodads.Workspace, {
             D.AssetIndex.rebuildList();
             if (D.AssetIndex.save) D.AssetIndex.save();
         }
+        await this.offerCreditNotes(pack.creditNotes, note => written.filter(path => !Array.isArray(note.paths) || note.paths.includes(path)));
         if (this.refreshDrawerCards) this.refreshDrawerCards();
         this._incomingPack = null;
         const kept = plan.conflicts.length && incoming.conflict !== 'replace' ? `; kept your own ${plan.conflicts.length} file(s) that differ` : '';

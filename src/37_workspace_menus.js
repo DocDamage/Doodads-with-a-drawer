@@ -33,6 +33,7 @@
                 { id: 'dd-lpc-btn', icon: 'person', label: 'Characters', title: "Character creators: RPG Maker MZ's generator parts, the LPC library and the Memao assets on this computer" },
                 { id: 'dd-packs-btn', icon: 'box', label: 'Packs', title: 'Put prefabs, rooms, biomes and their art in one file for another project, or bring one in' },
                 { id: 'dd-vfx-btn', icon: 'sparkle', label: 'Effects Maker', title: 'Make sparkles, smoke, fire and other effects' },
+                { id: 'dd-credits-btn', icon: 'file', label: 'Write Credits', title: 'Write CREDITS.txt for art in use, including LPC credits' },
                 { id: 'dd-tools-btn', icon: 'wrench', label: 'File Check', title: 'Find copies of the same file and files nothing uses' }
             ] },
             { id: 'view', label: 'View', icon: 'eye', title: 'What the map shows while editing, Screen Looks, the editor\'s look and panel sizes', layouts: true, items: [
