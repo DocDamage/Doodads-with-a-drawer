@@ -102,7 +102,14 @@ DocsDoodads.GenerateRuntime = {
             data: source.data.slice(), events: JSON.parse(JSON.stringify(source.events))
         });
         const layout = DocsDoodads.Generate.layout(record.recipe, record.seed, this.rooms);
-        const plan = DocsDoodads.Generate.plan(layout, record.recipe, base, this.rooms);
+        const systemTile = typeof $dataSystem !== 'undefined' && $dataSystem ? Number($dataSystem.tileSize) : 0;
+        const tileWidth = typeof $gameMap !== 'undefined' && $gameMap && typeof $gameMap.tileWidth === 'function'
+            ? Number($gameMap.tileWidth()) : systemTile;
+        const tileHeight = typeof $gameMap !== 'undefined' && $gameMap && typeof $gameMap.tileHeight === 'function'
+            ? Number($gameMap.tileHeight()) : systemTile;
+        const plan = DocsDoodads.Generate.plan(layout, record.recipe, base, this.rooms, {
+            mapId, tileWidth: tileWidth || 48, tileHeight: tileHeight || 48
+        });
         const current = typeof $dataDocsDoodads !== 'undefined' && $dataDocsDoodads && Array.isArray($dataDocsDoodads[mapId]) ? $dataDocsDoodads[mapId] : [];
         const authored = current.filter(doodad => !doodad || doodad._docsGeneratedMap !== mapId);
         plan.doodads.push(...this.decorations(layout, record.recipe, mapId, record.seed, authored.concat(plan.doodads), plan.events));

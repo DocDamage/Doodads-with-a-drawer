@@ -306,6 +306,9 @@ DocsDoodads.Generate = {
                 tileWidth: options.tileWidth || 48, tileHeight: options.tileHeight || 48,
                 groupId: `grp_gen_${layout.seed}_${placed.index}`, allocateEventId: allocate
             });
+            roomPlan.doodads.forEach((doodad, index) => {
+                doodad.uid = `dd_gen_${Number(options.mapId) || 0}_${layout.seed}_room_${placed.index}_${index}`;
+            });
             for (const change of roomPlan.changes) work.data[change.index] = change.after;
             doodads.push(...roomPlan.doodads); events.push(...roomPlan.events);
         }

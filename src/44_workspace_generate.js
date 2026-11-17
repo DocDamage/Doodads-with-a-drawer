@@ -74,7 +74,10 @@ Object.assign(DocsDoodads.Workspace, {
         const rooms = this.generatedRooms(), missing = preview.recipe.roomIds.filter(id => !rooms.some(room => String(room.id) === id));
         if (missing.length) { if (this.showToast) this.showToast(`Room stamp not found: ${missing.join(', ')}`, 'error'); return false; }
         const planMap = Object.assign({}, map, { events });
-        const plan = DocsDoodads.Generate.plan(preview.layout, preview.recipe, planMap, rooms, this.tileSize());
+        const tile = this.tileSize();
+        const plan = DocsDoodads.Generate.plan(preview.layout, preview.recipe, planMap, rooms, {
+            mapId, tileWidth: tile.tw, tileHeight: tile.th
+        });
         plan.doodads.push(...this.generatedDecorations(preview, list.concat(plan.doodads), plan.events));
         for (const doodad of plan.doodads) doodad._docsGeneratedMap = mapId;
         for (const event of plan.events) event._docsGeneratedMap = mapId;
