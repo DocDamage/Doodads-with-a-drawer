@@ -206,7 +206,8 @@ DocsDoodads.FS = {
         if (!this.fs || !this.path) return [];
         const made = [], names = new Set();
         for (const entry of entries) {
-            entry.json = this.jsonOf(entry);
+            // An entry may bring its own text (MZ's database files keep their one-entry-a-line form).
+            entry.json = typeof entry.json === 'string' ? entry.json : this.jsonOf(entry);
             if (!this.existsSync(entry.path)) continue;
             let now = null;
             try { now = this.fs.readFileSync(entry.path, 'utf8'); } catch (e) { now = null; }

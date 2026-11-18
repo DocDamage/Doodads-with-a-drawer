@@ -33,6 +33,8 @@ DocsDoodads.RequiredAssets = {
             if (doodad && doodad.model && doodad.model.path) add(doodad.model.path);
             if (doodad && doodad.line && doodad.line.hang && doodad.line.hang.path) add(doodad.line.hang.path);
         }
+        // Baked chunks (7.3.4): drawn by the game in place of still doodads.
+        for (const manifest of Object.values(data.baked || {})) for (const c of (manifest && manifest.chunks) || []) add(c && c.file);
         // The ground brush (8.3.4): a painted map's mask and its textures.
         for (const settings of Object.values(data.mapSettings || {})) {
             const ground = DocsDoodads.Ground && DocsDoodads.Ground.settings(settings);

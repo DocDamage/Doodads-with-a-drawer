@@ -53,6 +53,12 @@ DocsDoodads.PostFX = {
         { id: 'sharpen', label: 'Sharpen', params: [
             { key: 'amount', label: 'Amount', min: 0, max: 2, step: 0.05, def: 0.4, neutral: 0 }
         ] },
+        // Light shafts (7.3.7): drawn by 15_spriteset_map_light_air.js from what stops light; flat maps.
+        { id: 'rays', label: 'Light shafts (flat maps)', screenSpace: true, params: [
+            { key: 'strength', label: 'Strength', min: 0, max: 1, step: 0.05, def: 0.5, neutral: 0 },
+            { key: 'length', label: 'Length', min: 0.1, max: 1, step: 0.05, def: 0.6, neutral: 0.6 },
+            { key: 'fromLamps', label: 'From the brightest lamp (not the sun)', type: 'checkbox', def: false }
+        ] },
         { id: 'tiltShift', label: 'Tilt-Shift (miniature)', screenSpace: true, params: [
             { key: 'blur', label: 'Blur', min: 0, max: 12, step: 0.5, def: 6, neutral: 0 },
             { key: 'focus', label: 'Focus line (0 top - 1 bottom)', min: 0, max: 1, step: 0.01, def: 0.55, neutral: 0.55 },
@@ -222,6 +228,7 @@ DocsDoodads.PostFX = {
     passes(look, quality, anim, haze) {
         if (quality === 'off') return [];
         const out = [];
+        if (look && look.rays && look.rays.enabled && quality !== 'low') out.push('rays');
         if (haze && haze.length && quality !== 'low') out.push('haze');
         if ((look && look.bloom.enabled) || (anim && anim.bloom > 0)) out.push('bloom');
         if (look && look.tiltShift.enabled && quality !== 'low') out.push('tiltShift');

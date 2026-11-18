@@ -1830,6 +1830,103 @@
  * @type number
  * @min 0
  * @default 0
+ *
+ * @command playTimeline
+ * @text Play Timeline
+ * @desc Plays a cutscene timeline made in Map > Timelines: its camera moves, states, lights, weather, looks and characters.
+ *
+ * @arg name
+ * @text Timeline
+ * @desc The timeline's name.
+ * @type text
+ *
+ * @arg wait
+ * @text Wait Until It Ends
+ * @type boolean
+ * @default true
+ *
+ * @arg skippable
+ * @text Hold OK to Skip
+ * @desc Holding OK for a second runs the rest at once.
+ * @type boolean
+ * @default true
+ *
+ * @command stopTimeline
+ * @text Stop Timeline
+ * @desc Stops the timeline that is playing; the camera follows the player again.
+ *
+ * @command startTravel
+ * @text Start Travel
+ * @desc Starts a travelling doodad (Details > Ride and Travel) on this map, or one that was stopped.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @type text
+ *
+ * @command stopTravel
+ * @text Stop Travel
+ * @desc Holds a travelling doodad where it is until Start Travel.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @type text *
+ * @command openDecorate
+ * @text Open Decorate Mode
+ * @desc The player places and moves pieces from Map > Decorate in this map's zone. Kept in the save.
+ *
+ * @command giveDecor
+ * @text Give Decor Item
+ * @desc Gives the player decor pieces (a negative number takes them).
+ *
+ * @arg item
+ * @text Piece Id
+ * @desc The piece's id in Map > Decorate (decor_...).
+ * @type text
+ *
+ * @arg count
+ * @text How Many
+ * @type number
+ * @min -999
+ * @default 1
+ *
+ * @command countDecor
+ * @text Count Decor
+ * @desc Puts how many of a piece are placed (or still held) in a variable.
+ *
+ * @arg item
+ * @text Piece Id
+ * @type text
+ *
+ * @arg what
+ * @text Count
+ * @type select
+ * @option Placed on any map
+ * @value placed
+ * @option Still to place
+ * @value held
+ * @default placed
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 0 *
+ * @command startFireAt
+ * @text Start Fire At
+ * @desc Lights a fire on a tile of this map (only where Map > Fire and Rain marks dry ground, or a doodad that Burns).
+ *
+ * @arg x
+ * @text X
+ * @type number
+ * @default 0
+ *
+ * @arg y
+ * @text Y
+ * @type number
+ * @default 0
+ *
+ * @command putOutFires
+ * @text Put Out Fires
+ * @desc Puts out every fire on this map at once.
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });

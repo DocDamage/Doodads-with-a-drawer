@@ -57,7 +57,9 @@ Object.assign(DocsDoodads.Workspace, {
             toolGrab: tool('eyedropper'),
             rooms: () => this.showRoomsCard(),
             brushSmaller: () => this.resizeBrush(-1) || false,
-            brushBigger: () => this.resizeBrush(1) || false
+            brushBigger: () => this.resizeBrush(1) || false,
+            // Rewind works while playing; in the editor it only says how.
+            rewind: () => { this.showToast('Close the editor (F10) and hold this key while playing to go back up to 30 seconds.'); return true; }
         };
         actions.ruler = tool('ruler');
         for (let n = 1; n <= 9; n++) actions['bookmark' + n] = () => this.goToBookmarkNumber(n);

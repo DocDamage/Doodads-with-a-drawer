@@ -95,6 +95,100 @@ DocsDoodads.SampleArt = {
         return c;
     },
 
+    // The sample project's set (7.1.8, scripts/sample.js): drawn here, so no one else's art is shipped.
+    sceneKinds: ['tree', 'house', 'houseOpen', 'fence', 'sign', 'chest', 'chestOpen', 'torch'],
+
+    tree() {
+        const c = this.canvas(32, 44);
+        c.rect(14, 28, 17, 43, [110, 76, 48]);
+        const leaf = (dx, dy) => (dx + dy < -0.5 ? [120, 190, 90] : dx + dy < 0.4 ? [70, 150, 70] : [44, 110, 56]);
+        c.ellipse(16, 16, 14, 13, leaf); c.ellipse(9, 22, 8, 7, leaf); c.ellipse(23, 22, 8, 7, leaf);
+        c.outline([28, 60, 32]);
+        return c;
+    },
+
+    houseFront(open) {
+        const c = this.canvas(48, 44);
+        c.rect(4, 18, 43, 43, [196, 170, 130]);
+        for (let y = 0; y < 18; y++) c.rect(24 - Math.round(y * 1.33) - 2, y, 23 + Math.round(y * 1.33) + 2, y, [160, 70, 60]);
+        c.rect(19, 28, 28, 43, open ? [40, 28, 24] : [120, 80, 50]);
+        if (!open) c.set(26, 36, [230, 200, 90]);
+        c.rect(8, 24, 14, 30, [140, 190, 220]); c.rect(33, 24, 39, 30, [140, 190, 220]);
+        c.outline([60, 40, 34]);
+        return c;
+    },
+    house() { return this.houseFront(false); },
+    houseOpen() { return this.houseFront(true); },
+
+    fence() {
+        const c = this.canvas(24, 16);
+        const wood = [170, 130, 80];
+        for (const x of [2, 11, 20]) c.rect(x, 2, x + 2, 15, wood);
+        c.rect(0, 5, 23, 6, wood); c.rect(0, 10, 23, 11, wood);
+        c.outline([90, 64, 40]);
+        return c;
+    },
+
+    sign() {
+        const c = this.canvas(20, 22);
+        c.rect(9, 10, 10, 21, [110, 76, 48]);
+        c.rect(1, 1, 18, 10, [200, 160, 100]);
+        c.rect(4, 4, 15, 4, [110, 80, 50]); c.rect(4, 7, 12, 7, [110, 80, 50]);
+        c.outline([80, 56, 36]);
+        return c;
+    },
+
+    chestBox(open) {
+        const c = this.canvas(20, 16);
+        c.rect(1, 6, 18, 15, [150, 96, 50]);
+        if (open) { c.rect(1, 0, 18, 4, [120, 76, 40]); c.rect(3, 6, 16, 8, [240, 200, 80]); } else c.rect(1, 3, 18, 7, [170, 110, 60]);
+        c.rect(9, open ? 9 : 6, 10, open ? 11 : 9, [230, 200, 90]);
+        c.outline([70, 44, 24]);
+        return c;
+    },
+    chest() { return this.chestBox(false); },
+    chestOpen() { return this.chestBox(true); },
+
+    torch() {
+        const c = this.canvas(10, 28);
+        c.rect(4, 10, 5, 27, [110, 76, 48]);
+        c.ellipse(5, 6, 3.5, 5, (dx, dy) => (dy < -0.2 ? [255, 236, 140] : [255, 150, 40]));
+        c.outline([90, 40, 20]);
+        return c;
+    },
+
+    // Two-frame sheets for Creatures (9.3.1): wings up, wings down.
+    creatureKinds: ['bird', 'butterfly'],
+
+    bird() {
+        const c = this.canvas(32, 12);
+        const body = [58, 48, 48], wing = [92, 78, 70];
+        for (const [x0, up] of [[0, true], [16, false]]) {
+            c.ellipse(x0 + 8, 7, 3, 2, () => body);
+            c.set(x0 + 11, 6, [230, 170, 60]);
+            for (let i = 1; i <= 5; i++) {
+                const y = up ? 6 - Math.round(i * 0.8) : 6 + Math.round(i * 0.5);
+                c.set(x0 + 8 - i, y, wing); c.set(x0 + 8 + Math.min(i, 3), y, wing);
+            }
+        }
+        c.outline([30, 24, 24]);
+        return c;
+    },
+
+    butterfly() {
+        const c = this.canvas(32, 12);
+        const wing = [245, 160, 208], spot = [255, 240, 122], body = [58, 42, 42];
+        for (const [x0, open] of [[0, true], [16, false]]) {
+            const w = open ? 5 : 2;
+            c.ellipse(x0 + 8 - w / 2 - 1, 5, w / 2 + 0.5, 3, () => wing);
+            c.ellipse(x0 + 8 + w / 2 + 1, 5, w / 2 + 0.5, 3, () => wing);
+            c.set(x0 + 8 - w / 2 - 1, 5, spot); c.set(x0 + 8 + w / 2 + 1, 5, spot);
+            c.rect(x0 + 8, 2, x0 + 8, 9, body);
+        }
+        c.outline([90, 40, 70]);
+        return c;
+    },
+
     lamp() {
         const c = this.canvas(12, 40);
         const post = [70, 66, 84], light = [255, 226, 130], frame = [44, 40, 56];
@@ -273,7 +367,7 @@ Object.assign(DocsDoodads.Workspace, {
         FS.mkdirp('img/doodads/samples');
         const assets = {};
         let drawn = 0;
-        for (const kind of DocsDoodads.SampleArt.kinds) {
+        for (const kind of DocsDoodads.SampleArt.kinds.concat(DocsDoodads.SampleArt.creatureKinds)) {
             const path = this.samplePath(kind);
             if (!FS.existsSync(path)) {
                 const art = DocsDoodads.SampleArt.draw(kind);

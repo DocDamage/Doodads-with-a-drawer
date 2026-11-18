@@ -81,6 +81,9 @@ DocsDoodads.Regions = {
         ((world && world.footsteps && world.footsteps.rows) || []).filter(r => r && r.kind === 'region').forEach(r => add(r.id, 'footsteps: ' + (r.sound || '')));
         ((mapSettings && mapSettings.regionSounds) || []).forEach(r => add(r && r.regionId, 'background sound: ' + ((r && r.name) || '')));
         ((mapSettings && mapSettings.areas) || []).forEach(a => add(a && a.region, 'area: ' + ((a && a.name) || '')));
+        ids(mapSettings && mapSettings.indoors && mapSettings.indoors.regions).forEach(id => add(id, 'indoors'));
+        ids(mapSettings && mapSettings.bridges && mapSettings.bridges.deck).forEach(id => add(id, 'bridge deck'));
+        ids(mapSettings && mapSettings.bridges && mapSettings.bridges.ends).forEach(id => add(id, 'bridge end'));
         return out;
     }
 };
@@ -110,6 +113,7 @@ Object.assign(DocsDoodads.Workspace, {
         const { live, staged } = this.regionTargets(mapId);
         if (live && Array.isArray(live.data)) live.data[index] = value;
         if (staged && Array.isArray(staged.data)) staged.data[index] = value;
+        if (DocsDoodads.Indoors) DocsDoodads.Indoors.invalidate();
         DocsDoodads.Persistence.dirtyMap = true;
     },
 

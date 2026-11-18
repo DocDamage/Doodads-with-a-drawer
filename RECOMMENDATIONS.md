@@ -176,7 +176,7 @@ Ideas gathered after PR #86, from a read of the plugin and of what users of othe
 | 7.1.5 | **Built; MZ playtest pending.** **Normal maps on flat maps.** Normal maps only work on 3D models. On doodads and characters they would let the lights there already shade the art by its shape. | L |
 | 7.1.6 | **Built; MZ playtest pending.** **Bringing in Tiled and LDtk maps.** There is no importer. Tiles, object layers as doodads, and collision shapes. | M |
 | 7.1.7 | **Types for `DocsDoodads.api`.** **Done.** `types/Docs-Doodads.d.ts`, written by `npm run types` from the JSDoc and checked by verify, is in the release zip. A `.d.ts` written by the build, so other plugins' authors get completion and checking. | S |
-| 7.1.8 | **A sample project.** Add Sample Items gives four pictures. A small town with lights, states, touchable doodads, traversal, weather and a 3D map would show what the plugin does. | M |
+| 7.1.8 | **Built; MZ playtest pending.** **A sample project.** Add Sample Items gives four pictures. A small town with lights, states, touchable doodads, traversal, weather and a 3D map would show what the plugin does. | M |
 
 ### 7.2 UI and UX
 
@@ -188,20 +188,20 @@ Watching a new user (item E under What's left) comes before all of these.
 | 7.2.2 | **Map notes.** **Done** (pins on flat maps only, not in the 3D view). Notes and to-dos pinned to tiles ("a chest here"), listed in a panel, never in the game. | S |
 | 7.2.3 | **A ruler and bookmarks.** **Done.** Measure a distance in tiles and pixels; keep places on a big map to jump back to. | S |
 | 7.2.4 | **Map pictures. Done.** Opened maps get a lazy, disposable 256 px tiles-and-doodads picture in tab hover cards, Go to map lists and World View; uncached maps keep named placeholders. Cross-map edits, saving and discard keep pictures consistent. Played in MZ flat and in 3D; see [QA record](docs/QA_2026-11-15.md). | S |
-| 7.2.5 | **Panels in their own window.** Docking stays inside MZ's 816 × 624 window. The Item Bag or Details in a second window leaves the map clear. | M |
+| 7.2.5 | **Built; MZ playtest pending.** **Panels in their own window.** Docking stays inside MZ's 816 × 624 window. The Item Bag or Details in a second window leaves the map clear. | M |
 | 7.2.6 | **One Settings page. Done.** More → Settings (Ctrl+,) searches grouped map, world, editor, keyboard and plugin settings, opens the live control, and exposes each row to Find a Tool. Plugin parameters are read-only with configured/default values. Validated in MZ; see [QA record](docs/QA_2026-11-15.md). | M |
 
 ### 7.3 Bigger features
 
 | # | Suggestion | Size |
 |---|---|---|
-| 7.3.1 | **Walking from map to map without a transfer.** Neighbouring maps and World View are there, but the player still transfers. Load the neighbours in the background and let the player walk over the edge with no fade, for open worlds. | L |
+| 7.3.1 | **Built; MZ playtest pending.** **Walking from map to map without a transfer.** Neighbouring maps and World View are there, but the player still transfers. Load the neighbours in the background and let the player walk over the edge with no fade, for open worlds. | L |
 | 7.3.2 | **Built; MZ playtest pending.** **A collision brush.** Collision is set per doodad (presets, Trace from Art, a box). A brush that paints walls of any shape on the map, for parallax-style maps. | M |
 | 7.3.3 | **Built; MZ playtest pending.** **Movement off the grid.** (The player only: events stay on the grid, and traversal switches to the grid while it runs.) The player and events moving by pixels against doodad and painted collision, as an option. | L |
-| 7.3.4 | **Baking for phones.** At deploy time, draw each map's still doodads and their shadows into a few big pictures. Drawing only what is on screen took a 3,000-doodad map from 12,000 draw calls to 150; baking is the next step for phones. Needs item B's test on real hardware, and an Android device, to measure. | L |
+| 7.3.4 | **Built; MZ playtest pending.** **Baking for phones.** At deploy time, draw each map's still doodads and their shadows into a few big pictures. Drawing only what is on screen took a 3,000-doodad map from 12,000 draw calls to 150; baking is the next step for phones. Needs item B's test on real hardware, and an Android device, to measure. | L |
 | 7.3.5 | **Built; MZ playtest pending.** **Generated maps.** Dressing rules, biomes, room stamps and prefabs are the parts of a dungeon or wilderness generator: in the editor (generate, then tidy by hand) or in the game from a seed. | L |
-| 7.3.6 | **A cutscene timeline.** Tracks for camera paths, doodad states, lights, weather, screen looks and character actions, played by one plugin command. Each is its own command today. | L |
-| 7.3.7 | **Light you can see in the air.** Rays through trees and windows, and shafts in fog, from the lightmap and the walls that already stop light. | M |
+| 7.3.6 | **Built; MZ playtest pending.** **A cutscene timeline.** Tracks for camera paths, doodad states, lights, weather, screen looks and character actions, played by one plugin command. Each is its own command today. | L |
+| 7.3.7 | **Built; MZ playtest pending.** **Light you can see in the air.** Rays through trees and windows, and shafts in fog, from the lightmap and the walls that already stop light. | M |
 | 7.3.8 | **Built; MZ playtest pending.** **A first-person 3D camera.** The 3D view has none. (VR, also asked for by users of other 3D plugins, would come after it.) | M |
 
 ### 7.4 Asked for by users
@@ -256,8 +256,8 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 | # | Suggestion | Size |
 |---|---|---|
 | 8.3.1 | **Built; MZ playtest pending.** **Normal maps made for you.** With 7.1.5: make a normal map from a picture's shape, so lights shade the art without the user drawing anything. | M |
-| 8.3.2 | **Bounced light and soft shadows.** A distance pass over the walls that already stop light, for soft shadow edges and light that comes round corners. Several passes in GLSL ES 1.00. Goes with 7.3.7. | L |
-| 8.3.3 | **More like this.** Lasso an area you like; the tool learns what sits next to what and fills a region in the same way. A form of 7.3.5 with no rules to write. | L |
+| 8.3.2 | **Built; MZ playtest pending.** **Bounced light and soft shadows.** A distance pass over the walls that already stop light, for soft shadow edges and light that comes round corners. Several passes in GLSL ES 1.00. Goes with 7.3.7. | L |
+| 8.3.3 | **Built; MZ playtest pending.** **More like this.** Lasso an area you like; the tool learns what sits next to what and fills a region in the same way. A form of 7.3.5 with no rules to write. | L |
 | 8.3.4 | **Built; MZ playtest pending.** **A ground brush.** Paint dirt, grass and stone with soft edges, off the grid. With the collision brush (7.3.2), this is parallax-style mapping inside the editor. | M |
 | 8.3.5 | **Built; MZ playtest pending.** **The playtest on a phone.** Serve the playtest on the local network, opened from a QR code, with edits showing as they are made. Also gives the Android numbers that item B and 7.3.4 wait for. | M |
 | 8.3.6 | **Built; MZ playtest pending.** **A photo mode for players.** Pause, move the camera, pick a Screen Look, save a picture. Capture is in the editor only. | S |
@@ -268,12 +268,12 @@ Watching a new user (item E under What's left) still comes before 8.1 and 8.2.
 
 | # | Suggestion | Size |
 |---|---|---|
-| 8.4.1 | **Decorate mode for players.** A small, safe part of the editor in the finished game: the player opens a bag of things the maker chose, places and moves them where the maker allows, and it is kept in the save. Housing, farms, bases, shop floors. Placement, snapping, collision, undo and saved states are there; it needs a player's UI and the limits. | L |
-| 8.4.2 | **A world that remembers.** Grass wears to a path where the player walks often, snow keeps trails, saplings grow into trees over calendar days, broken things stay broken. On the calendar, seasons and saved states. | L |
-| 8.4.3 | **Elements that spread.** Fire catches on dry grass and moves with the wind; rain puts it out and leaves puddles; water runs downhill on Hills. Lights, wind, weather and height are there apart; this makes them act on each other. | L |
+| 8.4.1 | **Built; MZ playtest pending.** **Decorate mode for players.** A small, safe part of the editor in the finished game: the player opens a bag of things the maker chose, places and moves them where the maker allows, and it is kept in the save. Housing, farms, bases, shop floors. Placement, snapping, collision, undo and saved states are there; it needs a player's UI and the limits. | L |
+| 8.4.2 | **Built; MZ playtest pending.** **A world that remembers.** Grass wears to a path where the player walks often, snow keeps trails, saplings grow into trees over calendar days, broken things stay broken. On the calendar, seasons and saved states. | L |
+| 8.4.3 | **Built; MZ playtest pending.** **Elements that spread.** Fire catches on dry grass and moves with the wind; rain puts it out and leaves puddles; water runs downhill on Hills. Lights, wind, weather and height are there apart; this makes them act on each other. | L |
 | 8.4.4 | **Built; MZ playtest pending.** **Maps that move to the music.** Lights pulse, plants sway and particles burst in time with the BGM, per doodad, with a strength. | S |
-| 8.4.5 | **Map eras.** One map in several versions (whole, burning, ruined; or now and ten years on), shown one over another in the editor and crossfaded in the game by a switch. | L |
-| 8.4.6 | **Rewind in a playtest.** Hold a key to take the game back up to 30 seconds, change the map, and play the same moment again. | L |
+| 8.4.5 | **Built; MZ playtest pending.** **Map eras.** One map in several versions (whole, burning, ruined; or now and ten years on), shown one over another in the editor and crossfaded in the game by a switch. | L |
+| 8.4.6 | **Built; MZ playtest pending.** **Rewind in a playtest.** Hold a key to take the game back up to 30 seconds, change the map, and play the same moment again. | L |
 | 8.4.7 | **Built; MZ playtest pending.** **A robot tester.** It walks every tile it can reach, touches every doodad and event and takes every transfer, then lists places with no way out, dead ends and errors. A step past Check Reach. | M |
 | 8.4.8 | **Built; MZ playtest pending.** **The 3D map as a file.** Write the ground and standing doodads as glTF, for Blender, trailers or a 3D print. | M |
 
@@ -286,8 +286,8 @@ A drawing, a scan or a real-world map, made into a map in the game. The result i
 | 8.5.1 | **Built; MZ playtest pending.** **Trace over a picture.** Load a picture as a see-through layer under the grid; scale, turn and slide it to fit; paint and place on top. Never in the game. Works for any picture, a pencil sketch included. | S |
 | 8.5.2 | **Built; MZ playtest pending.** **A picture into a map.** The tool reads the picture's colours and asks the user to agree a key ("this blue is water, this green is forest, this brown is road"), then makes tiles (autotile edges included), hills from shading or from a second grey height picture, and trees, rocks and houses from biomes and dressing rules. One undo step; tidy by hand after. Flat colours work well; photos of paper, line drawings and maps with words on them need cleaning first, or 8.5.1. | L |
 | 8.5.3 | **Built; MZ playtest pending.** **What kind of map.** Asked first, because it sets the scale, the key and the rules. **Overworld:** a tile is a long way; coast, mountains, forests, rivers, and a marker for each town, castle and dungeon. **Town or castle:** streets, walls, gates, building outlines with roofs and doors, yards and water. **Dungeon or cave:** a floor plan read as walls, floors, doors and stairs, from lines as well as colours. **Room:** walls, floor, doors and windows, then furniture from room stamps and prefabs. The user can add kinds of their own. | M |
-| 8.5.4 | **Maps inside maps.** A marker on the overworld makes or opens that town's map; a door in the town makes or opens that building's rooms; stairs join a dungeon's floors. Transfers both ways are made from the event templates. A tree of the project's maps (world, place, room) to move around in. A picture bigger than MZ's 256 × 256 tiles is cut into neighbouring maps for World View; walking between them with no fade is 7.3.1. | L |
-| 8.5.5 | **A real place.** Pick an area of the world: roads, rivers, coast, forests and building outlines from OpenStreetMap, and heights for Hills. Works at each scale in 8.5.3: a country as an overworld, a town as a town. Needs a download, so it is off unless asked for, and OpenStreetMap's credit must go in the game; the tool writes it. | L |
+| 8.5.4 | **Built; MZ playtest pending.** **Maps inside maps.** A marker on the overworld makes or opens that town's map; a door in the town makes or opens that building's rooms; stairs join a dungeon's floors. Transfers both ways are made from the event templates. A tree of the project's maps (world, place, room) to move around in. A picture bigger than MZ's 256 × 256 tiles is cut into neighbouring maps for World View; walking between them with no fade is 7.3.1. | L |
+| 8.5.5 | **Built; MZ playtest pending.** **A real place.** Pick an area of the world: roads, rivers, coast, forests and building outlines from OpenStreetMap, and heights for Hills. Works at each scale in 8.5.3: a country as an overworld, a town as a town. Needs a download, so it is off unless asked for, and OpenStreetMap's credit must go in the game; the tool writes it. | L |
 
 ---
 
@@ -316,17 +316,17 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 | # | Suggestion | Size |
 |---|---|---|
 | 9.2.1 | **Built; MZ playtest pending.** **Nearness triggers.** A doodad is touched by Action, a click or walking into it. Add "when the player comes within so many tiles", and "when they leave": doors that open, torches that light along a corridor. | S |
-| 9.2.2 | **Indoors by region.** Weather covers the whole map, though character shadows already stop at roof regions. Marked regions stop rain, snow and sun shadows, take their own darkness and quieten the rain, so a house can share a map with its street. | M |
-| 9.2.3 | **Bridges you walk over and under.** Regions mark a bridge's deck and its ends; the player and events keep a level, pass under or over, and do not bump into or talk to those on the other level. Flat maps first. Shares its hooks with 7.3.2 and 7.3.3. | M |
+| 9.2.2 | **Built; MZ playtest pending.** **Indoors by region.** Weather covers the whole map, though character shadows already stop at roof regions. Marked regions stop rain, snow and sun shadows, take their own darkness and quieten the rain, so a house can share a map with its street. | M |
+| 9.2.3 | **Built; MZ playtest pending.** **Bridges you walk over and under.** Regions mark a bridge's deck and its ends; the player and events keep a level, pass under or over, and do not bump into or talk to those on the other level. Flat maps first. Shares its hooks with 7.3.2 and 7.3.3. | M |
 | 9.2.4 | **Built; MZ playtest pending.** **Light and sight.** A script or event can ask how bright a tile is, and an event can see the player: in a cone, stopped by the walls that already stop light, and less far in the dark. For stealth and puzzles. | M |
-| 9.2.5 | **Doodads that ride and travel.** Motion is sway, bob, pulse, flicker and shimmer. Let a doodad ride on an event or the player (a lantern, a cart's load), or travel along a path (boats, clouds, platforms that carry the player). | M |
+| 9.2.5 | **Built; MZ playtest pending.** **Doodads that ride and travel.** Motion is sway, bob, pulse, flicker and shimmer. Let a doodad ride on an event or the player (a lantern, a cart's load), or travel along a path (boats, clouds, platforms that carry the player). | M |
 | 9.2.6 | **Built; MZ playtest pending.** **Weather that picks itself.** A climate: the chance of rain, storm, snow, fog and wind per season, rolled from the calendar so the same day has the same weather after a load, with a forecast events can read. Interiors opt out. Goes with Moods (8.1.2). | S |
 
 ### 9.3 Life and look
 
 | # | Suggestion | Size |
 |---|---|---|
-| 9.3.1 | **Ambient creatures.** Particles do not react. Birds that scatter when the player comes near and come back, butterflies by day, fish under water that dart away. Not events: no collision, nothing saved. | M |
+| 9.3.1 | **Built; MZ playtest pending.** **Ambient creatures.** Particles do not react. Birds that scatter when the player comes near and come back, butterflies by day, fish under water that dart away. Not events: no collision, nothing saved. | M |
 | 9.3.2 | **Built; MZ playtest pending.** **Ropes and cables.** A line between two points that sags and sways with the wind, plain or textured, with things hung along it: bunting, power lines, chains, strings of lanterns. | S |
 | 9.3.3 | **Built; MZ playtest pending.** **Heat haze.** Shockwave bends the whole screen once. A haze setting on a doodad (a campfire, a lava vent) or a map (a desert road, under water) bends what is behind it, all the time. | S |
 
@@ -334,7 +334,7 @@ Ideas gathered the same day as sections 7 and 8, from asking what is neither bui
 
 | # | Suggestion | Size |
 |---|---|---|
-| 9.4.1 | **Tileset flags in the editor.** Passability, ☆, ladder, bush, counter, damage floor and terrain tags still need a trip to MZ's database; the Regions tool shows terrain tags and cannot change them. Click them on the Tiles palette as in MZ, see the result at once, and save `Tilesets.json` with the same care as a map. | M |
+| 9.4.1 | **Built; MZ playtest pending.** **Tileset flags in the editor.** Passability, ☆, ladder, bush, counter, damage floor and terrain tags still need a trip to MZ's database; the Regions tool shows terrain tags and cannot change them. Click them on the Tiles palette as in MZ, see the result at once, and save `Tilesets.json` with the same care as a map. | M |
 | 9.4.2 | **Built; MZ playtest pending.** **Animated GIF and APNG in.** The Item Bag takes PNG, JPEG and WebP. A dropped GIF or APNG becomes a frame strip with its frame count and speed set, so the placed doodad animates at once. | S |
 | 9.4.3 | **Built; MZ playtest pending.** **A licence ledger for all art.** Credits are written for LPC only. Keep an author, a licence and a source per file or folder (packs carry theirs), find art with none, and write one credits file for the art the game uses. | S |
 

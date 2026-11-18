@@ -178,7 +178,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (bolt.wait <= 0) { bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random()); return; }
         if (--bolt.wait > 0) return;
         const strike = L.strike(s, Math.random());
-        if (screen.startFlash) DocsDoodads.Comfort.beginFlash(screen, [255, 255, 255, strike.flash], 12);
+        if (screen.startFlash) DocsDoodads.Comfort.beginFlash(screen, [255, 255, 255, DocsDoodads.Indoors.flash(strike.flash, DocsDoodads.Indoors.blend)], 12);
         bolt.thunder.push({ in: Math.max(1, strike.thunderIn), volume: strike.volume, pan: strike.pan });
         bolt.strikes = (bolt.strikes || 0) + 1;
         bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random());

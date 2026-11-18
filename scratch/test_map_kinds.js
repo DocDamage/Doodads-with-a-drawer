@@ -107,4 +107,38 @@ const pack = P.parse(JSON.stringify({ format: P.format, version: P.version, name
 const ready = P.prepare(pack, { prefabs: new Set(), rooms: new Set(), biomes: new Set(), mapKinds: new Set(['kind_caves']) }, prefix => prefix + 'new');
 assert.deepStrictEqual(ready.mapKinds.map(k => [k.id, k.name, k.rules.roughen]), [['kind_new', 'Caves', 0.5]], 'a user kind survives a pack round trip (renamed when its id is taken)');
 assert.deepStrictEqual(P.parse(JSON.stringify({ format: P.format, version: P.version, contents: {} })).contents.mapKinds, [], 'older packs have none');
-console.log('Kinds of map: town buildings, doors and gates, dungeon walls/floor/doors/stairs and reach, caves, overworld coast/mountains/places, rooms, copies and packs passed.');
+// ---- Editing a user's kind: its classes ----
+const added = M.addClass(mine, { name: 'Lava Pool', passable: false, height: 1 });
+const lava = added.classes.find(c => c.name === 'Lava Pool');
+assert.ok(lava && lava.id === 'lava_pool' && lava.passable === false && lava.height === 1, 'a class is added with an id from its name');
+assert.strictEqual(M.addClass(added, { name: 'Lava Pool' }).classes.filter(c => /^lava_pool/.test(c.id)).length, 2, 'ids never clash');
+const changed = M.updateClass(added, 'lava_pool', { name: 'Lava', region: 9, id: 'sneaky', tile: 2900 });
+assert.deepStrictEqual(['name', 'region', 'id', 'tile'].map(k => changed.classes.find(c => c.id === 'lava_pool')[k]), ['Lava', 9, 'lava_pool', 2900], 'a class changes but keeps its id');
+assert.ok(!M.removeClass(changed, 'lava_pool').classes.some(c => c.id === 'lava_pool'), 'and can be removed');
+assert.ok(M.kind('dungeon').classes.every(c => c.id !== 'lava_pool'), 'the built-in kind it came from is untouched');
+assert.ok(M.isBuiltIn('room') && !M.isBuiltIn('kind_caves'));
+// The card's Edit Kind: a built-in kind is copied first; each change is one Undo step.
+const W = D.Workspace;
+W.showToast = () => {};
+$dataDocsDoodads.mapKinds = [];
+const answers = [];
+D.Ui.prompt = async () => 'My Rooms';
+D.Ui.choose = async () => answers.shift();
+D.Ui.form = async () => answers.shift();
+D.Ui.confirm = async () => answers.shift();
+(async () => {
+    answers.push('add', { name: 'Rug', passable: true, height: '0', region: '4', biome: '', tile: '' }, 'done');
+    const id = await W.editMapKind('room');
+    assert.ok(id && id !== 'room', 'a built-in kind is copied first');
+    const kindNow = W.mapKinds().find(k => k.id === id);
+    assert.ok(kindNow.classes.some(c => c.name === 'Rug' && c.region === 4), 'the new class is there');
+    assert.strictEqual(kindNow.base, 'room', 'and finishes as a room');
+    D.Undo.undo();
+    assert.ok(!W.mapKinds().find(k => k.id === id).classes.some(c => c.name === 'Rug'), 'Undo takes the class back');
+    D.Undo.redo();
+    answers.push('class:rug', { name: 'Rug', passable: true, height: '0', region: '4', biome: '', tile: '', remove: true }, 'delete', true);
+    assert.strictEqual(await W.editMapKind(id), null, 'deleted');
+    assert.ok(!W.mapKinds().some(k => k.id === id));
+    assert.ok(!W.setMapKind('room', null), 'built-in kinds cannot be deleted');
+    console.log('Kinds of map: town buildings, doors and gates, dungeon walls/floor/doors/stairs and reach, caves, overworld coast/mountains/places, rooms, copies, class editing and packs passed.');
+})().catch(e => { console.error(e); process.exit(1); });

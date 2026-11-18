@@ -28,6 +28,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `<docs icon: 87>` | An IconSet icon over the event, beside its name if it has one; Details: **Icon**. | 15 |
 | `<docs label range: 4>` | Its name and icon show only within 4 tiles of the player (without it, always). | 15 |
 | `<docs pin: 87, Inn>` | A pin with IconSet icon 87 on the minimap and world map once found; follows the event and its page (display only, no travel). | 19 |
+| `<docs bridge: over>` | An event placed on a bridge deck (Map settings → Bridges) starts on top. | 16 |
 | `<visual actor: 4>` | Wears actor 4's look (layers and all). | 13 |
 | `<visual: ...>` and the other visual tags below | Visual equipment drawn on the event. | 13 |
 
@@ -108,6 +109,14 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | Show / Hide Minimap | show | The corner minimap off (cutscenes, dark caves) or back on; saved. |
 | Show / Hide Event Labels | show | Names and icons over events (`<docs label>`, `<docs icon>`) off or back on; saved. |
 | Explored Map | action, radius, region, variable, mapId | With fog of war: reveal a whole map, around the player or a region; how much is seen into a variable; or forget a map; saved. |
+| Play Timeline | name, wait, skippable | Plays a timeline from Map > Timelines; wait holds the event until it ends; hold OK a second to skip. |
+| Stop Timeline | | Stops the timeline that is playing; the camera follows the player again. |
+| Start Travel / Stop Travel | name | A travelling doodad on this map starts or holds where it is; saved. |
+| Open Decorate Mode | | The player places and moves decor pieces in this map's zone; saved. |
+| Give Decor Item | item, count | Gives (or, negative, takes) decor pieces by their id. |
+| Count Decor | item, what, variableId | How many of a piece are placed, or still to place, into a variable. |
+| Start Fire At | x, y | Lights a fire on marked dry ground (Map settings → Fire and Rain). |
+| Put Out Fires | | Puts out every fire on this map. |
 
 ## Script calls
 
@@ -116,6 +125,7 @@ Every notetag, image name tag, plugin command and script call on one page. The [
 | `DocsDoodads.Terrain.heightOf($gamePlayer) >= 2` | Conditional Branch on the ground height under the player (or `this.character(0)`). |
 | `DocsDoodads.WorldState.is('Front Door', 'Open')` | Conditional Branch on a named doodad's state. `state(name)` gives its state's name, `light(name)` whether its light is on. |
 | `DocsDoodads.api.find('Street Lamp')` | Doodads by Name (or `{ art, near: { x, y, radius } }`); also `place`, `move`, `set`, `remove`, `setState`, `setLight`, `setTime`, `setSeason`, `ambient`, and `on('touch', fn)`. See the Guide, section 15. |
+| `DocsDoodads.api.playTimeline('Opening')` | Plays a timeline; also `stopTimeline()`, `timelinePlaying(name)`, `travel(name, on)`, `decorate()`, `giveDecor(id, n)`. |
 | `DocsDoodads.WorldState.touched().name` | In a doodad's touch common event: which doodad was touched (`name`, `state`, `mapId`, and its tile `x`, `y`). |
 
 ## Player keys

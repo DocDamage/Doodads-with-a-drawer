@@ -24,8 +24,10 @@ assert.strictEqual(D.Compat.isTest(), true, 'with MZ in a playtest');
 console.log('✓ isTest() agrees with the write guard outside MZ.');
 
 // 2. One wrapper each, the steps in their listed order.
-assert.deepStrictEqual(D.spritesetSteps, ['updateDocsDoodadsFrame', 'updateDocsVfx', 'updateDocsWeather2d', 'updateDocsPerspective',
-    'updateDocsSkyVideoOnMap', 'updateDocsMinimap', 'updateDocsFlyShadow', 'updateDocsTouchPrompt', 'updateDocsEventLabels', 'updateDocsAreas', 'updateDocsNear', 'updateDocsAutoQuality']);
+assert.deepStrictEqual(D.spritesetSteps, ['updateDocsMovers', 'updateDocsEras', 'updateDocsDoodadsFrame', 'updateDocsVfx', 'updateDocsWeather2d', 'updateDocsPerspective',
+    'updateDocsSkyVideoOnMap', 'updateDocsMinimap', 'updateDocsFlyShadow', 'updateDocsTouchPrompt', 'updateDocsEventLabels', 'updateDocsAreas', 'updateDocsNear',
+    'updateDocsCreatures', 'updateDocsIndoors', 'updateDocsBake', 'updateDocsRemember', 'updateDocsSeamless', 'updateDocsTimeline', 'updateDocsElements',
+    'updateDocsAutoQuality', 'updateDocsDecorCursor']);
 const ss = new Spriteset_Map();
 SceneManager._scene = { _spriteset: ss };
 const ran = [];

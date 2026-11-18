@@ -25,7 +25,8 @@
     "fonts": "node scripts/fonts.js",
     "deploy": "node scripts/deploy.js",
     "package": "node scripts/package.js",
-    "lint": "eslint Docs-Doodads.js scripts scratch eslint.config.js"
+    "lint": "eslint Docs-Doodads.js scripts scratch eslint.config.js",
+    "sample": "node scripts/sample.js"
   },
   "devDependencies": {
     "c8": "12.0.0",

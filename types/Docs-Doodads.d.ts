@@ -456,6 +456,36 @@ interface DocsDoodadsApi {
     setSeason(season: number | string): boolean;
 
     /**
+     * Opens Decorate mode on this map (pieces from Map → Decorate). Returns false when the map has no zone or catalog.
+     */
+    decorate(): boolean;
+
+    /**
+     * Gives the player decor pieces by catalog id (a negative count takes them). Returns how many they hold.
+     */
+    giveDecor(item: string, count?: number): number;
+
+    /**
+     * Plays a cutscene timeline by its name or id (Map → Timelines). Returns false when there is none.
+     */
+    playTimeline(name: string, opts?: { skippable?: boolean }): boolean;
+
+    /**
+     * Stops the timeline that is playing; the camera follows the player again. Returns whether one was playing.
+     */
+    stopTimeline(): boolean;
+
+    /**
+     * Whether a timeline is playing (that one, when a name is given).
+     */
+    timelinePlaying(name?: string): boolean;
+
+    /**
+     * Starts (true) or stops (false) doodads that travel, by a query, on this map. Returns how many.
+     */
+    travel(query: DocsDoodadQuery, on?: boolean): number;
+
+    /**
      * Ambient light: darkness 0-1 and a colour '#rrggbb' over frames; ambient(null) goes back to the map's own.
      */
     ambient(darkness: number | null, color?: string, frames?: number): object | null;
