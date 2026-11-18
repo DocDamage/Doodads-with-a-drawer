@@ -95,9 +95,10 @@ Object.assign(DocsDoodads.Workspace, {
             const first = recent.map(l => byLabel.get(l)).filter(Boolean).map(c => Object.assign({}, c, { recent: true }));
             return first.concat(commands.filter(c => !recent.includes(c.label))).slice(0, limit);
         }
+        // A guide heading ranks under a tool that fits as well: "more like" runs More Like This before its Help.
         const ranked = commands.map(c => ({ c, s: this.paletteScore(q, c.label) }))
             .filter(r => r.s >= 0)
-            .map(r => ({ c: r.c, s: r.s + boost(r.c.label) }))
+            .map(r => ({ c: r.c, s: r.s + boost(r.c.label) - (r.c.group === 'Help' && !/^\s*help/i.test(q) ? 12 : 0) }))
             .sort((a, b) => b.s - a.s)
             .map(r => (recent.includes(r.c.label) ? Object.assign({}, r.c, { recent: true }) : r.c));
         return this.paletteValueCommands(q).concat(ranked).slice(0, limit);

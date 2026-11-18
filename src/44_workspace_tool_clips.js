@@ -22,8 +22,8 @@ DocsDoodads.ToolClips = {
     },
 
     // The clip element for a tooltip: a strip of frames stepped through with CSS.
-    element(url) {
-        const art = DocsDoodads.ToolClipArt, s = this.scale;
+    element(url, scale) {
+        const art = DocsDoodads.ToolClipArt, s = scale || this.scale;
         const clip = document.createElement('div');
         clip.className = 'dd-tip-clip';
         const width = art.frameW * s, height = art.frameH * s, total = width * art.frames;
@@ -31,6 +31,14 @@ DocsDoodads.ToolClips = {
             `animation-duration:${this.seconds}s;animation-timing-function:steps(${art.frames});--dd-clip-end:-${total}px;`;
         clip.setAttribute('aria-hidden', 'true');
         return clip;
+    },
+
+    // The clip fills the tooltip's width in whole steps (sharp pixels), never smaller than the usual scale.
+    scaleFor(tip) {
+        const art = DocsDoodads.ToolClipArt;
+        if (!tip || !art || !(art.frameW > 0) || typeof getComputedStyle === 'undefined') return this.scale;
+        const css = getComputedStyle(tip), inner = tip.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0);
+        return Math.max(this.scale, Math.floor(inner / art.frameW) || 0);
     },
 
     // Called with each tooltip as it opens; adds the clip after the delay if the tooltip is still up.
@@ -41,7 +49,10 @@ DocsDoodads.ToolClips = {
         this._timer = setTimeout(() => {
             const shown = U._tooltip;
             if (!shown || shown.tip !== tip || shown.el !== el || (U.lessMotion && U.lessMotion())) return;
-            tip.appendChild(this.element(url));
+            tip.appendChild(this.element(url, this.scaleFor(tip)));
+            // Taller now: keep it inside the window.
+            const roomH = (typeof window !== 'undefined' && window.innerHeight) || 624, top = parseFloat(tip.style.top) || 0;
+            if (top + tip.offsetHeight > roomH - 6) tip.style.top = Math.round(Math.max(6, roomH - tip.offsetHeight - 6)) + 'px';
         }, this.delay);
         if (this._timer && typeof this._timer.unref === 'function') this._timer.unref();
         return this._timer;

@@ -116,10 +116,11 @@ DocsDoodads.Ground = {
         '    vec3 m = texture2D(uMask, vMap / uMapSize).rgb;',
         '    float total = m.r + m.g + m.b;',
         '    if (total < 0.004) discard;',
-        '    vec3 c = texture2D(uTex0, fract(vMap / uTexSize0)).rgb * m.r + texture2D(uTex1, fract(vMap / uTexSize1)).rgb * m.g +',
-        '        texture2D(uTex2, fract(vMap / uTexSize2)).rgb * m.b;',
+        // Textures arrive premultiplied, so a see-through part adds no colour and no cover: the tiles show there.
+        '    vec4 c = texture2D(uTex0, fract(vMap / uTexSize0)) * m.r + texture2D(uTex1, fract(vMap / uTexSize1)) * m.g +',
+        '        texture2D(uTex2, fract(vMap / uTexSize2)) * m.b;',
         '    float a = min(1.0, total) * uAlpha;',
-        '    gl_FragColor = vec4(c / total * a, a);',
+        '    gl_FragColor = c / total * a;',
         '}'
     ].join('\n')
 };

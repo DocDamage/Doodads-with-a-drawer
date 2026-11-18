@@ -41,6 +41,11 @@ assert.strictEqual(I.ease(0.2, false, 1), 0);
 const set = { indoors: { regions: '7', darkness: 0.8, quiet: 0.2 } };
 assert.strictEqual(I.ambient({ darkness: 0, color: '#000000' }, set, 1).darkness, 0.8);
 assert.strictEqual(I.ambient({ darkness: 0.2, color: '#000000' }, set, 0.5).darkness, 0.5);
+// By day the clock's colour is white: inside, it moves to the plain ambient colour so the darkness shows.
+const day = I.ambient({ darkness: 0, color: '#ffffff' }, set, 1);
+assert.strictEqual(day.darkness, 0.8);
+assert.strictEqual(day.color, DocsDoodads.Lighting.ambientDefaults.color, 'a white day colour is not kept inside');
+assert.strictEqual(I.ambient({ darkness: 0.9, color: '#2a2050' }, set, 1).color, '#2a2050', 'darker outside keeps its own colour');
 const same = { darkness: 0.3 };
 assert.strictEqual(I.ambient(same, { indoors: { regions: '7' } }, 1), same, 'no indoor darkness keeps the map\'s');
 assert.ok(Math.abs(I.volume(set, 1) - 0.2) < 1e-9);

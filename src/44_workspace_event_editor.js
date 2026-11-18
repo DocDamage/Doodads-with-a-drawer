@@ -249,7 +249,10 @@
             const page = this.eventEditorPageData(), row = page && C.rowAt(page.list, index);
             if (!row || row.code !== 201) return false;
             const identity = this.eventEditorIdentity();
-            this.showMapPicker('Transfer Player destination map', mapId => { if (this.eventEditorIdentityMatches(identity)) this.beginEventTransferPick(row.index, mapId); });
+            // The picker starts on the current destination (a direct one; a destination from variables has none).
+            const params = (page.list[row.index] && page.list[row.index].parameters) || [];
+            const current = Number(params[0]) === 0 ? Number(params[1]) || 0 : 0;
+            this.showMapPicker('Transfer Player destination map', mapId => { if (this.eventEditorIdentityMatches(identity)) this.beginEventTransferPick(row.index, mapId); }, current);
             return true;
         },
         renderEventCommandEditor() {

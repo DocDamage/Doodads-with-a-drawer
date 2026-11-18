@@ -120,6 +120,27 @@ Object.assign(DocsDoodads.Workspace, {
             o.w = Math.min(Number(o.w) || map.width, map.width);
             o.h = Math.min(Number(o.h) || map.height, map.height);
         }
+        // A floor or wall tile whose sheet this map's tileset doesn't have draws nothing, so a default
+        // (never one the user typed) moves to a sheet it has: walls A3, A4, then A2; floors A2, A5, then A1.
+        const ts = map && typeof $dataTilesets !== 'undefined' && $dataTilesets ? $dataTilesets[map.tilesetId] : null;
+        const names = ts && Array.isArray(ts.tilesetNames) ? ts.tilesetNames : null;
+        if (names) {
+            const T = DocsDoodads.Tiles, sheets = [[T.A5, 4], [T.A1, 0], [T.A2, 1], [T.A3, 2], [T.A4, 3]];
+            const has = id => { const sheet = sheets.filter(([start]) => id >= start).pop(); return !!names[sheet ? sheet[1] : 5 + Math.floor(id / 256)]; };
+            // Each autotile kind of a sheet the tileset has, blocked (wall) or walkable (floor) by its own flags.
+            const flags = Array.isArray(ts.flags) ? ts.flags : [];
+            const kinds = (start, end) => { const out = []; for (let id = start; id < end; id += 48) if (has(id)) out.push(id); return out; };
+            const blocked = id => ((flags[id] || 0) & 0x0f) === 0x0f;
+            const pick = (ranges, wanted) => {
+                const all = [].concat(...ranges.map(([a, b]) => kinds(a, b)));
+                return all.find(id => blocked(id) === wanted) || null;
+            };
+            if (!this._generateTilesTyped && !has(o.floorTile)) o.floorTile = pick([[T.A2, T.A3], [T.A1, T.A2]], false) || o.floorTile;
+            if (!this._generateTilesTyped && (!has(o.wallTile) || o.wallTile === o.floorTile)) {
+                o.wallTile = pick([[T.A3, T.A4], [T.A4, T.MAX], [T.A2, T.A3]], true)
+                    || [].concat(kinds(T.A3, T.A4), kinds(T.A4, T.MAX), kinds(T.A2, T.A3)).find(id => id !== o.floorTile) || o.wallTile;
+            }
+        }
         return o;
     },
 
@@ -141,6 +162,7 @@ Object.assign(DocsDoodads.Workspace, {
         const on = (id, fn) => { const element = document.getElementById(id); if (element) element.onclick = fn; };
         on('dd-gen-close', () => this.closeGenerateCard()); on('dd-gen-preview', () => this.previewGeneratedMap(false));
         on('dd-gen-reroll', () => this.previewGeneratedMap(true)); on('dd-gen-apply', () => this.applyGeneratedMap());
+        for (const id of ['dd-gen-floor', 'dd-gen-wall']) { const field = document.getElementById(id); if (field) field.addEventListener('change', () => { this._generateTilesTyped = true; }); }
         return card;
     }
 });

@@ -69,7 +69,8 @@
             ? { x: ($gamePlayer._realX + 0.5) * tw, y: ($gamePlayer._realY + 1) * th - th / 2 } : null;
         // Lightning startles everything on the map.
         const strikes = this._docsBolt ? this._docsBolt.strikes || 0 : 0;
-        const startle = strikes !== this._docsCreatureStrikes;
+        // (Not on the first update: no strike has been seen yet, so nothing is startled as the map opens.)
+        const startle = this._docsCreatureStrikes !== undefined && strikes !== this._docsCreatureStrikes;
         this._docsCreatureStrikes = strikes;
         const boat = $gamePlayer && (($gamePlayer.isInBoat && $gamePlayer.isInBoat()) || ($gamePlayer.isInShip && $gamePlayer.isInShip()));
         const swimming = DocsDoodads.Traversal && DocsDoodads.Traversal.isSwimming ? DocsDoodads.Traversal.isSwimming($gamePlayer) : false;

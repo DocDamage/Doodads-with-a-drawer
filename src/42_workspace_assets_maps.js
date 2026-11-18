@@ -271,7 +271,7 @@
         return options.join('');
     },
 
-    showMapPicker(title, onPick) {
+    showMapPicker(title, onPick, selected) {
         const existing = document.getElementById('dd-map-picker');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
         const modal = document.createElement('div');
@@ -280,7 +280,7 @@
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; padding: 18px; z-index: 10030;';
         modal.innerHTML = `
             <div style="font-weight: bold; color: var(--dd-accent); font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
-            <select id="dd-map-picker-select" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
+            <select id="dd-map-picker-select" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; margin-bottom: 12px;">${this.mapOptions(Number(selected) || 0, false)}</select>
             <div style="display: flex; gap: 8px; justify-content: flex-end;">
                 <button class="dd-btn" id="dd-map-picker-cancel">Cancel</button>
                 <button class="dd-btn dd-btn-primary" id="dd-map-picker-ok">OK</button>

@@ -118,8 +118,21 @@ DocsDoodads.Indoors = {
     ambient(ambient, mapSettings, blend) {
         const s = this.settingsFor(mapSettings);
         if (!s || s.darkness === null || !(blend > 0) || !ambient) return ambient;
-        const k = Math.min(1, blend);
-        return Object.assign({}, ambient, { darkness: (Number(ambient.darkness) || 0) * (1 - k) + s.darkness * k });
+        const k = Math.min(1, blend), outside = Number(ambient.darkness) || 0;
+        const darkness = outside * (1 - k) + s.darkness * k;
+        // By day the clock's colour is white, which darkens nothing: inside it moves toward the plain ambient
+        // colour as far as the indoor darkness is above the outside's.
+        const shade = darkness > outside ? Math.min(1, (darkness - outside) / Math.max(1e-6, darkness)) : 0;
+        const color = shade > 0 ? this.mixColor(ambient.color, DocsDoodads.Lighting.ambientDefaults.color, shade) : ambient.color;
+        return Object.assign({}, ambient, { darkness, color });
+    },
+
+    // Two '#rrggbb' colours mixed (t 0 is the first).
+    mixColor(a, b, t) {
+        const parse = c => { const m = /^#?([0-9a-f]{6})$/i.exec(String(c || '').trim()); return m ? parseInt(m[1], 16) : 0xffffff; };
+        const x = parse(a), y = parse(b), k = Math.max(0, Math.min(1, Number(t) || 0));
+        const ch = shift => Math.round(((x >> shift) & 255) * (1 - k) + ((y >> shift) & 255) * k);
+        return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     },
 
     // How loud the weather is heard: 1 outside, `quiet` inside.

@@ -39,7 +39,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!changed.length) { this.showToast('Placed Doodad on Map!'); return; }
         const mapId = this.currentMapId(), list = window.$dataDocsDoodads[mapId];
         const settings = placed.map(d => Object.fromEntries(changed.map(key => [key, JSON.stringify(d[key])])));
-        const labels = { light: placed[0].light && placed[0].light.enabled ? (placed[0].light.when === 'dark' ? 'lit after dark' : 'light') : 'light settings', motion: 'gentle sway', seeThrough: 'see-through', collision: `${placed[0].collision && placed[0].collision.preset} collision`, particles: 'embers', depth: 'below characters' };
+        const labels = { light: placed[0].light && placed[0].light.enabled ? (placed[0].light.when === 'dark' ? 'lit after dark' : 'light') : 'light settings', motion: 'gentle sway', seeThrough: 'see-through', collision: `${String((this.collisionNames || {})[placed[0].collision && placed[0].collision.preset] || (placed[0].collision && placed[0].collision.preset) || '').toLowerCase()} collision`, particles: 'embers', depth: 'below characters' };
         this.showToast(`Placed ${kind}: ${changed.map(key => labels[key]).join(', ')}.`, 'success', { action: { label: 'Undo settings', run: () => {
             if (this.currentMapId() !== mapId || window.$dataDocsDoodads[mapId] !== list) return;
             const targets = placed.filter((d, i) => list.includes(d) && !d.locked && changed.every(key => JSON.stringify(d[key]) === settings[i][key]));

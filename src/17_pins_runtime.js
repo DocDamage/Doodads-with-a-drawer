@@ -113,9 +113,16 @@
                 this._docsTravelIndex = here >= 0 ? here : 0;
             }
             this._docsConfirm = false;
-            const rect = new Rectangle(0, 0, Graphics.boxWidth, this.calcWindowHeight ? this.calcWindowHeight(1, false) : 72);
+            // MZ's own help area (at the bottom, or under the touch Cancel button), so the button never covers it.
+            const y = this.helpAreaTop ? this.helpAreaTop() : 0;
+            const rect = new Rectangle(0, y, Graphics.boxWidth, this.calcWindowHeight ? this.calcWindowHeight(1, false) : 72);
             this._docsPinHelp = new Window_Help(rect);
             this.addWindow(this._docsPinHelp);
+            // The map picture fits in the larger band the help line leaves (above it or below it).
+            const offset = (Graphics.height - Graphics.boxHeight) / 2, helpTop = y + offset, helpBottom = helpTop + rect.height;
+            const buttons = this.buttonAreaBottom ? this.buttonAreaBottom() + offset : 0;
+            this._docsArea = helpTop - buttons >= Graphics.height - helpBottom ? { top: buttons, bottom: helpTop } : { top: helpBottom, bottom: Graphics.height };
+            this.drawWorldMap();
             this.drawDocsPins();
         };
 
