@@ -60,11 +60,36 @@ DocsDoodads.EditWindow = {
         const screen = env && env.screen;
         if (screen && !this.fillsScreen(this.box(win), screen)) return false;
         try {
+            // Un-maximizing goes back to the place and size the window had (NW.js keeps them), at once, so it
+            // also works on a reload. resizeTo is only for a window without restore: NW.js on Windows sizes the
+            // page inside the frame with it, and the window came back a frame too big (848 x 702 for 832 x 663).
             if (typeof win.restore === 'function') win.restore();
-            if (typeof win.resizeTo === 'function') win.resizeTo(was.width, was.height);
+            else {
+                if (typeof win.resizeTo === 'function') win.resizeTo(was.width, was.height);
+                if (typeof win.moveTo === 'function') win.moveTo(was.x, was.y);
+            }
+        } catch (e) { return false; }
+        this.later(() => this.correct(win, was));
+        return true;
+    },
+
+    // A moment later, when the new size shows: still off by about a frame, take the difference off (and move it
+    // back). Left alone when it is right, or off by more than a frame (the user has resized it since).
+    correct(win, was) {
+        if (!win || !was || typeof win.resizeTo !== 'function') return false;
+        const now = this.box(win);
+        const dw = now.width - was.width, dh = now.height - was.height;
+        if ((!dw && !dh) || Math.abs(dw) > 64 || Math.abs(dh) > 96) return false;
+        try {
+            win.resizeTo(was.width - dw, was.height - dh);
             if (typeof win.moveTo === 'function') win.moveTo(was.x, was.y);
         } catch (e) { return false; }
         return true;
+    },
+
+    // NW.js reports a new window size a moment after it is asked for.
+    later(fn) {
+        if (typeof setTimeout === 'function') setTimeout(fn, 300);
     },
 
     // ---- Thin hooks into NW.js, the page and MZ ----

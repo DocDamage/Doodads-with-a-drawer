@@ -1202,7 +1202,7 @@ The editor is in English. **View → Look → Editor language** lists any transl
 
 ### Panels in their own window
 
-**View → Item Bag in a Window** or **Details in a Window** moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then click the map (drags can't cross windows). Close the window or use **Dock … Back** to put it back; its place is kept for next time. Closing the editor docks everything back.
+**View → Item Bag in a Window** or **Details in a Window** moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then choose Stamp and click the map (drags can't cross windows). Close the window or use **Dock … Back** to put it back; its place is kept for next time. Closing the editor docks everything back.
 
 ## 22. Project Safety, Conflict Detection & Crash Recovery
 

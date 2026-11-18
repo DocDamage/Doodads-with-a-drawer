@@ -8,7 +8,7 @@
 // windows. Keys pressed there reach the shortcut table (not while typing in a field), and the game does not
 // pause while that window has focus. Closing the window, Dock Back, closing the editor or ending the playtest
 // put the panel back where it was; each window's place is kept per computer and layout.
-// Drags from the second window onto the map can't cross windows: pick an item there, then click the map.
+// Drags from the second window onto the map can't cross windows: pick an item there, then Stamp on the map.
 (function() {
     const D = DocsDoodads, W = D.Workspace;
     const ids = { drawer: 'dd-drawer-panel', inspector: 'dd-inspector-panel' };
@@ -63,13 +63,30 @@
             const saved = this.popoutPlace(which);
             return new Promise(resolve => {
                 nw.Window.open('about:blank', { width: saved.width || 360, height: saved.height || 600, x: saved.x, y: saved.y, title: titles[which], focus: true }, win => {
+                    // NW.js 0.48 hands over a blank window still loading, with no body, and never sends 'loaded'
+                    // for it ('document-end' comes instead). Move the panel once there is a body: on either
+                    // event, or by looking again every 50 ms for up to 5 s. No body by then: close the window.
+                    let done = false, tries = 0;
+                    const ready = () => { const w = win.window, doc = w && w.document; return doc && doc.body ? doc : null; };
                     const attach = () => {
-                        const w = win.window, doc = w && w.document;
-                        if (!doc || !doc.body) { resolve(false); return; }
+                        if (done) return;
+                        const doc = ready();
+                        if (!doc) return;
+                        done = true;
                         resolve(this.adoptPanel(which, panel, win, doc));
                     };
-                    if (win.window && win.window.document && win.window.document.readyState === 'complete') attach();
-                    else if (win.on) win.on('loaded', attach); else attach();
+                    const look = () => {
+                        if (done) return;
+                        attach();
+                        if (done) return;
+                        if (++tries <= 100) { setTimeout(look, 50); return; }
+                        done = true;
+                        try { if (win.close) win.close(true); } catch (e) { /* already closed */ }
+                        this.showToast(titles[which] + " couldn't open in its own window.", 'error');
+                        resolve(false);
+                    };
+                    if (win.on) { win.on('loaded', attach); win.on('document-end', attach); }
+                    look();
                 });
             });
         },
@@ -86,7 +103,7 @@
             const parent = panel.parentNode, next = panel.nextSibling;
             const style = panel.style ? panel.style.cssText : '';
             const moved = doc.adoptNode ? doc.adoptNode(panel) : panel;
-            if (moved.style) moved.style.cssText = style + ';position:static;left:auto;top:auto;right:auto;bottom:auto;width:100%;height:100%;max-height:none;display:block;';
+            if (moved.style) moved.style.cssText = style + ';position:static;left:auto;top:auto;right:auto;bottom:auto;width:100%;height:100%;max-height:none;display:block;box-sizing:border-box;';
             doc.body.appendChild(moved);
             const forward = e => {
                 if (D.isEditableTarget && D.isEditableTarget(e.target)) return;

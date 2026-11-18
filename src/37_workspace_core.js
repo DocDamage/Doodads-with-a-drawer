@@ -167,6 +167,7 @@ DocsDoodads.Workspace = {
         this.updateCollisionLegend();
         DocsDoodads.Ui.installTooltips();
         DocsDoodads.Help.install();
+        this.startOnboarding();
         if (DocsDoodads.Ui.prefs().perfOverlay === true) this.startPerf();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
@@ -624,7 +625,12 @@ DocsDoodads.Workspace = {
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
-        if (!prefs.welcomed && !this.questData()) this.startQuest();
+    },
+
+    // The first-map quest for someone new, else a paused quest and What's New. Called by open() once the editor
+    // is mounted: before that the quest can't draw its card or start the timer that ticks its steps off.
+    startOnboarding() {
+        if (!DocsDoodads.Ui.prefs().welcomed && !this.questData()) this.startQuest();
         else { this.resumeQuest(); this.maybeShowWhatsNew(); }
     },
 
@@ -636,7 +642,8 @@ DocsDoodads.Workspace = {
         if (!toolbar) return;
         this.fitToolbar(toolbar);
         const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
-        for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
+        for (const [id, which] of [['dd-drawer-panel', 'drawer'], ['dd-inspector-panel', 'inspector']]) {
+            if (this.isPoppedOut && this.isPoppedOut(which)) continue;
             const panel = document.getElementById(id);
             if (panel) panel.style.top = top + 'px';
         }

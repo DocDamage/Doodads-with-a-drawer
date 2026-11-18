@@ -75,6 +75,35 @@ const env = extra => Object.assign({ enabled: true, inner: { w: 816, h: 624 }, g
     assert.strictEqual(E.restore(win, env()), false, 'restoring twice does nothing');
 }
 
+// 1b. Real NW.js on Windows: resizeTo sizes the page inside the frame (16 x 39 here). Restoring used to call it
+// after restore() and the window came back a frame too big (848 x 702 for 832 x 663). restore() alone is exact.
+{
+    E.saved = null;
+    const frame = { w: 16, h: 39 };
+    const nwLike = box => { const w = standIn(box); w.resizeTo = function(a, b) { this.calls.push('resizeTo'); this.width = a + frame.w; this.height = b + frame.h; }; return w; };
+    const realLater = E.later; const queued = []; E.later = fn => queued.push(fn);
+    const win = nwLike({ x: 544, y: 184, width: 832, height: 663 });
+    assert.strictEqual(E.grow(win, env()), true);
+    assert.strictEqual(E.restore(win, env()), true);
+    assert.ok(!win.calls.includes('resizeTo'), 'restore() puts it back; resizeTo would add the frame');
+    assert.deepStrictEqual({ x: win.x, y: win.y, width: win.width, height: win.height }, { x: 544, y: 184, width: 832, height: 663 }, 'the size it started at, at once (a reload does not wait)');
+    queued.shift()();
+    assert.strictEqual(win.calls.filter(c => c === 'resizeTo').length, 0, 'the later check finds nothing to put right');
+    // A window with no restore(): resizeTo, then the frame is taken off a moment later.
+    E.saved = null;
+    const bare = nwLike({ x: 544, y: 184, width: 832, height: 663 });
+    assert.strictEqual(E.grow(bare, env()), true);
+    bare.restore = undefined;
+    assert.strictEqual(E.restore(bare, env()), true);
+    assert.deepStrictEqual([bare.width, bare.height], [848, 702], 'resizeTo adds the frame');
+    queued.shift()();
+    assert.deepStrictEqual({ x: bare.x, y: bare.y, width: bare.width, height: bare.height }, { x: 544, y: 184, width: 832, height: 663 }, 'put right a moment later');
+    // Off by far more than a frame (the user resized it since): left alone.
+    bare.width = 1400; bare.height = 900;
+    assert.strictEqual(E.correct(bare, { x: 544, y: 184, width: 832, height: 663 }), false, 'a size the user chose is kept');
+    E.later = realLater;
+}
+
 // 2. A window the user maximized is left alone, and so is one they resized.
 {
     E.saved = null;

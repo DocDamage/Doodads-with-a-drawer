@@ -70,6 +70,9 @@ Object.assign(DocsDoodads.Workspace, {
         for (const which of both) {
             const el = this.panelEl(which);
             if (!el || !el.style) continue;
+            // A panel in its own window (44_workspace_popout.js) fills that window: docking it here read its
+            // width: 100% as 100 and squeezed it to 100 pixels, hiding most of the Item Bag.
+            if (this.isPoppedOut && this.isPoppedOut(which)) continue;
             const side = d[which];
             const st = el.style;
             const folded = this.isFolded && this.isFolded(which);

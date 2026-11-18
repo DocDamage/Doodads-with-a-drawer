@@ -649,7 +649,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Panels in their own window",
         "anchor": "panels-in-their-own-window",
-        "firstParagraph": "View → Item Bag in a Window or Details in a Window moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then click the map (drags can't cross windows). Close the window or use Dock … Back to put it back; its place is kept for next time. Closing the editor docks everything back."
+        "firstParagraph": "View → Item Bag in a Window or Details in a Window moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then choose Stamp and click the map (drags can't cross windows). Close the window or use Dock … Back to put it back; its place is kept for next time. Closing the editor docks everything back."
     },
     {
         "title": "22. Project Safety, Conflict Detection & Crash Recovery",

@@ -22,6 +22,10 @@
 - From a Map File: an OpenStreetMap or GeoJSON file the user downloaded becomes roads, rivers, water, forests, buildings and bridges through Picture to Map, with the area's real size shown and the ODbL credit written to CREDITS_MAPS.txt; no download is made.
 - Item Bag and Details can move to a window of their own (desktop playtest), keeping their keys and the game running.
 - `npm run sample -- <new MZ project>` writes a sample town, field and cave with the plugin's own drawn art (docs/SAMPLE_PROJECT.md).
+- Fix: the first-map quest card now shows for someone new. The quest started before the editor finished opening, so its card was never drawn and its steps never ticked off.
+- Fix: with Select, the hint for a picked picture said "click the map to place it", but a click only picks. It now says to drag it onto the map or use Stamp.
+- Fix: after editing, the window came back a frame too big (848 × 702 for 832 × 663). It now goes back to its exact size and place on Done and on F5.
+- Fix: Item Bag and Details in a Window opened an empty window in MZ's NW.js 0.48 (the panel never moved), and once moved the Item Bag was squeezed to 100 pixels. The panel now moves when the window is ready and fills it.
 - Fix: in the sample project the house door opens and shuts on OK, the flashlight shows only in the cave (switch 1), the cave is on the Dungeon tileset, and the data is written to `DocsDoodads.json` (a project with `DoodadsQJ.json` is refused too).
 - Robot tester: Map → Test Every Map follows transfers from the start without playing and lists unreachable maps, dead ends, one-way trips, bad landings and variable transfers; Map → Test This Map also plays each reachable event on a copy of the game (messages answered, scene changes only noted, a frame limit) and restores the game. Findings have Go To.
 - Map → Save 3D Map as File writes the ground (terrain or a flat quad) with the map's tiles as its picture and standing doodads as upright pictures to one .glb in screenshots/, after a dialog that notes the art's licences. A pure glTF writer is read back by the plugin's own reader in tests.
