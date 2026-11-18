@@ -15,7 +15,10 @@ They have plans of their own: [BACKLOG_7_PLAN.md](BACKLOG_7_PLAN.md) for 7.4.5, 
 
 - [ ] Run `npm install`, then `npm run verify`. Both must pass on the commit under test, so write its hash down.
 - [ ] Make a fresh disposable MZ project and run `npm run sample -- <that project>`. Starting Town, the looping
-      Field Map and the cave in this plan are its maps. Never test on the source project.
+      Field Map and the cave in this plan are its maps (MAP001, Sample Field and Sample Cave). Never test on the
+      source project. Make the project with MZ's File → New Project. A plain copy of MZ's `newdata` folder lacks
+      `windowOpacity`, `screenScale` and `picturesUpperLimit` in `System.json`, and the title screen then stops with
+      "Cannot read property 'clamp' of undefined".
 - [ ] Do the three install checks at the end of the checklist's Preflight section (plugin enabled, project opens,
       and no console error before F10).
 - [ ] Write down the MZ, NW.js and Chromium versions, Windows version, GPU and driver, screen size and editor zoom.
@@ -41,8 +44,8 @@ Plain PC, no extra hardware. These rows make the maps every other session uses.
 
 | ID | Feature | Steps | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 7.1.8 | A sample project (`npm run sample`) | [353](../MANUAL_TEST_CHECKLIST.md?plain=1#L353) | | |
-| 8.4.7 | Robot tester (Test Every Map / Test This Map) | [19](../MANUAL_TEST_CHECKLIST.md?plain=1#L19) | | First real run of the playing runner: it needs MZ's Game_Interpreter, JsonEx and DataManager |
+| 7.1.8 | A sample project (`npm run sample`) | [353](../MANUAL_TEST_CHECKLIST.md?plain=1#L353) | **Pass** 2026-11-18 (`fix/sample-project`) | The first run on `978d538` failed: the door never opened, the flashlight showed on every map, the data had the old `DoodadsQJ.json` name and the cave floor was grass. Fixed in `scripts/sample.js` and run again in real MZ 1.10.0 (NW.js 0.48.4, RTX 3060). Town → field (3D) → cave → field → town with no errors at 60 fps. OK opens and shuts the door. The flashlight shows only in the cave (switch 1, set by the transfers). The cave is on the Dungeon tileset. The data is in `DocsDoodads.json`. The field doesn't loop (its way back to the town is on the west edge), so turn looping on in MZ for the looping checks |
+| 8.4.7 | Robot tester (Test Every Map / Test This Map) | [19](../MANUAL_TEST_CHECKLIST.md?plain=1#L19) | | Partly tested 2026-11-18 `978d538`. Test Every Map: "3 of 3 map(s) reached from the start. Nothing wrong was found." Test This Map on the town: "Played 1 event(s) … everything was put back". Switches, variables, self switches, items, gold, position and events matched exactly; afterwards the followers were gathered onto the player's tile, as after an MZ transfer. Still to test: a map with a dead end, a one-way door and a wall landing, and the message, choice, shop, battle and parallel events (the sample has only transfers) |
 
 ## Session B — the editor with fresh preferences
 
@@ -54,7 +57,7 @@ Plain PC. Before starting, delete the editor's preferences, so the first-run fea
 | 8.1.1 | Simple mode | [38](../MANUAL_TEST_CHECKLIST.md?plain=1#L38) | | |
 | 8.2.4 | Details that starts short | [34](../MANUAL_TEST_CHECKLIST.md?plain=1#L34) | | |
 | 8.1.5 | Help where you are | [43](../MANUAL_TEST_CHECKLIST.md?plain=1#L43) | | |
-| 8.2.1 | A bigger window while editing | [41](../MANUAL_TEST_CHECKLIST.md?plain=1#L41) | | Try 100%, 125% and 150% |
+| 8.2.1 | A bigger window while editing | [41](../MANUAL_TEST_CHECKLIST.md?plain=1#L41) | | Try 100%, 125% and 150%. Seen 2026-11-18: the window filled the screen on F10, but after Done it was 848 × 702 outside instead of the 832 × 663 it started at. Check whether it really grew |
 | 8.2.3 | Moving tooltips | [25](../MANUAL_TEST_CHECKLIST.md?plain=1#L25) | | Also with Windows reduced motion on |
 | 8.1.2 | Moods | [42](../MANUAL_TEST_CHECKLIST.md?plain=1#L42) | | |
 | 8.1.3 | Good settings on drop | [12](../MANUAL_TEST_CHECKLIST.md?plain=1#L12) | | |
