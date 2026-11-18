@@ -28,9 +28,13 @@ Object.assign(DocsDoodads.Workspace, {
         }
 
         // The time and season the editor is previewing, if the game should start with them.
-        const minutes = this.previewMinutes, season = this.previewSeason;
+        // With the clock or seasons off (World), the game has no time to set, so that preview isn't offered.
+        const world = DocsDoodads.World.settings() || {};
+        const clockOn = !!(world.time && world.time.source && world.time.source !== 'off');
+        const seasonsOn = !!(world.seasons && world.seasons.source && world.seasons.source !== 'off');
+        const minutes = clockOn ? this.previewMinutes : null, season = seasonsOn ? this.previewSeason : null;
         const hasSeason = season !== null && season !== undefined;
-        const seasonNames = (DocsDoodads.World.settings().seasons || {}).names || [];
+        const seasonNames = (world.seasons || {}).names || [];
         const text = P.startText(minutes, hasSeason ? seasonNames[season] || `season ${Number(season) + 1}` : '');
         let useTime = false;
         if (text) {

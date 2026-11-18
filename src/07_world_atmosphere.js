@@ -70,6 +70,9 @@ DocsDoodads.World = {
         // Per-pixel normals beside doodad/character art (`Tree_n.png`); flat maps only.
         normalLight: { enabled: false, maxLights: 8, characters: 'file' },
         freeMove: { enabled: false, boxW: 24, boxH: 16 },
+        // Groups read through settings() must be listed here, or their stored values are dropped.
+        seamless: { enabled: false },
+        bake: { playtest: false },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
             wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },

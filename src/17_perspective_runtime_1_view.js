@@ -509,6 +509,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             g.lineStyle(1.5, ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
         }
+        // Painted collision on the ground (44_workspace_walls.js).
+        if (ws.drawWalls3d) ws.drawWalls3d(g, cam);
         // The Ruler's line on the ground (44_workspace_ruler.js).
         if (ws.placementTool === 'ruler' && ws._ruler && ws.rulerScreenLine) {
             const line = ws.rulerScreenLine();

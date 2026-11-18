@@ -80,10 +80,11 @@ $dataDocsDoodads[1].pop();
 D.Compat.isTest = () => true;
 ss.addDocsDoodads();
 assert.ok(uids().includes('rug'), 'not in a playtest');
-D.World.settings().bake = { playtest: true };
+// Stored as the project stores it (data.world.bake), not set on the merged copy.
+$dataDocsDoodads.world = Object.assign({}, $dataDocsDoodads.world, { bake: { playtest: true } });
 ss.addDocsDoodads();
 assert.ok(!uids().includes('rug'), 'unless World → bake → playtest');
-D.World.settings().bake = {};
+$dataDocsDoodads.world = Object.assign({}, $dataDocsDoodads.world, { bake: { playtest: false } });
 
 // ---- The editor ----
 const W = D.Workspace;

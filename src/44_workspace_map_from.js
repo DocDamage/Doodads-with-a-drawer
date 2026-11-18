@@ -37,6 +37,13 @@
             while (kinds.some(k => k.id === id)) id = id.replace(/_\d+$/, '') + '_' + n++;
             const copy = M.copyKind(from, id, name || from.name + ' (copy)');
             data.mapKinds = (Array.isArray(data.mapKinds) ? data.mapKinds : []).concat([copy]);
+            // The tiles chosen for the original (per tileset) come with it.
+            const prefs = D.Ui.prefs().mapFromTiles || {}, carried = {};
+            for (const key of Object.keys(prefs)) {
+                const cut = key.indexOf(':');
+                if (cut > 0 && key.slice(cut + 1) === from.id && prefs[key]) carried[key.slice(0, cut) + ':' + copy.id] = Object.assign({}, prefs[key]);
+            }
+            if (Object.keys(carried).length) D.Ui.setPref('mapFromTiles', Object.assign({}, prefs, carried));
             D.Persistence.dirtyDoodads = true;
             return copy;
         },

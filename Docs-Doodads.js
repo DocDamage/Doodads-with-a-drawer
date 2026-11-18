@@ -2960,10 +2960,11 @@ DocsDoodads.Ground = {
         '    vec3 m = texture2D(uMask, vMap / uMapSize).rgb;',
         '    float total = m.r + m.g + m.b;',
         '    if (total < 0.004) discard;',
-        '    vec3 c = texture2D(uTex0, fract(vMap / uTexSize0)).rgb * m.r + texture2D(uTex1, fract(vMap / uTexSize1)).rgb * m.g +',
-        '        texture2D(uTex2, fract(vMap / uTexSize2)).rgb * m.b;',
+        // Textures arrive premultiplied, so a see-through part adds no colour and no cover: the tiles show there.
+        '    vec4 c = texture2D(uTex0, fract(vMap / uTexSize0)) * m.r + texture2D(uTex1, fract(vMap / uTexSize1)) * m.g +',
+        '        texture2D(uTex2, fract(vMap / uTexSize2)) * m.b;',
         '    float a = min(1.0, total) * uAlpha;',
-        '    gl_FragColor = vec4(c / total * a, a);',
+        '    gl_FragColor = c / total * a;',
         '}'
     ].join('\n')
 };
@@ -6684,8 +6685,21 @@ DocsDoodads.Indoors = {
     ambient(ambient, mapSettings, blend) {
         const s = this.settingsFor(mapSettings);
         if (!s || s.darkness === null || !(blend > 0) || !ambient) return ambient;
-        const k = Math.min(1, blend);
-        return Object.assign({}, ambient, { darkness: (Number(ambient.darkness) || 0) * (1 - k) + s.darkness * k });
+        const k = Math.min(1, blend), outside = Number(ambient.darkness) || 0;
+        const darkness = outside * (1 - k) + s.darkness * k;
+        // By day the clock's colour is white, which darkens nothing: inside it moves toward the plain ambient
+        // colour as far as the indoor darkness is above the outside's.
+        const shade = darkness > outside ? Math.min(1, (darkness - outside) / Math.max(1e-6, darkness)) : 0;
+        const color = shade > 0 ? this.mixColor(ambient.color, DocsDoodads.Lighting.ambientDefaults.color, shade) : ambient.color;
+        return Object.assign({}, ambient, { darkness, color });
+    },
+
+    // Two '#rrggbb' colours mixed (t 0 is the first).
+    mixColor(a, b, t) {
+        const parse = c => { const m = /^#?([0-9a-f]{6})$/i.exec(String(c || '').trim()); return m ? parseInt(m[1], 16) : 0xffffff; };
+        const x = parse(a), y = parse(b), k = Math.max(0, Math.min(1, Number(t) || 0));
+        const ch = shift => Math.round(((x >> shift) & 255) * (1 - k) + ((y >> shift) & 255) * k);
+        return '#' + ((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0');
     },
 
     // How loud the weather is heard: 1 outside, `quiet` inside.
@@ -8732,6 +8746,9 @@ DocsDoodads.World = {
         // Per-pixel normals beside doodad/character art (`Tree_n.png`); flat maps only.
         normalLight: { enabled: false, maxLights: 8, characters: 'file' },
         freeMove: { enabled: false, boxW: 24, boxH: 16 },
+        // Groups read through settings() must be listed here, or their stored values are dropped.
+        seamless: { enabled: false },
+        bake: { playtest: false },
         // Flat-map weather extras: wind (07_map_layers_weather.js) and lightning in storms.
         weather2d: {
             wind: { strength: 0, direction: 1, gusts: 0.5, fromWeather: true, leaves: false, leafColor: '#c27c2c' },
@@ -12954,7 +12971,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Selection, Multi-Selection & Right-Click Context Menu",
         "anchor": "selection-multi-selection--right-click-context-menu",
-        "firstParagraph": "- Click: Select a placed doodad or genuine MZ Event on the map. - Drag to Move: Press on a doodad and drag. Pink smart guides snap its edges, centre and base line (where it stands) to nearby doodads; orange guides show equal spacing between neighbours; with nothing near, teal guides snap an edge or the base line to a tile line. A readout beside the cursor gives the position, tile and size in pixels and tiles. Hold Alt to move freely or Shift to snap to the tile grid. A drag is one undo step. - Show Collision (View, or Ctrl+K): every doodad's collision box, coloured by preset, with the tiles doodads block shaded red and the tiles the map itself blocks shaded grey, and a key to the colours. Doodads hidden in the game are drawn faintly and block nothing. Flat maps only; the choice is remembered. - Status bar (along the bottom of the map): the tile and pixel under the cursor, the map, what is picked, the layer new doodads go on, the zoom, and Not saved or the time of the last save. - Right-Click Canvas Context Menu: - On Doodad: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Move to Layer, Select Same Art, Select Everything on its layer, Replace Art..., Delete (Del). Right-clicking one of several picked doodads keeps them all picked, and every item acts on all of them (the Z order too). - On MZ Event: Save as Event Template..., Duplicate Event, Delete Event. - On Empty Map: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Show Hidden Doodads (when some are hidden), Stamp Asset Here, Play From Here (Ctrl+Enter). - Play From Here (right-click an empty tile, or Ctrl+Enter with the mouse over one, or Ctrl+K): the editor closes and the player stands on that tile, flat or in 3D, to try what you just built. Unsaved work is asked about first, as Done does. If the clock bar is previewing a time or a season, it asks whether to start then or at the game's own time. A tile the player can't stand on (off the map, a wall or water with no way on or off, or a doodad's collision) is refused with the reason, and the nearest free tile is offered. - Duplicate Event puts the copy one tile to the right, or on the nearest free tile inside the map when that one is off the edge or has an event. - Select All, Same Art, Layer, Invert: these pick only what Select can reach (not doodads hidden in the editor or on hidden or locked layers). Same Art matches the picture however its path is written. - Hidden doodads: a doodad hidden in the editor (Hide) can't be clicked or boxed. Show Hidden Doodads (right-click the empty map, Ctrl+K, or the button under Layers in the map's Details) shows them all again and picks them, in one step to undo. Layers counts them in brackets beside each layer. - Replace Art: a new picture for the picked doodads, or for every doodad showing the same picture on this map or on every map. Type or choose the picture (the last one picked in the Item Bag is suggested); position, size, depth, motion, lights and collision stay, the frame size follows the new picture, and locked doodads are left alone. It is one undo step. An Item Bag picture's right-click menu has Replace Art on Maps..., which pairs with Where Used. - Marquee Drag Box: Click and drag on empty map space with the pointer tool to draw a blue selection box: the doodads whose foot is inside it are picked. Ctrl + drag picks every doodad the box touches (a tall tree whose top is in the box), and Alt + drag draws a lasso around the feet to pick. Pick doodads in a region... (Ctrl+K) picks the doodads standing in a region. - Find Doodads (Map, or Ctrl+K): search this map or every map by words (the picture, the Name, a tag) and filters: tag:, name:, layer:, has:light, has:sound, has:collision, has:states, has:touch, is:locked, is:hidden, with - to leave out (tree has:light -is:hidden). Each result has Go To (other maps too); Pick All picks this map's results so Details changes them together, and Hide, Show, Lock and Unlock act on all of them as one undo step. - Outliner (Map, or Ctrl+K): this map's doodads by layer, each with Hide/Show and Lock/Unlock, a click to pick it (a hidden one is shown first), Show Hidden, and Solo to see only one layer while editing (nothing is saved; closing the outliner shows them all). - Shift + Click / Shift + Marquee: Add or toggle doodads in the active multi-selection. - Handles: a picked doodad (one, on a flat map) shows corner handles and a knob above it. Drag a corner to resize it around its foot (it stays standing where it was); Shift keeps its proportions. Drag the knob to turn it; Shift snaps to 15 degrees. Each drag is one undo step. - Animation (Details, for a doodad drawn as a strip of frames): frames across and down (the picture is split evenly), speed (game frames per picture; 0 holds still), the frame to start on, and Play: Loop, Back and forth, Once (when its switch turns on; again each time it turns on) or Hold one frame. - States (Details): give the doodad a Name (events find it by this; doodads with the same name follow together), then + Add State. State 0 is the doodad as placed; each other state can show another picture (Use Picked Art takes the one picked in the Item Bag) and can turn the doodad's Light and Collision off. Switched by: Events only, a switch (off shows state 0, on shows state 1) or a variable (its value picks the state). Crossfade is how many frames the old picture takes to fade. Preview shows a state on the map while editing (nothing is saved). Each state can play a Sound and an Effect (from the Effects Maker) when the doodad goes into it, and go Back after some seconds to the state it was in (a trap that resets, a door that swings shut); the countdown is kept in the save. - Touch (Details): a common event to run when the player presses Action facing the doodad (or clicks it), or, with Runs on: Walking into it, bumps into it or steps onto it. Also go to its next state makes a door that opens and closes with no event at all. Inside the common event, DocsDoodads.WorldState.touched() says which doodad it was (name, state) and where (mapId, and x, y: the tile its base stands on). Only once makes a chest: it runs one time, and the save remembers (DocsDoodads.api.resetTouch(name) lets it run again). Wait between touches keeps a lever from running twice in a row. Prompt (for example Open, Read or !) shows in a small bubble over the doodad while the player faces it. - Several picked: Details shows \"—\" where the picked doodads differ (a half-ticked box, a \"— mixed —\" choice); changing a field sets it on all of them. Placement sets their X, Y, Z-order, turn and size. - Number boxes in Details: drag the label left or right to change the number (Shift for bigger steps), or use the arrow keys. - Nudge: Press Arrow Keys to nudge selected doodads by 1 pixel (Shift + Arrow Keys for 16 pixels, Ctrl + Arrow Keys for a tile, refused where the 3D terrain is too steep for a doodad); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable). - Duplicate: Press Ctrl + D to duplicate all selected doodads (+16px offset) or selected event. - Copy / Paste: Press Ctrl + C to copy selected doodads and Ctrl + V to paste them. - Delete: Press Delete to remove selected doodad(s) or selected event."
+        "firstParagraph": "- Click: Select a placed doodad or genuine MZ Event on the map. - Drag to Move: Press on a doodad and drag. Pink smart guides snap its edges, centre and base line (where it stands) to nearby doodads; orange guides show equal spacing between neighbours; with nothing near, teal guides snap an edge or the base line to a tile line. A readout beside the cursor gives the position, tile and size in pixels and tiles. Hold Alt to move freely or Shift to snap to the tile grid. A drag is one undo step. - Show Collision (View, or Ctrl+K): every doodad's collision box, coloured by preset, with the tiles doodads block shaded red and the tiles the map itself blocks shaded grey, and a key to the colours. Doodads hidden in the game are drawn faintly and block nothing. Flat maps only, apart from painted collision, which also shows on the ground in 3D; the choice is remembered. - Status bar (along the bottom of the map): the tile and pixel under the cursor, the map, what is picked, the layer new doodads go on, the zoom, and Not saved or the time of the last save. - Right-Click Canvas Context Menu: - On Doodad: Bring Forward (+1 Z), Send Backward (-1 Z), Bring to Front, Send to Back, Duplicate (Ctrl+D), Lock/Unlock, Hide, Move to Layer, Select Same Art, Select Everything on its layer, Replace Art..., Delete (Del). Right-clicking one of several picked doodads keeps them all picked, and every item acts on all of them (the Z order too). - On MZ Event: Save as Event Template..., Duplicate Event, Delete Event. - On Empty Map: Toggle Grid Overlay (G), Paste Copied Doodads (Ctrl+V), Paste in Place (Ctrl+Shift+V), Select All (Ctrl+A), Invert Selection, Show Hidden Doodads (when some are hidden), Stamp Asset Here, Play From Here (Ctrl+Enter). - Play From Here (right-click an empty tile, or Ctrl+Enter with the mouse over one, or Ctrl+K): the editor closes and the player stands on that tile, flat or in 3D, to try what you just built. Unsaved work is asked about first, as Done does. If the clock bar is previewing a time (with the clock on) or a season (with seasons on), it asks whether to start then or at the game's own time. A tile the player can't stand on (off the map, a wall or water with no way on or off, or a doodad's collision) is refused with the reason, and the nearest free tile is offered. - Duplicate Event puts the copy one tile to the right, or on the nearest free tile inside the map when that one is off the edge or has an event. - Select All, Same Art, Layer, Invert: these pick only what Select can reach (not doodads hidden in the editor or on hidden or locked layers). Same Art matches the picture however its path is written. - Hidden doodads: a doodad hidden in the editor (Hide) can't be clicked or boxed. Show Hidden Doodads (right-click the empty map, Ctrl+K, or the button under Layers in the map's Details) shows them all again and picks them, in one step to undo. Layers counts them in brackets beside each layer. - Replace Art: a new picture for the picked doodads, or for every doodad showing the same picture on this map or on every map. Type or choose the picture (the last one picked in the Item Bag is suggested); position, size, depth, motion, lights and collision stay, the frame size follows the new picture, and locked doodads are left alone. It is one undo step. An Item Bag picture's right-click menu has Replace Art on Maps..., which pairs with Where Used. - Marquee Drag Box: Click and drag on empty map space with the pointer tool to draw a blue selection box: the doodads whose foot is inside it are picked. Ctrl + drag picks every doodad the box touches (a tall tree whose top is in the box), and Alt + drag draws a lasso around the feet to pick. Pick doodads in a region... (Ctrl+K) picks the doodads standing in a region. - Find Doodads (Map, or Ctrl+K): search this map or every map by words (the picture, the Name, a tag) and filters: tag:, name:, layer:, has:light, has:sound, has:collision, has:states, has:touch, is:locked, is:hidden, with - to leave out (tree has:light -is:hidden). Each result has Go To (other maps too); Pick All picks this map's results so Details changes them together, and Hide, Show, Lock and Unlock act on all of them as one undo step. - Outliner (Map, or Ctrl+K): this map's doodads by layer, each with Hide/Show and Lock/Unlock, a click to pick it (a hidden one is shown first), Show Hidden, and Solo to see only one layer while editing (nothing is saved; closing the outliner shows them all). - Shift + Click / Shift + Marquee: Add or toggle doodads in the active multi-selection. - Handles: a picked doodad (one, on a flat map) shows corner handles and a knob above it. Drag a corner to resize it around its foot (it stays standing where it was); Shift keeps its proportions. Drag the knob to turn it; Shift snaps to 15 degrees. Each drag is one undo step. - Animation (Details, for a doodad drawn as a strip of frames): frames across and down (the picture is split evenly), speed (game frames per picture; 0 holds still), the frame to start on, and Play: Loop, Back and forth, Once (when its switch turns on; again each time it turns on) or Hold one frame. - States (Details): give the doodad a Name (events find it by this; doodads with the same name follow together), then + Add State. State 0 is the doodad as placed; each other state can show another picture (Use Picked Art takes the one picked in the Item Bag) and can turn the doodad's Light and Collision off. Switched by: Events only, a switch (off shows state 0, on shows state 1) or a variable (its value picks the state). Crossfade is how many frames the old picture takes to fade. Preview shows a state on the map while editing (nothing is saved). Each state can play a Sound and an Effect (from the Effects Maker) when the doodad goes into it, and go Back after some seconds to the state it was in (a trap that resets, a door that swings shut); the countdown is kept in the save. - Touch (Details): a common event to run when the player presses Action facing the doodad (or clicks it), or, with Runs on: Walking into it, bumps into it or steps onto it. Also go to its next state makes a door that opens and closes with no event at all. Inside the common event, DocsDoodads.WorldState.touched() says which doodad it was (name, state) and where (mapId, and x, y: the tile its base stands on). Only once makes a chest: it runs one time, and the save remembers (DocsDoodads.api.resetTouch(name) lets it run again). Wait between touches keeps a lever from running twice in a row. Prompt (for example Open, Read or !) shows in a small bubble over the doodad while the player faces it. - Several picked: Details shows \"—\" where the picked doodads differ (a half-ticked box, a \"— mixed —\" choice); changing a field sets it on all of them. Placement sets their X, Y, Z-order, turn and size. - Number boxes in Details: drag the label left or right to change the number (Shift for bigger steps), or use the arrow keys. - Nudge: Press Arrow Keys to nudge selected doodads by 1 pixel (Shift + Arrow Keys for 16 pixels, Ctrl + Arrow Keys for a tile, refused where the 3D terrain is too steep for a doodad); a run of presses is one undo step. Arrow keys also nudge selected MZ Events by 1 tile (saved with the map, undoable). - Duplicate: Press Ctrl + D to duplicate all selected doodads (+16px offset) or selected event. - Copy / Paste: Press Ctrl + C to copy selected doodads and Ctrl + V to paste them. - Delete: Press Delete to remove selected doodad(s) or selected event."
     },
     {
         "title": "Alignment & Distribution",
@@ -13549,7 +13566,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Event sight and light levels",
         "anchor": "event-sight-and-light-levels",
-        "firstParagraph": "- Pick an event and use Sight in Details to set range, spread, darkness sensitivity and either a self switch or common event. The cone is drawn while editing a flat map. A current page's sight tags take priority over note tags. Walls use World → Lighting wall regions, even when visual light occlusion is off. - Tags: <docs sight: 6, 90>, <docs sight light: 0.3>, and either <docs sight self switch: A> or <docs sight common event: 12>. Seeing triggers once until sight is lost; a busy common-event slot is retried. Darkness shortens the range to at least a quarter. - DocsDoodads.api.lightAt(tileX, tileY) reads brightness from 0 to 1; Store Light Level writes it to a variable. DocsDoodads.api.sees(eventId) checks a tagged event. World → Lighting can drive a chosen switch while the player is below a brightness threshold. Detection checks near-screen events five times per second, up to 24 per check, and does not depend on the player's Effects Quality."
+        "firstParagraph": "- Pick an event and use Sight in Details: Add Sight gives it a cone, then set range, spread, darkness sensitivity and either a self switch or common event (Remove Sight takes it off). The cone is drawn while editing a flat map. A current page's sight tags take priority over note tags. Walls use World → Lighting wall regions, even when visual light occlusion is off. - Tags: <docs sight: 6, 90>, <docs sight light: 0.3>, and either <docs sight self switch: A> or <docs sight common event: 12>. Seeing triggers once until sight is lost; a busy common-event slot is retried. Darkness shortens the range to at least a quarter. - DocsDoodads.api.lightAt(tileX, tileY) reads brightness from 0 to 1; Store Light Level writes it to a variable. DocsDoodads.api.sees(eventId) checks a tagged event. World → Lighting can drive a chosen switch while the player is below a brightness threshold. Detection checks near-screen events five times per second, up to 24 per check, and does not depend on the player's Effects Quality."
     },
     {
         "title": "Plain words and playtest trails",
@@ -23806,7 +23823,8 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
             ? { x: ($gamePlayer._realX + 0.5) * tw, y: ($gamePlayer._realY + 1) * th - th / 2 } : null;
         // Lightning startles everything on the map.
         const strikes = this._docsBolt ? this._docsBolt.strikes || 0 : 0;
-        const startle = strikes !== this._docsCreatureStrikes;
+        // (Not on the first update: no strike has been seen yet, so nothing is startled as the map opens.)
+        const startle = this._docsCreatureStrikes !== undefined && strikes !== this._docsCreatureStrikes;
         this._docsCreatureStrikes = strikes;
         const boat = $gamePlayer && (($gamePlayer.isInBoat && $gamePlayer.isInBoat()) || ($gamePlayer.isInShip && $gamePlayer.isInShip()));
         const swimming = DocsDoodads.Traversal && DocsDoodads.Traversal.isSwimming ? DocsDoodads.Traversal.isSwimming($gamePlayer) : false;
@@ -28159,6 +28177,8 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             g.lineStyle(1.5, ui.mapColor('selection3d'), 0.95);
             for (const [a, b] of box) { g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); }
         }
+        // Painted collision on the ground (44_workspace_walls.js).
+        if (ws.drawWalls3d) ws.drawWalls3d(g, cam);
         // The Ruler's line on the ground (44_workspace_ruler.js).
         if (ws.placementTool === 'ruler' && ws._ruler && ws.rulerScreenLine) {
             const line = ws.rulerScreenLine();
@@ -29805,20 +29825,23 @@ if (typeof Scene_MenuBase !== 'undefined') {
         if (!map) return;
         const M = DocsDoodads.Minimap;
         const px = $gamePlayer.x, py = $gamePlayer.y;
+        // The band the picture may use: all the screen, or what a help line (pins and fast travel) leaves free.
+        const band = this._docsArea || { top: 0, bottom: Graphics.height };
+        const top = Math.max(0, Number(band.top) || 0), room = Math.max(60, Math.min(Graphics.height, Number(band.bottom) || Graphics.height) - top);
         this._marker.clear();
         if (this._globe) {
-            const size = Math.min(Graphics.width, Graphics.height) - 60;
+            const size = Math.max(60, Math.min(Graphics.width, room) - 60);
             const canvas = M.canvasFor(M.globePixels(map.pixels, map.width, map.height, size, px + 0.5, py + 0.5, this._spin), size, size);
             const bitmap = this.worldMapBitmap(size, size);
             bitmap.context.clearRect(0, 0, size, size);
             bitmap.context.drawImage(canvas, 0, 0);
             this._picture.bitmap.baseTexture.update();
             this._picture.x = (Graphics.width - size) / 2;
-            this._picture.y = (Graphics.height - size) / 2;
+            this._picture.y = top + (room - size) / 2;
             // The player faces the viewer at the centre until the globe is turned.
-            if (Math.abs(this._spin) < 1e-6) this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(Graphics.width / 2, Graphics.height / 2, 5).endFill();
+            if (Math.abs(this._spin) < 1e-6) this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(Graphics.width / 2, top + room / 2, 5).endFill();
         } else {
-            const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (Graphics.height - 60) / map.height));
+            const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (room - 60) / map.height));
             const canvas = M.canvasFor(map.pixels, map.width, map.height);
             const w = Math.round(map.width * scale), h = Math.round(map.height * scale);
             this.worldMapBitmap(w, h);
@@ -29826,7 +29849,7 @@ if (typeof Scene_MenuBase !== 'undefined') {
             this._picture.bitmap.context.drawImage(canvas, 0, 0, w, h);
             this._picture.bitmap.baseTexture.update();
             this._picture.x = (Graphics.width - w) / 2;
-            this._picture.y = (Graphics.height - h) / 2;
+            this._picture.y = top + (room - h) / 2;
             this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(this._picture.x + (px + 0.5) * scale, this._picture.y + (py + 0.5) * scale, 5).endFill();
         }
     };
@@ -31071,9 +31094,16 @@ if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
                 this._docsTravelIndex = here >= 0 ? here : 0;
             }
             this._docsConfirm = false;
-            const rect = new Rectangle(0, 0, Graphics.boxWidth, this.calcWindowHeight ? this.calcWindowHeight(1, false) : 72);
+            // MZ's own help area (at the bottom, or under the touch Cancel button), so the button never covers it.
+            const y = this.helpAreaTop ? this.helpAreaTop() : 0;
+            const rect = new Rectangle(0, y, Graphics.boxWidth, this.calcWindowHeight ? this.calcWindowHeight(1, false) : 72);
             this._docsPinHelp = new Window_Help(rect);
             this.addWindow(this._docsPinHelp);
+            // The map picture fits in the larger band the help line leaves (above it or below it).
+            const offset = (Graphics.height - Graphics.boxHeight) / 2, helpTop = y + offset, helpBottom = helpTop + rect.height;
+            const buttons = this.buttonAreaBottom ? this.buttonAreaBottom() + offset : 0;
+            this._docsArea = helpTop - buttons >= Graphics.height - helpBottom ? { top: buttons, bottom: helpTop } : { top: helpBottom, bottom: Graphics.height };
+            this.drawWorldMap();
             this.drawDocsPins();
         };
 
@@ -50405,7 +50435,7 @@ DocsDoodads.Workspace = {
         return options.join('');
     },
 
-    showMapPicker(title, onPick) {
+    showMapPicker(title, onPick, selected) {
         const existing = document.getElementById('dd-map-picker');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
         const modal = document.createElement('div');
@@ -50414,7 +50444,7 @@ DocsDoodads.Workspace = {
         modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; padding: 18px; z-index: 10030;';
         modal.innerHTML = `
             <div style="font-weight: bold; color: var(--dd-accent); font-size: 13px; margin-bottom: 10px;">${escapeHtml(title)}</div>
-            <select id="dd-map-picker-select" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; margin-bottom: 12px;">${this.mapOptions(0, false)}</select>
+            <select id="dd-map-picker-select" style="width: 100%; background: var(--dd-field); color: var(--dd-text); border: 1px solid var(--dd-line); padding: 4px; margin-bottom: 12px;">${this.mapOptions(Number(selected) || 0, false)}</select>
             <div style="display: flex; gap: 8px; justify-content: flex-end;">
                 <button class="dd-btn" id="dd-map-picker-cancel">Cancel</button>
                 <button class="dd-btn dd-btn-primary" id="dd-map-picker-ok">OK</button>
@@ -56046,7 +56076,10 @@ DocsDoodads.Workspace.mapSections.push({
             const page = this.eventEditorPageData(), row = page && C.rowAt(page.list, index);
             if (!row || row.code !== 201) return false;
             const identity = this.eventEditorIdentity();
-            this.showMapPicker('Transfer Player destination map', mapId => { if (this.eventEditorIdentityMatches(identity)) this.beginEventTransferPick(row.index, mapId); });
+            // The picker starts on the current destination (a direct one; a destination from variables has none).
+            const params = (page.list[row.index] && page.list[row.index].parameters) || [];
+            const current = Number(params[0]) === 0 ? Number(params[1]) || 0 : 0;
+            this.showMapPicker('Transfer Player destination map', mapId => { if (this.eventEditorIdentityMatches(identity)) this.beginEventTransferPick(row.index, mapId); }, current);
             return true;
         },
         renderEventCommandEditor() {
@@ -56697,6 +56730,27 @@ Object.assign(DocsDoodads.Workspace, {
             o.w = Math.min(Number(o.w) || map.width, map.width);
             o.h = Math.min(Number(o.h) || map.height, map.height);
         }
+        // A floor or wall tile whose sheet this map's tileset doesn't have draws nothing, so a default
+        // (never one the user typed) moves to a sheet it has: walls A3, A4, then A2; floors A2, A5, then A1.
+        const ts = map && typeof $dataTilesets !== 'undefined' && $dataTilesets ? $dataTilesets[map.tilesetId] : null;
+        const names = ts && Array.isArray(ts.tilesetNames) ? ts.tilesetNames : null;
+        if (names) {
+            const T = DocsDoodads.Tiles, sheets = [[T.A5, 4], [T.A1, 0], [T.A2, 1], [T.A3, 2], [T.A4, 3]];
+            const has = id => { const sheet = sheets.filter(([start]) => id >= start).pop(); return !!names[sheet ? sheet[1] : 5 + Math.floor(id / 256)]; };
+            // Each autotile kind of a sheet the tileset has, blocked (wall) or walkable (floor) by its own flags.
+            const flags = Array.isArray(ts.flags) ? ts.flags : [];
+            const kinds = (start, end) => { const out = []; for (let id = start; id < end; id += 48) if (has(id)) out.push(id); return out; };
+            const blocked = id => ((flags[id] || 0) & 0x0f) === 0x0f;
+            const pick = (ranges, wanted) => {
+                const all = [].concat(...ranges.map(([a, b]) => kinds(a, b)));
+                return all.find(id => blocked(id) === wanted) || null;
+            };
+            if (!this._generateTilesTyped && !has(o.floorTile)) o.floorTile = pick([[T.A2, T.A3], [T.A1, T.A2]], false) || o.floorTile;
+            if (!this._generateTilesTyped && (!has(o.wallTile) || o.wallTile === o.floorTile)) {
+                o.wallTile = pick([[T.A3, T.A4], [T.A4, T.MAX], [T.A2, T.A3]], true)
+                    || [].concat(kinds(T.A3, T.A4), kinds(T.A4, T.MAX), kinds(T.A2, T.A3)).find(id => id !== o.floorTile) || o.wallTile;
+            }
+        }
         return o;
     },
 
@@ -56718,6 +56772,7 @@ Object.assign(DocsDoodads.Workspace, {
         const on = (id, fn) => { const element = document.getElementById(id); if (element) element.onclick = fn; };
         on('dd-gen-close', () => this.closeGenerateCard()); on('dd-gen-preview', () => this.previewGeneratedMap(false));
         on('dd-gen-reroll', () => this.previewGeneratedMap(true)); on('dd-gen-apply', () => this.applyGeneratedMap());
+        for (const id of ['dd-gen-floor', 'dd-gen-wall']) { const field = document.getElementById(id); if (field) field.addEventListener('change', () => { this._generateTilesTyped = true; }); }
         return card;
     }
 });
@@ -57016,7 +57071,7 @@ Object.assign(DocsDoodads.Workspace, {
         if (!changed.length) { this.showToast('Placed Doodad on Map!'); return; }
         const mapId = this.currentMapId(), list = window.$dataDocsDoodads[mapId];
         const settings = placed.map(d => Object.fromEntries(changed.map(key => [key, JSON.stringify(d[key])])));
-        const labels = { light: placed[0].light && placed[0].light.enabled ? (placed[0].light.when === 'dark' ? 'lit after dark' : 'light') : 'light settings', motion: 'gentle sway', seeThrough: 'see-through', collision: `${placed[0].collision && placed[0].collision.preset} collision`, particles: 'embers', depth: 'below characters' };
+        const labels = { light: placed[0].light && placed[0].light.enabled ? (placed[0].light.when === 'dark' ? 'lit after dark' : 'light') : 'light settings', motion: 'gentle sway', seeThrough: 'see-through', collision: `${String((this.collisionNames || {})[placed[0].collision && placed[0].collision.preset] || (placed[0].collision && placed[0].collision.preset) || '').toLowerCase()} collision`, particles: 'embers', depth: 'below characters' };
         this.showToast(`Placed ${kind}: ${changed.map(key => labels[key]).join(', ')}.`, 'success', { action: { label: 'Undo settings', run: () => {
             if (this.currentMapId() !== mapId || window.$dataDocsDoodads[mapId] !== list) return;
             const targets = placed.filter((d, i) => list.includes(d) && !d.locked && changed.every(key => JSON.stringify(d[key]) === settings[i][key]));
@@ -57085,6 +57140,14 @@ DocsDoodads.Help = {
         return panel ? panel.anchor : null;
     },
 
+    // Details with nothing picked shows the map's own settings, so its ? opens those, not the doodads' section.
+    anchorNow(anchor) {
+        const details = this.panels.find(p => p.words === 'details'), map = this.panels.find(p => p.words === 'map settings');
+        const ws = DocsDoodads.Workspace;
+        const picked = ws && ((ws.selectedDoodads && ws.selectedDoodads.length) || ws.selectedDoodad || ws.selectedEvent);
+        return details && map && anchor === details.anchor && !picked && this.entry(map.anchor) ? map.anchor : anchor;
+    },
+
     decorate(root) {
         if (!root || !root.querySelectorAll) return;
         const selector = '[data-dd-help], .dd-panel-head, .dd-pop-title';
@@ -57099,7 +57162,7 @@ DocsDoodads.Help = {
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'dd-btn dd-context-help'; button.textContent = '?';
             button.title = 'Help for this panel'; button.setAttribute('aria-label', 'Help for this panel');
-            button.onclick = e => { e.preventDefault(); e.stopPropagation(); this.show(anchor); };
+            button.onclick = e => { e.preventDefault(); e.stopPropagation(); this.show(this.anchorNow(anchor)); };
             head.appendChild(button);
         }
     },
@@ -60222,6 +60285,13 @@ Object.assign(DocsDoodads.Workspace, {
             while (kinds.some(k => k.id === id)) id = id.replace(/_\d+$/, '') + '_' + n++;
             const copy = M.copyKind(from, id, name || from.name + ' (copy)');
             data.mapKinds = (Array.isArray(data.mapKinds) ? data.mapKinds : []).concat([copy]);
+            // The tiles chosen for the original (per tileset) come with it.
+            const prefs = D.Ui.prefs().mapFromTiles || {}, carried = {};
+            for (const key of Object.keys(prefs)) {
+                const cut = key.indexOf(':');
+                if (cut > 0 && key.slice(cut + 1) === from.id && prefs[key]) carried[key.slice(0, cut) + ':' + copy.id] = Object.assign({}, prefs[key]);
+            }
+            if (Object.keys(carried).length) D.Ui.setPref('mapFromTiles', Object.assign({}, prefs, carried));
             D.Persistence.dirtyDoodads = true;
             return copy;
         },
@@ -62672,9 +62742,10 @@ Object.assign(DocsDoodads.Workspace, {
             const first = recent.map(l => byLabel.get(l)).filter(Boolean).map(c => Object.assign({}, c, { recent: true }));
             return first.concat(commands.filter(c => !recent.includes(c.label))).slice(0, limit);
         }
+        // A guide heading ranks under a tool that fits as well: "more like" runs More Like This before its Help.
         const ranked = commands.map(c => ({ c, s: this.paletteScore(q, c.label) }))
             .filter(r => r.s >= 0)
-            .map(r => ({ c: r.c, s: r.s + boost(r.c.label) }))
+            .map(r => ({ c: r.c, s: r.s + boost(r.c.label) - (r.c.group === 'Help' && !/^\s*help/i.test(q) ? 12 : 0) }))
             .sort((a, b) => b.s - a.s)
             .map(r => (recent.includes(r.c.label) ? Object.assign({}, r.c, { recent: true }) : r.c));
         return this.paletteValueCommands(q).concat(ranked).slice(0, limit);
@@ -65103,9 +65174,13 @@ Object.assign(DocsDoodads.Workspace, {
         }
 
         // The time and season the editor is previewing, if the game should start with them.
-        const minutes = this.previewMinutes, season = this.previewSeason;
+        // With the clock or seasons off (World), the game has no time to set, so that preview isn't offered.
+        const world = DocsDoodads.World.settings() || {};
+        const clockOn = !!(world.time && world.time.source && world.time.source !== 'off');
+        const seasonsOn = !!(world.seasons && world.seasons.source && world.seasons.source !== 'off');
+        const minutes = clockOn ? this.previewMinutes : null, season = seasonsOn ? this.previewSeason : null;
         const hasSeason = season !== null && season !== undefined;
-        const seasonNames = (DocsDoodads.World.settings().seasons || {}).names || [];
+        const seasonNames = (world.seasons || {}).names || [];
         const text = P.startText(minutes, hasSeason ? seasonNames[season] || `season ${Number(season) + 1}` : '');
         let useTime = false;
         if (text) {
@@ -69155,9 +69230,19 @@ Object.assign(DocsDoodads.Workspace, {
             if (!content) return null;
             const previous = document.getElementById('dd-event-sight');
             if (previous && previous.remove) previous.remove();
-            const current = this.eventSightInfo() || Object.assign({}, S.defaults);
+            const own = this.eventSightInfo(), current = own || Object.assign({}, S.defaults);
             const section = document.createElement('div');
             section.id = 'dd-event-sight'; section.style.cssText = 'margin-top:10px;border-top:1px solid var(--dd-line-soft);padding-top:8px;';
+            // An event without sight shows only Add Sight; nothing is written until it's pressed.
+            if (!own) {
+                section.innerHTML = `
+                <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Sight</div>
+                <button class="dd-btn" id="dd-sight-add" type="button" title="Let this event see the player (a cone it looks along)">Add Sight</button>`;
+                content.appendChild(section);
+                const add = document.getElementById('dd-sight-add');
+                if (add) add.onclick = () => { if (this.editEventSight(Object.assign({}, S.defaults))) this.refreshInspector(); };
+                return section;
+            }
             section.innerHTML = `
                 <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Sight</div>
                 <label class="dd-field"><span>Range (tiles)</span><input id="dd-sight-range" type="number" min="0.25" max="100" step="0.25" value="${current.range}"></label>
@@ -70400,8 +70485,8 @@ DocsDoodads.ToolClips = {
     },
 
     // The clip element for a tooltip: a strip of frames stepped through with CSS.
-    element(url) {
-        const art = DocsDoodads.ToolClipArt, s = this.scale;
+    element(url, scale) {
+        const art = DocsDoodads.ToolClipArt, s = scale || this.scale;
         const clip = document.createElement('div');
         clip.className = 'dd-tip-clip';
         const width = art.frameW * s, height = art.frameH * s, total = width * art.frames;
@@ -70409,6 +70494,14 @@ DocsDoodads.ToolClips = {
             `animation-duration:${this.seconds}s;animation-timing-function:steps(${art.frames});--dd-clip-end:-${total}px;`;
         clip.setAttribute('aria-hidden', 'true');
         return clip;
+    },
+
+    // The clip fills the tooltip's width in whole steps (sharp pixels), never smaller than the usual scale.
+    scaleFor(tip) {
+        const art = DocsDoodads.ToolClipArt;
+        if (!tip || !art || !(art.frameW > 0) || typeof getComputedStyle === 'undefined') return this.scale;
+        const css = getComputedStyle(tip), inner = tip.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0);
+        return Math.max(this.scale, Math.floor(inner / art.frameW) || 0);
     },
 
     // Called with each tooltip as it opens; adds the clip after the delay if the tooltip is still up.
@@ -70419,7 +70512,10 @@ DocsDoodads.ToolClips = {
         this._timer = setTimeout(() => {
             const shown = U._tooltip;
             if (!shown || shown.tip !== tip || shown.el !== el || (U.lessMotion && U.lessMotion())) return;
-            tip.appendChild(this.element(url));
+            tip.appendChild(this.element(url, this.scaleFor(tip)));
+            // Taller now: keep it inside the window.
+            const roomH = (typeof window !== 'undefined' && window.innerHeight) || 624, top = parseFloat(tip.style.top) || 0;
+            if (top + tip.offsetHeight > roomH - 6) tip.style.top = Math.round(Math.max(6, roomH - tip.offsetHeight - 6)) + 'px';
         }, this.delay);
         if (this._timer && typeof this._timer.unref === 'function') this._timer.unref();
         return this._timer;
@@ -71226,6 +71322,38 @@ Object.assign(DocsDoodads.Workspace, {
         };
         this.renderWallPictureLayers();
         this.updateWallCount();
+    },
+
+    // In 3D the painted cells lie on the ground, each a quad through the camera (at most 6000 near the view).
+    drawWalls3d(g, cam) {
+        if (!g || !cam || (this.placementTool !== 'walls' && !this.showCollision)) return;
+        const grid = this._wallStroke ? this._wallStroke.grid : this.wallGrid(false);
+        const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+        if (!grid || !map) return;
+        const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain, c = grid.cell;
+        const displayX = map.displayX() * map.tileWidth(), displayY = map.displayY() * map.tileHeight();
+        const reach = Math.max(Graphics.width, Graphics.height) * 2;
+        const x0 = Math.floor((displayX - reach) / c), x1 = Math.ceil((displayX + Graphics.width + reach) / c);
+        const y0 = Math.floor((displayY - reach) / c), y1 = Math.ceil((displayY + Graphics.height + reach) / c);
+        const point = (fx, fy) => {
+            const p = P.groundPoint(cam, fx, fy, T.heightPxAtFlat ? T.heightPxAtFlat(fx, fy) : 0);
+            return p.visible ? P.project(cam, p.x, p.y, p.z) : null;
+        };
+        g.lineStyle(0);
+        let drawn = 0;
+        for (let viewY = y0; viewY <= y1 && drawn < 6000; viewY++) {
+            for (let viewX = x0; viewX <= x1 && drawn < 6000; viewX++) {
+                const cell = DocsDoodads.Walls.cellCoords(grid, viewX, viewY);
+                if (!cell || !grid.cells[cell.y][cell.x]) continue;
+                const fx = viewX * c - displayX, fy = viewY * c - displayY;
+                const q = [point(fx, fy), point(fx + c, fy), point(fx + c, fy + c), point(fx, fy + c)];
+                if (q.some(p => !p)) continue;
+                g.beginFill(DocsDoodads.Ui.mapColor('blocked'), this.placementTool === 'walls' ? 0.42 : 0.28);
+                g.drawPolygon([q[0].x, q[0].y, q[1].x, q[1].y, q[2].x, q[2].y, q[3].x, q[3].y]);
+                g.endFill();
+                drawn++;
+            }
+        }
     },
 
     drawWallsOverlay(g) {

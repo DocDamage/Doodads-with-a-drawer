@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Walking to neighbours and World bake.playtest can be turned on: their World settings were dropped when read, so the editor's tick did nothing.
+- Indoors: the indoor darkness shows by day too (under the running clock the daytime colour was white, which darkens nothing).
+- Ambient creatures no longer all fly off the moment a map opens (the first update counted as a lightning strike).
+- Show World Map with pins: the help line sits in MZ's help area, clear of the Cancel button, and the map picture fits beside it instead of covering it.
+- Generate Map's default floor and wall use tiles this tileset has (a blocked kind for the wall), so walls no longer draw empty on Overworld.
+- Painted collision shows on the ground in the 3D view while the Collision tool or Show Collision is on.
+- The ground brush: a texture's see-through parts show the tiles below instead of black.
+- The moving tooltip's clip fills the tooltip's width.
+- Play From Here offers the previewed time only with the clock on, and the season only with seasons on.
+- The drop toast names collision as Details does ("bottom third collision").
+- Details ? with nothing picked opens the map's settings in the guide.
+- Find a Tool lists a tool above its own Help entry (type "help" to put Help first).
+- An event without sight shows only Add Sight; the Sight fields and tags appear once it is pressed.
+- Pick Map & Tile starts on the transfer's current destination.
+- A copied map kind keeps the tiles chosen for the original.
 - Stamp: the picked item no longer follows the pointer over the panels, menus and toolbar; it shows only on the map (a drag from the Item Bag still carries its picture).
 - Pick Tiles: a tileset sheet in the Item Bag that this map's tileset doesn't use opens on a grid; a click picks one tile and a drag a block, and Stamp places just that piece as a doodad.
 - Import Map: a layer's opacity is applied once (it was drawn into the picture and set on the layer, so a 50% roof showed at about 25%).

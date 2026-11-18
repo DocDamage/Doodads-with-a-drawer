@@ -26,6 +26,14 @@ DocsDoodads.Help = {
         return panel ? panel.anchor : null;
     },
 
+    // Details with nothing picked shows the map's own settings, so its ? opens those, not the doodads' section.
+    anchorNow(anchor) {
+        const details = this.panels.find(p => p.words === 'details'), map = this.panels.find(p => p.words === 'map settings');
+        const ws = DocsDoodads.Workspace;
+        const picked = ws && ((ws.selectedDoodads && ws.selectedDoodads.length) || ws.selectedDoodad || ws.selectedEvent);
+        return details && map && anchor === details.anchor && !picked && this.entry(map.anchor) ? map.anchor : anchor;
+    },
+
     decorate(root) {
         if (!root || !root.querySelectorAll) return;
         const selector = '[data-dd-help], .dd-panel-head, .dd-pop-title';
@@ -40,7 +48,7 @@ DocsDoodads.Help = {
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'dd-btn dd-context-help'; button.textContent = '?';
             button.title = 'Help for this panel'; button.setAttribute('aria-label', 'Help for this panel');
-            button.onclick = e => { e.preventDefault(); e.stopPropagation(); this.show(anchor); };
+            button.onclick = e => { e.preventDefault(); e.stopPropagation(); this.show(this.anchorNow(anchor)); };
             head.appendChild(button);
         }
     },

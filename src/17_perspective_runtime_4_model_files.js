@@ -278,20 +278,23 @@ if (typeof Scene_MenuBase !== 'undefined') {
         if (!map) return;
         const M = DocsDoodads.Minimap;
         const px = $gamePlayer.x, py = $gamePlayer.y;
+        // The band the picture may use: all the screen, or what a help line (pins and fast travel) leaves free.
+        const band = this._docsArea || { top: 0, bottom: Graphics.height };
+        const top = Math.max(0, Number(band.top) || 0), room = Math.max(60, Math.min(Graphics.height, Number(band.bottom) || Graphics.height) - top);
         this._marker.clear();
         if (this._globe) {
-            const size = Math.min(Graphics.width, Graphics.height) - 60;
+            const size = Math.max(60, Math.min(Graphics.width, room) - 60);
             const canvas = M.canvasFor(M.globePixels(map.pixels, map.width, map.height, size, px + 0.5, py + 0.5, this._spin), size, size);
             const bitmap = this.worldMapBitmap(size, size);
             bitmap.context.clearRect(0, 0, size, size);
             bitmap.context.drawImage(canvas, 0, 0);
             this._picture.bitmap.baseTexture.update();
             this._picture.x = (Graphics.width - size) / 2;
-            this._picture.y = (Graphics.height - size) / 2;
+            this._picture.y = top + (room - size) / 2;
             // The player faces the viewer at the centre until the globe is turned.
-            if (Math.abs(this._spin) < 1e-6) this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(Graphics.width / 2, Graphics.height / 2, 5).endFill();
+            if (Math.abs(this._spin) < 1e-6) this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(Graphics.width / 2, top + room / 2, 5).endFill();
         } else {
-            const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (Graphics.height - 60) / map.height));
+            const scale = Math.max(0.1, Math.min((Graphics.width - 60) / map.width, (room - 60) / map.height));
             const canvas = M.canvasFor(map.pixels, map.width, map.height);
             const w = Math.round(map.width * scale), h = Math.round(map.height * scale);
             this.worldMapBitmap(w, h);
@@ -299,7 +302,7 @@ if (typeof Scene_MenuBase !== 'undefined') {
             this._picture.bitmap.context.drawImage(canvas, 0, 0, w, h);
             this._picture.bitmap.baseTexture.update();
             this._picture.x = (Graphics.width - w) / 2;
-            this._picture.y = (Graphics.height - h) / 2;
+            this._picture.y = top + (room - h) / 2;
             this._marker.beginFill(0xffffff).lineStyle(2, 0x000000).drawCircle(this._picture.x + (px + 0.5) * scale, this._picture.y + (py + 0.5) * scale, 5).endFill();
         }
     };

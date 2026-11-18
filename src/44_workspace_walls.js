@@ -197,6 +197,38 @@ Object.assign(DocsDoodads.Workspace, {
         this.updateWallCount();
     },
 
+    // In 3D the painted cells lie on the ground, each a quad through the camera (at most 6000 near the view).
+    drawWalls3d(g, cam) {
+        if (!g || !cam || (this.placementTool !== 'walls' && !this.showCollision)) return;
+        const grid = this._wallStroke ? this._wallStroke.grid : this.wallGrid(false);
+        const map = typeof $gameMap !== 'undefined' ? $gameMap : null;
+        if (!grid || !map) return;
+        const P = DocsDoodads.Perspective, T = DocsDoodads.Terrain, c = grid.cell;
+        const displayX = map.displayX() * map.tileWidth(), displayY = map.displayY() * map.tileHeight();
+        const reach = Math.max(Graphics.width, Graphics.height) * 2;
+        const x0 = Math.floor((displayX - reach) / c), x1 = Math.ceil((displayX + Graphics.width + reach) / c);
+        const y0 = Math.floor((displayY - reach) / c), y1 = Math.ceil((displayY + Graphics.height + reach) / c);
+        const point = (fx, fy) => {
+            const p = P.groundPoint(cam, fx, fy, T.heightPxAtFlat ? T.heightPxAtFlat(fx, fy) : 0);
+            return p.visible ? P.project(cam, p.x, p.y, p.z) : null;
+        };
+        g.lineStyle(0);
+        let drawn = 0;
+        for (let viewY = y0; viewY <= y1 && drawn < 6000; viewY++) {
+            for (let viewX = x0; viewX <= x1 && drawn < 6000; viewX++) {
+                const cell = DocsDoodads.Walls.cellCoords(grid, viewX, viewY);
+                if (!cell || !grid.cells[cell.y][cell.x]) continue;
+                const fx = viewX * c - displayX, fy = viewY * c - displayY;
+                const q = [point(fx, fy), point(fx + c, fy), point(fx + c, fy + c), point(fx, fy + c)];
+                if (q.some(p => !p)) continue;
+                g.beginFill(DocsDoodads.Ui.mapColor('blocked'), this.placementTool === 'walls' ? 0.42 : 0.28);
+                g.drawPolygon([q[0].x, q[0].y, q[1].x, q[1].y, q[2].x, q[2].y, q[3].x, q[3].y]);
+                g.endFill();
+                drawn++;
+            }
+        }
+    },
+
     drawWallsOverlay(g) {
         if (!g || (this.placementTool !== 'walls' && !this.showCollision)) return;
         if (DocsDoodads.Perspective.liveCamera && DocsDoodads.Perspective.liveCamera()) return;

@@ -46,9 +46,19 @@
             if (!content) return null;
             const previous = document.getElementById('dd-event-sight');
             if (previous && previous.remove) previous.remove();
-            const current = this.eventSightInfo() || Object.assign({}, S.defaults);
+            const own = this.eventSightInfo(), current = own || Object.assign({}, S.defaults);
             const section = document.createElement('div');
             section.id = 'dd-event-sight'; section.style.cssText = 'margin-top:10px;border-top:1px solid var(--dd-line-soft);padding-top:8px;';
+            // An event without sight shows only Add Sight; nothing is written until it's pressed.
+            if (!own) {
+                section.innerHTML = `
+                <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Sight</div>
+                <button class="dd-btn" id="dd-sight-add" type="button" title="Let this event see the player (a cone it looks along)">Add Sight</button>`;
+                content.appendChild(section);
+                const add = document.getElementById('dd-sight-add');
+                if (add) add.onclick = () => { if (this.editEventSight(Object.assign({}, S.defaults))) this.refreshInspector(); };
+                return section;
+            }
             section.innerHTML = `
                 <div class="dd-panel-head" style="font-weight:900;margin-bottom:4px;">Sight</div>
                 <label class="dd-field"><span>Range (tiles)</span><input id="dd-sight-range" type="number" min="0.25" max="100" step="0.25" value="${current.range}"></label>

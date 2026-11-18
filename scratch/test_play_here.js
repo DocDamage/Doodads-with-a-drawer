@@ -130,7 +130,18 @@ function reset() {
     assert.strictEqual(closed, 1);
     console.log('PASS unsaved work asks first');
 
-    // 5. The previewed time and season, only on yes.
+    // 5. With the clock and seasons off (the default) the game has no time to set, so nothing is offered.
+    reset();
+    ws.previewMinutes = 22 * 60 + 35;
+    ws.previewSeason = 2;
+    assert.strictEqual(await ws.playFromHere(1, 1), true);
+    assert.strictEqual(asked.length, 0, 'no Start at 22:35 with the clock off');
+    assert.strictEqual(timeSet.length + seasonSet.length, 0);
+    D.World.settings().time.source = 'clock';
+    D.World.settings().seasons.source = 'system';
+    console.log('PASS the clock off: no time offered');
+
+    // The previewed time and season, only on yes.
     reset();
     ws.previewMinutes = 18 * 60 + 30;
     ws.previewSeason = 3;

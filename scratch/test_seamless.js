@@ -40,7 +40,10 @@ const p = $gamePlayer;
 p.locate(19, 4);
 p.moveStraight(6);
 assert.ok(!p._newMapId, 'off unless the game turns it on');
-D.World.settings().seamless = { enabled: true };
+assert.strictEqual(D.World.settings().seamless.enabled, false, 'off by default');
+// Stored the way the editor's tick stores it (World → seamless), not set on the merged copy.
+$dataDocsDoodads.world = Object.assign({}, $dataDocsDoodads.world, { seamless: { enabled: true } });
+assert.strictEqual(D.World.settings().seamless.enabled, true, 'the stored tick is read');
 p.locate(19, 5);
 p.moveStraight(6);
 assert.ok(!p._newMapId, 'a blocked tile over the edge stops the step');
