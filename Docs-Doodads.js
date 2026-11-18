@@ -3348,10 +3348,14 @@ DocsDoodads.Lighting = {
     },
 
     // Plugin command fade > day/night clock (on maps that follow it) > the map's own ambient.
-    resolveAmbient({ world, minutes, mapSettings, override, switchValue } = {}) {
+    // previewing: the editor is previewing a time. Its day and night then show even with the clock off
+    // (World → Day and Night), so "make it night" in the editor looks like night. Only for what is drawn:
+    // the game itself, and gameplay checks such as light and sight, still follow the clock setting.
+    resolveAmbient({ world, minutes, mapSettings, override, switchValue, previewing } = {}) {
         if (override) return this.ambientFor(null, override);
         const time = world && world.time;
-        if (time && time.source && time.source !== 'off' && minutes !== null && minutes !== undefined
+        const clockOn = time && time.source && time.source !== 'off';
+        if (time && (clockOn || previewing) && minutes !== null && minutes !== undefined
             && DocsDoodads.TimeOfDay.appliesToMap(mapSettings)) {
             const a = DocsDoodads.TimeOfDay.ambientAt(minutes, time.keyframes);
             return { darkness: Math.max(0, Math.min(1, a.darkness)), color: a.color };
@@ -9336,6 +9340,11 @@ DocsDoodads.Atmosphere = {
         return ws && ws.mounted && ws[field] !== null && ws[field] !== undefined ? ws[field] : null;
     },
 
+    // The editor is previewing a time of day (the clock bar, Moods, Find a Tool's plain words).
+    previewingTime() {
+        return this.editorPreview('previewMinutes') !== null;
+    },
+
     // env() for the per-frame readers: one object, refreshed on each read, so thousands of doodads
     // asking for the season every frame allocate nothing. Never handed out.
     sharedEnv(withClock) {
@@ -11846,11 +11855,36 @@ DocsDoodads.EditWindow = {
         const screen = env && env.screen;
         if (screen && !this.fillsScreen(this.box(win), screen)) return false;
         try {
+            // Un-maximizing goes back to the place and size the window had (NW.js keeps them), at once, so it
+            // also works on a reload. resizeTo is only for a window without restore: NW.js on Windows sizes the
+            // page inside the frame with it, and the window came back a frame too big (848 x 702 for 832 x 663).
             if (typeof win.restore === 'function') win.restore();
-            if (typeof win.resizeTo === 'function') win.resizeTo(was.width, was.height);
+            else {
+                if (typeof win.resizeTo === 'function') win.resizeTo(was.width, was.height);
+                if (typeof win.moveTo === 'function') win.moveTo(was.x, was.y);
+            }
+        } catch (e) { return false; }
+        this.later(() => this.correct(win, was));
+        return true;
+    },
+
+    // A moment later, when the new size shows: still off by about a frame, take the difference off (and move it
+    // back). Left alone when it is right, or off by more than a frame (the user has resized it since).
+    correct(win, was) {
+        if (!win || !was || typeof win.resizeTo !== 'function') return false;
+        const now = this.box(win);
+        const dw = now.width - was.width, dh = now.height - was.height;
+        if ((!dw && !dh) || Math.abs(dw) > 64 || Math.abs(dh) > 96) return false;
+        try {
+            win.resizeTo(was.width - dw, was.height - dh);
             if (typeof win.moveTo === 'function') win.moveTo(was.x, was.y);
         } catch (e) { return false; }
         return true;
+    },
+
+    // NW.js reports a new window size a moment after it is asked for.
+    later(fn) {
+        if (typeof setTimeout === 'function') setTimeout(fn, 300);
     },
 
     // ---- Thin hooks into NW.js, the page and MZ ----
@@ -12912,7 +12946,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Day and Night",
         "anchor": "day-and-night",
-        "firstParagraph": "- Clock: Off, Running clock (game minutes pass while the player is on a map; saved with the game), or Read from variables (your own events set the hour and minute variables). - The running clock writes the hour (and minute) into the variables you choose, so events can check the time. - Darkness through the day is a list of keyframes (hour, darkness, colour). The map's darkness is blended between them, wrapping through midnight. The defaults go dark blue at night, orange at dawn and dusk, and clear by day. - Lamps: set a doodad's Light to After dark and it fades on once darkness passes Lamps switch on at darkness, and off again in the morning. - Preview a time while editing scrubs the clock without changing the game. - Per map: Day and night on this map is Auto (follow the clock unless the map sets its own darkness, so caves stay dark), Follow the clock, or Ignore (indoors). - Plugin commands: Set Time of Day, Pass Time, Clock Control (pause, resume, speed), and Set/Reset Ambient Light, which still win over the clock while they are active. Set Time of Day keeps the day even when the new hour is earlier (give it a Day to change that); Pass Time past midnight starts the next day. - The clock outside the map: tick The clock runs in battles and in menus to keep time passing there, and set Minutes a battle takes to add that much when a battle ends (inns and sleep use Pass Time). - Calendar: the running clock counts days from day 1. Day variable and Weekday variable follow it (the weekday is 1 for the first name in Weekdays), and Named dates gives days a name (30 Harvest Festival; 1 Market every 7). The Calendar command goes to a day, moves days on, or puts the day, the weekday or the date's name in a variable; scripts use DocsDoodads.api.day(), weekday(), weekdayName(), dateName() and setDay(n). - Play Doodad Animation plays a named doodad's strip of frames once, now (a chest lid, a door), from and to the frames you give, holding the last one or going back to its own animation; with Wait the event goes on when it ends, and scripts hear animationEnd."
+        "firstParagraph": "- Clock: Off, Running clock (game minutes pass while the player is on a map; saved with the game), or Read from variables (your own events set the hour and minute variables). - The running clock writes the hour (and minute) into the variables you choose, so events can check the time. - Darkness through the day is a list of keyframes (hour, darkness, colour). The map's darkness is blended between them, wrapping through midnight. The defaults go dark blue at night, orange at dawn and dusk, and clear by day. - Lamps: set a doodad's Light to After dark and it fades on once darkness passes Lamps switch on at darkness, and off again in the morning. - Preview a time while editing scrubs the clock without changing the game. The preview shows the darkness through the day even while the Clock is Off; the game itself only gets day and night once the Clock is on. - Per map: Day and night on this map is Auto (follow the clock unless the map sets its own darkness, so caves stay dark), Follow the clock, or Ignore (indoors). - Plugin commands: Set Time of Day, Pass Time, Clock Control (pause, resume, speed), and Set/Reset Ambient Light, which still win over the clock while they are active. Set Time of Day keeps the day even when the new hour is earlier (give it a Day to change that); Pass Time past midnight starts the next day. - The clock outside the map: tick The clock runs in battles and in menus to keep time passing there, and set Minutes a battle takes to add that much when a battle ends (inns and sleep use Pass Time). - Calendar: the running clock counts days from day 1. Day variable and Weekday variable follow it (the weekday is 1 for the first name in Weekdays), and Named dates gives days a name (30 Harvest Festival; 1 Market every 7). The Calendar command goes to a day, moves days on, or puts the day, the weekday or the date's name in a variable; scripts use DocsDoodads.api.day(), weekday(), weekdayName(), dateName() and setDay(n). - Play Doodad Animation plays a named doodad's strip of frames once, now (a chest lid, a door), from and to the frames you give, holding the last one or going back to its own animation; with Wait the event goes on when it ends, and scripts hear animationEnd."
     },
     {
         "title": "Sun and Shadows",
@@ -13447,7 +13481,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Panels in their own window",
         "anchor": "panels-in-their-own-window",
-        "firstParagraph": "View → Item Bag in a Window or Details in a Window moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then click the map (drags can't cross windows). Close the window or use Dock … Back to put it back; its place is kept for next time. Closing the editor docks everything back."
+        "firstParagraph": "View → Item Bag in a Window or Details in a Window moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then choose Stamp and click the map (drags can't cross windows). Close the window or use Dock … Back to put it back; its place is kept for next time. Closing the editor docks everything back."
     },
     {
         "title": "22. Project Safety, Conflict Detection & Crash Recovery",
@@ -21542,7 +21576,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
         const world = DocsDoodads.World.settings();
         let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
-            override: fade ? fade.current : null, switchValue });
+            override: fade ? fade.current : null, switchValue, previewing: DocsDoodads.Atmosphere.previewingTime() });
         ambient = DocsDoodads.Indoors.ambient(ambient, Lighting.mapSettings($gameMap.mapId()), DocsDoodads.Indoors.blend);
         if (workspace && workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
@@ -21729,7 +21763,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 DocsDoodads.currentAmbient = function(switchValue) {
     const Lighting = DocsDoodads.Lighting;
     return Lighting.resolveAmbient({ world: DocsDoodads.World.settings(), minutes: DocsDoodads.Atmosphere.minutes(),
-        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue });
+        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue, previewing: DocsDoodads.Atmosphere.previewingTime() });
 };
 
 // Variable mode writes the variables; otherwise the running clock jumps. Setting an earlier hour keeps the
@@ -44288,6 +44322,7 @@ DocsDoodads.Workspace = {
         this.updateCollisionLegend();
         DocsDoodads.Ui.installTooltips();
         DocsDoodads.Help.install();
+        this.startOnboarding();
         if (DocsDoodads.Ui.prefs().perfOverlay === true) this.startPerf();
         this.startAssetScan();
         DocsDoodads.LiveReload.start();
@@ -44745,7 +44780,12 @@ DocsDoodads.Workspace = {
         this.layoutPanels();
         this.refreshDrawerCards();
         this.refreshInspector();
-        if (!prefs.welcomed && !this.questData()) this.startQuest();
+    },
+
+    // The first-map quest for someone new, else a paused quest and What's New. Called by open() once the editor
+    // is mounted: before that the quest can't draw its card or start the timer that ticks its steps off.
+    startOnboarding() {
+        if (!DocsDoodads.Ui.prefs().welcomed && !this.questData()) this.startQuest();
         else { this.resumeQuest(); this.maybeShowWhatsNew(); }
     },
 
@@ -44757,7 +44797,8 @@ DocsDoodads.Workspace = {
         if (!toolbar) return;
         this.fitToolbar(toolbar);
         const top = (toolbar.offsetTop || 8) + (toolbar.offsetHeight || 64) + 8;
-        for (const id of ['dd-drawer-panel', 'dd-inspector-panel']) {
+        for (const [id, which] of [['dd-drawer-panel', 'drawer'], ['dd-inspector-panel', 'inspector']]) {
+            if (this.isPoppedOut && this.isPoppedOut(which)) continue;
             const panel = document.getElementById(id);
             if (panel) panel.style.top = top + 'px';
         }
@@ -45952,7 +45993,8 @@ DocsDoodads.Workspace = {
             icon = a.type === 'prefab' ? 'box' : a.category === 'Audio' ? 'music' : 'bag';
             title = name(a.fileName) || 'Item';
             hint = a.category === 'Audio' ? 'Drop it on the map to make a sound event, or right-click to listen.'
-                : 'Now click the map to place it. Stamp places it again and again.';
+                // Shown with Select, where a click on the map picks what is there: it places nothing.
+                : 'Drag it onto the map, or pick Stamp and click the map to place it.';
         } else {
             const mapId = this.currentMapId();
             const info = typeof $dataMapInfos !== 'undefined' && $dataMapInfos ? $dataMapInfos[mapId] : null;
@@ -55112,6 +55154,9 @@ Object.assign(DocsDoodads.Workspace, {
         for (const which of both) {
             const el = this.panelEl(which);
             if (!el || !el.style) continue;
+            // A panel in its own window (44_workspace_popout.js) fills that window: docking it here read its
+            // width: 100% as 100 and squeezed it to 100 pixels, hiding most of the Item Bag.
+            if (this.isPoppedOut && this.isPoppedOut(which)) continue;
             const side = d[which];
             const st = el.style;
             const folded = this.isFolded && this.isFolded(which);
@@ -64859,7 +64904,7 @@ Object.assign(DocsDoodads.Workspace, {
 // windows. Keys pressed there reach the shortcut table (not while typing in a field), and the game does not
 // pause while that window has focus. Closing the window, Dock Back, closing the editor or ending the playtest
 // put the panel back where it was; each window's place is kept per computer and layout.
-// Drags from the second window onto the map can't cross windows: pick an item there, then click the map.
+// Drags from the second window onto the map can't cross windows: pick an item there, then Stamp on the map.
 (function() {
     const D = DocsDoodads, W = D.Workspace;
     const ids = { drawer: 'dd-drawer-panel', inspector: 'dd-inspector-panel' };
@@ -64914,13 +64959,30 @@ Object.assign(DocsDoodads.Workspace, {
             const saved = this.popoutPlace(which);
             return new Promise(resolve => {
                 nw.Window.open('about:blank', { width: saved.width || 360, height: saved.height || 600, x: saved.x, y: saved.y, title: titles[which], focus: true }, win => {
+                    // NW.js 0.48 hands over a blank window still loading, with no body, and never sends 'loaded'
+                    // for it ('document-end' comes instead). Move the panel once there is a body: on either
+                    // event, or by looking again every 50 ms for up to 5 s. No body by then: close the window.
+                    let done = false, tries = 0;
+                    const ready = () => { const w = win.window, doc = w && w.document; return doc && doc.body ? doc : null; };
                     const attach = () => {
-                        const w = win.window, doc = w && w.document;
-                        if (!doc || !doc.body) { resolve(false); return; }
+                        if (done) return;
+                        const doc = ready();
+                        if (!doc) return;
+                        done = true;
                         resolve(this.adoptPanel(which, panel, win, doc));
                     };
-                    if (win.window && win.window.document && win.window.document.readyState === 'complete') attach();
-                    else if (win.on) win.on('loaded', attach); else attach();
+                    const look = () => {
+                        if (done) return;
+                        attach();
+                        if (done) return;
+                        if (++tries <= 100) { setTimeout(look, 50); return; }
+                        done = true;
+                        try { if (win.close) win.close(true); } catch (e) { /* already closed */ }
+                        this.showToast(titles[which] + " couldn't open in its own window.", 'error');
+                        resolve(false);
+                    };
+                    if (win.on) { win.on('loaded', attach); win.on('document-end', attach); }
+                    look();
                 });
             });
         },
@@ -64937,7 +64999,7 @@ Object.assign(DocsDoodads.Workspace, {
             const parent = panel.parentNode, next = panel.nextSibling;
             const style = panel.style ? panel.style.cssText : '';
             const moved = doc.adoptNode ? doc.adoptNode(panel) : panel;
-            if (moved.style) moved.style.cssText = style + ';position:static;left:auto;top:auto;right:auto;bottom:auto;width:100%;height:100%;max-height:none;display:block;';
+            if (moved.style) moved.style.cssText = style + ';position:static;left:auto;top:auto;right:auto;bottom:auto;width:100%;height:100%;max-height:none;display:block;box-sizing:border-box;';
             doc.body.appendChild(moved);
             const forward = e => {
                 if (D.isEditableTarget && D.isEditableTarget(e.target)) return;
@@ -65233,8 +65295,14 @@ Object.assign(DocsDoodads.Workspace, {
             }
             this._questDrawn = '';
         },
+        // No pictures to place yet: nothing in the Doodads category. (MZ's own music, sounds and pictures fill the
+        // index of every new project, so an empty index never happened and the card never offered samples.)
+        questNeedsSamples() {
+            return !DocsDoodads.AssetIndex.list.some(asset => asset && asset.category === 'Doodads');
+        },
         renderQuest(quest) {
-            const signature = JSON.stringify([quest.completed, this.currentMapId(), DocsDoodads.AssetIndex.list.length > 0]);
+            const needsSamples = this.questNeedsSamples();
+            const signature = JSON.stringify([quest.completed, this.currentMapId(), needsSamples]);
             if (signature === this._questDrawn && document.getElementById('dd-first-map-quest')) return;
             const old = document.getElementById('dd-first-map-quest'); if (old && old.parentNode) old.parentNode.removeChild(old);
             const previousPointer = document.getElementById('dd-quest-pointer'); if (previousPointer && previousPointer.parentNode) previousPointer.parentNode.removeChild(previousPointer);
@@ -65245,11 +65313,16 @@ Object.assign(DocsDoodads.Workspace, {
             card.innerHTML = '<div class="dd-panel-head" data-dd-help="your-first-map"><b> Your first map</b></div>'
                 + '<ol style="padding-left:22px;line-height:1.8;">' + Q.steps.map(step => '<li style="' + (done.has(step.id) ? 'color:var(--dd-muted);text-decoration:line-through;' : '') + '">' + (done.has(step.id) ? '✓ ' : '') + step.text + '</li>').join('') + '</ol>'
                 + (Number(quest.mapId) !== Number(this.currentMapId()) ? '<p>Continue on map ' + Number(quest.mapId) + '.</p>' : '')
-                + (!DocsDoodads.AssetIndex.list.length ? '<button class="dd-btn" id="dd-quest-samples">Add Sample Items</button>' : '')
+                + (needsSamples ? '<button class="dd-btn" id="dd-quest-samples">Add Sample Items</button>' : '')
                 + '<div style="display:flex;gap:5px;margin-top:8px;"><button class="dd-btn" id="dd-quest-point">Show me</button><button class="dd-btn" id="dd-quest-pause">Not now</button><button class="dd-btn" id="dd-quest-skip">Skip</button></div>';
             (this.container || document.body).appendChild(card);
             const bind = (id, fn) => { const element = document.getElementById(id); if (element) element.onclick = fn; };
-            bind('dd-quest-samples', async () => { await this.addSampleContent(); this._questDrawn = ''; this.updateQuest(); });
+            // Then the bag opens on Doodads: on Everything the new pictures sat among MZ's own music and pictures.
+            bind('dd-quest-samples', async () => {
+                await this.addSampleContent();
+                if (typeof this.setCategory === 'function') { this._categoryChosen = true; this.setCategory('Doodads'); }
+                this._questDrawn = ''; this.updateQuest();
+            });
             bind('dd-quest-pause', () => this.pauseQuest('paused')); bind('dd-quest-skip', () => this.pauseQuest('skipped'));
             bind('dd-quest-point', () => {
                 const oldPointer = document.getElementById('dd-quest-pointer'); if (oldPointer && oldPointer.parentNode) oldPointer.parentNode.removeChild(oldPointer);

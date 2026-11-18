@@ -6,7 +6,7 @@
     ", {width} × {height} tiles": "",
     ", then": "",
     "…and {rows} more": "",
-    "' : '') + (!DocsDoodads.AssetIndex.list.length ? '": "",
+    "' : '') + (needsSamples ? '": "",
     "', old: '": "",
     "(a layer name). Its sheet is made for you in a playtest and remade when you save the .aseprite again. Frames come from tags down, left, right and up, or the first frames in that order. Or make the sheets once:": "",
     "(default: {defaultValue}) · {guidance}": "",

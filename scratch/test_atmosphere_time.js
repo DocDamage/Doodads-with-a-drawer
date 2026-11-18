@@ -90,6 +90,25 @@ assert.ok(near(Lighting.resolveAmbient({ world, minutes: 19 * 60, mapSettings: n
 assert.strictEqual(Lighting.resolveAmbient({ world, minutes: 19 * 60, mapSettings: { ambient: { darkness: 0.8, color: '#221100' } } }).darkness, 0.8, "a cave keeps its own darkness");
 assert.strictEqual(Lighting.resolveAmbient({ world, minutes: 19 * 60, override: { darkness: 0.1, color: '#000000' } }).darkness, 0.1);
 assert.strictEqual(Lighting.resolveAmbient({ world: { time: { source: 'off' } }, minutes: null, mapSettings: { ambient: { darkness: 0.2 } } }).darkness, 0.2);
+// The editor previewing a time shows its day and night even with the clock off (a new project): "make it
+// night" used to tick off and leave the map in daylight. Without a preview, the clock setting decides.
+{
+    const off = { time: { source: 'off', keyframes: keys } };
+    assert.strictEqual(Lighting.resolveAmbient({ world: off, minutes: 22 * 60, mapSettings: null }).darkness, 0, 'clock off, no preview: no night');
+    assert.ok(Lighting.resolveAmbient({ world: off, minutes: 22 * 60, mapSettings: null, previewing: true }).darkness > 0.5, 'clock off, previewing 22:00: night');
+    assert.ok(near(Lighting.resolveAmbient({ world: off, minutes: 19 * 60, mapSettings: null, previewing: true }).darkness, 0.3));
+    assert.strictEqual(Lighting.resolveAmbient({ world: off, minutes: 22 * 60, mapSettings: { ambient: { darkness: 0.8, color: '#221100' } }, previewing: true }).darkness, 0.8, 'a cave keeps its own darkness');
+    assert.strictEqual(Lighting.resolveAmbient({ world: off, minutes: 22 * 60, mapSettings: { dayNight: 'off' }, previewing: true }).darkness, 0, 'a map set not to follow day and night');
+    // Previewing means the editor is open with a preview time.
+    const ws = DocsDoodads.Workspace, A = DocsDoodads.Atmosphere, was = [ws.mounted, ws.previewMinutes];
+    ws.mounted = true; ws.previewMinutes = 1320;
+    assert.strictEqual(A.previewingTime(), true);
+    ws.previewMinutes = null;
+    assert.strictEqual(A.previewingTime(), false);
+    ws.mounted = false; ws.previewMinutes = 1320;
+    assert.strictEqual(A.previewingTime(), false, 'not once the editor is closed');
+    [ws.mounted, ws.previewMinutes] = was;
+}
 
 // 3. The sun: rises in the east (shadows point west), noon shadows point north and are shortest.
 const Sun = DocsDoodads.Sun;

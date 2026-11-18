@@ -182,7 +182,7 @@ const add = (id, rect, hidden) => { const n = makeNode('div'); n.id = id; byId[i
     ws.mapEntries = () => [];
     const palette = ws.paletteCommands().map(c => c.label);
     for (const l of ['Replay Tool Tours', 'Add Sample Items (pictures, prefabs, a biome)', "What's New", 'How to Use (welcome card)']) assert.ok(palette.includes(l), l);
-    assert.ok(/maybeShowWhatsNew\(\)/.test(String(ws.buildDom)) && /endTour\(\)/.test(String(ws.close)));
+    assert.ok(/maybeShowWhatsNew\(\)/.test(String(ws.startOnboarding)) && /startOnboarding\(\)/.test(String(ws.open)) && /endTour\(\)/.test(String(ws.close)));
     console.log("✓ what's new: once after an update (not for someone new); welcome card buttons; palette");
 
     console.log("=== Tours, sample items and what's new passed ===");

@@ -716,6 +716,11 @@ DocsDoodads.Atmosphere = {
         return ws && ws.mounted && ws[field] !== null && ws[field] !== undefined ? ws[field] : null;
     },
 
+    // The editor is previewing a time of day (the clock bar, Moods, Find a Tool's plain words).
+    previewingTime() {
+        return this.editorPreview('previewMinutes') !== null;
+    },
+
     // env() for the per-frame readers: one object, refreshed on each read, so thousands of doodads
     // asking for the season every frame allocate nothing. Never handed out.
     sharedEnv(withClock) {

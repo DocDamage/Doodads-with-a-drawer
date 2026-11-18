@@ -288,7 +288,7 @@ These settings apply to the whole game. With nothing selected, Details shows the
 - The running clock writes the hour (and minute) into the variables you choose, so events can check the time.
 - **Darkness through the day** is a list of keyframes (hour, darkness, colour). The map's darkness is blended between them, wrapping through midnight. The defaults go dark blue at night, orange at dawn and dusk, and clear by day.
 - **Lamps**: set a doodad's Light to *After dark* and it fades on once darkness passes **Lamps switch on at darkness**, and off again in the morning.
-- **Preview a time while editing** scrubs the clock without changing the game.
+- **Preview a time while editing** scrubs the clock without changing the game. The preview shows the darkness through the day even while the Clock is *Off*; the game itself only gets day and night once the Clock is on.
 - **Per map**: *Day and night on this map* is *Auto* (follow the clock unless the map sets its own darkness, so caves stay dark), *Follow the clock*, or *Ignore (indoors)*.
 - Plugin commands: **Set Time of Day**, **Pass Time**, **Clock Control** (pause, resume, speed), and **Set/Reset Ambient Light**, which still win over the clock while they are active. Set Time of Day keeps the day even when the new hour is earlier (give it a Day to change that); Pass Time past midnight starts the next day.
 - **The clock outside the map**: tick *The clock runs in battles* and *in menus* to keep time passing there, and set *Minutes a battle takes* to add that much when a battle ends (inns and sleep use Pass Time).
@@ -1202,7 +1202,7 @@ The editor is in English. **View → Look → Editor language** lists any transl
 
 ### Panels in their own window
 
-**View → Item Bag in a Window** or **Details in a Window** moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then click the map (drags can't cross windows). Close the window or use **Dock … Back** to put it back; its place is kept for next time. Closing the editor docks everything back.
+**View → Item Bag in a Window** or **Details in a Window** moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then choose Stamp and click the map (drags can't cross windows). Close the window or use **Dock … Back** to put it back; its place is kept for next time. Closing the editor docks everything back.
 
 ## 22. Project Safety, Conflict Detection & Crash Recovery
 

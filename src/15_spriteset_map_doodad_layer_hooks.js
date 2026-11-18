@@ -360,7 +360,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
         const world = DocsDoodads.World.settings();
         let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
-            override: fade ? fade.current : null, switchValue });
+            override: fade ? fade.current : null, switchValue, previewing: DocsDoodads.Atmosphere.previewingTime() });
         ambient = DocsDoodads.Indoors.ambient(ambient, Lighting.mapSettings($gameMap.mapId()), DocsDoodads.Indoors.blend);
         if (workspace && workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
@@ -547,7 +547,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 DocsDoodads.currentAmbient = function(switchValue) {
     const Lighting = DocsDoodads.Lighting;
     return Lighting.resolveAmbient({ world: DocsDoodads.World.settings(), minutes: DocsDoodads.Atmosphere.minutes(),
-        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue });
+        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue, previewing: DocsDoodads.Atmosphere.previewingTime() });
 };
 
 // Variable mode writes the variables; otherwise the running clock jumps. Setting an earlier hour keeps the

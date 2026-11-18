@@ -131,7 +131,8 @@
             icon = a.type === 'prefab' ? 'box' : a.category === 'Audio' ? 'music' : 'bag';
             title = name(a.fileName) || 'Item';
             hint = a.category === 'Audio' ? 'Drop it on the map to make a sound event, or right-click to listen.'
-                : 'Now click the map to place it. Stamp places it again and again.';
+                // Shown with Select, where a click on the map picks what is there: it places nothing.
+                : 'Drag it onto the map, or pick Stamp and click the map to place it.';
         } else {
             const mapId = this.currentMapId();
             const info = typeof $dataMapInfos !== 'undefined' && $dataMapInfos ? $dataMapInfos[mapId] : null;

@@ -30,6 +30,41 @@ W.startQuest(true); W.pauseQuest('paused');
 assert.strictEqual(W.resumeQuest(), true, 'Not now resumes on the next editor open');
 assert.ok(W.paletteCommands().some(command => /First Map Quest/.test(command.label)));
 W.stopQuestUi();
+// Opening the editor starts the quest only once it is mounted, so the card is drawn and its steps tick off.
+// (buildDom used to start it before open() set mounted: no card, no timer, on every open.)
+const openSource = W.open.toString();
+assert.ok(openSource.indexOf('this.startOnboarding()') > openSource.indexOf('this.mounted = true'), 'the quest starts after the editor is mounted');
+assert.ok(!/startQuest|resumeQuest/.test(W.buildDom.toString()), 'building the panels does not start the quest');
+delete store['docsDoodads.ui']; W._questMemory = null;
+let drawn = 0; const realRender = W.renderQuest; W.renderQuest = () => { drawn++; };
+W.mounted = true; W.startOnboarding();
+assert.ok(drawn > 0 && W._questTimer, 'someone new sees the quest card, and its steps are checked as they work');
+assert.strictEqual(W.questData().status, 'active');
+W.mounted = false; W.stopQuestUi(); W.renderQuest = realRender;
+// Add Sample Items is offered while there are no pictures to place. A new MZ project's index is never empty
+// (MZ's own music, sounds and pictures), so it used to never be offered.
+{
+    const index = D.AssetIndex, was = index.list;
+    index.list = [{ path: 'audio/bgm/Battle1.ogg', category: 'Audio' }, { path: 'img/pictures/Logo.png', category: 'Pictures' }];
+    assert.strictEqual(W.questNeedsSamples(), true, "MZ's own files are not pictures to place");
+    index.list = was.concat([{ path: 'img/doodads/samples/sample_bush.png', category: 'Doodads' }]);
+    assert.strictEqual(W.questNeedsSamples(), false, 'doodad pictures: nothing to add');
+    index.list = [];
+    assert.strictEqual(W.questNeedsSamples(), true);
+    index.list = was;
+    assert.ok(/needsSamples \? '<button class="dd-btn" id="dd-quest-samples">/.test(W.renderQuest.toString()), 'the card shows the button from that check');
+    assert.ok(/addSampleContent\(\);[\s\S]*setCategory\('Doodads'\)/.test(W.renderQuest.toString()), 'then the bag opens on Doodads');
+}
+// Step 1 for someone new: with Select (the default) a click on the map picks, it does not place, so the hint
+// for a picked picture says to drag it or use Stamp. (It used to say "click the map to place it".)
+{
+    let hint = ''; const realSetHint = D.Ui.setHint; D.Ui.setHint = text => { hint = text; };
+    W.selectedEvent = W.selectedDoodad = null; W.selectedDoodads = [];
+    W.selectedAsset = { fileName: 'sample_bush.png', category: 'Doodads' }; W.placementTool = null;
+    W.updateInspectorHead();
+    assert.ok(/drag it onto the map/i.test(hint) && /stamp/i.test(hint) && !/^now click the map/i.test(hint), 'the hint says how a picture is placed with Select: ' + hint);
+    W.selectedAsset = null; D.Ui.setHint = realSetHint;
+}
 const storage = global.localStorage;
 global.localStorage = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('quota'); } };
 W._questMemory = null;

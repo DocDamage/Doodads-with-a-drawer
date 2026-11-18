@@ -64,6 +64,12 @@ D.isEditableTarget = t => Boolean(t && t.editable);
     assert.strictEqual(drawer.parentNode, second.body, 'the panel moved to the new window');
     assert.strictEqual(document.getElementById('dd-drawer-search'), inner, 'lookups by id still find it');
     assert.ok(W.isPoppedOut('drawer'));
+    // It fills its window: docking and the panel layout leave it alone. (Docking read width: 100% as 100 and
+    // squeezed the Item Bag to 100 pixels, hiding most of its cards.)
+    assert.ok(/width:\s*100%/.test(drawer.style.cssText), 'fills its window: ' + drawer.style.cssText);
+    W.applyDockPositions(80);
+    if (W.layoutPanels) { try { W.layoutPanels(); } catch (e) { /* the stand-in page has no toolbar */ } }
+    assert.ok(!/px$/.test(drawer.style.width || '') && drawer.style.left !== '8px' && !/px$/.test(drawer.style.top || ''), 'still fills it after the editor lays out its panels: width ' + drawer.style.width + ', left ' + drawer.style.left);
     // Keys reach the editor, except while typing.
     second.listeners.keydown({ key: 'z', code: 'KeyZ', ctrlKey: true, target: {} });
     assert.strictEqual(dispatched.length, 1, 'a key there is passed on');
@@ -89,6 +95,30 @@ D.isEditableTarget = t => Boolean(t && t.editable);
     W.dockAllBack();
     assert.strictEqual(drawer.parentNode, shell);
     assert.ok(!W.isPoppedOut('drawer'));
+    // NW.js 0.48: the blank window arrives still loading, with no body, and sends 'document-end', never 'loaded'.
+    // The panel used to stay put and an empty window was left open.
+    {
+        const late = makeDoc(); const body = late.body; late.body = null; late.readyState = 'loading';
+        const lateHandlers = {};
+        const lateWin = { window: { document: late }, x: 0, y: 0, width: 360, height: 600, on(n, f) { lateHandlers[n] = f; }, close() { this.closed = true; } };
+        global.nw = { Window: { open: (url, opts, cb) => { cb(lateWin); } } };
+        const pending = W.popOut('drawer');
+        assert.strictEqual(drawer.parentNode, shell, 'not moved before the window has a body');
+        late.body = body; late.readyState = 'complete'; lateHandlers['document-end']();
+        assert.ok(await pending, 'moved once the window is ready');
+        assert.strictEqual(drawer.parentNode, body);
+        W.dockAllBack();
+        assert.strictEqual(drawer.parentNode, shell);
+        // A window that never gets a body is closed, and says so.
+        const never = makeDoc(); never.body = null; never.readyState = 'loading';
+        const neverWin = { window: { document: never }, on() {}, close() { this.closed = true; } };
+        global.nw = { Window: { open: (url, opts, cb) => { cb(neverWin); } } };
+        const realTimeout = global.setTimeout; global.setTimeout = fn => { fn(); return 0; };
+        assert.strictEqual(await W.popOut('inspector'), false);
+        global.setTimeout = realTimeout;
+        assert.ok(neverWin.closed && /couldn't open/.test(toasts.pop()), 'the empty window is closed');
+        global.nw = { Window: { open: (url, opts, cb) => { win.opts = opts; cb(win); } } };
+    }
     // The View menu offers both.
     const ids = W.menus().find(m => m.id === 'view').items.map(i => i.id);
     assert.ok(ids.includes('dd-popout-drawer-btn') && ids.includes('dd-popout-inspector-btn'));

@@ -49,21 +49,23 @@ Plain PC, no extra hardware. These rows make the maps every other session uses.
 
 ## Session B — the editor with fresh preferences
 
+Run 2026-11-18 on a new project with no art (`D:\dev\mz-qa\fresh`). Seen once: right after the first Play From Here that also saved the project, the party wasn't drawn until the player moved. Two repeats didn't show it.
+
 Plain PC. Before starting, delete the editor's preferences, so the first-run features show as a new user sees them.
 
 | ID | Feature | Steps | Result | Notes |
 | --- | --- | --- | --- | --- |
-| 8.1.4 | First-map quest | [30](../MANUAL_TEST_CHECKLIST.md?plain=1#L30) | | Do this first, on the fresh preferences |
-| 8.1.1 | Simple mode | [38](../MANUAL_TEST_CHECKLIST.md?plain=1#L38) | | |
-| 8.2.4 | Details that starts short | [34](../MANUAL_TEST_CHECKLIST.md?plain=1#L34) | | |
-| 8.1.5 | Help where you are | [43](../MANUAL_TEST_CHECKLIST.md?plain=1#L43) | | |
-| 8.2.1 | A bigger window while editing | [41](../MANUAL_TEST_CHECKLIST.md?plain=1#L41) | | Try 100%, 125% and 150%. Seen 2026-11-18: the window filled the screen on F10, but after Done it was 848 × 702 outside instead of the 832 × 663 it started at. Check whether it really grew |
-| 8.2.3 | Moving tooltips | [25](../MANUAL_TEST_CHECKLIST.md?plain=1#L25) | | Also with Windows reduced motion on |
-| 8.1.2 | Moods | [42](../MANUAL_TEST_CHECKLIST.md?plain=1#L42) | | |
-| 8.1.3 | Good settings on drop | [12](../MANUAL_TEST_CHECKLIST.md?plain=1#L12) | | |
-| 8.3.8 | Plain words in Find a Tool | [55](../MANUAL_TEST_CHECKLIST.md?plain=1#L55) | | Watch the Network tab: nothing may be sent |
-| 8.2.2 | A truer ghost of what will be placed | [7](../MANUAL_TEST_CHECKLIST.md?plain=1#L7) | | |
-| 7.2.5 | Panels in their own window | [352](../MANUAL_TEST_CHECKLIST.md?plain=1#L352) | | Riskiest one with MZ's NW.js 0.48. If listeners are lost, note it in BACKLOG_7_PLAN 7.2.5 |
+| 8.1.4 | First-map quest | [30](../MANUAL_TEST_CHECKLIST.md?plain=1#L30) | **Pass** 2026-11-18 (`fix/session-b`) | First run on a new project (MZ 1.10.0, NW.js 0.48.4): the quest card never appeared. It started before the editor finished opening, so it was never drawn (fixed). After the fix it appears, ticks each step off as you go, and Replay, Not now (back on next open) and Skip (stays gone) work. Previews of night showed nothing with the clock off, the default (fixed: previews now darken the map, and the lamp lights). The card had no Add Sample Items button, because MZ's 4,362 stock files count as art (fixed: it's offered while there are no doodad pictures, and afterwards the bag opens on Doodads with the six samples) |
+| 8.1.1 | Simple mode | [38](../MANUAL_TEST_CHECKLIST.md?plain=1#L38) | **Pass** 2026-11-18 (`fix/session-b`) | New preferences open with Select, Stamp, Scatter and Tiles. Show Everything brings back all 11 tools and Keep It Simple shortens them again. Path from Ctrl+K gets a toolbar button and its tour, and the button stays until Done, as the guide says. Older preferences open the full editor. The arrow keys move within the Map menu and across to Art |
+| 8.2.4 | Details that starts short | [34](../MANUAL_TEST_CHECKLIST.md?plain=1#L34) |  | Partly tested 2026-11-18 (`fix/session-b`). The lamp shows Appearance and Light. The map's Details: More gives 43 sections, "shadow" finds 5, clearing the search brings them back, and Less shortens them. Still to test: sounds, models, events, mixed selections, pins, and sections rising after use |
+| 8.1.5 | Help where you are | [43](../MANUAL_TEST_CHECKLIST.md?plain=1#L43) |  | Partly tested 2026-11-18 (`fix/session-b`). The ? on Details shows the guide's paragraph with Open the Guide (not pressed: it opens an app outside the game). With nothing picked, the card shows section 7 (doodads) rather than the map's settings. Still to test: Help entries in Find a Tool, and Open the Guide |
+| 8.2.1 | A bigger window while editing | [41](../MANUAL_TEST_CHECKLIST.md?plain=1#L41) | **Pass** 2026-11-18 (`fix/session-b`) | The window filled the screen on F10, but came back a frame too big (848 × 702 for 832 × 663): restore() was followed by a resizeTo() that NW.js applies to the page area (fixed). Now Done and F5 both bring back 832 × 663 at the same place. A DevTools reload isn't MZ's reload and doesn't restore. Still to test: editor size 125% and 150% |
+| 8.2.3 | Moving tooltips | [25](../MANUAL_TEST_CHECKLIST.md?plain=1#L25) |  | Partly tested 2026-11-18 (`fix/session-b`). At 100%, resting on Stamp shows its text, then the drawn clip after a moment, inside the window. The clip fills about half the tooltip's width. Still to test: 125% and 150%, leaving early, Less motion and Windows reduced motion |
+| 8.1.2 | Moods | [42](../MANUAL_TEST_CHECKLIST.md?plain=1#L42) | **Pass** 2026-11-18 (`fix/session-b`) | Hovering Cosy Night Village shows a dark night with the lamp glowing, and moving away puts everything back without marking the map unsaved. Clicking Rainy Forest keeps its light and look in the map's settings, and Undo removes them. Weather stays a preview, as the card says. Not tested: a saved custom mood |
+| 8.1.3 | Good settings on drop | [12](../MANUAL_TEST_CHECKLIST.md?plain=1#L12) | **Pass** 2026-11-18 (`fix/session-b`) | A bush was placed with "gentle sway, bottomThird collision" and a lamp with "lit after dark", each with Undo settings. Details shows Guessed: bush / lamp. Note: the toast shows the internal name "bottomThird" |
+| 8.3.8 | Plain words in Find a Tool | [55](../MANUAL_TEST_CHECKLIST.md?plain=1#L55) | **Pass** 2026-11-18 (`fix/session-b`) | "make it a rainy night" shows its plan (Preview the time 21:00 → Preview weather: rain) before Enter, then runs it. Unknown words show No matches and run nothing. With the clock off, the default, the night didn't show (fixed with the clock bar fix under 8.1.4) |
+| 8.2.2 | A truer ghost of what will be placed | [7](../MANUAL_TEST_CHECKLIST.md?plain=1#L7) |  | Partly tested 2026-11-18 (`fix/session-b`). With Stamp, the lamp's preview is drawn in the map at its real size and depth (the rain falls over it), and Escape removes it. Still to test: Scatter, Paint and Path, the twelve-sprite cap, lights and reflections, and Capture |
+| 7.2.5 | Panels in their own window | [352](../MANUAL_TEST_CHECKLIST.md?plain=1#L352) | **Pass** 2026-11-18 (`fix/session-b`) | In NW.js 0.48 the pop-out opened an empty window and the panel never moved: NW sends 'document-end', not 'loaded', for a blank page (fixed). Once moved, the Item Bag was squeezed to 100 pixels because docking re-applied its width (fixed), and it was a little wider than its window (fixed). Now: a real click picks a card in the pop-out, Stamp places it in the main window, Ctrl+Z there undoes, the game keeps running, and closing the window docks it back at 250 pixels with its place kept. Details in a Window follows the selection |
 
 ## Session C — editing tools on the map
 
