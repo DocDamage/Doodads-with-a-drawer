@@ -24,7 +24,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "A sample project",
         "anchor": "a-sample-project",
-        "firstParagraph": "npm run sample -- <a new MZ project folder> fills a project you have just made with File > New Project (with MZ closed) with a small sample: a town at dusk with lamps, a sign, a chest and a house whose door opens when touched; a field in the 3D view with wind, swaying trees, birds and butterflies; and a dark cave with the flashlight, echo and torches, joined by transfers both ways. Its pictures are drawn by the plugin's own code; the tiles are the project's own tileset. It refuses a project that already has doodad data or a Map002/Map003. See docs/SAMPLEPROJECT.md."
+        "firstParagraph": "npm run sample -- <a new MZ project folder> fills a project you have just made with File > New Project (with MZ closed) with a small sample: a town at dusk with lamps, a sign, a chest and a house whose door opens and shuts on OK; a field in the 3D view with wind, swaying trees, birds and butterflies; and a dark cave with the flashlight (switch 1, turned on going in and off coming out), echo and torches, joined by transfers both ways. Its pictures are drawn by the plugin's own code; the tiles are the project's own tilesets (the cave uses Dungeon when the project has it). It refuses a project that already has doodad data or a Map002/Map003. See docs/SAMPLEPROJECT.md."
     },
     {
         "title": "4. The Item Bag & Search",

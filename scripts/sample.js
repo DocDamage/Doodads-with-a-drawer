@@ -5,11 +5,12 @@
 // Make the project in RPG Maker MZ first (File > New Project), close MZ, then run this. It writes:
 //  - the plugin's own drawn art (no one else's) into img/doodads/samples/;
 //  - Map001, the town at dusk: lamps, a sign, a house whose door opens (two states, touched), a chest and fences;
-//    Map002, a field: wind, trees and flowers swaying, a pond's birds and butterflies, the 3D view on;
-//    Map003, a cave: dark, the flashlight on, echo, torches;
+//    Map002, a field: wind, trees and flowers swaying, birds and butterflies, the 3D view on;
+//    Map003, a cave: dark, the flashlight on (switch 1, set by the transfers in and out), echo, torches;
 //    transfers between them both ways, and MapInfos entries for the two new maps;
-//  - the doodad data (data/DoodadsQJ.json, or the file the plugin's Data File parameter names).
-// The tiles are the project's own tileset (MZ's, on your computer): nothing of MZ's is shipped. It never writes
+//  - the doodad data (data/DocsDoodads.json, or the file the plugin's Data File parameter names).
+// The tiles are the project's own tilesets (MZ's, on your computer; the cave uses Dungeon when the project has
+// it): nothing of MZ's is shipped. It never writes
 // into a project that already has doodad data or a Map002 or Map003. Afterwards turn the plugin on in Plugin
 // Manager if it isn't, and open the project again in MZ to see the new maps.
 'use strict';
@@ -33,14 +34,32 @@ function loadPlugin() {
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function writeMz(file, list) { fs.writeFileSync(file, '[\n' + list.map(v => JSON.stringify(v === undefined ? null : v)).join(',\n') + '\n]'); }
 
-// The doodad data file the project's plugin settings name (Data File), else the default.
+// The doodad data file the project's plugin settings name (Data File), else the plugin's default.
 function dataFileName(project) {
     const plugins = path.join(project, 'js', 'plugins.js');
     if (fs.existsSync(plugins)) {
         const m = fs.readFileSync(plugins, 'utf8').match(/"name"\s*:\s*"Docs-Doodads"[^}]*"parameters"\s*:\s*\{[^}]*"dataFileName"\s*:\s*"([^"]+)"/);
         if (m && /^[\w-]+(\.json)?$/.test(m[1])) return m[1].replace(/\.json$/i, '') + '.json';
     }
-    return 'DoodadsQJ.json';
+    return 'DocsDoodads.json';
+}
+
+// The switch that turns the flashlight on in the cave (named in System.json when it has no name).
+const FLASHLIGHT_SWITCH = 1;
+
+// The event with Control Switches (this switch ON or OFF) before its transfer.
+function withSwitch(event, switchId, on) {
+    for (const page of event.pages) page.list.unshift({ code: 121, indent: 0, parameters: [switchId, switchId, on ? 0 : 1] });
+    return event;
+}
+
+// The Dungeon tileset's first floor (A2's first autotile), when the project has that tileset and it can be
+// walked on; else null.
+function caveGround(tilesets) {
+    const set = (tilesets || []).find(t => t && /dungeon/i.test(t.name || '') && Array.isArray(t.flags));
+    const id = 2816;
+    if (!set || (Number(set.flags[id]) & 0x0f) === 0x0f) return null;
+    return { tilesetId: set.id, ground: id };
 }
 
 function sample(project, options = {}) {
@@ -51,7 +70,9 @@ function sample(project, options = {}) {
     }
     const name = dataFileName(project);
     const base = name.replace(/\.json$/i, '');
-    if (fs.existsSync(path.join(data, name)) || fs.existsSync(path.join(data, base))) throw new Error(`This project already has doodad data (data/${name}); the sample goes only into a new, empty project.`);
+    for (const file of [name, base, 'DoodadsQJ.json', 'DoodadsQJ']) {
+        if (fs.existsSync(path.join(data, file))) throw new Error(`This project already has doodad data (data/${file}); the sample goes only into a new, empty project.`);
+    }
     if (fs.existsSync(path.join(data, 'Map002.json')) || fs.existsSync(path.join(data, 'Map003.json'))) throw new Error('This project already has a Map002 or Map003; the sample goes only into a new, empty project.');
     const D = loadPlugin(), A = D.SampleArt, NM = D.NewMap, P = D.Places;
 
@@ -84,7 +105,7 @@ function sample(project, options = {}) {
     const fieldW = 30, fieldH = 20, caveW = 20, caveH = 15;
     const town = [
         at('house', Math.floor(w1 / 2) - 2, 4, { name: 'Sample House', states: { by: 'events', fade: 20, list: [{ name: 'Shut', path: art.house.path }, { name: 'Open', path: art.houseOpen.path }] },
-            touch: { enabled: true, action: 'next' }, collision: { preset: 'full', shape: null } }),
+            touch: { trigger: 'action', nextState: true }, collision: { preset: 'full', shape: null } }),
         at('lamp', 2, 6, { light: light({ when: 'dark', radius: 168, flicker: 0.1, offsetY: -66 }) }),
         at('lamp', w1 - 3, 6, { light: light({ when: 'dark', radius: 168, flicker: 0.1, offsetY: -66 }) }),
         at('sign', 4, 8, { name: 'Sample Sign' }), at('chest', w1 - 5, 9, { name: 'Sample Chest' }),
@@ -100,13 +121,18 @@ function sample(project, options = {}) {
         at('torch', caveW - 4, 3, { light: light({ radius: 120, flicker: 0.35, color: '#ffb060', offsetY: -30 }) }),
         at('rock', 6, 8), at('rock', 12, 10), at('chest', caveW - 3, caveH - 3, { name: 'Cave Chest' })];
 
-    // Transfers both ways: the town's east edge ↔ the field's west edge; the field ↔ the cave.
+    // The cave's floor: the project's Dungeon tileset when it has one whose first floor can be walked on,
+    // else the town's tileset and ground.
+    const caveFloor = caveGround(tilesets) || { tilesetId: map1.tilesetId, ground };
+
+    // Transfers both ways: the town's east edge ↔ the field's west edge; the field ↔ the cave. The field does not
+    // loop: on a looping map the way back to the town would sit on the seam, where walking west wraps onto it.
     const fieldPlan = NM.plan(infos, { name: 'Sample Field', width: fieldW, height: fieldH, tilesetId: map1.tilesetId, parentId: 1, ground });
     const mid1 = Math.floor(h1 / 2), midF = Math.floor(fieldH / 2);
     fieldPlan.map.events[1] = P.transferEvent(1, 0, midF, 1, w1 - 2, mid1, 4, 'To the town');
-    fieldPlan.map.events[2] = P.transferEvent(2, fieldW - 2, 2, fieldPlan.id + 1, Math.floor(caveW / 2), caveH - 3, 8, 'To the cave');
-    const cavePlan = NM.plan(fieldPlan.infos, { name: 'Sample Cave', width: caveW, height: caveH, tilesetId: map1.tilesetId, parentId: fieldPlan.id, ground });
-    cavePlan.map.events[1] = P.transferEvent(1, Math.floor(caveW / 2), caveH - 2, fieldPlan.id, fieldW - 2, 3, 2, 'Out of the cave');
+    fieldPlan.map.events[2] = withSwitch(P.transferEvent(2, fieldW - 2, 2, fieldPlan.id + 1, Math.floor(caveW / 2), caveH - 3, 8, 'To the cave'), FLASHLIGHT_SWITCH, true);
+    const cavePlan = NM.plan(fieldPlan.infos, { name: 'Sample Cave', width: caveW, height: caveH, tilesetId: caveFloor.tilesetId, parentId: fieldPlan.id, ground: caveFloor.ground });
+    cavePlan.map.events[1] = withSwitch(P.transferEvent(1, Math.floor(caveW / 2), caveH - 2, fieldPlan.id, fieldW - 2, 3, 2, 'Out of the cave'), FLASHLIGHT_SWITCH, false);
     const id1 = D.Events.allocateSafeId(map1);
     while (map1.events.length <= id1) map1.events.push(null);
     map1.events[id1] = P.transferEvent(id1, w1 - 1, mid1, fieldPlan.id, 1, midF, 6, 'To the field');
@@ -118,10 +144,17 @@ function sample(project, options = {}) {
             [fieldPlan.id]: { perspective: { enabled: true } },
             [cavePlan.id]: { ambient: { darkness: 0.85, color: '#05060a', switchId: 0 }, echo: { enabled: true, delay: 0.22, feedback: 0.4, mix: 0.35 } }
         },
-        world: { weather2d: { wind: { strength: 0.5, direction: 1, gusts: 0.4, fromWeather: false } }, lighting2d: { flashlight: { enabled: true, switchId: 0, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } } }
+        // The flashlight shows only while its switch is ON: the way into the cave turns it on, the way out off.
+        world: { weather2d: { wind: { strength: 0.5, direction: 1, gusts: 0.4, fromWeather: false } }, lighting2d: { flashlight: { enabled: true, switchId: FLASHLIGHT_SWITCH, radius: 280, spread: 50, color: '#fff2cc', intensity: 0.9, occlude: true } } }
     };
+    const system = readJson(path.join(data, 'System.json'));
+    if (Array.isArray(system.switches)) {
+        while (system.switches.length <= FLASHLIGHT_SWITCH) system.switches.push('');
+        if (!system.switches[FLASHLIGHT_SWITCH]) system.switches[FLASHLIGHT_SWITCH] = 'Sample: flashlight';
+    }
 
     if (options.dryRun) return { art, maps: [1, fieldPlan.id, cavePlan.id], doodads, map1, fieldPlan, cavePlan, name };
+    if (Array.isArray(system.switches)) fs.writeFileSync(path.join(data, 'System.json'), JSON.stringify(system));
     fs.writeFileSync(path.join(data, NM.path(fieldPlan.id).replace(/^data\//, '')), JSON.stringify(fieldPlan.map));
     fs.writeFileSync(path.join(data, NM.path(cavePlan.id).replace(/^data\//, '')), JSON.stringify(cavePlan.map));
     fs.writeFileSync(path.join(data, 'Map001.json'), JSON.stringify(map1));
