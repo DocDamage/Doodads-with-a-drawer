@@ -57,6 +57,40 @@ DocsDoodads.MapFrom = {
         return Object.assign(k, { id: String(id).replace(/[^\w-]/g, '') || k.id + '_copy', name: name || k.name + ' (copy)', base: k.base || k.id });
     },
 
+    // ---- Editing a user's kind: its classes (8.5.3) ----
+    // Each returns a new, cleaned kind; built-in kinds are copied first (copyKind), never changed.
+    classId(kind, name) {
+        const base = String(name || 'class').toLowerCase().replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'class';
+        let id = base, n = 2;
+        while ((kind.classes || []).some(c => c.id === id)) id = base + '_' + n++;
+        return id;
+    },
+
+    addClass(kind, cls) {
+        const k = this.cleanKind(kind);
+        if (!k) return null;
+        const c = Object.assign({ name: 'New class', passable: true }, cls || {});
+        c.id = c.id && !k.classes.some(x => x.id === c.id) ? c.id : this.classId(k, c.name);
+        k.classes.push(c);
+        return this.cleanKind(k);
+    },
+
+    updateClass(kind, classId, change) {
+        const k = this.cleanKind(kind);
+        if (!k) return null;
+        k.classes = k.classes.map(c => (c.id === classId ? Object.assign({}, c, change || {}, { id: c.id }) : c));
+        return this.cleanKind(k);
+    },
+
+    removeClass(kind, classId) {
+        const k = this.cleanKind(kind);
+        if (!k) return null;
+        k.classes = k.classes.filter(c => c.id !== classId);
+        return k;
+    },
+
+    isBuiltIn(id) { return this.builtIn.some(b => b.id === id); },
+
     // ---- Reading a picture (8.5.2) ----
     // pixels: RGBA bytes of a w × h picture; returns { w, h, cells: [group or -1], groups: [{ colour, count }] }.
     read(pixels, width, height, options = {}) {

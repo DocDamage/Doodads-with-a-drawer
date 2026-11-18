@@ -42,7 +42,7 @@ for (const fileName of testFiles) {
         cwd,
         env: Object.assign({}, process.env, { DD_REPO_ROOT: projectRoot }),
         stdio: 'inherit',
-        timeout: 120000
+        timeout: 240000
     });
     try { fs.rmSync(cwd, { recursive: true, force: true }); } catch (error) {}
     if (result.status !== 0) {

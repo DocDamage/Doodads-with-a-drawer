@@ -329,6 +329,29 @@ Test on an exterior map with water, a looping world map and a map with terrain h
 - [ ] Export a battler and the actions; set the actor's battler and turn on side view: every motion (attack, guard, magic, item, damage, victory, dead, escape) shows the character. Play Character Action with `$Name_slash[f6]` at 12 fps on the player.
 - [ ] Export with **Outfit as Visual Equipment parts**; put the shirt on two armours in different colours, the trousers on the actor, the weapon on a weapon. In play: changing armour changes the shirt, standing still the gear breathes with the body, dashing it runs, Play Character Action with the slash sheet swings the gear too, and the side-view battler wears it all. Reopen the project in MZ's editor and check the notes are there.
 
+## Backlog wave: indoors to sample project (MZ playtests pending)
+
+- [ ] Indoors: on Starting Town mark one house's floor; rain falls up to the door and not past it, flat and in 3D, scrolling and on a looping map; darkness eases inside; thunder flashes dimmer; a rain BGS is quieter.
+- [ ] Bridges: walk over a bridge and under it on the same tile; an NPC on the deck is passed below and not started; save on the deck, load, still on top; followers follow.
+- [ ] Ride and travel: a lantern on an event and a hat on the player; a cloud looping, a lift back and forth, a gate once (saved); a raft carries the player across water and lights move with it.
+- [ ] Creatures: birds scatter from the player and land on a Perch tree; butterflies only by day; fish only under water and only from a boat or swimming; lightning startles them; Effects Quality Low removes them.
+- [ ] Tile settings: change passage and a terrain tag on the Tiles card, see Show Collision change, Save, reopen the project in MZ and see the database changed.
+- [ ] Map Kinds: Edit Kind on a copy, add a class with a tile, use it in Picture to Map.
+- [ ] Timelines: a cutscene with camera, door state, darkness, weather and a walking NPC; preview, scrub back, Stop restores the map; Play Timeline with wait; hold OK to skip.
+- [ ] Light shafts at dusk under marked trees at 60 fps (High); soft shadow edges and glow off walls with a torch by a pillar; Medium and Low quality.
+- [ ] Decorate: a deployed, encrypted game; furnish a room, save, quit, load; the room is as left; you cannot wall yourself in; keyboard, gamepad, mouse and touch.
+- [ ] Remembers: a crop grows over days (Pass Time); a worn path appears and fades over days, kept after save/load; footprints in snow fill in.
+- [ ] Fire and rain: a fire spreads downwind over dry grass, a hut goes Burnt, rain puts it out and leaves puddles; fireproof regions hold.
+- [ ] Eras: a switch crossfades a village to its ruin; collision and lamps follow; onion skin in the editor.
+- [ ] Rewind: hold Ctrl+Backspace while playing; let go; the player, switches and events are as they were; F10 opens the editor there; nothing in battles or menus.
+- [ ] Places: Make a Place Here on a town door; save; close and reopen the project in MZ; the map and both transfers are there and work.
+- [ ] Walking to neighbours: walk east off a field onto a linked field with no fade and no pause over a frame; music and weather carry on; the neighbour's tiles show past the edge.
+- [ ] Bake: bake a 3,000-doodad map; measure on a real phone and a low-spec PC (item B) before and after; deploy with Exclude unused files and --restore; the baked pictures show.
+- [ ] More Like This: sample a forest edge and fill another region; Apply; Undo.
+- [ ] From a Map File: a small OpenStreetMap export of a village becomes a town with roads, a river and a bridge; CREDITS_MAPS.txt has the credit.
+- [ ] Pop-out panels (NW.js at MZ's version): the Item Bag in its own window keeps working (search, pick, then click the map), keys work there, the game doesn't pause, closing the window docks it back; Details too. If a moved element loses its listeners, record it in docs/BACKLOG_7_PLAN.md 7.2.5.
+- [ ] Sample project: `npm run sample` into a new MZ project; open it; play town → field (3D) → cave and back.
+
 ## Scale and compatibility
 
 - [ ] Browse a project with at least 10,000 indexed assets and watch memory while scrolling repeatedly.

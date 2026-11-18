@@ -361,6 +361,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const world = DocsDoodads.World.settings();
         let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
             override: fade ? fade.current : null, switchValue });
+        ambient = DocsDoodads.Indoors.ambient(ambient, Lighting.mapSettings($gameMap.mapId()), DocsDoodads.Indoors.blend);
         if (workspace && workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
         // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.

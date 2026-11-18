@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Indoors by region: regions marked as floors under a roof keep rain and snow off (flat and 3D), stop sway and sun shadows there, and ease the darkness, lightning and the weather's sound while the player is inside.
+- Bridges: deck and end regions give characters a level, so the player walks over and under the same bridge; characters on different levels pass and don't start each other; the level is saved.
+- Doodads ride on the player or an event, or travel along points (loop, back and forth, once and saved), with their lights; carriers make their tiles walkable and take the player across water. Start Travel and Stop Travel.
+- Ambient creatures: birds that fly off and come back (landing on Perch doodads), butterflies by day and fish under water, seeded, by hours and weather, scaled by Effects Quality; Add Sample Items draws a bird and a butterfly.
+- Tile settings on the Tiles card: passage, sides, ladder, bush, counter, damage floor, boat, ship, airship and terrain tags as in MZ's database, one Undo step a click, saved to Tilesets.json with a backup and the changed-since check.
+- Map Kinds: Edit Kind changes a kind's classes (name, walkable, height, region, biome, tile), adds and removes them, renames or deletes a kind; built-in kinds are copied first.
+- Cutscene timelines (Map → Timelines): camera, states, lights, darkness, weather, looks, effects, characters, time, wind, sounds and switches on tracks against time, previewed in the editor and played by Play Timeline (wait, hold OK to skip) and Stop Timeline.
+- Light shafts (a Screen Looks effect) from the sun or the brightest lamp through what stops light; Soft Light gives lamps soft shadow edges and glow off walls by Effects Quality.
+- Decorate mode for players: a catalog of pieces and zones in Map → Decorate; Open Decorate Mode, Give Decor Item, Count Decor; pieces are kept in the save, can't wall the player in, and are handed back when the catalog or zone changes; released pieces that go are noted.
+- A world that remembers: doodads that grow by calendar days, worn paths kept in the save, and footprints on marked ground and in snow.
+- Fire and rain: fire spreads over marked dry ground with the wind, rain puts it out and leaves puddles, water runs downhill; Burns, Lights fires and Puts out doodads; Start Fire At and Put Out Fires.
+- Map eras: one map in several versions picked by a switch or variable, crossfaded in the game, with onion skin, Copy Era and Delete Era in the editor.
+- Rewind in a playtest: hold Ctrl+Backspace with the editor closed to go back up to 30 seconds (memory only).
+- Places (Map → Places): make a place's map with transfers both ways, a tree of world, places and rooms with link checks, and a grid of maps joined as neighbours; new maps and MapInfos are written together with backups.
+- Walking to neighbours: with neighbours linked and the game-wide switch on, the player walks off an edge onto the next map with no fade, the camera looking past linked edges and the neighbour's tiles drawn there.
+- Bake This Map / Bake Every Map draws still doodads into a few pictures the game uses instead of their sprites while current; Problems and `npm run deploy -- --bake` report stale bakes.
+- More Like This: learn a sample of the map and fill another region the same way (ground and doodads), previewed, rerolled and applied as one Undo step.
+- From a Map File: an OpenStreetMap or GeoJSON file the user downloaded becomes roads, rivers, water, forests, buildings and bridges through Picture to Map, with the area's real size shown and the ODbL credit written to CREDITS_MAPS.txt; no download is made.
+- Item Bag and Details can move to a window of their own (desktop playtest), keeping their keys and the game running.
+- `npm run sample -- <new MZ project>` writes a sample town, field and cave with the plugin's own drawn art (docs/SAMPLE_PROJECT.md).
 - Robot tester: Map → Test Every Map follows transfers from the start without playing and lists unreachable maps, dead ends, one-way trips, bad landings and variable transfers; Map → Test This Map also plays each reachable event on a copy of the game (messages answered, scene changes only noted, a frame limit) and restores the game. Findings have Go To.
 - Map → Save 3D Map as File writes the ground (terrain or a flat quad) with the map's tiles as its picture and standing doodads as upright pictures to one .glb in screenshots/, after a dialog that notes the art's licences. A pure glTF writer is read back by the plugin's own reader in tests.
 - Map → Picture to Map: a drawing becomes tiles, regions, heights and biome art after agreeing a colour key, as one undo step. Four kinds of map (Overworld, Town or castle, Dungeon or cave, Room) shape the plan: coasts and place markers, buildings with doors facing streets and gates, walls/floors/doors/stairs and rough cave walls, and room outlines. Thin lines can be ignored, a grey picture gives heights, tiles per class are remembered per tileset, and copied kinds travel in packs.

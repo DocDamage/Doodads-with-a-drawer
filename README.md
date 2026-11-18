@@ -16,6 +16,8 @@ It began as an upgrade of Qiu Jiu's MIT-licensed QJ-Doodads and has grown into i
 
 ![Picking a bush in the Item Bag, stamping it along a street and dragging one into line](docs/images/editor_place.gif)
 
+- [The sample project](docs/SAMPLE_PROJECT.md): `npm run sample -- <a new MZ project>` makes a small town, field and cave that show the plugin.
+
 ## See it work
 
 | A lasso, then Find picks every bush | Day to night with the editor's clock |

@@ -1830,6 +1830,103 @@
  * @type number
  * @min 0
  * @default 0
+ *
+ * @command playTimeline
+ * @text Play Timeline
+ * @desc Plays a cutscene timeline made in Map > Timelines: its camera moves, states, lights, weather, looks and characters.
+ *
+ * @arg name
+ * @text Timeline
+ * @desc The timeline's name.
+ * @type text
+ *
+ * @arg wait
+ * @text Wait Until It Ends
+ * @type boolean
+ * @default true
+ *
+ * @arg skippable
+ * @text Hold OK to Skip
+ * @desc Holding OK for a second runs the rest at once.
+ * @type boolean
+ * @default true
+ *
+ * @command stopTimeline
+ * @text Stop Timeline
+ * @desc Stops the timeline that is playing; the camera follows the player again.
+ *
+ * @command startTravel
+ * @text Start Travel
+ * @desc Starts a travelling doodad (Details > Ride and Travel) on this map, or one that was stopped.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @type text
+ *
+ * @command stopTravel
+ * @text Stop Travel
+ * @desc Holds a travelling doodad where it is until Start Travel.
+ *
+ * @arg name
+ * @text Doodad Name
+ * @type text *
+ * @command openDecorate
+ * @text Open Decorate Mode
+ * @desc The player places and moves pieces from Map > Decorate in this map's zone. Kept in the save.
+ *
+ * @command giveDecor
+ * @text Give Decor Item
+ * @desc Gives the player decor pieces (a negative number takes them).
+ *
+ * @arg item
+ * @text Piece Id
+ * @desc The piece's id in Map > Decorate (decor_...).
+ * @type text
+ *
+ * @arg count
+ * @text How Many
+ * @type number
+ * @min -999
+ * @default 1
+ *
+ * @command countDecor
+ * @text Count Decor
+ * @desc Puts how many of a piece are placed (or still held) in a variable.
+ *
+ * @arg item
+ * @text Piece Id
+ * @type text
+ *
+ * @arg what
+ * @text Count
+ * @type select
+ * @option Placed on any map
+ * @value placed
+ * @option Still to place
+ * @value held
+ * @default placed
+ *
+ * @arg variableId
+ * @text Variable
+ * @type variable
+ * @default 0 *
+ * @command startFireAt
+ * @text Start Fire At
+ * @desc Lights a fire on a tile of this map (only where Map > Fire and Rain marks dry ground, or a doodad that Burns).
+ *
+ * @arg x
+ * @text X
+ * @type number
+ * @default 0
+ *
+ * @arg y
+ * @text Y
+ * @type number
+ * @default 0
+ *
+ * @command putOutFires
+ * @text Put Out Fires
+ * @desc Puts out every fire on this map at once.
  */
 
 var DocsDoodads = (typeof window !== 'undefined' ? (window.DocsDoodads = window.DocsDoodads || { reWrite: {} }) : { reWrite: {} });
@@ -3544,6 +3641,145 @@ void main(void) {
 }`
 };
 //==========================================================
+// SECTION 4A: LIGHT IN THE AIR, SOFT SHADOWS AND GLOW OFF WALLS (7.3.7, 8.3.2)
+//==========================================================
+// Light shafts are one more Screen Looks effect (`rays`): what stops light (wall tiles and doodads marked "Stops
+// light shafts") is drawn black on white into a quarter-size picture, and each pixel looks back along the line
+// to the light (the sun, off screen in its direction, or the brightest lamp near the player), adding light where
+// the way is clear. Strongest at a low sun, none at night, more in fog. Effects Quality: 12 samples at Medium,
+// none at Low.
+// Soft shadows and Glow off walls are one map's setting `softLight: { shadows, bounce }`: a lamp's wall mask is
+// blurred at its edges, and faint lights are added where its light meets a wall so it comes a little way round
+// corners. Quality: none at Low, shadows at Medium, both at High. These are not global illumination.
+DocsDoodads.Rays = {
+    maxSamples: 24,
+
+    samples(quality) {
+        return quality === 'high' ? 24 : quality === 'medium' ? 12 : 0;
+    },
+
+    // The sun's place on screen (0-1, beyond the edge): opposite the way shadows fall (Sun.angle, 0 = north).
+    sunPosition(angle) {
+        const a = (Number(angle) || 0) * Math.PI / 180;
+        return [0.5 - Math.sin(a) * 1.2, 0.5 + Math.cos(a) * 1.2];
+    },
+
+    // How strong the shafts are now: the look's strength, by a low sun (none at night), raised by fog.
+    strength(rays, opts = {}) {
+        if (!rays || !rays.enabled || !(this.samples(opts.quality) > 0)) return 0;
+        let k = Math.max(0, Number(rays.strength) || 0);
+        if (!rays.fromLamps) {
+            const minutes = opts.minutes;
+            if (minutes !== null && minutes !== undefined) {
+                const h = DocsDoodads.TimeOfDay.wrap(minutes) / 60;
+                if (h < 6 || h >= 18) return 0;
+                const elevation = Math.sin(Math.PI * (h - 6) / 12);
+                k *= 0.35 + 0.65 * (1 - elevation);
+            }
+        }
+        if (opts.foggy) k *= 1.35;
+        return Math.min(2, k);
+    },
+
+    foggy(mapSettings) {
+        return ((mapSettings && mapSettings.layers) || []).some(l => l && /fog|mist|haze/i.test(String(l.preset || l.name || l.path || '')));
+    },
+
+    // The lamp the shafts come from: the strongest on screen, nearest the player first. lights: as drawn
+    // (screen x, y, radius, intensity). null when none is on screen.
+    pickLamp(lights, w, h, player) {
+        let best = null, score = 0;
+        for (const l of lights || []) {
+            if (!l || l.bounce || l.x < -l.radius || l.y < -l.radius || l.x > w + l.radius || l.y > h + l.radius) continue;
+            const near = player ? 1 / (1 + Math.hypot(l.x - player.x, l.y - player.y) / 200) : 1;
+            const s = (Number(l.intensity) || 0) * (Number(l.radius) || 0) * near;
+            if (s > score) { score = s; best = l; }
+        }
+        return best;
+    },
+
+    // A doodad that throws shafts' shadows: marked, or a wall (collision) when the map's walls stop light.
+    shades(d) {
+        return Boolean(d && d.shade);
+    },
+
+    fragment: [
+        'precision mediump float;',
+        'varying vec2 vTextureCoord;',
+        'uniform sampler2D uSampler;',
+        'uniform sampler2D uMask;',
+        'uniform vec4 inputSize;',
+        'uniform vec4 outputFrame;',
+        'uniform vec2 uLight;',
+        'uniform vec3 uColor;',
+        'uniform float uStrength;',
+        'uniform float uLength;',
+        'uniform float uSamples;',
+        'uniform float uRadius;',
+        'uniform float uAspect;',
+        'void main(void) {',
+        '    vec4 base = texture2D(uSampler, vTextureCoord);',
+        '    vec2 screen = vTextureCoord * inputSize.xy / outputFrame.zw;',
+        '    vec2 delta = (uLight - screen) * uLength / uSamples;',
+        '    vec2 p = screen;',
+        '    float sum = 0.0;',
+        '    float total = 0.0;',
+        '    float w = 1.0;',
+        '    for (int i = 0; i < 24; i++) {',
+        '        if (float(i) >= uSamples) break;',
+        '        p += delta;',
+        '        sum += texture2D(uMask, clamp(p, 0.0, 1.0)).r * w;',
+        '        total += w;',
+        '        w *= 0.94;',
+        '    }',
+        '    float lit = sum / max(total, 0.0001);',
+        '    float fall = 1.0;',
+        '    if (uRadius > 0.0) {',
+        '        vec2 d = (screen - uLight) * vec2(uAspect, 1.0);',
+        '        fall = clamp(1.0 - length(d) / uRadius, 0.0, 1.0);',
+        '    }',
+        '    gl_FragColor = vec4(base.rgb + uColor * lit * uStrength * fall * 0.35 * base.a, base.a);',
+        '}'
+    ].join('\n')
+};
+
+DocsDoodads.SoftLight = {
+    normalize(s) {
+        return { shadows: Boolean(s && s.shadows), bounce: Boolean(s && s.bounce) };
+    },
+
+    // What runs at an Effects Quality.
+    levels(settings, quality) {
+        const s = this.normalize(settings);
+        if (quality === 'low' || quality === 'off') return { shadows: false, bounce: false };
+        return { shadows: s.shadows, bounce: s.bounce && quality === 'high' };
+    },
+
+    // How far a soft edge spreads, in pixels, for a light's radius.
+    blur(radius) {
+        return Math.max(2, Math.min(16, (Number(radius) || 0) * 0.06));
+    },
+
+    // Where a light's outline (map pixels, flat [x, y, ...]) stops short of its reach, it met a wall: up to `max`
+    // faint lights there, spread round the outline, pulled a little back toward the light so they glow off it.
+    bounces(light, pts, max = 6) {
+        if (!light || !pts || pts.length < 6) return [];
+        const r = Number(light.radius) || 0, cx = Number(light.mapX) || 0, cy = Number(light.mapY) || 0;
+        const hits = [];
+        for (let i = 0; i < pts.length; i += 2) {
+            const dx = pts[i] - cx, dy = pts[i + 1] - cy, d = Math.hypot(dx, dy);
+            if (d > 4 && d < r * 0.92) hits.push({ x: pts[i] - dx / d * 6, y: pts[i + 1] - dy / d * 6, d });
+        }
+        if (!hits.length) return [];
+        const out = [], step = Math.max(1, Math.floor(hits.length / max));
+        for (let i = 0; i < hits.length && out.length < max; i += step) {
+            const h = hits[i], near = 1 - h.d / r;
+            out.push({ mapX: h.x, mapY: h.y, radius: Math.max(16, r * 0.35), intensity: (Number(light.intensity) || 1) * 0.22 * (0.5 + near * 0.5) });
+        }
+        return out;
+    }
+};
+//==========================================================
 // SECTION 5A2: SHAPED LIGHTS, PRESETS, WALL SHADOWS, FLASHLIGHT
 //==========================================================
 // A doodad's light can be a cone (shape 'cone', angle: the way it points in degrees, 0 = right, 90 =
@@ -4507,6 +4743,223 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 5K: BAKING FOR PHONES (7.3.4)
+//==========================================================
+// Map → Bake This Map draws a map's still doodads into a few big pictures (chunks of 1024 × 1024 map pixels, one
+// set below the characters and one above), img/doodads/_baked/Map###_<band>_<cx>_<cy>.png, and keeps a manifest in
+// $dataDocsDoodads.baked[mapId] = { hash, size, chunks: [{ band, cx, cy, file }], uids }. The game draws the chunks
+// instead of those doodads' sprites while the manifest is current: `hash` is of the map's whole doodad list, so any
+// change there (in the editor) makes the bake stale and the game draws the real doodads until it is baked again.
+// Collision, touch, sound and lights still read the doodad data. A playtest shows the real doodads unless
+// World → bake → playtest is on. The 3D view never uses chunks.
+DocsDoodads.Bake = {
+    size: 1024,
+    dir: 'img/doodads/_baked',
+
+    // Why a doodad can't be baked, or '' when it is still. Anything that moves, changes, gives light, sorts with
+    // characters, or is drawn with a filter or blend stays a sprite.
+    whyNot(d) {
+        if (!d || !d.bit || d.bit[0] !== 3) return 'no picture';
+        if (d.temp || d.decor) return 'placed in the game';
+        const depth = DocsDoodads.Depth.resolve(d);
+        if (depth === 'sorted') return 'sorted with characters';
+        const on = v => v && (v.enabled === undefined || v.enabled);
+        if (d.motion && d.motion.type && d.motion.type !== 'none') return 'moves';
+        if (Number(d.rotateSpeed)) return 'spins';
+        if ((Number(d.xFrame) || 1) * (Number(d.yFrame) || 1) > 1 && Number(d.frameUpdate) > 0) return 'animated';
+        if (d.anim) return 'animated';
+        if (d.states && Array.isArray(d.states.list) && d.states.list.length > 1) return 'has states';
+        if (String(d.condition || '').trim() || (Array.isArray(d.switch) && d.switch.length)) return 'shows by a switch or condition';
+        if (d.touch) return 'touchable';
+        if (on(d.light)) return 'gives light';
+        if (on(d.shadow)) return 'casts a shadow';
+        if (d.particles || d.vfx || d.sound || d.react || d.seeThrough || d.seasons || d.transition) return 'has an effect';
+        if (d.line || d.ride || d.travel || d.creatures || (Array.isArray(d.eras) && d.eras.length) || d.grow || d.element) return 'changes in play';
+        if (Number(d.blend) || Number(d.blur) || Number(d.contrast) || d.sepia || Number(d.hue) || d.bright || Number(d.grey) || Number(d.r) || Number(d.g) || Number(d.b)) return 'drawn with a filter';
+        if (d.model) return 'a 3D model';
+        return '';
+    },
+
+    isStill(d) { return !this.whyNot(d); },
+
+    // A doodad's box in map pixels (its picture, scaled; turned doodads take the box round their turn).
+    box(d) {
+        const w = Math.abs((Number(d.frameW) || 48) * (d.scaleX !== undefined ? d.scaleX : 1)), h = Math.abs((Number(d.frameH) || 48) * (d.scaleY !== undefined ? d.scaleY : 1));
+        const ax = d.anchorX !== undefined ? d.anchorX : 0.5, ay = d.anchorY !== undefined ? d.anchorY : 1;
+        const r = Math.max(w, h);
+        if (Number(d.rotation)) return { x: d.x - r, y: d.y - r, w: r * 2, h: r * 2 };
+        return { x: d.x - w * ax, y: d.y - h * ay, w, h };
+    },
+
+    // Still doodads into chunks by band: [{ band, cx, cy, items }] (a doodad goes in every chunk it touches, in its
+    // map's drawing order).
+    chunks(doodads, mapW, mapH, size = this.size) {
+        const out = new Map();
+        (doodads || []).forEach((d, order) => {
+            if (!this.isStill(d)) return;
+            const band = DocsDoodads.Depth.resolve(d) === 'above' ? 'above' : 'below';
+            const b = this.box(d);
+            const x0 = Math.max(0, Math.floor(b.x / size)), y0 = Math.max(0, Math.floor(b.y / size));
+            const x1 = Math.min(Math.ceil(mapW / size) - 1, Math.floor((b.x + b.w) / size)), y1 = Math.min(Math.ceil(mapH / size) - 1, Math.floor((b.y + b.h) / size));
+            for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+                const key = band + '_' + cx + '_' + cy;
+                if (!out.has(key)) out.set(key, { band, cx, cy, items: [] });
+                out.get(key).items.push({ d, order, z: DocsDoodads.Depth.spriteZ(d) });
+            }
+        });
+        const list = Array.from(out.values());
+        for (const c of list) c.items.sort((a, b) => a.z - b.z || a.order - b.order);
+        return list.sort((a, b) => (a.band < b.band ? -1 : a.band > b.band ? 1 : a.cy - b.cy || a.cx - b.cx));
+    },
+
+    file(mapId, band, cx, cy) { return `${this.dir}/Map${String(mapId).padStart(3, '0')}_${band}_${cx}_${cy}.png`; },
+
+    // The map's doodads in a fixed order of keys, without those placed in the game.
+    stable(value) {
+        if (Array.isArray(value)) return value.filter(v => !(v && v.temp)).map(v => this.stable(v));
+        if (!value || typeof value !== 'object') return value;
+        const out = {};
+        for (const k of Object.keys(value).sort()) if (value[k] !== undefined) out[k] = this.stable(value[k]);
+        return out;
+    },
+
+    // FNV-1a over the stable text (scripts/deploy.js --bake makes the same number).
+    hash(list) {
+        const text = JSON.stringify(this.stable(list || []));
+        let h = 2166136261;
+        for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+        return (h >>> 0).toString(16);
+    },
+
+    manifest(mapId, chunks, list) {
+        const uids = [];
+        for (const c of chunks) for (const it of c.items) if (it.d.uid && !uids.includes(it.d.uid)) uids.push(it.d.uid);
+        return { hash: this.hash(list), size: this.size, chunks: chunks.map(c => ({ band: c.band, cx: c.cx, cy: c.cy, file: this.file(mapId, c.band, c.cx, c.cy) })), uids };
+    },
+
+    stale(manifest, list) {
+        return !manifest || manifest.hash !== this.hash(list);
+    },
+
+    // The current map's manifest when the game should use it, else null.
+    active(mapId) {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads;
+        const m = data && data.baked && data.baked[mapId];
+        if (!m || !Array.isArray(m.chunks) || !m.chunks.length) return null;
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return null;
+        const C = DocsDoodads.Compat;
+        if (C && C.isTest && C.isTest() && !((DocsDoodads.World.settings().bake || {}).playtest)) return null;
+        const list = DocsDoodads.doodads(mapId) || [];
+        const c = this._check;
+        if (c && c.mapId === mapId && c.manifest === m && c.list === list && c.length === list.length) return c.ok ? m : null;
+        const ok = !this.stale(m, list);
+        this._check = { mapId, manifest: m, list, length: list.length, ok };
+        return ok ? m : null;
+    }
+};
+
+//==========================================================
+// SECTION 5B: BRIDGES YOU WALK OVER AND UNDER (9.2.3)
+//==========================================================
+// One map's setting `bridges: { deck, ends }`: two lists of regions. A character has a level (0 below, 1 on the
+// deck) kept on it as `_docsLevel`, so MZ saves the player's. Stepping onto an end goes up; stepping from an end
+// onto plain ground comes down; stepping from the ground straight onto a deck tile stays below. On the deck you
+// cannot step off its side; below it, the deck tile's own blocked sides do not count (only the layers under it,
+// A1 to A4, decide). Characters on different levels do not bump into or start each other. Flat maps first.
+DocsDoodads.Bridges = {
+    _cache: null,
+
+    normalize(s) {
+        if (!s || typeof s !== 'object') return null;
+        const list = text => Array.from(new Set(String(text === undefined || text === null ? '' : text).split(/[\s,;]+/)
+            .map(n => parseInt(n, 10)).filter(n => n > 0 && n < 256)));
+        const deck = list(s.deck), ends = list(s.ends).filter(n => !deck.includes(n));
+        return deck.length ? { deck: deck.join(', '), ends: ends.join(', ') } : null;
+    },
+
+    // 'deck', 'end' or null for a region, by the map's settings.
+    kind(settings, regionId) {
+        const s = this.normalize(settings);
+        if (!s) return null;
+        const id = Number(regionId) || 0;
+        if (!id) return null;
+        if (s.deck.split(', ').map(Number).includes(id)) return 'deck';
+        if (s.ends && s.ends.split(', ').map(Number).includes(id)) return 'end';
+        return null;
+    },
+
+    // The level after a step from a tile of kind `from` onto one of kind `to`.
+    levelAfter(level, from, to) {
+        if (to === 'end') return 1;
+        if (!to) return 0;
+        return level ? 1 : 0;
+    },
+
+    // 'pass', 'block', 'under' (only the layers under the deck decide) or 'normal' (MZ's own check). On top, the
+    // deck's regions are the walkway whatever its tiles say (a deck drawn over characters is a ☆ tile, which
+    // MZ's own check sees through to the water or road below).
+    canPass(level, from, to) {
+        if (level) {
+            if (from && to) return 'pass';
+            if (from === 'deck' && !to) return 'block';
+            return 'normal';
+        }
+        if (from === 'deck' || to === 'deck') return 'under';
+        return 'normal';
+    },
+
+    // Two characters meet only on the same level (or when the map has no bridges).
+    apart(a, b) {
+        if (!a || !b || !this.active()) return false;
+        return (Number(a._docsLevel) || 0) !== (Number(b._docsLevel) || 0);
+    },
+
+    // The current map's settings, or null: every hook takes the old path then.
+    active() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId) return null;
+        const mapId = $gameMap.mapId();
+        const raw = DocsDoodads.Lighting.mapSettings(mapId);
+        const c = this._cache;
+        if (c && c.mapId === mapId && c.raw === (raw && raw.bridges)) return c.settings;
+        const settings = this.normalize(raw && raw.bridges);
+        this._cache = { mapId, raw: raw && raw.bridges, settings };
+        return settings;
+    },
+
+    kindAt(x, y) {
+        const s = this.active();
+        if (!s) return null;
+        return this.kind(s, $gameMap.regionId($gameMap.roundX(x), $gameMap.roundY(y)));
+    },
+
+    // MZ's passage check over the layers under a deck (A1 to A4: layeredTiles' last two).
+    lowerPassable(x, y, d) {
+        const bit = (1 << (d / 2 - 1)) & 0x0f;
+        const tileset = $gameMap.tileset ? $gameMap.tileset() : null;
+        const flags = (tileset && tileset.flags) || [];
+        const tiles = $gameMap.layeredTiles(x, y).slice(2);
+        for (const id of tiles) {
+            if (!id) continue;
+            const flag = flags[id] || 0;
+            if ((flag & 0x10) !== 0) continue;
+            if ((flag & bit) === 0) return true;
+            if ((flag & bit) === bit) return false;
+        }
+        return false;
+    },
+
+    // A character's level for where it stands now (a transfer or a placed event): an end is up; a deck tile
+    // keeps the level it had (an event's note <docs bridge: over> starts it on top); plain ground is down.
+    levelFor(character) {
+        const k = this.kindAt(character._x, character._y);
+        if (k === 'end') return 1;
+        if (!k) return 0;
+        if (character._docsLevel !== undefined) return Number(character._docsLevel) || 0;
+        const text = character.event && DocsDoodads.VisualEquip && DocsDoodads.VisualEquip.eventText ? DocsDoodads.VisualEquip.eventText(character) : '';
+        return /<\s*docs\s+bridge\s*:\s*over\s*>/i.test(String(text || '')) ? 1 : 0;
+    }
+};
+//==========================================================
 // SECTION 5B3: 2D CAMERA (FOLLOW SMOOTHING, REGION BOUNDS, PATHS)
 //==========================================================
 // On flat maps: the camera can ease after the player instead of snapping (World > Camera), stay inside a
@@ -4585,6 +5038,282 @@ DocsDoodads.Camera2D = {
         return { dx: snap(dx * k), dy: snap(dy * k) };
     }
 };
+//==========================================================
+// SECTION 5D: DECORATE MODE FOR PLAYERS (8.4.1)
+//==========================================================
+// In the finished game the player places and moves pieces the maker chose, where the maker allows, kept in the save.
+// Project: $dataDocsDoodads.decor = { catalog: [{ id, name, doodad, w, h, price, limit, itemId, tags }],
+//   zones: { [mapId]: { regions: '7 8', boxes: [{ x, y, w, h }] } } }. A catalog piece's `doodad` is a doodad
+//   without a place (its picture, light, states, collision); w × h is the tiles it covers.
+// Save: $gameSystem._docsDecor = { maps: { [mapId]: [{ uid, item, x, y, flip, state }] }, bag: { [item]: count } }.
+//   Ids and numbers only. A piece whose catalog entry or zone has gone is handed back to the bag, with a warning.
+// Pieces become doodads (temp, never written to the project) each time a map's spriteset is made.
+DocsDoodads.Decor = {
+    maxPieces: 400,
+
+    // ---- The maker's data ----
+    data() {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads;
+        const d = data && data.decor && typeof data.decor === 'object' ? data.decor : {};
+        return { catalog: Array.isArray(d.catalog) ? d.catalog : [], zones: d.zones && typeof d.zones === 'object' ? d.zones : {} };
+    },
+
+    cleanItem(item) {
+        if (!item || typeof item !== 'object') return null;
+        const id = String(item.id || '').replace(/[^\w-]/g, '').slice(0, 40);
+        if (!id || !item.doodad || !item.doodad.bit) return null;
+        const int = (v, lo, hi, d) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+        return { id, name: String(item.name || id).slice(0, 60), doodad: item.doodad, w: int(item.w, 1, 8, 1), h: int(item.h, 1, 8, 1),
+            price: int(item.price, 0, 9999999, 0), limit: int(item.limit, 0, 999, 0), itemId: int(item.itemId, 0, 9999, 0),
+            free: Boolean(item.free), tags: Array.isArray(item.tags) ? item.tags.map(String).slice(0, 12) : [] };
+    },
+
+    catalog() { return this.data().catalog.map(i => this.cleanItem(i)).filter(Boolean); },
+    item(id) { return this.catalog().find(i => i.id === id) || null; },
+
+    zonesFor(mapId) {
+        const z = this.data().zones[mapId];
+        if (!z) return null;
+        const regions = new Set(String(z.regions || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0));
+        const boxes = (Array.isArray(z.boxes) ? z.boxes : []).map(b => ({ x: Math.floor(Number(b.x) || 0), y: Math.floor(Number(b.y) || 0), w: Math.max(1, Math.floor(Number(b.w) || 1)), h: Math.max(1, Math.floor(Number(b.h) || 1)) }));
+        return regions.size || boxes.length ? { regions, boxes } : null;
+    },
+
+    inZone(zones, x, y, regionAt) {
+        if (!zones) return false;
+        if (zones.regions.size && zones.regions.has(Number(regionAt(x, y)) || 0)) return true;
+        return zones.boxes.some(b => x >= b.x && y >= b.y && x < b.x + b.w && y < b.y + b.h);
+    },
+
+    // The tiles a piece covers when its base-left tile is (x, y): w across, h up from the base row.
+    footprint(item, x, y) {
+        const out = [];
+        for (let dy = 0; dy < item.h; dy++) for (let dx = 0; dx < item.w; dx++) out.push({ x: x + dx, y: y - dy });
+        return out;
+    },
+
+    snap(px, py, tw, th) { return { x: Math.floor(Number(px) / tw), y: Math.floor(Number(py) / th) }; },
+
+    // A 4-way flood from start over passable(x, y): a Uint8Array of reached tiles.
+    reach(start, w, h, passable) {
+        const seen = new Uint8Array(w * h);
+        if (!start || start.x < 0 || start.y < 0 || start.x >= w || start.y >= h) return seen;
+        const queue = [start.y * w + start.x];
+        seen[queue[0]] = 1;
+        for (let q = 0; q < queue.length; q++) {
+            const x = queue[q] % w, y = Math.floor(queue[q] / w);
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const k = ny * w + nx;
+                if (seen[k] || !passable(nx, ny)) continue;
+                seen[k] = 1; queue.push(k);
+            }
+        }
+        return seen;
+    },
+
+    // ctx: { zones, regionAt, w, h, passable(x, y) (the map, without pieces), placed: [{ x, y, item }] (other pieces,
+    // resolved), start: the player's tile, exits: [{ x, y }] (doors, stairs) }. → { ok, reason }.
+    canPlace(item, x, y, ctx) {
+        if (!item) return { ok: false, reason: 'missing' };
+        const tiles = this.footprint(item, x, y);
+        for (const t of tiles) {
+            if (t.x < 0 || t.y < 0 || t.x >= ctx.w || t.y >= ctx.h) return { ok: false, reason: 'edge' };
+            if (!this.inZone(ctx.zones, t.x, t.y, ctx.regionAt)) return { ok: false, reason: 'zone' };
+            if (!ctx.passable(t.x, t.y)) return { ok: false, reason: 'blocked' };
+            if (ctx.start && t.x === ctx.start.x && t.y === ctx.start.y) return { ok: false, reason: 'player' };
+        }
+        const taken = new Set();
+        for (const p of ctx.placed || []) for (const t of this.footprint(p.item, p.x, p.y)) taken.add(t.x + ',' + t.y);
+        if (tiles.some(t => taken.has(t.x + ',' + t.y))) return { ok: false, reason: 'piece' };
+        // Not walling anyone in: every exit the player can reach now stays reachable.
+        if (ctx.start && ctx.exits && ctx.exits.length) {
+            const without = (px, py) => ctx.passable(px, py) && !taken.has(px + ',' + py);
+            const mine = new Set(tiles.map(t => t.x + ',' + t.y));
+            const before = this.reach(ctx.start, ctx.w, ctx.h, without);
+            const after = this.reach(ctx.start, ctx.w, ctx.h, (px, py) => without(px, py) && !mine.has(px + ',' + py));
+            const near = (seen, e) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+                const nx = e.x + dx, ny = e.y + dy;
+                return nx >= 0 && ny >= 0 && nx < ctx.w && ny < ctx.h && seen[ny * ctx.w + nx];
+            });
+            if (ctx.exits.some(e => near(before, e) && !near(after, e))) return { ok: false, reason: 'wallsIn' };
+        }
+        return { ok: true, reason: '' };
+    },
+
+    reasons: { missing: 'That piece is not in the catalog.', edge: 'Off the edge.', zone: 'Pieces can only go in the marked area.', blocked: 'Something is already there.',
+        player: 'You are standing there.', piece: 'Another piece is there.', wallsIn: 'That would block the way out.', none: 'You have none of those left.' },
+
+    // ---- The save ----
+    store(write = true) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return { maps: {}, bag: {} };
+        if (!write && !$gameSystem._docsDecor) return { maps: {}, bag: {} };
+        const s = $gameSystem._docsDecor = $gameSystem._docsDecor || {};
+        s.maps = s.maps || {}; s.bag = s.bag || {};
+        return s;
+    },
+
+    pieces(mapId) { return (this.store(false).maps[mapId] || []).slice(); },
+
+    placedCount(itemId) {
+        let n = 0;
+        for (const list of Object.values(this.store(false).maps)) for (const p of list || []) if (p.item === itemId) n++;
+        return n;
+    },
+
+    // How many more of a piece the player may place: its limit, and what they hold (the bag, or a party item).
+    left(item) {
+        if (!item) return 0;
+        const placed = this.placedCount(item.id);
+        const byLimit = item.limit > 0 ? Math.max(0, item.limit - placed) : Infinity;
+        let held;
+        if (item.itemId > 0) held = typeof $gameParty !== 'undefined' && $gameParty && typeof $dataItems !== 'undefined' && $dataItems ? $gameParty.numItems($dataItems[item.itemId]) : 0;
+        else if (item.free) held = Infinity;
+        else held = Number(this.store(false).bag[item.id]) || 0;
+        const n = Math.min(byLimit, held);
+        return n === Infinity ? 999 : n;
+    },
+
+    give(itemId, count) {
+        const s = this.store(true);
+        s.bag[itemId] = Math.max(0, (Number(s.bag[itemId]) || 0) + Math.floor(Number(count) || 0));
+        if (!s.bag[itemId]) delete s.bag[itemId];
+        return s.bag[itemId] || 0;
+    },
+
+    take(item) {
+        if (item.itemId > 0) { if (typeof $gameParty !== 'undefined' && $gameParty && $dataItems) $gameParty.loseItem($dataItems[item.itemId], 1); return; }
+        if (!item.free) this.give(item.id, -1);
+    },
+
+    handBack(item) {
+        if (!item) return;
+        if (item.itemId > 0) { if (typeof $gameParty !== 'undefined' && $gameParty && $dataItems) $gameParty.gainItem($dataItems[item.itemId], 1); return; }
+        if (!item.free) this.give(item.id, 1);
+    },
+
+    newUid() { return 'decor_' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36); },
+
+    add(mapId, itemId, x, y, flip) {
+        const s = this.store(true), list = s.maps[mapId] = s.maps[mapId] || [];
+        if (list.length >= this.maxPieces) return null;
+        const piece = { uid: this.newUid(), item: itemId, x: Math.floor(x), y: Math.floor(y) };
+        if (flip) piece.flip = true;
+        list.push(piece);
+        return piece;
+    },
+
+    move(mapId, uid, x, y, flip) {
+        const p = (this.store(true).maps[mapId] || []).find(q => q.uid === uid);
+        if (!p) return null;
+        p.x = Math.floor(x); p.y = Math.floor(y);
+        if (flip) p.flip = true; else delete p.flip;
+        return p;
+    },
+
+    remove(mapId, uid) {
+        const s = this.store(true), list = s.maps[mapId] || [];
+        const i = list.findIndex(q => q.uid === uid);
+        if (i < 0) return null;
+        const [p] = list.splice(i, 1);
+        if (!list.length) delete s.maps[mapId];
+        return p;
+    },
+
+    // Old saves after the maker changed the catalog or the zones: keep what still fits, hand back the rest.
+    // fits(item, piece) checks the zone. Returns the pieces handed back.
+    tidy(mapId, fits) {
+        const s = this.store(false), list = s.maps[mapId];
+        if (!list || !list.length) return [];
+        const gone = [];
+        s.maps[mapId] = list.filter(p => {
+            const item = this.item(p.item);
+            if (item && (!fits || fits(item, p))) return true;
+            gone.push(p);
+            if (item) this.handBack(item);
+            else if (typeof console !== 'undefined') console.warn(`[DocsDoodads] Decor piece "${p.item}" is no longer in the catalog; it was taken off map ${mapId}.`);
+            return false;
+        });
+        if (!s.maps[mapId].length) delete s.maps[mapId];
+        return gone;
+    },
+
+    // A placed piece as a doodad: the catalog's doodad at the piece's tile, standing on its base row.
+    doodadFor(piece, item, tw, th) {
+        const d = JSON.parse(JSON.stringify(item.doodad));
+        d.x = piece.x * tw + (item.w * tw) / 2;
+        d.y = piece.y * th + th;
+        d.uid = piece.uid;
+        d.temp = true;
+        d.decor = piece.uid;
+        if (piece.flip) d.scaleX = -Math.abs(Number(d.scaleX) || 1);
+        if (!d.name) d.name = '';
+        return d;
+    },
+
+    // The map's list of doodads with this save's pieces in it (the old pieces taken out first).
+    sync(mapId) {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads;
+        if (!data || !mapId) return 0;
+        const list = Array.isArray(data[mapId]) ? data[mapId].filter(d => !(d && d.decor)) : [];
+        const zones = this.zonesFor(mapId);
+        const regionAt = (x, y) => (typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId() === mapId ? $gameMap.regionId(x, y) : 0);
+        this.tidy(mapId, zones ? (item, p) => this.footprint(item, p.x, p.y).every(t => this.inZone(zones, t.x, t.y, regionAt)) : () => false);
+        const tw = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.tileWidth() : 48, th = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.tileHeight() : 48;
+        let n = 0;
+        for (const p of this.pieces(mapId)) {
+            const item = this.item(p.item);
+            if (!item) continue;
+            list.push(this.doodadFor(p, item, tw, th));
+            n++;
+        }
+        if (list.length || data[mapId]) data[mapId] = list;
+        if (DocsDoodads.Collision && DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
+        return n;
+    }
+};
+
+// The pieces go in when a map is set up (a transfer, a new game) and when a save is loaded, before its spriteset.
+if (typeof Game_Map !== 'undefined') {
+    const setup = Game_Map.prototype.setup;
+    Game_Map.prototype.setup = function(mapId) {
+        const result = setup.apply(this, arguments);
+        if (this === window.$gameMap && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) {
+            try { DocsDoodads.Decor.sync(mapId); } catch (error) { DocsDoodads.Core.log('Decor pieces could not be placed.', error); }
+        }
+        return result;
+    };
+}
+if (typeof DataManager !== 'undefined' && typeof DataManager.extractSaveContents === 'function') {
+    const extract = DataManager.extractSaveContents;
+    DataManager.extractSaveContents = function() {
+        const result = extract.apply(this, arguments);
+        if (window.$gameMap && $gameMap.mapId && $gameMap.mapId() > 0) {
+            try { DocsDoodads.Decor.sync($gameMap.mapId()); } catch (error) { DocsDoodads.Core.log('Decor pieces could not be placed.', error); }
+        }
+        return result;
+    };
+}
+if (typeof Spriteset_Map !== 'undefined') {
+    const init = Spriteset_Map.prototype.initialize;
+    Spriteset_Map.prototype.initialize = function() {
+        if (typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId && !(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) {
+            try { DocsDoodads.Decor.sync($gameMap.mapId()); } catch (error) { DocsDoodads.Core.log('Decor pieces could not be placed.', error); }
+        }
+        return init.apply(this, arguments);
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'openDecorate', () => { if (DocsDoodads.DecorMode) DocsDoodads.DecorMode.open(); });
+    PluginManager.registerCommand(pluginName, 'giveDecor', args => DocsDoodads.Decor.give(String(args.item || ''), Number(args.count) || 1));
+    PluginManager.registerCommand(pluginName, 'countDecor', args => {
+        const D = DocsDoodads.Decor, id = String(args.item || ''), v = Number(args.variableId) || 0;
+        const n = String(args.what) === 'held' ? D.left(D.item(id)) : D.placedCount(id);
+        if (v > 0 && typeof $gameVariables !== 'undefined') $gameVariables.setValue(v, n);
+    });
+}
 //==========================================================
 // SECTION 7a: DOODAD STATES, WORLD STATE & TOUCHABLE DOODADS
 //==========================================================
@@ -5244,6 +5973,220 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
     });
 }
 //==========================================================
+// SECTION 5E: ELEMENTS THAT SPREAD (8.4.3)
+//==========================================================
+// One map's setting `elements: { enabled, fuelRegions, fuelTags, fireproofRegions, seed }`. A slow cellular step
+// (four times a second, never per frame) over a grid of tiles with fuel, wet and burning: fire moves to
+// neighbours with fuel, more often downwind; rain wets everything, which stops fire; wet drains downhill by the 3D
+// height and dries. Only marked ground burns (fuel regions and tags) and doodads marked Burns (their tile is fuel;
+// when it burns out they go to their state named Burnt, kept by the save's states). Lights fires: a campfire that
+// can light dry fuel beside it. Puts out: a well, a fountain. Fireproof regions never burn. Seeded. Off by default.
+DocsDoodads.Elements = {
+    every: 15,
+    burnSteps: 24,
+
+    settings(mapSettings) {
+        const s = Object.assign({ enabled: false, fuelRegions: '', fuelTags: '', fireproofRegions: '', seed: 1 }, (mapSettings && mapSettings.elements) || {});
+        s.enabled = Boolean(s.enabled);
+        return s;
+    },
+
+    ids(text) { return new Set(String(text || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0)); },
+
+    // fuelAt(x, y) → 0-100; proofAt(x, y) → never burns.
+    make(w, h, fuelAt, proofAt) {
+        const n = w * h, g = { w, h, fuel: new Uint8Array(n), wet: new Uint8Array(n), burn: new Uint8Array(n), burnt: new Uint8Array(n), proof: new Uint8Array(n), puddle: new Uint8Array(n), steps: 0 };
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            g.fuel[i] = Math.max(0, Math.min(100, Math.round(Number(fuelAt(x, y)) || 0)));
+            g.proof[i] = proofAt && proofAt(x, y) ? 1 : 0;
+        }
+        return g;
+    },
+
+    ignite(g, x, y) {
+        if (x < 0 || y < 0 || x >= g.w || y >= g.h) return false;
+        const i = y * g.w + x;
+        if (!g.fuel[i] || g.proof[i] || g.burn[i] || g.wet[i] >= 50) return false;
+        g.burn[i] = this.burnSteps;
+        return true;
+    },
+
+    burning(g) { let n = 0; for (let i = 0; i < g.burn.length; i++) if (g.burn[i]) n++; return n; },
+
+    putOut(g) { let n = 0; for (let i = 0; i < g.burn.length; i++) if (g.burn[i]) { g.burn[i] = 0; n++; } return n; },
+
+    // One step. ctx: { wind: { x, y } (-1..1), rain (0..1), height(x, y), rng, sources: [{ x, y }], wells: [{ x, y }] }.
+    // Returns { lit: [i], out: [i] } (out: burned out this step, their fuel spent).
+    step(g, ctx) {
+        const w = g.w, h = g.h, rng = ctx.rng, wind = ctx.wind || { x: 0, y: 0 }, rain = Math.max(0, Math.min(1, Number(ctx.rain) || 0));
+        const lit = [], out = [];
+        g.steps++;
+        for (const s of ctx.wells || []) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const x = s.x + dx, y = s.y + dy;
+            if (x >= 0 && y >= 0 && x < w && y < h) { g.wet[y * w + x] = 100; g.burn[y * w + x] = 0; }
+        }
+        // Rain wets everything; it dries slowly otherwise (a point a second).
+        for (let i = 0; i < g.wet.length; i++) {
+            if (rain > 0) g.wet[i] = Math.min(100, g.wet[i] + Math.ceil(rain * 6));
+            else if (g.wet[i] && g.steps % 4 === 0) g.wet[i] = Math.max(0, g.wet[i] - 1);
+            if (g.burn[i] && g.wet[i] >= 50) g.burn[i] = 0;
+        }
+        // Wet runs downhill: a share to the lowest lower neighbour.
+        if (ctx.height) {
+            const moved = new Int16Array(g.wet.length);
+            for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+                const i = y * w + x;
+                if (g.wet[i] < 10) continue;
+                const here = ctx.height(x, y);
+                let best = -1, low = here;
+                for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    const v = ctx.height(nx, ny);
+                    if (v < low) { low = v; best = ny * w + nx; }
+                }
+                if (best >= 0) { const share = Math.ceil(g.wet[i] / 3); moved[i] -= share; moved[best] += share; }
+            }
+            for (let i = 0; i < g.wet.length; i++) g.wet[i] = Math.max(0, Math.min(100, g.wet[i] + moved[i]));
+        }
+        // Puddles where it stays wet.
+        for (let i = 0; i < g.wet.length; i++) g.puddle[i] = g.wet[i] >= 70 ? Math.min(255, g.puddle[i] + 1) : Math.max(0, g.puddle[i] - 1);
+        // Fire: burn down, and spread (downwind more often).
+        const next = [];
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            if (!g.burn[i]) continue;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const len = Math.hypot(dx, dy), along = (dx * wind.x + dy * wind.y) / len;
+                const chance = 0.06 * (1 + Math.max(-0.9, along * 3)) / len;
+                if (rng() < chance) next.push([nx, ny]);
+            }
+            g.burn[i]--;
+            g.fuel[i] = Math.max(0, g.fuel[i] - Math.ceil(100 / this.burnSteps));
+            if (!g.burn[i] || !g.fuel[i]) { g.burn[i] = 0; g.fuel[i] = 0; g.burnt[i] = 1; out.push(i); }
+        }
+        for (const s of ctx.sources || []) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (rng() < 0.01) next.push([s.x + dx, s.y + dy]);
+        for (const [x, y] of next) if (this.ignite(g, x, y)) lit.push(y * w + x);
+        return { lit, out };
+    },
+
+    // The game's grid for the map on screen; made when the map is first stepped.
+    _grid: null,
+    current() { return this._grid && typeof $gameMap !== 'undefined' && $gameMap && this._grid.mapId === $gameMap.mapId() ? this._grid : null; },
+
+    build(mapId) {
+        const ms = DocsDoodads.Lighting.mapSettings(mapId), s = this.settings(ms);
+        const fuelR = this.ids(s.fuelRegions), fuelT = this.ids(s.fuelTags), proof = this.ids(s.fireproofRegions);
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const burners = new Map(), sources = [], wells = [];
+        for (const d of DocsDoodads.doodads(mapId) || []) {
+            if (!d || !d.element) continue;
+            const x = Math.floor((Number(d.x) || 0) / tw), y = Math.floor(((Number(d.y) || 0) - 1) / th);
+            if (d.element === 'burns') (burners.get(y * $gameMap.width() + x) || burners.set(y * $gameMap.width() + x, []).get(y * $gameMap.width() + x)).push(d);
+            else if (d.element === 'lights') sources.push({ x, y });
+            else if (d.element === 'putsOut') wells.push({ x, y });
+        }
+        const g = this.make($gameMap.width(), $gameMap.height(),
+            (x, y) => (fuelR.has($gameMap.regionId(x, y)) || fuelT.has($gameMap.terrainTag(x, y)) || burners.has(y * $gameMap.width() + x) ? 100 : 0),
+            (x, y) => proof.has($gameMap.regionId(x, y)));
+        // Doodads already burnt (a save) leave no fuel.
+        for (const [i, list] of burners) if (list.every(d => /burnt/i.test(DocsDoodads.WorldState.state(d, mapId)))) { g.fuel[i] = 0; g.burnt[i] = 1; }
+        Object.assign(g, { mapId, burners, sources, wells, rng: DocsDoodads.Scatter.rng((Number(s.seed) || 1) * 7919 + mapId) });
+        this._grid = g;
+        return g;
+    },
+
+    startAt(x, y) {
+        const g = this.current() || (typeof $gameMap !== 'undefined' && $gameMap && this.settings(DocsDoodads.Lighting.mapSettings($gameMap.mapId())).enabled ? this.build($gameMap.mapId()) : null);
+        return g ? this.ignite(g, Math.floor(Number(x) || 0), Math.floor(Number(y) || 0)) : false;
+    }
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'startFireAt', args => DocsDoodads.Elements.startAt(args.x, args.y));
+    PluginManager.registerCommand(pluginName, 'putOutFires', () => { const g = DocsDoodads.Elements.current(); if (g) DocsDoodads.Elements.putOut(g); });
+}
+//==========================================================
+// SECTION 5V: MAP ERAS (8.4.5)
+//==========================================================
+// One map in several versions (whole, burning, ruined; now and ten years on). $dataDocsDoodads.eras[mapId] =
+// { list: [{ id, name }], pick: { switchId } | { variableId } }: with a switch, off is the first era and on the second;
+// with a variable, its value is the era's number (0 the first). A doodad with `eras: [ids]` shows only in those;
+// one without shows in every era. Collision and lights follow what shows. When the era changes on the map, the
+// doodads crossfade. Tiles stay the same in every era (a second set of map tiles would be needed).
+DocsDoodads.Eras = {
+    fadeFrames: 30,
+    _fade: null,
+    _editing: null,
+    onion: 0.25,
+
+    of(mapId) {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads;
+        const e = data && data.eras && data.eras[mapId];
+        if (!e || !Array.isArray(e.list) || !e.list.length) return null;
+        const list = e.list.filter(x => x && x.id).map(x => ({ id: String(x.id), name: String(x.name || x.id) }));
+        if (!list.length) return null;
+        const pick = e.pick && typeof e.pick === 'object' ? e.pick : {};
+        return { list, pick: { switchId: Math.max(0, Math.floor(Number(pick.switchId) || 0)), variableId: Math.max(0, Math.floor(Number(pick.variableId) || 0)) } };
+    },
+
+    // The era showing: by the variable, else the switch, else the first.
+    current(mapId, switchValue, variableValue) {
+        const e = this.of(mapId);
+        if (!e) return null;
+        let n = 0;
+        if (e.pick.variableId > 0 && variableValue) n = Math.floor(Number(variableValue(e.pick.variableId)) || 0);
+        else if (e.pick.switchId > 0 && switchValue) n = switchValue(e.pick.switchId) ? 1 : 0;
+        return e.list[Math.max(0, Math.min(e.list.length - 1, n))].id;
+    },
+
+    visible(d, era) {
+        if (!d || !Array.isArray(d.eras) || !d.eras.length || !era) return true;
+        return d.eras.includes(era);
+    },
+
+    // The era for the map on screen (the editor's own pick while editing).
+    live() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || !$gameMap.mapId) return null;
+        const mapId = $gameMap.mapId();
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted && this._editing && this._editing.mapId === mapId) return this._editing.era;
+        const sw = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+        const vr = id => (typeof $gameVariables !== 'undefined' && $gameVariables ? $gameVariables.value(id) : 0);
+        return this.current(mapId, sw, vr);
+    },
+
+    // Steps the crossfade once a frame: { from, to, t }.
+    step() {
+        const era = this.live(), mapId = typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.mapId() : 0;
+        const f = this._fade;
+        if (!f || f.mapId !== mapId) { this._fade = { mapId, from: era, to: era, t: 1 }; return this._fade; }
+        if (era !== f.to) { f.from = f.t >= 1 ? f.to : f.from; f.to = era; f.t = 0; }
+        if (f.t < 1) f.t = Math.min(1, f.t + 1 / this.fadeFrames);
+        return f;
+    },
+
+    // How much of a doodad shows during a crossfade (1 outside one).
+    alpha(d) {
+        const f = this._fade;
+        if (!f || f.t >= 1 || !d || !Array.isArray(d.eras) || !d.eras.length) return 1;
+        const inFrom = d.eras.includes(f.from), inTo = d.eras.includes(f.to);
+        if (inFrom && inTo) return 1;
+        return inTo ? f.t : inFrom ? 1 - f.t : 0;
+    },
+
+    // Shown in the game now: in the era, or fading out of the last one.
+    shown(d) {
+        if (!d || !Array.isArray(d.eras) || !d.eras.length) return true;
+        const f = this._fade, era = f ? f.to : this.live();
+        if (this.visible(d, era)) return true;
+        return Boolean(f && f.t < 1 && this.visible(d, f.from));
+    }
+};
+
+//==========================================================
 // SECTION 7L: NAMES AND ICONS OVER EVENTS
 //==========================================================
 // <docs label: Blacksmith> and <docs icon: 87> in an event's note or a comment on its current page put a name,
@@ -5579,6 +6522,142 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         DocsDoodads.Schedules.setEnabled(String(args.on) !== 'false');
     });
 }
+//==========================================================
+// SECTION 5N: INDOORS BY REGION (9.2.2)
+//==========================================================
+// A house can share a map with its street. One map's setting `indoors: { regions, darkness, quiet }` marks
+// region ids whose tiles are under a roof: rain and snow are not drawn over them, doodads based there do not
+// lean in the wind or throw sun shadows, and while the player stands on one the screen eases to the indoor
+// darkness, lightning is dimmed and the weather's sound is quieter. Mark floors, not roofs: seen from outside,
+// rain over a roof is right. Off until a map lists regions.
+DocsDoodads.Indoors = {
+    defaults: { regions: '', darkness: null, quiet: 0.35 },
+    _cache: null,
+    _version: 0,
+    // Eased 0 (outside) to 1 (inside), stepped by the spriteset; read by lighting, lightning and sound.
+    blend: 0,
+
+    normalize(s) {
+        if (!s || typeof s !== 'object') return null;
+        const regions = String(s.regions === undefined || s.regions === null ? '' : s.regions).trim();
+        const dark = s.darkness === null || s.darkness === undefined || s.darkness === '' ? null : Number(s.darkness);
+        const quiet = Number(s.quiet);
+        return {
+            regions,
+            darkness: dark === null || !Number.isFinite(dark) ? null : Math.max(0, Math.min(1, dark)),
+            quiet: Number.isFinite(quiet) ? Math.max(0, Math.min(1, quiet)) : this.defaults.quiet
+        };
+    },
+
+    // The map's indoor settings, or null when it marks no regions (the old path everywhere).
+    settingsFor(mapSettings) {
+        const s = this.normalize(mapSettings && mapSettings.indoors);
+        return s && this.regionSet(s.regions).size ? s : null;
+    },
+
+    regionSet(text) {
+        return new Set(String(text || '').split(/[\s,;]+/).map(n => parseInt(n, 10)).filter(n => n > 0 && n < 256));
+    },
+
+    isIndoors(mapSettings, regionId) {
+        const s = this.settingsFor(mapSettings);
+        return Boolean(s) && this.regionSet(s.regions).has(Number(regionId));
+    },
+
+    // A byte a tile (1 indoors). regionAt(x, y) gives a tile's region. null when nothing is marked or found.
+    mask(regionAt, w, h, set) {
+        w = Math.max(0, Math.floor(Number(w) || 0)); h = Math.max(0, Math.floor(Number(h) || 0));
+        if (!set || !set.size || !w || !h) return null;
+        const out = new Uint8Array(w * h);
+        let any = false;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            if (set.has(Number(regionAt(x, y)) || 0)) { out[y * w + x] = 1; any = true; }
+        }
+        return any ? out : null;
+    },
+
+    // A tile of a mask; looping maps wrap, beyond a non-looping edge is outdoors.
+    at(mask, w, h, x, y, loopX, loopY) {
+        if (!mask) return false;
+        x = Math.floor(Number(x)); y = Math.floor(Number(y));
+        if (loopX) x = ((x % w) + w) % w;
+        if (loopY) y = ((y % h) + h) % h;
+        if (x < 0 || y < 0 || x >= w || y >= h) return false;
+        return mask[y * w + x] === 1;
+    },
+
+    // Region painting calls this so the mask is made again on its next use.
+    invalidate() { this._version++; this._cache = null; },
+
+    // The current map's mask, made once per map, region paint and setting change.
+    current() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || typeof $dataMap === 'undefined' || !$dataMap) return null;
+        const mapId = $gameMap.mapId();
+        const settings = this.settingsFor(DocsDoodads.Lighting.mapSettings(mapId));
+        const c = this._cache;
+        if (c && c.mapId === mapId && c.data === $dataMap.data && c.version === this._version && c.text === (settings && settings.regions)) return c.mask ? c : null;
+        const w = $dataMap.width, h = $dataMap.height, data = $dataMap.data || [];
+        const regionAt = (x, y) => data[(5 * h + y) * w + x] || 0;
+        const mask = settings ? this.mask(regionAt, w, h, this.regionSet(settings.regions)) : null;
+        this._cache = { mapId, data: $dataMap.data, version: this._version, text: settings && settings.regions, mask, w, h, settings };
+        return mask ? this._cache : null;
+    },
+
+    tile(x, y) {
+        const c = this.current();
+        if (!c) return false;
+        return this.at(c.mask, c.w, c.h, x, y, $gameMap.isLoopHorizontal && $gameMap.isLoopHorizontal(), $gameMap.isLoopVertical && $gameMap.isLoopVertical());
+    },
+
+    // A map pixel (doodads keep their place in map pixels).
+    pixel(px, py) {
+        if (!this.current()) return false;
+        return this.tile(Math.floor(Number(px) / $gameMap.tileWidth()), Math.floor(Number(py) / $gameMap.tileHeight()));
+    },
+
+    // A doodad's base: just above its anchor point, so a wall-hung lamp on the floor's top row counts.
+    doodad(d) {
+        if (!d || !this.current()) return false;
+        return this.pixel(Number(d.x) || 0, (Number(d.y) || 0) - 1);
+    },
+
+    // Wind that leans doodads: none indoors.
+    windX(d) {
+        const x = DocsDoodads.Wind.current().x;
+        return x && this.doodad(d) ? 0 : x;
+    },
+
+    playerInside() {
+        return typeof $gamePlayer !== 'undefined' && $gamePlayer ? this.tile($gamePlayer.x, $gamePlayer.y) : false;
+    },
+
+    // Eases toward 1 inside and 0 outside over about half a second.
+    ease(current, inside, dt) {
+        const target = inside ? 1 : 0, rate = Math.max(0, Number(dt) || 0) * 2;
+        const c = Number(current) || 0;
+        return c < target ? Math.min(target, c + rate) : Math.max(target, c - rate);
+    },
+
+    // The ambient light with the indoor darkness blended in (a map without its own indoor darkness keeps it).
+    ambient(ambient, mapSettings, blend) {
+        const s = this.settingsFor(mapSettings);
+        if (!s || s.darkness === null || !(blend > 0) || !ambient) return ambient;
+        const k = Math.min(1, blend);
+        return Object.assign({}, ambient, { darkness: (Number(ambient.darkness) || 0) * (1 - k) + s.darkness * k });
+    },
+
+    // How loud the weather is heard: 1 outside, `quiet` inside.
+    volume(mapSettings, blend) {
+        const s = this.settingsFor(mapSettings);
+        if (!s || !(blend > 0)) return 1;
+        return 1 - (1 - s.quiet) * Math.min(1, blend);
+    },
+
+    // Lightning flashes are dimmed while inside.
+    flash(amount, blend) {
+        return (Number(amount) || 0) * (1 - 0.6 * Math.max(0, Math.min(1, Number(blend) || 0)));
+    }
+};
 //==========================================================
 // SECTION 5A3: GAMEPLAY LIGHT LEVELS AND EVENT SIGHT
 //==========================================================
@@ -6588,6 +7667,61 @@ DocsDoodads.api = {
     },
 
     /**
+     * Opens Decorate mode on this map (pieces from Map → Decorate). Returns false when the map has no zone or catalog.
+     * @returns {boolean}
+     */
+    decorate() {
+        return DocsDoodads.DecorMode ? DocsDoodads.DecorMode.open() : false;
+    },
+
+    /**
+     * Gives the player decor pieces by catalog id (a negative count takes them). Returns how many they hold.
+     * @param {string} item
+     * @param {number} [count]
+     * @returns {number}
+     */
+    giveDecor(item, count = 1) {
+        return DocsDoodads.Decor.give(item, count);
+    },
+
+    /**
+     * Plays a cutscene timeline by its name or id (Map → Timelines). Returns false when there is none.
+     * @param {string} name
+     * @param {{ skippable?: boolean }} [opts]
+     * @returns {boolean}
+     */
+    playTimeline(name, opts = {}) {
+        return DocsDoodads.Timeline.play(name, opts);
+    },
+
+    /**
+     * Stops the timeline that is playing; the camera follows the player again. Returns whether one was playing.
+     * @returns {boolean}
+     */
+    stopTimeline() {
+        return DocsDoodads.Timeline.stop(true);
+    },
+
+    /**
+     * Whether a timeline is playing (that one, when a name is given).
+     * @param {string} [name]
+     * @returns {boolean}
+     */
+    timelinePlaying(name) {
+        return DocsDoodads.Timeline.isPlaying(name);
+    },
+
+    /**
+     * Starts (true) or stops (false) doodads that travel, by a query, on this map. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {boolean} [on]
+     * @returns {number}
+     */
+    travel(query, on = true) {
+        return DocsDoodads.Travel.setRunning(query, on !== false);
+    },
+
+    /**
      * Ambient light: darkness 0-1 and a colour '#rrggbb' over frames; ambient(null) goes back to the map's own.
      * @param {number | null} darkness
      * @param {string} [color]
@@ -6602,6 +7736,367 @@ DocsDoodads.api = {
         return DocsDoodads.setAmbient({ darkness: Math.max(0, Math.min(1, Number(darkness) || 0)), color: color || DocsDoodads.Lighting.ambientDefaults.color }, Number(frames) || 0);
     }
 };
+//==========================================================
+// SECTION 5R: A WORLD THAT REMEMBERS (8.4.2)
+//==========================================================
+// Growth: a doodad with states and `grow: { days: [3, 4, 5] }` steps to its next state when its state has lasted
+// that many calendar days, and stops at the last (farming). Only the day each state began is kept, with the
+// states in the save (WorldState). Doodads on other maps catch up when their map is next shown.
+// Wear: one map's setting `remember: { wear, trails, trailRegions, trailTags, color }`. With wear on, each step
+// counts on its tile; counts ease down each new day; where they are high the ground shows a worn path. Kept in the
+// save as a short run-length string per map. Trails: footprints on marked ground (and anywhere while it snows)
+// that fade as snow and wind fill them; not saved. Off unless a map turns them on.
+DocsDoodads.Growth = {
+    normalize(g) {
+        const days = (g && Array.isArray(g.days) ? g.days : String((g && g.days) || '').split(/[\s,;]+/))
+            .map(n => Math.floor(Number(n))).filter(n => n > 0).slice(0, 32);
+        return days.length ? { days } : null;
+    },
+
+    // From the state it is in and the day that state began: { state, began } for `today`. Stops at the last state.
+    advance(state, began, days, today, last) {
+        let s = Math.max(0, Math.floor(Number(state) || 0)), b = Number(began);
+        if (!Number.isFinite(b) || b <= 0) b = today;
+        while (s < last && s < days.length && today - b >= days[s]) { b += days[s]; s++; }
+        return { state: s, began: b };
+    },
+
+    store(write = true) {
+        const ws = DocsDoodads.WorldState.store(write);
+        if (write) ws.grown = ws.grown || {};
+        return ws.grown || {};
+    },
+
+    // Steps every growing doodad on a map to today.
+    update(mapId, today) {
+        if (!(today > 0)) return 0;
+        const W = DocsDoodads.WorldState, S = DocsDoodads.States;
+        let changed = 0;
+        for (const d of DocsDoodads.doodads(mapId) || []) {
+            const g = d && this.normalize(d.grow);
+            if (!g || !S.has(d)) continue;
+            const id = W.idOf(d);
+            if (!id) continue;
+            const key = W.key(mapId, id), grown = this.store(true);
+            const current = Math.max(0, S.index(d, mapId));
+            const next = this.advance(current, grown[key], g.days, today, S.list(d).length - 1);
+            grown[key] = next.began;
+            if (next.state !== current) { W.setState(d, next.state, mapId); changed++; }
+        }
+        return changed;
+    }
+};
+
+DocsDoodads.Wear = {
+    max: 255,
+    defaults: { wear: false, trails: false, trailRegions: '', trailTags: '', color: '#7a5c3c', threshold: 12, fade: 20 },
+
+    settings(mapSettings) {
+        const s = Object.assign({}, this.defaults, (mapSettings && mapSettings.remember) || {});
+        s.wear = Boolean(s.wear); s.trails = Boolean(s.trails);
+        s.threshold = Math.max(1, Math.min(200, Number(s.threshold) || this.defaults.threshold));
+        s.fade = Math.max(1, Math.min(600, Number(s.fade) || this.defaults.fade));
+        return s;
+    },
+
+    step(grid, w, x, y) {
+        const i = y * w + x;
+        if (i < 0 || i >= grid.length) return;
+        if (grid[i] < this.max) grid[i]++;
+    },
+
+    // A new day: every count eases down by a fifth (at least one).
+    ease(grid, days = 1) {
+        for (let n = 0; n < days; n++) for (let i = 0; i < grid.length; i++) if (grid[i]) grid[i] = Math.max(0, grid[i] - Math.max(1, Math.ceil(grid[i] / 5)));
+        return grid;
+    },
+
+    // How worn a tile looks: 0 to 1.
+    alpha(count, threshold) {
+        return Math.max(0, Math.min(1, (Number(count) || 0) / (threshold * 2)));
+    },
+
+    // Run-length text: "count*run,count*run" (a run of 1 is just the count).
+    encode(grid) {
+        const out = [];
+        for (let i = 0; i < grid.length;) {
+            let j = i;
+            while (j < grid.length && grid[j] === grid[i]) j++;
+            out.push(j - i > 1 ? grid[i] + '*' + (j - i) : String(grid[i]));
+            i = j;
+        }
+        return out.join(',');
+    },
+
+    decode(text, length) {
+        const grid = new Uint8Array(length);
+        let at = 0;
+        for (const part of String(text || '').split(',')) {
+            if (!part) continue;
+            const [v, n] = part.split('*');
+            const value = Math.max(0, Math.min(this.max, Math.floor(Number(v)) || 0)), run = n === undefined ? 1 : Math.max(0, Math.floor(Number(n)) || 0);
+            for (let k = 0; k < run && at < length; k++) grid[at++] = value;
+        }
+        return grid;
+    },
+
+    store(write = true) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return {};
+        if (!write && !$gameSystem._docsWear) return {};
+        return ($gameSystem._docsWear = $gameSystem._docsWear || {});
+    },
+
+    // A map's grid (made from the save when its map is shown), kept in memory until the save is written.
+    _grids: {},
+    grid(mapId, w, h) {
+        const g = this._grids[mapId];
+        if (g && g.w === w && g.h === h) return g;
+        const saved = this.store(false)[mapId];
+        // A map that changed size since starts its wear again.
+        const text = saved && saved.w === w && saved.h === h ? saved.data : '';
+        return (this._grids[mapId] = { w, h, data: this.decode(text, w * h), day: saved ? saved.day || 0 : 0, version: 0 });
+    },
+
+    save() {
+        const store = this.store(true);
+        for (const [mapId, g] of Object.entries(this._grids)) {
+            if (g.data.some(v => v)) store[mapId] = { w: g.w, h: g.h, day: g.day, data: this.encode(g.data) };
+            else delete store[mapId];
+        }
+        if (!Object.keys(store).length && typeof $gameSystem !== 'undefined' && $gameSystem) delete $gameSystem._docsWear;
+    },
+
+    // Whether a tile takes footprints: a marked region or terrain tag.
+    trailAt(settings, regionId, tag, snowing) {
+        if (!settings.trails) return false;
+        if (snowing) return true;
+        const has = (text, n) => String(text || '').split(/[\s,;]+/).map(v => parseInt(v, 10)).includes(Number(n));
+        return (regionId > 0 && has(settings.trailRegions, regionId)) || (tag > 0 && has(settings.trailTags, tag));
+    }
+};
+
+// Wear is written into the save as it is made; the in-memory grids start again with each new game or load.
+if (typeof DataManager !== 'undefined') {
+    const make = DataManager.makeSaveContents;
+    if (typeof make === 'function') {
+        DataManager.makeSaveContents = function() {
+            try { DocsDoodads.Wear.save(); } catch (error) { DocsDoodads.Core.log('Wear could not be saved.', error); }
+            return make.apply(this, arguments);
+        };
+    }
+    for (const name of ['extractSaveContents', 'setupNewGame']) {
+        const original = DataManager[name];
+        if (typeof original !== 'function') continue;
+        DataManager[name] = function() {
+            DocsDoodads.Wear._grids = {};
+            return original.apply(this, arguments);
+        };
+    }
+}
+
+// Each finished step of the player counts on its tile, and may leave a footprint.
+if (typeof Game_Player !== 'undefined') {
+    // MZ's Game_Player has its own increaseSteps; where it doesn't, the inherited one is looked up each call so
+    // later parts' wrappers (footsteps) still run.
+    const steps = Object.prototype.hasOwnProperty.call(Game_Player.prototype, 'increaseSteps') ? Game_Player.prototype.increaseSteps : null;
+    Game_Player.prototype.increaseSteps = function() {
+        const result = steps ? steps.apply(this, arguments) : Game_Character.prototype.increaseSteps.apply(this, arguments);
+        if (typeof $gameMap === 'undefined' || !$gameMap || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return result;
+        const ms = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+        if (!ms || !ms.remember) return result;
+        const W = DocsDoodads.Wear, s = W.settings(ms);
+        if (s.wear) {
+            const g = W.grid($gameMap.mapId(), $gameMap.width(), $gameMap.height());
+            W.step(g.data, g.w, this.x, this.y);
+            g.version++;
+        }
+        if (s.trails) {
+            const snowing = typeof $gameScreen !== 'undefined' && $gameScreen && $gameScreen.weatherType && $gameScreen.weatherType() === 'snow';
+            if (W.trailAt(s, $gameMap.regionId(this.x, this.y), $gameMap.terrainTag(this.x, this.y), snowing)) {
+                (W._prints = W._prints || []).push({ x: this.x, y: this.y, d: this.direction(), age: 0, life: s.fade * 60, left: ((W._printSide = !W._printSide)) });
+                if (W._prints.length > 64) W._prints.shift();
+            }
+        }
+        return result;
+    };
+}
+//==========================================================
+// SECTION 5S: WALKING FROM MAP TO MAP WITHOUT A FADE (7.3.1)
+//==========================================================
+// With maps linked as neighbours (Map → neighbours: east, west, north, south) and World → seamless on, the player
+// walks off one map's edge onto the next. It is a quick transfer with no fade: the neighbours' map files are
+// fetched ahead when a map starts, so the next map is there at once; the camera may look past an edge that has a
+// neighbour, whose tiles are drawn there (when it uses the same tileset), and keeps the player where they were on
+// screen. Neighbours' events are not shown past the edge. A map can opt out (its setting `seamless: 'off'`);
+// looping maps are left alone on the axis they loop. Flat maps.
+DocsDoodads.Seamless = {
+    cache: {},
+    _loading: {},
+
+    enabled(mapId) {
+        const world = DocsDoodads.World.settings(), s = world && world.seamless;
+        if (!s || !s.enabled) return false;
+        const ms = DocsDoodads.Lighting.mapSettings(mapId);
+        return !(ms && ms.seamless === 'off');
+    },
+
+    links(mapId) {
+        const ms = DocsDoodads.Lighting.mapSettings(mapId);
+        return (ms && ms.neighbors) || {};
+    },
+
+    // Where a step off the edge lands: { mapId, x, y } or null. sizes(id) → { w, h } or null; loop: { x, y }.
+    target(mapId, x, y, d, links, sizes, loop = {}) {
+        const here = sizes(mapId);
+        if (!here || !links) return null;
+        let side = null;
+        if (d === 6 && x === here.w - 1 && !loop.x) side = 'east';
+        else if (d === 4 && x === 0 && !loop.x) side = 'west';
+        else if (d === 8 && y === 0 && !loop.y) side = 'north';
+        else if (d === 2 && y === here.h - 1 && !loop.y) side = 'south';
+        const id = side ? Number(links[side]) : 0;
+        if (!id) return null;
+        const there = sizes(id);
+        if (!there) return null;
+        const t = side === 'east' ? { x: 0, y } : side === 'west' ? { x: there.w - 1, y } : side === 'north' ? { x, y: there.h - 1 } : { x, y: 0 };
+        if (t.x < 0 || t.y < 0 || t.x >= there.w || t.y >= there.h) return null;
+        return { mapId: id, x: t.x, y: t.y, side };
+    },
+
+    // Where a map sits beside this one, in tiles: east is +w, west is -(its w), and so on.
+    offset(side, here, there) {
+        return side === 'east' ? { x: here.w, y: 0 } : side === 'west' ? { x: -there.w, y: 0 } : side === 'north' ? { x: 0, y: -there.h } : side === 'south' ? { x: 0, y: here.h } : { x: 0, y: 0 };
+    },
+
+    // Whether a tile of a cached map can be walked onto from direction d (MZ's passage check over its layers).
+    passable(map, flags, x, y, d) {
+        if (!map || !Array.isArray(map.data)) return false;
+        const w = map.width, h = map.height, bit = (1 << ((10 - d) / 2 - 1)) & 0x0f;
+        for (const z of [3, 2, 1, 0]) {
+            const id = map.data[(z * h + y) * w + x] || 0;
+            if (!id) continue;
+            const f = flags[id] || 0;
+            if ((f & 0x10) !== 0) continue;
+            if ((f & bit) === 0) return true;
+            if ((f & bit) === bit) return false;
+        }
+        return false;
+    },
+
+    sizeOf(id) {
+        if (typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId() === id && typeof $dataMap !== 'undefined' && $dataMap) return { w: $dataMap.width, h: $dataMap.height };
+        const m = this.cache[id];
+        return m ? { w: m.width, h: m.height } : null;
+    },
+
+    // Fetches each neighbour's map file once (JSON, like MZ's own loader).
+    preload(mapId) {
+        if (typeof XMLHttpRequest === 'undefined') return;
+        for (const side of ['east', 'west', 'north', 'south']) {
+            const id = Number(this.links(mapId)[side]);
+            if (!id || this.cache[id] || this._loading[id]) continue;
+            this._loading[id] = true;
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', 'data/Map' + String(id).padStart(3, '0') + '.json');
+            xhr.overrideMimeType && xhr.overrideMimeType('application/json');
+            xhr.onload = () => { try { if (xhr.status < 400) this.cache[id] = JSON.parse(xhr.responseText); } catch (e) { /* left out */ } this._loading[id] = false; };
+            xhr.onerror = () => { this._loading[id] = false; };
+            xhr.send();
+        }
+    },
+
+    // The step off the edge: a fade-less transfer when the next map's tile can be walked onto.
+    stepFrom(player, d) {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return false;
+        const mapId = $gameMap.mapId();
+        if (!this.enabled(mapId)) return false;
+        const loop = { x: $gameMap.isLoopHorizontal(), y: $gameMap.isLoopVertical() };
+        const t = this.target(mapId, player.x, player.y, d, this.links(mapId), id => this.sizeOf(id), loop);
+        if (!t) return false;
+        const map = this.cache[t.mapId];
+        const tileset = map && typeof $dataTilesets !== 'undefined' ? $dataTilesets[map.tilesetId] : null;
+        if (!map || !tileset || !this.passable(map, tileset.flags || [], t.x, t.y, d)) return false;
+        // The camera keeps the player where they were on screen.
+        const here = this.sizeOf(mapId), off = this.offset(t.side, here, { w: map.width, h: map.height });
+        this._carry = { mapId: t.mapId, displayX: $gameMap.displayX() - off.x, displayY: $gameMap.displayY() - off.y };
+        player.reserveTransfer(t.mapId, t.x, t.y, d, 2);
+        return true;
+    }
+};
+
+(function() {
+    const S = DocsDoodads.Seamless;
+    // The next map comes from the cache: no wait on the disk.
+    if (typeof DataManager !== 'undefined' && typeof DataManager.loadMapData === 'function') {
+        const load = DataManager.loadMapData;
+        DataManager.loadMapData = function(mapId) {
+            const cached = mapId > 0 && S._carry && S._carry.mapId === mapId ? S.cache[mapId] : null;
+            if (cached) {
+                window.$dataMap = JSON.parse(JSON.stringify(cached));
+                if (this.onLoad) this.onLoad(window.$dataMap);
+                return;
+            }
+            return load.apply(this, arguments);
+        };
+    }
+    if (typeof Game_Player !== 'undefined') {
+        // MZ's Game_Player has its own moveStraight; where it doesn't, the inherited one is looked up each call so
+        // later parts' wrappers of it still run.
+        const own = Object.prototype.hasOwnProperty.call(Game_Player.prototype, 'moveStraight') ? Game_Player.prototype.moveStraight : null;
+        Game_Player.prototype.moveStraight = function(d) {
+            if (!this.isTransferring || !this.isTransferring()) {
+                const edge = !(this.canPass && this.canPass(this.x, this.y, d)) && S.stepFrom(this, d);
+                if (edge) return;
+            }
+            return own ? own.apply(this, arguments) : Game_Character.prototype.moveStraight.apply(this, arguments);
+        };
+    }
+    if (typeof Game_Map !== 'undefined') {
+        const setup = Game_Map.prototype.setup;
+        Game_Map.prototype.setup = function(mapId) {
+            const result = setup.apply(this, arguments);
+            if (this === window.$gameMap && S.enabled(mapId)) S.preload(mapId);
+            return result;
+        };
+        // The camera may look past an edge with a neighbour, up to half a screen (the player at the edge, centred).
+        const limits = map => {
+            const links = S.enabled(map.mapId()) ? S.links(map.mapId()) : {};
+            const sx = map.screenTileX(), sy = map.screenTileY();
+            return {
+                minX: links.west && !map.isLoopHorizontal() ? -sx / 2 : 0, maxX: Math.max(0, map.width() - sx) + (links.east && !map.isLoopHorizontal() ? sx / 2 : 0),
+                minY: links.north && !map.isLoopVertical() ? -sy / 2 : 0, maxY: Math.max(0, map.height() - sy) + (links.south && !map.isLoopVertical() ? sy / 2 : 0),
+                any: Boolean(links.east || links.west || links.north || links.south)
+            };
+        };
+        const wrap = (name, axis, sign) => {
+            const original = Game_Map.prototype[name];
+            if (typeof original !== 'function') return;
+            Game_Map.prototype[name] = function(distance) {
+                const loop = axis === 'x' ? this.isLoopHorizontal() : this.isLoopVertical();
+                const l = loop ? null : limits(this);
+                if (!l || !l.any) return original.apply(this, arguments);
+                const key = axis === 'x' ? '_displayX' : '_displayY', par = axis === 'x' ? '_parallaxX' : '_parallaxY';
+                const last = this[key];
+                this[key] = Math.max(axis === 'x' ? l.minX : l.minY, Math.min(axis === 'x' ? l.maxX : l.maxY, this[key] + sign * distance));
+                if (this[par] !== undefined) this[par] += this[key] - last;
+            };
+        };
+        wrap('scrollRight', 'x', 1); wrap('scrollLeft', 'x', -1); wrap('scrollDown', 'y', 1); wrap('scrollUp', 'y', -1);
+        const setPos = Game_Map.prototype.setDisplayPos;
+        Game_Map.prototype.setDisplayPos = function(x, y) {
+            const result = setPos.apply(this, arguments);
+            const l = limits(this);
+            if (!l.any) return result;
+            // After a seamless step the camera picks up where it was, shifted by the maps' places.
+            const carry = S._carry && S._carry.mapId === this.mapId() ? S._carry : null;
+            const wantX = carry ? carry.displayX : x, wantY = carry ? carry.displayY : y;
+            if (!this.isLoopHorizontal()) this._displayX = Math.max(l.minX, Math.min(l.maxX, wantX));
+            if (!this.isLoopVertical()) this._displayY = Math.max(l.minY, Math.min(l.maxY, wantY));
+            if (carry) S._carry = null;
+            return result;
+        };
+    }
+})();
 // Released data and save-name compatibility. The pure snapshot/diff also runs in deployment tooling.
 DocsDoodads.Shipped = {
     path: 'data/DocsDoodadsShipped.json',
@@ -6642,7 +8137,9 @@ DocsDoodads.Shipped = {
                 items[mapId].push({ name, uid: String(item.uid || ''), art: item.bit && String(item.bit[1] || '') || '', x: Number(item.x) || 0, y: Number(item.y) || 0 });
             }
         }
-        return { version: String(version), date: '', names, states, stateKeys, maps: JSON.parse(JSON.stringify(sizes || {})), items, aliases: JSON.parse(JSON.stringify(data && data.aliases || {})) };
+        // Decorate (8.4.1): the pieces players keep in saves, by id.
+        const decor = (data && data.decor && Array.isArray(data.decor.catalog) ? data.decor.catalog : []).filter(p => p && p.id).map(p => ({ id: String(p.id), name: String(p.name || p.id) }));
+        return { version: String(version), date: '', names, states, stateKeys, maps: JSON.parse(JSON.stringify(sizes || {})), items, aliases: JSON.parse(JSON.stringify(data && data.aliases || {})), decor };
     },
     latest(value) {
         if (!value) return null;
@@ -6676,6 +8173,9 @@ DocsDoodads.Shipped = {
                 });
             }
         }
+        for (const piece of before.decor || []) {
+            if (!(now.decor || []).some(p => p.id === piece.id)) add('decorGone', 0, 'Decor piece ' + piece.name + ' was released and is gone: placed pieces of it will be taken off their maps.', { piece: piece.id });
+        }
         for (const [mapId, size] of Object.entries(before.maps || {})) if (now.maps[mapId] && JSON.stringify(size) !== JSON.stringify(now.maps[mapId])) {
             add('mapResized', mapId, 'Map ' + mapId + ' changed size from ' + size.join(' × ') + ' to ' + now.maps[mapId].join(' × ') + '; saved exploration may be reset.');
         }
@@ -6689,8 +8189,10 @@ DocsDoodads.Shipped = {
         const items = DocsDoodads.doodads(mapId).filter(Boolean);
         const prefix = W.mapId(mapId) + '/', valid = new Set(items.map(item => W.idOf(item)));
         const store = W.store(false);
-        for (const field of ['states', 'lights']) {
+        // 'grown' (8.4.2) keeps the day each growing doodad's state began, by the same names.
+        for (const field of ['states', 'lights', 'grown']) {
             const values = store[field];
+            if (!values) continue;
             for (const key of Object.keys(values)) {
                 if (!key.startsWith(prefix)) continue;
                 const oldId = key.slice(prefix.length);
@@ -6717,6 +8219,405 @@ DocsDoodads.Shipped = {
         values[DocsDoodads.WorldState.key(mapId, id)] = object.uid || true;
     }
 };
+//==========================================================
+// SECTION 5L: A CUTSCENE TIMELINE (7.3.6)
+//==========================================================
+// $dataDocsDoodads.timelines = [{ id, name, length, tracks: [{ kind, target, keys: [{ t, ... }] }] }], `t` in
+// frames. Each track kind only calls what the plugin already has (plugin commands, DocsDoodads.api, MZ's
+// screen), so a timeline does nothing a list of event commands could not; it lays them out against time and
+// plays them with one command. The player is stepped once a frame by the spriteset; Play Timeline with "wait"
+// holds the event until it ends; holding OK for a second skips to the end, running every remaining key at once.
+DocsDoodads.Timeline = {
+    maxKeys: 2000,
+    _player: null,
+
+    // Each kind: its label, the key's fields (for the editor's form) and run(key, track).
+    kinds: {
+        camera: { label: 'Camera (flat map)', fields: [
+            { key: 'mode', label: 'Move', type: 'select', options: [{ value: 'path', label: 'Along points' }, { value: 'zoom', label: 'Zoom on a tile' }, { value: 'follow', label: 'Follow the player again' }] },
+            { key: 'points', label: 'Points (x,y; x,y tiles)', type: 'text' }, { key: 'frames', label: 'Frames', type: 'number' },
+            { key: 'x', label: 'Tile x (zoom)', type: 'number' }, { key: 'y', label: 'Tile y (zoom)', type: 'number' }, { key: 'scale', label: 'Zoom (1 is none)', type: 'number' }] },
+        camera3d: { label: 'Camera (3D)', fields: [
+            { key: 'pitch', label: 'Pitch', type: 'text' }, { key: 'yaw', label: 'Yaw', type: 'text' }, { key: 'zoom', label: 'Zoom', type: 'text' }, { key: 'duration', label: 'Frames', type: 'number' }] },
+        state: { label: 'Doodad state', target: 'A doodad\'s Name', fields: [{ key: 'state', label: 'State (name, number or next)', type: 'text' }] },
+        light: { label: 'Doodad light', target: 'A doodad\'s Name', fields: [{ key: 'on', label: 'Light', type: 'select', options: [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }, { value: 'own', label: 'Its own setting' }] }] },
+        ambient: { label: 'Darkness', fields: [{ key: 'darkness', label: 'Darkness (0-1, blank for the map\'s)', type: 'text' }, { key: 'color', label: 'Colour (#rrggbb)', type: 'text' }, { key: 'frames', label: 'Frames', type: 'number' }] },
+        weather: { label: 'Weather', fields: [
+            { key: 'type', label: 'Weather', type: 'select', options: ['none', 'rain', 'storm', 'snow'].map(v => ({ value: v, label: v })) },
+            { key: 'power', label: 'Power (1-9)', type: 'number' }, { key: 'frames', label: 'Frames', type: 'number' }] },
+        look: { label: 'Screen look', fields: [{ key: 'look', label: 'Look (map, none, cinematic, golden, noir...)', type: 'text' }, { key: 'duration', label: 'Frames', type: 'number' }] },
+        effect: { label: 'Screen effect', fields: [
+            { key: 'effect', label: 'Effect', type: 'select', options: ['shockwave', 'zoomPunch', 'chromaticPunch', 'bloomFlash'].map(v => ({ value: v, label: v })) },
+            { key: 'strength', label: 'Strength', type: 'number' }, { key: 'duration', label: 'Frames', type: 'number' }] },
+        character: { label: 'Character', target: 'player, or an event id', fields: [
+            { key: 'action', label: 'Does', type: 'select', options: [{ value: 'face', label: 'Turns' }, { value: 'walk', label: 'Walks (tiles across, down)' },
+                { value: 'balloon', label: 'Shows a balloon' }, { value: 'animation', label: 'Plays an animation' }, { value: 'sheet', label: 'Plays an action sheet' }, { value: 'show', label: 'Shows or hides' }] },
+            { key: 'dir', label: 'Direction (2 down, 4 left, 6 right, 8 up)', type: 'number' }, { key: 'dx', label: 'Tiles across', type: 'number' }, { key: 'dy', label: 'Tiles down', type: 'number' },
+            { key: 'id', label: 'Balloon or animation id', type: 'number' }, { key: 'sheet', label: 'Action sheet (img/characters name)', type: 'text' }, { key: 'visible', label: 'Visible', type: 'checkbox' }] },
+        vfx: { label: 'Effect (VFX)', fields: [{ key: 'id', label: 'Effect id', type: 'text' }, { key: 'x', label: 'Tile x', type: 'number' }, { key: 'y', label: 'Tile y', type: 'number' }] },
+        time: { label: 'Time of day', fields: [{ key: 'hour', label: 'Hour', type: 'number' }, { key: 'minute', label: 'Minute', type: 'number' }] },
+        wind: { label: 'Wind', fields: [{ key: 'strength', label: 'Strength (0-1)', type: 'number' }, { key: 'frames', label: 'Frames', type: 'number' }] },
+        sound: { label: 'Sound', fields: [{ key: 'name', label: 'Sound (audio/se name)', type: 'text' }, { key: 'volume', label: 'Volume', type: 'number' }, { key: 'pitch', label: 'Pitch', type: 'number' }] },
+        switch: { label: 'Switch', fields: [{ key: 'id', label: 'Switch id', type: 'number' }, { key: 'on', label: 'On', type: 'checkbox' }] }
+    },
+
+    normalizeKey(key) {
+        if (!key || typeof key !== 'object') return null;
+        const out = {};
+        for (const k of Object.keys(key)) {
+            const v = key[k];
+            if (v === undefined || typeof v === 'function') continue;
+            out[k] = typeof v === 'object' && v !== null ? JSON.parse(JSON.stringify(v)) : v;
+        }
+        out.t = Math.max(0, Math.round(Number(key.t) || 0));
+        return out;
+    },
+
+    normalize(tl) {
+        if (!tl || typeof tl !== 'object') return null;
+        const id = String(tl.id || '').replace(/[^\w-]/g, '').slice(0, 40);
+        if (!id) return null;
+        let count = 0;
+        const tracks = (Array.isArray(tl.tracks) ? tl.tracks : []).filter(t => t && this.kinds[t.kind]).map(t => ({
+            kind: t.kind,
+            target: t.target === undefined || t.target === null ? '' : String(t.target),
+            keys: (Array.isArray(t.keys) ? t.keys : []).map(k => this.normalizeKey(k)).filter(k => k && count++ < this.maxKeys)
+                .sort((a, b) => a.t - b.t)
+        }));
+        return { id, name: String(tl.name || id).slice(0, 60), length: Math.max(1, Math.round(Number(tl.length) || 0) || 1), tracks };
+    },
+
+    // The frames it runs: its own length, or to its last key.
+    length(tl) {
+        const t = this.normalize(tl);
+        if (!t) return 0;
+        let last = 0;
+        for (const track of t.tracks) for (const k of track.keys) if (k.t > last) last = k.t;
+        return Math.max(t.length, last + 1);
+    },
+
+    // The keys with from < t <= to, in time order; at the same frame, in track order and then key order.
+    due(tl, fromFrame, toFrame) {
+        const t = this.normalize(tl);
+        if (!t) return [];
+        const out = [];
+        t.tracks.forEach((track, ti) => track.keys.forEach((key, ki) => {
+            if (key.t > fromFrame && key.t <= toFrame) out.push({ track, key, ti, ki });
+        }));
+        out.sort((a, b) => a.key.t - b.key.t || a.ti - b.ti || a.ki - b.ki);
+        return out;
+    },
+
+    list() {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads;
+        return (data && Array.isArray(data.timelines) ? data.timelines : []).map(t => this.normalize(t)).filter(Boolean);
+    },
+
+    find(idOrName) {
+        const want = String(idOrName || '').trim().toLowerCase();
+        return this.list().find(t => t.id.toLowerCase() === want || t.name.toLowerCase() === want) || null;
+    },
+
+    // ---- Running a key: only what exists already ----
+    command(name, args) {
+        const fn = typeof PluginManager !== 'undefined' && PluginManager._commands ? PluginManager._commands[pluginName + ':' + name] : null;
+        if (typeof fn !== 'function') return false;
+        fn.call({ wait() {}, setWaitMode() {}, _eventId: 0, character: () => null }, Object.assign({}, args));
+        return true;
+    },
+
+    character(target) {
+        if (String(target).toLowerCase() === 'player' || target === '' || target === undefined) return typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        return typeof $gameMap !== 'undefined' && $gameMap ? $gameMap.event(Number(target) || 0) : null;
+    },
+
+    run(track, key) {
+        const api = DocsDoodads.api, str = v => (v === undefined || v === null ? '' : String(v));
+        switch (track.kind) {
+            case 'camera':
+                if (key.mode === 'zoom') return this.command('zoomToPoint', { target: 'tile', x: str(key.x || 0), y: str(key.y || 0), scale: str(key.scale || 2), frames: str(key.frames || 60), wait: 'false' });
+                if (key.mode === 'follow') return api.followCamera();
+                return this.command('cameraPath2d', { points: str(key.points), frames: str(key.frames || 90), ease: 'smooth', then: 'stay', wait: 'false' });
+            case 'camera3d':
+                return this.command('setCamera', { pitch: str(key.pitch), yaw: str(key.yaw), zoom: str(key.zoom), duration: str(key.duration || 30), wait: 'false' });
+            case 'state': return api.setState(track.target, key.state === undefined ? 'next' : key.state);
+            case 'light': return api.setLight(track.target, key.on === 'own' ? null : key.on !== 'off');
+            case 'ambient': return api.ambient(key.darkness === '' || key.darkness === undefined ? null : Number(key.darkness), key.color || undefined, Number(key.frames) || 0);
+            case 'weather':
+                if (typeof $gameScreen !== 'undefined' && $gameScreen && $gameScreen.changeWeather) $gameScreen.changeWeather(key.type || 'none', Number(key.power) || 0, Number(key.frames) || 0);
+                return true;
+            case 'look': return this.command('setLook', { look: str(key.look || 'map'), duration: str(key.duration || 60) });
+            case 'effect': return this.command('playScreenEffect', { effect: str(key.effect || 'shockwave'), strength: str(key.strength || 1), duration: str(key.duration || 40), origin: 'player', eventId: '0' });
+            case 'character': {
+                const ch = this.character(track.target);
+                if (!ch) return false;
+                if (key.action === 'face' && key.dir) ch.setDirection(Number(key.dir));
+                else if (key.action === 'walk') {
+                    const list = [], dx = Math.round(Number(key.dx) || 0), dy = Math.round(Number(key.dy) || 0);
+                    for (let i = 0; i < Math.abs(dx); i++) list.push({ code: dx > 0 ? 3 : 2 });
+                    for (let i = 0; i < Math.abs(dy); i++) list.push({ code: dy > 0 ? 1 : 4 });
+                    list.push({ code: 0 });
+                    if (ch.forceMoveRoute) ch.forceMoveRoute({ list, repeat: false, skippable: true, wait: false });
+                } else if (key.action === 'balloon' && typeof $gameTemp !== 'undefined') $gameTemp.requestBalloon(ch, Number(key.id) || 1);
+                else if (key.action === 'animation' && typeof $gameTemp !== 'undefined') $gameTemp.requestAnimation([ch], Number(key.id) || 1);
+                else if (key.action === 'sheet') return this.command('characterAction', { target: String(track.target).toLowerCase() === 'player' ? 'player' : 'event', eventId: str(track.target), sheet: str(key.sheet), fps: '8', loops: '1', hold: 'false', wait: 'false' });
+                else if (key.action === 'show' && ch.setTransparent) ch.setTransparent(!key.visible);
+                return true;
+            }
+            case 'vfx': return api.playVfx(key.id, { x: Number(key.x) || 0, y: Number(key.y) || 0 });
+            case 'time': return api.setTime(Number(key.hour) || 0, Number(key.minute) || 0);
+            case 'wind': return api.setWind(Number(key.strength) || 0, Number(key.frames) || 0);
+            case 'sound':
+                if (key.name && typeof AudioManager !== 'undefined') AudioManager.playSe({ name: String(key.name), volume: Number(key.volume) || 90, pitch: Number(key.pitch) || 100, pan: 0 });
+                return true;
+            case 'switch':
+                if (typeof $gameSwitches !== 'undefined' && $gameSwitches && key.id) $gameSwitches.setValue(Number(key.id), Boolean(key.on));
+                return true;
+        }
+        return false;
+    },
+
+    // ---- The player ----
+    play(idOrTimeline, opts = {}) {
+        const tl = typeof idOrTimeline === 'object' ? this.normalize(idOrTimeline) : this.find(idOrTimeline);
+        if (!tl) return false;
+        this.stop(false);
+        this._player = { tl, frame: -1, length: this.length(tl), paused: false, held: 0, skippable: opts.skippable !== false, onKey: opts.onKey || null };
+        return true;
+    },
+
+    isPlaying(id) {
+        const p = this._player;
+        return Boolean(p) && (id === undefined || p.tl.id === id || p.tl.name.toLowerCase() === String(id).toLowerCase());
+    },
+
+    frame() { return this._player ? this._player.frame : -1; },
+
+    // Runs the keys of the next frame (or of every frame to `to` at once).
+    step(to) {
+        const p = this._player;
+        if (!p || p.paused && to === undefined) return false;
+        const next = to === undefined ? p.frame + 1 : Math.max(p.frame, Math.min(p.length, to));
+        for (const action of this.due(p.tl, p.frame, next)) {
+            try { this.run(action.track, action.key); } catch (error) { DocsDoodads.Core.log(`Timeline key could not run (${action.track.kind}).`, error); }
+            if (p.onKey) p.onKey(action);
+        }
+        p.frame = next;
+        if (p.frame >= p.length - 1) this.stop(false);
+        return true;
+    },
+
+    // Holding OK (Enter, Space or a pad's A) for a second skips: the remaining keys run at once.
+    update() {
+        const p = this._player;
+        if (!p) return;
+        if (p.skippable && typeof Input !== 'undefined' && Input.isPressed && Input.isPressed('ok')) {
+            if (++p.held >= 60) { this.step(p.length); return; }
+        } else p.held = 0;
+        this.step();
+    },
+
+    // Stops; the camera follows the player again unless keep is true.
+    stop(restore = true) {
+        const was = this._player;
+        this._player = null;
+        if (was && restore && DocsDoodads.api) {
+            try { DocsDoodads.api.followCamera(); } catch (error) { /* no camera */ }
+        }
+        return Boolean(was);
+    }
+};
+
+if (typeof Spriteset_Map !== 'undefined') {
+    Spriteset_Map.prototype.updateDocsTimeline = function() {
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted && !DocsDoodads.Timeline._editorPreview) return;
+        DocsDoodads.Timeline.update();
+        // The editor's play head follows a preview.
+        const W = DocsDoodads.Workspace;
+        if (DocsDoodads.Timeline._editorPreview && W && W.mounted && W.drawTimeline) W.drawTimeline();
+    };
+}
+
+if (typeof Game_Interpreter !== 'undefined') {
+    const wait = Game_Interpreter.prototype.updateWaitMode;
+    Game_Interpreter.prototype.updateWaitMode = function() {
+        if (this._waitMode === 'docsTimeline') {
+            const waiting = DocsDoodads.Timeline.isPlaying(this._docsWaitTimeline);
+            if (!waiting) { this._waitMode = ''; this._docsWaitTimeline = null; }
+            return waiting;
+        }
+        return wait.call(this);
+    };
+}
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'playTimeline', function(args) {
+        const T = DocsDoodads.Timeline, tl = T.find(args.name);
+        if (!tl || !T.play(tl, { skippable: String(args.skippable) !== 'false' })) return;
+        if (String(args.wait) === 'true' && this && this.setWaitMode) {
+            this._docsWaitTimeline = tl.id;
+            this.setWaitMode('docsTimeline');
+        }
+    });
+    PluginManager.registerCommand(pluginName, 'stopTimeline', () => DocsDoodads.Timeline.stop(true));
+}
+//==========================================================
+// SECTION 5T: DOODADS THAT RIDE AND TRAVEL (9.2.5)
+//==========================================================
+// A doodad with `ride: { on, dx, dy }` sits on an event (its id) or the player ('player'), offset by dx, dy pixels.
+// One with `travel: { points, speed, ease, mode, switchId, carries }` goes along points (pixels from where it was
+// placed; the first leg starts there) at `speed` pixels a second: `loop` comes back to the start, `backAndForth`
+// turns round at each end, `once` stops at the last point and stays there (kept in the save). A switch, when set,
+// must be on for it to move. `carries` moves whoever stands on it, so a raft crosses water.
+// The game moves the doodad's own x and y (as api.move does), so its light, shadow, particles, sound and body go
+// with it; where it was placed is kept apart and put back whenever the editor is open.
+DocsDoodads.Travel = {
+    modes: ['loop', 'backAndForth', 'once'],
+    // Bumped when a doodad gains or loses ride or travel, so the map's short list of movers is made again.
+    _version: 0,
+
+    normalizeTravel(t) {
+        if (!t || typeof t !== 'object') return null;
+        const points = (Array.isArray(t.points) ? t.points : DocsDoodads.Camera2D.parsePoints(t.points))
+            .map(p => ({ x: Math.round(Number(p && p.x) || 0), y: Math.round(Number(p && p.y) || 0) }))
+            .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y)).slice(0, 64);
+        if (!points.length) return null;
+        const speed = Number(t.speed);
+        return {
+            points,
+            speed: Number.isFinite(speed) && speed > 0 ? Math.min(2000, speed) : 48,
+            ease: t.ease === 'smooth' ? 'smooth' : 'linear',
+            mode: this.modes.includes(t.mode) ? t.mode : 'loop',
+            switchId: Math.max(0, Math.floor(Number(t.switchId) || 0)),
+            carries: Boolean(t.carries),
+            wait: Math.max(0, Math.min(600, Math.round(Number(t.wait) || 0)))
+        };
+    },
+
+    normalizeRide(r) {
+        if (!r || typeof r !== 'object') return null;
+        const on = r.on === 'player' ? 'player' : Math.floor(Number(r.on) || 0);
+        if (!on) return null;
+        return { on, dx: Math.round(Number(r.dx) || 0), dy: Math.round(Number(r.dy) || 0) };
+    },
+
+    // The stops of one trip, from the start (0, 0): loop closes back to it; backAndForth goes out and back.
+    stops(t) {
+        const out = [{ x: 0, y: 0 }].concat(t.points);
+        if (t.mode === 'loop') out.push({ x: 0, y: 0 });
+        else if (t.mode === 'backAndForth') for (let i = out.length - 2; i >= 0; i--) out.push(out[i]);
+        return out;
+    },
+
+    // Frames each leg takes at the speed, plus `wait` frames held at each stop.
+    legs(t) {
+        const s = this.stops(t), out = [];
+        for (let i = 1; i < s.length; i++) out.push(Math.max(1, Math.round(Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y) / t.speed * 60)));
+        return out;
+    },
+
+    length(t) {
+        return this.legs(t).reduce((a, b) => a + b + t.wait, 0);
+    },
+
+    // Where a traveller is after `frame` frames: { dx, dy, done } from where it was placed.
+    at(travel, frame) {
+        const t = this.normalizeTravel(travel);
+        if (!t) return { dx: 0, dy: 0, done: true };
+        const s = this.stops(t), legs = this.legs(t), total = this.length(t);
+        let f = Math.max(0, Number(frame) || 0);
+        if (t.mode === 'once' && f >= total) return { dx: s[s.length - 1].x, dy: s[s.length - 1].y, done: true };
+        if (t.mode !== 'once') f = f % Math.max(1, total);
+        for (let i = 0; i < legs.length; i++) {
+            if (f < t.wait) return { dx: s[i].x, dy: s[i].y, done: false };
+            f -= t.wait;
+            if (f < legs[i]) {
+                const k = DocsDoodads.Camera2D.ease(f / legs[i], t.ease);
+                return { dx: s[i].x + (s[i + 1].x - s[i].x) * k, dy: s[i].y + (s[i + 1].y - s[i].y) * k, done: false };
+            }
+            f -= legs[i];
+        }
+        const last = s[s.length - 1];
+        return { dx: last.x, dy: last.y, done: t.mode === 'once' };
+    },
+
+    // A rider's map point from a character: { x, y } in map pixels (its feet, plus the offset).
+    rideAt(ride, character, tw, th) {
+        const r = this.normalizeRide(ride);
+        if (!r || !character) return null;
+        const rx = Number(character._realX !== undefined ? character._realX : character.x) || 0;
+        const ry = Number(character._realY !== undefined ? character._realY : character.y) || 0;
+        const jump = typeof character.jumpHeight === 'function' ? character.jumpHeight() : 0;
+        return { x: rx * tw + tw / 2 + r.dx, y: ry * th + th + r.dy - jump };
+    },
+
+    // ---- The game's state, kept small: frames per traveller on this map, and where `once` travellers ended ----
+    _homes: new WeakMap(),
+
+    home(d) {
+        let h = this._homes.get(d);
+        if (!h) { h = { x: Number(d.x) || 0, y: Number(d.y) || 0 }; this._homes.set(d, h); }
+        return h;
+    },
+
+    // Puts every mover back where it was placed (the editor opens, or the map is saved).
+    restore(list) {
+        for (const d of list || []) {
+            const h = this._homes.get(d);
+            if (h) { d.x = h.x; d.y = h.y; }
+        }
+    },
+
+    store(write = true) {
+        if (typeof $gameSystem === 'undefined' || !$gameSystem) return { done: {}, off: {} };
+        if (!write && !$gameSystem._docsTravel) return { done: {}, off: {} };
+        const s = $gameSystem._docsTravel = $gameSystem._docsTravel || {};
+        s.done = s.done || {}; s.off = s.off || {};
+        return s;
+    },
+
+    // Start Travel / Stop Travel by name (or id), on this map.
+    setRunning(query, running, mapId) {
+        const list = DocsDoodads.api ? DocsDoodads.api.find(query, mapId) : [];
+        const s = this.store(true), id = DocsDoodads.WorldState.mapId(mapId);
+        for (const d of list) {
+            const key = id + '/' + DocsDoodads.WorldState.idOf(d);
+            if (running) { delete s.off[key]; delete s.done[key]; } else s.off[key] = true;
+        }
+        return list.length;
+    },
+
+    // Whether a traveller moves now: not stopped, its switch on (or none), not a finished `once`.
+    running(d, mapId, switchValue) {
+        const t = this.normalizeTravel(d && d.travel);
+        if (!t) return false;
+        const s = this.store(false), key = DocsDoodads.WorldState.mapId(mapId) + '/' + DocsDoodads.WorldState.idOf(d);
+        if (s.off[key]) return false;
+        return !t.switchId || Boolean(switchValue(t.switchId));
+    },
+
+    finished(d, mapId) {
+        const s = this.store(false);
+        return Boolean(s.done[DocsDoodads.WorldState.mapId(mapId) + '/' + DocsDoodads.WorldState.idOf(d)]);
+    },
+
+    finish(d, mapId) {
+        this.store(true).done[DocsDoodads.WorldState.mapId(mapId) + '/' + DocsDoodads.WorldState.idOf(d)] = true;
+    },
+
+    // The tiles a doodad's body covers, as "x,y" keys (empty when it has none).
+    bodyTiles(d, tw, th) {
+        const C = DocsDoodads.Collision;
+        const body = C && C.bodyOf ? C.bodyOf(d) : null;
+        if (!body) return [];
+        return C.tilesUnder(body, tw, th).map(t => t.x + ',' + t.y);
+    }
+};
+
+if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand === 'function') {
+    PluginManager.registerCommand(pluginName, 'startTravel', args => DocsDoodads.Travel.setRunning(String(args.name || ''), true));
+    PluginManager.registerCommand(pluginName, 'stopTravel', args => DocsDoodads.Travel.setRunning(String(args.name || ''), false));
+}
 //==========================================================
 // SECTION 5C: WORLD ATMOSPHERE (DAY/NIGHT, SUN, CHARACTER FX, SEE-THROUGH, SEASONS, WATER)
 //==========================================================
@@ -7730,6 +9631,12 @@ DocsDoodads.PostFX = {
         { id: 'sharpen', label: 'Sharpen', params: [
             { key: 'amount', label: 'Amount', min: 0, max: 2, step: 0.05, def: 0.4, neutral: 0 }
         ] },
+        // Light shafts (7.3.7): drawn by 15_spriteset_map_light_air.js from what stops light; flat maps.
+        { id: 'rays', label: 'Light shafts (flat maps)', screenSpace: true, params: [
+            { key: 'strength', label: 'Strength', min: 0, max: 1, step: 0.05, def: 0.5, neutral: 0 },
+            { key: 'length', label: 'Length', min: 0.1, max: 1, step: 0.05, def: 0.6, neutral: 0.6 },
+            { key: 'fromLamps', label: 'From the brightest lamp (not the sun)', type: 'checkbox', def: false }
+        ] },
         { id: 'tiltShift', label: 'Tilt-Shift (miniature)', screenSpace: true, params: [
             { key: 'blur', label: 'Blur', min: 0, max: 12, step: 0.5, def: 6, neutral: 0 },
             { key: 'focus', label: 'Focus line (0 top - 1 bottom)', min: 0, max: 1, step: 0.01, def: 0.55, neutral: 0.55 },
@@ -7899,6 +9806,7 @@ DocsDoodads.PostFX = {
     passes(look, quality, anim, haze) {
         if (quality === 'off') return [];
         const out = [];
+        if (look && look.rays && look.rays.enabled && quality !== 'low') out.push('rays');
         if (haze && haze.length && quality !== 'low') out.push('haze');
         if ((look && look.bloom.enabled) || (anim && anim.bloom > 0)) out.push('bloom');
         if (look && look.tiltShift.enabled && quality !== 'low') out.push('tiltShift');
@@ -8320,6 +10228,148 @@ DocsDoodads.PostFX.Blends = {
     // While editing, a region's look can be previewed at full strength.
     previewWeights(region) {
         return region ? { [Number(region)]: 1 } : null;
+    }
+};
+//==========================================================
+// SECTION 5C: AMBIENT CREATURES (9.3.1)
+//==========================================================
+// A doodad with `creatures: { kind, count, sheet, flee, back, hours, weather, spread }` keeps a few birds,
+// butterflies or fish near it. Each has a small state (idle, away, coming back) stepped by `step`, seeded so the
+// same seed flies the same way. They are not events: no collision, nothing saved. Birds land on doodads marked
+// Perch; fish keep to water tiles and scatter from a swimmer or a boat; lightning startles everything. Effects
+// Quality scales the count (Medium halves it, Low turns them off).
+DocsDoodads.Creatures = {
+    maxPerDoodad: 24,
+    maxOnMap: 120,
+    kinds: {
+        birds: { flee: 3, back: 6, speed: 170, wander: 10, hours: 'day', weather: 'clear', size: 1, color: 0x3a3030, flyHeight: 90, label: 'Birds' },
+        butterflies: { flee: 1.5, back: 3, speed: 70, wander: 26, hours: 'day', weather: 'clear', size: 1, color: 0xf5a0d0, flyHeight: 18, label: 'Butterflies' },
+        fish: { flee: 2, back: 4, speed: 110, wander: 14, hours: 'any', weather: 'any', size: 1, color: 0x101820, flyHeight: 0, label: 'Fish (under water)' }
+    },
+
+    normalize(c) {
+        if (!c || typeof c !== 'object') return null;
+        const kind = this.kinds[c.kind] ? c.kind : null;
+        if (!kind) return null;
+        const k = this.kinds[kind], num = (v, d, lo, hi) => { const n = Number(v); return Math.max(lo, Math.min(hi, Number.isFinite(n) && v !== '' && v !== null ? n : d)); };
+        const sheet = typeof c.sheet === 'string' && /^img\/[^\0]*\.png$/i.test(c.sheet) && !c.sheet.split('/').includes('..') ? c.sheet : '';
+        return {
+            kind,
+            count: Math.round(num(c.count, 5, 0, this.maxPerDoodad)),
+            sheet,
+            flee: num(c.flee, k.flee, 0, 12),
+            back: num(c.back, k.back, 0.5, 120),
+            hours: ['day', 'night', 'any'].includes(c.hours) ? c.hours : k.hours,
+            weather: ['clear', 'any'].includes(c.weather) ? c.weather : k.weather,
+            spread: num(c.spread, 2, 0.5, 12)
+        };
+    },
+
+    // Whether they are out at this hour (0-24, null when there is no clock) and in this weather.
+    active(c, hour, weatherType) {
+        const s = this.normalize(c);
+        if (!s || !s.count) return false;
+        if (s.hours !== 'any' && hour !== null && hour !== undefined) {
+            const day = hour >= 6 && hour < 19;
+            if ((s.hours === 'day') !== day) return false;
+        }
+        if (s.weather === 'clear' && weatherType && weatherType !== 'none') {
+            if (!(s.kind === 'fish' && weatherType !== 'storm')) return false;
+        }
+        return true;
+    },
+
+    // How many show at an Effects Quality.
+    countFor(n, quality) {
+        n = Math.max(0, Math.floor(Number(n) || 0));
+        if (quality === 'off' || quality === 'low') return 0;
+        return quality === 'medium' ? Math.ceil(n / 2) : n;
+    },
+
+    // Places to rest near home (map pixels): perches first (their tops), else the ground around it. ok(x, y)
+    // says a point may be used (fish: water tiles). Seeded.
+    spots(home, settings, perches, rng, ok, tw) {
+        const out = [];
+        const near = (perches || []).filter(p => Math.hypot(p.x - home.x, p.y - home.y) <= (settings.spread + 4) * tw);
+        if (settings.kind === 'birds' && near.length) {
+            for (let i = 0; i < settings.count; i++) {
+                const p = near[Math.floor(rng() * near.length)];
+                out.push({ x: p.x + (rng() - 0.5) * p.w * 0.6, y: p.y });
+            }
+            return out;
+        }
+        for (let tries = 0; out.length < settings.count && tries < settings.count * 12; tries++) {
+            const a = rng() * Math.PI * 2, r = Math.sqrt(rng()) * settings.spread * tw;
+            const x = home.x + Math.cos(a) * r, y = home.y + Math.sin(a) * r * 0.7;
+            if (!ok || ok(x, y)) out.push({ x, y });
+        }
+        return out;
+    },
+
+    spawn(spot, rng) {
+        return { x: spot.x, y: spot.y, z: 0, hx: spot.x, hy: spot.y, mode: 'idle', t: 0, vx: 0, vy: 0, phase: rng() * Math.PI * 2, flip: rng() < 0.5 };
+    },
+
+    // One step of dt seconds. ctx: { kind, settings, player: { x, y } in map pixels or null, wind (x), rng, startle,
+    // tw }. Mutates and returns the creature.
+    step(c, dt, ctx) {
+        const k = this.kinds[ctx.settings.kind], s = ctx.settings, tw = ctx.tw || 48;
+        dt = Math.max(0, Math.min(0.1, Number(dt) || 0));
+        c.t += dt;
+        c.phase += dt * (c.mode === 'idle' ? 3 : 14);
+        const player = ctx.player;
+        const dist = player ? Math.hypot(player.x - c.x, player.y - c.y) : Infinity;
+        const homeDist = player ? Math.hypot(player.x - c.hx, player.y - c.hy) : Infinity;
+        const scared = ctx.startle || dist <= s.flee * tw;
+        if ((c.mode === 'idle' || c.mode === 'back') && scared) {
+            // Away from the player (or anywhere, for lightning), fast.
+            let ax = player ? c.x - player.x : ctx.rng() - 0.5, ay = player ? c.y - player.y : ctx.rng() - 0.5;
+            const len = Math.hypot(ax, ay) || 1;
+            ax /= len; ay /= len;
+            const turn = (ctx.rng() - 0.5) * 0.8, cos = Math.cos(turn), sin = Math.sin(turn);
+            c.vx = (ax * cos - ay * sin) * k.speed;
+            c.vy = (ax * sin + ay * cos) * k.speed;
+            c.mode = 'away'; c.t = 0;
+            c.flip = c.vx < 0;
+        }
+        if (c.mode === 'away') {
+            c.x += c.vx * dt + (Number(ctx.wind) || 0) * 20 * dt;
+            c.y += c.vy * dt;
+            c.z = Math.min(k.flyHeight, c.z + k.flyHeight * dt * 1.5);
+            // Come back once the time is up and the player has moved off.
+            if (c.t >= s.back && homeDist > s.flee * tw) { c.mode = 'back'; c.t = 0; }
+        } else if (c.mode === 'back') {
+            const dx = c.hx - c.x, dy = c.hy - c.y, d = Math.hypot(dx, dy);
+            const v = k.speed * 0.6 * dt;
+            if (d <= v) { c.x = c.hx; c.y = c.hy; c.mode = 'idle'; c.t = 0; }
+            else { c.x += dx / d * v; c.y += dy / d * v; c.flip = dx < 0; }
+            c.z = c.mode === 'idle' ? 0 : Math.max(0, Math.min(k.flyHeight, d * 0.5));
+        } else {
+            // Idle: birds peck about, butterflies flutter round the spot, fish drift.
+            const w = k.wander;
+            c.x = c.hx + Math.sin(c.phase * 0.31) * w * 0.5;
+            c.y = c.hy + Math.cos(c.phase * 0.23) * w * 0.3;
+            c.z = ctx.settings.kind === 'butterflies' ? k.flyHeight * (0.6 + 0.4 * Math.sin(c.phase * 0.7)) : 0;
+        }
+        return c;
+    },
+
+    // Frame of a two-frame sheet: wings up or down (fish: a tail flick), faster when flying.
+    frame(c) {
+        return Math.sin(c.phase * (c.mode === 'idle' ? 1 : 2)) > 0 ? 1 : 0;
+    },
+
+    // The sun's hour for the creatures, or null when the project has no clock.
+    hour() {
+        const A = DocsDoodads.Atmosphere;
+        const m = A && A.minutes ? A.minutes() : null;
+        return m === null || m === undefined || !Number.isFinite(Number(m)) ? null : (Number(m) / 60) % 24;
+    },
+
+    quality() {
+        const world = DocsDoodads.World.settings();
+        const P = DocsDoodads.PostFX;
+        return P && P.effectiveQuality ? P.effectiveQuality((world.postfx && world.postfx.quality) || 'high', DocsDoodads.qualityOption ? DocsDoodads.qualityOption() : 0) : 'high';
     }
 };
 //==========================================================
@@ -10770,6 +12820,11 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Configure these options directly inside RPG Maker's Plugin Manager:"
     },
     {
+        "title": "A sample project",
+        "anchor": "a-sample-project",
+        "firstParagraph": "npm run sample -- <a new MZ project folder> fills a project you have just made with File > New Project (with MZ closed) with a small sample: a town at dusk with lamps, a sign, a chest and a house whose door opens when touched; a field in the 3D view with wind, swaying trees, birds and butterflies; and a dark cave with the flashlight, echo and torches, joined by transfers both ways. Its pictures are drawn by the plugin's own code; the tiles are the project's own tileset. It refuses a project that already has doodad data or a Map002/Map003. See docs/SAMPLEPROJECT.md."
+    },
+    {
         "title": "4. The Item Bag & Search",
         "anchor": "4-the-item-bag--search",
         "firstParagraph": ""
@@ -10945,6 +13000,31 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Set Atmosphere Effect switches character shadows, motion blur, water reflections or see-through on or off for the current playthrough."
     },
     {
+        "title": "Indoors by region",
+        "anchor": "indoors-by-region",
+        "firstParagraph": "Map settings → Indoors: list the regions painted on a house's floors (not its roof: seen from outside, rain over a roof is right). Rain and snow are not drawn over those tiles, flat and in 3D, and the map can scroll and loop without the edge slipping. Doodads based there don't lean in the wind or throw sun shadows. While the player stands inside, the screen eases to Darkness inside (blank keeps the map's), lightning flashes are dimmer and the weather's background sound plays at Weather heard inside. The darkness is one value for the screen, not tile by tile. The Regions legend says \"indoors\"."
+    },
+    {
+        "title": "A world that remembers",
+        "anchor": "a-world-that-remembers",
+        "firstParagraph": "- Grows (Details, for a doodad with states and a Name): the days each state lasts, such as 2, 3, 4. On each new calendar day it steps on, and stops at its last state: crops and saplings. Only the day each state began is kept in the save; a map not visited for days catches up when it is shown. - Map settings → Remembers: Worn paths count the player's steps on each tile; past Steps before it shows the ground shows a soft patch of the path colour, and each day it eases back. Kept in the save as a short string per map (a map that changes size starts again). Footprints are left on chosen regions or terrain tags, and anywhere while it snows, and fill in after the seconds you set; they are not saved."
+    },
+    {
+        "title": "Fire and rain",
+        "anchor": "fire-and-rain",
+        "firstParagraph": "Map settings → Fire and Rain (off by default): fire spreads over dry ground (regions or terrain tags you mark, and doodads set to Burns in Details), more often downwind; rain wets everything and puts it out, water runs downhill on Hills and leaves puddles; fireproof regions never burn. A doodad that Burns goes to its state named Burnt when its tile burns out, kept by the save. Lights fires (a campfire) can light dry ground beside it; Puts out (a well) keeps the tiles round it wet. Burning tiles flicker and light the map. Commands Start Fire At and Put Out Fires. The fire itself is not saved; burnt doodads are."
+    },
+    {
+        "title": "Map eras",
+        "anchor": "map-eras",
+        "firstParagraph": "Map settings → Eras: one map in several versions (whole, burning, ruined). Add eras; pick doodads and press Only in This Era (or In Every Era); doodads with no era show in all. Editing chooses the era shown in the editor, with the others drawn faint (Others shown). In the game a switch (off: first era, on: second) or a variable (its number) picks the era; collision and lights follow what shows, and a change crossfades. Copy Era copies an era's own doodads into a new one. Delete Era asks whether to delete its own doodads or keep them in every era. Tiles are the same in every era."
+    },
+    {
+        "title": "Ambient creatures",
+        "anchor": "ambient-creatures",
+        "firstParagraph": "Details → Creatures: birds, butterflies or fish around a doodad, with how many, how far they spread, how near the player may come before they fly off, how soon they come back, their hours and weather, and their picture (two frames side by side; Add Sample Items draws a bird and a butterfly). Perch marks a doodad birds land on. Fish need water tiles and scatter only from a swimmer or a boat; lightning startles everything. They are not events: no collision, nothing saved. Effects Quality halves them at Medium and turns them off at Low; flat maps."
+    },
+    {
         "title": "9. Post-Processing, Screen Effects & Map Image Export",
         "anchor": "9-post-processing-screen-effects--map-image-export",
         "firstParagraph": "Open View → Screen Looks. Changes show live on the map behind it, and every edit can be undone (a slider drag counts as one step)."
@@ -10973,6 +13053,11 @@ DocsDoodads.HelpIndex = [
         "title": "Export Map Image",
         "anchor": "export-map-image",
         "firstParagraph": "Saves the whole map as one PNG in the project's screenshots folder and opens it in Explorer. - Scale: 100%, 50% or 25%. The largest image is 16384 pixels on a side; the editor suggests a smaller scale if needed. - Characters: include the player and events. - Lighting & colour: include lighting, bloom and colour grading. Effects shaped by the screen (vignette, CRT, lens, aberration, grain, tilt-shift) are always left out, because they would repeat across the stitched image."
+    },
+    {
+        "title": "Light shafts, soft shadows and glow off walls",
+        "anchor": "light-shafts-soft-shadows-and-glow-off-walls",
+        "firstParagraph": "Screen Looks → Light shafts (flat maps): rays of light between what stops light (wall tiles, and doodads marked Stops light shafts in Details). By default they come from the sun, strongest when it is low and none at night, more in fog; From the brightest lamp uses the strongest lamp near the player instead. Effects Quality: 12 samples at Medium, none at Low."
     },
     {
         "title": "10. Particles, VFX, Character Animation & Traversal",
@@ -11130,6 +13215,11 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Hover a character sheet in the Item Bag to watch it walk, and a door or chest sheet to see it open. An image sliced into equal frames (an animation strip) plays its frames too."
     },
     {
+        "title": "More like this",
+        "anchor": "more-like-this",
+        "firstParagraph": "Map → More Like This: drag a box round a part of the map you like, then drag the region to fill. The tool learns which kinds of ground sit beside which and how the doodads are spread over them, and fills the region the same way (it fits the tiles round it, and every pair of neighbours it makes was seen in the sample). The fill shows on the map until Apply (one Undo step); Reroll tries another. A sample smaller than 2 × 2 tiles says so. The ground layer only."
+    },
+    {
         "title": "13. Visual Equipment & the Map Destination Marker",
         "anchor": "13-visual-equipment--the-map-destination-marker",
         "firstParagraph": ""
@@ -11225,9 +13315,39 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Everything works on the map the player is on unless a map ID is given. Doodads are found by the Name given in Details (any case), or by a query object."
     },
     {
+        "title": "Cutscene timelines",
+        "anchor": "cutscene-timelines",
+        "firstParagraph": "Map → Timelines: a timeline has tracks (camera moves on flat maps and in 3D, a doodad's state or light, darkness, weather, a screen look or effect, a character's turn, walk, balloon, animation or action sheet, an effect, the time, wind, a sound, a switch) with keys against time. Click a track's row to add a key, click a key to change or delete it, drag a key to move it; each change is one Undo step. Play runs it on the map; clicking the ruler jumps there; Stop puts the map back as it was when Play was pressed. The plugin command Play Timeline plays it (with Wait Until It Ends), holding OK for a second skips to the end, and Stop Timeline stops it. Scripts: DocsDoodads.api.playTimeline(name), stopTimeline(), timelinePlaying(name)."
+    },
+    {
+        "title": "Decorate mode for players",
+        "anchor": "decorate-mode-for-players",
+        "firstParagraph": "Map → Decorate: the pieces players may place (made from the doodad or picture you pick, with its light, states and collision), how many tiles each covers, a limit, a price for your own shop events, and where they come from: given by Give Decor Item, a party item (used up on placing, given back on picking up) or free. Mark where on each map with regions or boxes. In the game Open Decorate Mode: arrows (or a tap) move the cursor, Q/W choose a piece, OK places it or lifts one to move, Shift flips, Cancel puts a lifted piece away or ends. Green under the piece where it may go, red with the reason where not; nobody can wall themselves in (every door stays reachable). Pieces are kept in the save by id and place; if a piece leaves the catalog or no longer fits its zone, it is handed back. Count Decor puts how many are placed or held in a variable. Scripts: DocsDoodads.api.decorate(), giveDecor(id, n)."
+    },
+    {
+        "title": "Rewind in a playtest",
+        "anchor": "rewind-in-a-playtest",
+        "firstParagraph": "With the editor closed, hold Ctrl+Backspace (More → Keys) to go back up to 30 seconds: snapshots are made every half second the way MZ makes a save, kept in memory only. Let go to play on from there; F10 then opens the editor at that moment. It does nothing in battles and menus, and sounds mid-play and running effects are not held. On a project where one snapshot takes over 4 ms, only the map, the player, switches, variables and self switches are kept."
+    },
+    {
         "title": "16. Direct Physical Collision System",
         "anchor": "16-direct-physical-collision-system",
         "firstParagraph": "When the player is near in a doodad's Details sets a range in tiles (0 is off), the state on entering and leaving (a name, next or blank), and an optional common event. Leaving has half a tile of slack so standing at the edge does not repeatedly trigger it. Only the first visit can be kept in the save. The same doodad can also have Touch; range events are near and far on api.on. A busy or already reserved common event is not queued again."
+    },
+    {
+        "title": "Bridges you walk over and under",
+        "anchor": "bridges-you-walk-over-and-under",
+        "firstParagraph": "Map settings → Bridges: the regions of a bridge's deck and its ends. Stepping onto an end goes up onto the deck; stepping from an end onto plain ground comes down; walking from the ground straight under the deck stays below. On top you can't step off the side (the deck's regions are the walkway); below, only the ground tiles under the deck decide. Characters on different levels pass each other and don't start each other's events. Make the deck's tiles ☆ in the tileset so whoever is below walks under them; <docs bridge: over> in an event's note starts it on top. The player's level is kept in the save. Flat maps; Check Reach and Show Collision show the ground level."
+    },
+    {
+        "title": "Tile settings",
+        "anchor": "tile-settings",
+        "firstParagraph": "Tiles card → Tile settings: passage (○ × ☆), passage by side, ladder, bush, counter, damage floor, boat, ship, airship landing and terrain tag, each drawn on the tileset as MZ's database does; a click steps it (right-click steps a terrain tag back). An autotile's shapes change together. One Undo step a click, and the game sees the change at once. The first change to a tileset says how many maps use it. Save writes data/Tilesets.json with a backup and stops if MZ changed the file since; then close and reopen the project in RPG Maker MZ (if MZ saves while it is open, it writes its own copy over these changes)."
+    },
+    {
+        "title": "Doodads that ride and travel",
+        "anchor": "doodads-that-ride-and-travel",
+        "firstParagraph": "Details → Ride and Travel: a doodad Rides on the player or an event (a lantern, a cart's load), offset by pixels; or Travels through points (pixels from where it was placed; Draw Its Path clicks them on the map, right-click finishes) at a speed, back to the start, turning round, or once (kept in the save), waiting at each stop, only while a switch is on. Its light, shadow, particles and sound go with it. Carries whoever stands on it makes its tiles walkable and moves the player with it: a raft across water. While the editor is open it stands where it was placed. Commands Start Travel and Stop Travel; DocsDoodads.api.travel(name, on)."
     },
     {
         "title": "17. Sounds in the Item Bag",
@@ -11275,6 +13395,26 @@ DocsDoodads.HelpIndex = [
         "firstParagraph": "Right-click a tile and choose Add Pin Here to mark a town, shop or quest for players. Give it a name, an IconSet icon, and optionally a switch it needs. Tick fast travel to let players travel there from the world map. Edit Pin and Delete Pin are on the same menu, and each change is one Undo step. Pins are saved with the project and drawn as small flags in the editor."
     },
     {
+        "title": "Walking to neighbours",
+        "anchor": "walking-to-neighbours",
+        "firstParagraph": "Map settings → Walking to Neighbours: with maps linked as neighbours and the game-wide switch on, the player walks off one map's edge onto the next with no fade. The neighbours' files are read ahead, the camera may look past an edge that has a neighbour (whose tiles show there when it uses the same tileset) and keeps the player's place on screen. A map can opt out; looping maps keep looping. The neighbour's events show once you are there. Off-grid movement and the 3D view transfer as before."
+    },
+    {
+        "title": "Places: maps inside maps",
+        "anchor": "places-maps-inside-maps",
+        "firstParagraph": "Map → Places lists the world, its places and their rooms as a tree, with Go To and a mark on a link with no transfer, no way back, or a landing on a blocked tile. Make a Place Here (at the picked event, or where the player stands) makes the place's map (or uses one by id), a transfer there and one back at its entrance. Make a Grid of Maps cuts a big area into maps of up to 256 tiles joined as neighbours. New maps and MapInfos.json are written together with backups, or not at all, and it stops if MZ changed MapInfos.json since. Close and reopen the project in RPG Maker MZ to see them. Removing a place keeps its map and transfers."
+    },
+    {
+        "title": "A real place",
+        "anchor": "a-real-place",
+        "firstParagraph": "Map → From a Map File: download an OpenStreetMap extract (an .osm file from the site's Export) or GeoJSON yourself, pick it, choose the kind of map, and optionally a grey picture for heights. Roads, rivers, water, forests and buildings become this map's tiles through Picture to Map's building step (a bridge where a road crosses water). The card says the area's real size and how much a tile is first. Nothing is downloaded by the editor. Apply writes \"© OpenStreetMap contributors\" into CREDITSMAPS.txt: show it in your game's credits."
+    },
+    {
+        "title": "Baking for phones",
+        "anchor": "baking-for-phones",
+        "firstParagraph": "Map → Bake This Map (or Bake Every Map) draws a map's still doodads (no motion, states, light, shadow, effects or filters, and not sorted with characters) into a few pictures in img/doodads/baked/, and the game draws those instead of hundreds of sprites. Save to keep it. Any later change to the map's doodads makes the bake stale: the game draws the real doodads and Problems says to bake again. A playtest shows the real doodads unless World bake.playtest is on; the 3D view never uses the pictures. npm run deploy -- ... --bake stops if any bake is stale. Exclude unused files keeps the baked pictures."
+    },
+    {
         "title": "20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing",
         "anchor": "20-asset-management-where-used-renamemove-duplicates-live-reload-packing",
         "firstParagraph": ""
@@ -11303,6 +13443,11 @@ DocsDoodads.HelpIndex = [
         "title": "Editor language",
         "anchor": "editor-language",
         "firstParagraph": "The editor is in English. View → Look → Editor language lists any translations in data/DocsDoodadsLanguages: a file <code>.json (for example de.json) with \"language\" (its own name) and \"strings\", the English words with their translations. Words that hold values use {name} (\"Placed {n} doodad(s)\"), and the translation keeps it. Anything not translated stays English. npm run strings writes languages/template.json with every English string the editor shows, for a translator to fill in. Switching back to English shows every part in English after the editor is opened again."
+    },
+    {
+        "title": "Panels in their own window",
+        "anchor": "panels-in-their-own-window",
+        "firstParagraph": "View → Item Bag in a Window or Details in a Window moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then click the map (drags can't cross windows). Close the window or use Dock … Back to put it back; its place is kept for next time. Closing the editor docks everything back."
     },
     {
         "title": "22. Project Safety, Conflict Detection & Crash Recovery",
@@ -11443,6 +13588,40 @@ DocsDoodads.MapFrom = {
         const k = this.cleanKind(kind);
         return Object.assign(k, { id: String(id).replace(/[^\w-]/g, '') || k.id + '_copy', name: name || k.name + ' (copy)', base: k.base || k.id });
     },
+
+    // ---- Editing a user's kind: its classes (8.5.3) ----
+    // Each returns a new, cleaned kind; built-in kinds are copied first (copyKind), never changed.
+    classId(kind, name) {
+        const base = String(name || 'class').toLowerCase().replace(/[^\w]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'class';
+        let id = base, n = 2;
+        while ((kind.classes || []).some(c => c.id === id)) id = base + '_' + n++;
+        return id;
+    },
+
+    addClass(kind, cls) {
+        const k = this.cleanKind(kind);
+        if (!k) return null;
+        const c = Object.assign({ name: 'New class', passable: true }, cls || {});
+        c.id = c.id && !k.classes.some(x => x.id === c.id) ? c.id : this.classId(k, c.name);
+        k.classes.push(c);
+        return this.cleanKind(k);
+    },
+
+    updateClass(kind, classId, change) {
+        const k = this.cleanKind(kind);
+        if (!k) return null;
+        k.classes = k.classes.map(c => (c.id === classId ? Object.assign({}, c, change || {}, { id: c.id }) : c));
+        return this.cleanKind(k);
+    },
+
+    removeClass(kind, classId) {
+        const k = this.cleanKind(kind);
+        if (!k) return null;
+        k.classes = k.classes.filter(c => c.id !== classId);
+        return k;
+    },
+
+    isBuiltIn(id) { return this.builtIn.some(b => b.id === id); },
 
     // ---- Reading a picture (8.5.2) ----
     // pixels: RGBA bytes of a w × h picture; returns { w, h, cells: [group or -1], groups: [{ colour, count }] }.
@@ -11792,6 +13971,155 @@ DocsDoodads.MapFrom = {
 };
 // @editor-only
 //==========================================================
+// SECTION 5H2: A REAL PLACE (8.5.5)
+//==========================================================
+// MapFrom.fromGeo turns map features (lines and shapes with a type, in longitude and latitude) and a grid of heights
+// into a plan for Picture to Map's building step: roads and rivers as lines of tiles with a width by type, water,
+// forests and buildings filled, heights scaled to the hill range, a bridge where a road crosses water. It reads
+// OpenStreetMap extracts (.osm) and GeoJSON that the user downloaded themselves: no connection is ever made.
+// OpenStreetMap data is under the ODbL: "© OpenStreetMap contributors" must be shown in the game; Apply writes it
+// into CREDITS_MAPS.txt.
+Object.assign(DocsDoodads.MapFrom, {
+    geoCredit: 'Map data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright',
+
+    // A feature's type from its tags (OpenStreetMap's keys), or null for what is left out.
+    geoType(tags) {
+        const t = tags || {};
+        if (t.highway) return ['motorway', 'trunk', 'primary'].includes(t.highway) ? 'roadWide' : ['footway', 'path', 'track', 'cycleway', 'steps'].includes(t.highway) ? 'path' : 'road';
+        if (t.waterway) return ['river', 'canal'].includes(t.waterway) ? 'river' : 'stream';
+        if (t.natural === 'water' || t.landuse === 'reservoir' || t.water || t.natural === 'bay') return 'water';
+        if (t.landuse === 'forest' || t.natural === 'wood') return 'forest';
+        if (t.building) return 'building';
+        if (t.natural === 'sand' || t.natural === 'beach' || t.natural === 'desert') return 'sand';
+        if (t.natural === 'peak' || t.natural === 'ridge') return 'mountain';
+        if (t.landuse === 'meadow' || t.landuse === 'grass' || t.leisure === 'park') return 'grass';
+        if (t.place && ['city', 'town', 'village', 'hamlet'].includes(t.place)) return 'place';
+        return null;
+    },
+
+    // The class each type becomes for a kind of map.
+    geoClasses: {
+        overworld: { road: 'road', roadWide: 'road', path: null, river: 'water', stream: 'water', water: 'water', forest: 'forest', building: null, sand: 'desert', mountain: 'mountain', grass: 'grass', place: 'place' },
+        town: { road: 'road', roadWide: 'road', path: 'road', river: 'water', stream: 'water', water: 'water', forest: 'tree', building: 'building', sand: 'ground', mountain: null, grass: 'grass', place: null },
+        dungeon: {}, room: {}
+    },
+    geoWidth: { roadWide: 3, road: 2, path: 1, river: 3, stream: 1 },
+    geoOrder: ['grass', 'sand', 'forest', 'water', 'mountain', 'building', 'stream', 'river', 'path', 'road', 'roadWide', 'place'],
+
+    // ---- Reading files ----
+    // GeoJSON: [{ type, kind: 'line' | 'shape' | 'point', coords: [[lon, lat], ...] }].
+    readGeoJson(json) {
+        const data = typeof json === 'string' ? JSON.parse(json) : json, out = [];
+        const add = (tags, kind, coords) => { const type = this.geoType(tags); if (type && coords && coords.length) out.push({ type, kind, coords, name: tags && tags.name ? String(tags.name) : '' }); };
+        for (const f of (data && data.features) || []) {
+            const g = f && f.geometry, tags = (f && f.properties) || {};
+            if (!g) continue;
+            if (g.type === 'LineString') add(tags, 'line', g.coordinates);
+            else if (g.type === 'MultiLineString') for (const c of g.coordinates) add(tags, 'line', c);
+            else if (g.type === 'Polygon') add(tags, 'shape', g.coordinates[0]);
+            else if (g.type === 'MultiPolygon') for (const p of g.coordinates) add(tags, 'shape', p[0]);
+            else if (g.type === 'Point') add(tags, 'point', [g.coordinates]);
+        }
+        return out;
+    },
+
+    // An OpenStreetMap extract (.osm XML): nodes and ways with their tags; a closed way of an area type is a shape.
+    readOsm(text) {
+        const nodes = new Map(), out = [];
+        const attrs = s => { const o = {}; for (const m of String(s).matchAll(/(\w+)="([^"]*)"/g)) o[m[1]] = m[2]; return o; };
+        const tagsOf = body => { const t = {}; for (const m of String(body || '').matchAll(/<tag\s+([^>]*?)\/?>/g)) { const a = attrs(m[1]); if (a.k) t[a.k] = a.v; } return t; };
+        for (const m of String(text).matchAll(/<node\s+([^>]*?)(\/>|>([\s\S]*?)<\/node>)/g)) {
+            const a = attrs(m[1]);
+            nodes.set(a.id, [Number(a.lon), Number(a.lat)]);
+            const tags = tagsOf(m[3]), type = this.geoType(tags);
+            if (type) out.push({ type, kind: 'point', coords: [[Number(a.lon), Number(a.lat)]], name: tags.name || '' });
+        }
+        for (const m of String(text).matchAll(/<way\s+([^>]*?)>([\s\S]*?)<\/way>/g)) {
+            const refs = Array.from(m[2].matchAll(/<nd\s+ref="([^"]+)"/g)).map(r => nodes.get(r[1])).filter(Boolean);
+            const tags = tagsOf(m[2]), type = this.geoType(tags);
+            if (!type || refs.length < 2) continue;
+            const closed = refs.length > 3 && refs[0][0] === refs[refs.length - 1][0] && refs[0][1] === refs[refs.length - 1][1];
+            const area = closed && !['road', 'roadWide', 'path', 'river', 'stream'].includes(type);
+            out.push({ type, kind: area ? 'shape' : 'line', coords: refs, name: tags.name || '' });
+        }
+        return out;
+    },
+
+    // The box round every feature: { west, south, east, north }.
+    geoBox(features) {
+        let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+        for (const f of features) for (const [lon, lat] of f.coords) { west = Math.min(west, lon); east = Math.max(east, lon); south = Math.min(south, lat); north = Math.max(north, lat); }
+        return Number.isFinite(west) ? { west, south, east, north } : null;
+    },
+
+    // The real size of a box in metres: { w, h }.
+    geoMetres(box) {
+        const R = 6371000, rad = Math.PI / 180, mid = (box.north + box.south) / 2 * rad;
+        return { w: Math.abs(box.east - box.west) * rad * R * Math.cos(mid), h: Math.abs(box.north - box.south) * rad * R };
+    },
+
+    // features → a plan of w × h tiles for a kind. heights: { w, h, values (0-1) } or null.
+    fromGeo(features, heights, box, kind, size) {
+        const w = Math.max(1, Math.floor(size.w)), h = Math.max(1, Math.floor(size.h));
+        const base = kind.base || kind.id, classes = this.geoClasses[base] || {};
+        const cells = new Array(w * h).fill(null), types = new Array(w * h).fill(null), out = { w, h, kind: kind.id, cells, heights: null, features: [], options: { geo: true } };
+        if (!box || !features.length) return out;
+        const spanX = (box.east - box.west) || 1e-9, spanY = (box.north - box.south) || 1e-9;
+        const toTile = ([lon, lat]) => ({ x: (lon - box.west) / spanX * w, y: (box.north - lat) / spanY * h });
+        const has = id => id && kind.classes.some(c => c.id === id);
+        const put = (x, y, type) => {
+            x = Math.floor(x); y = Math.floor(y);
+            if (x < 0 || y < 0 || x >= w || y >= h) return;
+            const i = y * w + x, before = types[i];
+            if ((before === 'water' || before === 'river' || before === 'stream') && /^road|^path/.test(type)) out.features.push({ type: 'bridge', x, y, w: 1, h: 1, name: '' });
+            types[i] = type;
+        };
+        const order = t => this.geoOrder.indexOf(t);
+        for (const f of features.slice().sort((a, b) => order(a.type) - order(b.type))) {
+            const pts = f.coords.map(toTile);
+            if (f.kind === 'point') { if (f.type === 'place') out.features.push({ type: 'place', x: Math.floor(pts[0].x), y: Math.floor(pts[0].y), w: 1, h: 1, name: f.name }); else put(pts[0].x, pts[0].y, f.type); continue; }
+            if (f.kind === 'shape') {
+                let y0 = Infinity, y1 = -Infinity, x0 = Infinity, x1 = -Infinity;
+                for (const p of pts) { y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); }
+                for (let ty = Math.max(0, Math.floor(y0)); ty <= Math.min(h - 1, Math.floor(y1)); ty++) for (let tx = Math.max(0, Math.floor(x0)); tx <= Math.min(w - 1, Math.floor(x1)); tx++) {
+                    const cx = tx + 0.5, cy = ty + 0.5;
+                    let inside = false;
+                    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                        const a = pts[i], b = pts[j];
+                        if ((a.y > cy) !== (b.y > cy) && cx < (b.x - a.x) * (cy - a.y) / (b.y - a.y) + a.x) inside = !inside;
+                    }
+                    if (inside) put(tx, ty, f.type);
+                }
+                continue;
+            }
+            // A line: stepped finely, as wide as its type.
+            const width = this.geoWidth[f.type] || 1, r = (width - 1) / 2;
+            for (let i = 1; i < pts.length; i++) {
+                const a = pts[i - 1], b = pts[i], n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2));
+                for (let k = 0; k <= n; k++) {
+                    const x = a.x + (b.x - a.x) * k / n, y = a.y + (b.y - a.y) * k / n;
+                    for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) if (Math.hypot(dx, dy) <= r + 0.01) put(x + dx, y + dy, f.type);
+                }
+            }
+        }
+        for (let i = 0; i < cells.length; i++) { const c = types[i] && classes[types[i]]; cells[i] = has(c) ? c : null; }
+        // Heights: the grey picture scaled to the hill range (0 to 8).
+        if (heights && heights.values) {
+            const hv = new Array(w * h);
+            for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+                const sx = Math.min(heights.w - 1, Math.floor(x / w * heights.w)), sy = Math.min(heights.h - 1, Math.floor(y / h * heights.h));
+                hv[y * w + x] = Math.round(Math.max(0, Math.min(1, heights.values[sy * heights.w + sx])) * 8);
+            }
+            out.heights = hv;
+        }
+        // Dedupe bridges.
+        const seen = new Set();
+        out.features = out.features.filter(f => { const k = f.type + f.x + ',' + f.y; if (seen.has(k)) return false; seen.add(k); return true; });
+        return out;
+    }
+});
+// @editor-only
+//==========================================================
 // SECTION 5G5: MOODS
 //==========================================================
 // A mood sets a map's light, screen look, fog and echo together, and shows a time of day, weather and wind
@@ -11908,6 +14236,349 @@ DocsDoodads.Moods = {
         if (typeof mood === 'string') mood = this.get(mood);
         if (!mood) return null;
         return this.merge(DocsDoodads.Lighting.mapSettings(mapId), mood);
+    }
+};
+// @editor-only
+//==========================================================
+// SECTION 4G2: MORE LIKE THIS (8.3.3)
+//==========================================================
+// Generate.learn reads a sample of the map: which ground kinds (an autotile's kind, not its shape; any other tile
+// as itself) sit beside which in each of the four directions, how often each appears, and, for doodads, how many of
+// each picture stand on each ground kind and how far apart. Generate.fill fills a region the same way by wave
+// function collapse over the kinds (MZ's autotile shapes are picked afterwards by Tiles.paint), restarting a small
+// area round a dead end, within a step limit; then scatters the doodads by what was learned. Seeded.
+Object.assign(DocsDoodads.Generate, {
+    dirs: [[1, 0], [0, 1], [-1, 0], [0, -1]],
+    minSample: 4,
+
+    kindOf(id) {
+        const T = DocsDoodads.Tiles;
+        id = Number(id) || 0;
+        return T.isAutotile(id) ? 'a' + T.kind(id) : 't' + id;
+    },
+
+    idOfKind(kind) {
+        return kind[0] === 'a' ? DocsDoodads.Tiles.make(Number(kind.slice(1)), 0) : Number(kind.slice(1)) || 0;
+    },
+
+    // sample: { w, h, tiles: [ids, row by row], doodads: [{ path, x, y (tile), frameW, frameH, scale }] }.
+    learn(sample) {
+        const w = Math.floor(Number(sample && sample.w) || 0), h = Math.floor(Number(sample && sample.h) || 0);
+        if (w * h < this.minSample || w < 2 || h < 2) return { error: 'The sample is too small: lasso at least 2 × 2 tiles.' };
+        const kinds = sample.tiles.map(id => this.kindOf(id));
+        const weights = {}, rules = {};
+        for (const k of kinds) weights[k] = (weights[k] || 0) + 1;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const a = kinds[y * w + x];
+            rules[a] = rules[a] || [{}, {}, {}, {}];
+            this.dirs.forEach(([dx, dy], d) => {
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) return;
+                const b = kinds[ny * w + nx];
+                rules[a][d][b] = (rules[a][d][b] || 0) + 1;
+            });
+        }
+        // Doodads as a biome: per ground kind, each picture's count per tile and the closest spacing seen.
+        const biome = {};
+        const pts = (sample.doodads || []).filter(d => d && d.path && d.x >= 0 && d.y >= 0 && d.x < w && d.y < h);
+        for (const d of pts) {
+            const k = kinds[d.y * w + d.x];
+            const entry = ((biome[k] = biome[k] || {})[d.path] = biome[k][d.path] || { count: 0, spacing: Infinity, frameW: d.frameW, frameH: d.frameH, scale: d.scale || 1 });
+            entry.count++;
+            for (const o of pts) if (o !== d && o.path === d.path) entry.spacing = Math.min(entry.spacing, Math.hypot(o.x - d.x, o.y - d.y));
+        }
+        for (const k of Object.keys(biome)) for (const p of Object.keys(biome[k])) {
+            const e = biome[k][p];
+            e.density = e.count / weights[k];
+            e.spacing = Number.isFinite(e.spacing) ? Math.max(0.5, e.spacing) : 1;
+        }
+        return { kinds: Object.keys(weights), weights, rules, biome };
+    },
+
+    allowed(model, a, d, b) {
+        const r = model.rules[a];
+        return Boolean(r && r[d][b]);
+    },
+
+    // region: { w, h, fixed: (x, y) → kind or null (tiles round the region stay as they are) }. → { cells: [kind],
+    // steps, restarts } or { error }.
+    fill(region, model, rng, opts = {}) {
+        if (!model || model.error) return { error: (model && model.error) || 'Nothing learned yet.' };
+        const w = region.w, h = region.h, n = w * h, all = model.kinds;
+        const maxSteps = opts.maxSteps || n * 40, maxRestarts = opts.maxRestarts || 200;
+        const domain = new Array(n);
+        const reset = i => { domain[i] = new Set(all); };
+        for (let i = 0; i < n; i++) reset(i);
+        const fixedAt = (x, y) => (region.fixed ? region.fixed(x, y) : null);
+        // Narrows a cell by its four neighbours (in the region, or fixed outside it). Returns false on a dead end.
+        const narrow = i => {
+            const x = i % w, y = Math.floor(i / w);
+            const keep = new Set();
+            for (const a of domain[i]) {
+                let ok = true;
+                for (let d = 0; d < 4 && ok; d++) {
+                    const nx = x + this.dirs[d][0], ny = y + this.dirs[d][1];
+                    let options;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) { const f = fixedAt(nx, ny); options = f && model.rules[f] ? [f] : null; }
+                    else options = Array.from(domain[ny * w + nx]);
+                    if (options && !options.some(b => this.allowed(model, a, d, b))) ok = false;
+                }
+                if (ok) keep.add(a);
+            }
+            const changed = keep.size !== domain[i].size;
+            domain[i] = keep;
+            return { ok: keep.size > 0, changed };
+        };
+        const propagate = start => {
+            const queue = start.slice(), seen = new Set(), first = new Set(start);
+            while (queue.length) {
+                const i = queue.shift();
+                seen.delete(i);
+                const r = narrow(i);
+                if (!r.ok) return i;
+                const wasFirst = first.delete(i);
+                if (!r.changed && !wasFirst) continue;
+                const x = i % w, y = Math.floor(i / w);
+                for (const [dx, dy] of this.dirs) {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                    const j = ny * w + nx;
+                    if (domain[j].size > 1 && !seen.has(j)) { seen.add(j); queue.push(j); }
+                }
+            }
+            return -1;
+        };
+        let steps = 0, restarts = 0;
+        const border = [];
+        for (let i = 0; i < n; i++) border.push(i);
+        let dead = propagate(border);
+        const restartAround = i => {
+            restarts++;
+            const x = i % w, y = Math.floor(i / w), r = 2 + Math.min(4, Math.floor(restarts / 10));
+            const cleared = [];
+            for (let yy = Math.max(0, y - r); yy <= Math.min(h - 1, y + r); yy++) for (let xx = Math.max(0, x - r); xx <= Math.min(w - 1, x + r); xx++) { reset(yy * w + xx); cleared.push(yy * w + xx); }
+            return propagate(cleared);
+        };
+        while (dead >= 0 && restarts < maxRestarts) dead = restartAround(dead);
+        while (steps < maxSteps) {
+            if (dead >= 0) { if (restarts >= maxRestarts) return { error: 'No fill fits this sample here; try a bigger sample or another region.' }; dead = restartAround(dead); continue; }
+            // The open cell with the fewest choices (ties by the seed).
+            let best = -1, fewest = Infinity;
+            for (let i = 0; i < n; i++) {
+                const s = domain[i].size;
+                if (s > 1 && (s < fewest || (s === fewest && rng() < 0.5))) { fewest = s; best = i; }
+            }
+            if (best < 0) break;
+            steps++;
+            const options = Array.from(domain[best]).sort();
+            let total = options.reduce((a, k) => a + (model.weights[k] || 1), 0), pick = rng() * total, choice = options[0];
+            for (const k of options) { pick -= model.weights[k] || 1; if (pick <= 0) { choice = k; break; } }
+            domain[best] = new Set([choice]);
+            dead = propagate([best]);
+        }
+        if (steps >= maxSteps) return { error: 'The fill took too many steps; try a smaller region.' };
+        return { cells: domain.map(s => Array.from(s)[0]), steps, restarts };
+    },
+
+    // Doodads for a filled region by the learned biome: [{ path, x, y (tile), frameW, frameH, scale }].
+    scatterLearned(cells, w, h, model, rng) {
+        const out = [];
+        for (let i = 0; i < cells.length; i++) {
+            const entries = model.biome[cells[i]];
+            if (!entries) continue;
+            const x = i % w, y = Math.floor(i / w);
+            for (const [path, e] of Object.entries(entries)) {
+                if (rng() >= e.density) continue;
+                if (out.some(o => o.path === path && Math.hypot(o.x - x, o.y - y) < e.spacing)) continue;
+                out.push({ path, x, y, frameW: e.frameW, frameH: e.frameH, scale: e.scale });
+            }
+        }
+        return out;
+    }
+});
+// @editor-only
+//==========================================================
+// SECTION 5M: MAPS INSIDE MAPS (8.5.4)
+//==========================================================
+// DocsDoodads.NewMap makes an empty MZ map (data/Map###.json) and its entry in data/MapInfos.json, written together
+// with backups, or neither. DocsDoodads.Places links a feature (a town marker, a door, stairs) to a map: it makes
+// the map if asked, a transfer event at the feature and one back at the new map's entrance.
+// $dataDocsDoodads.places = [{ id, name, mapId, kind, parent: { mapId, x, y }, entrance: { x, y } }].
+// RPG Maker MZ keeps MapInfos in memory while the project is open and writes its own copy when you save there:
+// close and reopen the project in MZ after making maps here.
+DocsDoodads.NewMap = {
+    maxId: 999,
+
+    // The lowest id no map has.
+    nextId(infos) {
+        const used = new Set((infos || []).filter(Boolean).map(i => Number(i.id)));
+        for (let id = 1; id <= this.maxId; id++) if (!used.has(id)) return id;
+        return 0;
+    },
+
+    blank(spec = {}) {
+        const w = Math.max(1, Math.min(256, Math.floor(Number(spec.width) || 17))), h = Math.max(1, Math.min(256, Math.floor(Number(spec.height) || 13)));
+        const audio = () => ({ name: '', pan: 0, pitch: 100, volume: 90 });
+        const data = new Array(w * h * 6).fill(0);
+        const ground = Math.floor(Number(spec.ground) || 0);
+        if (ground > 0) for (let i = 0; i < w * h; i++) data[i] = ground;
+        return { autoplayBgm: false, autoplayBgs: false, battleback1Name: '', battleback2Name: '', bgm: audio(), bgs: audio(), disableDashing: false,
+            displayName: String(spec.displayName || ''), encounterList: [], encounterStep: 30, height: h, note: String(spec.note || ''),
+            parallaxLoopX: false, parallaxLoopY: false, parallaxName: '', parallaxShow: true, parallaxSx: 0, parallaxSy: 0, scrollType: Number(spec.scrollType) || 0,
+            specifyBattleback: false, tilesetId: Math.max(1, Math.floor(Number(spec.tilesetId) || 1)), width: w, data, events: [null] };
+    },
+
+    infoFor(id, name, parentId, infos) {
+        const order = Math.max(0, ...(infos || []).filter(Boolean).map(i => Number(i.order) || 0)) + 1;
+        return { id, expanded: false, name: String(name || 'MAP' + String(id).padStart(3, '0')), order, parentId: Math.max(0, Number(parentId) || 0), scrollX: 0, scrollY: 0 };
+    },
+
+    // What will be written: { id, map, infos } (infos a new array with the entry at index id). Pure.
+    plan(infos, spec = {}) {
+        const id = this.nextId(infos);
+        if (!id) throw new Error('Every map id up to 999 is taken.');
+        const map = this.blank(spec);
+        if (Array.isArray(spec.events)) for (const ev of spec.events) if (ev && ev.id) map.events[ev.id] = ev;
+        const next = (infos || []).slice();
+        while (next.length <= id) next.push(null);
+        next[id] = this.infoFor(id, spec.name, spec.parentId, infos);
+        return { id, map, infos: next };
+    },
+
+    path(id) { return `data/Map${String(id).padStart(3, '0')}.json`; },
+
+    // MZ's MapInfos form: one entry a line.
+    infosText(infos) { return '[\n' + infos.map(i => JSON.stringify(i === undefined ? null : i)).join(',\n') + '\n]'; },
+
+    // The MapInfos file's state when the editor first read it this session, for the changed-since check.
+    _snapshot: undefined,
+    remember() { if (this._snapshot === undefined) this._snapshot = DocsDoodads.FS.stat('data/MapInfos.json') || null; },
+    changedSince() {
+        if (!this._snapshot) return false;
+        const now = DocsDoodads.FS.stat('data/MapInfos.json');
+        return Boolean(now && (now.mtimeMs !== this._snapshot.mtimeMs || now.size !== this._snapshot.size));
+    },
+
+    // Writes the map and MapInfos together (backups first), or neither. Returns the new id.
+    make(spec = {}) {
+        const FS = DocsDoodads.FS;
+        this.remember();
+        if (this.changedSince()) throw new Error('data/MapInfos.json was changed in RPG Maker MZ since the editor read it. Close and reopen the project there, then try again.');
+        const infos = FS.readJson('data/MapInfos.json') || (typeof window !== 'undefined' && window.$dataMapInfos) || [null];
+        const p = this.plan(infos, spec);
+        if (FS.existsSync(this.path(p.id))) throw new Error(`${this.path(p.id)} is already there but not in MapInfos.json; check the project in RPG Maker MZ.`);
+        const entries = [{ path: this.path(p.id), data: p.map, indent: 0 }, { path: 'data/MapInfos.json', json: this.infosText(p.infos) }];
+        FS.backupChanged(entries);
+        const result = FS.atomicWriteManyJson(entries);
+        if (!result.ok) throw new Error(`The new map was not written${result.rolledBack ? ' (nothing was changed)' : ''}: ${result.error}`);
+        this._snapshot = FS.stat('data/MapInfos.json') || null;
+        if (typeof window !== 'undefined') window.$dataMapInfos = p.infos;
+        return p.id;
+    },
+
+    // A big picture cut into maps on a grid: [{ col, row, x, y, width, height, links }] with east/west/north/south
+    // filled with the index of the neighbouring piece. Pure.
+    grid(tilesW, tilesH, max = 256) {
+        const cols = Math.ceil(tilesW / max), rows = Math.ceil(tilesH / max), out = [];
+        for (let row = 0; row < rows; row++) for (let col = 0; col < cols; col++) {
+            const x = col * max, y = row * max;
+            out.push({ col, row, x, y, width: Math.min(max, tilesW - x), height: Math.min(max, tilesH - y), links: {} });
+        }
+        const at = (c, r) => out.findIndex(p => p.col === c && p.row === r);
+        for (const p of out) {
+            for (const [side, dc, dr] of [['east', 1, 0], ['west', -1, 0], ['north', 0, -1], ['south', 0, 1]]) {
+                const i = at(p.col + dc, p.row + dr);
+                if (i >= 0) p.links[side] = i;
+            }
+        }
+        return out;
+    }
+};
+
+DocsDoodads.Places = {
+    sizes: { town: [40, 30], room: [17, 13], floor: [30, 24], dungeon: [40, 40], overworld: [80, 60] },
+
+    list() {
+        const data = typeof window !== 'undefined' && window.$dataDocsDoodads;
+        return data && Array.isArray(data.places) ? data.places.filter(p => p && p.id && p.mapId) : [];
+    },
+
+    // A transfer: the template's command pointing at (mapId, x, y), facing d.
+    transferList(mapId, x, y, d) {
+        const t = DocsDoodads.EventTemplates.templates.transfer_door;
+        const list = JSON.parse(JSON.stringify(t.list));
+        const cmd = list.find(c => c.code === 201);
+        cmd.parameters = [0, Number(mapId), Number(x), Number(y), Number(d) || 2, 0];
+        return list;
+    },
+
+    transferEvent(id, x, y, toMap, toX, toY, d, name) {
+        const t = DocsDoodads.EventTemplates.templates.transfer_door;
+        return DocsDoodads.Events.createEventObject(id, x, y, { name: name || 'Transfer', trigger: t.trigger, priorityType: t.priorityType, list: this.transferList(toMap, toX, toY, d) });
+    },
+
+    // The entrance of a new map of a kind: the bottom middle (the player walks in facing up).
+    entrance(kind, w, h) {
+        return { x: Math.floor(w / 2), y: Math.max(0, h - 2) };
+    },
+
+    // Every event on a map that transfers to `toMap`: [{ x, y, target: { x, y } }].
+    transfersTo(map, toMap) {
+        const out = [];
+        for (const ev of (map && map.events) || []) {
+            if (!ev) continue;
+            for (const page of ev.pages || []) for (const c of page.list || []) {
+                if (c && c.code === 201 && Number(c.parameters[0]) === 0 && Number(c.parameters[1]) === Number(toMap)) out.push({ x: ev.x, y: ev.y, target: { x: Number(c.parameters[2]), y: Number(c.parameters[3]) } });
+            }
+        }
+        return out;
+    },
+
+    // Whether a tile of a map can be stood on: some side passable by its tileset's flags (MZ's check).
+    standable(map, flags, x, y) {
+        if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
+        const w = map.width, h = map.height;
+        const ids = [3, 2, 1, 0].map(z => map.data[(z * h + y) * w + x] || 0);
+        if (ids.every(id => !id)) return false; // no tile at all: nothing to stand on
+        return [1, 2, 4, 8].some(bit => {
+            for (const id of ids) {
+                const f = flags[id] || 0;
+                if ((f & 0x10) !== 0) continue;
+                if ((f & bit) === 0) return true;
+                if ((f & bit) === bit) return false;
+            }
+            return false;
+        });
+    },
+
+    // What is wrong with a place's links: { missingThere, missingBack, blockedThere, blockedBack } (each true when so).
+    check(place, readMap, flagsOf) {
+        const parent = readMap(place.parent.mapId), child = readMap(place.mapId);
+        const there = this.transfersTo(parent, place.mapId).filter(t => t.x === place.parent.x && t.y === place.parent.y);
+        const back = this.transfersTo(child, place.parent.mapId);
+        const out = { missingThere: !there.length, missingBack: !back.length, blockedThere: false, blockedBack: false };
+        if (there.length && child) out.blockedThere = !this.standable(child, flagsOf(child.tilesetId), there[0].target.x, there[0].target.y);
+        if (back.length && parent) out.blockedBack = !this.standable(parent, flagsOf(parent.tilesetId), back[0].target.x, back[0].target.y);
+        return out;
+    },
+
+    // The tree: places under their parent's map, roots first. [{ place, depth }].
+    tree(places) {
+        const byParent = new Map();
+        for (const p of places) { const k = Number(p.parent && p.parent.mapId) || 0; (byParent.get(k) || byParent.set(k, []).get(k)).push(p); }
+        const childMaps = new Set(places.map(p => Number(p.mapId)));
+        const roots = Array.from(byParent.keys()).filter(k => !childMaps.has(k)).sort((a, b) => a - b);
+        const out = [], seen = new Set();
+        const walk = (mapId, depth) => {
+            for (const p of byParent.get(mapId) || []) {
+                if (seen.has(p.id)) continue;
+                seen.add(p.id);
+                out.push({ place: p, depth });
+                walk(Number(p.mapId), depth + 1);
+            }
+        };
+        for (const r of roots) { out.push({ root: r, depth: 0 }); walk(r, 1); }
+        return out;
     }
 };
 // @editor-only
@@ -13159,7 +15830,8 @@ DocsDoodads.Shortcuts = {
         { id: 'brushBigger', label: 'Bigger brush', group: 'Tools', keys: ']' },
         { id: 'pathFinish', label: 'Place props along the path being drawn', group: 'Tools', keys: 'Enter', fixed: true },
         { id: 'pathBack', label: 'Remove the last path point', group: 'Tools', keys: 'Backspace', fixed: true },
-        { id: 'cancel', label: 'Stop the tool, unpick, close pop-ups', group: 'Tools', keys: 'Escape', fixed: true }
+        { id: 'cancel', label: 'Stop the tool, unpick, close pop-ups', group: 'Tools', keys: 'Escape', fixed: true },
+        { id: 'rewind', label: 'Rewind the playtest up to 30 seconds (hold it with the editor closed)', group: 'Playtest', keys: 'Ctrl+Backspace' }
     ],
 
     find(id) {
@@ -13380,6 +16052,116 @@ DocsDoodads.SimpleMode = {
             const fields = this.basicFields[s.title];
             return fields ? Object.assign({}, s, { fields: s.fields.filter(f => fields.includes(f.key)) }) : s;
         });
+    }
+};
+// @editor-only
+//==========================================================
+// SECTION 5F: TILESET FLAGS (9.4.1)
+//==========================================================
+// MZ keeps a tile's settings as bits of one number in Tilesets.json (rmmz_objects.js): 0x0f the four blocked
+// sides (down, left, right, up), 0x10 ☆ (over characters, no effect on passage), 0x20 ladder, 0x40 bush, 0x80
+// counter, 0x100 damage floor, 0x200 / 0x400 boat / ship cannot pass, 0x800 the airship cannot land, and the
+// terrain tag in the bits above (flag >> 12). An autotile's 48 shapes share one setting.
+DocsDoodads.TileFlags = {
+    bits: { down: 0x01, left: 0x02, right: 0x04, up: 0x08, star: 0x10, ladder: 0x20, bush: 0x40, counter: 0x80, damage: 0x100, boat: 0x200, ship: 0x400, airship: 0x800 },
+    // What the Flags card can show, as MZ's database tabs.
+    modes: [
+        { id: 'pass', label: 'Passage', hint: 'Click: ○ walk, × blocked, ☆ over characters (B-E only)' },
+        { id: 'dirs', label: 'Passage (4 dir)', hint: 'Click near a side to block or open it' },
+        { id: 'ladder', label: 'Ladder' }, { id: 'bush', label: 'Bush' }, { id: 'counter', label: 'Counter' },
+        { id: 'damage', label: 'Damage floor' }, { id: 'boat', label: 'Boat' }, { id: 'ship', label: 'Ship' },
+        { id: 'airship', label: 'Airship landing' },
+        { id: 'terrain', label: 'Terrain tag', hint: 'Click: one up; right-click: one down (0-7)' }
+    ],
+
+    read(flag) {
+        const f = Number(flag) || 0, b = this.bits;
+        const dirs = { down: Boolean(f & b.down), left: Boolean(f & b.left), right: Boolean(f & b.right), up: Boolean(f & b.up) };
+        const blocked = (f & 0x0f);
+        return {
+            pass: f & b.star ? 'star' : blocked === 0x0f ? 'x' : blocked === 0 ? 'o' : 'some',
+            dirs,
+            star: Boolean(f & b.star),
+            ladder: Boolean(f & b.ladder), bush: Boolean(f & b.bush), counter: Boolean(f & b.counter), damage: Boolean(f & b.damage),
+            // MZ's database shows ○ where a boat or ship can pass and the airship can land: the bit clear.
+            boat: !(f & b.boat), ship: !(f & b.ship), airship: !(f & b.airship),
+            terrain: (f >> 12) & 0x0f
+        };
+    },
+
+    // The number after a change; only the named settings move.
+    write(flag, change) {
+        let f = Number(flag) || 0;
+        const b = this.bits, set = (bit, on) => { f = on ? (f | bit) : (f & ~bit); };
+        change = change || {};
+        if (change.pass === 'o') { set(0x0f, false); set(b.star, false); }
+        else if (change.pass === 'x') { set(0x0f, true); set(b.star, false); }
+        else if (change.pass === 'star') { set(0x0f, false); set(b.star, true); }
+        if (change.dirs) for (const k of ['down', 'left', 'right', 'up']) if (change.dirs[k] !== undefined) set(b[k], Boolean(change.dirs[k]));
+        for (const k of ['ladder', 'bush', 'counter', 'damage']) if (change[k] !== undefined) set(b[k], Boolean(change[k]));
+        for (const k of ['boat', 'ship', 'airship']) if (change[k] !== undefined) set(b[k], !change[k]);
+        if (change.terrain !== undefined) {
+            const t = Math.max(0, Math.min(7, Math.floor(Number(change.terrain) || 0)));
+            f = (f & 0x0fff) | (t << 12);
+        }
+        return f;
+    },
+
+    isAutotile(id) { return Number(id) >= 2048; },
+
+    // Every id that changes together: an autotile kind's 48 shapes; any other tile alone.
+    idsFor(tileId) {
+        const id = Number(tileId) || 0;
+        if (id < 2048) return [id];
+        const start = 2048 + Math.floor((id - 2048) / 48) * 48, out = [];
+        for (let i = 0; i < 48; i++) out.push(start + i);
+        return out;
+    },
+
+    // One click as MZ's database does it. side: 'down' | 'left' | 'right' | 'up' (4 dir); back: a right-click.
+    step(flag, mode, opts = {}) {
+        const r = this.read(flag);
+        switch (mode) {
+            case 'pass': {
+                const order = opts.allowStar ? ['o', 'x', 'star'] : ['o', 'x'];
+                const now = r.pass === 'some' ? 'x' : (r.pass === 'star' && !opts.allowStar ? 'x' : r.pass);
+                return this.write(flag, { pass: order[(order.indexOf(now) + 1) % order.length] });
+            }
+            case 'dirs': {
+                if (!opts.side || !(opts.side in r.dirs)) return Number(flag) || 0;
+                return this.write(flag, { dirs: { [opts.side]: !r.dirs[opts.side] } });
+            }
+            case 'terrain': return this.write(flag, { terrain: (r.terrain + (opts.back ? 7 : 1)) % 8 });
+            case 'ladder': case 'bush': case 'counter': case 'damage': case 'boat': case 'ship': case 'airship':
+                return this.write(flag, { [mode]: !r[mode] });
+        }
+        return Number(flag) || 0;
+    },
+
+    // The mark drawn on a tile in a mode: text and whether it reads as "on".
+    mark(flag, mode) {
+        const r = this.read(flag);
+        if (mode === 'pass') return { text: r.pass === 'star' ? '☆' : r.pass === 'o' ? '○' : r.pass === 'x' ? '×' : '·', on: r.pass !== 'x' };
+        if (mode === 'terrain') return { text: String(r.terrain), on: r.terrain > 0 };
+        if (mode === 'dirs') return { text: '', on: true, dirs: r.dirs };
+        const on = Boolean(r[mode]);
+        return { text: on ? '○' : '·', on };
+    },
+
+    // Which side of a tile a click was nearest: x and y within the tile from 0 to 1.
+    sideAt(fx, fy) {
+        const d = { left: fx, right: 1 - fx, up: fy, down: 1 - fy };
+        return Object.keys(d).reduce((a, k) => (d[k] < d[a] ? k : a), 'down');
+    },
+
+    // How many maps use a tileset (from MapInfos and each map's tilesetId), for the warning before a change.
+    mapsUsing(tilesetId, mapTilesets) {
+        return Object.values(mapTilesets || {}).filter(id => Number(id) === Number(tilesetId)).length;
+    },
+
+    // Tilesets.json as MZ writes it: one entry a line.
+    fileText(list) {
+        return '[\n' + (list || []).map(t => JSON.stringify(t === undefined ? null : t)).join(',\n') + '\n]';
     }
 };
 //==========================================================
@@ -17280,6 +20062,132 @@ DocsDoodads.safeFrame = function(rect, width, height) {
     };
 })(DocsDoodads.Perspective);
 //==========================================================
+// SECTION 6B: BRIDGES IN THE GAME (9.2.3)
+//==========================================================
+// Thin hooks for DocsDoodads.Bridges. Every one takes MZ's own path when the map marks no deck regions. This part
+// sorts before the collision, terrain and traversal parts, so their wrappers of isMapPassable wrap this one.
+(function() {
+    if (typeof Game_CharacterBase === 'undefined') return;
+    const B = DocsDoodads.Bridges;
+    const reverse = d => 10 - d;
+
+    const passable = Game_CharacterBase.prototype.isMapPassable;
+    Game_CharacterBase.prototype.isMapPassable = function(x, y, d) {
+        if (!B.active()) return passable.apply(this, arguments);
+        const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
+        const verdict = B.canPass(Number(this._docsLevel) || 0, B.kindAt(x, y), B.kindAt(x2, y2));
+        if (verdict === 'block') return false;
+        if (verdict === 'pass') return true;
+        if (verdict === 'under') return B.lowerPassable(x, y, d) && B.lowerPassable(x2, y2, reverse(d));
+        return passable.apply(this, arguments);
+    };
+
+    // The level follows each finished step, jump and placement.
+    const settle = (character, fromX, fromY) => {
+        if (!B.active()) { if (character._docsLevel) character._docsLevel = 0; return; }
+        if (character._x === fromX && character._y === fromY) return;
+        character._docsLevel = B.levelAfter(Number(character._docsLevel) || 0, B.kindAt(fromX, fromY), B.kindAt(character._x, character._y));
+    };
+    for (const name of ['moveStraight', 'moveDiagonally']) {
+        const original = Game_CharacterBase.prototype[name];
+        if (typeof original !== 'function') continue;
+        Game_CharacterBase.prototype[name] = function() {
+            const fx = this._x, fy = this._y;
+            const result = original.apply(this, arguments);
+            settle(this, fx, fy);
+            return result;
+        };
+    }
+    const jump = Game_CharacterBase.prototype.jump;
+    if (typeof jump === 'function') {
+        Game_CharacterBase.prototype.jump = function() {
+            const result = jump.apply(this, arguments);
+            // Landing: on an end or the deck is up, on the ground is down.
+            if (B.active()) this._docsLevel = B.kindAt(this._x, this._y) ? 1 : 0;
+            return result;
+        };
+    }
+    const locate = Game_CharacterBase.prototype.locate;
+    Game_CharacterBase.prototype.locate = function() {
+        const result = locate.apply(this, arguments);
+        if (B.active()) this._docsLevel = B.levelFor(this);
+        else if (this._docsLevel) this._docsLevel = 0;
+        return result;
+    };
+
+    // Characters on different levels pass each other.
+    const collided = Game_CharacterBase.prototype.isCollidedWithEvents;
+    if (typeof collided === 'function') {
+        Game_CharacterBase.prototype.isCollidedWithEvents = function(x, y) {
+            if (!B.active()) return collided.apply(this, arguments);
+            return $gameMap.eventsXyNt(x, y).some(event => event.isNormalPriority() && !B.apart(this, event));
+        };
+    }
+    if (typeof Game_Event !== 'undefined') {
+        const eventsCollided = Game_Event.prototype.isCollidedWithEvents;
+        if (typeof eventsCollided === 'function') {
+            Game_Event.prototype.isCollidedWithEvents = function(x, y) {
+                if (!B.active()) return eventsCollided.apply(this, arguments);
+                return $gameMap.eventsXyNt(x, y).some(event => event !== this && !B.apart(this, event));
+            };
+        }
+        const withPlayer = Game_Event.prototype.isCollidedWithPlayerCharacters;
+        if (typeof withPlayer === 'function') {
+            Game_Event.prototype.isCollidedWithPlayerCharacters = function() {
+                if (B.apart(this, $gamePlayer)) return false;
+                return withPlayer.apply(this, arguments);
+            };
+        }
+        const touch = Game_Event.prototype.checkEventTriggerTouch;
+        if (typeof touch === 'function') {
+            Game_Event.prototype.checkEventTriggerTouch = function() {
+                if (B.apart(this, $gamePlayer)) return;
+                return touch.apply(this, arguments);
+            };
+        }
+        // A placed event's level from where it stands and its note.
+        const setupPage = Game_Event.prototype.setupPageSettings;
+        if (typeof setupPage === 'function') {
+            Game_Event.prototype.setupPageSettings = function() {
+                const result = setupPage.apply(this, arguments);
+                if (B.active() && this._docsLevel === undefined) this._docsLevel = B.levelFor(this);
+                return result;
+            };
+        }
+    }
+    // The player does not start an event on the other level.
+    if (typeof Game_Player !== 'undefined') {
+        const start = Game_Player.prototype.startMapEvent;
+        if (typeof start === 'function') {
+            Game_Player.prototype.startMapEvent = function(x, y, triggers, normal) {
+                if (!B.active()) return start.apply(this, arguments);
+                if ($gameMap.isEventRunning()) return;
+                for (const event of $gameMap.eventsXy(x, y)) {
+                    if (event.isTriggerIn(triggers) && event.isNormalPriority() === normal && !B.apart(this, event)) event.start();
+                }
+            };
+        }
+    }
+    // Followers keep their own level (they are moved by their own steps); after a transfer they take the player's.
+    if (typeof Game_Followers !== 'undefined' && typeof Game_Followers.prototype.synchronize === 'function') {
+        const sync = Game_Followers.prototype.synchronize;
+        Game_Followers.prototype.synchronize = function() {
+            const result = sync.apply(this, arguments);
+            const level = typeof $gamePlayer !== 'undefined' && $gamePlayer ? $gamePlayer._docsLevel : 0;
+            for (const follower of this._data || []) follower._docsLevel = level;
+            return result;
+        };
+    }
+
+    // Drawing: on the deck, over the deck's ☆ tiles (above-characters height); below, MZ's own height, under them.
+    const screenZ = Game_CharacterBase.prototype.screenZ;
+    Game_CharacterBase.prototype.screenZ = function() {
+        const z = screenZ.apply(this, arguments);
+        if (this._docsLevel && B.active() && B.kindAt(this._x, this._y) === 'deck') return Math.max(z, 5);
+        return z;
+    };
+})();
+//==========================================================
 // SECTION 19-R: DOODAD COLLISION RUNTIME
 //==========================================================
 DocsDoodads.Collision = {
@@ -17742,7 +20650,7 @@ if (typeof PIXI !== 'undefined') {
             this._motionSource = d.motion;
             this._motion = DocsDoodads.Motion.normalize(d.motion);
         }
-        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0), DocsDoodads.Wind.current().x);
+        const motion = DocsDoodads.Motion.sample(this._motion, DocsDoodads.frameCount() / 60, (d.x || 0) + (d.y || 0), DocsDoodads.Indoors.windX(d));
         const pos = this.screenPosition();
         const sx = d.scaleX !== undefined ? d.scaleX : 1;
         const sy = d.scaleY !== undefined ? d.scaleY : 1;
@@ -18635,6 +21543,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const world = DocsDoodads.World.settings();
         let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
             override: fade ? fade.current : null, switchValue });
+        ambient = DocsDoodads.Indoors.ambient(ambient, Lighting.mapSettings($gameMap.mapId()), DocsDoodads.Indoors.blend);
         if (workspace && workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
         // Only lit doodads go to collect (it skips the rest anyway); most of a big map has no light.
@@ -20698,6 +23607,206 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 }
 
 //==========================================================
+// SECTION 7V: MAP ERAS ON THE MAP (8.4.5)
+//==========================================================
+// What shows in the game (and so what blocks and gives light) follows the map's era; a change crossfades.
+// While editing, the editor's era shows and the other eras' doodads are drawn faint (onion skin).
+(function() {
+    const Er = DocsDoodads.Eras, L = DocsDoodads.Layers;
+    if (L && typeof L.visibleInGame === 'function') {
+        const inGame = L.visibleInGame;
+        L.visibleInGame = function(d) {
+            return inGame.apply(this, arguments) && Er.shown(d);
+        };
+    }
+    if (typeof Spriteset_Map !== 'undefined') {
+        Spriteset_Map.prototype.updateDocsEras = function() { if (typeof $gameMap !== 'undefined' && $gameMap && Er.of($gameMap.mapId())) Er.step(); else Er._fade = null; };
+        DocsDoodads.spritesetSteps.unshift('updateDocsEras');
+    }
+    if (typeof Sprite_DocsDoodad !== 'undefined') {
+        const place = Sprite_DocsDoodad.prototype.updatePlacement;
+        Sprite_DocsDoodad.prototype.updatePlacement = function() {
+            const result = place.apply(this, arguments);
+            const d = this._data;
+            if (!d || !Array.isArray(d.eras) || !d.eras.length) return result;
+            const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+            if (editing) {
+                const era = Er.live();
+                if (era && !d.eras.includes(era)) { this.alpha *= Er.onion; if (!Er.onion) this.visible = false; }
+            } else this.alpha *= Er.alpha(d);
+            return result;
+        };
+    }
+})();
+//==========================================================
+// SECTION 7C: AMBIENT CREATURES ON THE MAP (9.3.1)
+//==========================================================
+// Birds, butterflies and fish near doodads that ask for them, drawn from the doodad's sheet (two frames side by
+// side) or a small shape made here, from one pool. Birds over the characters with a shadow on the ground;
+// butterflies with them; fish under them, dark, on water. Flat maps; the 3D view leaves them out.
+(function() {
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined') return;
+    const C = DocsDoodads.Creatures;
+
+    // A shape for each kind when there is no sheet: two frames, 16 x 12 each.
+    C.textures = function() {
+        if (this._textures) return this._textures;
+        const make = draw => {
+            if (typeof document === 'undefined' || !document.createElement) return [PIXI.Texture.WHITE, PIXI.Texture.WHITE];
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 12;
+            const g = canvas.getContext && canvas.getContext('2d');
+            if (!g) return [PIXI.Texture.WHITE, PIXI.Texture.WHITE];
+            draw(g, 0, 0); draw(g, 16, 1);
+            const base = PIXI.BaseTexture.from(canvas);
+            return [new PIXI.Texture(base, new PIXI.Rectangle(0, 0, 16, 12)), new PIXI.Texture(base, new PIXI.Rectangle(16, 0, 16, 12))];
+        };
+        this._textures = {
+            birds: make((g, x, f) => {
+                g.strokeStyle = '#2a2424'; g.lineWidth = 2; g.beginPath();
+                g.moveTo(x + 2, f ? 4 : 8); g.lineTo(x + 8, 7); g.lineTo(x + 14, f ? 4 : 8); g.stroke();
+            }),
+            butterflies: make((g, x, f) => {
+                g.fillStyle = '#ffffff';
+                const w = f ? 3 : 6;
+                g.fillRect(x + 8 - w, 3, w, 6); g.fillRect(x + 8, 3, w, 6);
+                g.fillStyle = '#3a2a2a'; g.fillRect(x + 7, 2, 2, 8);
+            }),
+            fish: make((g, x, f) => {
+                g.fillStyle = '#ffffff'; g.beginPath();
+                if (g.ellipse) g.ellipse(x + 7, 6, 6, 3, 0, 0, Math.PI * 2); else g.rect(x + 1, 3, 12, 6);
+                g.fill();
+                g.fillRect(x + 12, f ? 3 : 4, 3, 5);
+            })
+        };
+        return this._textures;
+    };
+
+    Spriteset_Map.prototype.docsCreatureSources = function() {
+        const list = DocsDoodads.doodads() || [];
+        const c = this._docsCreatureList;
+        if (c && c.list === list && c.length === list.length && c.version === C._version) return c;
+        const sources = list.filter(d => d && C.normalize(d.creatures));
+        const perches = list.filter(d => d && d.perch).map(d => ({
+            x: Number(d.x) || 0, y: (Number(d.y) || 0) - (Number(d.frameH) || 48) * Math.abs(Number(d.scaleY) || 1) * (d.anchorY !== undefined ? d.anchorY : 1),
+            w: (Number(d.frameW) || 48) * Math.abs(Number(d.scaleX) || 1)
+        }));
+        this._docsCreatureList = { list, length: list.length, version: C._version, sources, perches };
+        return this._docsCreatureList;
+    };
+
+    Spriteset_Map.prototype.updateDocsCreatures = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const info = this.docsCreatureSources();
+        const flocks = this._docsFlocks = this._docsFlocks || new Map();
+        if (!info.sources.length && !flocks.size) return;
+        const editing = Boolean(DocsDoodads.Workspace && DocsDoodads.Workspace.mounted);
+        const screen = typeof $gameScreen !== 'undefined' ? $gameScreen : null;
+        const weather = screen && screen.weatherType ? screen.weatherType() : 'none';
+        const quality = C.quality(), hour = C.hour();
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const player = typeof $gamePlayer !== 'undefined' && $gamePlayer
+            ? { x: ($gamePlayer._realX + 0.5) * tw, y: ($gamePlayer._realY + 1) * th - th / 2 } : null;
+        // Lightning startles everything on the map.
+        const strikes = this._docsBolt ? this._docsBolt.strikes || 0 : 0;
+        const startle = strikes !== this._docsCreatureStrikes;
+        this._docsCreatureStrikes = strikes;
+        const boat = $gamePlayer && (($gamePlayer.isInBoat && $gamePlayer.isInBoat()) || ($gamePlayer.isInShip && $gamePlayer.isInShip()));
+        const swimming = DocsDoodads.Traversal && DocsDoodads.Traversal.isSwimming ? DocsDoodads.Traversal.isSwimming($gamePlayer) : false;
+        const wind = DocsDoodads.Wind.current().x;
+        const water = (x, y) => {
+            const tx = $gameMap.roundX(Math.floor(x / tw)), ty = $gameMap.roundY(Math.floor(y / th));
+            if (!$gameMap.isValid(tx, ty) || typeof Tilemap === 'undefined' || !Tilemap.isWaterTile) return false;
+            return Tilemap.isWaterTile($gameMap.tileId(tx, ty, 0)) || Tilemap.isWaterTile($gameMap.tileId(tx, ty, 1));
+        };
+        const seen = new Set();
+        let total = 0;
+        for (const d of info.sources) {
+            const s = C.normalize(d.creatures);
+            const want = this._docs3d || editing || !C.active(s, hour, weather) ? 0 : Math.min(C.countFor(s.count, quality), C.maxOnMap - total);
+            let flock = flocks.get(d);
+            if (!want) { if (flock) this.docsDropFlock(d, flock, flocks); continue; }
+            const key = [s.kind, s.count, s.sheet, s.spread, Math.round(d.x), Math.round(d.y)].join('|');
+            if (flock && flock.key !== key) { this.docsDropFlock(d, flock, flocks); flock = null; }
+            if (!flock) flock = this.docsMakeFlock(d, s, info.perches, key, tw, water);
+            if (!flock) continue;
+            flocks.set(d, flock);
+            seen.add(d);
+            const show = Math.min(want, flock.list.length);
+            total += show;
+            const fishScared = s.kind !== 'fish' || boat || swimming;
+            for (let i = 0; i < flock.list.length; i++) {
+                const c = flock.list[i], sprite = flock.sprites[i], shadow = flock.shadows[i];
+                if (i >= show) { sprite.visible = false; if (shadow) shadow.visible = false; continue; }
+                C.step(c, 1 / 60, { settings: s, player: fishScared ? player : null, wind, rng: flock.rng, startle, tw });
+                const p = DocsDoodads.mapToScreen(c.x, c.y);
+                sprite.visible = true;
+                sprite.x = p.x; sprite.y = p.y - c.z;
+                sprite.texture = flock.frames[C.frame(c)] || flock.frames[0];
+                sprite.scale.x = c.flip ? -1 : 1;
+                if (shadow) { shadow.visible = c.z > 2; shadow.x = p.x; shadow.y = p.y; shadow.alpha = 0.25 * Math.max(0.2, 1 - c.z / 120); }
+            }
+        }
+        for (const [d, flock] of Array.from(flocks.entries())) if (!seen.has(d)) this.docsDropFlock(d, flock, flocks);
+        this._docsCreatureCount = total;
+    };
+
+    Spriteset_Map.prototype.docsMakeFlock = function(d, s, perches, key, tw, water) {
+        const parent = this._tilemap || this._baseSprite;
+        if (!parent) return null;
+        const seed = String(d.uid || '') + '|' + Math.round(d.x) + ',' + Math.round(d.y);
+        let hash = 2166136261;
+        for (let i = 0; i < seed.length; i++) { hash ^= seed.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+        const rng = DocsDoodads.Scatter.rng(hash >>> 0);
+        const spots = C.spots({ x: Number(d.x) || 0, y: (Number(d.y) || 0) - 4 }, s, perches, rng, s.kind === 'fish' ? water : null, tw);
+        if (!spots.length) return null;
+        let frames;
+        if (s.sheet) {
+            const bitmap = DocsDoodads.loadBitmap(s.sheet);
+            frames = [PIXI.Texture.EMPTY, PIXI.Texture.EMPTY];
+            const fill = () => {
+                if (!bitmap || !bitmap._baseTexture) return;
+                const w = Math.floor(bitmap.width / 2) || 1, h = bitmap.height || 1;
+                frames[0] = new PIXI.Texture(bitmap._baseTexture, new PIXI.Rectangle(0, 0, w, h));
+                frames[1] = new PIXI.Texture(bitmap._baseTexture, new PIXI.Rectangle(w, 0, w, h));
+            };
+            if (bitmap && bitmap.addLoadListener) bitmap.addLoadListener(fill); else fill();
+        } else frames = C.textures()[s.kind];
+        const k = C.kinds[s.kind];
+        const list = [], sprites = [], shadows = [];
+        for (const spot of spots) {
+            list.push(C.spawn(spot, rng));
+            const sprite = new PIXI.Sprite(frames[0]);
+            sprite.anchor.set(0.5, 1);
+            if (!s.sheet) sprite.tint = s.kind === 'butterflies' ? [0xf5a0d0, 0xfff07a, 0xa0c8ff, 0xffffff][sprites.length % 4] : k.color;
+            if (s.kind === 'fish') sprite.alpha = 0.45;
+            sprite.z = s.kind === 'birds' ? 6 : s.kind === 'fish' ? 0.5 : 3;
+            parent.addChild(sprite);
+            sprites.push(sprite);
+            if (s.kind === 'birds') {
+                const shadow = new PIXI.Sprite(PIXI.Texture.WHITE);
+                shadow.tint = 0x000000; shadow.width = 10; shadow.height = 3; shadow.anchor.set(0.5, 0.5); shadow.z = 1;
+                shadow.visible = false;
+                parent.addChild(shadow);
+                shadows.push(shadow);
+            } else shadows.push(null);
+        }
+        return { key, rng, list, sprites, shadows, frames };
+    };
+
+    Spriteset_Map.prototype.docsDropFlock = function(d, flock, flocks) {
+        for (const s of flock.sprites.concat(flock.shadows)) {
+            if (!s) continue;
+            if (s.parent) s.parent.removeChild(s);
+            if (s.destroy) s.destroy();
+        }
+        flocks.delete(d);
+    };
+
+    C._version = 0;
+    DocsDoodads.spritesetSteps.push('updateDocsCreatures');
+})();
+//==========================================================
 // SECTION 7G: THE GROUND BRUSH ON THE MAP (8.3.4)
 //==========================================================
 // The painted ground is a mesh in the tilemap above the ground tiles and below every doodad and character
@@ -20812,6 +23921,62 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
         }
         return filters;
     };
+})();
+//==========================================================
+// SECTION 7N: INDOORS ON THE MAP (9.2.2)
+//==========================================================
+// Thin hooks for DocsDoodads.Indoors: MZ's rain and snow sprites over an indoor tile are hidden each frame (the
+// test is by the drop's screen point, so the map scrolling and looping never makes the edge slip); doodads based
+// indoors throw no sun shadow; and the player's being inside is eased for darkness, lightning and sound.
+(function() {
+    if (typeof Spriteset_Map === 'undefined') return;
+    const I = DocsDoodads.Indoors;
+
+    Spriteset_Map.prototype.updateDocsIndoors = function() {
+        const c = I.current();
+        const flat = !this._docs3d;
+        const before = I.blend;
+        I.blend = c ? I.ease(I.blend, I.playerInside(), 1 / 60) : 0;
+        if (flat) this.docsMaskWeather(c);
+        if (c || before) this.docsQuietWeather(c);
+    };
+
+    // MZ's own weather (flat maps): each drop's screen point is turned into a map tile.
+    Spriteset_Map.prototype.docsMaskWeather = function(c) {
+        const weather = this._weather, sprites = weather && weather._sprites;
+        if (!sprites || !sprites.length) return;
+        if (!c) {
+            if (this._docsWeatherMasked) { for (const s of sprites) s.visible = true; this._docsWeatherMasked = false; }
+            return;
+        }
+        this._docsWeatherMasked = true;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const ox = $gameMap.displayX() * tw, oy = $gameMap.displayY() * th;
+        for (const s of sprites) s.visible = !I.tile(Math.floor((ox + s.x) / tw), Math.floor((oy + s.y) / th));
+    };
+
+    // The weather's sound (MZ's background sound while it rains or storms) is quieter indoors.
+    Spriteset_Map.prototype.docsQuietWeather = function(c) {
+        if (typeof AudioManager === 'undefined' || !AudioManager._bgsBuffer || !AudioManager._currentBgs) return;
+        const screen = typeof $gameScreen !== 'undefined' ? $gameScreen : null;
+        const wet = screen && screen.weatherType && screen.weatherType() !== 'none';
+        const k = wet && c ? I.volume(c.settings && { indoors: c.settings }, I.blend) : 1;
+        if (k === this._docsIndoorVolume) return;
+        this._docsIndoorVolume = k;
+        const base = (Number(AudioManager._bgsVolume) || 0) * (Number(AudioManager._currentBgs.volume) || 0) / 10000;
+        AudioManager._bgsBuffer.volume = base * k;
+    };
+
+    DocsDoodads.spritesetSteps.push('updateDocsIndoors');
+
+    if (typeof Sprite_DocsDoodad !== 'undefined') {
+        const shadow = Sprite_DocsDoodad.prototype.updateShadow;
+        Sprite_DocsDoodad.prototype.updateShadow = function() {
+            const d = this._data;
+            if (d && d.shadow && d.shadow.enabled && d.shadow.followSun && I.doodad(d)) { this.destroyShadow(); return; }
+            return shadow.call(this);
+        };
+    }
 })();
 //==========================================================
 // SECTION 15L: NAMES AND ICONS OVER EVENTS
@@ -21093,7 +24258,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
         if (bolt.wait <= 0) { bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random()); return; }
         if (--bolt.wait > 0) return;
         const strike = L.strike(s, Math.random());
-        if (screen.startFlash) DocsDoodads.Comfort.beginFlash(screen, [255, 255, 255, strike.flash], 12);
+        if (screen.startFlash) DocsDoodads.Comfort.beginFlash(screen, [255, 255, 255, DocsDoodads.Indoors.flash(strike.flash, DocsDoodads.Indoors.blend)], 12);
         bolt.thunder.push({ in: Math.max(1, strike.thunderIn), volume: strike.volume, pan: strike.pan });
         bolt.strikes = (bolt.strikes || 0) + 1;
         bolt.wait = L.nextIn(s, screen.weatherPower(), Math.random());
@@ -21647,6 +24812,53 @@ if (typeof Spriteset_Map !== 'undefined') {
 
 })();
 //==========================================================
+// SECTION 7K: BAKED CHUNKS ON THE MAP (7.3.4)
+//==========================================================
+// When the map's bake is current (DocsDoodads.Bake.active), the baked doodads' sprites are taken off and a sprite
+// per chunk is drawn in their band, moved with the camera.
+if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
+    const B = DocsDoodads.Bake;
+    // After the doodads' sprites are made: baked ones go, and the chunks come in their place.
+    const add = Spriteset_Map.prototype.addDocsDoodads;
+    if (typeof add === 'function') {
+        Spriteset_Map.prototype.addDocsDoodads = function() {
+            const result = add.apply(this, arguments);
+            this.docsApplyBake();
+            return result;
+        };
+    }
+    Spriteset_Map.prototype.docsApplyBake = function() {
+        for (const s of this._docsBakeSprites || []) { if (s.parent) s.parent.removeChild(s); if (s.destroy) s.destroy(); }
+        this._docsBakeSprites = [];
+        if (typeof $gameMap === 'undefined' || !$gameMap || this._docs3d || !this._docsDoodadsContainer) return;
+        const m = B.active($gameMap.mapId());
+        if (!m) return;
+        const uids = new Set(m.uids || []);
+        const baked = (this._docsDoodadSprites || []).map(s => s._data).filter(d => d && uids.has(d.uid));
+        if (this.removeSomeDocsDoodads) this.removeSomeDocsDoodads(baked);
+        for (const c of m.chunks) {
+            const sprite = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            const bmp = DocsDoodads.loadBitmap(c.file);
+            const set = () => { if (bmp && bmp._baseTexture) sprite.texture = new PIXI.Texture(bmp._baseTexture); };
+            if (bmp && bmp.addLoadListener) bmp.addLoadListener(set); else set();
+            sprite.z = DocsDoodads.Depth.bands[c.band === 'above' ? 'above' : 'below'];
+            sprite._docsChunk = c;
+            this._docsDoodadsContainer.addChild(sprite);
+            this._docsBakeSprites.push(sprite);
+        }
+        this._docsBakedCount = baked.length;
+    };
+    Spriteset_Map.prototype.updateDocsBake = function() {
+        const size = B.size;
+        for (const s of this._docsBakeSprites || []) {
+            const p = DocsDoodads.mapToScreen(s._docsChunk.cx * size, s._docsChunk.cy * size);
+            s.x = p.x; s.y = p.y;
+            s.visible = !this._docs3d;
+        }
+    };
+    DocsDoodads.spritesetSteps.push('updateDocsBake');
+}
+//==========================================================
 // SECTION 15D: THE TOUCH PROMPT
 //==========================================================
 // A doodad with Touch > Prompt shows it in a small bubble over its top while the player faces it (or
@@ -21716,6 +24928,88 @@ DocsDoodads.Touch.promptBitmap = function(text) {
     cache.set(text, bmp);
     return bmp;
 };
+//==========================================================
+// SECTION 7R2: A WORLD THAT REMEMBERS ON THE MAP (8.4.2)
+//==========================================================
+// Once a frame: when the calendar day changes (and when a map is first shown), growing doodads step on and wear
+// eases down. Worn tiles are drawn as soft patches of the path colour under the characters, made again only when
+// a step changes them; footprints fade where they were left. Flat maps.
+(function() {
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined') return;
+    const G = DocsDoodads.Growth, W = DocsDoodads.Wear;
+
+    Spriteset_Map.prototype.updateDocsRemember = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) return;
+        const mapId = $gameMap.mapId(), today = DocsDoodads.Calendar.day();
+        if (this._docsGrowDay !== today || this._docsGrowMap !== mapId) {
+            this._docsGrowDay = today; this._docsGrowMap = mapId;
+            if (G.update(mapId, today) && DocsDoodads.api && DocsDoodads.api.refresh) DocsDoodads.api.refresh();
+        }
+        const ms = DocsDoodads.Lighting.mapSettings(mapId);
+        const s = ms && ms.remember ? W.settings(ms) : null;
+        this.docsDrawWear(s && s.wear ? s : null, mapId, today);
+        this.docsDrawPrints(s && s.trails ? s : null);
+    };
+
+    Spriteset_Map.prototype.docsDrawWear = function(s, mapId, today) {
+        let g = this._docsWearLayer;
+        if (!s || this._docs3d) { if (g) g.visible = false; return; }
+        const grid = W.grid(mapId, $gameMap.width(), $gameMap.height());
+        if (today > 0) {
+            if (grid.day > 0 && today > grid.day) { W.ease(grid.data, Math.min(30, today - grid.day)); grid.version++; }
+            grid.day = today;
+        }
+        const parent = this._tilemap || this._baseSprite;
+        if (!g) { g = this._docsWearLayer = new PIXI.Graphics(); g.z = 0.5; parent.addChild(g); }
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        if (g._docsVersion !== grid.version || g._docsGrid !== grid) {
+            g._docsVersion = grid.version; g._docsGrid = grid;
+            g.clear();
+            const colour = parseInt(String(s.color).slice(1), 16) || 0x7a5c3c;
+            let drawn = 0;
+            for (let i = 0; i < grid.data.length; i++) {
+                const a = W.alpha(grid.data[i], s.threshold);
+                if (a < 0.05) continue;
+                const x = i % grid.w, y = Math.floor(i / grid.w);
+                g.beginFill(colour, a * 0.55);
+                g.drawEllipse(x * tw + tw / 2, y * th + th / 2, tw * 0.55, th * 0.5);
+                g.endFill();
+                drawn++;
+            }
+            this._docsWearDrawn = drawn;
+        }
+        g.visible = true;
+        g.x = -$gameMap.displayX() * tw;
+        g.y = -$gameMap.displayY() * th;
+    };
+
+    Spriteset_Map.prototype.docsDrawPrints = function(s) {
+        let g = this._docsPrintLayer;
+        const prints = W._prints || [];
+        if (!s || this._docs3d || !prints.length) { if (g) g.visible = false; if (!s) W._prints = []; return; }
+        const parent = this._tilemap || this._baseSprite;
+        if (!g) { g = this._docsPrintLayer = new PIXI.Graphics(); g.z = 0.55; parent.addChild(g); }
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        g.clear();
+        for (const p of prints) {
+            p.age++;
+            const a = Math.max(0, 1 - p.age / p.life);
+            if (!a) continue;
+            const across = p.d === 2 || p.d === 8;
+            const side = (p.left ? -1 : 1) * (across ? tw * 0.12 : th * 0.12);
+            const cx = p.x * tw + tw / 2 + (across ? side : 0), cy = p.y * th + th * 0.7 + (across ? 0 : side);
+            g.beginFill(0x000000, 0.3 * a);
+            g.drawEllipse(cx, cy, across ? tw * 0.08 : tw * 0.13, across ? th * 0.13 : th * 0.08);
+            g.endFill();
+        }
+        W._prints = prints.filter(p => p.age < p.life);
+        g.visible = true;
+        g.x = -$gameMap.displayX() * tw;
+        g.y = -$gameMap.displayY() * th;
+    };
+
+    DocsDoodads.spritesetSteps.push('updateDocsRemember');
+})();
 //==========================================================
 // SECTION 7R: ROPES AND CABLES ON THE MAP (9.3.2)
 //==========================================================
@@ -21828,6 +25122,417 @@ DocsDoodads.Touch.promptBitmap = function(text) {
             item.posMode = d.posMode;
         }
     };
+})();
+//==========================================================
+// SECTION 7S: NEIGHBOURS' TILES PAST THE EDGE (7.3.1)
+//==========================================================
+// With seamless steps on, each linked neighbour whose map file is loaded and that uses this map's tileset gets a
+// tilemap of its own behind this one, moved with the camera, so the join is never a black strip. Events and
+// doodads of the neighbour are not drawn past the edge.
+(function() {
+    if (typeof Spriteset_Map === 'undefined' || typeof Tilemap === 'undefined') return;
+    const S = DocsDoodads.Seamless;
+
+    Spriteset_Map.prototype.updateDocsSeamless = function() {
+        const maps = this._docsNeighbourMaps = this._docsNeighbourMaps || {};
+        if (typeof $gameMap === 'undefined' || !$gameMap || this._docs3d || !S.enabled($gameMap.mapId()) || !this._tilemap) {
+            for (const k of Object.keys(maps)) if (maps[k]) maps[k].visible = false;
+            return;
+        }
+        const mapId = $gameMap.mapId(), links = S.links(mapId), here = S.sizeOf(mapId);
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        for (const side of ['east', 'west', 'north', 'south']) {
+            const id = Number(links[side]), map = id ? S.cache[id] : null;
+            let t = maps[side];
+            const loops = side === 'east' || side === 'west' ? $gameMap.isLoopHorizontal() : $gameMap.isLoopVertical();
+            if (!map || loops || map.tilesetId !== $dataMap.tilesetId) { if (t) t.visible = false; continue; }
+            if (!t || t._docsMapId !== id) {
+                if (t && t.parent) t.parent.removeChild(t);
+                t = maps[side] = new Tilemap();
+                t._docsMapId = id;
+                t.tileWidth = tw; t.tileHeight = th;
+                t.setData(map.width, map.height, map.data);
+                t.horizontalWrap = false; t.verticalWrap = false;
+                if (this._tilemap._bitmaps && t.setBitmaps) t.setBitmaps(this._tilemap._bitmaps);
+                t.flags = this._tilemap.flags;
+                const parent = this._tilemap.parent || this._baseSprite;
+                parent.addChildAt(t, Math.max(0, parent.children.indexOf(this._tilemap)));
+                if (t.refresh) t.refresh();
+            }
+            const off = S.offset(side, here, { w: map.width, h: map.height });
+            t.visible = true;
+            t.origin.x = this._tilemap.origin.x - off.x * tw;
+            t.origin.y = this._tilemap.origin.y - off.y * th;
+            if (t.update) t.update();
+        }
+        if (!this._docsPreloaded) { this._docsPreloaded = true; S.preload(mapId); }
+    };
+
+    DocsDoodads.spritesetSteps.push('updateDocsSeamless');
+})();
+//==========================================================
+// SECTION 7A: LIGHT SHAFTS, SOFT SHADOWS AND GLOW OFF WALLS ON THE MAP (7.3.7, 8.3.2)
+//==========================================================
+// Light shafts: one filter on the map layer, with a quarter-size picture of what stops light made each frame
+// (only while the look has them on). Soft shadows: each lamp's wall mask is drawn once, blurred, into a picture
+// of its own and used instead of the hard outline; it is made again only when the outline changes. Glow off walls:
+// faint lights where a lamp's light meets a wall. Flat maps only; the 3D view leaves all three out.
+(function() {
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined') return;
+    const R = DocsDoodads.Rays, S = DocsDoodads.SoftLight, O = DocsDoodads.Occlusion;
+    const quality = () => DocsDoodads.PostFX.effectiveQuality(DocsDoodads.World.settings().postfx.quality, DocsDoodads.qualityOption());
+
+    // ---- Light shafts ----
+    Spriteset_Map.prototype.docsRaysMask = function(w, h) {
+        const qw = Math.max(1, Math.ceil(w / 4)), qh = Math.max(1, Math.ceil(h / 4));
+        if (!this._docsRaysTexture || this._docsRaysTexture.width !== qw || this._docsRaysTexture.height !== qh) {
+            if (this._docsRaysTexture) this._docsRaysTexture.destroy(true);
+            this._docsRaysTexture = PIXI.RenderTexture.create({ width: qw, height: qh });
+        }
+        const g = this._docsRaysShapes = this._docsRaysShapes || new PIXI.Graphics();
+        g.clear();
+        g.beginFill(0xffffff, 1); g.drawRect(0, 0, qw, qh); g.endFill();
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const isWall = O.wallQuery ? O.wallQuery($gameMap) : () => false;
+        const x0 = Math.floor($gameMap.displayX()), y0 = Math.floor($gameMap.displayY());
+        const ox = ($gameMap.displayX() - x0) * tw, oy = ($gameMap.displayY() - y0) * th;
+        let blocked = 0;
+        g.beginFill(0x000000, 1);
+        for (let y = 0; y <= Math.ceil(h / th) + 1; y++) for (let x = 0; x <= Math.ceil(w / tw) + 1; x++) {
+            if (!isWall(x0 + x, y0 + y)) continue;
+            g.drawRect((x * tw - ox) / 4, (y * th - oy) / 4, tw / 4, th / 4);
+            blocked++;
+        }
+        // Marked doodads: an ellipse over their picture (a canopy, a pillar).
+        for (const sprite of this._docsDoodadSprites || []) {
+            const d = sprite._data;
+            if (!sprite.visible || !R.shades(d)) continue;
+            const sw = Math.abs((Number(d.frameW) || 48) * (Number(d.scaleX) || 1)), sh = Math.abs((Number(d.frameH) || 48) * (Number(d.scaleY) || 1));
+            const p = DocsDoodads.mapToScreen(Number(d.x) || 0, Number(d.y) || 0);
+            const ax = d.anchorX !== undefined ? d.anchorX : 0.5, ay = d.anchorY !== undefined ? d.anchorY : 1;
+            const cx = p.x - sw * ax + sw / 2, cy = p.y - sh * ay + sh / 2;
+            if (cx + sw < 0 || cy + sh < 0 || cx - sw > w || cy - sh > h) continue;
+            g.drawEllipse(cx / 4, cy / 4, sw / 8, sh / 8);
+            blocked++;
+        }
+        g.endFill();
+        const renderer = DocsDoodads.Compat.getRenderer();
+        if (renderer) renderer.render(g, this._docsRaysTexture, true);
+        this._docsRaysBlocked = blocked;
+        return this._docsRaysTexture;
+    };
+
+    Spriteset_Map.prototype.updateDocsRays = function() {
+        const inputs = this._docsHazeInputs, target = this._baseSprite;
+        const look = inputs && !inputs.hidden ? inputs.look : null;
+        const rays = look && look.rays;
+        const w = typeof Graphics !== 'undefined' ? Graphics.width : 816, h = typeof Graphics !== 'undefined' ? Graphics.height : 624;
+        const ms = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+        let strength = this._docs3d || !rays ? 0 : R.strength(rays, { quality: inputs.quality, minutes: DocsDoodads.Atmosphere.minutes(), foggy: R.foggy(ms) });
+        let light = null, radius = 0, colour = [1, 0.92, 0.75];
+        if (strength > 0 && rays.fromLamps) {
+            const info = this._docsLightInfo;
+            const player = typeof $gamePlayer !== 'undefined' && $gamePlayer ? { x: $gamePlayer.screenX(), y: $gamePlayer.screenY() } : null;
+            const lamp = R.pickLamp(info && info.lights, w, h, player);
+            if (lamp) {
+                light = [lamp.x / w, lamp.y / h];
+                radius = lamp.radius * 1.5 / h;
+                const c = Number(lamp.color) || 0xffffff;
+                colour = [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
+            } else strength = 0;
+        } else if (strength > 0) {
+            light = R.sunPosition(DocsDoodads.Atmosphere.sun().angle);
+        }
+        let f = this._docsRaysFilter;
+        if (!(strength > 0) || !target) {
+            if (f && target && target.filters && target.filters.includes(f)) target.filters = target.filters.filter(x => x !== f).length ? target.filters.filter(x => x !== f) : null;
+            this._docsRaysStrength = 0;
+            return;
+        }
+        if (!f) {
+            try {
+                f = this._docsRaysFilter = new PIXI.Filter(undefined, R.fragment, { uMask: PIXI.Texture.WHITE, uLight: [0.5, 0], uColor: colour, uStrength: 0,
+                    uLength: 0.6, uSamples: 24, uRadius: 0, uAspect: 1 });
+            } catch (error) {
+                DocsDoodads.Core.log('Light shafts could not be built; drawing without them.', error);
+                this._docsRaysFilter = null;
+                return;
+            }
+        }
+        f.uniforms.uMask = this.docsRaysMask(w, h);
+        f.uniforms.uLight = light;
+        f.uniforms.uColor = colour;
+        f.uniforms.uStrength = strength;
+        f.uniforms.uLength = rays.length;
+        f.uniforms.uSamples = R.samples(inputs.quality);
+        f.uniforms.uRadius = radius;
+        f.uniforms.uAspect = w / h;
+        const list = target.filters || [];
+        if (!list.includes(f)) target.filters = [f].concat(list);
+        if (!target.filterArea || target.filterArea.width !== w || target.filterArea.height !== h) target.filterArea = new PIXI.Rectangle(0, 0, w, h);
+        this._docsRaysStrength = strength;
+    };
+
+    const post = Spriteset_Map.prototype.updateDocsPostFx || (typeof Spriteset_Base !== 'undefined' ? Spriteset_Base.prototype.updateDocsPostFx : null);
+    if (typeof post === 'function') {
+        Spriteset_Map.prototype.updateDocsPostFx = function() {
+            const result = post.apply(this, arguments);
+            if (typeof $gameMap !== 'undefined' && $gameMap) this.updateDocsRays();
+            return result;
+        };
+    }
+
+    // ---- Soft shadows and glow off walls ----
+    const addFlashlight = Spriteset_Map.prototype.docsAddFlashlight;
+    Spriteset_Map.prototype.docsAddFlashlight = function(lights) {
+        const out = addFlashlight ? addFlashlight.call(this, lights) || lights : lights;
+        const ms = DocsDoodads.Lighting.mapSettings($gameMap.mapId());
+        const levels = this._docsSoftLevels = this._docs3d ? { shadows: false, bounce: false } : S.levels(ms && ms.softLight, quality());
+        if (!levels.bounce) return out;
+        const world = O.settings();
+        const rays = Math.max(40, Math.min(360, Number(world.rays) || 160));
+        const extra = [];
+        for (const l of out) {
+            if (!l || l.bounce || l.screenFixed || !O.appliesTo(l, world)) continue;
+            const pts = O.outlineFor(l, rays);
+            for (const b of S.bounces(l, pts, 6)) {
+                const p = DocsDoodads.mapToScreen(b.mapX, b.mapY);
+                extra.push(Object.assign({}, l, { x: p.x, y: p.y, mapX: b.mapX, mapY: b.mapY, radius: b.radius, intensity: b.intensity, glow: 0,
+                    shape: 'point', bounce: true, occlude: false, flicker: l.flicker }));
+            }
+        }
+        for (const e of extra) out.push(e);
+        return out;
+    };
+
+    const mask = Spriteset_Map.prototype.docsMaskLight;
+    Spriteset_Map.prototype.docsMaskLight = function(sprite, light, index) {
+        const used = mask.call(this, sprite, light, index);
+        const pool = this._docsSoftMasks = this._docsSoftMasks || [];
+        const levels = this._docsSoftLevels;
+        let soft = pool[index];
+        if (!used || !levels || !levels.shadows) { if (soft) soft.visible = false; return used; }
+        const g = this._docsLightMasks[index], pts = g && g._docsOutline;
+        const renderer = DocsDoodads.Compat.getRenderer();
+        if (!pts || !renderer) return used;
+        if (!soft) {
+            soft = pool[index] = new PIXI.Sprite(PIXI.Texture.EMPTY);
+            this._docsLightScene.addChild(soft);
+        }
+        if (soft._docsOutline !== pts) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (let i = 0; i < pts.length; i += 2) {
+                if (pts[i] < minX) minX = pts[i]; if (pts[i] > maxX) maxX = pts[i];
+                if (pts[i + 1] < minY) minY = pts[i + 1]; if (pts[i + 1] > maxY) maxY = pts[i + 1];
+            }
+            const blur = S.blur(light.radius), pad = Math.ceil(blur * 2);
+            const width = Math.max(1, Math.ceil(maxX - minX) + pad * 2), height = Math.max(1, Math.ceil(maxY - minY) + pad * 2);
+            if (soft._docsTexture) soft._docsTexture.destroy(true);
+            const rt = soft._docsTexture = PIXI.RenderTexture.create({ width, height });
+            const shape = new PIXI.Graphics();
+            shape.beginFill(0xffffff, 1);
+            shape.drawPolygon(pts.map((v, i) => (i % 2 ? v - minY + pad : v - minX + pad)));
+            shape.endFill();
+            if (PIXI.filters && PIXI.filters.BlurFilter) shape.filters = [new PIXI.filters.BlurFilter(blur, 2)];
+            renderer.render(shape, rt, true);
+            shape.destroy();
+            soft.texture = rt;
+            soft._docsOutline = pts;
+            soft._docsAt = { x: minX - pad, y: minY - pad };
+        }
+        soft.x = soft._docsAt.x - $gameMap.displayX() * $gameMap.tileWidth();
+        soft.y = soft._docsAt.y - $gameMap.displayY() * $gameMap.tileHeight();
+        soft.visible = true;
+        g.visible = false;
+        if (sprite.mask !== soft) sprite.mask = soft;
+        return used;
+    };
+})();
+//==========================================================
+// SECTION 7L: THE TIMELINE'S STEP (7.3.6)
+//==========================================================
+// The timeline player (07_timeline.js) runs its keys once a frame, after the doodads are drawn.
+if (typeof Spriteset_Map !== 'undefined' && DocsDoodads.spritesetSteps) DocsDoodads.spritesetSteps.push('updateDocsTimeline');
+//==========================================================
+// SECTION 7T: RIDERS AND TRAVELLERS ON THE MAP (9.2.5)
+//==========================================================
+// Each frame, before the doodads are drawn, riders and travellers (a short list kept apart from the rest) are moved
+// to where they are now. Carriers take whoever stands on them a tile when they cross a tile line, and their tiles
+// can be walked on (a raft on water). While the editor is open everything stands where it was placed.
+(function() {
+    if (typeof Spriteset_Map === 'undefined') return;
+    const T = DocsDoodads.Travel;
+    T._decks = new Set();
+
+    Spriteset_Map.prototype.docsMovers = function() {
+        const list = DocsDoodads.doodads() || [];
+        const c = this._docsMoverCache;
+        if (c && c.list === list && c.length === list.length && c.version === DocsDoodads.Travel._version) return c.movers;
+        const movers = list.filter(d => d && (d.ride || d.travel));
+        this._docsMoverCache = { list, length: list.length, movers, version: DocsDoodads.Travel._version };
+        return movers;
+    };
+
+    Spriteset_Map.prototype.updateDocsMovers = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const movers = this.docsMovers();
+        T._decks.clear();
+        if (!movers.length) return;
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) {
+            // Once, as the editor opens: back where they were placed, and forget that place so a drag in the
+            // editor becomes the new one.
+            if (!this._docsMoversParked) { T.restore(movers); for (const d of movers) T._homes.delete(d); this._docsMoversParked = true; }
+            return;
+        }
+        this._docsMoversParked = false;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), mapId = $gameMap.mapId();
+        const frames = this._docsTravelFrames = this._docsTravelFrames || new Map();
+        const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
+        let moved = false;
+        for (const d of movers) {
+            const home = T.home(d);
+            const bx = d.x, by = d.y;
+            if (d.ride) {
+                const r = T.normalizeRide(d.ride);
+                const who = r && (r.on === 'player' ? (typeof $gamePlayer !== 'undefined' ? $gamePlayer : null) : $gameMap.event(r.on));
+                const at = who ? T.rideAt(r, who, tw, th) : null;
+                if (at) { d.x = at.x; d.y = at.y; } else { d.x = home.x; d.y = home.y; }
+            } else {
+                let place;
+                if (T.finished(d, mapId)) place = T.at(d.travel, Infinity);
+                else {
+                    let f = frames.get(d) || 0;
+                    if (T.running(d, mapId, switchValue)) f++;
+                    frames.set(d, f);
+                    place = T.at(d.travel, f);
+                    if (place.done) T.finish(d, mapId);
+                }
+                d.x = home.x + place.dx; d.y = home.y + place.dy;
+                const t = T.normalizeTravel(d.travel);
+                if (t && t.carries) this.docsCarry(d, bx, by, tw, th);
+            }
+            if (d.x !== bx || d.y !== by) moved = true;
+        }
+        if (moved && DocsDoodads.Collision.invalidate) DocsDoodads.Collision.invalidate();
+    };
+
+    // The carrier's tiles (its body, or the tile under its base) and whoever stood on them crossing with it.
+    Spriteset_Map.prototype.docsCarry = function(d, bx, by, tw, th) {
+        const tilesOf = (x, y) => {
+            const keys = T.bodyTiles(Object.assign({}, d, { x, y }), tw, th);
+            return keys.length ? keys : [Math.floor(x / tw) + ',' + Math.floor((y - 1) / th)];
+        };
+        const now = tilesOf(d.x, d.y);
+        for (const k of now) T._decks.add(k);
+        const ox = Math.floor(bx / tw), oy = Math.floor((by - 1) / th), nx = Math.floor(d.x / tw), ny = Math.floor((d.y - 1) / th);
+        if (ox === nx && oy === ny) return;
+        const before = new Set(tilesOf(bx, by));
+        const riders = [];
+        if (typeof $gamePlayer !== 'undefined' && $gamePlayer) riders.push($gamePlayer);
+        for (const who of riders) {
+            if (!before.has(who.x + ',' + who.y) || (who.isMoving && who.isMoving()) || (who.isJumping && who.isJumping())) continue;
+            // A step of the carrier's size; MZ slides the character to it at its own speed.
+            who._x = $gameMap.roundX(who.x + nx - ox);
+            who._y = $gameMap.roundY(who.y + ny - oy);
+            if (who._followers && who._followers.synchronize) who._followers.synchronize(who._x, who._y, who.direction());
+        }
+    };
+
+    DocsDoodads.spritesetSteps.unshift('updateDocsMovers');
+
+    // A carrier's tiles can be walked on whatever is under them.
+    if (typeof Game_Player !== 'undefined') {
+        const canPass = Game_Player.prototype.canPass;
+        Game_Player.prototype.canPass = function(x, y, d) {
+            if (canPass.apply(this, arguments)) return true;
+            if (!T._decks.size) return false;
+            const x2 = $gameMap.roundXWithDirection(x, d), y2 = $gameMap.roundYWithDirection(y, d);
+            return $gameMap.isValid(x2, y2) && T._decks.has(x2 + ',' + y2) && !(this.isCollidedWithCharacters && this.isCollidedWithCharacters(x2, y2));
+        };
+    }
+})();
+//==========================================================
+// SECTION 7E: ELEMENTS ON THE MAP (8.4.3)
+//==========================================================
+// The grid steps four times a second while the map has elements on. Burning tiles are drawn as flickering flames
+// and give light; burnt tiles darken; puddles sit where it stays wet. A doodad marked Burns goes to its Burnt
+// state when its tile burns out. Flat maps.
+(function() {
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined') return;
+    const El = DocsDoodads.Elements;
+
+    Spriteset_Map.prototype.updateDocsElements = function() {
+        if (typeof $gameMap === 'undefined' || !$gameMap) return;
+        const mapId = $gameMap.mapId(), s = El.settings(DocsDoodads.Lighting.mapSettings(mapId));
+        let layer = this._docsElementsLayer;
+        if (!s.enabled || this._docs3d || (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted)) {
+            if (layer) layer.visible = false;
+            this._docsFireLights = null;
+            return;
+        }
+        const g = El.current() || El.build(mapId);
+        if ((DocsDoodads.frameCount() % El.every) === 0) {
+            const screen = typeof $gameScreen !== 'undefined' ? $gameScreen : null;
+            const type = screen && screen.weatherType ? screen.weatherType() : 'none';
+            const rain = type === 'rain' || type === 'storm' ? Math.min(1, (screen.weatherPower() || 0) / 9 + 0.2) : 0;
+            const wx = DocsDoodads.Wind.current().x || 0;
+            const T = DocsDoodads.Terrain;
+            const grid = T && T.grid ? T.grid() : null;
+            const height = grid && grid.max > 0 ? (x, y) => T.tileHeight(grid, x, y) : null;
+            const r = El.step(g, { wind: { x: wx, y: 0 }, rain, height, rng: g.rng, sources: g.sources, wells: g.wells });
+            for (const i of r.out) for (const d of g.burners.get(i) || []) {
+                const burnt = (DocsDoodads.States.list(d) || []).findIndex(st => st && /burnt/i.test(String(st.name || '')));
+                if (burnt >= 0) DocsDoodads.WorldState.setState(d, burnt, mapId);
+            }
+            if (r.out.length && DocsDoodads.api && DocsDoodads.api.refresh) DocsDoodads.api.refresh();
+        }
+        this.docsDrawElements(g);
+    };
+
+    Spriteset_Map.prototype.docsDrawElements = function(g) {
+        const parent = this._tilemap || this._baseSprite;
+        let layer = this._docsElementsLayer;
+        if (!layer) {
+            layer = this._docsElementsLayer = new PIXI.Container();
+            layer.z = 0.6;
+            layer._ground = new PIXI.Graphics(); layer._flames = new PIXI.Graphics(); layer._flames.z = 4;
+            layer.addChild(layer._ground);
+            parent.addChild(layer);
+            parent.addChild(layer._flames);
+        }
+        layer.visible = true; layer._flames.visible = true;
+        const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), t = DocsDoodads.frameCount() / 60;
+        const ox = -$gameMap.displayX() * tw, oy = -$gameMap.displayY() * th;
+        const ground = layer._ground, flames = layer._flames;
+        ground.clear(); flames.clear();
+        const lights = [];
+        for (let i = 0; i < g.burn.length; i++) {
+            const x = i % g.w, y = Math.floor(i / g.w);
+            if (g.burnt[i]) { ground.beginFill(0x1a1410, 0.45); ground.drawRect(x * tw, y * th, tw, th); ground.endFill(); }
+            if (g.puddle[i] > 8) { ground.beginFill(0x7090b0, Math.min(0.4, g.puddle[i] / 60)); ground.drawEllipse(x * tw + tw / 2, y * th + th * 0.6, tw * 0.4, th * 0.22); ground.endFill(); }
+            if (!g.burn[i]) continue;
+            const f = 0.7 + 0.3 * Math.sin(t * 13 + i * 1.7);
+            flames.beginFill(0xff6a1a, 0.8); flames.drawEllipse(x * tw + tw / 2, y * th + th * 0.7, tw * 0.3 * f, th * 0.45 * f); flames.endFill();
+            flames.beginFill(0xffd25a, 0.85); flames.drawEllipse(x * tw + tw / 2, y * th + th * 0.78, tw * 0.15 * f, th * 0.25 * f); flames.endFill();
+            if (lights.length < 24) {
+                const p = DocsDoodads.mapToScreen(x * tw + tw / 2, y * th + th / 2);
+                lights.push({ x: p.x, y: p.y, mapX: x * tw + tw / 2, mapY: y * th + th / 2, radius: 90, color: 0xff8a30, intensity: 0.9, seed: i, flicker: 0.35, glow: 0,
+                    shape: 'point', occlude: false, fire: true });
+            }
+        }
+        ground.x = flames.x = ox; ground.y = flames.y = oy;
+        this._docsFireLights = lights;
+    };
+
+    // Burning tiles light the map.
+    const add = Spriteset_Map.prototype.docsAddFlashlight;
+    Spriteset_Map.prototype.docsAddFlashlight = function(lights) {
+        const out = add ? add.call(this, lights) || lights : lights;
+        for (const l of this._docsFireLights || []) out.push(l);
+        return out;
+    };
+
+    DocsDoodads.spritesetSteps.push('updateDocsElements');
 })();
 //==========================================================
 // SECTION 7H: VISUAL EQUIPMENT & MAP DESTINATION RUNTIME
@@ -23037,6 +26742,261 @@ if (typeof PluginManager !== 'undefined' && PluginManager.registerCommand) {
         if (id > 0 && typeof $gameVariables !== 'undefined' && $gameVariables) $gameVariables.setValue(id, DocsDoodads.Climate.describe(DocsDoodads.Climate.forecast(Number(args.days) || 7)));
     });
 }
+//==========================================================
+// SECTION 6D: DECORATE MODE, THE PLAYER'S SIDE (8.4.1)
+//==========================================================
+// A mode on the map, drawn with MZ's own window (so it wears the game's skin), not the editor's HTML. The cursor
+// moves by tile (arrows, a pad, or a click or tap; tapping the cursor again is OK). OK on an empty tile places the
+// piece chosen (Q / W change it); OK on a piece lifts it to move and OK puts it down; Shift flips; Cancel while
+// holding one puts it away in the bag; Cancel otherwise is Done. Green under the piece where it may go, red where
+// not, with why. The player cannot walk, and the menu is closed, while it is open.
+DocsDoodads.DecorMode = {
+    state: null,
+
+    active() { return Boolean(this.state); },
+
+    open() {
+        const D = DocsDoodads.Decor;
+        if (typeof $gameMap === 'undefined' || !$gameMap || this.state) return false;
+        const mapId = $gameMap.mapId();
+        if (!D.zonesFor(mapId) || !D.catalog().length) return false;
+        this.state = { mapId, cursor: { x: $gamePlayer.x, y: $gamePlayer.y }, index: 0, holding: null, flip: false, message: '' };
+        this.check();
+        return true;
+    },
+
+    close() {
+        const s = this.state;
+        if (s && s.holding) this.putBack();
+        this.state = null;
+        return Boolean(s);
+    },
+
+    item() {
+        const s = this.state, D = DocsDoodads.Decor, list = D.catalog();
+        if (!s || !list.length) return null;
+        if (s.holding) return D.item(s.holding.item);
+        return list[((s.index % list.length) + list.length) % list.length];
+    },
+
+    pieceAt(x, y) {
+        const D = DocsDoodads.Decor;
+        return D.pieces(this.state.mapId).find(p => {
+            const item = D.item(p.item);
+            return item && D.footprint(item, p.x, p.y).some(t => t.x === x && t.y === y);
+        }) || null;
+    },
+
+    // The world as Decor.canPlace sees it, without the piece being moved.
+    context() {
+        const D = DocsDoodads.Decor, s = this.state, mapId = s.mapId;
+        const others = D.pieces(mapId).filter(p => !s.holding || p.uid !== s.holding.uid)
+            .map(p => ({ x: p.x, y: p.y, item: D.item(p.item) })).filter(p => p.item);
+        const decorTiles = new Set();
+        for (const p of D.pieces(mapId)) { const item = D.item(p.item); if (item) for (const t of D.footprint(item, p.x, p.y)) decorTiles.add(t.x + ',' + t.y); }
+        const C = DocsDoodads.Collision;
+        const passable = (x, y) => [2, 4, 6, 8].some(d => $gameMap.isPassable(x, y, d)) && (decorTiles.has(x + ',' + y) || !(C && C.blocksTile(x, y, false, $gamePlayer, 0)));
+        const exits = $gameMap.events().filter(ev => ev && (ev.list() || []).some(c => c && c.code === 201)).map(ev => ({ x: ev.x, y: ev.y }));
+        return { zones: D.zonesFor(mapId), regionAt: (x, y) => $gameMap.regionId(x, y), w: $gameMap.width(), h: $gameMap.height(), passable, placed: others,
+            start: { x: $gamePlayer.x, y: $gamePlayer.y }, exits };
+    },
+
+    check() {
+        const s = this.state, D = DocsDoodads.Decor;
+        if (!s) return null;
+        const item = this.item();
+        const onPiece = !s.holding && this.pieceAt(s.cursor.x, s.cursor.y);
+        if (onPiece) { s.verdict = { ok: true, reason: 'lift' }; s.message = 'OK: move this piece'; return s.verdict; }
+        let v = D.canPlace(item, s.cursor.x, s.cursor.y, this.context());
+        if (v.ok && !s.holding && D.left(item) <= 0) v = { ok: false, reason: 'none' };
+        s.verdict = v;
+        s.message = v.ok ? '' : D.reasons[v.reason] || '';
+        return v;
+    },
+
+    moveCursor(dx, dy) {
+        const s = this.state;
+        if (!s) return;
+        s.cursor.x = Math.max(0, Math.min($gameMap.width() - 1, s.cursor.x + dx));
+        s.cursor.y = Math.max(0, Math.min($gameMap.height() - 1, s.cursor.y + dy));
+        this.check();
+    },
+
+    setCursor(x, y) {
+        const s = this.state;
+        if (!s) return false;
+        const same = s.cursor.x === x && s.cursor.y === y;
+        s.cursor = { x: Math.max(0, Math.min($gameMap.width() - 1, x)), y: Math.max(0, Math.min($gameMap.height() - 1, y)) };
+        this.check();
+        return same;
+    },
+
+    nextItem(step) {
+        const s = this.state;
+        if (!s || s.holding) return;
+        s.index += step;
+        s.flip = false;
+        this.check();
+    },
+
+    flip() { if (this.state) { this.state.flip = !this.state.flip; if (this.state.holding) this.state.holding.flip = this.state.flip; } },
+
+    refresh() {
+        DocsDoodads.Decor.sync(this.state.mapId);
+        if (DocsDoodads.api && DocsDoodads.api.refresh) DocsDoodads.api.refresh();
+        this.check();
+    },
+
+    ok() {
+        const s = this.state, D = DocsDoodads.Decor;
+        if (!s) return false;
+        if (s.holding) {
+            const v = this.check();
+            if (!v.ok) { this.buzzer(); return false; }
+            D.move(s.mapId, s.holding.uid, s.cursor.x, s.cursor.y, s.flip);
+            s.holding = null;
+            this.refresh();
+            return true;
+        }
+        const piece = this.pieceAt(s.cursor.x, s.cursor.y);
+        if (piece) {
+            s.holding = { uid: piece.uid, item: piece.item, from: { x: piece.x, y: piece.y, flip: Boolean(piece.flip) }, flip: Boolean(piece.flip) };
+            s.flip = Boolean(piece.flip);
+            this.check();
+            return true;
+        }
+        const item = this.item(), v = this.check();
+        if (!v.ok) { this.buzzer(); return false; }
+        D.take(item);
+        D.add(s.mapId, item.id, s.cursor.x, s.cursor.y, s.flip);
+        this.refresh();
+        return true;
+    },
+
+    // Puts a lifted piece back where it was (it is still there in the save until it is put down).
+    putBack() {
+        const s = this.state;
+        if (!s || !s.holding) return;
+        s.holding = null;
+        this.check();
+    },
+
+    // Cancel: a lifted piece goes into the bag; otherwise Done.
+    cancel() {
+        const s = this.state, D = DocsDoodads.Decor;
+        if (!s) return;
+        if (s.holding) {
+            const p = D.remove(s.mapId, s.holding.uid);
+            if (p) D.handBack(D.item(p.item));
+            s.holding = null;
+            this.refresh();
+            return;
+        }
+        this.close();
+    },
+
+    buzzer() { if (typeof SoundManager !== 'undefined' && SoundManager.playBuzzer) SoundManager.playBuzzer(); },
+
+    updateInput() {
+        if (!this.state || typeof Input === 'undefined') return;
+        if (Input.isRepeated('left')) this.moveCursor(-1, 0);
+        if (Input.isRepeated('right')) this.moveCursor(1, 0);
+        if (Input.isRepeated('up')) this.moveCursor(0, -1);
+        if (Input.isRepeated('down')) this.moveCursor(0, 1);
+        if (Input.isTriggered('pageup')) this.nextItem(-1);
+        if (Input.isTriggered('pagedown')) this.nextItem(1);
+        if (Input.isTriggered('shift')) this.flip();
+        if (Input.isTriggered('ok')) this.ok();
+        else if (Input.isTriggered('cancel')) this.cancel();
+        if (typeof TouchInput !== 'undefined' && TouchInput.isTriggered && TouchInput.isTriggered()) {
+            const x = $gameMap.canvasToMapX(TouchInput.x), y = $gameMap.canvasToMapY(TouchInput.y);
+            if (this.setCursor(x, y)) this.ok();
+        }
+    },
+
+    // The words in the window: the piece, how many are left, the keys, and why not.
+    text() {
+        const s = this.state, item = this.item(), D = DocsDoodads.Decor;
+        if (!s || !item) return '';
+        const left = s.holding ? '' : ` (${D.left(item)} left)`;
+        const keys = s.holding ? 'OK: put down  Shift: flip  Cancel: put away' : 'OK: place  Q/W: piece  Shift: flip  Cancel: done';
+        return `${item.name}${left}\n${s.message || keys}`;
+    }
+};
+
+(function() {
+    const M = DocsDoodads.DecorMode;
+    if (typeof Game_Player !== 'undefined') {
+        const canMove = Game_Player.prototype.canMove;
+        Game_Player.prototype.canMove = function() { return M.active() ? false : canMove.apply(this, arguments); };
+    }
+    if (typeof Scene_Map === 'undefined') return;
+    const menu = Scene_Map.prototype.isMenuEnabled;
+    Scene_Map.prototype.isMenuEnabled = function() { return M.active() ? false : menu.apply(this, arguments); };
+    const update = Scene_Map.prototype.update;
+    Scene_Map.prototype.update = function() {
+        const was = M.active();
+        if (was) M.updateInput();
+        const result = update.apply(this, arguments);
+        this.updateDocsDecorWindow();
+        return result;
+    };
+    // A map change or a battle ends the mode.
+    const terminate = Scene_Map.prototype.terminate;
+    Scene_Map.prototype.terminate = function() {
+        if (M.active() && (!$gamePlayer.isTransferring || $gamePlayer.isTransferring())) M.close();
+        return terminate.apply(this, arguments);
+    };
+    Scene_Map.prototype.updateDocsDecorWindow = function() {
+        const active = M.active();
+        let win = this._docsDecorWindow;
+        if (active && !win && typeof Window_Help !== 'undefined' && typeof Rectangle !== 'undefined') {
+            const rect = new Rectangle(0, 0, Graphics.boxWidth, this.calcWindowHeight ? this.calcWindowHeight(2, false) : 108);
+            win = this._docsDecorWindow = new Window_Help(rect);
+            this.addWindow(win);
+        }
+        if (!win) return;
+        win.visible = active;
+        if (active) { const text = M.text(); if (win._docsText !== text) { win._docsText = text; win.setText(text); } }
+    };
+
+    if (typeof Spriteset_Map === 'undefined' || typeof PIXI === 'undefined') return;
+    Spriteset_Map.prototype.updateDocsDecorCursor = function() {
+        const s = M.state;
+        let g = this._docsDecorCursor;
+        if (!s) { if (g) g.visible = false; if (this._docsDecorGhost) this._docsDecorGhost.visible = false; return; }
+        const parent = this._tilemap || this._baseSprite;
+        if (!g) { g = this._docsDecorCursor = new PIXI.Graphics(); g.z = 9; parent.addChild(g); }
+        const item = M.item(), D = DocsDoodads.Decor, tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+        const ok = s.verdict && s.verdict.ok;
+        const colour = ok ? 0x40ff70 : 0xff4040;
+        g.visible = true;
+        g.clear();
+        const tiles = item ? D.footprint(item, s.cursor.x, s.cursor.y) : [{ x: s.cursor.x, y: s.cursor.y }];
+        for (const t of tiles) {
+            const p = DocsDoodads.mapToScreen(t.x * tw, t.y * th);
+            g.lineStyle(2, colour, 0.95); g.beginFill(colour, 0.25); g.drawRect(p.x + 1, p.y + 1, tw - 2, th - 2); g.endFill();
+        }
+        g.lineStyle(0);
+        // A ghost of the piece.
+        let ghost = this._docsDecorGhost;
+        if (item && item.doodad && item.doodad.bit && item.doodad.bit[0] === 3) {
+            if (!ghost) { ghost = this._docsDecorGhost = new PIXI.Sprite(PIXI.Texture.EMPTY); ghost.anchor.set(0.5, 1); ghost.z = 9; ghost.alpha = 0.6; parent.addChild(ghost); }
+            if (ghost._docsArt !== item.doodad.bit[1]) {
+                ghost._docsArt = item.doodad.bit[1];
+                const bmp = DocsDoodads.loadBitmap(item.doodad.bit[1]);
+                const set = () => { if (bmp && bmp._baseTexture) ghost.texture = new PIXI.Texture(bmp._baseTexture, new PIXI.Rectangle(0, 0, Number(item.doodad.frameW) || bmp.width || 48, Number(item.doodad.frameH) || bmp.height || 48)); };
+                if (bmp && bmp.addLoadListener) bmp.addLoadListener(set); else set();
+            }
+            const p = DocsDoodads.mapToScreen(s.cursor.x * tw + item.w * tw / 2, s.cursor.y * th + th);
+            ghost.x = p.x; ghost.y = p.y; ghost.visible = true;
+            ghost.scale.x = (s.flip ? -1 : 1) * Math.abs(Number(item.doodad.scaleX) || 1);
+            ghost.scale.y = Math.abs(Number(item.doodad.scaleY) || 1);
+        } else if (ghost) ghost.visible = false;
+    };
+    if (DocsDoodads.spritesetSteps) DocsDoodads.spritesetSteps.push('updateDocsDecorCursor');
+})();
+
 //==========================================================
 // SECTION 17D: GENERATED MAP RUNTIME
 //==========================================================
@@ -24294,7 +28254,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (d.head.depth < near) near = d.head.depth;
             if (d.head.depth > far) far = d.head.depth;
         };
+        // Indoor tiles (9.2.2) stay dry: drops over them are left out.
+        const indoor = DocsDoodads.Indoors.current() ? (x, y) => DocsDoodads.Indoors.pixel(x - origin.x, y - origin.y) : null;
         for (const pt of this._docsWeatherParts) {
+            if (indoor && indoor(pt.x, pt.y)) continue;
             const head = at(pt.x, pt.y, pt.z);
             if (!head || head.fog >= 1) continue;
             if (params.kind === 'streak') {
@@ -24307,6 +28270,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             }
         }
         for (const spl of this._docsSplashes) {
+            if (indoor && indoor(spl.x, spl.y)) continue;
             const head = at(spl.x, spl.y, spl.z);
             if (head && head.fog < 1) keep({ kind: 'splash', head, age: (now - spl.born) / W.splashLife });
         }
@@ -29164,7 +33128,8 @@ DocsDoodads.FS = {
         if (!this.fs || !this.path) return [];
         const made = [], names = new Set();
         for (const entry of entries) {
-            entry.json = this.jsonOf(entry);
+            // An entry may bring its own text (MZ's database files keep their one-entry-a-line form).
+            entry.json = typeof entry.json === 'string' ? entry.json : this.jsonOf(entry);
             if (!this.existsSync(entry.path)) continue;
             let now = null;
             try { now = this.fs.readFileSync(entry.path, 'utf8'); } catch (e) { now = null; }
@@ -30727,6 +34692,8 @@ DocsDoodads.RequiredAssets = {
             if (doodad && doodad.model && doodad.model.path) add(doodad.model.path);
             if (doodad && doodad.line && doodad.line.hang && doodad.line.hang.path) add(doodad.line.hang.path);
         }
+        // Baked chunks (7.3.4): drawn by the game in place of still doodads.
+        for (const manifest of Object.values(data.baked || {})) for (const c of (manifest && manifest.chunks) || []) add(c && c.file);
         // The ground brush (8.3.4): a painted map's mask and its textures.
         for (const settings of Object.values(data.mapSettings || {})) {
             const ground = DocsDoodads.Ground && DocsDoodads.Ground.settings(settings);
@@ -37725,7 +41692,20 @@ DocsDoodads.Persistence = {
         return entries;
     },
 
+    // Other files a Save writes in the same all-or-nothing transaction (Tilesets.json for tile flags, MapInfos.json
+    // for new maps): { name, entries() → [{ path, data | json }], conflict() → bool, committed(), dirty() → bool }.
+    savers: [],
+
+    saverEntries() {
+        const out = [];
+        for (const saver of this.savers) {
+            try { if (saver.dirty()) out.push(...(saver.entries() || [])); } catch (error) { DocsDoodads.Core.log(`${saver.name} could not be prepared for saving.`, error); throw error; }
+        }
+        return out;
+    },
+
     checkConflict() {
+        if (this.savers.some(saver => saver.dirty() && saver.conflict())) return true;
         if (!window.$gameMap) return false;
         const files = new Set([this.mapFilePath($gameMap.mapId())]);
         for (const entry of this.pendingMapEntries()) files.add(this.mapFilePath(entry.mapId));
@@ -37753,9 +41733,17 @@ DocsDoodads.Persistence = {
         const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
         const doodadEntries = DocsDoodads.DataFiles.entriesFor(liveDoodads);
+        let extraEntries;
+        try {
+            extraEntries = this.saverEntries();
+        } catch (error) {
+            DocsDoodads.Workspace.showToast(`Save cancelled: ${error.message || error}`);
+            return false;
+        }
+        const committedSavers = this.savers.filter(saver => saver.dirty());
         const entries = mapEntries.concat(doodadEntries, [
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
-        ]);
+        ], extraEntries);
 
         try {
             // Only files whose text changes get a backup (and the backups folder is read once).
@@ -37774,6 +41762,7 @@ DocsDoodads.Persistence = {
         }
 
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
+        for (const saver of committedSavers) { try { saver.committed(); } catch (error) { DocsDoodads.Core.log(`${saver.name} save bookkeeping failed.`, error); } }
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);
         // A map's own JSON does not change when only its doodads do. Forget only pictures whose saved
@@ -37801,7 +41790,7 @@ DocsDoodads.Persistence = {
     },
 
     hasUnsavedWork() {
-        return this._dirtyMap || this._dirtyDoodads;
+        return Boolean(this._dirtyMap || this._dirtyDoodads || this.savers.some(saver => saver.dirty()));
     },
 
     changed() {
@@ -50678,6 +54667,66 @@ DocsDoodads.CreatorKits = {
     }
 };
 // @editor-only
+//==========================================================
+// SECTION 25C: AMBIENT CREATURES IN DETAILS (9.3.1)
+//==========================================================
+// Details → Creatures: birds, butterflies or fish around this doodad, and Perch (birds land on top of it).
+(function() {
+    const D = DocsDoodads, W = D.Workspace, C = D.Creatures;
+
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        if (!items.length || items.some(d => !d || d.line)) return all;
+        const kinds = [{ value: '', label: 'None' }].concat(Object.keys(C.kinds).map(k => ({ value: k, label: C.kinds[k].label })));
+        return all.concat([{ title: 'Creatures', fields: [
+            { key: 'creatures.kind', label: 'Creatures around it', type: 'select', options: kinds },
+            { key: 'creatures.count', label: 'How many', type: 'range', min: 1, max: C.maxPerDoodad, step: 1 },
+            { key: 'creatures.spread', label: 'Spread (tiles)', type: 'range', min: 0.5, max: 12, step: 0.5 },
+            { key: 'creatures.flee', label: 'Fly off when the player is within (tiles)', type: 'range', min: 0, max: 12, step: 0.5 },
+            { key: 'creatures.back', label: 'Come back after (seconds)', type: 'range', min: 0.5, max: 60, step: 0.5 },
+            { key: 'creatures.hours', label: 'Out', type: 'select', options: [{ value: 'day', label: 'By day' }, { value: 'night', label: 'At night' }, { value: 'any', label: 'Day and night' }] },
+            { key: 'creatures.weather', label: 'In rain and storms', type: 'select', options: [{ value: 'clear', label: 'Hide' }, { value: 'any', label: 'Stay out' }] },
+            { key: 'creatures.sheet', label: 'Their picture (two frames side by side, img/...png; blank for a plain shape)', type: 'text' },
+            { key: 'perch', label: 'Perch (birds land on top of this)', type: 'checkbox' }
+        ] }]);
+    };
+
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) {
+        if (String(key).indexOf('creatures.') === 0) {
+            const s = C.normalize(d && d.creatures), k = key.slice(10);
+            if (k === 'kind') return s ? s.kind : '';
+            const fallback = C.normalize({ kind: 'birds' });
+            return (s || fallback)[k];
+        }
+        if (key === 'perch') return Boolean(d && d.perch);
+        return get.call(this, d, key);
+    };
+
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (d && String(key).indexOf('creatures.') === 0) {
+            const k = key.slice(10);
+            if (k === 'kind' && !value) delete d.creatures;
+            else {
+                const next = Object.assign({}, C.normalize(d.creatures) || { kind: 'birds' });
+                next[k] = value;
+                if (k === 'kind') Object.assign(next, { flee: C.kinds[value].flee, back: C.kinds[value].back, hours: C.kinds[value].hours, weather: C.kinds[value].weather });
+                d.creatures = C.normalize(next);
+            }
+            C._version = (C._version || 0) + 1;
+            return;
+        }
+        if (d && key === 'perch') {
+            if (value) d.perch = true; else delete d.perch;
+            C._version = (C._version || 0) + 1;
+            return;
+        }
+        return apply.call(this, d, key, value);
+    };
+})();
+// @editor-only
 Object.assign(DocsDoodads.Workspace, {
     setAssetCredits(items, credit) {
         const C = DocsDoodads.Credits, value = C.normalize(credit), data = DocsDoodads.AssetIndex.data, assets = data.assets;
@@ -50808,6 +54857,189 @@ Object.assign(DocsDoodads.Workspace, {
     W.renderUsagePanel = function(asset) { return render.call(this, asset) + this.renderAssetCredit(asset); };
     W.bindUsagePanel = function(asset) { const result = bind.call(this, asset); this.bindAssetCredit(asset); return result; };
 }
+// @editor-only
+//==========================================================
+// SECTION 25D: THE DECORATE CARD, THE MAKER'S SIDE (8.4.1)
+//==========================================================
+// Map → Decorate: the catalog of pieces players may place (made from the doodad picked on the map, or the Item
+// Bag's picked picture), each with its tiles, a limit and where it comes from (the bag given by Give Decor
+// Item, a party item, or free); and this map's zone, as regions and boxes, drawn over the map while the card is
+// open. Every change is one Undo step. The game opens it with the Open Decorate Mode command.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, Dc = D.Decor;
+
+    Object.assign(W, {
+        decorCopy() {
+            const data = window.$dataDocsDoodads || {};
+            return JSON.parse(JSON.stringify(data.decor && typeof data.decor === 'object' ? data.decor : { catalog: [], zones: {} }));
+        },
+
+        setDecorData(next, label) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            const before = data.decor ? JSON.parse(JSON.stringify(data.decor)) : undefined;
+            const clean = JSON.parse(JSON.stringify(next));
+            clean.catalog = (clean.catalog || []).filter(Boolean);
+            clean.zones = clean.zones || {};
+            for (const k of Object.keys(clean.zones)) if (!Dc.zonesFor.call({ data: () => ({ zones: clean.zones }) }, k)) delete clean.zones[k];
+            const after = clean.catalog.length || Object.keys(clean.zones).length ? clean : undefined;
+            const write = v => { if (v === undefined) delete data.decor; else data.decor = JSON.parse(JSON.stringify(v)); D.Persistence.dirtyDoodads = true; this.renderDecorCard(); };
+            D.Undo.execute({ type: 'decor', label: label || 'Decorate', apply: () => write(after), revert: () => write(before) });
+            return true;
+        },
+
+        // A catalog piece from a doodad (its picture, light, states, collision) or a picked picture.
+        decorPieceFrom(source, name) {
+            let doodad;
+            if (source && source.bit) {
+                doodad = JSON.parse(JSON.stringify(source));
+                for (const k of ['x', 'y', 'uid', 'name', 'layer', 'locked', 'temp', 'decor', 'prefabRef', 'editorHidden']) delete doodad[k];
+            } else if (source && source.path) {
+                doodad = D.standardStruct();
+                doodad.bit = [3, source.path];
+                doodad.frameW = source.frameW || source.width || 48;
+                doodad.frameH = source.frameH || source.height || 48;
+                delete doodad.x; delete doodad.y; delete doodad.uid;
+            } else return null;
+            const tw = $gameMap.tileWidth();
+            const w = Math.max(1, Math.min(8, Math.round(Math.abs((Number(doodad.frameW) || tw) * (Number(doodad.scaleX) || 1)) / tw)));
+            const base = String(name || (doodad.bit[1] || 'piece').split('/').pop().replace(/\.\w+$/, '')).trim() || 'Piece';
+            return { name: base, doodad, w, h: 1, limit: 0, price: 0, itemId: 0, free: false };
+        },
+
+        addDecorPiece(source, name) {
+            const piece = this.decorPieceFrom(source, name);
+            if (!piece) return null;
+            const next = this.decorCopy();
+            next.catalog = next.catalog || [];
+            const base = 'decor_' + piece.name.toLowerCase().replace(/[^\w]+/g, '_').slice(0, 24);
+            let id = base, n = 2;
+            while (next.catalog.some(i => i && i.id === id)) id = base + '_' + n++;
+            piece.id = id;
+            next.catalog.push(piece);
+            this.setDecorData(next, 'Add decor piece');
+            return id;
+        },
+
+        editDecorPiece(id, change) {
+            const next = this.decorCopy();
+            const i = (next.catalog || []).findIndex(p => p && p.id === id);
+            if (i < 0) return false;
+            if (change === null) next.catalog.splice(i, 1); else Object.assign(next.catalog[i], change, { id });
+            return this.setDecorData(next, change === null ? 'Remove decor piece' : 'Change decor piece');
+        },
+
+        setDecorZone(mapId, zone) {
+            const next = this.decorCopy();
+            next.zones = next.zones || {};
+            if (!zone || (!String(zone.regions || '').trim() && !(zone.boxes || []).length)) delete next.zones[mapId];
+            else next.zones[mapId] = { regions: String(zone.regions || '').trim(), boxes: (zone.boxes || []).slice(0, 32) };
+            return this.setDecorData(next, 'Decor zone');
+        },
+
+        closeDecorCard() {
+            this._decorCardOpen = false;
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-decor-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        },
+
+        openDecorCard() {
+            if (typeof document === 'undefined' || !document.createElement) return null;
+            let card = document.getElementById('dd-decor-card');
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dd-decor-card'; card.className = 'dd-glass';
+                card.style.cssText = 'position:fixed;top:80px;right:20px;width:380px;max-height:75vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;';
+                document.body.appendChild(card);
+            }
+            this._decorCardOpen = true;
+            this.renderDecorCard();
+            return card;
+        },
+
+        renderDecorCard() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-decor-card') : null;
+            if (!card) return;
+            const mapId = this.currentMapId(), data = this.decorCopy(), zone = (data.zones || {})[mapId] || { regions: '', boxes: [] };
+            const list = Dc.catalog();
+            card.innerHTML = `<div class="dd-panel-head">Decorate <button class="dd-btn" id="dd-decor-close" type="button">Close</button></div>
+                <div style="color:var(--dd-muted);margin-bottom:6px;">Pieces players may place in the game with the Open Decorate Mode command. They keep them in their save; they can't wall themselves in.</div>
+                <div class="dd-panel-head">Pieces</div>
+                ${list.map((p, i) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:3px;"><span style="flex:1;">${escapeHtml(p.name)} · ${p.w}×${p.h} · ${p.itemId ? 'item ' + p.itemId : p.free ? 'free' : 'given'}${p.limit ? ' · up to ' + p.limit : ''}</span>
+                    <button class="dd-btn" type="button" id="dd-decor-edit-${i}">Change</button></div>`).join('') || '<div style="color:var(--dd-faint);">None yet.</div>'}
+                <button class="dd-btn" id="dd-decor-add" type="button" title="The doodad picked on the map, or the picture picked in the Item Bag">Add the Picked One</button>
+                <div class="dd-panel-head" style="margin-top:8px;">Where on this map</div>
+                <label>Regions <input id="dd-decor-regions" type="text" value="${escapeHtml(zone.regions || '')}" placeholder="e.g. 12" style="width:100%"></label>
+                <div>${(zone.boxes || []).map(b => `${b.x},${b.y} ${b.w}×${b.h}`).join('; ') || 'No boxes.'}</div>
+                <button class="dd-btn" id="dd-decor-box" type="button">Add a Box</button> <button class="dd-btn" id="dd-decor-clear" type="button">Clear Boxes</button>
+                <div style="color:var(--dd-faint);margin-top:6px;">The zone shows on the map while this card is open. Commands: Open Decorate Mode, Give Decor Item, Count Decor.</div>`;
+            const node = id => document.getElementById(id);
+            node('dd-decor-close').onclick = () => this.closeDecorCard();
+            node('dd-decor-add').onclick = async () => {
+                const picked = this.selectionItems ? this.selectionItems()[0] : null;
+                const source = picked && picked.bit ? picked : this.selectedAsset;
+                if (!source) { this.showToast('Pick a doodad on the map or a picture in the Item Bag first.'); return; }
+                const name = await D.Ui.prompt('What players will see it called', this.decorPieceFrom(source).name, { title: 'Add a Piece' });
+                if (name) this.addDecorPiece(source, name);
+            };
+            list.forEach((p, i) => {
+                const edit = node(`dd-decor-edit-${i}`);
+                if (edit) edit.onclick = async () => {
+                    const v = await D.Ui.form({ title: 'Change Piece', ok: 'Keep', fields: [
+                        { key: 'name', label: 'Name', value: p.name },
+                        { key: 'w', label: 'Tiles across', value: String(p.w) }, { key: 'h', label: 'Tiles up', value: String(p.h) },
+                        { key: 'limit', label: 'At most (0: no limit)', value: String(p.limit) },
+                        { key: 'price', label: 'Price (for your own shop events)', value: String(p.price) },
+                        { key: 'itemId', label: 'Uses a party item (its id; 0 for none)', value: String(p.itemId) },
+                        { key: 'free', label: 'Free (no need to be given)', type: 'checkbox', value: p.free },
+                        { key: 'remove', label: 'Remove this piece', type: 'checkbox', value: false }
+                    ] });
+                    if (!v) return;
+                    if (v.remove) { this.editDecorPiece(p.id, null); return; }
+                    this.editDecorPiece(p.id, { name: v.name || p.name, w: Number(v.w) || 1, h: Number(v.h) || 1, limit: Number(v.limit) || 0, price: Number(v.price) || 0, itemId: Number(v.itemId) || 0, free: Boolean(v.free) });
+                };
+            });
+            node('dd-decor-regions').onchange = e => this.setDecorZone(mapId, Object.assign({}, zone, { regions: e.target.value }));
+            node('dd-decor-box').onclick = async () => {
+                const v = await D.Ui.form({ title: 'A Box Where Pieces May Go', ok: 'Add', fields: [
+                    { key: 'x', label: 'Left tile', value: String($gamePlayer ? $gamePlayer.x : 0) }, { key: 'y', label: 'Top tile', value: String($gamePlayer ? $gamePlayer.y : 0) },
+                    { key: 'w', label: 'Tiles across', value: '4' }, { key: 'h', label: 'Tiles down', value: '4' }] });
+                if (v) this.setDecorZone(mapId, Object.assign({}, zone, { boxes: (zone.boxes || []).concat([{ x: Number(v.x) || 0, y: Number(v.y) || 0, w: Number(v.w) || 1, h: Number(v.h) || 1 }]) }));
+            };
+            node('dd-decor-clear').onclick = () => this.setDecorZone(mapId, Object.assign({}, zone, { boxes: [] }));
+        },
+
+        drawDecorZone(g) {
+            if (!this._decorCardOpen || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const zones = Dc.zonesFor(this.currentMapId());
+            if (!zones) return;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), colour = D.Ui.mapColor('selection');
+            const x0 = Math.floor($gameMap.displayX()), y0 = Math.floor($gameMap.displayY());
+            g.beginFill(colour, 0.18);
+            for (let y = y0; y < y0 + $gameMap.screenTileY() + 1; y++) for (let x = x0; x < x0 + $gameMap.screenTileX() + 1; x++) {
+                if (!Dc.inZone(zones, x, y, (a, b) => $gameMap.regionId(a, b))) continue;
+                const p = D.mapToScreen(x * tw, y * th);
+                g.drawRect(p.x, p.y, tw, th);
+            }
+            g.endFill();
+        }
+    });
+
+    W.toolHooks.decorZone = { overlay(g) { this.drawDecorZone(g); } };
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-decor-btn', icon: 'box', label: 'Decorate', title: 'Pieces players may place and move in the game (housing, farms, shop floors), and where' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-decor-btn') : null;
+        if (btn) btn.onclick = () => { if (this.showMoreMenu) this.showMoreMenu(false); this.openDecorCard(); };
+        return result;
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25s: DOCKING THE ITEM BAG AND DETAILS
@@ -51135,6 +55367,197 @@ Object.assign(DocsDoodads.Workspace, {
             return ok;
         };
     }
+})();
+// @editor-only
+//==========================================================
+// SECTION 25E: ELEMENTS THAT SPREAD IN THE EDITOR (8.4.3)
+//==========================================================
+// Map settings → Fire and Rain: what burns here, what never does. Details → Elements: Burns, Lights fires, Puts out.
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const s = DocsDoodads.Elements.settings(mapSettings);
+        return `
+            <details id="dd-elements-sec" ${this._openElements ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Fire and Rain (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <label><input type="checkbox" id="dd-elements-on" ${s.enabled ? 'checked' : ''} /> Fire spreads with the wind; rain puts it out and leaves puddles</label>
+                    <div>Dry ground: regions <input type="text" id="dd-elements-regions" value="${escapeHtml(s.fuelRegions)}" placeholder="e.g. 5" style="width: 60px;" />
+                        terrain tags <input type="text" id="dd-elements-tags" value="${escapeHtml(s.fuelTags)}" placeholder="e.g. 1" style="width: 60px;" /></div>
+                    <div>Fireproof regions <input type="text" id="dd-elements-proof" value="${escapeHtml(s.fireproofRegions)}" placeholder="e.g. 9" style="width: 60px;" /></div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Only what you mark burns: dry ground here, and doodads set to Burns in Details (they go to their state named Burnt). Start a fire with the Start Fire At command or a doodad that Lights fires. Watch for quest items and towns.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-elements-sec');
+        if (details) details.ontoggle = () => { this._openElements = details.open; };
+        const val = id => document.getElementById(id);
+        const write = () => {
+            const v = { enabled: Boolean(val('dd-elements-on') && val('dd-elements-on').checked), fuelRegions: (val('dd-elements-regions') || {}).value || '',
+                fuelTags: (val('dd-elements-tags') || {}).value || '', fireproofRegions: (val('dd-elements-proof') || {}).value || '' };
+            this.setMapSetting('elements', v.enabled || v.fuelRegions || v.fuelTags || v.fireproofRegions ? v : undefined);
+            DocsDoodads.Elements._grid = null;
+        };
+        for (const id of ['dd-elements-on', 'dd-elements-regions', 'dd-elements-tags', 'dd-elements-proof']) { const el = val(id); if (el) el.onchange = write; }
+    }
+});
+
+(function() {
+    const W = DocsDoodads.Workspace;
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        if (!items.length || items.some(d => !d || d.line)) return all;
+        return all.concat([{ title: 'Fire and Rain', fields: [
+            { key: 'element', label: 'With fire', type: 'select', options: [{ value: '', label: 'Nothing' }, { value: 'burns', label: 'Burns (goes to its Burnt state)' },
+                { value: 'lights', label: 'Lights fires beside it (a campfire)' }, { value: 'putsOut', label: 'Puts out fires (a well, a fountain)' }] }
+        ] }]);
+    };
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) { return key === 'element' ? (d && d.element) || '' : get.call(this, d, key); };
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (d && key === 'element') { if (['burns', 'lights', 'putsOut'].includes(value)) d.element = value; else delete d.element; DocsDoodads.Elements._grid = null; return; }
+        return apply.call(this, d, key, value);
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25V: MAP ERAS IN THE EDITOR (8.4.5)
+//==========================================================
+// Map settings → Eras: the map's versions, what picks one in the game (a switch or a variable), the era being
+// edited (the others' doodads drawn faint, with a slider), "Only in This Era" and "In Every Era" for what is
+// picked, Copy Era, and deleting an era (which asks what to do with its doodads). Each change is one Undo step.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, Er = D.Eras;
+
+    Object.assign(W, {
+        // One Undo step over the map's eras and its doodad list together.
+        changeEras(mapId, change, label) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            const copy = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+            const before = { eras: copy(data.eras && data.eras[mapId]), list: copy((data[mapId] || []).filter(d => !(d && d.temp))) };
+            const after = copy(before);
+            change(after);
+            const write = v => {
+                data.eras = data.eras || {};
+                if (v.eras && v.eras.list && v.eras.list.length) data.eras[mapId] = copy(v.eras); else delete data.eras[mapId];
+                if (!Object.keys(data.eras).length) delete data.eras;
+                const temps = (data[mapId] || []).filter(d => d && d.temp);
+                data[mapId] = copy(v.list).concat(temps);
+                D.Persistence.dirtyDoodads = true;
+                if (D.api && D.api.refresh) D.api.refresh();
+                if (this.refreshInspector) this.refreshInspector();
+            };
+            D.Undo.execute({ type: 'eras', label: label || 'Eras', apply: () => write(after), revert: () => write(before) });
+            return true;
+        },
+
+        addEra(mapId, name) {
+            let id = null;
+            this.changeEras(mapId, v => {
+                v.eras = v.eras || { list: [], pick: {} };
+                if (!v.eras.list.length) v.eras.list.push({ id: 'era_1', name: 'Now' });
+                let n = v.eras.list.length + 1;
+                while (v.eras.list.some(e => e.id === 'era_' + n)) n++;
+                id = 'era_' + n;
+                v.eras.list.push({ id, name: String(name || 'Era ' + n) });
+            }, 'Add era');
+            return id;
+        },
+
+        // what: 'delete' takes out the doodads only in it; 'all' shows them in every era.
+        deleteEra(mapId, id, what) {
+            return this.changeEras(mapId, v => {
+                if (!v.eras) return;
+                v.eras.list = v.eras.list.filter(e => e.id !== id);
+                v.list = v.list.filter(d => {
+                    if (!d || !Array.isArray(d.eras)) return true;
+                    d.eras = d.eras.filter(e => e !== id);
+                    if (d.eras.length) return true;
+                    if (what === 'delete') return false;
+                    delete d.eras;
+                    return true;
+                });
+                if (v.eras.list.length < 2) { for (const d of v.list) if (d) delete d.eras; v.eras = undefined; }
+            }, 'Delete era');
+        },
+
+        // The picked doodads only in `era` (or, with null, in every era again).
+        setDoodadEras(mapId, uids, era) {
+            return this.changeEras(mapId, v => {
+                for (const d of v.list) if (d && uids.includes(d.uid)) { if (era) d.eras = [era]; else delete d.eras; }
+            }, era ? 'Only in this era' : 'In every era');
+        },
+
+        // Every doodad only in `from` is copied into a new era (new ids); shared doodads stay shared.
+        copyEra(mapId, from, name) {
+            let id = null;
+            this.changeEras(mapId, v => {
+                if (!v.eras) return;
+                let n = v.eras.list.length + 1;
+                while (v.eras.list.some(e => e.id === 'era_' + n)) n++;
+                id = 'era_' + n;
+                v.eras.list.push({ id, name: String(name || 'Copy') });
+                const copies = v.list.filter(d => d && Array.isArray(d.eras) && d.eras.length === 1 && d.eras[0] === from)
+                    .map(d => Object.assign(JSON.parse(JSON.stringify(d)), { eras: [id], uid: 'dd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) }));
+                v.list = v.list.concat(copies);
+            }, 'Copy era');
+            return id;
+        },
+
+        setEditingEra(mapId, era) {
+            Er._editing = era ? { mapId, era } : null;
+            if (D.api && D.api.refresh) D.api.refresh();
+        }
+    });
+
+    W.mapSections.push({
+        render() {
+            const mapId = this.currentMapId(), e = Er.of(mapId);
+            const editing = Er._editing && Er._editing.mapId === mapId ? Er._editing.era : (e ? e.list[0].id : '');
+            const options = e ? e.list.map(x => `<option value="${escapeHtml(x.id)}"${x.id === editing ? ' selected' : ''}>${escapeHtml(x.name)}</option>`).join('') : '';
+            return `
+            <details id="dd-eras-sec" ${this._openEras ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Eras (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    ${e ? `<div>Editing <select id="dd-eras-edit">${options}</select></div>
+                    <div>Others shown <input type="range" id="dd-eras-onion" min="0" max="1" step="0.05" value="${Er.onion}" /></div>
+                    <div>In the game, picked by switch <input type="number" id="dd-eras-switch" min="0" value="${e.pick.switchId}" style="width: 50px;" />
+                        or variable <input type="number" id="dd-eras-var" min="0" value="${e.pick.variableId}" style="width: 50px;" /></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;"><button class="dd-btn" type="button" id="dd-eras-only">Only in This Era</button>
+                        <button class="dd-btn" type="button" id="dd-eras-every">In Every Era</button>
+                        <button class="dd-btn" type="button" id="dd-eras-copy">Copy Era</button>
+                        <button class="dd-btn" type="button" id="dd-eras-delete">Delete Era</button></div>` : ''}
+                    <button class="dd-btn" type="button" id="dd-eras-add">Add an Era</button>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">One map in several versions (whole, burning, ruined). Doodads in every era stay shared; tiles are the same in every era.</div>
+                </div>
+            </details>`;
+        },
+        bind() {
+            const mapId = this.currentMapId(), node = id => document.getElementById(id);
+            const details = node('dd-eras-sec');
+            if (details) details.ontoggle = () => { this._openEras = details.open; };
+            const e = Er.of(mapId);
+            const editing = () => (node('dd-eras-edit') ? node('dd-eras-edit').value : e && e.list[0].id);
+            if (node('dd-eras-add')) node('dd-eras-add').onclick = async () => { const name = await D.Ui.prompt('A name for the era', 'Ruined', { title: 'Add an Era' }); if (name) { const id = this.addEra(mapId, name); this.setEditingEra(mapId, id); } };
+            if (!e) return;
+            node('dd-eras-edit').onchange = ev => this.setEditingEra(mapId, ev.target.value);
+            node('dd-eras-onion').oninput = ev => { Er.onion = Number(ev.target.value) || 0; };
+            const pick = () => this.changeEras(mapId, v => { v.eras.pick = { switchId: Number(node('dd-eras-switch').value) || 0, variableId: Number(node('dd-eras-var').value) || 0 }; }, 'Era switch');
+            node('dd-eras-switch').onchange = pick; node('dd-eras-var').onchange = pick;
+            const uids = () => (this.selectionItems ? this.selectionItems() : []).filter(d => d && d.uid).map(d => d.uid);
+            node('dd-eras-only').onclick = () => { const u = uids(); if (u.length) this.setDoodadEras(mapId, u, editing()); else this.showToast('Pick doodads first.'); };
+            node('dd-eras-every').onclick = () => { const u = uids(); if (u.length) this.setDoodadEras(mapId, u, null); };
+            node('dd-eras-copy').onclick = async () => { const name = await D.Ui.prompt('A name for the copy', 'Ten years on', { title: 'Copy Era' }); if (name) this.setEditingEra(mapId, this.copyEra(mapId, editing(), name)); };
+            node('dd-eras-delete').onclick = async () => {
+                const id = editing(), era = e.list.find(x => x.id === id);
+                const what = await D.Ui.choose(`Delete ${era ? era.name : 'this era'}? Its own doodads:`, [
+                    { label: 'Delete Them', value: 'delete', kind: 'danger' }, { label: 'Keep Them in Every Era', value: 'all' }, { label: 'Cancel', value: null }], { title: 'Delete Era', cancelValue: null });
+                if (what) { this.deleteEra(mapId, id, what); this.setEditingEra(mapId, null); }
+            };
+        }
+    });
 })();
 // @editor-only
 //==========================================================
@@ -52487,6 +56910,53 @@ DocsDoodads.Help = {
         } catch (error) { DocsDoodads.Workspace.showToast(String(error.message || error), 'info'); return false; }
     }
 };
+// @editor-only
+//==========================================================
+// SECTION 25N: INDOORS BY REGION IN THE MAP PANEL (9.2.2)
+//==========================================================
+// Map settings → Indoors: which regions are under a roof, how dark it is in there, and how loud the weather is
+// heard from inside. Paint those regions on the floors with the Regions tool; the legend says "indoors".
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const I = DocsDoodads.Indoors;
+        const s = I.normalize(mapSettings && mapSettings.indoors) || I.normalize(I.defaults);
+        const dark = s.darkness === null ? '' : String(s.darkness);
+        return `
+            <details id="dd-indoors-sec" ${this._openIndoors ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Indoors (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Regions under a roof (numbers, e.g. 7, 8)
+                        <input type="text" id="dd-indoors-regions" value="${escapeHtml(s.regions)}" placeholder="none" style="width: 100%;" /></div>
+                    <div>Darkness inside (blank keeps the map's)
+                        <input type="number" id="dd-indoors-dark" min="0" max="1" step="0.05" value="${escapeHtml(dark)}" style="width: 100%;" /></div>
+                    <div>Weather heard inside <span id="dd-indoors-quiet-val">${Math.round(s.quiet * 100)}%</span>
+                        <input type="range" id="dd-indoors-quiet" min="0" max="1" step="0.05" value="${s.quiet}" style="width: 100%;" /></div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Paint these regions on the floors (not the roofs) with the Regions tool. Rain and snow stop at them, doodads there don't lean in the wind or throw sun shadows, and lightning is dimmer while the player is inside. One darkness for the whole screen: the inside of a lit street at night is not darker tile by tile.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-indoors-sec');
+        if (details) details.ontoggle = () => { this._openIndoors = details.open; };
+        const write = change => {
+            const I = DocsDoodads.Indoors;
+            const own = Object.assign({}, I.normalize((DocsDoodads.Lighting.mapSettings(this.currentMapId()) || {}).indoors) || I.normalize(I.defaults), change);
+            const empty = !I.regionSet(own.regions).size && own.darkness === null && own.quiet === I.defaults.quiet;
+            this.setMapSetting('indoors', empty ? undefined : I.normalize(own));
+            I.invalidate();
+            if (this.renderRegionLegend) this.renderRegionLegend();
+        };
+        const regions = document.getElementById('dd-indoors-regions');
+        if (regions) regions.onchange = e => write({ regions: Array.from(DocsDoodads.Indoors.regionSet(e.target.value)).join(', ') });
+        const dark = document.getElementById('dd-indoors-dark');
+        if (dark) dark.onchange = e => write({ darkness: e.target.value === '' ? null : Number(e.target.value) });
+        const quiet = document.getElementById('dd-indoors-quiet');
+        if (quiet) {
+            quiet.oninput = e => { const v = document.getElementById('dd-indoors-quiet-val'); if (v) v.textContent = Math.round(Number(e.target.value) * 100) + '%'; };
+            quiet.onchange = e => write({ quiet: Number(e.target.value) });
+        }
+    }
+});
 // @editor-only
 //==========================================================
 // SECTION 25c: WORKSPACE ITEM BAG EXTRAS (SORTING, SEARCH CHIPS, HOVER CARD, EMPTY TABS)
@@ -54904,6 +59374,174 @@ Object.assign(DocsDoodads.Workspace, {
 });
 // @editor-only
 //==========================================================
+// SECTION 25K: BAKE THIS MAP (7.3.4)
+//==========================================================
+// Map → Bake This Map / Bake Every Map draws each map's still doodads into chunk pictures and keeps the manifest
+// with the doodad data (so Save writes it). A map with nothing still has its old chunks removed. Any later change
+// to a map's doodads makes its bake stale: the game then draws the real doodads, and Problems says to bake again.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, B = D.Bake;
+
+    Object.assign(W, {
+        bakeSources(mapId) {
+            const live = window.$dataDocsDoodads || {};
+            if (mapId === this.currentMapId() || Array.isArray(live[mapId])) {
+                const map = mapId === this.currentMapId() && window.$dataMap ? $dataMap : D.FS.readJson(D.Persistence.mapFilePath(mapId));
+                return { list: live[mapId] || [], map };
+            }
+            const all = D.DataFiles.readAll() || {};
+            return { list: all[mapId] || [], map: D.FS.readJson(D.Persistence.mapFilePath(mapId)) };
+        },
+
+        // A chunk's picture: PNG bytes. The default draws with a canvas and the pictures MZ loads.
+        async drawBakeChunk(chunk, tw, th, mapW, mapH) {
+            const size = B.size, w = Math.min(size, mapW - chunk.cx * size), h = Math.min(size, mapH - chunk.cy * size);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, w); canvas.height = Math.max(1, h);
+            const ctx = canvas.getContext('2d');
+            for (const it of chunk.items) {
+                const d = it.d, bmp = D.loadBitmap(d.bit[1]);
+                if (bmp && bmp.isReady && !bmp.isReady()) await new Promise(resolve => bmp.addLoadListener(resolve));
+                const image = bmp && (bmp._image || bmp._canvas || bmp.canvas);
+                if (!image) continue;
+                const fw = Number(d.frameW) || bmp.width, fh = Number(d.frameH) || bmp.height;
+                ctx.save();
+                ctx.globalAlpha = d.opacity !== undefined ? Number(d.opacity) : 1;
+                ctx.translate(d.x - chunk.cx * size, d.y - chunk.cy * size);
+                if (Number(d.rotation)) ctx.rotate(Number(d.rotation) * Math.PI / 180);
+                ctx.scale(d.scaleX !== undefined ? d.scaleX : 1, d.scaleY !== undefined ? d.scaleY : 1);
+                const ax = d.anchorX !== undefined ? d.anchorX : 0.5, ay = d.anchorY !== undefined ? d.anchorY : 1;
+                ctx.drawImage(image, Number(d.frameX) || 0, Number(d.frameY) || 0, fw, fh, -ax * fw, -ay * fh, fw, fh);
+                ctx.restore();
+            }
+            const url = canvas.toDataURL('image/png');
+            return Buffer.from(url.slice(url.indexOf(',') + 1), 'base64');
+        },
+
+        // Bakes one map. draw(chunk, tw, th, mapW, mapH) → PNG bytes (tests give their own). Returns the manifest or null.
+        async bakeMap(mapId, draw) {
+            const FS = D.FS;
+            const { list, map } = this.bakeSources(mapId);
+            if (!map) throw new Error(`Map ${mapId} could not be read.`);
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), mapW = map.width * tw, mapH = map.height * th;
+            const ms = D.Lighting.mapSettings(mapId);
+            const usable = list.filter(d => d && D.Layers.visibleInGame(d, ms));
+            const chunks = B.chunks(usable, mapW, mapH);
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            FS.mkdirp(B.dir);
+            const prefix = `Map${String(mapId).padStart(3, '0')}_`;
+            const old = FS.fs.readdirSync(B.dir).filter(f => f.startsWith(prefix) && f.endsWith('.png'));
+            if (!chunks.length) {
+                for (const f of old) FS.fs.unlinkSync(`${B.dir}/${f}`);
+                if (data.baked) { delete data.baked[mapId]; if (!Object.keys(data.baked).length) delete data.baked; }
+                D.Persistence.dirtyDoodads = true;
+                return null;
+            }
+            const manifest = B.manifest(mapId, chunks, list);
+            for (const c of chunks) FS.fs.writeFileSync(B.file(mapId, c.band, c.cx, c.cy), await (draw || this.drawBakeChunk.bind(this))(c, tw, th, mapW, mapH));
+            const keep = new Set(manifest.chunks.map(c => c.file.split('/').pop()));
+            for (const f of old) if (!keep.has(f)) FS.fs.unlinkSync(`${B.dir}/${f}`);
+            data.baked = data.baked || {};
+            data.baked[mapId] = manifest;
+            D.Persistence.dirtyDoodads = true;
+            return manifest;
+        },
+
+        async bakeMaps(ids, draw) {
+            const progress = D.Ui.progress ? D.Ui.progress('Baking maps', { delay: 200 }) : null;
+            const done = [];
+            try {
+                for (let i = 0; i < ids.length; i++) {
+                    if (progress && progress.set) progress.set((i + 1) / ids.length, `Map ${ids[i]}`);
+                    const m = await this.bakeMap(ids[i], draw);
+                    done.push({ mapId: ids[i], chunks: m ? m.chunks.length : 0, doodads: m ? m.uids.length : 0 });
+                }
+            } finally { if (progress && progress.done) progress.done(); }
+            return done;
+        },
+
+        // Maps whose bake no longer matches their doodads.
+        staleBakes() {
+            const data = window.$dataDocsDoodads || {};
+            return Object.keys(data.baked || {}).map(Number).filter(id => B.stale(data.baked[id], data[id] || []));
+        }
+    });
+
+    // Problems: a stale bake.
+    const problems = W.collectProblems;
+    if (typeof problems === 'function') {
+        W.collectProblems = function() {
+            const out = problems.apply(this, arguments) || [];
+            for (const id of this.staleBakes()) out.push({ kind: 'bakeStale', mapId: id, global: true, text: `Map ${id}'s baked pictures are out of date: Map → Bake This Map again (the game draws the real doodads until then).` });
+            return out;
+        };
+    }
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) {
+            map.items.push({ id: 'dd-bake-btn', icon: 'picture', label: 'Bake This Map', title: 'Draw still doodads into a few big pictures, for phones and slow machines' });
+            map.items.push({ id: 'dd-bake-all-btn', icon: 'picture', label: 'Bake Every Map', title: 'Bake every map that has doodads' });
+        }
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments), node = id => (typeof document !== 'undefined' ? document.getElementById(id) : null);
+        const report = done => {
+            const n = done.reduce((a, r) => a + r.doodads, 0), c = done.reduce((a, r) => a + r.chunks, 0);
+            this.showToast(`Baked ${n} still doodads into ${c} pictures. Save to keep it; a change to a map's doodads needs baking again.`);
+        };
+        const one = node('dd-bake-btn'), all = node('dd-bake-all-btn');
+        if (one) one.onclick = async () => { if (this.showMoreMenu) this.showMoreMenu(false); try { report(await this.bakeMaps([this.currentMapId()])); } catch (e) { this.showToast(String(e.message || e), 'error'); } };
+        if (all) all.onclick = async () => {
+            if (this.showMoreMenu) this.showMoreMenu(false);
+            const data = window.$dataDocsDoodads || {}, saved = D.DataFiles.readAll() || {};
+            const ids = Array.from(new Set(Object.keys(data).concat(Object.keys(saved)).filter(k => /^\d+$/.test(k)).map(Number))).sort((a, b) => a - b);
+            try { report(await this.bakeMaps(ids)); } catch (e) { this.showToast(String(e.message || e), 'error'); }
+        };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25B: BRIDGES IN THE MAP PANEL (9.2.3)
+//==========================================================
+// Map settings → Bridges: the regions of a bridge's deck and of its ends. Paint them with the Regions tool; the
+// legend says "bridge deck" and "bridge end".
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const s = DocsDoodads.Bridges.normalize(mapSettings && mapSettings.bridges) || { deck: '', ends: '' };
+        return `
+            <details id="dd-bridges-sec" ${this._openBridges ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Bridges (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <div>Deck regions (walked on top, and under)
+                        <input type="text" id="dd-bridges-deck" value="${escapeHtml(s.deck)}" placeholder="none" style="width: 100%;" /></div>
+                    <div>End regions (where you step up and down)
+                        <input type="text" id="dd-bridges-ends" value="${escapeHtml(s.ends)}" placeholder="none" style="width: 100%;" /></div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Stepping onto an end goes up onto the deck; from the ground straight under the deck stays below. On top you can't step off the side; below, only the ground tiles under the deck decide. Make the deck's tiles ☆ (over characters) in the tileset so whoever is below walks under them. An event starts on top with &lt;docs bridge: over&gt; in its note. Flat maps; Check Reach and Show Collision show the ground level.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-bridges-sec');
+        if (details) details.ontoggle = () => { this._openBridges = details.open; };
+        const write = () => {
+            const deck = document.getElementById('dd-bridges-deck'), ends = document.getElementById('dd-bridges-ends');
+            const value = DocsDoodads.Bridges.normalize({ deck: deck ? deck.value : '', ends: ends ? ends.value : '' });
+            this.setMapSetting('bridges', value || undefined);
+            if (this.renderRegionLegend) this.renderRegionLegend();
+        };
+        for (const id of ['dd-bridges-deck', 'dd-bridges-ends']) {
+            const input = document.getElementById(id);
+            if (input) input.onchange = write;
+        }
+    }
+});
+// @editor-only
+//==========================================================
 // SECTION 25j: WORKSPACE MAP CHECK (PROBLEMS PANEL, REACHABILITY)
 //==========================================================
 // Problems (More): things that are probably mistakes, on this map or every map, each with Go To and,
@@ -55330,6 +59968,73 @@ Object.assign(DocsDoodads.Workspace, {
             return copy;
         },
 
+        // Replaces (or with null, deletes) a user's kind, as one Undo step.
+        setMapKind(kindId, next) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            if (M.isBuiltIn(kindId)) return false;
+            const before = JSON.parse(JSON.stringify(Array.isArray(data.mapKinds) ? data.mapKinds : []));
+            const after = before.filter(k => k && k.id !== kindId);
+            if (next) {
+                const at = before.findIndex(k => k && k.id === kindId);
+                after.splice(at < 0 ? after.length : at, 0, M.cleanKind(next));
+            }
+            const write = list => {
+                data.mapKinds = JSON.parse(JSON.stringify(list));
+                if (!data.mapKinds.length) delete data.mapKinds;
+                D.Persistence.dirtyDoodads = true;
+            };
+            D.Undo.execute({ type: 'map_kind', label: next ? 'Edit kind of map' : 'Delete kind of map', apply: () => write(after), revert: () => write(before) });
+            return true;
+        },
+
+        // Edit Kind: its name and scale, its classes (name, walkable, height, region, biome, tile), add and remove
+        // classes, or delete it. Built-in kinds are copied first. Resolves the kind's id afterwards (null if deleted).
+        async editMapKind(kindId) {
+            let kind = this.mapKinds().find(k => k.id === kindId);
+            if (!kind) return null;
+            if (M.isBuiltIn(kind.id)) {
+                const name = await D.Ui.prompt('Built-in kinds stay as they are. A name for your copy', kind.name + ' (mine)', { title: 'Edit Kind' });
+                if (!name) return kindId;
+                kind = this.copyMapKind(kind.id, name);
+            }
+            for (let round = 0; round < 200; round++) {
+                kind = this.mapKinds().find(k => k.id === kind.id);
+                const buttons = kind.classes.map(c => ({ label: `${c.name}${c.passable ? '' : ' (blocked)'}${c.height ? ` · height ${c.height}` : ''}`, value: 'class:' + c.id }))
+                    .concat([{ label: 'Add a Class', value: 'add' }, { label: 'Name and Scale', value: 'name' },
+                        { label: 'Delete This Kind', value: 'delete', kind: 'danger' }, { label: 'Done', value: 'done', kind: 'primary' }]);
+                const pick = await D.Ui.choose(`${kind.name}: pick a class to change it.`, buttons, { title: 'Edit Kind', stack: true, cancelValue: 'done' });
+                if (!pick || pick === 'done') return kind.id;
+                if (pick === 'delete') {
+                    if (await D.Ui.confirm(`Delete ${kind.name}? Maps made with it keep their tiles.`, { danger: true, okLabel: 'Delete' })) { this.setMapKind(kind.id, null); return null; }
+                    continue;
+                }
+                if (pick === 'name') {
+                    const v = await D.Ui.form({ title: 'Name and Scale', fields: [{ key: 'name', label: 'Name', value: kind.name }, { key: 'scale', label: 'What a tile is', value: kind.scale }] });
+                    if (v) this.setMapKind(kind.id, Object.assign({}, kind, { name: v.name || kind.name, scale: v.scale }));
+                    continue;
+                }
+                const id = pick === 'add' ? null : pick.slice(6);
+                const cls = id ? kind.classes.find(c => c.id === id) : { name: 'New class', passable: true, height: 0, region: 0, biome: '', tile: null };
+                const biomes = [{ value: '', label: 'None' }].concat((D.World.get('biomes.list') || []).map(b => ({ value: String(b.id), label: b.name || b.id })));
+                const fields = [
+                    { key: 'name', label: 'Name', value: cls.name },
+                    { key: 'passable', label: 'Walkable', type: 'checkbox', value: cls.passable !== false },
+                    { key: 'height', label: 'Hill height (0-16)', value: String(cls.height || 0) },
+                    { key: 'region', label: 'Region (0 for none)', value: String(cls.region || 0) },
+                    { key: 'biome', label: 'Biome art', type: 'select', options: biomes, value: cls.biome || '' },
+                    { key: 'tile', label: 'Tile id (blank: choose per tileset in the card)', value: cls.tile ? String(cls.tile) : '' }
+                ];
+                if (id) fields.push({ key: 'remove', label: 'Remove this class', type: 'checkbox', value: false });
+                const v = await D.Ui.form({ title: id ? 'Change Class' : 'Add a Class', ok: id ? 'Keep' : 'Add', fields });
+                if (!v) continue;
+                const change = { name: v.name || cls.name, passable: Boolean(v.passable), height: Number(v.height) || 0, region: Number(v.region) || 0,
+                    biome: v.biome || '', tile: Number(v.tile) > 0 ? Math.floor(Number(v.tile)) : null };
+                const next = !id ? M.addClass(kind, change) : v.remove ? M.removeClass(kind, id) : M.updateClass(kind, id, change);
+                if (next) this.setMapKind(kind.id, next);
+            }
+            return kind.id;
+        },
+
         loadMapFromPicture(file) {
             return new Promise((resolve, reject) => {
                 const url = typeof URL !== 'undefined' && URL.createObjectURL && file instanceof Blob ? URL.createObjectURL(file) : String(file);
@@ -55460,7 +60165,8 @@ Object.assign(DocsDoodads.Workspace, {
                 const used = made ? Array.from(new Set(made.plan.cells.filter(Boolean))) : [];
                 card.innerHTML = `<div class="dd-panel-head">Picture to Map <button class="dd-btn" id="dd-mf-close" type="button">Close</button></div>
                     <label>Kind of map <select id="dd-mf-kind">${kinds.map(k => `<option value="${escapeHtml(k.id)}"${k.id === kind.id ? ' selected' : ''}>${escapeHtml(k.name)}</option>`).join('')}</select>
-                    <button class="dd-btn" id="dd-mf-copy" type="button">Copy Kind</button></label>
+                    <button class="dd-btn" id="dd-mf-copy" type="button">Copy Kind</button>
+                    <button class="dd-btn" id="dd-mf-edit" type="button" title="Change this kind's classes; a built-in kind is copied first">Edit Kind</button></label>
                     <div style="color:var(--dd-muted);">${escapeHtml(kind.scale)}</div>
                     ${(kind.base || kind.id) === 'room' ? `<label>Room name (for furniture) <input id="dd-mf-room" type="text" value="${escapeHtml(state.roomName)}"></label>` : ''}
                     ${(kind.base || kind.id) === 'dungeon' ? `<label>Cave walls (rough) <input id="dd-mf-rough" type="range" min="0" max="1" step="0.1" value="${state.roughen}"></label>` : ''}
@@ -55482,6 +60188,10 @@ Object.assign(DocsDoodads.Workspace, {
                     const name = await D.Ui.prompt('A name for the copy', kind.name + ' (mine)', { title: 'Copy Kind' });
                     const copy = name ? this.copyMapKind(kind.id, name) : null;
                     if (copy) { state.kindId = copy.id; render(); }
+                };
+                node('dd-mf-edit').onclick = async () => {
+                    const id = await this.editMapKind(kind.id);
+                    state.kindId = id || 'overworld'; state.key = null; render();
                 };
                 const room = node('dd-mf-room'); if (room) room.onchange = () => { state.roomName = room.value; render(); };
                 const rough = node('dd-mf-rough'); if (rough) rough.onchange = () => { state.roughen = Number(rough.value) || 0; render(); };
@@ -55516,6 +60226,115 @@ Object.assign(DocsDoodads.Workspace, {
     W.bindEvents = function() {
         const result = bind.apply(this, arguments), button = typeof document !== 'undefined' ? document.getElementById('dd-map-from-btn') : null;
         if (button) button.onclick = () => { this.showMoreMenu(false); this.openMapFrom(); };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25H2: FROM A MAP FILE (8.5.5)
+//==========================================================
+// Map → From a Map File: an OpenStreetMap extract (.osm) or GeoJSON the user downloaded, and optionally a grey
+// height picture, become this map's tiles through Picture to Map's building step (its kinds and tiles per class).
+// The card says the area's real size and how much a tile is before anything is built. Nothing is downloaded here.
+// Apply writes the OpenStreetMap credit into CREDITS_MAPS.txt and says so.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, M = D.MapFrom;
+
+    Object.assign(W, {
+        readMapFileText(name, text) {
+            return /\.osm$/i.test(name) || /^\s*<\?xml|^\s*<osm/i.test(text) ? M.readOsm(text) : M.readGeoJson(text);
+        },
+
+        // { features, box, metres, plan } for the current state.
+        geoPlan(state) {
+            if (!state.features || !state.features.length) return null;
+            const kind = this.mapKinds().find(k => k.id === state.kindId) || this.mapKinds()[0];
+            const box = M.geoBox(state.features), metres = M.geoMetres(box);
+            const size = { w: $gameMap.width(), h: $gameMap.height() };
+            const plan = M.finish(M.fromGeo(state.features, state.heights, box, kind, size), kind);
+            return { kind, box, metres, size, plan };
+        },
+
+        // The credit, once, in CREDITS_MAPS.txt.
+        writeMapCredit() {
+            const FS = D.FS, file = 'CREDITS_MAPS.txt';
+            const now = FS.existsSync(file) ? FS.fs.readFileSync(file, 'utf8') : '';
+            if (now.includes('OpenStreetMap contributors')) return false;
+            FS.fs.writeFileSync(file, (now ? now.replace(/\s*$/, '\n\n') : '') + M.geoCredit + '\n');
+            return true;
+        },
+
+        applyGeoPlan(state) {
+            const made = this.geoPlan(state);
+            if (!made) return false;
+            this.applyMapFrom(made.plan, made.kind);
+            this.writeMapCredit();
+            this.showToast('Built from the map file. CREDITS_MAPS.txt has the OpenStreetMap credit: show it in your game\'s credits.');
+            return true;
+        },
+
+        openGeoCard() {
+            if (typeof document === 'undefined' || !document.createElement) return null;
+            const state = this._geo = this._geo || { kindId: 'town', features: null, heights: null, name: '' };
+            let card = document.getElementById('dd-geo-card');
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dd-geo-card'; card.className = 'dd-glass';
+                card.style.cssText = 'position:fixed;top:80px;right:20px;width:360px;max-height:75vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;';
+                document.body.appendChild(card);
+            }
+            const render = () => {
+                const made = this.geoPlan(state);
+                const kinds = this.mapKinds().map(k => `<option value="${escapeHtml(k.id)}"${k.id === state.kindId ? ' selected' : ''}>${escapeHtml(k.name)}</option>`).join('');
+                const sizeText = made ? `The area is ${Math.round(made.metres.w)} m × ${Math.round(made.metres.h)} m; on this ${made.size.w} × ${made.size.h} map a tile is about ${Math.max(1, Math.round(made.metres.w / made.size.w))} m.` : '';
+                card.innerHTML = `<div class="dd-panel-head">From a Map File <button class="dd-btn" id="dd-geo-close" type="button">Close</button></div>
+                    <div style="color:var(--dd-muted);margin-bottom:6px;">Download an extract yourself (an .osm file from openstreetmap.org's Export, or GeoJSON) and pick it here. Nothing is downloaded by the editor.</div>
+                    <label>Map file <input id="dd-geo-file" type="file" accept=".osm,.geojson,.json"></label>
+                    <label>Heights (a grey picture, optional) <input id="dd-geo-heights" type="file" accept="image/*"></label>
+                    <label>Kind of map <select id="dd-geo-kind">${kinds}</select></label>
+                    ${state.features ? `<div>${state.features.length} features read from ${escapeHtml(state.name)}.</div>` : ''}
+                    ${sizeText ? `<div style="color:var(--dd-muted);">${escapeHtml(sizeText)}</div>` : ''}
+                    ${made ? `<div>${made.plan.features.filter(f => f.type === 'bridge').length} bridges, ${made.plan.cells.filter(Boolean).length} tiles to build. Tiles for each class come from Picture to Map's choices.</div>` : ''}
+                    <button class="dd-btn dd-btn-primary" id="dd-geo-apply" type="button"${made ? '' : ' disabled'}>Apply</button>
+                    <div style="color:var(--dd-faint);margin-top:6px;">OpenStreetMap's data needs "© OpenStreetMap contributors" in your game: Apply writes it into CREDITS_MAPS.txt.</div>`;
+                const node = id => document.getElementById(id);
+                node('dd-geo-close').onclick = () => { if (card.parentNode) card.parentNode.removeChild(card); };
+                node('dd-geo-kind').onchange = e => { state.kindId = e.target.value; render(); };
+                node('dd-geo-file').onchange = async e => {
+                    const file = e.target.files && e.target.files[0];
+                    if (!file) return;
+                    try { state.features = this.readMapFileText(file.name, await file.text()); state.name = file.name; } catch (error) { this.showToast('That file could not be read: ' + (error.message || error), 'error'); }
+                    render();
+                };
+                node('dd-geo-heights').onchange = async e => {
+                    const file = e.target.files && e.target.files[0];
+                    if (!file) return;
+                    try {
+                        const pic = await this.loadMapFromPicture(file);
+                        const values = [];
+                        for (let i = 0; i < pic.width * pic.height; i++) values.push(pic.data[i * 4] / 255);
+                        state.heights = { w: pic.width, h: pic.height, values };
+                    } catch (error) { this.showToast(String(error.message || error), 'error'); }
+                    render();
+                };
+                node('dd-geo-apply').onclick = () => { if (this.applyGeoPlan(state) && card.parentNode) card.parentNode.removeChild(card); };
+            };
+            render();
+            return card;
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-geo-btn', icon: 'map', label: 'From a Map File', title: 'Roads, rivers, forests and buildings from an OpenStreetMap or GeoJSON file you downloaded' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-geo-btn') : null;
+        if (btn) btn.onclick = () => { if (this.showMoreMenu) this.showMoreMenu(false); this.openGeoCard(); };
         return result;
     };
 })();
@@ -57019,6 +61838,191 @@ Object.assign(DocsDoodads.Workspace, {
     };
 })();
 // @editor-only
+//==========================================================
+// SECTION 25G2: THE MORE LIKE THIS TOOL (8.3.3)
+//==========================================================
+// Map → More Like This: drag a box round a sample you like, then drag the region to fill. The fill shows on the map
+// (ground colours and doodad dots) until Apply, which paints the tiles (autotiles shaped to their neighbours) and
+// places the doodads as one Undo step. Reroll tries another seed. Flat maps; the ground layer and doodads.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, G = D.Generate;
+
+    Object.assign(W, {
+        moreLike: null,
+
+        // What the box holds: ground tile ids (layer 1) and doodads by the tile under their base.
+        moreLikeSample(rect) {
+            const view = this.tileMapView();
+            if (!view) return null;
+            const tiles = [], tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            for (let y = rect.y; y < rect.y + rect.h; y++) for (let x = rect.x; x < rect.x + rect.w; x++) tiles.push(Number(view.data[D.Tiles.index(view.width, view.height, x, y, 0)]) || 0);
+            const doodads = (D.doodads() || []).filter(d => d && !d.temp && d.bit && d.bit[0] === 3).map(d => ({
+                path: d.bit[1], x: Math.floor(d.x / tw) - rect.x, y: Math.floor((d.y - 1) / th) - rect.y, frameW: d.frameW, frameH: d.frameH, scale: Math.abs(Number(d.scaleX) || 1)
+            }));
+            return { w: rect.w, h: rect.h, tiles, doodads };
+        },
+
+        startMoreLike() {
+            this.moreLike = { phase: 'sample', seed: 1, drag: null, model: null, region: null, result: null, stuff: null };
+            this.setPlacementTool('moreLike');
+            this.showToast('Drag a box round a sample you like.');
+            this.renderMoreLikeCard();
+        },
+
+        moreLikeFill() {
+            const s = this.moreLike;
+            if (!s || !s.model || !s.region) return null;
+            const view = this.tileMapView(), r = s.region;
+            const fixed = (x, y) => {
+                const mx = r.x + x, my = r.y + y;
+                if (mx < 0 || my < 0 || mx >= view.width || my >= view.height) return null;
+                return G.kindOf(view.data[D.Tiles.index(view.width, view.height, mx, my, 0)]);
+            };
+            const rng = G.rng('more-like-' + s.seed);
+            s.result = G.fill({ w: r.w, h: r.h, fixed }, s.model, rng);
+            s.stuff = s.result.cells ? G.scatterLearned(s.result.cells, r.w, r.h, s.model, rng) : [];
+            if (s.result.error) this.showToast(s.result.error, 'warning');
+            this.renderMoreLikeCard();
+            return s.result;
+        },
+
+        applyMoreLike() {
+            const s = this.moreLike;
+            if (!s || !s.result || !s.result.cells) return false;
+            const view = this.tileMapView(), r = s.region, mapId = this.currentMapId(), tables = this.autotileTables();
+            const work = { width: view.width, height: view.height, loopX: view.loopX, loopY: view.loopY, data: Array.from(view.data) };
+            const changes = new Map();
+            s.result.cells.forEach((kind, i) => {
+                const x = r.x + (i % r.w), y = r.y + Math.floor(i / r.w);
+                for (const c of D.Tiles.paint(work, x, y, { ids: [[G.idOfKind(kind)]], layer: 0 }, tables)) {
+                    if (!changes.has(c.index)) changes.set(c.index, { before: c.before, after: c.after }); else changes.get(c.index).after = c.after;
+                    work.data[c.index] = c.after;
+                }
+            });
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight();
+            const docs = s.stuff.map(p => Object.assign(D.standardStruct(), {
+                bit: [3, p.path], frameW: p.frameW || 48, frameH: p.frameH || 48, scaleX: p.scale || 1, scaleY: p.scale || 1,
+                x: (r.x + p.x) * tw + tw / 2, y: (r.y + p.y) * th + th, uid: 'dd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+            }));
+            const list = window.$dataDocsDoodads[mapId] = window.$dataDocsDoodads[mapId] || [];
+            const step = this.doodadListStep('more_like_this', list, docs, true);
+            const tiles = which => { for (const [index, c] of changes) this.setMapTile(mapId, index, c[which]); this.afterTileEdit(); };
+            D.Undo.execute({ type: 'more_like_this', label: 'More like this', apply: () => { tiles('after'); step.apply(); }, revert: () => { step.revert(); tiles('before'); } });
+            s.result = null; s.stuff = null; s.region = null; s.phase = 'region';
+            this.renderMoreLikeCard();
+            return true;
+        },
+
+        closeMoreLike() {
+            this.moreLike = null;
+            if (this.placementTool === 'moreLike') this.setPlacementTool('select');
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-morelike-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        },
+
+        renderMoreLikeCard() {
+            if (typeof document === 'undefined' || !document.createElement || !document.body) return;
+            const s = this.moreLike;
+            let card = document.getElementById('dd-morelike-card');
+            if (!s) return;
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dd-morelike-card'; card.className = 'dd-glass';
+                card.style.cssText = 'position:fixed;top:80px;right:20px;width:300px;padding:10px;z-index:10040;font-size:11px;';
+                document.body.appendChild(card);
+            }
+            const said = s.phase === 'sample' ? 'Drag a box round a sample you like.' : !s.region ? 'Now drag the region to fill.' : s.result && s.result.cells ? 'Apply it, or Reroll for another.' : 'That did not fit; try another region or sample.';
+            card.innerHTML = `<div class="dd-panel-head">More Like This <button class="dd-btn" id="dd-morelike-close" type="button">Close</button></div>
+                <div style="color:var(--dd-muted);margin-bottom:6px;">${escapeHtml(said)}</div>
+                <button class="dd-btn dd-btn-primary" id="dd-morelike-apply" type="button"${s.result && s.result.cells ? '' : ' disabled'}>Apply</button>
+                <button class="dd-btn" id="dd-morelike-reroll" type="button"${s.region ? '' : ' disabled'}>Reroll</button>
+                <button class="dd-btn" id="dd-morelike-sample" type="button">New Sample</button>`;
+            const on = (id, fn) => { const el = document.getElementById(id); if (el) el.onclick = fn; };
+            on('dd-morelike-close', () => this.closeMoreLike());
+            on('dd-morelike-apply', () => this.applyMoreLike());
+            on('dd-morelike-reroll', () => { s.seed++; this.moreLikeFill(); });
+            on('dd-morelike-sample', () => { s.phase = 'sample'; s.model = null; s.region = null; s.result = null; this.renderMoreLikeCard(); });
+        },
+
+        // A box from the drag, in tiles.
+        moreLikeRect(a, b) {
+            const x0 = Math.min(a.x, b.x), y0 = Math.min(a.y, b.y), x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+            const view = this.tileMapView();
+            const cx = v => Math.max(0, Math.min(view.width - 1, v)), cy = v => Math.max(0, Math.min(view.height - 1, v));
+            return { x: cx(x0), y: cy(y0), w: cx(x1) - cx(x0) + 1, h: cy(y1) - cy(y0) + 1 };
+        },
+
+        moreLikeTileAt(e) {
+            const at = this.clientToMapCoords(e.clientX, e.clientY);
+            return { x: Math.floor(at.x / $gameMap.tileWidth()), y: Math.floor(at.y / $gameMap.tileHeight()) };
+        },
+
+        // Ends a drag: a sample is learned, a region is filled.
+        moreLikeDrop(rect) {
+            const s = this.moreLike;
+            if (!s) return null;
+            if (s.phase === 'sample') {
+                s.model = G.learn(this.moreLikeSample(rect));
+                if (s.model.error) { this.showToast(s.model.error, 'warning'); s.model = null; return null; }
+                s.phase = 'region';
+                this.showToast(`Learned ${s.model.kinds.length} kinds of ground. Now drag the region to fill.`);
+                this.renderMoreLikeCard();
+                return s.model;
+            }
+            s.region = rect;
+            return this.moreLikeFill();
+        },
+
+        drawMoreLike(g) {
+            const s = this.moreLike;
+            if (!s || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const tw = $gameMap.tileWidth(), th = $gameMap.tileHeight(), colour = D.Ui.mapColor('selection');
+            const box = r => { const p = D.mapToScreen(r.x * tw, r.y * th); g.lineStyle(2, colour, 0.9); g.drawRect(p.x, p.y, r.w * tw, r.h * th); g.lineStyle(0); };
+            if (s.drag) box(this.moreLikeRect(s.drag.from, s.drag.to));
+            if (s.region && s.result && s.result.cells) {
+                const hue = k => { let h = 0; for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0; return ((h & 0x7f) + 80) << 16 | (((h >> 7) & 0x7f) + 80) << 8 | (((h >> 14) & 0x7f) + 80); };
+                s.result.cells.forEach((k, i) => {
+                    const p = D.mapToScreen((s.region.x + (i % s.region.w)) * tw, (s.region.y + Math.floor(i / s.region.w)) * th);
+                    g.beginFill(hue(k), 0.45); g.drawRect(p.x, p.y, tw, th); g.endFill();
+                });
+                for (const d of s.stuff || []) {
+                    const p = D.mapToScreen((s.region.x + d.x + 0.5) * tw, (s.region.y + d.y + 0.5) * th);
+                    g.beginFill(0xffffff, 0.9); g.drawCircle(p.x, p.y, 3); g.endFill();
+                }
+                box(s.region);
+            }
+        }
+    });
+
+    W.toolHooks.moreLike = {
+        down(e) { const s = this.moreLike; if (!s) return false; const t = this.moreLikeTileAt(e); s.drag = { from: t, to: t }; return true; },
+        move(e, stroking) { const s = this.moreLike; if (s && s.drag && stroking) s.drag.to = this.moreLikeTileAt(e); },
+        up() {
+            const s = this.moreLike;
+            this._suppressNextClick = true;
+            if (!s || !s.drag) return;
+            const rect = this.moreLikeRect(s.drag.from, s.drag.to);
+            s.drag = null;
+            this.moreLikeDrop(rect);
+        },
+        overlay(g) { this.drawMoreLike(g); }
+    };
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-morelike-btn', icon: 'sparkle', label: 'More Like This', title: 'Lasso a sample; fill another region the same way (ground and doodads), as one undo step' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-morelike-btn') : null;
+        if (btn) btn.onclick = () => { if (this.showMoreMenu) this.showMoreMenu(false); this.startMoreLike(); };
+        return result;
+    };
+})();
+// @editor-only
 (function() {
     const W = DocsDoodads.Workspace, sections = W.effectSections;
     W.effectSections = function() {
@@ -58138,6 +63142,100 @@ DocsDoodads.SampleArt = {
         return c;
     },
 
+    // The sample project's set (7.1.8, scripts/sample.js): drawn here, so no one else's art is shipped.
+    sceneKinds: ['tree', 'house', 'houseOpen', 'fence', 'sign', 'chest', 'chestOpen', 'torch'],
+
+    tree() {
+        const c = this.canvas(32, 44);
+        c.rect(14, 28, 17, 43, [110, 76, 48]);
+        const leaf = (dx, dy) => (dx + dy < -0.5 ? [120, 190, 90] : dx + dy < 0.4 ? [70, 150, 70] : [44, 110, 56]);
+        c.ellipse(16, 16, 14, 13, leaf); c.ellipse(9, 22, 8, 7, leaf); c.ellipse(23, 22, 8, 7, leaf);
+        c.outline([28, 60, 32]);
+        return c;
+    },
+
+    houseFront(open) {
+        const c = this.canvas(48, 44);
+        c.rect(4, 18, 43, 43, [196, 170, 130]);
+        for (let y = 0; y < 18; y++) c.rect(24 - Math.round(y * 1.33) - 2, y, 23 + Math.round(y * 1.33) + 2, y, [160, 70, 60]);
+        c.rect(19, 28, 28, 43, open ? [40, 28, 24] : [120, 80, 50]);
+        if (!open) c.set(26, 36, [230, 200, 90]);
+        c.rect(8, 24, 14, 30, [140, 190, 220]); c.rect(33, 24, 39, 30, [140, 190, 220]);
+        c.outline([60, 40, 34]);
+        return c;
+    },
+    house() { return this.houseFront(false); },
+    houseOpen() { return this.houseFront(true); },
+
+    fence() {
+        const c = this.canvas(24, 16);
+        const wood = [170, 130, 80];
+        for (const x of [2, 11, 20]) c.rect(x, 2, x + 2, 15, wood);
+        c.rect(0, 5, 23, 6, wood); c.rect(0, 10, 23, 11, wood);
+        c.outline([90, 64, 40]);
+        return c;
+    },
+
+    sign() {
+        const c = this.canvas(20, 22);
+        c.rect(9, 10, 10, 21, [110, 76, 48]);
+        c.rect(1, 1, 18, 10, [200, 160, 100]);
+        c.rect(4, 4, 15, 4, [110, 80, 50]); c.rect(4, 7, 12, 7, [110, 80, 50]);
+        c.outline([80, 56, 36]);
+        return c;
+    },
+
+    chestBox(open) {
+        const c = this.canvas(20, 16);
+        c.rect(1, 6, 18, 15, [150, 96, 50]);
+        if (open) { c.rect(1, 0, 18, 4, [120, 76, 40]); c.rect(3, 6, 16, 8, [240, 200, 80]); } else c.rect(1, 3, 18, 7, [170, 110, 60]);
+        c.rect(9, open ? 9 : 6, 10, open ? 11 : 9, [230, 200, 90]);
+        c.outline([70, 44, 24]);
+        return c;
+    },
+    chest() { return this.chestBox(false); },
+    chestOpen() { return this.chestBox(true); },
+
+    torch() {
+        const c = this.canvas(10, 28);
+        c.rect(4, 10, 5, 27, [110, 76, 48]);
+        c.ellipse(5, 6, 3.5, 5, (dx, dy) => (dy < -0.2 ? [255, 236, 140] : [255, 150, 40]));
+        c.outline([90, 40, 20]);
+        return c;
+    },
+
+    // Two-frame sheets for Creatures (9.3.1): wings up, wings down.
+    creatureKinds: ['bird', 'butterfly'],
+
+    bird() {
+        const c = this.canvas(32, 12);
+        const body = [58, 48, 48], wing = [92, 78, 70];
+        for (const [x0, up] of [[0, true], [16, false]]) {
+            c.ellipse(x0 + 8, 7, 3, 2, () => body);
+            c.set(x0 + 11, 6, [230, 170, 60]);
+            for (let i = 1; i <= 5; i++) {
+                const y = up ? 6 - Math.round(i * 0.8) : 6 + Math.round(i * 0.5);
+                c.set(x0 + 8 - i, y, wing); c.set(x0 + 8 + Math.min(i, 3), y, wing);
+            }
+        }
+        c.outline([30, 24, 24]);
+        return c;
+    },
+
+    butterfly() {
+        const c = this.canvas(32, 12);
+        const wing = [245, 160, 208], spot = [255, 240, 122], body = [58, 42, 42];
+        for (const [x0, open] of [[0, true], [16, false]]) {
+            const w = open ? 5 : 2;
+            c.ellipse(x0 + 8 - w / 2 - 1, 5, w / 2 + 0.5, 3, () => wing);
+            c.ellipse(x0 + 8 + w / 2 + 1, 5, w / 2 + 0.5, 3, () => wing);
+            c.set(x0 + 8 - w / 2 - 1, 5, spot); c.set(x0 + 8 + w / 2 + 1, 5, spot);
+            c.rect(x0 + 8, 2, x0 + 8, 9, body);
+        }
+        c.outline([90, 40, 70]);
+        return c;
+    },
+
     lamp() {
         const c = this.canvas(12, 40);
         const post = [70, 66, 84], light = [255, 226, 130], frame = [44, 40, 56];
@@ -58316,7 +63414,7 @@ Object.assign(DocsDoodads.Workspace, {
         FS.mkdirp('img/doodads/samples');
         const assets = {};
         let drawn = 0;
-        for (const kind of DocsDoodads.SampleArt.kinds) {
+        for (const kind of DocsDoodads.SampleArt.kinds.concat(DocsDoodads.SampleArt.creatureKinds)) {
             const path = this.samplePath(kind);
             if (!FS.existsSync(path)) {
                 const art = DocsDoodads.SampleArt.draw(kind);
@@ -59223,6 +64321,193 @@ if (typeof Game_Map !== 'undefined') {
 }
 // @editor-only
 //==========================================================
+// SECTION 25M: THE PLACES CARD (8.5.4)
+//==========================================================
+// Map → Places: the world, its places and their rooms as a tree, each with Go To and a mark on a link whose
+// transfer is missing or lands on a blocked tile. "Make a Place Here" (at the picked event, or where the player
+// stands) makes the place's map (or uses one), a transfer there and one back at its entrance. "Make a Grid of
+// Maps" cuts a big area into maps of up to 256 tiles joined as neighbours, for World View and walking between
+// them. RPG Maker MZ must be closed and reopened afterwards to see new maps.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, NM = D.NewMap, P = D.Places;
+
+    Object.assign(W, {
+        setPlaces(list, label) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            const before = data.places ? JSON.parse(JSON.stringify(data.places)) : undefined;
+            const after = list.length ? JSON.parse(JSON.stringify(list)) : undefined;
+            const write = v => { if (v === undefined) delete data.places; else data.places = JSON.parse(JSON.stringify(v)); D.Persistence.dirtyDoodads = true; this.renderPlacesCard(); };
+            D.Undo.execute({ type: 'places', label: label || 'Places', apply: () => write(after), revert: () => write(before) });
+        },
+
+        // Adds a transfer event to the map on screen, as an Undo step (saved with the map).
+        addTransferHere(x, y, toMap, toX, toY, d, name) {
+            const mapId = $gameMap.mapId();
+            D.Persistence.stagedFor(mapId);
+            const staged = $gameMap._stagedMapData;
+            const id = D.Events.allocateSafeId(staged);
+            const ev = P.transferEvent(id, x, y, toMap, toX, toY, d, name);
+            D.Undo.execute({ type: 'create_event', label: 'Transfer to a place',
+                apply: () => { staged.events[id] = ev; D.Persistence.dirtyMap = true; },
+                revert: () => { delete staged.events[id]; D.Persistence.dirtyMap = true; } });
+            return id;
+        },
+
+        // Writes an event into another map's file (backed up), for a link to a map that already exists.
+        addTransferInFile(mapId, x, y, toMap, toX, toY, d, name) {
+            const FS = D.FS, file = D.Persistence.mapFilePath(mapId), map = FS.readJson(file);
+            if (!map) throw new Error(`Map ${mapId} could not be read.`);
+            const id = D.Events.allocateSafeId(map);
+            const spot = D.Events.nearestFreeTile(map, x, y, map.width, map.height) || { x, y };
+            while (map.events.length <= id) map.events.push(null);
+            map.events[id] = P.transferEvent(id, spot.x, spot.y, toMap, toX, toY, d, name);
+            const entries = [{ path: file, data: map, indent: 0 }];
+            FS.backupChanged(entries);
+            const result = FS.atomicWriteManyJson(entries);
+            if (!result.ok) throw new Error(result.error);
+            return spot;
+        },
+
+        // spec: { x, y, name, kind, mapId (to use one), width, height }. Returns the place.
+        makePlace(spec) {
+            const parentId = $gameMap.mapId(), kind = P.sizes[spec.kind] ? spec.kind : 'room';
+            const size = P.sizes[kind];
+            const x = Math.floor(Number(spec.x) || 0), y = Math.floor(Number(spec.y) || 0);
+            const back = { x, y: Math.min($gameMap.height() - 1, y + 1) };
+            let mapId = Math.floor(Number(spec.mapId) || 0), entrance;
+            if (!mapId) {
+                const w = Math.floor(Number(spec.width) || size[0]), h = Math.floor(Number(spec.height) || size[1]);
+                entrance = P.entrance(kind, w, h);
+                const ground = window.$dataMap && $dataMap.data ? 0 : 0;
+                mapId = NM.make({ name: spec.name, width: w, height: h, tilesetId: $gameMap.tilesetId ? $gameMap.tilesetId() : 1, parentId, ground,
+                    events: [P.transferEvent(1, entrance.x, entrance.y, parentId, back.x, back.y, 2, 'To ' + (spec.parentName || 'outside'))] });
+            } else {
+                const map = D.FS.readJson(D.Persistence.mapFilePath(mapId));
+                if (!map) throw new Error(`Map ${mapId} could not be read.`);
+                entrance = this.addTransferInFile(mapId, Math.floor(map.width / 2), map.height - 2, parentId, back.x, back.y, 2, 'To ' + (spec.parentName || 'outside'));
+            }
+            this.addTransferHere(x, y, mapId, entrance.x, Math.max(0, entrance.y - 1), 8, 'To ' + (spec.name || 'Map ' + mapId));
+            const place = { id: 'place_' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36), name: String(spec.name || 'Place'), mapId, kind,
+                parent: { mapId: parentId, x, y }, entrance };
+            this.setPlaces(P.list().concat([place]), 'Link a place');
+            return place;
+        },
+
+        // Only the link goes; its map and transfers stay (say so).
+        removePlace(id) {
+            this.setPlaces(P.list().filter(p => p.id !== id), 'Remove place');
+        },
+
+        // A grid of maps for a big area, joined as neighbours. Returns the new ids in grid order.
+        makeMapGrid(name, tilesW, tilesH) {
+            const pieces = NM.grid(Math.floor(tilesW), Math.floor(tilesH));
+            if (pieces.length > 64) throw new Error('That would be more than 64 maps.');
+            const ids = pieces.map((p, i) => NM.make({ name: `${name} ${p.col + 1}-${p.row + 1}`, width: p.width, height: p.height,
+                tilesetId: $gameMap.tilesetId ? $gameMap.tilesetId() : 1, parentId: $gameMap.mapId() }));
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            data.mapSettings = data.mapSettings || {};
+            pieces.forEach((p, i) => {
+                const neighbors = {};
+                for (const [side, j] of Object.entries(p.links)) neighbors[side] = ids[j];
+                data.mapSettings[ids[i]] = Object.assign({}, data.mapSettings[ids[i]], { neighbors });
+            });
+            D.Persistence.dirtyDoodads = true;
+            return ids;
+        },
+
+        closePlacesCard() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-places-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        },
+
+        openPlacesCard() {
+            if (typeof document === 'undefined' || !document.createElement) return null;
+            NM.remember();
+            let card = document.getElementById('dd-places-card');
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dd-places-card'; card.className = 'dd-glass';
+                card.style.cssText = 'position:fixed;top:80px;right:20px;width:400px;max-height:75vh;overflow:auto;padding:12px;z-index:10040;font-size:11px;';
+                document.body.appendChild(card);
+            }
+            this.renderPlacesCard();
+            return card;
+        },
+
+        placeProblems(place) {
+            const FS = D.FS, read = id => (id === $gameMap.mapId() && $gameMap._stagedMapData ? $gameMap._stagedMapData : FS.readJson(D.Persistence.mapFilePath(id)));
+            const flagsOf = ts => ((window.$dataTilesets || [])[ts] || {}).flags || [];
+            const c = P.check(place, read, flagsOf);
+            return [c.missingThere && 'no transfer there', c.missingBack && 'no way back', c.blockedThere && 'lands on a blocked tile', c.blockedBack && 'the way back lands on a blocked tile'].filter(Boolean);
+        },
+
+        renderPlacesCard() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-places-card') : null;
+            if (!card) return;
+            const infos = window.$dataMapInfos || [];
+            const nameOf = id => (infos[id] && infos[id].name) || 'Map ' + id;
+            const rows = P.tree(P.list());
+            card.innerHTML = `<div class="dd-panel-head">Places <button class="dd-btn" id="dd-places-close" type="button">Close</button></div>
+                ${rows.map((r, i) => r.root !== undefined
+                    ? `<div style="font-weight:bold;margin-top:4px;">${escapeHtml(nameOf(r.root))} <button class="dd-btn" type="button" id="dd-places-go-root-${i}">Go To</button></div>`
+                    : `<div style="display:flex;gap:6px;align-items:center;margin-left:${r.depth * 14}px;"><span style="flex:1;">${escapeHtml(r.place.name)} · ${escapeHtml(r.place.kind || '')} · ${escapeHtml(nameOf(r.place.mapId))}
+                        ${(() => { const p = this.placeProblems(r.place); return p.length ? `<span style="color:var(--dd-danger, #ff7070);"> (${escapeHtml(p.join(', '))})</span>` : ''; })()}</span>
+                        <button class="dd-btn" type="button" id="dd-places-go-${i}">Go To</button><button class="dd-btn" type="button" id="dd-places-del-${i}">Remove</button></div>`).join('')
+                    || '<div style="color:var(--dd-faint);">No places yet.</div>'}
+                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;"><button class="dd-btn dd-btn-primary" type="button" id="dd-places-make">Make a Place Here</button>
+                    <button class="dd-btn" type="button" id="dd-places-grid">Make a Grid of Maps</button></div>
+                <div style="color:var(--dd-faint);margin-top:6px;">New maps are written with a backup. Close and reopen the project in RPG Maker MZ to see them; if MZ saves while it is open, it puts back its own list of maps.</div>`;
+            const node = id => document.getElementById(id);
+            node('dd-places-close').onclick = () => this.closePlacesCard();
+            rows.forEach((r, i) => {
+                const go = node(r.root !== undefined ? `dd-places-go-root-${i}` : `dd-places-go-${i}`);
+                if (go) go.onclick = () => this.goToMap(r.root !== undefined ? r.root : r.place.mapId);
+                const del = node(`dd-places-del-${i}`);
+                if (del) del.onclick = async () => {
+                    if (await D.Ui.confirm(`Remove the link to ${r.place.name}? Its map (${nameOf(r.place.mapId)}) and its transfer events stay; delete them in RPG Maker MZ if you want them gone.`, { okLabel: 'Remove Link' })) this.removePlace(r.place.id);
+                };
+            });
+            node('dd-places-make').onclick = async () => {
+                const ev = this.selectedEvent && (this.selectedEvent.stagedEvent || (this.selectedEvent.gameEvent && this.selectedEvent.gameEvent.event()));
+                const at = ev ? { x: ev.x, y: ev.y } : { x: $gamePlayer.x, y: $gamePlayer.y };
+                const v = await D.Ui.form({ title: `A Place at ${at.x}, ${at.y}`, ok: 'Make It', fields: [
+                    { key: 'name', label: 'Name', value: 'House' },
+                    { key: 'kind', label: 'Kind', type: 'select', value: 'room', options: Object.keys(P.sizes).map(k => ({ value: k, label: k })) },
+                    { key: 'mapId', label: 'Use a map that exists (its id; blank makes one)', value: '' }] });
+                if (!v) return;
+                try {
+                    const place = this.makePlace({ x: at.x, y: at.y, name: v.name, kind: v.kind, mapId: v.mapId, parentName: nameOf($gameMap.mapId()) });
+                    this.showToast(`${place.name} is Map ${place.mapId}, with transfers both ways. Save, then close and reopen the project in RPG Maker MZ to see it.`);
+                } catch (error) { this.showToast(String(error.message || error), 'error'); }
+            };
+            node('dd-places-grid').onclick = async () => {
+                const v = await D.Ui.form({ title: 'A Grid of Maps', ok: 'Make Them', fields: [
+                    { key: 'name', label: 'Name', value: 'World' }, { key: 'w', label: 'Tiles across in all', value: '512' }, { key: 'h', label: 'Tiles down in all', value: '256' }] });
+                if (!v) return;
+                try {
+                    const ids = this.makeMapGrid(v.name || 'World', Number(v.w) || 256, Number(v.h) || 256);
+                    this.showToast(`Made ${ids.length} maps (${ids.join(', ')}) joined as neighbours. Save, then reopen the project in RPG Maker MZ.`);
+                } catch (error) { this.showToast(String(error.message || error), 'error'); }
+            };
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-places-btn', icon: 'map', label: 'Places', title: "The world's places and rooms as a tree: make a place's map with transfers both ways, check its links, go to it" });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-places-btn') : null;
+        if (btn) btn.onclick = () => { if (this.showMoreMenu) this.showMoreMenu(false); this.openPlacesCard(); };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
 // SECTION 25: WORKSPACE: BOOKMARKS
 //==========================================================
 // Places on big maps to jump back to (DocsDoodads.Bookmarks, 11_ruler_bookmarks.js). Bookmark This View
@@ -59562,6 +64847,166 @@ Object.assign(DocsDoodads.Workspace, {
             try { if (typeof nw !== 'undefined' && nw.Shell && FS.path) nw.Shell.showItemInFolder(FS.path.resolve(file)); } catch (error) {}
             return file;
         } catch (error) { this.showToast('Could not save the report: ' + error.message, 'error'); return false; }
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25P: PANELS IN THEIR OWN WINDOW (7.2.5)
+//==========================================================
+// View → Item Bag in a Window / Details in a Window opens a second NW.js window, copies the theme's styles into
+// it and moves the panel's element there (adoptNode), so its code keeps running in the game's window and its
+// handlers keep working. Lookups by id still find it: document.getElementById also looks in the open panel
+// windows. Keys pressed there reach the shortcut table (not while typing in a field), and the game does not
+// pause while that window has focus. Closing the window, Dock Back, closing the editor or ending the playtest
+// put the panel back where it was; each window's place is kept per computer and layout.
+// Drags from the second window onto the map can't cross windows: pick an item there, then click the map.
+(function() {
+    const D = DocsDoodads, W = D.Workspace;
+    const ids = { drawer: 'dd-drawer-panel', inspector: 'dd-inspector-panel' };
+    const titles = { drawer: 'Item Bag', inspector: 'Details' };
+    const open = W._popouts = {};
+
+    // ---- Lookups ----
+    if (typeof document !== 'undefined' && typeof document.getElementById === 'function' && !document._docsPopoutLookup) {
+        const own = document.getElementById.bind(document);
+        document.getElementById = function(id) {
+            const found = own(id);
+            if (found) return found;
+            for (const p of Object.values(open)) {
+                const doc = p && p.doc;
+                const el = doc && doc.getElementById ? doc.getElementById(id) : null;
+                if (el) return el;
+            }
+            return null;
+        };
+        document._docsPopoutLookup = true;
+    }
+
+    // ---- The game keeps running while a panel window has focus ----
+    if (typeof SceneManager !== 'undefined' && typeof SceneManager.isGameActive === 'function') {
+        const active = SceneManager.isGameActive;
+        SceneManager.isGameActive = function() {
+            if (Object.values(open).some(p => p && p.doc && typeof p.doc.hasFocus === 'function' && p.doc.hasFocus())) return true;
+            return active.apply(this, arguments);
+        };
+    }
+
+    Object.assign(W, {
+        popoutKey(which) { return 'popout_' + which + '_' + (this.currentLayoutName ? this.currentLayoutName() : 'default'); },
+
+        _popoutPlaces: {},
+        // Where its window was last: kept per computer (and for this session when preferences can't be written).
+        popoutPlace(which) {
+            const key = this.popoutKey(which), prefs = D.Ui.prefs ? D.Ui.prefs() : {};
+            return (prefs && prefs[key]) || this._popoutPlaces[key] || {};
+        },
+
+        canPopOut() { return typeof nw !== 'undefined' && nw.Window && typeof nw.Window.open === 'function'; },
+
+        isPoppedOut(which) { return Boolean(open[which]); },
+
+        // Moves a panel into a new window. Resolves true when it is there.
+        popOut(which) {
+            const id = ids[which];
+            const panel = id && typeof document !== 'undefined' ? document.getElementById(id) : null;
+            if (!panel || open[which]) return Promise.resolve(false);
+            if (!this.canPopOut()) { this.showToast('Panels in their own window need the desktop playtest (NW.js). View → Bigger Window gives the map more room instead.', 'info'); return Promise.resolve(false); }
+            const saved = this.popoutPlace(which);
+            return new Promise(resolve => {
+                nw.Window.open('about:blank', { width: saved.width || 360, height: saved.height || 600, x: saved.x, y: saved.y, title: titles[which], focus: true }, win => {
+                    const attach = () => {
+                        const w = win.window, doc = w && w.document;
+                        if (!doc || !doc.body) { resolve(false); return; }
+                        resolve(this.adoptPanel(which, panel, win, doc));
+                    };
+                    if (win.window && win.window.document && win.window.document.readyState === 'complete') attach();
+                    else if (win.on) win.on('loaded', attach); else attach();
+                });
+            });
+        },
+
+        // The move itself (the window is ready): styles, the panel, keys, and putting it back on close.
+        adoptPanel(which, panel, win, doc) {
+            doc.title = titles[which];
+            for (const style of Array.from(document.querySelectorAll ? document.querySelectorAll('style, link[rel="stylesheet"]') : [])) {
+                if (doc.head && doc.importNode) doc.head.appendChild(doc.importNode(style, true));
+            }
+            const theme = document.documentElement && document.documentElement.getAttribute ? document.documentElement.getAttribute('data-dd-theme') : null;
+            if (theme && doc.documentElement && doc.documentElement.setAttribute) doc.documentElement.setAttribute('data-dd-theme', theme);
+            if (doc.body.style) doc.body.style.cssText = 'margin:0;background:var(--dd-bg, #1c1c22);color:var(--dd-text, #eee);overflow:auto;';
+            const parent = panel.parentNode, next = panel.nextSibling;
+            const style = panel.style ? panel.style.cssText : '';
+            const moved = doc.adoptNode ? doc.adoptNode(panel) : panel;
+            if (moved.style) moved.style.cssText = style + ';position:static;left:auto;top:auto;right:auto;bottom:auto;width:100%;height:100%;max-height:none;display:block;';
+            doc.body.appendChild(moved);
+            const forward = e => {
+                if (D.isEditableTarget && D.isEditableTarget(e.target)) return;
+                const copy = typeof KeyboardEvent !== 'undefined' ? new KeyboardEvent('keydown', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, bubbles: true, cancelable: true }) : e;
+                window.dispatchEvent(copy);
+                if (copy.defaultPrevented && e.preventDefault) e.preventDefault();
+            };
+            if (doc.addEventListener) doc.addEventListener('keydown', forward);
+            open[which] = { win, doc, panel: moved, parent, next, style, forward };
+            if (!this._popoutUnload && typeof window !== 'undefined' && window.addEventListener) { this._popoutUnload = true; window.addEventListener('beforeunload', () => this.dockAllBack()); }
+            if (win.on) win.on('close', () => { this.dockBack(which); win.close(true); });
+            if (this.applyDockPositions) this.applyDockPositions();
+            return true;
+        },
+
+        // Back into the editor, where it was. Keeps the window's place for next time.
+        dockBack(which) {
+            const p = open[which];
+            if (!p) return false;
+            delete open[which];
+            try {
+                if (p.win && p.win.x !== undefined) {
+                    const place = { x: p.win.x, y: p.win.y, width: p.win.width, height: p.win.height };
+                    this._popoutPlaces[this.popoutKey(which)] = place;
+                    D.Ui.setPref(this.popoutKey(which), place);
+                }
+            } catch (e) { /* place not kept */ }
+            if (p.doc && p.doc.removeEventListener) p.doc.removeEventListener('keydown', p.forward);
+            const node = document.adoptNode ? document.adoptNode(p.panel) : p.panel;
+            if (node.style) node.style.cssText = p.style;
+            if (p.parent) { if (p.next && p.next.parentNode === p.parent) p.parent.insertBefore(node, p.next); else p.parent.appendChild(node); }
+            if (this.applyDockPositions) this.applyDockPositions();
+            return true;
+        },
+
+        dockAllBack() {
+            for (const which of Object.keys(open)) {
+                const win = open[which] && open[which].win;
+                this.dockBack(which);
+                try { if (win && win.close) win.close(true); } catch (e) { /* already closed */ }
+            }
+        }
+    });
+
+    // Closing the editor or the playtest docks everything back.
+    // Closing the editor calls closeMapTools; panels come back with it.
+    const closeTools = W.closeMapTools;
+    if (typeof closeTools === 'function') W.closeMapTools = function() { this.dockAllBack(); return closeTools.apply(this, arguments); };
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), view = all.find(menu => menu.id === 'view');
+        if (view) {
+            view.items.push({ id: 'dd-popout-drawer-btn', icon: 'grid', label: () => (this.isPoppedOut('drawer') ? 'Dock the Item Bag Back' : 'Item Bag in a Window'), span: 'dd-popout-drawer-label', title: 'Move the Item Bag to a window of its own (pick an item there, then click the map)' });
+            view.items.push({ id: 'dd-popout-inspector-btn', icon: 'grid', label: () => (this.isPoppedOut('inspector') ? 'Dock Details Back' : 'Details in a Window'), span: 'dd-popout-inspector-label', title: 'Move Details to a window of its own' });
+        }
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        for (const which of ['drawer', 'inspector']) {
+            const btn = typeof document !== 'undefined' ? document.getElementById(`dd-popout-${which}-btn`) : null;
+            if (btn) btn.onclick = () => {
+                if (this.showMoreMenu) this.showMoreMenu(false);
+                if (this.isPoppedOut(which)) { const win = open[which].win; this.dockBack(which); try { win.close(true); } catch (e) { /* closed */ } } else this.popOut(which);
+            };
+        }
+        return result;
     };
 })();
 // @editor-only
@@ -60251,6 +65696,9 @@ DocsDoodads.Regions = {
         ((world && world.footsteps && world.footsteps.rows) || []).filter(r => r && r.kind === 'region').forEach(r => add(r.id, 'footsteps: ' + (r.sound || '')));
         ((mapSettings && mapSettings.regionSounds) || []).forEach(r => add(r && r.regionId, 'background sound: ' + ((r && r.name) || '')));
         ((mapSettings && mapSettings.areas) || []).forEach(a => add(a && a.region, 'area: ' + ((a && a.name) || '')));
+        ids(mapSettings && mapSettings.indoors && mapSettings.indoors.regions).forEach(id => add(id, 'indoors'));
+        ids(mapSettings && mapSettings.bridges && mapSettings.bridges.deck).forEach(id => add(id, 'bridge deck'));
+        ids(mapSettings && mapSettings.bridges && mapSettings.bridges.ends).forEach(id => add(id, 'bridge end'));
         return out;
     }
 };
@@ -60280,6 +65728,7 @@ Object.assign(DocsDoodads.Workspace, {
         const { live, staged } = this.regionTargets(mapId);
         if (live && Array.isArray(live.data)) live.data[index] = value;
         if (staged && Array.isArray(staged.data)) staged.data[index] = value;
+        if (DocsDoodads.Indoors) DocsDoodads.Indoors.invalidate();
         DocsDoodads.Persistence.dirtyMap = true;
     },
 
@@ -60477,6 +65926,223 @@ Object.assign(DocsDoodads.Workspace, {
 DocsDoodads.Workspace.toolButtons.region = 'dd-region-btn';
 DocsDoodads.Workspace.toolPopovers.region = 'dd-region-popover';
 DocsDoodads.Workspace.brushSizeSteps.region = ['dd-region-rad', 1, 0, 6];
+// @editor-only
+//==========================================================
+// SECTION 25R2: A WORLD THAT REMEMBERS IN THE EDITOR (8.4.2)
+//==========================================================
+// Map settings → Remembers: worn paths and footprints for this map. Details → Grows: the days each state lasts
+// (for a doodad with states), so crops and saplings step on by the calendar.
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const s = DocsDoodads.Wear.settings(mapSettings);
+        return `
+            <details id="dd-remember-sec" ${this._openRemember ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Remembers (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <label><input type="checkbox" id="dd-remember-wear" ${s.wear ? 'checked' : ''} /> Worn paths where the player walks often</label>
+                    <div>Steps before it shows <input type="number" id="dd-remember-threshold" min="1" max="200" value="${s.threshold}" style="width: 60px;" />
+                        Path colour <input type="color" id="dd-remember-color" value="${escapeHtml(s.color)}" /></div>
+                    <label><input type="checkbox" id="dd-remember-trails" ${s.trails ? 'checked' : ''} /> Footprints (anywhere while it snows)</label>
+                    <div>On regions <input type="text" id="dd-remember-regions" value="${escapeHtml(s.trailRegions)}" placeholder="e.g. 3" style="width: 60px;" />
+                        or terrain tags <input type="text" id="dd-remember-tags" value="${escapeHtml(s.trailTags)}" placeholder="e.g. 2" style="width: 60px;" /></div>
+                    <div>They fill in after <input type="number" id="dd-remember-fade" min="1" max="600" value="${s.fade}" style="width: 60px;" /> seconds</div>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">Worn paths are kept in the save and ease back a little each day. Doodads grow by Details → Grows.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-remember-sec');
+        if (details) details.ontoggle = () => { this._openRemember = details.open; };
+        const val = id => document.getElementById(id);
+        const write = () => {
+            const v = {
+                wear: Boolean(val('dd-remember-wear') && val('dd-remember-wear').checked), trails: Boolean(val('dd-remember-trails') && val('dd-remember-trails').checked),
+                threshold: Number(val('dd-remember-threshold') && val('dd-remember-threshold').value) || DocsDoodads.Wear.defaults.threshold,
+                color: (val('dd-remember-color') && val('dd-remember-color').value) || DocsDoodads.Wear.defaults.color,
+                trailRegions: (val('dd-remember-regions') && val('dd-remember-regions').value) || '', trailTags: (val('dd-remember-tags') && val('dd-remember-tags').value) || '',
+                fade: Number(val('dd-remember-fade') && val('dd-remember-fade').value) || DocsDoodads.Wear.defaults.fade
+            };
+            this.setMapSetting('remember', v.wear || v.trails ? v : undefined);
+        };
+        for (const id of ['dd-remember-wear', 'dd-remember-trails', 'dd-remember-threshold', 'dd-remember-color', 'dd-remember-regions', 'dd-remember-tags', 'dd-remember-fade']) {
+            const el = val(id); if (el) el.onchange = write;
+        }
+    }
+});
+
+(function() {
+    const W = DocsDoodads.Workspace, G = DocsDoodads.Growth;
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        if (!items.length || !items.every(d => d && DocsDoodads.States.has(d))) return all;
+        return all.concat([{ title: 'Grows', fields: [
+            { key: 'grow.days', label: 'Days each state lasts, in order (e.g. 2, 3, 4; blank: does not grow). Needs a Name.', type: 'text' }
+        ] }]);
+    };
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) {
+        if (key === 'grow.days') { const g = G.normalize(d && d.grow); return g ? g.days.join(', ') : ''; }
+        return get.call(this, d, key);
+    };
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (d && key === 'grow.days') { const g = G.normalize({ days: value }); if (g) d.grow = g; else delete d.grow; return; }
+        return apply.call(this, d, key, value);
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25W: REWIND IN A PLAYTEST (8.4.6)
+//==========================================================
+// While the editor is closed, every half second a snapshot is made the way MZ makes a save (its save contents,
+// kept in memory, never on disk) into a ring of 60: thirty seconds. Holding the Rewind key (Ctrl+Backspace, in
+// More > Keys) steps back through them; letting go loads the one reached as MZ loads a save and plays on. F10 then
+// opens the editor at that moment. A snapshot cannot hold sounds mid-play, running effects or a battle, so the key
+// does nothing in battles and menus. If one snapshot takes more than 4 ms on this project, only the map, the
+// player, switches, variables and self switches are kept.
+DocsDoodads.Rewind = {
+    size: 60,
+    every: 30,
+    slowMs: 4,
+    ring: [],
+    light: false,
+    held: false,
+    back: 0,
+    _timings: [],
+
+    now() { return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now(); },
+
+    allowed() {
+        const C = DocsDoodads.Compat;
+        if (!C || !C.isTest()) return false;
+        if (DocsDoodads.Workspace && DocsDoodads.Workspace.mounted) return false;
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null;
+        return Boolean(scene && typeof Scene_Map !== 'undefined' && scene instanceof Scene_Map && typeof $gameMap !== 'undefined' && $gameMap && $gameMap.mapId() > 0);
+    },
+
+    // The whole game as a save, or (light) the map, the player, switches, variables and self switches.
+    take() {
+        const started = this.now();
+        let shot;
+        if (!this.light && typeof DataManager !== 'undefined' && DataManager.makeSaveContents && typeof JsonEx !== 'undefined') {
+            shot = { full: JsonEx.stringify(DataManager.makeSaveContents()) };
+        } else {
+            shot = { light: JSON.stringify({ switches: $gameSwitches._data, variables: $gameVariables._data, self: typeof $gameSelfSwitches !== 'undefined' && $gameSelfSwitches ? $gameSelfSwitches._data : null }) };
+        }
+        shot.mapId = $gameMap.mapId(); shot.x = $gamePlayer.x; shot.y = $gamePlayer.y; shot.d = $gamePlayer.direction();
+        shot.frame = typeof Graphics !== 'undefined' ? Graphics.frameCount : 0;
+        const took = this.now() - started;
+        this._timings.push(took);
+        if (this._timings.length > 6) this._timings.shift();
+        if (!this.light && this._timings.length >= 4 && this._timings.reduce((a, b) => a + b, 0) / this._timings.length > this.slowMs) this.light = true;
+        return shot;
+    },
+
+    push(shot) {
+        this.ring.push(shot);
+        while (this.ring.length > this.size) this.ring.shift();
+    },
+
+    // Back to a snapshot as MZ loads a save, on the same scene (fade-less transfer to where the player was).
+    load(shot) {
+        if (!shot) return false;
+        if (shot.full && typeof DataManager !== 'undefined' && DataManager.extractSaveContents) DataManager.extractSaveContents(JsonEx.parse(shot.full));
+        else if (shot.light) {
+            const v = JSON.parse(shot.light);
+            $gameSwitches._data = v.switches || []; $gameVariables._data = v.variables || [];
+            if (v.self && typeof $gameSelfSwitches !== 'undefined' && $gameSelfSwitches) $gameSelfSwitches._data = v.self;
+        }
+        if ($gamePlayer.reserveTransfer) $gamePlayer.reserveTransfer(shot.mapId, shot.x, shot.y, shot.d, 2);
+        if ($gamePlayer.requestMapReload) $gamePlayer.requestMapReload();
+        return true;
+    },
+
+    // Once a frame on the map: snapshot every half second, or step back while the key is held.
+    update() {
+        if (!this._listening) this.listen();
+        if (!this.allowed()) { if (this.held) this.release(); return; }
+        if (this.held) {
+            if (++this._tick % 6 === 0 && this.back < this.ring.length - 1) this.back++;
+            this.showBack();
+            return;
+        }
+        if (++this._tick % this.every === 0) this.push(this.take());
+    },
+
+    press() {
+        if (!this.allowed() || !this.ring.length || this.held) return false;
+        this.held = true; this.back = 0; this._tick = 0;
+        return true;
+    },
+
+    release() {
+        if (!this.held) return false;
+        this.held = false;
+        const index = this.ring.length - 1 - this.back;
+        const shot = this.ring[index];
+        this.ring = this.ring.slice(0, index + 1);
+        this.hideBack();
+        return shot ? this.load(shot) : false;
+    },
+
+    seconds() {
+        const last = this.ring[this.ring.length - 1], at = this.ring[this.ring.length - 1 - this.back];
+        return last && at ? Math.round((last.frame - at.frame) / 60) : 0;
+    },
+
+    showBack() {
+        if (typeof document === 'undefined' || !document.createElement || !document.body) return;
+        let el = document.getElementById('dd-rewind');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'dd-rewind';
+            el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);padding:6px 14px;border-radius:12px;background:rgba(0,0,0,0.7);color:#fff;font:bold 14px sans-serif;z-index:20000;pointer-events:none;';
+            document.body.appendChild(el);
+        }
+        el.textContent = `◀◀ ${this.seconds()} s${this.light ? ' (map, player, switches and variables)' : ''}`;
+    },
+
+    hideBack() {
+        const el = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-rewind') : null;
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+    },
+
+    reset() { this.ring = []; this.held = false; this.back = 0; this._tick = 0; this.hideBack(); },
+    _tick: 0
+};
+
+(function() {
+    const R = DocsDoodads.Rewind;
+    if (typeof Scene_Map !== 'undefined') {
+        const update = Scene_Map.prototype.update;
+        Scene_Map.prototype.update = function() {
+            const result = update.apply(this, arguments);
+            try { R.update(); } catch (error) { DocsDoodads.Core.log('Rewind snapshot failed; rewind is off for this play.', error); R.update = () => {}; }
+            return result;
+        };
+    }
+    // A new game or a loaded save starts the ring again.
+    if (typeof DataManager !== 'undefined') {
+        for (const name of ['setupNewGame']) {
+            const original = DataManager[name];
+            if (typeof original === 'function') DataManager[name] = function() { R.reset(); return original.apply(this, arguments); };
+        }
+    }
+    // The key's listeners are added the first time the map runs, after the editor's own key handling.
+    R.listen = function() {
+        if (this._listening || typeof window === 'undefined' || !window.addEventListener) return;
+        this._listening = true;
+        const matches = e => {
+            const S = DocsDoodads.Shortcuts, K = DocsDoodads.KeyChord;
+            const chord = S && S.chordOf ? S.chordOf('rewind') : null;
+            return Boolean(chord && K && K.matches(chord, e));
+        };
+        window.addEventListener('keydown', e => { if (!e.repeat && matches(e) && R.press()) e.preventDefault(); });
+        // Letting go of any key of the chord plays on from where it reached.
+        window.addEventListener('keyup', () => { if (R.held) R.release(); });
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25B: ROBOT TESTER (8.4.7)
@@ -62204,6 +67870,36 @@ Object.assign(DocsDoodads.Workspace, {
 })();
 // @editor-only
 //==========================================================
+// SECTION 25S: SEAMLESS STEPS IN THE MAP PANEL (7.3.1)
+//==========================================================
+// Map settings → Walking to Neighbours: the game-wide switch and this map's opt-out. Neighbours are set in the map
+// panel's own neighbour fields (World View shows them together).
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const world = DocsDoodads.World.settings().seamless || {};
+        const off = mapSettings && mapSettings.seamless === 'off';
+        const links = (mapSettings && mapSettings.neighbors) || {};
+        const linked = ['east', 'west', 'north', 'south'].filter(s => links[s]).map(s => `${s} → Map ${links[s]}`).join(', ');
+        return `
+            <details id="dd-seamless-sec" ${this._openSeamless ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Walking to Neighbours</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <label><input type="checkbox" id="dd-seamless-world" ${world.enabled ? 'checked' : ''} /> In the whole game, walk off an edge onto the linked map with no fade</label>
+                    <label><input type="checkbox" id="dd-seamless-off" ${off ? 'checked' : ''} /> Not from this map</label>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">${linked ? 'Linked: ' + escapeHtml(linked) + '.' : 'This map has no neighbours yet (set them above).'} The neighbour's tiles show past the edge when it uses the same tileset; its events show once you are there. Off-grid movement and the 3D view transfer as before.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-seamless-sec');
+        if (details) details.ontoggle = () => { this._openSeamless = details.open; };
+        const world = document.getElementById('dd-seamless-world'), off = document.getElementById('dd-seamless-off');
+        if (world) world.onchange = e => this.setWorldSetting('seamless', { enabled: Boolean(e.target.checked) });
+        if (off) off.onchange = e => this.setMapSetting('seamless', e.target.checked ? 'off' : undefined);
+    }
+});
+// @editor-only
+//==========================================================
 // SECTION 25g: WORKSPACE SELECTION EDITING (NUMBER SCRUBBING, HANDLES)
 //==========================================================
 // Numbers in Details change by dragging their label left and right, and step with the arrow keys
@@ -62648,6 +68344,55 @@ Object.assign(DocsDoodads.Workspace, {
     }
 });
 // @editor-only
+//==========================================================
+// SECTION 25A: SOFT SHADOWS, GLOW OFF WALLS AND SHAFT SHADOWS IN THE EDITOR (7.3.7, 8.3.2)
+//==========================================================
+// Map settings → Soft Light: soft shadow edges and glow off walls for lamps whose light walls stop (World →
+// Lighting). Details → Stops light shafts marks a doodad (a tree, a pillar) for Screen Looks → Light shafts.
+DocsDoodads.Workspace.mapSections.push({
+    render(mapSettings) {
+        const s = DocsDoodads.SoftLight.normalize(mapSettings && mapSettings.softLight);
+        return `
+            <details id="dd-softlight-sec" ${this._openSoftLight ? 'open' : ''} style="border-top: 1px solid var(--dd-line-soft); padding-top: 6px; margin-top: 6px;">
+                <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--dd-muted);">Soft Light (this map)</summary>
+                <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 6px; font-size: 10px; color: var(--dd-muted);">
+                    <label><input type="checkbox" id="dd-softlight-shadows" ${s.shadows ? 'checked' : ''} /> Soft shadow edges</label>
+                    <label><input type="checkbox" id="dd-softlight-bounce" ${s.bounce ? 'checked' : ''} /> Glow off walls (light comes a little way round corners)</label>
+                    <div style="color: var(--dd-faint); line-height: 1.4;">For lamps whose light walls stop (World → Lighting → Walls stop light). Players' Effects Quality: none at Low, soft edges at Medium, both at High. Flat maps.</div>
+                </div>
+            </details>`;
+    },
+    bind() {
+        const details = document.getElementById('dd-softlight-sec');
+        if (details) details.ontoggle = () => { this._openSoftLight = details.open; };
+        const write = () => {
+            const shadows = document.getElementById('dd-softlight-shadows'), bounce = document.getElementById('dd-softlight-bounce');
+            const value = { shadows: Boolean(shadows && shadows.checked), bounce: Boolean(bounce && bounce.checked) };
+            this.setMapSetting('softLight', value.shadows || value.bounce ? value : undefined);
+        };
+        for (const id of ['dd-softlight-shadows', 'dd-softlight-bounce']) { const el = document.getElementById(id); if (el) el.onchange = write; }
+    }
+});
+
+(function() {
+    const W = DocsDoodads.Workspace;
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        if (!items.length || items.some(d => !d || d.line)) return all;
+        return all.concat([{ title: 'Light Shafts', fields: [
+            { key: 'shade', label: 'Stops light shafts (Screen Looks → Light shafts)', type: 'checkbox' }
+        ] }]);
+    };
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) { return key === 'shade' ? Boolean(d && d.shade) : get.call(this, d, key); };
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (d && key === 'shade') { if (value) d.shade = true; else delete d.shade; return; }
+        return apply.call(this, d, key, value);
+    };
+})();
+// @editor-only
 (function() {
     const D = DocsDoodads, W = D.Workspace, S = D.Shipped, U = D.Ui;
     Object.assign(W, {
@@ -62847,7 +68592,9 @@ Object.assign(DocsDoodads.Workspace, {
             toolGrab: tool('eyedropper'),
             rooms: () => this.showRoomsCard(),
             brushSmaller: () => this.resizeBrush(-1) || false,
-            brushBigger: () => this.resizeBrush(1) || false
+            brushBigger: () => this.resizeBrush(1) || false,
+            // Rewind works while playing; in the editor it only says how.
+            rewind: () => { this.showToast('Close the editor (F10) and hold this key while playing to go back up to 30 seconds.'); return true; }
         };
         actions.ruler = tool('ruler');
         for (let n = 1; n <= 9; n++) actions['bookmark' + n] = () => this.goToBookmarkNumber(n);
@@ -63324,6 +69071,170 @@ Object.assign(DocsDoodads.Workspace, {
 });
 // @editor-only
 //==========================================================
+// SECTION 25F: TILESET FLAGS ON THE TILES CARD (9.4.1)
+//==========================================================
+// Tiles card → Tile Settings: each tile on the sheet wears MZ's marks for the chosen setting (○ × ☆, the four
+// sides, ladder, bush, counter, damage floor, boat, ship, airship, terrain tag) and a click steps it as MZ's
+// database does. One Undo step a click. The running game reads $dataTilesets, so Show Collision and Check Reach
+// see a change at once. Save writes data/Tilesets.json with the rest, backed up first, and stops if the file was
+// changed since it was read.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, TF = D.TileFlags;
+    const PATH = 'data/Tilesets.json';
+
+    Object.assign(TF, {
+        dirty: false,
+        snapshot: null,
+        warned: {},
+
+        // The file's state when tile settings were first opened, for the changed-since-read check.
+        remember() {
+            if (this.snapshot === null) this.snapshot = D.FS.stat(PATH) || false;
+        },
+
+        conflict() {
+            if (!this.snapshot) return false;
+            const now = D.FS.stat(PATH);
+            return Boolean(now && (now.mtimeMs !== this.snapshot.mtimeMs || now.size !== this.snapshot.size));
+        },
+
+        // Sets one tile's setting on a tileset: every id that shares it (an autotile's shapes). An Undo step.
+        apply(tilesetId, tileId, next) {
+            const tileset = typeof $dataTilesets !== 'undefined' && $dataTilesets ? $dataTilesets[tilesetId] : null;
+            if (!tileset || !Array.isArray(tileset.flags)) return false;
+            const ids = this.idsFor(tileId);
+            const before = ids.map(id => tileset.flags[id] || 0);
+            const after = ids.map(() => next);
+            if (before.every((v, i) => v === after[i])) return false;
+            const write = values => {
+                ids.forEach((id, i) => { tileset.flags[id] = values[i]; });
+                this.dirty = true;
+                D.Persistence.changed();
+                if (W.mounted && W.drawTileSheet) W.drawTileSheet();
+            };
+            D.Undo.execute({ type: 'tile_flags', label: 'Tile settings', apply: () => write(after), revert: () => write(before) });
+            return true;
+        }
+    });
+
+    D.Persistence.savers.push({
+        name: 'Tile settings',
+        dirty: () => TF.dirty,
+        conflict: () => TF.conflict(),
+        entries: () => [{ path: PATH, json: TF.fileText($dataTilesets) }],
+        committed: () => { TF.dirty = false; TF.snapshot = D.FS.stat(PATH) || false; }
+    });
+
+    Object.assign(W, {
+        tileFlagMode: null,
+
+        // How many maps use this tileset (each map file read once, on the first change).
+        countMapsUsingTileset(tilesetId) {
+            const infos = D.FS.readJson('data/MapInfos.json') || [];
+            const tilesets = {};
+            for (const info of infos) {
+                if (!info || !info.id) continue;
+                const map = D.FS.readJson(D.Persistence.mapFilePath(info.id));
+                if (map) tilesets[info.id] = map.tilesetId;
+            }
+            return TF.mapsUsing(tilesetId, tilesets);
+        },
+
+        async clickTileFlag(tileId, fx, fy, back) {
+            const mode = this.tileFlagMode;
+            const tilesetId = $gameMap.tilesetId();
+            const tileset = $dataTilesets[tilesetId];
+            if (!mode || !tileset || !tileId) return false;
+            TF.remember();
+            if (!TF.warned[tilesetId]) {
+                const n = this.countMapsUsingTileset(tilesetId);
+                const ok = await D.Ui.confirm(`${tileset.name || 'This tileset'} is used by ${n} map${n === 1 ? '' : 's'}. A change here changes all of them. Save writes data/Tilesets.json; then close and reopen the project in RPG Maker MZ (if MZ saves while it is open, it writes its own copy over these changes).`, { okLabel: 'Change It' });
+                if (!ok) return false;
+                TF.warned[tilesetId] = true;
+            }
+            const flag = tileset.flags[tileId] || 0;
+            const next = TF.step(flag, mode, { allowStar: !TF.isAutotile(tileId) && tileId < 1536, side: TF.sideAt(fx, fy), back });
+            return TF.apply(tilesetId, tileId, next);
+        },
+
+        // The marks over the sheet in Tile Settings.
+        drawTileFlagMarks(ctx) {
+            const mode = this.tileFlagMode, T = D.Tiles;
+            const tileset = $dataTilesets[$gameMap.tilesetId()];
+            if (!mode || !ctx || !tileset || !ctx.fillText) return;
+            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
+            const sheet = this.tileBrush.sheet, cols = sheet === 4 || sheet > 4 ? (sheet === 4 ? 8 : 16) : 16, rows = 16;
+            ctx.font = `bold ${Math.max(9, Math.round(th * 0.55))}px sans-serif`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+                const id = T.idAt(sheet, x, y);
+                if (!id) continue;
+                const m = TF.mark(tileset.flags[id] || 0, mode);
+                const cx = x * tw + tw / 2, cy = y * th + th / 2;
+                ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x * tw, y * th, tw, th);
+                if (m.dirs) {
+                    ctx.fillStyle = '#ffffff';
+                    const a = Math.max(2, tw * 0.12);
+                    if (!m.dirs.up) ctx.fillRect(cx - a, y * th + 2, a * 2, a);
+                    if (!m.dirs.down) ctx.fillRect(cx - a, (y + 1) * th - 2 - a, a * 2, a);
+                    if (!m.dirs.left) ctx.fillRect(x * tw + 2, cy - a, a, a * 2);
+                    if (!m.dirs.right) ctx.fillRect((x + 1) * tw - 2 - a, cy - a, a, a * 2);
+                    continue;
+                }
+                ctx.fillStyle = m.on ? '#ffffff' : '#ff8080';
+                ctx.fillText(m.text, cx, cy + 1);
+            }
+        }
+    });
+
+    // The Tiles card gains a Tile Settings choice.
+    const render = W.renderTilePalette;
+    W.renderTilePalette = function() {
+        const result = render.apply(this, arguments);
+        const box = typeof document !== 'undefined' ? document.getElementById('dd-tiles-palette') : null;
+        if (!box || typeof box.insertAdjacentHTML !== 'function') return result;
+        const options = [{ id: '', label: 'Paint tiles' }].concat(TF.modes)
+            .map(m => `<option value="${m.id}"${(this.tileFlagMode || '') === m.id ? ' selected' : ''}>${escapeHtml(m.id ? 'Tile settings: ' + m.label : m.label)}</option>`).join('');
+        const mode = TF.modes.find(m => m.id === this.tileFlagMode);
+        box.insertAdjacentHTML('beforeend', `
+            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 11px;">
+                <select id="dd-tile-flags-mode">${options}</select>
+                ${this.tileFlagMode ? `<div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">${escapeHtml((mode && mode.hint) || 'Click to switch it on or off')}. One Undo step a click. Save writes data/Tilesets.json; close and reopen the project in RPG Maker MZ afterwards, and don't save in MZ while it is open or it puts its own copy back.</div>` : ''}
+            </div>`);
+        const select = document.getElementById('dd-tile-flags-mode');
+        if (select) select.onchange = e => {
+            this.tileFlagMode = e.target.value || null;
+            if (this.tileFlagMode) TF.remember();
+            this.renderTilePalette();
+        };
+        return result;
+    };
+
+    // In Tile Settings, the sheet is drawn with the marks and a click steps a setting instead of picking.
+    const draw = W.drawTileSheet;
+    W.drawTileSheet = function() {
+        const result = draw.apply(this, arguments);
+        const canvas = typeof document !== 'undefined' ? document.getElementById('dd-tiles-canvas') : null;
+        if (!canvas || !this.tileFlagMode) return result;
+        const ctx = canvas.getContext && canvas.getContext('2d');
+        this.drawTileFlagMarks(ctx);
+        const at = e => {
+            const r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+            const s = this.uiScaleNow ? this.uiScaleNow() : 1;
+            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
+            const px = ((e.clientX - r.left) / s) / tw, py = ((e.clientY - r.top) / s) / th;
+            return { x: Math.floor(px), y: Math.floor(py), fx: px - Math.floor(px), fy: py - Math.floor(py) };
+        };
+        canvas.onmousedown = e => {
+            const p = at(e);
+            this.clickTileFlag(D.Tiles.idAt(this.tileBrush.sheet, p.x, p.y), p.fx, p.fy, e.button === 2);
+        };
+        canvas.oncontextmenu = e => { if (e.preventDefault) e.preventDefault(); };
+        return result;
+    };
+})();
+// @editor-only
+//==========================================================
 // SECTION 25v: THE TILES TOOL (PAINTING MZ TILES)
 //==========================================================
 // Tiles (top bar): pick a tile from the map's tileset (A1-E tabs; drag across B-E or A5 for a block of
@@ -63563,6 +69474,306 @@ DocsDoodads.Workspace.toolHooks.tiles = {
         g.lineStyle(0);
     }
 };
+// @editor-only
+//==========================================================
+// SECTION 25L: THE TIMELINES CARD (7.3.6)
+//==========================================================
+// Map → Timelines: a list of cutscene timelines; each has tracks (a row per kind and target) and keys on them.
+// Click a row to add a key there, click a key to change or delete it, drag a key to move it; each change is one
+// Undo step. Play runs the keys on the map; clicking the ruler jumps there. Stop, and any jump backwards, put the
+// map back as it was when Play was pressed (states, light, weather, time, switches, the camera, characters)
+// and run forward from there: an action cannot be undone, only replayed.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, T = D.Timeline;
+    const ROW = 20, RULER = 18, LEFT = 120;
+
+    Object.assign(W, {
+        timelineState: { id: null, preview: null, width: 560 },
+
+        timelinesCopy() {
+            const data = window.$dataDocsDoodads || {};
+            return JSON.parse(JSON.stringify(Array.isArray(data.timelines) ? data.timelines : []));
+        },
+
+        // Every edit replaces the whole list, as one Undo step.
+        setTimelines(list, label) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            const before = this.timelinesCopy(), after = JSON.parse(JSON.stringify(list.map(t => T.normalize(t)).filter(Boolean)));
+            const write = value => {
+                if (value.length) data.timelines = JSON.parse(JSON.stringify(value)); else delete data.timelines;
+                D.Persistence.dirtyDoodads = true;
+                if (this.renderTimelineCard) this.renderTimelineCard();
+            };
+            D.Undo.execute({ type: 'timeline', label: label || 'Timeline', apply: () => write(after), revert: () => write(before) });
+            return true;
+        },
+
+        editTimeline(id, change, label) {
+            const list = this.timelinesCopy(), tl = list.find(t => t.id === id);
+            if (!tl) return false;
+            change(tl);
+            return this.setTimelines(list, label);
+        },
+
+        newTimeline(name) {
+            const list = this.timelinesCopy();
+            const base = 'tl_' + (String(name || 'timeline').toLowerCase().replace(/[^\w]+/g, '_').slice(0, 24) || 'timeline');
+            let id = base, n = 2;
+            while (list.some(t => t.id === id)) id = base + '_' + n++;
+            list.push({ id, name: String(name || 'Timeline').trim() || 'Timeline', length: 300, tracks: [] });
+            this.setTimelines(list, 'New timeline');
+            this.timelineState.id = id;
+            return id;
+        },
+
+        deleteTimeline(id) {
+            return this.setTimelines(this.timelinesCopy().filter(t => t.id !== id), 'Delete timeline');
+        },
+
+        addTimelineTrack(id, kind, target) {
+            if (!T.kinds[kind]) return false;
+            return this.editTimeline(id, tl => { tl.tracks = tl.tracks || []; tl.tracks.push({ kind, target: target || '', keys: [] }); }, 'Add track');
+        },
+
+        removeTimelineTrack(id, ti) {
+            return this.editTimeline(id, tl => { tl.tracks.splice(ti, 1); }, 'Remove track');
+        },
+
+        addTimelineKey(id, ti, key) {
+            return this.editTimeline(id, tl => { if (tl.tracks[ti]) tl.tracks[ti].keys.push(T.normalizeKey(key)); }, 'Add key');
+        },
+
+        // The key at index ki of track ti; keys are kept in time order, so find it by object after the change.
+        updateTimelineKey(id, ti, ki, change) {
+            return this.editTimeline(id, tl => {
+                const track = tl.tracks[ti];
+                if (!track || !track.keys[ki]) return;
+                if (change === null) track.keys.splice(ki, 1);
+                else track.keys[ki] = T.normalizeKey(Object.assign({}, track.keys[ki], change));
+            }, change === null ? 'Delete key' : change && Object.keys(change).length === 1 && 't' in change ? 'Move key' : 'Change key');
+        },
+
+        // ---- Preview: put the map back as it was when Play was pressed ----
+        timelineSnapshot() {
+            const json = v => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+            const chars = [typeof $gamePlayer !== 'undefined' ? $gamePlayer : null].concat(typeof $gameMap !== 'undefined' && $gameMap.events ? $gameMap.events() : []).filter(Boolean);
+            return {
+                worldState: json($gameSystem._docsWorldState),
+                ambientFade: json($gameSystem._docsAmbientFade),
+                weather: typeof $gameScreen !== 'undefined' && $gameScreen ? [$gameScreen._weatherType, $gameScreen._weatherPower] : null,
+                minutes: D.Atmosphere.minutes(),
+                switches: typeof $gameSwitches !== 'undefined' && $gameSwitches ? json($gameSwitches._data) : null,
+                chars: chars.map(c => ({ c, x: c._x, y: c._y, d: c._direction, t: c._transparent }))
+            };
+        },
+
+        restoreTimelineSnapshot(s) {
+            if (!s) return;
+            $gameSystem._docsWorldState = s.worldState === undefined ? undefined : JSON.parse(JSON.stringify(s.worldState));
+            $gameSystem._docsAmbientFade = s.ambientFade === undefined ? null : JSON.parse(JSON.stringify(s.ambientFade));
+            if (s.weather && $gameScreen) { $gameScreen._weatherType = s.weather[0]; $gameScreen._weatherPower = s.weather[1]; }
+            if (s.switches && $gameSwitches) $gameSwitches._data = JSON.parse(JSON.stringify(s.switches));
+            if (D.setTimeOfDay && s.minutes !== null && s.minutes !== undefined) D.setTimeOfDay(s.minutes);
+            for (const r of s.chars) {
+                if (r.c.locate) r.c.locate(r.x, r.y);
+                r.c._direction = r.d; r.c._transparent = r.t;
+                if (r.c._moveRouteForcing && r.c.restoreMoveRoute) { r.c._moveRouteForcing = false; r.c.restoreMoveRoute(); }
+            }
+            try { D.api.followCamera(); const C = D.Camera2D; if (C.zoomTo && typeof $gamePlayer !== 'undefined') C.zoomTo(C.pointOf($gamePlayer), 1, 1); } catch (e) { /* no camera */ }
+            if (D.api && D.api.refresh) D.api.refresh();
+        },
+
+        playTimelinePreview(id, from = 0) {
+            const tl = T.find(id);
+            if (!tl) return false;
+            const st = this.timelineState;
+            if (!st.preview) st.preview = this.timelineSnapshot();
+            else this.restoreTimelineSnapshot(st.preview);
+            T._editorPreview = true;
+            T.play(tl, { skippable: false });
+            if (from > 0) T.step(from);
+            return true;
+        },
+
+        // A jump on the ruler: back to the snapshot, forward at once, paused there.
+        scrubTimeline(id, frame) {
+            if (!this.playTimelinePreview(id, Math.max(0, Math.round(frame)))) return false;
+            if (T._player) T._player.paused = true;
+            this.drawTimeline();
+            return true;
+        },
+
+        stopTimelinePreview() {
+            const st = this.timelineState;
+            T.stop(false);
+            T._editorPreview = false;
+            if (st.preview) this.restoreTimelineSnapshot(st.preview);
+            st.preview = null;
+            this.drawTimeline();
+        },
+
+        // ---- The card ----
+        closeTimelineCard() {
+            this.stopTimelinePreview();
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-timeline-card') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+        },
+
+        openTimelineCard() {
+            if (typeof document === 'undefined' || !document.createElement) return null;
+            let card = document.getElementById('dd-timeline-card');
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dd-timeline-card'; card.className = 'dd-glass';
+                card.style.cssText = 'position:fixed;left:20px;right:20px;bottom:20px;max-height:50vh;overflow:auto;padding:10px;z-index:10040;font-size:11px;';
+                document.body.appendChild(card);
+            }
+            const list = T.list();
+            if (!this.timelineState.id || !list.some(t => t.id === this.timelineState.id)) this.timelineState.id = list.length ? list[0].id : null;
+            this.renderTimelineCard();
+            return card;
+        },
+
+        renderTimelineCard() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-timeline-card') : null;
+            if (!card) return;
+            const list = T.list(), tl = list.find(t => t.id === this.timelineState.id) || null;
+            const kinds = Object.keys(T.kinds).map(k => `<option value="${k}">${escapeHtml(T.kinds[k].label)}</option>`).join('');
+            card.innerHTML = `<div class="dd-panel-head">Timelines
+                    <select id="dd-tl-pick">${list.map(t => `<option value="${escapeHtml(t.id)}"${tl && t.id === tl.id ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('') || '<option value="">None yet</option>'}</select>
+                    <button class="dd-btn" id="dd-tl-new" type="button">New</button>
+                    ${tl ? `<button class="dd-btn" id="dd-tl-rename" type="button">Rename</button><button class="dd-btn" id="dd-tl-delete" type="button">Delete</button>
+                    <label>Length (s) <input id="dd-tl-length" type="number" min="0.1" step="0.5" value="${(tl.length / 60).toFixed(1)}" style="width:56px"></label>
+                    <button class="dd-btn dd-btn-primary" id="dd-tl-play" type="button">${T.isPlaying(tl.id) ? 'Pause' : 'Play'}</button><button class="dd-btn" id="dd-tl-stop" type="button">Stop</button>
+                    <select id="dd-tl-kind">${kinds}</select><button class="dd-btn" id="dd-tl-track" type="button">Add Track</button>` : ''}
+                    <button class="dd-btn" id="dd-tl-close" type="button">Close</button></div>
+                ${tl ? `<canvas id="dd-tl-canvas" width="${LEFT + this.timelineState.width}" height="${RULER + Math.max(1, tl.tracks.length) * ROW + 2}" style="display:block;cursor:pointer;"></canvas>
+                <div style="color:var(--dd-faint);margin-top:4px;">Click a row to add a key; click a key to change it; drag a key to move it. The event command is Play Timeline: ${escapeHtml(tl.name)}. Holding OK for a second skips it in the game.</div>`
+                : '<div style="color:var(--dd-muted);">A timeline lays out camera moves, states, lights, weather, looks and characters against time, played by one plugin command.</div>'}`;
+            const node = id => document.getElementById(id);
+            node('dd-tl-close').onclick = () => this.closeTimelineCard();
+            node('dd-tl-pick').onchange = e => { this.stopTimelinePreview(); this.timelineState.id = e.target.value || null; this.renderTimelineCard(); };
+            node('dd-tl-new').onclick = async () => { const name = await D.Ui.prompt('A name for the timeline', 'Opening', { title: 'New Timeline' }); if (name) this.newTimeline(name); };
+            if (!tl) return;
+            node('dd-tl-rename').onclick = async () => { const name = await D.Ui.prompt('Its new name', tl.name, { title: 'Rename' }); if (name) this.editTimeline(tl.id, t => { t.name = name; }, 'Rename timeline'); };
+            node('dd-tl-delete').onclick = async () => { if (await D.Ui.confirm(`Delete ${tl.name}? Events that play it will do nothing.`, { danger: true, okLabel: 'Delete' })) this.deleteTimeline(tl.id); };
+            node('dd-tl-length').onchange = e => this.editTimeline(tl.id, t => { t.length = Math.max(1, Math.round((Number(e.target.value) || 1) * 60)); }, 'Timeline length');
+            node('dd-tl-play').onclick = () => {
+                if (T.isPlaying(tl.id) && T._player) { T._player.paused = !T._player.paused; }
+                else this.playTimelinePreview(tl.id);
+                this.renderTimelineCard();
+            };
+            node('dd-tl-stop').onclick = () => { this.stopTimelinePreview(); this.renderTimelineCard(); };
+            node('dd-tl-track').onclick = async () => {
+                const kind = node('dd-tl-kind').value, info = T.kinds[kind];
+                let target = '';
+                if (info.target) { target = await D.Ui.prompt(info.target, kind === 'character' ? 'player' : '', { title: info.label }); if (target === null || target === undefined) return; }
+                this.addTimelineTrack(tl.id, kind, target);
+            };
+            this.bindTimelineCanvas(tl);
+            this.drawTimeline();
+        },
+
+        timelineScale(tl) { return this.timelineState.width / Math.max(1, T.length(tl)); },
+
+        timelineHit(tl, x, y) {
+            const ti = Math.floor((y - RULER) / ROW), k = this.timelineScale(tl);
+            if (y < RULER) return { ruler: true, t: Math.max(0, (x - LEFT) / k) };
+            const track = tl.tracks[ti];
+            if (!track) return null;
+            if (x < LEFT) return { label: true, ti };
+            const ki = track.keys.findIndex(key => Math.abs(LEFT + key.t * k - x) <= 6);
+            return { ti, ki, t: Math.max(0, Math.round((x - LEFT) / k)) };
+        },
+
+        async editTimelineKeyForm(tl, ti, ki, t) {
+            const track = tl.tracks[ti], info = T.kinds[track.kind], key = ki >= 0 ? track.keys[ki] : { t };
+            const fields = info.fields.map(f => Object.assign({}, f, { type: f.type === 'number' ? 'text' : f.type, value: key[f.key] === undefined ? (f.type === 'checkbox' ? false : '') : key[f.key] }));
+            fields.unshift({ key: 't', label: 'At (seconds)', value: String((key.t / 60).toFixed(2)) });
+            if (ki >= 0) fields.push({ key: '__delete', label: 'Delete this key', type: 'checkbox', value: false });
+            const v = await D.Ui.form({ title: `${info.label}${track.target ? ': ' + track.target : ''}`, ok: ki >= 0 ? 'Keep' : 'Add', fields });
+            if (!v) return false;
+            if (v.__delete) return this.updateTimelineKey(tl.id, ti, ki, null);
+            const out = { t: Math.round((Number(v.t) || 0) * 60) };
+            for (const f of info.fields) out[f.key] = f.type === 'number' ? (v[f.key] === '' ? '' : Number(v[f.key]) || 0) : v[f.key];
+            return ki >= 0 ? this.updateTimelineKey(tl.id, ti, ki, out) : this.addTimelineKey(tl.id, ti, out);
+        },
+
+        bindTimelineCanvas(tl) {
+            const canvas = document.getElementById('dd-tl-canvas');
+            if (!canvas) return;
+            const at = e => {
+                const r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+                const s = this.uiScaleNow ? this.uiScaleNow() : 1;
+                return { x: (e.clientX - r.left) / s, y: (e.clientY - r.top) / s };
+            };
+            canvas.onmousedown = e => {
+                const p = at(e), hit = this.timelineHit(tl, p.x, p.y);
+                if (!hit) return;
+                if (hit.ruler) { this.scrubTimeline(tl.id, hit.t); return; }
+                if (hit.label) {
+                    const track = tl.tracks[hit.ti];
+                    D.Ui.confirm(`Remove the ${T.kinds[track.kind].label} track${track.target ? ' (' + track.target + ')' : ''} and its keys?`, { danger: true, okLabel: 'Remove' })
+                        .then(ok => { if (ok) this.removeTimelineTrack(tl.id, hit.ti); });
+                    return;
+                }
+                if (hit.ki < 0) { this.editTimelineKeyForm(tl, hit.ti, -1, hit.t); return; }
+                const drag = { ti: hit.ti, ki: hit.ki, start: p.x, t: tl.tracks[hit.ti].keys[hit.ki].t, moved: false };
+                const move = ev => {
+                    const q = at(ev);
+                    if (Math.abs(q.x - drag.start) > 3) drag.moved = true;
+                    drag.to = Math.max(0, Math.round(drag.t + (q.x - drag.start) / this.timelineScale(tl)));
+                    this.drawTimeline({ ti: drag.ti, ki: drag.ki, t: drag.to });
+                };
+                const up = () => {
+                    window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+                    if (drag.moved) this.updateTimelineKey(tl.id, drag.ti, drag.ki, { t: drag.to });
+                    else this.editTimelineKeyForm(tl, drag.ti, drag.ki, drag.t);
+                };
+                window.addEventListener('mousemove', move);
+                window.addEventListener('mouseup', up);
+            };
+        },
+
+        drawTimeline(ghost) {
+            const canvas = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-tl-canvas') : null;
+            const tl = T.list().find(t => t.id === this.timelineState.id);
+            const g = canvas && canvas.getContext && canvas.getContext('2d');
+            if (!g || !tl || !g.fillRect) return;
+            const k = this.timelineScale(tl), total = T.length(tl);
+            g.clearRect(0, 0, canvas.width, canvas.height);
+            g.font = '10px sans-serif'; g.textBaseline = 'middle';
+            g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(LEFT, 0, canvas.width - LEFT, RULER);
+            g.fillStyle = '#aaa';
+            for (let s = 0; s * 60 <= total; s++) { const x = LEFT + s * 60 * k; g.fillRect(x, RULER - 6, 1, 6); if (s % Math.max(1, Math.ceil(30 / (60 * k))) === 0) g.fillText(s + 's', x + 2, 7); }
+            tl.tracks.forEach((track, ti) => {
+                const y = RULER + ti * ROW;
+                g.fillStyle = ti % 2 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)'; g.fillRect(0, y, canvas.width, ROW);
+                g.fillStyle = '#ddd'; g.fillText(`${T.kinds[track.kind].label}${track.target ? ' · ' + track.target : ''}`.slice(0, 22), 4, y + ROW / 2);
+                track.keys.forEach((key, ki) => {
+                    const t = ghost && ghost.ti === ti && ghost.ki === ki ? ghost.t : key.t, x = LEFT + t * k, cy = y + ROW / 2;
+                    g.fillStyle = '#ffd24a'; g.beginPath(); g.moveTo(x, cy - 6); g.lineTo(x + 6, cy); g.lineTo(x, cy + 6); g.lineTo(x - 6, cy); g.closePath(); g.fill();
+                });
+            });
+            const head = T.isPlaying(tl.id) ? T.frame() : -1;
+            if (head >= 0) { g.fillStyle = '#ff5050'; g.fillRect(LEFT + head * k, 0, 2, canvas.height); }
+        }
+    });
+
+    const menus = W.menus;
+    W.menus = function() {
+        const all = menus.call(this), map = all.find(menu => menu.id === 'map');
+        if (map) map.items.push({ id: 'dd-timeline-btn', icon: 'history', label: 'Timelines', title: 'Cutscenes: camera, states, lights, weather, looks and characters laid out against time, played by one command' });
+        return all;
+    };
+    const bind = W.bindEvents;
+    W.bindEvents = function() {
+        const result = bind.apply(this, arguments);
+        const btn = typeof document !== 'undefined' ? document.getElementById('dd-timeline-btn') : null;
+        if (btn) btn.onclick = () => { if (this.showMoreMenu) this.showMoreMenu(false); this.openTimelineCard(); };
+        return result;
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25D: USE THIS VIEW AS THE TITLE SCREEN
@@ -64156,6 +70367,166 @@ DocsDoodads.Ui.mapColorMeanings.push(['trailLow', 'A lightly used playtest trail
         const result = bind.apply(this, arguments), button = document.getElementById('dd-trails-btn');
         if (button) button.onclick = () => { this.showMoreMenu(false); this.toggleTrails(); };
         return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25T: RIDE AND TRAVEL IN DETAILS (9.2.5)
+//==========================================================
+// Details → Ride and Travel: ride on the player or an event, or travel along points. "Draw Its Path" starts the
+// Travel tool: each click adds a point (Shift snaps to tile middles) and a right-click ends it; the whole path is
+// one Undo step. The selected traveller's path is drawn over the map whatever the tool.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, T = D.Travel;
+    const blankTravel = { points: [], speed: 48, mode: 'loop', ease: 'linear', wait: 0, switchId: 0, carries: false };
+
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        if (!items.length || items.some(d => !d || d.line)) return all;
+        const events = ((typeof $dataMap !== 'undefined' && $dataMap && $dataMap.events) || []).filter(Boolean)
+            .map(e => ({ value: String(e.id), label: `Event ${e.id}${e.name ? ': ' + e.name : ''}` }));
+        return all.concat([{ title: 'Ride and Travel', fields: [
+            { key: 'ride.on', label: 'Rides on', type: 'select', options: [{ value: '', label: 'Nothing' }, { value: 'player', label: 'The player' }].concat(events) },
+            { key: 'ride.dx', label: 'Ride offset across (pixels)', type: 'number' },
+            { key: 'ride.dy', label: 'Ride offset down (pixels)', type: 'number' },
+            { key: 'travel.points', label: 'Travels through (x,y pixels from here; x,y; ...)', type: 'text' },
+            { key: 'travel.speed', label: 'Speed (pixels a second)', type: 'range', min: 4, max: 480, step: 4 },
+            { key: 'travel.mode', label: 'At the end', type: 'select', options: [{ value: 'loop', label: 'Back to the start, again' }, { value: 'backAndForth', label: 'Turn round' }, { value: 'once', label: 'Stop (kept in the save)' }] },
+            { key: 'travel.ease', label: 'Each leg', type: 'select', options: [{ value: 'linear', label: 'Steady' }, { value: 'smooth', label: 'Slows at each stop' }] },
+            { key: 'travel.wait', label: 'Wait at each stop (frames)', type: 'number' },
+            { key: 'travel.switchId', label: 'Only while switch is on (0: always)', type: 'number' },
+            { key: 'travel.carries', label: 'Carries whoever stands on it (a raft, a platform)', type: 'checkbox' }
+        ] }]);
+    };
+
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) {
+        if (String(key).indexOf('ride.') === 0) {
+            const r = T.normalizeRide(d && d.ride), k = key.slice(5);
+            if (k === 'on') return r ? String(r.on) : '';
+            return r ? r[k] : 0;
+        }
+        if (String(key).indexOf('travel.') === 0) {
+            const t = T.normalizeTravel(d && d.travel), k = key.slice(7);
+            if (k === 'points') return t ? t.points.map(p => p.x + ',' + p.y).join('; ') : '';
+            return (t || blankTravel)[k];
+        }
+        return get.call(this, d, key);
+    };
+
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (d && String(key).indexOf('ride.') === 0) {
+            const r = Object.assign({ on: 0, dx: 0, dy: 0 }, T.normalizeRide(d.ride) || {});
+            r[key.slice(5)] = key === 'ride.on' ? (value === 'player' ? 'player' : Number(value) || 0) : Number(value) || 0;
+            const next = T.normalizeRide(r);
+            if (next) { d.ride = next; delete d.travel; } else delete d.ride;
+            T._version++;
+            return;
+        }
+        if (d && String(key).indexOf('travel.') === 0) {
+            const t = Object.assign({}, blankTravel, T.normalizeTravel(d.travel) || {}), k = key.slice(7);
+            t[k] = k === 'points' ? D.Camera2D.parsePoints(value) : value;
+            const next = T.normalizeTravel(t);
+            if (next) { d.travel = next; delete d.ride; } else delete d.travel;
+            T._version++;
+            return;
+        }
+        return apply.call(this, d, key, value);
+    };
+
+    Object.assign(W, {
+        travelTarget() {
+            const items = this.selectionItems ? this.selectionItems() : [];
+            return items.length === 1 && items[0] && !items[0].locked ? items[0] : null;
+        },
+
+        startTravelTool() {
+            const d = this.travelTarget();
+            if (!d) { this.showToast('Select one doodad first.'); return false; }
+            this._travelDraft = { d, before: this.snapshotDoodads([d]), points: [] };
+            this.setPlacementTool('travel');
+            this.showToast('Click each point it travels through; right-click to finish.');
+            return true;
+        },
+
+        addTravelPoint(at) {
+            const draft = this._travelDraft;
+            if (!draft) return false;
+            draft.points.push({ x: Math.round(at.x - draft.d.x), y: Math.round(at.y - draft.d.y) });
+            return true;
+        },
+
+        finishTravelTool() {
+            const draft = this._travelDraft;
+            this._travelDraft = null;
+            if (draft && draft.points.length) {
+                draft.d.travel = T.normalizeTravel(Object.assign({}, blankTravel, T.normalizeTravel(draft.d.travel) || {}, { points: draft.points }));
+                delete draft.d.ride;
+                T._version++;
+                this.recordDoodadEdit([draft.d], draft.before, 'edit_travel');
+                if (this.refreshInspector) this.refreshInspector();
+            }
+            if (this.placementTool === 'travel' && this.setPlacementTool) this.setPlacementTool('select');
+            return draft ? draft.points.length : 0;
+        },
+
+        drawTravelOverlay(g) {
+            const draft = this._travelDraft, d = draft ? draft.d : this.travelTarget();
+            if (!d || (D.Perspective.liveCamera && D.Perspective.liveCamera())) return;
+            const t = draft ? { points: draft.points, mode: 'once' } : T.normalizeTravel(d.travel);
+            if (!t || !t.points.length) return;
+            const colour = D.Ui.mapColor('selection');
+            const stops = T.stops({ points: t.points, mode: t.mode === 'loop' ? 'loop' : 'once' });
+            g.lineStyle(2, colour, 0.85);
+            stops.forEach((p, i) => {
+                const s = D.mapToScreen(d.x + p.x, d.y + p.y);
+                if (i === 0) g.moveTo(s.x, s.y); else g.lineTo(s.x, s.y);
+            });
+            g.lineStyle(0);
+            for (const p of stops) {
+                const s = D.mapToScreen(d.x + p.x, d.y + p.y);
+                g.beginFill(colour, 0.95); g.drawCircle(s.x, s.y, 4); g.endFill();
+            }
+        }
+    });
+
+    W.toolHooks.travel = {
+        buttons: [0, 2],
+        down(e) {
+            if (e.button === 2) { this.finishTravelTool(); return false; }
+            let at = this.clientToMapCoords(e.clientX, e.clientY);
+            if (e.shiftKey) { const s = this.snapToTile(at), th = $gameMap.tileHeight(); at = { x: s.x, y: s.y - th / 2 }; }
+            this.addTravelPoint(at);
+            return false;
+        },
+        overlay(g) { this.drawTravelOverlay(g); }
+    };
+
+    // A button under Details' Ride and Travel fields starts the path tool.
+    // Details wires its number boxes once drawn; the path button goes in then.
+    const scrub = W.attachNumberScrubbing;
+    if (typeof scrub === 'function') {
+        W.attachNumberScrubbing = function() {
+            const result = scrub.apply(this, arguments);
+            this.addTravelButton();
+            return result;
+        };
+    }
+    W.addTravelButton = function() {
+        if (typeof document === 'undefined' || !document.getElementById || typeof document.createElement !== 'function') return null;
+        const labels = document.querySelectorAll ? Array.from(document.querySelectorAll('label')) : [];
+        const label = labels.find(l => /^Travels through/.test(String(l.textContent || '')));
+        const holder = label && label.parentNode;
+        if (!holder || document.getElementById('dd-travel-path-btn')) return null;
+        const button = document.createElement('button');
+        button.className = 'dd-btn'; button.id = 'dd-travel-path-btn'; button.type = 'button';
+        button.textContent = 'Draw Its Path';
+        button.title = 'Click each point on the map; right-click to finish';
+        button.onclick = () => this.startTravelTool();
+        holder.appendChild(button);
+        return button;
     };
 })();
 // @editor-only

@@ -5,6 +5,9 @@
 //   npm run deploy -- <project folder> <output folder> [--game-build] [--key <text>] [--no-encrypt] [--devtools] [--runtime <nwjs-win>]
 //   npm run deploy -- --restore <project folder> <MZ's deployed folder>
 //
+// --bake: before building, checks that every map baked with Map > Bake This Map (7.3.4) still matches its
+// doodads, and stops with the list of stale maps. It never draws: Node has no canvas; bake in the editor.
+//
 // --restore: after MZ's own Deployment with "Exclude unused files", copies back the files the plugin draws
 // that MZ couldn't see (data/DocsDoodadsRequired.json, written by the editor on each save), encrypted
 // with the build's key when the build is encrypted. Files already there are left alone.
@@ -41,6 +44,7 @@ function parseArgs(argv) {
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--restore') options.restore = true;
+        else if (a === '--bake') options.bake = true;
         else if (a === '--game-build') options.gameBuild = true;
         else if (a === '--no-encrypt') options.encrypt = false;
         else if (a === '--key') options.key = argv[++i];
@@ -237,7 +241,44 @@ function restore(options) {
     return result;
 }
 
-module.exports = { deploy, restore, encryptBytes, decryptBytes, parseArgs, gameBuildText, releasedChanges, HEADER };
+// The same stable text and FNV-1a number as DocsDoodads.Bake.hash in src/07_bake.js.
+function bakeStable(value) {
+    if (Array.isArray(value)) return value.filter(v => !(v && v.temp)).map(bakeStable);
+    if (!value || typeof value !== 'object') return value;
+    const out = {};
+    for (const k of Object.keys(value).sort()) if (value[k] !== undefined) out[k] = bakeStable(value[k]);
+    return out;
+}
+function bakeHash(list) {
+    const text = JSON.stringify(bakeStable(list || []));
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0).toString(16);
+}
+// Maps whose bake no longer matches: reads the doodad data as one file or one per map.
+function staleBakes(project) {
+    const dataDir = path.join(project, 'data');
+    const stale = [];
+    for (const name of fs.readdirSync(dataDir).filter(f => /\.json$/i.test(f))) {
+        let main;
+        try { main = JSON.parse(fs.readFileSync(path.join(dataDir, name), 'utf8')); } catch (e) { continue; }
+        if (!main || typeof main !== 'object' || Array.isArray(main) || !main.baked) continue;
+        const base = name.replace(/\.json$/i, '');
+        for (const [mapId, manifest] of Object.entries(main.baked)) {
+            let list = main[mapId];
+            const split = path.join(dataDir, base, `${base}-Map${String(mapId).padStart(3, '0')}.json`);
+            if (!Array.isArray(list) && fs.existsSync(split)) {
+                const v = JSON.parse(fs.readFileSync(split, 'utf8'));
+                list = Array.isArray(v) ? v : (v && v.doodads) || [];
+            }
+            if (!manifest || manifest.hash !== bakeHash(list || [])) stale.push(Number(mapId));
+            for (const c of (manifest && manifest.chunks) || []) if (!fs.existsSync(path.join(project, c.file))) { stale.push(Number(mapId)); break; }
+        }
+    }
+    return Array.from(new Set(stale)).sort((a, b) => a - b);
+}
+
+module.exports = { deploy, restore, staleBakes, bakeHash, encryptBytes, decryptBytes, parseArgs, gameBuildText, releasedChanges, HEADER };
 
 if (require.main === module) {
     try {
@@ -246,6 +287,10 @@ if (require.main === module) {
             const r = restore(options);
             console.log(`Put back ${r.restored.length} file(s) in ${r.out}${r.missing.length ? `; not in the project: ${r.missing.join(', ')}` : ''}.`);
             return;
+        }
+        if (options.bake) {
+            const stale = staleBakes(fs.realpathSync(path.resolve(options.project)));
+            if (stale.length) throw new Error(`Baked pictures are out of date for map(s) ${stale.join(', ')}: open the editor and use Map > Bake This Map (or Bake Every Map), then save.`);
         }
         const r = deploy(options);
         console.log(`Deployed to ${r.out}${r.key ? `: ${r.images} images and ${r.sounds} sounds encrypted` : ' (not encrypted)'}. Run Game.exe there.`);

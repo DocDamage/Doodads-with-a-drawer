@@ -41,6 +41,73 @@
             return copy;
         },
 
+        // Replaces (or with null, deletes) a user's kind, as one Undo step.
+        setMapKind(kindId, next) {
+            const data = window.$dataDocsDoodads = window.$dataDocsDoodads || {};
+            if (M.isBuiltIn(kindId)) return false;
+            const before = JSON.parse(JSON.stringify(Array.isArray(data.mapKinds) ? data.mapKinds : []));
+            const after = before.filter(k => k && k.id !== kindId);
+            if (next) {
+                const at = before.findIndex(k => k && k.id === kindId);
+                after.splice(at < 0 ? after.length : at, 0, M.cleanKind(next));
+            }
+            const write = list => {
+                data.mapKinds = JSON.parse(JSON.stringify(list));
+                if (!data.mapKinds.length) delete data.mapKinds;
+                D.Persistence.dirtyDoodads = true;
+            };
+            D.Undo.execute({ type: 'map_kind', label: next ? 'Edit kind of map' : 'Delete kind of map', apply: () => write(after), revert: () => write(before) });
+            return true;
+        },
+
+        // Edit Kind: its name and scale, its classes (name, walkable, height, region, biome, tile), add and remove
+        // classes, or delete it. Built-in kinds are copied first. Resolves the kind's id afterwards (null if deleted).
+        async editMapKind(kindId) {
+            let kind = this.mapKinds().find(k => k.id === kindId);
+            if (!kind) return null;
+            if (M.isBuiltIn(kind.id)) {
+                const name = await D.Ui.prompt('Built-in kinds stay as they are. A name for your copy', kind.name + ' (mine)', { title: 'Edit Kind' });
+                if (!name) return kindId;
+                kind = this.copyMapKind(kind.id, name);
+            }
+            for (let round = 0; round < 200; round++) {
+                kind = this.mapKinds().find(k => k.id === kind.id);
+                const buttons = kind.classes.map(c => ({ label: `${c.name}${c.passable ? '' : ' (blocked)'}${c.height ? ` · height ${c.height}` : ''}`, value: 'class:' + c.id }))
+                    .concat([{ label: 'Add a Class', value: 'add' }, { label: 'Name and Scale', value: 'name' },
+                        { label: 'Delete This Kind', value: 'delete', kind: 'danger' }, { label: 'Done', value: 'done', kind: 'primary' }]);
+                const pick = await D.Ui.choose(`${kind.name}: pick a class to change it.`, buttons, { title: 'Edit Kind', stack: true, cancelValue: 'done' });
+                if (!pick || pick === 'done') return kind.id;
+                if (pick === 'delete') {
+                    if (await D.Ui.confirm(`Delete ${kind.name}? Maps made with it keep their tiles.`, { danger: true, okLabel: 'Delete' })) { this.setMapKind(kind.id, null); return null; }
+                    continue;
+                }
+                if (pick === 'name') {
+                    const v = await D.Ui.form({ title: 'Name and Scale', fields: [{ key: 'name', label: 'Name', value: kind.name }, { key: 'scale', label: 'What a tile is', value: kind.scale }] });
+                    if (v) this.setMapKind(kind.id, Object.assign({}, kind, { name: v.name || kind.name, scale: v.scale }));
+                    continue;
+                }
+                const id = pick === 'add' ? null : pick.slice(6);
+                const cls = id ? kind.classes.find(c => c.id === id) : { name: 'New class', passable: true, height: 0, region: 0, biome: '', tile: null };
+                const biomes = [{ value: '', label: 'None' }].concat((D.World.get('biomes.list') || []).map(b => ({ value: String(b.id), label: b.name || b.id })));
+                const fields = [
+                    { key: 'name', label: 'Name', value: cls.name },
+                    { key: 'passable', label: 'Walkable', type: 'checkbox', value: cls.passable !== false },
+                    { key: 'height', label: 'Hill height (0-16)', value: String(cls.height || 0) },
+                    { key: 'region', label: 'Region (0 for none)', value: String(cls.region || 0) },
+                    { key: 'biome', label: 'Biome art', type: 'select', options: biomes, value: cls.biome || '' },
+                    { key: 'tile', label: 'Tile id (blank: choose per tileset in the card)', value: cls.tile ? String(cls.tile) : '' }
+                ];
+                if (id) fields.push({ key: 'remove', label: 'Remove this class', type: 'checkbox', value: false });
+                const v = await D.Ui.form({ title: id ? 'Change Class' : 'Add a Class', ok: id ? 'Keep' : 'Add', fields });
+                if (!v) continue;
+                const change = { name: v.name || cls.name, passable: Boolean(v.passable), height: Number(v.height) || 0, region: Number(v.region) || 0,
+                    biome: v.biome || '', tile: Number(v.tile) > 0 ? Math.floor(Number(v.tile)) : null };
+                const next = !id ? M.addClass(kind, change) : v.remove ? M.removeClass(kind, id) : M.updateClass(kind, id, change);
+                if (next) this.setMapKind(kind.id, next);
+            }
+            return kind.id;
+        },
+
         loadMapFromPicture(file) {
             return new Promise((resolve, reject) => {
                 const url = typeof URL !== 'undefined' && URL.createObjectURL && file instanceof Blob ? URL.createObjectURL(file) : String(file);
@@ -171,7 +238,8 @@
                 const used = made ? Array.from(new Set(made.plan.cells.filter(Boolean))) : [];
                 card.innerHTML = `<div class="dd-panel-head">Picture to Map <button class="dd-btn" id="dd-mf-close" type="button">Close</button></div>
                     <label>Kind of map <select id="dd-mf-kind">${kinds.map(k => `<option value="${escapeHtml(k.id)}"${k.id === kind.id ? ' selected' : ''}>${escapeHtml(k.name)}</option>`).join('')}</select>
-                    <button class="dd-btn" id="dd-mf-copy" type="button">Copy Kind</button></label>
+                    <button class="dd-btn" id="dd-mf-copy" type="button">Copy Kind</button>
+                    <button class="dd-btn" id="dd-mf-edit" type="button" title="Change this kind's classes; a built-in kind is copied first">Edit Kind</button></label>
                     <div style="color:var(--dd-muted);">${escapeHtml(kind.scale)}</div>
                     ${(kind.base || kind.id) === 'room' ? `<label>Room name (for furniture) <input id="dd-mf-room" type="text" value="${escapeHtml(state.roomName)}"></label>` : ''}
                     ${(kind.base || kind.id) === 'dungeon' ? `<label>Cave walls (rough) <input id="dd-mf-rough" type="range" min="0" max="1" step="0.1" value="${state.roughen}"></label>` : ''}
@@ -193,6 +261,10 @@
                     const name = await D.Ui.prompt('A name for the copy', kind.name + ' (mine)', { title: 'Copy Kind' });
                     const copy = name ? this.copyMapKind(kind.id, name) : null;
                     if (copy) { state.kindId = copy.id; render(); }
+                };
+                node('dd-mf-edit').onclick = async () => {
+                    const id = await this.editMapKind(kind.id);
+                    state.kindId = id || 'overworld'; state.key = null; render();
                 };
                 const room = node('dd-mf-room'); if (room) room.onchange = () => { state.roomName = room.value; render(); };
                 const rough = node('dd-mf-rough'); if (rough) rough.onchange = () => { state.roughen = Number(rough.value) || 0; render(); };

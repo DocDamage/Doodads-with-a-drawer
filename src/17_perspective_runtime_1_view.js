@@ -701,7 +701,10 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             if (d.head.depth < near) near = d.head.depth;
             if (d.head.depth > far) far = d.head.depth;
         };
+        // Indoor tiles (9.2.2) stay dry: drops over them are left out.
+        const indoor = DocsDoodads.Indoors.current() ? (x, y) => DocsDoodads.Indoors.pixel(x - origin.x, y - origin.y) : null;
         for (const pt of this._docsWeatherParts) {
+            if (indoor && indoor(pt.x, pt.y)) continue;
             const head = at(pt.x, pt.y, pt.z);
             if (!head || head.fog >= 1) continue;
             if (params.kind === 'streak') {
@@ -714,6 +717,7 @@ if (typeof Spriteset_Map !== 'undefined' && typeof PIXI !== 'undefined') {
             }
         }
         for (const spl of this._docsSplashes) {
+            if (indoor && indoor(spl.x, spl.y)) continue;
             const head = at(spl.x, spl.y, spl.z);
             if (head && head.fog < 1) keep({ kind: 'splash', head, age: (now - spl.born) / W.splashLife });
         }

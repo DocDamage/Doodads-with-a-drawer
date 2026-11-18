@@ -38,7 +38,9 @@ DocsDoodads.Shipped = {
                 items[mapId].push({ name, uid: String(item.uid || ''), art: item.bit && String(item.bit[1] || '') || '', x: Number(item.x) || 0, y: Number(item.y) || 0 });
             }
         }
-        return { version: String(version), date: '', names, states, stateKeys, maps: JSON.parse(JSON.stringify(sizes || {})), items, aliases: JSON.parse(JSON.stringify(data && data.aliases || {})) };
+        // Decorate (8.4.1): the pieces players keep in saves, by id.
+        const decor = (data && data.decor && Array.isArray(data.decor.catalog) ? data.decor.catalog : []).filter(p => p && p.id).map(p => ({ id: String(p.id), name: String(p.name || p.id) }));
+        return { version: String(version), date: '', names, states, stateKeys, maps: JSON.parse(JSON.stringify(sizes || {})), items, aliases: JSON.parse(JSON.stringify(data && data.aliases || {})), decor };
     },
     latest(value) {
         if (!value) return null;
@@ -72,6 +74,9 @@ DocsDoodads.Shipped = {
                 });
             }
         }
+        for (const piece of before.decor || []) {
+            if (!(now.decor || []).some(p => p.id === piece.id)) add('decorGone', 0, 'Decor piece ' + piece.name + ' was released and is gone: placed pieces of it will be taken off their maps.', { piece: piece.id });
+        }
         for (const [mapId, size] of Object.entries(before.maps || {})) if (now.maps[mapId] && JSON.stringify(size) !== JSON.stringify(now.maps[mapId])) {
             add('mapResized', mapId, 'Map ' + mapId + ' changed size from ' + size.join(' × ') + ' to ' + now.maps[mapId].join(' × ') + '; saved exploration may be reset.');
         }
@@ -85,8 +90,10 @@ DocsDoodads.Shipped = {
         const items = DocsDoodads.doodads(mapId).filter(Boolean);
         const prefix = W.mapId(mapId) + '/', valid = new Set(items.map(item => W.idOf(item)));
         const store = W.store(false);
-        for (const field of ['states', 'lights']) {
+        // 'grown' (8.4.2) keeps the day each growing doodad's state began, by the same names.
+        for (const field of ['states', 'lights', 'grown']) {
             const values = store[field];
+            if (!values) continue;
             for (const key of Object.keys(values)) {
                 if (!key.startsWith(prefix)) continue;
                 const oldId = key.slice(prefix.length);

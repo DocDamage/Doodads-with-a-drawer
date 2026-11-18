@@ -125,7 +125,20 @@ DocsDoodads.Persistence = {
         return entries;
     },
 
+    // Other files a Save writes in the same all-or-nothing transaction (Tilesets.json for tile flags, MapInfos.json
+    // for new maps): { name, entries() → [{ path, data | json }], conflict() → bool, committed(), dirty() → bool }.
+    savers: [],
+
+    saverEntries() {
+        const out = [];
+        for (const saver of this.savers) {
+            try { if (saver.dirty()) out.push(...(saver.entries() || [])); } catch (error) { DocsDoodads.Core.log(`${saver.name} could not be prepared for saving.`, error); throw error; }
+        }
+        return out;
+    },
+
     checkConflict() {
+        if (this.savers.some(saver => saver.dirty() && saver.conflict())) return true;
         if (!window.$gameMap) return false;
         const files = new Set([this.mapFilePath($gameMap.mapId())]);
         for (const entry of this.pendingMapEntries()) files.add(this.mapFilePath(entry.mapId));
@@ -153,9 +166,17 @@ DocsDoodads.Persistence = {
         const liveDoodads = window.$dataDocsDoodads || {};
         const mapEntries = this.pendingMapEntries().map(e => ({ path: this.mapFilePath(e.mapId), data: e.data, indent: 2 }));
         const doodadEntries = DocsDoodads.DataFiles.entriesFor(liveDoodads);
+        let extraEntries;
+        try {
+            extraEntries = this.saverEntries();
+        } catch (error) {
+            DocsDoodads.Workspace.showToast(`Save cancelled: ${error.message || error}`);
+            return false;
+        }
+        const committedSavers = this.savers.filter(saver => saver.dirty());
         const entries = mapEntries.concat(doodadEntries, [
             { path: DocsDoodads.AssetIndex.libraryPath, data: DocsDoodads.AssetIndex.data, indent: 0 }
-        ]);
+        ], extraEntries);
 
         try {
             // Only files whose text changes get a backup (and the backups folder is read once).
@@ -174,6 +195,7 @@ DocsDoodads.Persistence = {
         }
 
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
+        for (const saver of committedSavers) { try { saver.committed(); } catch (error) { DocsDoodads.Core.log(`${saver.name} save bookkeeping failed.`, error); } }
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);
         // A map's own JSON does not change when only its doodads do. Forget only pictures whose saved
@@ -201,7 +223,7 @@ DocsDoodads.Persistence = {
     },
 
     hasUnsavedWork() {
-        return this._dirtyMap || this._dirtyDoodads;
+        return Boolean(this._dirtyMap || this._dirtyDoodads || this.savers.some(saver => saver.dirty()));
     },
 
     changed() {

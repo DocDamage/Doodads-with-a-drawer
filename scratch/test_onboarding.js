@@ -81,8 +81,8 @@ const add = (id, rect, hidden) => { const n = makeNode('div'); n.id = id; byId[i
     D.Prefabs.save = () => { prefabSaves++; return true; };
     ws.mounted = true;
     const result = await ws.addSampleContent();
-    assert.deepStrictEqual([result.drawn, result.prefabs], [4, 2]);
-    for (const kind of Art.kinds) assert.ok(fs.existsSync(path.join(project, 'img/doodads/samples', `sample_${kind}.png`)), kind + ' written');
+    assert.deepStrictEqual([result.drawn, result.prefabs], [6, 2], 'four pictures and the two creature sheets');
+    for (const kind of Art.kinds.concat(Art.creatureKinds)) assert.ok(fs.existsSync(path.join(project, 'img/doodads/samples', `sample_${kind}.png`)), kind + ' written');
     const bush = D.AssetIndex.data.assets['img/doodads/samples/sample_bush.png'];
     assert.ok(bush && bush.width === 48 && bush.height === 36, 'in the Item Bag with its size');
     assert.ok(D.AssetIndex.list.some(a => a.fileName === 'sample_lamp.png'));

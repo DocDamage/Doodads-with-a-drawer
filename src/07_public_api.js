@@ -735,6 +735,61 @@ DocsDoodads.api = {
     },
 
     /**
+     * Opens Decorate mode on this map (pieces from Map → Decorate). Returns false when the map has no zone or catalog.
+     * @returns {boolean}
+     */
+    decorate() {
+        return DocsDoodads.DecorMode ? DocsDoodads.DecorMode.open() : false;
+    },
+
+    /**
+     * Gives the player decor pieces by catalog id (a negative count takes them). Returns how many they hold.
+     * @param {string} item
+     * @param {number} [count]
+     * @returns {number}
+     */
+    giveDecor(item, count = 1) {
+        return DocsDoodads.Decor.give(item, count);
+    },
+
+    /**
+     * Plays a cutscene timeline by its name or id (Map → Timelines). Returns false when there is none.
+     * @param {string} name
+     * @param {{ skippable?: boolean }} [opts]
+     * @returns {boolean}
+     */
+    playTimeline(name, opts = {}) {
+        return DocsDoodads.Timeline.play(name, opts);
+    },
+
+    /**
+     * Stops the timeline that is playing; the camera follows the player again. Returns whether one was playing.
+     * @returns {boolean}
+     */
+    stopTimeline() {
+        return DocsDoodads.Timeline.stop(true);
+    },
+
+    /**
+     * Whether a timeline is playing (that one, when a name is given).
+     * @param {string} [name]
+     * @returns {boolean}
+     */
+    timelinePlaying(name) {
+        return DocsDoodads.Timeline.isPlaying(name);
+    },
+
+    /**
+     * Starts (true) or stops (false) doodads that travel, by a query, on this map. Returns how many.
+     * @param {DocsDoodadQuery} query
+     * @param {boolean} [on]
+     * @returns {number}
+     */
+    travel(query, on = true) {
+        return DocsDoodads.Travel.setRunning(query, on !== false);
+    },
+
+    /**
      * Ambient light: darkness 0-1 and a colour '#rrggbb' over frames; ambient(null) goes back to the map's own.
      * @param {number | null} darkness
      * @param {string} [color]

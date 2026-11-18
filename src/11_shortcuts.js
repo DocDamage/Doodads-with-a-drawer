@@ -57,7 +57,8 @@ DocsDoodads.Shortcuts = {
         { id: 'brushBigger', label: 'Bigger brush', group: 'Tools', keys: ']' },
         { id: 'pathFinish', label: 'Place props along the path being drawn', group: 'Tools', keys: 'Enter', fixed: true },
         { id: 'pathBack', label: 'Remove the last path point', group: 'Tools', keys: 'Backspace', fixed: true },
-        { id: 'cancel', label: 'Stop the tool, unpick, close pop-ups', group: 'Tools', keys: 'Escape', fixed: true }
+        { id: 'cancel', label: 'Stop the tool, unpick, close pop-ups', group: 'Tools', keys: 'Escape', fixed: true },
+        { id: 'rewind', label: 'Rewind the playtest up to 30 seconds (hold it with the editor closed)', group: 'Playtest', keys: 'Ctrl+Backspace' }
     ],
 
     find(id) {

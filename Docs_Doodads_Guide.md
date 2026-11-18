@@ -72,6 +72,10 @@ Configure these options directly inside RPG Maker's Plugin Manager:
 
 ---
 
+### A sample project
+
+`npm run sample -- <a new MZ project folder>` fills a project you have just made with File > New Project (with MZ closed) with a small sample: a town at dusk with lamps, a sign, a chest and a house whose door opens when touched; a field in the 3D view with wind, swaying trees, birds and butterflies; and a dark cave with the flashlight, echo and torches, joined by transfers both ways. Its pictures are drawn by the plugin's own code; the tiles are the project's own tileset. It refuses a project that already has doodad data or a Map002/Map003. See `docs/SAMPLE_PROJECT.md`.
+
 ## 4. The Item Bag & Search
 
 ### Guessed settings on new pictures
@@ -385,6 +389,27 @@ Doodads hidden by a switch, condition or season can **Fade**, **Pop**, **Rise**,
 
 ---
 
+### Indoors by region
+
+Map settings → **Indoors**: list the regions painted on a house's **floors** (not its roof: seen from outside, rain over a roof is right). Rain and snow are not drawn over those tiles, flat and in 3D, and the map can scroll and loop without the edge slipping. Doodads based there don't lean in the wind or throw sun shadows. While the player stands inside, the screen eases to **Darkness inside** (blank keeps the map's), lightning flashes are dimmer and the weather's background sound plays at **Weather heard inside**. The darkness is one value for the screen, not tile by tile. The Regions legend says "indoors".
+
+### A world that remembers
+
+- **Grows** (Details, for a doodad with states and a Name): the days each state lasts, such as `2, 3, 4`. On each new calendar day it steps on, and stops at its last state: crops and saplings. Only the day each state began is kept in the save; a map not visited for days catches up when it is shown.
+- Map settings → **Remembers**: **Worn paths** count the player's steps on each tile; past **Steps before it shows** the ground shows a soft patch of the path colour, and each day it eases back. Kept in the save as a short string per map (a map that changes size starts again). **Footprints** are left on chosen regions or terrain tags, and anywhere while it snows, and fill in after the seconds you set; they are not saved.
+
+### Fire and rain
+
+Map settings → **Fire and Rain** (off by default): fire spreads over **dry ground** (regions or terrain tags you mark, and doodads set to **Burns** in Details), more often downwind; rain wets everything and puts it out, water runs downhill on Hills and leaves puddles; **fireproof regions** never burn. A doodad that Burns goes to its state named **Burnt** when its tile burns out, kept by the save. **Lights fires** (a campfire) can light dry ground beside it; **Puts out** (a well) keeps the tiles round it wet. Burning tiles flicker and light the map. Commands **Start Fire At** and **Put Out Fires**. The fire itself is not saved; burnt doodads are.
+
+### Map eras
+
+Map settings → **Eras**: one map in several versions (whole, burning, ruined). Add eras; pick doodads and press **Only in This Era** (or **In Every Era**); doodads with no era show in all. **Editing** chooses the era shown in the editor, with the others drawn faint (**Others shown**). In the game a switch (off: first era, on: second) or a variable (its number) picks the era; collision and lights follow what shows, and a change crossfades. **Copy Era** copies an era's own doodads into a new one. **Delete Era** asks whether to delete its own doodads or keep them in every era. Tiles are the same in every era.
+
+### Ambient creatures
+
+Details → **Creatures**: birds, butterflies or fish around a doodad, with how many, how far they spread, how near the player may come before they fly off, how soon they come back, their hours and weather, and their picture (two frames side by side; Add Sample Items draws a bird and a butterfly). **Perch** marks a doodad birds land on. Fish need water tiles and scatter only from a swimmer or a boat; lightning startles everything. They are not events: no collision, nothing saved. Effects Quality halves them at Medium and turns them off at Low; flat maps.
+
 ## 9. Post-Processing, Screen Effects & Map Image Export
 
 Open **View → Screen Looks**. Changes show live on the map behind it, and every edit can be undone (a slider drag counts as one step).
@@ -434,6 +459,12 @@ Saves the whole map as one PNG in the project's `screenshots` folder and opens i
 - **Lighting & colour**: include lighting, bloom and colour grading. Effects shaped by the screen (vignette, CRT, lens, aberration, grain, tilt-shift) are always left out, because they would repeat across the stitched image.
 
 ---
+
+### Light shafts, soft shadows and glow off walls
+
+Screen Looks → **Light shafts (flat maps)**: rays of light between what stops light (wall tiles, and doodads marked **Stops light shafts** in Details). By default they come from the sun, strongest when it is low and none at night, more in fog; **From the brightest lamp** uses the strongest lamp near the player instead. Effects Quality: 12 samples at Medium, none at Low.
+
+Map settings → **Soft Light**: **Soft shadow edges** blurs the edge of each lamp's wall shadow (lamps whose light walls stop: World → Lighting), and **Glow off walls** adds faint light where a lamp's light meets a wall so it comes a little way round corners. Players' Effects Quality: none at Low, soft edges at Medium, both at High.
 
 ## 10. Particles, VFX, Character Animation & Traversal
 
@@ -656,6 +687,10 @@ Letters can be skipped (`scrlk` finds *Screen Looks*). Use the arrow keys to mov
 Hover a character sheet in the Item Bag to watch it walk, and a door or chest sheet to see it open. An image sliced into equal frames (an animation strip) plays its frames too.
 
 ---
+
+### More like this
+
+**Map → More Like This**: drag a box round a part of the map you like, then drag the region to fill. The tool learns which kinds of ground sit beside which and how the doodads are spread over them, and fills the region the same way (it fits the tiles round it, and every pair of neighbours it makes was seen in the sample). The fill shows on the map until **Apply** (one Undo step); **Reroll** tries another. A sample smaller than 2 × 2 tiles says so. The ground layer only.
 
 ## 13. Visual Equipment & the Map Destination Marker
 
@@ -942,6 +977,18 @@ Doodads placed, moved, changed or removed through the API change the game's copy
 
 ---
 
+### Cutscene timelines
+
+**Map → Timelines**: a timeline has tracks (camera moves on flat maps and in 3D, a doodad's state or light, darkness, weather, a screen look or effect, a character's turn, walk, balloon, animation or action sheet, an effect, the time, wind, a sound, a switch) with keys against time. Click a track's row to add a key, click a key to change or delete it, drag a key to move it; each change is one Undo step. **Play** runs it on the map; clicking the ruler jumps there; **Stop** puts the map back as it was when Play was pressed. The plugin command **Play Timeline** plays it (with **Wait Until It Ends**), holding OK for a second skips to the end, and **Stop Timeline** stops it. Scripts: `DocsDoodads.api.playTimeline(name)`, `stopTimeline()`, `timelinePlaying(name)`.
+
+### Decorate mode for players
+
+**Map → Decorate**: the pieces players may place (made from the doodad or picture you pick, with its light, states and collision), how many tiles each covers, a limit, a price for your own shop events, and where they come from: given by **Give Decor Item**, a party item (used up on placing, given back on picking up) or free. Mark where on each map with regions or boxes. In the game **Open Decorate Mode**: arrows (or a tap) move the cursor, Q/W choose a piece, OK places it or lifts one to move, Shift flips, Cancel puts a lifted piece away or ends. Green under the piece where it may go, red with the reason where not; nobody can wall themselves in (every door stays reachable). Pieces are kept in the save by id and place; if a piece leaves the catalog or no longer fits its zone, it is handed back. **Count Decor** puts how many are placed or held in a variable. Scripts: `DocsDoodads.api.decorate()`, `giveDecor(id, n)`.
+
+### Rewind in a playtest
+
+With the editor closed, hold **Ctrl+Backspace** (More → Keys) to go back up to 30 seconds: snapshots are made every half second the way MZ makes a save, kept in memory only. Let go to play on from there; F10 then opens the editor at that moment. It does nothing in battles and menus, and sounds mid-play and running effects are not held. On a project where one snapshot takes over 4 ms, only the map, the player, switches, variables and self switches are kept.
+
 ## 16. Direct Physical Collision System
 
 **When the player is near** in a doodad's Details sets a range in tiles (0 is off), the state
@@ -970,6 +1017,18 @@ The map itself can also have painted collision finer than a tile. Pick **Collisi
 - **Visual Collision Editor**: When `Custom` is chosen, Details displays a live 64x64 interactive canvas preview. Adjust `Rel X`, `Rel Y`, `Rel W`, and `Rel H` (0.0 to 1.0) to fit collision precisely to your art regardless of scaling.
 
 ---
+
+### Bridges you walk over and under
+
+Map settings → **Bridges**: the regions of a bridge's **deck** and its **ends**. Stepping onto an end goes up onto the deck; stepping from an end onto plain ground comes down; walking from the ground straight under the deck stays below. On top you can't step off the side (the deck's regions are the walkway); below, only the ground tiles under the deck decide. Characters on different levels pass each other and don't start each other's events. Make the deck's tiles ☆ in the tileset so whoever is below walks under them; `<docs bridge: over>` in an event's note starts it on top. The player's level is kept in the save. Flat maps; Check Reach and Show Collision show the ground level.
+
+### Tile settings
+
+Tiles card → **Tile settings**: passage (○ × ☆), passage by side, ladder, bush, counter, damage floor, boat, ship, airship landing and terrain tag, each drawn on the tileset as MZ's database does; a click steps it (right-click steps a terrain tag back). An autotile's shapes change together. One Undo step a click, and the game sees the change at once. The first change to a tileset says how many maps use it. **Save** writes `data/Tilesets.json` with a backup and stops if MZ changed the file since; then close and reopen the project in RPG Maker MZ (if MZ saves while it is open, it writes its own copy over these changes).
+
+### Doodads that ride and travel
+
+Details → **Ride and Travel**: a doodad **Rides on** the player or an event (a lantern, a cart's load), offset by pixels; or **Travels through** points (pixels from where it was placed; **Draw Its Path** clicks them on the map, right-click finishes) at a speed, back to the start, turning round, or once (kept in the save), waiting at each stop, only while a switch is on. Its light, shadow, particles and sound go with it. **Carries whoever stands on it** makes its tiles walkable and moves the player with it: a raft across water. While the editor is open it stands where it was placed. Commands **Start Travel** and **Stop Travel**; `DocsDoodads.api.travel(name, on)`.
 
 ## 17. Sounds in the Item Bag
 
@@ -1061,6 +1120,22 @@ On the world map, with travel pins found, the arrow keys choose one, OK asks, an
 
 ---
 
+### Walking to neighbours
+
+Map settings → **Walking to Neighbours**: with maps linked as neighbours and the game-wide switch on, the player walks off one map's edge onto the next with no fade. The neighbours' files are read ahead, the camera may look past an edge that has a neighbour (whose tiles show there when it uses the same tileset) and keeps the player's place on screen. A map can opt out; looping maps keep looping. The neighbour's events show once you are there. Off-grid movement and the 3D view transfer as before.
+
+### Places: maps inside maps
+
+**Map → Places** lists the world, its places and their rooms as a tree, with **Go To** and a mark on a link with no transfer, no way back, or a landing on a blocked tile. **Make a Place Here** (at the picked event, or where the player stands) makes the place's map (or uses one by id), a transfer there and one back at its entrance. **Make a Grid of Maps** cuts a big area into maps of up to 256 tiles joined as neighbours. New maps and `MapInfos.json` are written together with backups, or not at all, and it stops if MZ changed `MapInfos.json` since. Close and reopen the project in RPG Maker MZ to see them. Removing a place keeps its map and transfers.
+
+### A real place
+
+**Map → From a Map File**: download an OpenStreetMap extract (an `.osm` file from the site's Export) or GeoJSON yourself, pick it, choose the kind of map, and optionally a grey picture for heights. Roads, rivers, water, forests and buildings become this map's tiles through Picture to Map's building step (a bridge where a road crosses water). The card says the area's real size and how much a tile is first. Nothing is downloaded by the editor. Apply writes "© OpenStreetMap contributors" into `CREDITS_MAPS.txt`: show it in your game's credits.
+
+### Baking for phones
+
+**Map → Bake This Map** (or **Bake Every Map**) draws a map's still doodads (no motion, states, light, shadow, effects or filters, and not sorted with characters) into a few pictures in `img/doodads/_baked/`, and the game draws those instead of hundreds of sprites. Save to keep it. Any later change to the map's doodads makes the bake stale: the game draws the real doodads and Problems says to bake again. A playtest shows the real doodads unless World `bake.playtest` is on; the 3D view never uses the pictures. `npm run deploy -- ... --bake` stops if any bake is stale. Exclude unused files keeps the baked pictures.
+
 ## 20. Asset Management: Where Used, Rename/Move, Duplicates, Live Reload, Packing
 
 ### Art credit ledger
@@ -1124,6 +1199,10 @@ not control another plugin or a video. Both start off and are kept in MZ's confi
 The editor is in English. **View → Look → Editor language** lists any translations in `data/DocsDoodadsLanguages`: a file `<code>.json` (for example `de.json`) with `"language"` (its own name) and `"strings"`, the English words with their translations. Words that hold values use `{name}` (`"Placed {n} doodad(s)"`), and the translation keeps it. Anything not translated stays English. `npm run strings` writes `languages/template.json` with every English string the editor shows, for a translator to fill in. Switching back to English shows every part in English after the editor is opened again.
 
 ---
+
+### Panels in their own window
+
+**View → Item Bag in a Window** or **Details in a Window** moves that panel into a second window of its own (in the desktop playtest), leaving the map clear. Keys pressed there still work, and the game doesn't pause while it has focus. Pick an item there, then click the map (drags can't cross windows). Close the window or use **Dock … Back** to put it back; its place is kept for next time. Closing the editor docks everything back.
 
 ## 22. Project Safety, Conflict Detection & Crash Recovery
 
@@ -1209,6 +1288,7 @@ Every key below except the *fixed* ones can be changed in **More > Keys** (or **
 | **Enter** | Place props along the path being drawn *(fixed)* | Tools |
 | **Backspace** | Remove the last path point *(fixed)* | Tools |
 | **Escape** | Stop the tool, unpick, close pop-ups *(fixed)* | Tools |
+| **Ctrl** + **Backspace** | Rewind the playtest up to 30 seconds (hold it with the editor closed) | Playtest |
 <!-- shortcuts:end -->
 
 With the mouse:
