@@ -64,6 +64,7 @@ assert.deepStrictEqual(plan.files.map(f => [f.path, f.kind]), [
 assert.deepStrictEqual(plan.layers2d.map(l => [l.image, l.place, l.follow, l.loopX, l.opacity]), [['Town_7_Ground', 'back', 1, false, 1], ['Town_7_Roofs', 'front', 1, false, 0.5]],
     'layers above the Player objects go over the map; pictures move with it');
 assert.deepStrictEqual([plan.files[0].width, plan.files[0].height], [192, 192]);
+assert.ok(plan.files.filter(f => f.kind === 'layer').every(f => f.opacity === 1), 'layer pictures are drawn whole; the layer alone carries the opacity');
 const scaledFlip = plan.files[0].draws.find(t => t.flipX);
 assert.deepStrictEqual([scaledFlip.x, scaledFlip.y, scaledFlip.dw], [48, 96, 48]);
 assert.deepStrictEqual(plan.doodads, [{ path: 'img/doodads/Town/props_1_1_16x16.png', x: 72, y: 144, frameW: 16, frameH: 16, scaleX: 3, scaleY: 3, name: 'Barrel' }]);

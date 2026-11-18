@@ -192,9 +192,12 @@ console.log('✓ the Tiles tool: strokes into the map and the staged map, undo, 
     assert.deepStrictEqual(tools, ['tiles']);
     assert.strictEqual(ws.tileBrush.sheet, 5, 'opens on that sheet');
     assert.strictEqual(ws.selectedAsset, null, 'nothing armed for Stamp');
+    const opened = [], picker = ws.openTilePicker;
+    ws.openTilePicker = a => opened.push(a.fileName);
     assert.strictEqual(ws.openTileSheet({ fileName: 'Other_A2.png', path: 'img\\tilesets\\Other_A2.png' }), true);
-    assert.strictEqual(ws.tileBrush.sheet, 5, 'a sheet this map does not use changes nothing');
-    assert.ok(/isn't in this map's tileset/.test(toasts[toasts.length - 1]));
+    assert.strictEqual(ws.tileBrush.sheet, 5, 'a sheet this map does not use leaves the Tiles tool alone');
+    assert.deepStrictEqual(opened, ['Other_A2.png'], 'and opens the tile picker on it');
+    ws.openTilePicker = picker;
     Object.assign(ws, { showToast: saved.toast, setPlacementTool: saved.set, renderTilePalette: saved.render, selectAsset: saved.select, placementTool: saved.tool });
 }
 console.log('✓ a tileset sheet in the bag opens the Tiles tool on that sheet');
@@ -217,5 +220,26 @@ console.log('✓ a tileset sheet in the bag opens the Tiles tool on that sheet')
     assert.strictEqual(T.isA2Overlay(T.make(19, 0), 0), false, 'the left half is ground');
 }
 console.log('✓ field overlays (the right half of A2) on the second layer');
+
+// The tile picker: a picked tile or block of any sheet is placed as a doodad showing only that part.
+{
+    const sheet = { id: 'img/tilesets/a_world_b.png', fileName: 'A_World_B.png', path: 'img/tilesets/A_World_B.png', category: 'Tilesets', width: 768, height: 768 };
+    assert.deepStrictEqual(ws.tilePickRect({ x: 5, y: 2 }, { x: 3, y: 4 }, 16, 16), { x: 3, y: 2, w: 3, h: 3 }, 'a drag either way');
+    assert.deepStrictEqual(ws.tilePickRect({ x: 14, y: 0 }, { x: 40, y: 0 }, 16, 16), { x: 14, y: 0, w: 2, h: 1 }, 'kept inside the sheet');
+    const one = ws.tilePickAsset(sheet, { x: 2, y: 3, w: 1, h: 1 }, 48);
+    assert.deepStrictEqual([one.frameX, one.frameY, one.frameW, one.frameH, one.path], [96, 144, 48, 48, sheet.path]);
+    assert.strictEqual(sheet.frameX, undefined, 'the bag entry itself is not changed');
+    const d = ws.newDoodadFromAsset(one, 100, 100, false);
+    assert.deepStrictEqual([d.frameX, d.frameY, d.frameW, d.frameH, d.bit[1]], [96, 144, 48, 48, sheet.path], 'the doodad shows only that tile');
+    const block = ws.newDoodadFromAsset(ws.tilePickAsset(sheet, { x: 0, y: 0, w: 2, h: 3 }, 32), 0, 0, false);
+    assert.deepStrictEqual([block.frameX, block.frameY, block.frameW, block.frameH], [0, 0, 64, 96], 'a block, at another tile size');
+    const whole = ws.newDoodadFromAsset(sheet, 0, 0, false);
+    assert.deepStrictEqual([whole.frameX, whole.frameW], [0, 768], 'an ordinary picture is placed whole as before');
+    ws.tilePickSize = 16;
+    assert.strictEqual(ws.tilePickCell(), 16);
+    ws.tilePickSize = 0;
+    assert.strictEqual(ws.tilePickCell(), tileSize, 'the map tile size by default');
+}
+console.log('✓ the tile picker places single tiles from any tileset sheet');
 
 console.log('=== Tile painting passed ===');

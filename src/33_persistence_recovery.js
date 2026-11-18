@@ -128,8 +128,37 @@ DocsDoodads.Persistence = {
             if (typeof ge.refresh === 'function') { ge._pageIndex = -2; ge.refresh(); }
             changed.push(id);
         }
+        // Events added in the editor (a transfer made by Make a Place Here, a template) join the running map as
+        // MZ makes them at map setup; events deleted there are erased. Both take effect without a map reload.
+        const events = gameMap._events;
+        if (Array.isArray(events) && typeof Game_Event === 'function') {
+            for (let id = 1; id < data.events.length; id++) {
+                const saved = data.events[id];
+                if (!saved || events[id]) continue;
+                live.events[id] = JSON.parse(JSON.stringify(saved));
+                events[id] = new Game_Event(gameMap.mapId(), id);
+                this.addEventSprite(events[id]);
+                changed.push(id);
+            }
+            for (let id = 1; id < events.length; id++) {
+                if (!events[id] || data.events[id]) continue;
+                if (typeof events[id].erase === 'function') events[id].erase();
+                live.events[id] = null;
+                changed.push(id);
+            }
+        }
         if (changed.length && typeof gameMap.requestRefresh === 'function') gameMap.requestRefresh();
         return changed;
+    },
+
+    // A sprite for an event added to the running map, in the tilemap with the other characters.
+    addEventSprite(event) {
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null, spriteset = scene && scene._spriteset;
+        if (!spriteset || !spriteset._tilemap || !Array.isArray(spriteset._characterSprites) || typeof Sprite_Character !== 'function') return null;
+        const sprite = new Sprite_Character(event);
+        spriteset._characterSprites.push(sprite);
+        spriteset._tilemap.addChild(sprite);
+        return sprite;
     },
 
     pendingMapEntries() {

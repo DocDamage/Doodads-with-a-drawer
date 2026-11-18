@@ -113,7 +113,10 @@ Object.assign(DocsDoodads.Workspace, {
             else this.clearPlacementPreview();
         } else this.clearPlacementPreview();
         const picture = asset && asset.category !== 'Audio' && asset.type !== 'prefab' && asset.placementMode !== 'event' && !(asset.placement && asset.placement.defaultMode === 'event');
-        if (this.ghostEl) this.ghostEl.style.display = onMap && picture ? 'none' : '';
+        // The floating picture follows the pointer only while an item is being dragged from the bag. With Stamp,
+        // the item is shown on the map itself, and nothing follows the pointer over the panels and menus.
+        const floating = Boolean(this.activeDragPayload) && !(onMap && picture);
+        if (this.ghostEl) this.ghostEl.style.display = floating ? '' : 'none';
     };
     W.removeGhost = function() { this.clearPlacementPreview(); this._placementPathSeed = null; return remove.call(this); };
 }

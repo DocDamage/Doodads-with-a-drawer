@@ -33,10 +33,18 @@
             return true;
         },
 
+        // The kind's classes the plan uses, and which of them have a tile for this tileset.
+        geoClasses(made) {
+            const used = made ? Array.from(new Set(made.plan.cells.filter(Boolean))) : [];
+            return used.map(id => ({ id, name: (made.kind.classes.find(c => c.id === id) || { name: id }).name, tile: this.mapFromTile(made.kind.id, id) || null }));
+        },
+
         applyGeoPlan(state) {
             const made = this.geoPlan(state);
             if (!made) return false;
-            this.applyMapFrom(made.plan, made.kind);
+            const result = this.applyMapFrom(made.plan, made.kind);
+            // Nothing built (no tile chosen for any class): no credit to write, and the card stays open.
+            if (!result || !result.changes) return false;
             this.writeMapCredit();
             this.showToast('Built from the map file. CREDITS_MAPS.txt has the OpenStreetMap credit: show it in your game\'s credits.');
             return true;
@@ -53,7 +61,7 @@
                 document.body.appendChild(card);
             }
             const render = () => {
-                const made = this.geoPlan(state);
+                const made = this.geoPlan(state), classes = this.geoClasses(made);
                 const kinds = this.mapKinds().map(k => `<option value="${escapeHtml(k.id)}"${k.id === state.kindId ? ' selected' : ''}>${escapeHtml(k.name)}</option>`).join('');
                 const sizeText = made ? `The area is ${Math.round(made.metres.w)} m × ${Math.round(made.metres.h)} m; on this ${made.size.w} × ${made.size.h} map a tile is about ${Math.max(1, Math.round(made.metres.w / made.size.w))} m.` : '';
                 card.innerHTML = `<div class="dd-panel-head">From a Map File <button class="dd-btn" id="dd-geo-close" type="button">Close</button></div>
@@ -63,8 +71,11 @@
                     <label>Kind of map <select id="dd-geo-kind">${kinds}</select></label>
                     ${state.features ? `<div>${state.features.length} features read from ${escapeHtml(state.name)}.</div>` : ''}
                     ${sizeText ? `<div style="color:var(--dd-muted);">${escapeHtml(sizeText)}</div>` : ''}
-                    ${made ? `<div>${made.plan.features.filter(f => f.type === 'bridge').length} bridges, ${made.plan.cells.filter(Boolean).length} tiles to build. Tiles for each class come from Picture to Map's choices.</div>` : ''}
-                    <button class="dd-btn dd-btn-primary" id="dd-geo-apply" type="button"${made ? '' : ' disabled'}>Apply</button>
+                    ${made ? `<div>${made.plan.features.filter(f => f.type === 'bridge').length} bridges, ${made.plan.cells.filter(Boolean).length} tiles to build.</div>` : ''}
+                    ${classes.length ? `<div class="dd-panel-head" style="margin-top:4px;">Tiles</div><div style="color:var(--dd-muted);">The tile for each class on this tileset (shared with Picture to Map; Alt+click a tile with the Tiles tool to see its id). A class with no tile is left alone.</div>` +
+                        classes.map(c => `<label>${escapeHtml(c.name)} <input id="dd-geo-tile-${escapeHtml(c.id)}" type="number" min="0" value="${c.tile || ''}" placeholder="tile id"></label>`).join('') : ''}
+                    <button class="dd-btn dd-btn-primary" id="dd-geo-apply" type="button"${made && classes.some(c => c.tile) ? '' : ' disabled'}>Apply</button>
+                    ${made && !classes.some(c => c.tile) ? `<div style="color:var(--dd-warn);">Choose a tile for at least one class first.</div>` : ''}
                     <div style="color:var(--dd-faint);margin-top:6px;">OpenStreetMap's data needs "© OpenStreetMap contributors" in your game: Apply writes it into CREDITS_MAPS.txt.</div>`;
                 const node = id => document.getElementById(id);
                 node('dd-geo-close').onclick = () => { if (card.parentNode) card.parentNode.removeChild(card); };
@@ -86,6 +97,7 @@
                     } catch (error) { this.showToast(String(error.message || error), 'error'); }
                     render();
                 };
+                for (const c of classes) { const input = node(`dd-geo-tile-${c.id}`); if (input) input.onchange = () => { this.mapFromTile(made.kind.id, c.id, input.value); render(); }; }
                 node('dd-geo-apply').onclick = () => { if (this.applyGeoPlan(state) && card.parentNode) card.parentNode.removeChild(card); };
             };
             render();

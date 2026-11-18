@@ -104,5 +104,27 @@ window.addEventListener = addWindow; window.removeEventListener = removeWindow;
 assert.ok(!JSON.stringify(window.$dataDocsDoodads).includes('_editorPreview'));
 W.showPlacementPreview(asset, at, 'stamp'); $gameMap.setup(2);
 assert.strictEqual(W._placementPreview, null, 'map changes remove previews');
+// The floating picture follows the pointer off the map only while dragging from the bag; with Stamp it never
+// trails over the panels and menus.
+{
+    W.mounted = true;
+    let onMap = true;
+    const pointer = W.placementPointerOnMap, base = W.showGhost;
+    W.placementPointerOnMap = () => onMap;
+    W.ghostEl = { style: {} };
+    W.activeDragPayload = null;
+    W.showGhost(asset, 10, 10, false);
+    assert.strictEqual(W.ghostEl.style.display, 'none', 'Stamp over the map: drawn on the map, nothing floating');
+    onMap = false;
+    W.showGhost(asset, 10, 10, false);
+    assert.strictEqual(W.ghostEl.style.display, 'none', 'Stamp over a panel: nothing follows the pointer');
+    W.activeDragPayload = asset;
+    W.showGhost(asset, 10, 10, false);
+    assert.strictEqual(W.ghostEl.style.display, '', 'dragging from the bag over a panel: the picture follows');
+    onMap = true;
+    W.showGhost(asset, 10, 10, false);
+    assert.strictEqual(W.ghostEl.style.display, 'none', 'and over the map it is drawn on the map instead');
+    W.activeDragPayload = null; W.placementPointerOnMap = pointer; W.ghostEl = null; W.showGhost = base;
+}
 W.mounted = false;
 console.log('PASS real map previews, no saved data, brush/path parity, pooling, capture and lifecycle cleanup');
