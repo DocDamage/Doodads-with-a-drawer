@@ -41,6 +41,20 @@ W.mounted = true; W.startOnboarding();
 assert.ok(drawn > 0 && W._questTimer, 'someone new sees the quest card, and its steps are checked as they work');
 assert.strictEqual(W.questData().status, 'active');
 W.mounted = false; W.stopQuestUi(); W.renderQuest = realRender;
+// Add Sample Items is offered while there are no pictures to place. A new MZ project's index is never empty
+// (MZ's own music, sounds and pictures), so it used to never be offered.
+{
+    const index = D.AssetIndex, was = index.list;
+    index.list = [{ path: 'audio/bgm/Battle1.ogg', category: 'Audio' }, { path: 'img/pictures/Logo.png', category: 'Pictures' }];
+    assert.strictEqual(W.questNeedsSamples(), true, "MZ's own files are not pictures to place");
+    index.list = was.concat([{ path: 'img/doodads/samples/sample_bush.png', category: 'Doodads' }]);
+    assert.strictEqual(W.questNeedsSamples(), false, 'doodad pictures: nothing to add');
+    index.list = [];
+    assert.strictEqual(W.questNeedsSamples(), true);
+    index.list = was;
+    assert.ok(/needsSamples \? '<button class="dd-btn" id="dd-quest-samples">/.test(W.renderQuest.toString()), 'the card shows the button from that check');
+    assert.ok(/addSampleContent\(\);[\s\S]*setCategory\('Doodads'\)/.test(W.renderQuest.toString()), 'then the bag opens on Doodads');
+}
 // Step 1 for someone new: with Select (the default) a click on the map picks, it does not place, so the hint
 // for a picked picture says to drag it or use Stamp. (It used to say "click the map to place it".)
 {

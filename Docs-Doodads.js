@@ -65295,8 +65295,14 @@ Object.assign(DocsDoodads.Workspace, {
             }
             this._questDrawn = '';
         },
+        // No pictures to place yet: nothing in the Doodads category. (MZ's own music, sounds and pictures fill the
+        // index of every new project, so an empty index never happened and the card never offered samples.)
+        questNeedsSamples() {
+            return !DocsDoodads.AssetIndex.list.some(asset => asset && asset.category === 'Doodads');
+        },
         renderQuest(quest) {
-            const signature = JSON.stringify([quest.completed, this.currentMapId(), DocsDoodads.AssetIndex.list.length > 0]);
+            const needsSamples = this.questNeedsSamples();
+            const signature = JSON.stringify([quest.completed, this.currentMapId(), needsSamples]);
             if (signature === this._questDrawn && document.getElementById('dd-first-map-quest')) return;
             const old = document.getElementById('dd-first-map-quest'); if (old && old.parentNode) old.parentNode.removeChild(old);
             const previousPointer = document.getElementById('dd-quest-pointer'); if (previousPointer && previousPointer.parentNode) previousPointer.parentNode.removeChild(previousPointer);
@@ -65307,11 +65313,16 @@ Object.assign(DocsDoodads.Workspace, {
             card.innerHTML = '<div class="dd-panel-head" data-dd-help="your-first-map"><b> Your first map</b></div>'
                 + '<ol style="padding-left:22px;line-height:1.8;">' + Q.steps.map(step => '<li style="' + (done.has(step.id) ? 'color:var(--dd-muted);text-decoration:line-through;' : '') + '">' + (done.has(step.id) ? '✓ ' : '') + step.text + '</li>').join('') + '</ol>'
                 + (Number(quest.mapId) !== Number(this.currentMapId()) ? '<p>Continue on map ' + Number(quest.mapId) + '.</p>' : '')
-                + (!DocsDoodads.AssetIndex.list.length ? '<button class="dd-btn" id="dd-quest-samples">Add Sample Items</button>' : '')
+                + (needsSamples ? '<button class="dd-btn" id="dd-quest-samples">Add Sample Items</button>' : '')
                 + '<div style="display:flex;gap:5px;margin-top:8px;"><button class="dd-btn" id="dd-quest-point">Show me</button><button class="dd-btn" id="dd-quest-pause">Not now</button><button class="dd-btn" id="dd-quest-skip">Skip</button></div>';
             (this.container || document.body).appendChild(card);
             const bind = (id, fn) => { const element = document.getElementById(id); if (element) element.onclick = fn; };
-            bind('dd-quest-samples', async () => { await this.addSampleContent(); this._questDrawn = ''; this.updateQuest(); });
+            // Then the bag opens on Doodads: on Everything the new pictures sat among MZ's own music and pictures.
+            bind('dd-quest-samples', async () => {
+                await this.addSampleContent();
+                if (typeof this.setCategory === 'function') { this._categoryChosen = true; this.setCategory('Doodads'); }
+                this._questDrawn = ''; this.updateQuest();
+            });
             bind('dd-quest-pause', () => this.pauseQuest('paused')); bind('dd-quest-skip', () => this.pauseQuest('skipped'));
             bind('dd-quest-point', () => {
                 const oldPointer = document.getElementById('dd-quest-pointer'); if (oldPointer && oldPointer.parentNode) oldPointer.parentNode.removeChild(oldPointer);
