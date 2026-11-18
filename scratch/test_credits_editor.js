@@ -40,6 +40,21 @@ async function main() {
     assert.strictEqual(await W.editArtCredit([asset]), false, 'a replaced library rejects a stale dialog');
     assert.strictEqual(asset.credit.author, 'Ada');
     D.AssetIndex.data = data;
+    // A file with no licence recorded: the Licence box starts empty, not as "Other (use text below)" (typing a
+    // licence there was added to the end of it).
+    {
+        const fresh = { id: 'img/doodads/fresh.png', path: 'img/doodads/Fresh.png' };
+        data.assets[fresh.id] = fresh;
+        const savedFolders = data.folderCredits; data.folderCredits = {};
+        let shown = null;
+        D.Ui.form = async opts => { shown = opts.fields.find(f => f.key === 'preset').value; return null; };
+        await W.editArtCredit([fresh]);
+        assert.strictEqual(shown, '', 'an empty Licence box');
+        fresh.credit = { author: 'Bo', licence: 'Shop terms 2', source: '', note: '' };
+        await W.editArtCredit([fresh]);
+        assert.strictEqual(shown, 'Other (use text below)', 'a licence not in the list still shows as Other');
+        delete data.assets[fresh.id]; data.folderCredits = savedFolders;
+    }
     const zip = D.Zip.asPack('Forest.zip', { unsafe: [], files: [
         { name: 'forest/README.md', data: Buffer.from('Forest terms') },
         { name: 'forest/Oak.png', data: Buffer.from('pixels') },
@@ -50,6 +65,16 @@ async function main() {
     assert.ok(W.renderAssetCredit(asset).includes('Set Credit'));
     assert.ok(W.menus().some(menu => menu.items && menu.items.some(item => item.id === 'dd-credits-btn')));
     window.$dataDocsDoodads[1] = [{ bit: [1], model: { path: 'models/Statue.gltf' }, states: { list: [{ path: 'img/doodads/OakNight.png' }] } }];
+    // The plugin's own made pictures (a ground mask) are not listed for credits.
+    {
+        const usage = W.refreshUsageIndex;
+        const mask = { id: 'img/doodads/ground/map001_ground.png', path: 'img/doodads/ground/Map001_ground.png' };
+        data.assets[mask.id] = mask;
+        const isUsed = D.Usage.isUsed;
+        D.Usage.isUsed = (a, index) => a === mask || isUsed.call(D.Usage, a, index);
+        assert.ok(!W.usedCreditEntries().some(row => row.path === mask.path), 'a ground mask needs no credit');
+        D.Usage.isUsed = isUsed; delete data.assets[mask.id]; W.refreshUsageIndex = usage;
+    }
     const extra = W.usedCreditEntries();
     const model = extra.find(row => row.path === 'models/Statue.gltf');
     assert.ok(model && extra.some(row => row.path === 'img/doodads/OakNight.png'), 'model and state art supplement native Where Used references');

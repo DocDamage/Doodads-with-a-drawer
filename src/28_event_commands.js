@@ -71,6 +71,14 @@
         summary(v) { return (v.pluginName || 'Plugin') + ': ' + (v.displayName || v.commandName || 'Command'); }
     });
 
+    // MZ's names for the commands that are kept untouched (edited in MZ), so a branch reads as one.
+    const mzNames = { 0: 'End of Block', 102: 'Show Choices', 402: 'When', 403: 'When Cancel', 404: 'End Choices', 103: 'Input Number',
+        104: 'Select Item', 105: 'Scrolling Text', 405: 'Scrolling Text Line', 108: 'Comment', 408: 'Comment Line', 111: 'If',
+        411: 'Else', 412: 'End If', 112: 'Loop', 413: 'Repeat Above', 113: 'Break Loop', 115: 'Exit Event', 118: 'Label',
+        119: 'Jump to Label', 122: 'Control Variables', 124: 'Control Timer', 125: 'Change Gold', 126: 'Change Items',
+        205: 'Movement Route', 505: 'Route Step', 301: 'Battle', 601: 'If Win', 602: 'If Escape', 603: 'If Lose',
+        604: 'End Battle Branch', 302: 'Shop', 605: 'Shop Item', 355: 'Script', 655: 'Script Line', 401: 'Text Line',
+        657: 'Plugin Argument' };
     const byId = {}, byCode = {};
     definitions.forEach(def => { byId[def.id] = def; byCode[def.code] = def; });
     const finalList = list => {
@@ -86,9 +94,11 @@
         get(idOrCode) { return typeof idOrCode === 'number' ? byCode[idOrCode] || null : byId[String(idOrCode || '')] || null; },
         span(list, index) {
             const item = list && list[index], def = item && byCode[item.code];
-            if (!item || !def || item.code !== 101) return item ? 1 : 0;
+            // Show Text takes its text lines (401) and a plugin command its argument lines (657) with it.
+            const next = item && def ? { 101: 401, 357: 657 }[item.code] : null;
+            if (!next) return item ? 1 : 0;
             const indent = Number(item.indent) || 0; let length = 1;
-            while (list[index + length] && list[index + length].code === 401 && (Number(list[index + length].indent) || 0) === indent) length++;
+            while (list[index + length] && list[index + length].code === next && (Number(list[index + length].indent) || 0) === indent) length++;
             return length;
         },
         describe(list) {
@@ -102,7 +112,7 @@
                     const values = def.read(source, index);
                     rows.push({ index, length, code: item.code, indent: Number(item.indent) || 0, id: def.id, label: def.label,
                         editable: true, structural: false, values, summary: def.summary ? def.summary(values) : def.label });
-                } else rows.push({ index, length: 1, code: item.code, indent: Number(item.indent) || 0, label: 'Command ' + item.code,
+                } else rows.push({ index, length: 1, code: item.code, indent: Number(item.indent) || 0, label: mzNames[item.code] || 'Command ' + item.code,
                     editable: false, structural: true, values: null, summary: 'Edit in MZ (command ' + item.code + ')' });
                 index += length;
             }

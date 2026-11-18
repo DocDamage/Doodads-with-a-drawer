@@ -83,7 +83,14 @@ DocsDoodads.Tiles = {
 
     // Which layer a picked tile goes on when the layer is 'auto': ground autotiles and A5 on 0 (A1's
     // rocks and A2's overlays on 1), B-E on the upper layers (2, or 3 over a tile already on 2).
-    autoLayer(id, upperBusy) {
+    // On a field-type tileset (mode 0, like Overworld) the right half of A2 (forests, hills, ...) is drawn over
+    // the ground: MZ keeps it on the second layer with a left-half A2 ground on the first.
+    isA2Overlay(id, mode) {
+        return mode === 0 && this.isA2(id) && this.kind(id) % 8 >= 4;
+    },
+
+    autoLayer(id, upperBusy, mode) {
+        if (this.isA2Overlay(id, mode)) return 1;
         if (this.isAutotile(id)) {
             const k = this.kind(id);
             if (this.isA1(id) && (k === 2 || k === 3)) return 1;
@@ -124,7 +131,12 @@ DocsDoodads.Tiles = {
                 let z = brush.layer === 'auto' || brush.layer === undefined ? null : Number(brush.layer);
                 if (z === null) {
                     const upper2 = get(this.index(W, H, tx, ty, 2));
-                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id);
+                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id, map.mode);
+                    // Ground painted where a field overlay (a forest) stood takes the overlay away, as MZ does.
+                    if (z === 0 && this.isA2Overlay(get(this.index(W, H, tx, ty, 1)), map.mode)) {
+                        set(this.index(W, H, tx, ty, 1), 0);
+                        touched.push([tx, ty, 1]);
+                    }
                     // A third upper tile: the one on 3 moves down to 2 and the new one goes on top.
                     if (z === 3) {
                         const on3 = get(this.index(W, H, tx, ty, 3));

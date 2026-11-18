@@ -129,9 +129,15 @@ DocsDoodads.MapFrom = {
             if (pick < 0 || widest < 24) break;
             const box = boxes[pick].slice().sort((a, b) => a[channel] - b[channel] || a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
             const mid = Math.floor(box.length / 2);
-            let cut = mid;
-            while (cut < box.length - 1 && box[cut][channel] === box[cut - 1][channel]) cut++;
-            if (cut >= box.length || cut <= 0) { cut = mid; while (cut > 1 && box[cut][channel] === box[cut - 1][channel]) cut--; }
+            // Cut where the channel's value changes, nearest the median: a run of one colour is never split in two
+            // (that made empty copies of the commonest colour and merged the rare ones). The box's range on the
+            // channel is wide, so such a place always exists.
+            const changes = i => i > 0 && i < box.length && box[i][channel] !== box[i - 1][channel];
+            let cut = -1;
+            for (let step = 0; step < box.length && cut < 0; step++) {
+                if (changes(mid + step)) cut = mid + step;
+                else if (changes(mid - step)) cut = mid - step;
+            }
             if (cut <= 0 || cut >= box.length) break;
             boxes.splice(pick, 1, box.slice(0, cut), box.slice(cut));
         }

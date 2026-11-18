@@ -177,4 +177,45 @@ for (const size of [32, 16]) {
 tileSize = 48;
 console.log('✓ the Tiles tool: strokes into the map and the staged map, undo, picking up, the palette');
 
+// A tileset sheet picked in the bag opens the Tiles tool on it instead of arming Stamp with the whole sheet.
+{
+    const toasts = [], tools = [];
+    const saved = { toast: ws.showToast, set: ws.setPlacementTool, render: ws.renderTilePalette, select: ws.selectAsset, tool: ws.placementTool };
+    ws.showToast = t => toasts.push(t);
+    ws.setPlacementTool = t => { tools.push(t); ws.placementTool = t; };
+    ws.renderTilePalette = () => {};
+    ws.selectAsset = a => { ws.selectedAsset = a; };
+    ws.placementTool = null;
+    ws.selectedAsset = { fileName: 'old' };
+    assert.strictEqual(ws.openTileSheet({ fileName: 'tree.png', path: 'img/doodads/tree.png', category: 'Doodads' }), false, 'other art is left to Stamp');
+    assert.strictEqual(ws.openTileSheet({ fileName: 'B.png', path: 'img/tilesets/B.png', category: 'Tilesets' }), true);
+    assert.deepStrictEqual(tools, ['tiles']);
+    assert.strictEqual(ws.tileBrush.sheet, 5, 'opens on that sheet');
+    assert.strictEqual(ws.selectedAsset, null, 'nothing armed for Stamp');
+    assert.strictEqual(ws.openTileSheet({ fileName: 'Other_A2.png', path: 'img\\tilesets\\Other_A2.png' }), true);
+    assert.strictEqual(ws.tileBrush.sheet, 5, 'a sheet this map does not use changes nothing');
+    assert.ok(/isn't in this map's tileset/.test(toasts[toasts.length - 1]));
+    Object.assign(ws, { showToast: saved.toast, setPlacementTool: saved.set, renderTilePalette: saved.render, selectAsset: saved.select, placementTool: saved.tool });
+}
+console.log('✓ a tileset sheet in the bag opens the Tiles tool on that sheet');
+
+// Field-type tilesets (mode 0): the right half of A2 (a forest) goes on the second layer over the ground, and
+// ground painted there takes it away again; other tilesets keep painting A2 on the ground layer.
+{
+    const grass2 = T.make(16, 0), forest = T.make(20, 0), W2 = 4, H2 = 4;
+    const field = { width: W2, height: H2, data: new Array(W2 * H2 * 6).fill(0), mode: 0 };
+    for (let i = 0; i < W2 * H2; i++) field.data[i] = grass2;
+    const put = changes => changes.forEach(c => { field.data[c.index] = c.after; });
+    put(T.paint(field, 1, 1, { ids: [[forest]], layer: 'auto' }, mzTables()));
+    assert.strictEqual(T.kind(field.data[T.index(W2, H2, 1, 1, 1)]), 20, 'the forest is on the second layer');
+    assert.strictEqual(T.kind(field.data[T.index(W2, H2, 1, 1, 0)]), 16, 'the grass stays under it');
+    put(T.paint(field, 1, 1, { ids: [[grass2]], layer: 'auto' }, mzTables()));
+    assert.strictEqual(field.data[T.index(W2, H2, 1, 1, 1)], 0, 'grass painted there takes the forest away');
+    const area = { width: W2, height: H2, data: new Array(W2 * H2 * 6).fill(0), mode: 1 };
+    T.paint(area, 1, 1, { ids: [[forest]], layer: 'auto' }, mzTables()).forEach(c => { area.data[c.index] = c.after; });
+    assert.strictEqual(T.kind(area.data[T.index(W2, H2, 1, 1, 0)]), 20, 'not a field tileset: the ground layer as before');
+    assert.strictEqual(T.isA2Overlay(T.make(19, 0), 0), false, 'the left half is ground');
+}
+console.log('✓ field overlays (the right half of A2) on the second layer');
+
 console.log('=== Tile painting passed ===');

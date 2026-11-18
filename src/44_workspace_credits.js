@@ -39,12 +39,14 @@ Object.assign(DocsDoodads.Workspace, {
             folder = C.path(folder, true);
         }
         const current = (forFolder ? C.normalize((data.folderCredits || {})[folder.toLowerCase()]) : C.of(items[0].path, data)) || {};
-        const custom = !C.licences.includes(current.licence), clear = 'Clear this record / inherit folder';
+        // Only a recorded licence that isn't one of the list starts as "Other": with none recorded the box starts
+        // empty, so typing a licence there isn't added to the end of "Other (use text below)".
+        const custom = Boolean(current.licence) && !C.licences.includes(current.licence), clear = 'Clear this record / inherit folder';
         const values = await D.Ui.form({ title: forFolder ? `Credit for ${folder}` : `Credit for ${items.length} file(s)`,
             text: 'Record the author and terms supplied with the art. Clear this record to inherit its folder. No licence permissions are inferred.', ok: 'Keep Credit', icon: 'info',
             fields: [
                 { key: 'author', label: 'Author', value: current.author || '' },
-                { key: 'preset', label: 'Licence', value: custom ? 'Other (use text below)' : current.licence, choices: C.licences.concat(['Other (use text below)', clear]) },
+                { key: 'preset', label: 'Licence', value: custom ? 'Other (use text below)' : current.licence || '', choices: C.licences.concat(['Other (use text below)', clear]) },
                 { key: 'licence', label: 'Other licence / terms', value: custom ? current.licence || '' : '' },
                 { key: 'source', label: 'Source / shop link', value: current.source || '' },
                 { key: 'note', label: 'Note / supplied licence text', value: current.note || '', type: 'textarea' }
@@ -80,7 +82,10 @@ Object.assign(DocsDoodads.Workspace, {
             if (!D.Credits.path(path) || byPath.has(path.toLowerCase())) continue;
             byPath.set(path.toLowerCase(), (data.assets || {})[path.toLowerCase()] || { id: path.toLowerCase(), path, fileName: path.split('/').pop(), creditOnly: true });
         }
-        return [...byPath.values()].map(asset => ({ path: asset.path, credit: D.Credits.of(asset.path, data), asset })).sort((a, b) => a.path.localeCompare(b.path));
+        // Pictures the plugin makes itself (ground masks, baked maps) are nobody's art to credit.
+        const made = (D.AssetIndex.generatedFolders || []).map(folder => folder.toLowerCase() + '/');
+        return [...byPath.values()].filter(asset => !made.some(folder => String(asset.path).replace(/\\/g, '/').toLowerCase().startsWith(folder)))
+            .map(asset => ({ path: asset.path, credit: D.Credits.of(asset.path, data), asset })).sort((a, b) => a.path.localeCompare(b.path));
     },
     usedLpcCredits(rows) {
         const data = this.lpcCredits ? this.lpcCredits() : DocsDoodads.Lpc.emptyCredits();

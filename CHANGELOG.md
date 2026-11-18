@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Generate Map starts at a size that fits the map, so the first Preview works on small maps.
+- Picture to Map groups a picture's colours correctly: a large area of one colour no longer splits into empty copies that merged the rarer colours away.
+- On field tilesets (like Overworld) the right half of A2, such as forests, is painted on the second layer over the ground, as MZ does, so its edges no longer show black; painting ground there removes it. Picture to Map puts grass under a forest.
+- Set Credit starts with an empty Licence box for art with no credit, instead of "Other (use text below)", which typing added to.
+- Write Credits and the art-credit check leave out pictures the plugin makes (ground masks, baked maps).
+- The Tiles card shows Tile settings again (its part was being replaced by the Tiles tool's).
+- Ground masks and baked pictures stay out of the Item Bag.
+- Details → Era sets which era the picked doodads show in (the map's Eras section is only shown with nothing picked).
+- Painted collision: a line one cell thick, straight or diagonal, now stops grid movement across it (before, only tiles more than half painted blocked); Check Reach now counts painted collision, and the robot tester counts painted lines.
+- Schedules: a walking event whose destination is blocked by the player waits until the tile is free instead of being placed onto the player after its wait runs out.
+- Saving applies changed events to the running playtest on the current map: their new pages and commands play right after Save, with no reload.
+- Pages & Commands: Undo and Redo redraw the open card; kept commands show MZ's names (If, Else, End If); a plugin command's argument lines stay with it when it is moved or removed.
+- Clicking a tileset sheet in the Item Bag's Tiles category opens the Tiles tool on that sheet instead of arming Stamp with the whole sheet as one picture.
 - Indoors by region: regions marked as floors under a roof keep rain and snow off (flat and 3D), stop sway and sun shadows there, and ease the darkness, lightning and the weather's sound while the player is inside.
 - Bridges: deck and end regions give characters a level, so the player walks over and under the same bridge; characters on different levels pass and don't start each other; the level is saved.
 - Doodads ride on the player or an event, or travel along points (loop, back and forth, once and saved), with their lights; carriers make their tiles walkable and take the player across water. Start Travel and Stop Travel.

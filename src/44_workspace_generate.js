@@ -113,8 +113,19 @@ Object.assign(DocsDoodads.Workspace, {
         if (this.placementTool === 'generate') this.setPlacementTool(null);
     },
 
+    // The size starts no bigger than the map, so the first Preview fits it.
+    fitGenerateSize() {
+        const o = this.generateOptions, map = this.liveMapData ? this.liveMapData() : null;
+        if (map && map.width > 0 && map.height > 0) {
+            o.w = Math.min(Number(o.w) || map.width, map.width);
+            o.h = Math.min(Number(o.h) || map.height, map.height);
+        }
+        return o;
+    },
+
     showGenerateCard() {
         if (typeof document === 'undefined') return null;
+        this.fitGenerateSize();
         const U = DocsDoodads.Ui, rooms = this.generatedRooms(), biomes = DocsDoodads.World.get('biomes.list') || [], o = this.generateOptions;
         let card = document.getElementById('dd-generate-card');
         if (!card) { card = document.createElement('div'); card.id = 'dd-generate-card'; card.className = 'dd-glass'; document.body.appendChild(card); }

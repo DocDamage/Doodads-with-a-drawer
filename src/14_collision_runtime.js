@@ -88,6 +88,12 @@ DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles, mover, d) {
     return false;
 };
 
+// A step that crosses a painted line (06_walls.js blocksStep), from tile (x, y) in direction d.
+DocsDoodads.Collision.blocksStep = function(x, y, d) {
+    const walls = DocsDoodads.Walls.get($gameMap.mapId());
+    return Boolean(walls) && DocsDoodads.Walls.blocksStep(walls, x, y, d, $gameMap.tileWidth(), $gameMap.tileHeight());
+};
+
 DocsDoodads.Collision.tileKey = function(tx, ty) {
     return (ty + 2) * 1048576 + (tx + 2);
 };
@@ -151,6 +157,7 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (this.isInAirship && this.isInAirship()) return true;
         if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
         const sailing = (this.isInBoat && this.isInBoat()) || (this.isInShip && this.isInShip());
-        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing, this, d);
+        const C = DocsDoodads.Collision;
+        return !C.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing, this, d) && !C.blocksStep(x, y, d);
     };
 }

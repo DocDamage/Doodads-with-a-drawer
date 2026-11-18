@@ -30,6 +30,14 @@
             if (card && card.parentNode) card.parentNode.removeChild(card);
             this._eventCommandCardIdentity = null;
         },
+        // Undo and Redo change the event in place: an open card for it is drawn again (on the nearest page).
+        refreshEventCommandEditorFor(event) {
+            if (typeof document === 'undefined' || !document.getElementById('dd-event-command-editor')) return false;
+            const identity = this._eventCommandCardIdentity;
+            if (!identity || identity.event !== event || this.eventEditorEvent() !== event) return false;
+            this.renderEventCommandEditor();
+            return true;
+        },
         eventEditorIdentity(pageIndex) {
             const event = this.eventEditorEvent();
             return event ? { mapId: this.currentMapId(), event, eventId: event.id, pageIndex: pageIndex === undefined ? this.eventEditorPage() : pageIndex } : null;

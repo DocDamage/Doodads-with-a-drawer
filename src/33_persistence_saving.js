@@ -114,7 +114,10 @@ Object.assign(DocsDoodads.Persistence, {
             W.showToast(`Save failed${result.rolledBack ? '; previous files restored' : ''}: ${result.error}`);
             return false;
         }
-        if (mapEntries.length) this.sessionSnapshots[mapFile] = FS.stat(mapFile);
+        if (mapEntries.length) {
+            this.sessionSnapshots[mapFile] = FS.stat(mapFile);
+            try { this.applySavedEvents(mapId, mapEntries[0].data); } catch (error) { DocsDoodads.Core.log('Saved events not applied to the game.', error); }
+        }
         DF.removeStale(doodadEntries);
         try {
             const mapThumb = DocsDoodads.MapThumb;

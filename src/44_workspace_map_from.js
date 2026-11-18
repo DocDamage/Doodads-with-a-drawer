@@ -151,7 +151,18 @@
                 tileChanges.set(index, { before, after });
                 this.setMapTile(mapId, index, after);
             };
-            for (const t of built.tiles) for (const c of T.paint(view, t.x, t.y, { ids: [[t.id]], layer: 'auto' }, tables)) record(c.index, c.after);
+            // A field overlay (a forest) needs ground under it: the plan's own ground tile (a left-half A2, such
+            // as grassland) goes there first unless the spot already has one.
+            const ground = (built.tiles.find(t => T.isA2(t.id) && !T.isA2Overlay(t.id, view.mode)) || {}).id || 0;
+            for (const t of built.tiles) {
+                if (ground && T.isA2Overlay(t.id, view.mode)) {
+                    const under = Number(view.data[T.index(view.width, view.height, t.x, t.y, 0)]) || 0;
+                    if (!(T.isA2(under) && !T.isA2Overlay(under, view.mode))) {
+                        for (const c of T.paint(view, t.x, t.y, { ids: [[ground]], layer: 0 }, tables)) record(c.index, c.after);
+                    }
+                }
+                for (const c of T.paint(view, t.x, t.y, { ids: [[t.id]], layer: 'auto' }, tables)) record(c.index, c.after);
+            }
             for (const r of built.regions) record(T.index(view.width, view.height, r.x, r.y, 5), r.id);
             const before = JSON.parse(JSON.stringify(D.Lighting.mapSettings(mapId) || {}));
             const after = JSON.parse(JSON.stringify(before));

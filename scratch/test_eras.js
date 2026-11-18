@@ -65,6 +65,23 @@ const copy = W.copyEra(1, 'ruined', 'Overgrown');
 const copies = $dataDocsDoodads[1].filter(d => d.eras && d.eras[0] === copy);
 assert.strictEqual(copies.length, 1, 'the ruin is copied into the new era');
 assert.notStrictEqual(copies[0].uid, 'ruin', 'with its own id');
+// Details → Era: with doodads picked (when the map's Eras section isn't shown) the picked ones get their era.
+{
+    const tree = $dataDocsDoodads[1].find(d => d.uid === 'tree'), savedItems = W.selectionItems;
+    W.selectionItems = () => [tree];
+    const era = W.effectSections().find(sec => sec.title === 'Era');
+    assert.ok(era, 'Details offers Era while the map has eras');
+    assert.deepStrictEqual(era.fields[0].options.map(o => o.value), ['', 'now', 'ruined', id, copy]);
+    assert.strictEqual(W.getDoodadProperty(tree, 'era'), id, 'shows its era');
+    W.applyDoodadProperty(tree, 'era', 'ruined');
+    assert.deepStrictEqual(tree.eras, ['ruined']);
+    assert.strictEqual(W.getDoodadProperty(tree, 'era'), 'ruined');
+    W.applyDoodadProperty(tree, 'era', '');
+    assert.ok(!tree.eras, 'Every era again');
+    W.selectionItems = () => [];
+    assert.ok(!W.effectSections().some(sec => sec.title === 'Era'), 'nothing picked: no Era section');
+    W.selectionItems = savedItems;
+}
 // Onion skin: editing the Now era, the ruin is faint.
 W.setEditingEra(1, 'now');
 E.frames(ss, 1);
