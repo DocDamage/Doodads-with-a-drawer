@@ -36,6 +36,16 @@ assert.deepStrictEqual([clear.cells, clear.groups], [[-1, -1, -1, -1], []], 'see
 const many = M.read(picture(64, 1, x => [x * 4, 255 - x * 4, (x * 37) % 256]), 64, 1, { tilesW: 64, tilesH: 1 });
 assert.ok(many.groups.length <= 12, 'at most twelve groups');
 assert.throws(() => M.read(new Uint8ClampedArray(4), 10, 10, {}), /could not be read/);
+// A big area of one colour is never split into empty copies: a sea, grass, forest, a road and a red mark
+// (counts 110, 80, 20, 8 and 3) are five groups, each with its own tiles.
+{
+    const sea = [40, 92, 204], grass = [100, 188, 84], forest = [20, 100, 28], road = [148, 148, 148], red = [220, 28, 28];
+    const cols = [].concat(...[[sea, 110], [grass, 80], [forest, 20], [road, 8], [red, 3]].map(([c, n]) => new Array(n).fill(c)));
+    const island = M.read(picture(cols.length, 1, x => cols[x].concat(255)), cols.length, 1, { tilesW: cols.length, tilesH: 1 });
+    assert.strictEqual(island.groups.length, 5, 'one group a colour');
+    assert.ok(island.groups.every(g => g.count > 0), 'no empty groups');
+    assert.deepStrictEqual(island.groups.map(g => g.count).sort((a, b) => a - b), [3, 8, 20, 80, 110]);
+}
 
 // ---- The key ----
 const overworld = M.kind('overworld');
@@ -101,6 +111,17 @@ assert.ok(Object.keys(builtHeights.heights).length > 0 && !Object.keys(builtHeig
     W.applyMapFrom(leftAlone, overworld, id => tiles[id] || null);
     const left = W.tileMapView().data;
     assert.ok([[0, 0], [1, 1]].every(([x, y]) => left[(0 * 4 + y) * 4 + x] === before[(0 * 4 + y) * 4 + x]), 'the left-alone quarter is untouched');
+    // On a field tileset a forest goes on the second layer, with the plan's grass under it (not the sea).
+    D.Undo.undo();
+    const tileView = W.tileMapView;
+    W.tileMapView = function() { return Object.assign(tileView.call(this), { mode: 0 }); };
+    const forestTiles = { water: 2048, grass: 2816, road: 1544, forest: 3008 };
+    W.applyMapFrom(plan, overworld, id => forestTiles[id] || null);
+    const field = W.tileMapView().data, at = (x, y, z) => field[(z * 4 + y) * 4 + x];
+    assert.strictEqual(D.Tiles.kind(at(3, 3, 1)), D.Tiles.kind(3008), 'the forest on the second layer');
+    assert.strictEqual(D.Tiles.kind(at(3, 3, 0)), D.Tiles.kind(2816), 'grass under it');
+    D.Undo.undo();
+    W.tileMapView = tileView;
     // Tiles per class are remembered per tileset and kind.
     W.mapFromTile('overworld', 'forest', 2900);
     assert.strictEqual(W.mapFromTile('overworld', 'forest'), 2900);

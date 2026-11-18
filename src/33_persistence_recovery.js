@@ -112,6 +112,26 @@ DocsDoodads.Persistence = {
     },
 
     // Every map file this save will write: the current map's staged data plus any parked maps.
+    // After a save, the running game plays the saved events of the map it is on: each event whose data
+    // changed is replaced in $dataMap and its page set up again (picture, trigger, movement and commands).
+    // Events added or deleted in the editor appear or go the next time the map loads. Returns the ids.
+    applySavedEvents(mapId, data) {
+        const gameMap = window.$gameMap, live = window.$dataMap;
+        if (!gameMap || !live || !data || !Array.isArray(data.events) || Number(gameMap.mapId()) !== Number(mapId)) return [];
+        if (!Array.isArray(live.events) || live === data) return [];
+        const changed = [];
+        for (const ge of (typeof gameMap.events === 'function' ? gameMap.events() : [])) {
+            const id = ge && ge.eventId ? ge.eventId() : 0, saved = id ? data.events[id] : null;
+            if (!saved || JSON.stringify(saved) === JSON.stringify(live.events[id])) continue;
+            live.events[id] = JSON.parse(JSON.stringify(saved));
+            // MZ sets a page up only when its index changes; force it so the new page settings are used.
+            if (typeof ge.refresh === 'function') { ge._pageIndex = -2; ge.refresh(); }
+            changed.push(id);
+        }
+        if (changed.length && typeof gameMap.requestRefresh === 'function') gameMap.requestRefresh();
+        return changed;
+    },
+
     pendingMapEntries() {
         const entries = [];
         const gameMap = window.$gameMap;
@@ -195,6 +215,9 @@ DocsDoodads.Persistence = {
         }
 
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
+        for (const entry of this.pendingMapEntries()) {
+            try { this.applySavedEvents(entry.mapId, entry.data); } catch (error) { DocsDoodads.Core.log('Saved events not applied to the game.', error); }
+        }
         for (const saver of committedSavers) { try { saver.committed(); } catch (error) { DocsDoodads.Core.log(`${saver.name} save bookkeeping failed.`, error); } }
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);

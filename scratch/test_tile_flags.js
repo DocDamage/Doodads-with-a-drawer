@@ -118,5 +118,9 @@ D.Persistence.dirtyMap = false; D.Persistence.dirtyDoodads = false;
 
     // Outside a playtest FS refuses to write.
     assert.ok(D.FS && typeof D.FS.atomicWriteManyJson === 'function');
+    // The Tiles card really gets the Tile settings choice and the marks: the Tiles tool's own part must not
+    // replace them (it did when it was built after this part).
+    assert.ok(String(W.renderTilePalette).includes('dd-tile-flags-mode'), 'the card offers Tile settings');
+    assert.ok(String(W.drawTileSheet).includes('drawTileFlagMarks'), 'the sheet draws the marks');
     console.log('test_tile_flags: OK');
 })().catch(e => { console.error(e); process.exit(1); });

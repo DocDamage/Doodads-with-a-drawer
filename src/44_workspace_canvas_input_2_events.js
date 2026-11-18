@@ -134,6 +134,8 @@
             Object.assign(ev, JSON.parse(JSON.stringify(snapshot)));
             if (ge && (ge.x !== ev.x || ge.y !== ev.y)) ge.locate(ev.x, ev.y);
             DocsDoodads.Persistence.dirtyMap = true;
+            // An open Pages & Commands card shows this event: draw it again after Undo and Redo.
+            if (this.refreshEventCommandEditorFor) this.refreshEventCommandEditorFor(ev);
         };
         DocsDoodads.Undo.execute({ type, apply: () => set(after), revert: () => set(before) });
         return true;

@@ -4630,6 +4630,44 @@ DocsDoodads.Walls = {
         return blocked * 2 > total;
     },
 
+    // A step from tile (tx, ty) in direction d (2/4/6/8) is cut by painted cells: no path of free cells,
+    // moving up, down, left or right inside the two tiles, joins the middle of one tile to the middle of the
+    // other. So a line one cell thick, straight or diagonal, stops a grid move across it. A start with no free
+    // middle (a character already standing in a wall) never traps it; a destination with none is blocked.
+    blocksStep(grid, tx, ty, d, tw, th) {
+        if (!grid) return false;
+        const dx = d === 4 ? -1 : d === 6 ? 1 : 0, dy = d === 8 ? -1 : d === 2 ? 1 : 0;
+        if (!dx && !dy) return false;
+        const c = grid.cell, nx = tx + dx, ny = ty + dy;
+        const span = (t, size) => [Math.floor(t * size / c), Math.ceil((t + 1) * size / c) - 1];
+        const middle = (t, size) => [Math.floor((t * size + size / 4) / c), Math.max(Math.floor((t * size + size / 4) / c), Math.ceil((t * size + size * 3 / 4) / c) - 1)];
+        const [x0] = span(Math.min(tx, nx), tw), [, x1] = span(Math.max(tx, nx), tw);
+        const [y0] = span(Math.min(ty, ny), th), [, y1] = span(Math.max(ty, ny), th);
+        const w = x1 - x0 + 1, h = y1 - y0 + 1, seen = new Uint8Array(w * h), queue = [];
+        const free = (cx, cy) => !this.getCell(grid, cx, cy);
+        const block = (t, u) => { const [ax, bx] = middle(t, tw), [ay, by] = middle(u, th); return { ax, bx, ay, by }; };
+        const from = block(tx, ty), to = block(nx, ny);
+        for (let cy = from.ay; cy <= from.by; cy++) for (let cx = from.ax; cx <= from.bx; cx++) {
+            if (free(cx, cy)) { seen[(cy - y0) * w + (cx - x0)] = 1; queue.push([cx, cy]); }
+        }
+        if (!queue.length) return false;
+        let goal = false;
+        for (let cy = to.ay; cy <= to.by && !goal; cy++) for (let cx = to.ax; cx <= to.bx; cx++) if (free(cx, cy)) { goal = true; break; }
+        if (!goal) return true;
+        for (let q = 0; q < queue.length; q++) {
+            const [cx, cy] = queue[q];
+            if (cx >= to.ax && cx <= to.bx && cy >= to.ay && cy <= to.by) return false;
+            for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const ex = cx + ox, ey = cy + oy;
+                if (ex < x0 || ey < y0 || ex > x1 || ey > y1) continue;
+                const k = (ey - y0) * w + (ex - x0);
+                if (seen[k] || !free(ex, ey)) continue;
+                seen[k] = 1; queue.push([ex, ey]);
+            }
+        }
+        return true;
+    },
+
     brushCells(grid, cx, cy, radius, shape) {
         const r = Math.max(0, Math.min(16, Math.round(Number(radius) || 0)));
         const out = [], seen = new Set();
@@ -13051,7 +13089,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Map eras",
         "anchor": "map-eras",
-        "firstParagraph": "Map settings → Eras: one map in several versions (whole, burning, ruined). Add eras; pick doodads and press Only in This Era (or In Every Era); doodads with no era show in all. Editing chooses the era shown in the editor, with the others drawn faint (Others shown). In the game a switch (off: first era, on: second) or a variable (its number) picks the era; collision and lights follow what shows, and a change crossfades. Copy Era copies an era's own doodads into a new one. Delete Era asks whether to delete its own doodads or keep them in every era. Tiles are the same in every era."
+        "firstParagraph": "Map settings → Eras: one map in several versions (whole, burning, ruined). Add eras; then pick doodads and set Details → Era to one era (or Every era); doodads with no era show in all. Editing chooses the era shown in the editor, with the others drawn faint (Others shown). In the game a switch (off: first era, on: second) or a variable (its number) picks the era; collision and lights follow what shows, and a change crossfades. Copy Era copies an era's own doodads into a new one. Delete Era asks whether to delete its own doodads or keep them in every era. Tiles are the same in every era."
     },
     {
         "title": "Ambient creatures",
@@ -13231,7 +13269,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Tiles (painting MZ tiles)",
         "anchor": "tiles-painting-mz-tiles",
-        "firstParagraph": "Tiles (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs A1 to E. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. Layer: Automatic puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. Eraser takes the top tile off. Alt+click picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied."
+        "firstParagraph": "Tiles (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs A1 to E. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. Layer: Automatic puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. On a field tileset (like Overworld) the right half of A2, such as forests and hills, goes on the second layer over the ground, as in MZ, and painting ground there takes it away. Eraser takes the top tile off. Alt+click picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied. Clicking a tileset sheet in the Item Bag's Tiles category opens this card on that sheet; a sheet the map's tileset doesn't use only says so (right-click it for Place as Doodad to put the whole picture on the map)."
     },
     {
         "title": "Regions",
@@ -13695,9 +13733,15 @@ DocsDoodads.MapFrom = {
             if (pick < 0 || widest < 24) break;
             const box = boxes[pick].slice().sort((a, b) => a[channel] - b[channel] || a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
             const mid = Math.floor(box.length / 2);
-            let cut = mid;
-            while (cut < box.length - 1 && box[cut][channel] === box[cut - 1][channel]) cut++;
-            if (cut >= box.length || cut <= 0) { cut = mid; while (cut > 1 && box[cut][channel] === box[cut - 1][channel]) cut--; }
+            // Cut where the channel's value changes, nearest the median: a run of one colour is never split in two
+            // (that made empty copies of the commonest colour and merged the rare ones). The box's range on the
+            // channel is wide, so such a place always exists.
+            const changes = i => i > 0 && i < box.length && box[i][channel] !== box[i - 1][channel];
+            let cut = -1;
+            for (let step = 0; step < box.length && cut < 0; step++) {
+                if (changes(mid + step)) cut = mid + step;
+                else if (changes(mid - step)) cut = mid - step;
+            }
             if (cut <= 0 || cut >= box.length) break;
             boxes.splice(pick, 1, box.slice(0, cut), box.slice(cut));
         }
@@ -15399,7 +15443,7 @@ DocsDoodads.Robot = {
         const canStep = (x, y, d) => {
             const [nx, ny] = wrap(x + this.dirs[d][0], y + this.dirs[d][1]);
             if (!inside(nx, ny) || !pass(x, y, d) || !pass(nx, ny, 10 - d)) return false;
-            return !blockers.has(nx + ',' + ny) && !walls(nx, ny);
+            return !blockers.has(nx + ',' + ny) && !walls(nx, ny) && !(walls.step && walls.step(x, y, d));
         };
         const standable = (x, y) => inside(x, y) && !walls(x, y) && [2, 4, 6, 8].some(d => pass(x, y, d));
         return { width: w, height: h, loopX, loopY, canStep, standable };
@@ -16283,7 +16327,14 @@ DocsDoodads.Tiles = {
 
     // Which layer a picked tile goes on when the layer is 'auto': ground autotiles and A5 on 0 (A1's
     // rocks and A2's overlays on 1), B-E on the upper layers (2, or 3 over a tile already on 2).
-    autoLayer(id, upperBusy) {
+    // On a field-type tileset (mode 0, like Overworld) the right half of A2 (forests, hills, ...) is drawn over
+    // the ground: MZ keeps it on the second layer with a left-half A2 ground on the first.
+    isA2Overlay(id, mode) {
+        return mode === 0 && this.isA2(id) && this.kind(id) % 8 >= 4;
+    },
+
+    autoLayer(id, upperBusy, mode) {
+        if (this.isA2Overlay(id, mode)) return 1;
         if (this.isAutotile(id)) {
             const k = this.kind(id);
             if (this.isA1(id) && (k === 2 || k === 3)) return 1;
@@ -16324,7 +16375,12 @@ DocsDoodads.Tiles = {
                 let z = brush.layer === 'auto' || brush.layer === undefined ? null : Number(brush.layer);
                 if (z === null) {
                     const upper2 = get(this.index(W, H, tx, ty, 2));
-                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id);
+                    z = this.autoLayer(id, upper2 !== 0 && upper2 !== id, map.mode);
+                    // Ground painted where a field overlay (a forest) stood takes the overlay away, as MZ does.
+                    if (z === 0 && this.isA2Overlay(get(this.index(W, H, tx, ty, 1)), map.mode)) {
+                        set(this.index(W, H, tx, ty, 1), 0);
+                        touched.push([tx, ty, 1]);
+                    }
                     // A third upper tile: the one on 3 moves down to 2 and the new one goes on top.
                     if (z === 3) {
                         const on3 = get(this.index(W, H, tx, ty, 3));
@@ -20311,6 +20367,12 @@ DocsDoodads.Collision.blocksTile = function(tx, ty, vehicles, mover, d) {
     return false;
 };
 
+// A step that crosses a painted line (06_walls.js blocksStep), from tile (x, y) in direction d.
+DocsDoodads.Collision.blocksStep = function(x, y, d) {
+    const walls = DocsDoodads.Walls.get($gameMap.mapId());
+    return Boolean(walls) && DocsDoodads.Walls.blocksStep(walls, x, y, d, $gameMap.tileWidth(), $gameMap.tileHeight());
+};
+
 DocsDoodads.Collision.tileKey = function(tx, ty) {
     return (ty + 2) * 1048576 + (tx + 2);
 };
@@ -20374,7 +20436,8 @@ if (typeof Game_CharacterBase !== 'undefined') {
         if (this.isInAirship && this.isInAirship()) return true;
         if (DocsDoodads.Traversal && DocsDoodads.Traversal.isFlying(this)) return true;
         const sailing = (this.isInBoat && this.isInBoat()) || (this.isInShip && this.isInShip());
-        return !DocsDoodads.Collision.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing, this, d);
+        const C = DocsDoodads.Collision;
+        return !C.blocksTile($gameMap.roundXWithDirection(x, d), $gameMap.roundYWithDirection(y, d), sailing, this, d) && !C.blocksStep(x, y, d);
     };
 }
 //==========================================================
@@ -31375,11 +31438,23 @@ DocsDoodads.ScheduleRuntime = {
         const moving = Boolean(event.isMoving && event.isMoving());
         if (!moving && event.pos && event.pos(target.x, target.y)) { this.finishTarget(event, state); return true; }
         target.frames++;
-        if (target.frames >= 600) { this.finishTarget(event, state); return true; }
+        if (target.frames >= 600) {
+            // Never placed onto the player or a follower: a solid event waits until the tile is free.
+            if (this.playerOn(event, target)) return false;
+            this.finishTarget(event, state); return true;
+        }
         if (moving) return false;
         const direction = event.findDirectionTo ? event.findDirectionTo(target.x, target.y) : 0;
         if (direction > 0 && event.moveStraight) event.moveStraight(direction);
         return false;
+    },
+
+    // True when a solid event (same as characters, not Through) would land on the player or a follower.
+    playerOn(event, target) {
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        if (!player || !player.isCollided || (event.isThrough && event.isThrough())) return false;
+        if (event.isNormalPriority && !event.isNormalPriority()) return false;
+        return Boolean(player.isCollided(target.x, target.y));
     },
 
     invalidateEvent(event) {
@@ -33506,8 +33581,13 @@ DocsDoodads.AssetIndex = {
         }
     },
 
-    isIgnoredDirectory(name) {
-        return name === '_packed' || name === '_normals' || String(name).startsWith('.');
+    // relative: the folder's path from the project ('img/doodads/ground'). The plugin's own made pictures
+    // (ground masks, baked maps) are not art to place, so their folders stay out of the Item Bag.
+    generatedFolders: ['img/doodads/ground', 'img/doodads/_baked'],
+    isIgnoredDirectory(name, relative) {
+        if (name === '_packed' || name === '_normals' || String(name).startsWith('.')) return true;
+        const at = String(relative || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+        return Boolean(at) && this.generatedFolders.includes(at);
     },
 
     isSupportedAssetFile(filePath) {
@@ -33546,7 +33626,7 @@ DocsDoodads.AssetIndex = {
                     const absolute = path.join(directory.absolute, entry.name);
                     const relative = `${directory.relative}/${entry.name}`.replace(/\\/g, '/');
                     if (entry.isDirectory()) {
-                        if (!this.isIgnoredDirectory(entry.name)) directories.push({ absolute, relative });
+                        if (!this.isIgnoredDirectory(entry.name, relative)) directories.push({ absolute, relative });
                     }
                     else if (entry.isFile() && this.isSupportedAssetFile(entry.name)) files.push({ absolute, relative });
                 }
@@ -40280,6 +40360,14 @@ DocsDoodads.Slicing.Editor = {
         summary(v) { return (v.pluginName || 'Plugin') + ': ' + (v.displayName || v.commandName || 'Command'); }
     });
 
+    // MZ's names for the commands that are kept untouched (edited in MZ), so a branch reads as one.
+    const mzNames = { 0: 'End of Block', 102: 'Show Choices', 402: 'When', 403: 'When Cancel', 404: 'End Choices', 103: 'Input Number',
+        104: 'Select Item', 105: 'Scrolling Text', 405: 'Scrolling Text Line', 108: 'Comment', 408: 'Comment Line', 111: 'If',
+        411: 'Else', 412: 'End If', 112: 'Loop', 413: 'Repeat Above', 113: 'Break Loop', 115: 'Exit Event', 118: 'Label',
+        119: 'Jump to Label', 122: 'Control Variables', 124: 'Control Timer', 125: 'Change Gold', 126: 'Change Items',
+        205: 'Movement Route', 505: 'Route Step', 301: 'Battle', 601: 'If Win', 602: 'If Escape', 603: 'If Lose',
+        604: 'End Battle Branch', 302: 'Shop', 605: 'Shop Item', 355: 'Script', 655: 'Script Line', 401: 'Text Line',
+        657: 'Plugin Argument' };
     const byId = {}, byCode = {};
     definitions.forEach(def => { byId[def.id] = def; byCode[def.code] = def; });
     const finalList = list => {
@@ -40295,9 +40383,11 @@ DocsDoodads.Slicing.Editor = {
         get(idOrCode) { return typeof idOrCode === 'number' ? byCode[idOrCode] || null : byId[String(idOrCode || '')] || null; },
         span(list, index) {
             const item = list && list[index], def = item && byCode[item.code];
-            if (!item || !def || item.code !== 101) return item ? 1 : 0;
+            // Show Text takes its text lines (401) and a plugin command its argument lines (657) with it.
+            const next = item && def ? { 101: 401, 357: 657 }[item.code] : null;
+            if (!next) return item ? 1 : 0;
             const indent = Number(item.indent) || 0; let length = 1;
-            while (list[index + length] && list[index + length].code === 401 && (Number(list[index + length].indent) || 0) === indent) length++;
+            while (list[index + length] && list[index + length].code === next && (Number(list[index + length].indent) || 0) === indent) length++;
             return length;
         },
         describe(list) {
@@ -40311,7 +40401,7 @@ DocsDoodads.Slicing.Editor = {
                     const values = def.read(source, index);
                     rows.push({ index, length, code: item.code, indent: Number(item.indent) || 0, id: def.id, label: def.label,
                         editable: true, structural: false, values, summary: def.summary ? def.summary(values) : def.label });
-                } else rows.push({ index, length: 1, code: item.code, indent: Number(item.indent) || 0, label: 'Command ' + item.code,
+                } else rows.push({ index, length: 1, code: item.code, indent: Number(item.indent) || 0, label: mzNames[item.code] || 'Command ' + item.code,
                     editable: false, structural: true, values: null, summary: 'Edit in MZ (command ' + item.code + ')' });
                 index += length;
             }
@@ -41713,6 +41803,26 @@ DocsDoodads.Persistence = {
     },
 
     // Every map file this save will write: the current map's staged data plus any parked maps.
+    // After a save, the running game plays the saved events of the map it is on: each event whose data
+    // changed is replaced in $dataMap and its page set up again (picture, trigger, movement and commands).
+    // Events added or deleted in the editor appear or go the next time the map loads. Returns the ids.
+    applySavedEvents(mapId, data) {
+        const gameMap = window.$gameMap, live = window.$dataMap;
+        if (!gameMap || !live || !data || !Array.isArray(data.events) || Number(gameMap.mapId()) !== Number(mapId)) return [];
+        if (!Array.isArray(live.events) || live === data) return [];
+        const changed = [];
+        for (const ge of (typeof gameMap.events === 'function' ? gameMap.events() : [])) {
+            const id = ge && ge.eventId ? ge.eventId() : 0, saved = id ? data.events[id] : null;
+            if (!saved || JSON.stringify(saved) === JSON.stringify(live.events[id])) continue;
+            live.events[id] = JSON.parse(JSON.stringify(saved));
+            // MZ sets a page up only when its index changes; force it so the new page settings are used.
+            if (typeof ge.refresh === 'function') { ge._pageIndex = -2; ge.refresh(); }
+            changed.push(id);
+        }
+        if (changed.length && typeof gameMap.requestRefresh === 'function') gameMap.requestRefresh();
+        return changed;
+    },
+
     pendingMapEntries() {
         const entries = [];
         const gameMap = window.$gameMap;
@@ -41796,6 +41906,9 @@ DocsDoodads.Persistence = {
         }
 
         for (const entry of mapEntries) this.sessionSnapshots[entry.path] = DocsDoodads.FS.stat(entry.path);
+        for (const entry of this.pendingMapEntries()) {
+            try { this.applySavedEvents(entry.mapId, entry.data); } catch (error) { DocsDoodads.Core.log('Saved events not applied to the game.', error); }
+        }
         for (const saver of committedSavers) { try { saver.committed(); } catch (error) { DocsDoodads.Core.log(`${saver.name} save bookkeeping failed.`, error); } }
         this.stagedMaps = {};
         DocsDoodads.DataFiles.removeStale(doodadEntries);
@@ -42041,7 +42154,10 @@ Object.assign(DocsDoodads.Persistence, {
             W.showToast(`Save failed${result.rolledBack ? '; previous files restored' : ''}: ${result.error}`);
             return false;
         }
-        if (mapEntries.length) this.sessionSnapshots[mapFile] = FS.stat(mapFile);
+        if (mapEntries.length) {
+            this.sessionSnapshots[mapFile] = FS.stat(mapFile);
+            try { this.applySavedEvents(mapId, mapEntries[0].data); } catch (error) { DocsDoodads.Core.log('Saved events not applied to the game.', error); }
+        }
         DF.removeStale(doodadEntries);
         try {
             const mapThumb = DocsDoodads.MapThumb;
@@ -45453,6 +45569,8 @@ DocsDoodads.Workspace = {
             }
             if (this.bagPicked && this.bagPicked.size) this.clearBagPicks();
             this._bagAnchor = asset.id;
+            // A tileset sheet opens the Tiles tool on it (single tiles), not Stamp with the whole sheet.
+            if (this.openTileSheet && this.openTileSheet(asset)) return;
             this.selectAsset(asset);
             const container = document.getElementById('dd-cards-container');
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));
@@ -53185,6 +53303,8 @@ DocsDoodads.Workspace = {
             Object.assign(ev, JSON.parse(JSON.stringify(snapshot)));
             if (ge && (ge.x !== ev.x || ge.y !== ev.y)) ge.locate(ev.x, ev.y);
             DocsDoodads.Persistence.dirtyMap = true;
+            // An open Pages & Commands card shows this event: draw it again after Undo and Redo.
+            if (this.refreshEventCommandEditorFor) this.refreshEventCommandEditorFor(ev);
         };
         DocsDoodads.Undo.execute({ type, apply: () => set(after), revert: () => set(before) });
         return true;
@@ -54809,12 +54929,14 @@ Object.assign(DocsDoodads.Workspace, {
             folder = C.path(folder, true);
         }
         const current = (forFolder ? C.normalize((data.folderCredits || {})[folder.toLowerCase()]) : C.of(items[0].path, data)) || {};
-        const custom = !C.licences.includes(current.licence), clear = 'Clear this record / inherit folder';
+        // Only a recorded licence that isn't one of the list starts as "Other": with none recorded the box starts
+        // empty, so typing a licence there isn't added to the end of "Other (use text below)".
+        const custom = Boolean(current.licence) && !C.licences.includes(current.licence), clear = 'Clear this record / inherit folder';
         const values = await D.Ui.form({ title: forFolder ? `Credit for ${folder}` : `Credit for ${items.length} file(s)`,
             text: 'Record the author and terms supplied with the art. Clear this record to inherit its folder. No licence permissions are inferred.', ok: 'Keep Credit', icon: 'info',
             fields: [
                 { key: 'author', label: 'Author', value: current.author || '' },
-                { key: 'preset', label: 'Licence', value: custom ? 'Other (use text below)' : current.licence, choices: C.licences.concat(['Other (use text below)', clear]) },
+                { key: 'preset', label: 'Licence', value: custom ? 'Other (use text below)' : current.licence || '', choices: C.licences.concat(['Other (use text below)', clear]) },
                 { key: 'licence', label: 'Other licence / terms', value: custom ? current.licence || '' : '' },
                 { key: 'source', label: 'Source / shop link', value: current.source || '' },
                 { key: 'note', label: 'Note / supplied licence text', value: current.note || '', type: 'textarea' }
@@ -54850,7 +54972,10 @@ Object.assign(DocsDoodads.Workspace, {
             if (!D.Credits.path(path) || byPath.has(path.toLowerCase())) continue;
             byPath.set(path.toLowerCase(), (data.assets || {})[path.toLowerCase()] || { id: path.toLowerCase(), path, fileName: path.split('/').pop(), creditOnly: true });
         }
-        return [...byPath.values()].map(asset => ({ path: asset.path, credit: D.Credits.of(asset.path, data), asset })).sort((a, b) => a.path.localeCompare(b.path));
+        // Pictures the plugin makes itself (ground masks, baked maps) are nobody's art to credit.
+        const made = (D.AssetIndex.generatedFolders || []).map(folder => folder.toLowerCase() + '/');
+        return [...byPath.values()].filter(asset => !made.some(folder => String(asset.path).replace(/\\/g, '/').toLowerCase().startsWith(folder)))
+            .map(asset => ({ path: asset.path, credit: D.Credits.of(asset.path, data), asset })).sort((a, b) => a.path.localeCompare(b.path));
     },
     usedLpcCredits(rows) {
         const data = this.lpcCredits ? this.lpcCredits() : DocsDoodads.Lpc.emptyCredits();
@@ -55471,8 +55596,8 @@ DocsDoodads.Workspace.mapSections.push({
 // SECTION 25V: MAP ERAS IN THE EDITOR (8.4.5)
 //==========================================================
 // Map settings → Eras: the map's versions, what picks one in the game (a switch or a variable), the era being
-// edited (the others' doodads drawn faint, with a slider), "Only in This Era" and "In Every Era" for what is
-// picked, Copy Era, and deleting an era (which asks what to do with its doodads). Each change is one Undo step.
+// edited (the others' doodads drawn faint, with a slider), Details → Era for what is picked, Copy Era, and
+// deleting an era (which asks what to do with its doodads). Each change is one Undo step.
 (function() {
     const D = DocsDoodads, W = D.Workspace, Er = D.Eras;
 
@@ -55557,6 +55682,32 @@ DocsDoodads.Workspace.mapSections.push({
         }
     });
 
+    // Details → Era: the picked doodads' era. The map's Eras section is shown only with nothing picked, so
+    // this is where "only in this era" is chosen for what is picked (one Undo step, like other Details edits).
+    const sections = W.effectSections;
+    W.effectSections = function() {
+        const all = sections.call(this), items = this.selectionItems ? this.selectionItems() : [];
+        const e = Er.of(this.currentMapId());
+        if (!e || !items.length || items.some(d => !d || d.temp)) return all;
+        return all.concat([{ title: 'Era', fields: [
+            { key: 'era', label: 'Shows in', type: 'select', options: [{ value: '', label: 'Every era' }].concat(e.list.map(x => ({ value: x.id, label: 'Only ' + x.name }))) }
+        ] }]);
+    };
+    const get = W.getDoodadProperty;
+    W.getDoodadProperty = function(d, key) {
+        if (key === 'era') return d && Array.isArray(d.eras) && d.eras.length === 1 ? String(d.eras[0]) : '';
+        return get.call(this, d, key);
+    };
+    const apply = W.applyDoodadProperty;
+    W.applyDoodadProperty = function(d, key, value) {
+        if (d && key === 'era') {
+            if (value) d.eras = [String(value)]; else delete d.eras;
+            if (D.api && D.api.refresh) D.api.refresh();
+            return;
+        }
+        return apply.call(this, d, key, value);
+    };
+
     W.mapSections.push({
         render() {
             const mapId = this.currentMapId(), e = Er.of(mapId);
@@ -55570,9 +55721,7 @@ DocsDoodads.Workspace.mapSections.push({
                     <div>Others shown <input type="range" id="dd-eras-onion" min="0" max="1" step="0.05" value="${Er.onion}" /></div>
                     <div>In the game, picked by switch <input type="number" id="dd-eras-switch" min="0" value="${e.pick.switchId}" style="width: 50px;" />
                         or variable <input type="number" id="dd-eras-var" min="0" value="${e.pick.variableId}" style="width: 50px;" /></div>
-                    <div style="display:flex;flex-wrap:wrap;gap:4px;"><button class="dd-btn" type="button" id="dd-eras-only">Only in This Era</button>
-                        <button class="dd-btn" type="button" id="dd-eras-every">In Every Era</button>
-                        <button class="dd-btn" type="button" id="dd-eras-copy">Copy Era</button>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;"><button class="dd-btn" type="button" id="dd-eras-copy">Copy Era</button>
                         <button class="dd-btn" type="button" id="dd-eras-delete">Delete Era</button></div>` : ''}
                     <button class="dd-btn" type="button" id="dd-eras-add">Add an Era</button>
                     <div style="color: var(--dd-faint); line-height: 1.4;">One map in several versions (whole, burning, ruined). Doodads in every era stay shared; tiles are the same in every era.</div>
@@ -55591,9 +55740,6 @@ DocsDoodads.Workspace.mapSections.push({
             node('dd-eras-onion').oninput = ev => { Er.onion = Number(ev.target.value) || 0; };
             const pick = () => this.changeEras(mapId, v => { v.eras.pick = { switchId: Number(node('dd-eras-switch').value) || 0, variableId: Number(node('dd-eras-var').value) || 0 }; }, 'Era switch');
             node('dd-eras-switch').onchange = pick; node('dd-eras-var').onchange = pick;
-            const uids = () => (this.selectionItems ? this.selectionItems() : []).filter(d => d && d.uid).map(d => d.uid);
-            node('dd-eras-only').onclick = () => { const u = uids(); if (u.length) this.setDoodadEras(mapId, u, editing()); else this.showToast('Pick doodads first.'); };
-            node('dd-eras-every').onclick = () => { const u = uids(); if (u.length) this.setDoodadEras(mapId, u, null); };
             node('dd-eras-copy').onclick = async () => { const name = await D.Ui.prompt('A name for the copy', 'Ten years on', { title: 'Copy Era' }); if (name) this.setEditingEra(mapId, this.copyEra(mapId, editing(), name)); };
             node('dd-eras-delete').onclick = async () => {
                 const id = editing(), era = e.list.find(x => x.id === id);
@@ -55635,6 +55781,14 @@ DocsDoodads.Workspace.mapSections.push({
             const card = typeof document !== 'undefined' ? document.getElementById('dd-event-command-editor') : null;
             if (card && card.parentNode) card.parentNode.removeChild(card);
             this._eventCommandCardIdentity = null;
+        },
+        // Undo and Redo change the event in place: an open card for it is drawn again (on the nearest page).
+        refreshEventCommandEditorFor(event) {
+            if (typeof document === 'undefined' || !document.getElementById('dd-event-command-editor')) return false;
+            const identity = this._eventCommandCardIdentity;
+            if (!identity || identity.event !== event || this.eventEditorEvent() !== event) return false;
+            this.renderEventCommandEditor();
+            return true;
         },
         eventEditorIdentity(pageIndex) {
             const event = this.eventEditorEvent();
@@ -56491,8 +56645,19 @@ Object.assign(DocsDoodads.Workspace, {
         if (this.placementTool === 'generate') this.setPlacementTool(null);
     },
 
+    // The size starts no bigger than the map, so the first Preview fits it.
+    fitGenerateSize() {
+        const o = this.generateOptions, map = this.liveMapData ? this.liveMapData() : null;
+        if (map && map.width > 0 && map.height > 0) {
+            o.w = Math.min(Number(o.w) || map.width, map.width);
+            o.h = Math.min(Number(o.h) || map.height, map.height);
+        }
+        return o;
+    },
+
     showGenerateCard() {
         if (typeof document === 'undefined') return null;
+        this.fitGenerateSize();
         const U = DocsDoodads.Ui, rooms = this.generatedRooms(), biomes = DocsDoodads.World.get('biomes.list') || [], o = this.generateOptions;
         let card = document.getElementById('dd-generate-card');
         if (!card) { card = document.createElement('div'); card.id = 'dd-generate-card'; card.className = 'dd-glass'; document.body.appendChild(card); }
@@ -59767,6 +59932,8 @@ Object.assign(DocsDoodads.Workspace, {
             if (ge && ge.isNormalPriority && ge.isNormalPriority() && !(ge.isThrough && ge.isThrough())) blockers.add(ge.x + ',' + ge.y);
         }
         const reverse = { 2: 8, 4: 6, 6: 4, 8: 2 };
+        // Painted collision: tiles mostly painted, and steps across a painted line.
+        const W = DocsDoodads.Walls, walls = W.get(gameMap.mapId()), tw = gameMap.tileWidth(), th = gameMap.tileHeight();
         return {
             width: gameMap.width(), height: gameMap.height(),
             loopX: Boolean(gameMap.isLoopHorizontal && gameMap.isLoopHorizontal()), loopY: Boolean(gameMap.isLoopVertical && gameMap.isLoopVertical()),
@@ -59775,6 +59942,7 @@ Object.assign(DocsDoodads.Workspace, {
                 if (!gameMap.isValid(nx, ny)) return false;
                 if (!gameMap.isPassable(x, y, dir) || !gameMap.isPassable(nx, ny, reverse[dir])) return false;
                 const key = nx + ',' + ny;
+                if (walls && (W.blocksTile(walls, nx, ny, tw, th) || W.blocksStep(walls, x, y, dir, tw, th))) return false;
                 return !blocked.has(key) && !blockers.has(key);
             }
         };
@@ -60123,7 +60291,18 @@ Object.assign(DocsDoodads.Workspace, {
                 tileChanges.set(index, { before, after });
                 this.setMapTile(mapId, index, after);
             };
-            for (const t of built.tiles) for (const c of T.paint(view, t.x, t.y, { ids: [[t.id]], layer: 'auto' }, tables)) record(c.index, c.after);
+            // A field overlay (a forest) needs ground under it: the plan's own ground tile (a left-half A2, such
+            // as grassland) goes there first unless the spot already has one.
+            const ground = (built.tiles.find(t => T.isA2(t.id) && !T.isA2Overlay(t.id, view.mode)) || {}).id || 0;
+            for (const t of built.tiles) {
+                if (ground && T.isA2Overlay(t.id, view.mode)) {
+                    const under = Number(view.data[T.index(view.width, view.height, t.x, t.y, 0)]) || 0;
+                    if (!(T.isA2(under) && !T.isA2Overlay(under, view.mode))) {
+                        for (const c of T.paint(view, t.x, t.y, { ids: [[ground]], layer: 0 }, tables)) record(c.index, c.after);
+                    }
+                }
+                for (const c of T.paint(view, t.x, t.y, { ids: [[t.id]], layer: 'auto' }, tables)) record(c.index, c.after);
+            }
             for (const r of built.regions) record(T.index(view.width, view.height, r.x, r.y, 5), r.id);
             const before = JSON.parse(JSON.stringify(D.Lighting.mapSettings(mapId) || {}));
             const after = JSON.parse(JSON.stringify(before));
@@ -66244,7 +66423,10 @@ DocsDoodads.Rewind = {
                 flags: id => { const ts = window.$dataTilesets && $dataTilesets[maps[id] && maps[id].tilesetId]; return (ts && ts.flags) || []; },
                 walls: id => {
                     const saved = window.$dataDocsDoodads && $dataDocsDoodads.walls ? $dataDocsDoodads.walls[id] : null, grid = saved ? D.Walls.decode(saved) : null;
-                    return grid ? (x, y) => D.Walls.blocksTile(grid, x, y, tw, th) : null;
+                    if (!grid) return null;
+                    const tile = (x, y) => D.Walls.blocksTile(grid, x, y, tw, th);
+                    tile.step = (x, y, d) => D.Walls.blocksStep(grid, x, y, d, tw, th);
+                    return tile;
                 }
             };
         },
@@ -69144,170 +69326,6 @@ Object.assign(DocsDoodads.Workspace, {
 });
 // @editor-only
 //==========================================================
-// SECTION 25F: TILESET FLAGS ON THE TILES CARD (9.4.1)
-//==========================================================
-// Tiles card → Tile Settings: each tile on the sheet wears MZ's marks for the chosen setting (○ × ☆, the four
-// sides, ladder, bush, counter, damage floor, boat, ship, airship, terrain tag) and a click steps it as MZ's
-// database does. One Undo step a click. The running game reads $dataTilesets, so Show Collision and Check Reach
-// see a change at once. Save writes data/Tilesets.json with the rest, backed up first, and stops if the file was
-// changed since it was read.
-(function() {
-    const D = DocsDoodads, W = D.Workspace, TF = D.TileFlags;
-    const PATH = 'data/Tilesets.json';
-
-    Object.assign(TF, {
-        dirty: false,
-        snapshot: null,
-        warned: {},
-
-        // The file's state when tile settings were first opened, for the changed-since-read check.
-        remember() {
-            if (this.snapshot === null) this.snapshot = D.FS.stat(PATH) || false;
-        },
-
-        conflict() {
-            if (!this.snapshot) return false;
-            const now = D.FS.stat(PATH);
-            return Boolean(now && (now.mtimeMs !== this.snapshot.mtimeMs || now.size !== this.snapshot.size));
-        },
-
-        // Sets one tile's setting on a tileset: every id that shares it (an autotile's shapes). An Undo step.
-        apply(tilesetId, tileId, next) {
-            const tileset = typeof $dataTilesets !== 'undefined' && $dataTilesets ? $dataTilesets[tilesetId] : null;
-            if (!tileset || !Array.isArray(tileset.flags)) return false;
-            const ids = this.idsFor(tileId);
-            const before = ids.map(id => tileset.flags[id] || 0);
-            const after = ids.map(() => next);
-            if (before.every((v, i) => v === after[i])) return false;
-            const write = values => {
-                ids.forEach((id, i) => { tileset.flags[id] = values[i]; });
-                this.dirty = true;
-                D.Persistence.changed();
-                if (W.mounted && W.drawTileSheet) W.drawTileSheet();
-            };
-            D.Undo.execute({ type: 'tile_flags', label: 'Tile settings', apply: () => write(after), revert: () => write(before) });
-            return true;
-        }
-    });
-
-    D.Persistence.savers.push({
-        name: 'Tile settings',
-        dirty: () => TF.dirty,
-        conflict: () => TF.conflict(),
-        entries: () => [{ path: PATH, json: TF.fileText($dataTilesets) }],
-        committed: () => { TF.dirty = false; TF.snapshot = D.FS.stat(PATH) || false; }
-    });
-
-    Object.assign(W, {
-        tileFlagMode: null,
-
-        // How many maps use this tileset (each map file read once, on the first change).
-        countMapsUsingTileset(tilesetId) {
-            const infos = D.FS.readJson('data/MapInfos.json') || [];
-            const tilesets = {};
-            for (const info of infos) {
-                if (!info || !info.id) continue;
-                const map = D.FS.readJson(D.Persistence.mapFilePath(info.id));
-                if (map) tilesets[info.id] = map.tilesetId;
-            }
-            return TF.mapsUsing(tilesetId, tilesets);
-        },
-
-        async clickTileFlag(tileId, fx, fy, back) {
-            const mode = this.tileFlagMode;
-            const tilesetId = $gameMap.tilesetId();
-            const tileset = $dataTilesets[tilesetId];
-            if (!mode || !tileset || !tileId) return false;
-            TF.remember();
-            if (!TF.warned[tilesetId]) {
-                const n = this.countMapsUsingTileset(tilesetId);
-                const ok = await D.Ui.confirm(`${tileset.name || 'This tileset'} is used by ${n} map${n === 1 ? '' : 's'}. A change here changes all of them. Save writes data/Tilesets.json; then close and reopen the project in RPG Maker MZ (if MZ saves while it is open, it writes its own copy over these changes).`, { okLabel: 'Change It' });
-                if (!ok) return false;
-                TF.warned[tilesetId] = true;
-            }
-            const flag = tileset.flags[tileId] || 0;
-            const next = TF.step(flag, mode, { allowStar: !TF.isAutotile(tileId) && tileId < 1536, side: TF.sideAt(fx, fy), back });
-            return TF.apply(tilesetId, tileId, next);
-        },
-
-        // The marks over the sheet in Tile Settings.
-        drawTileFlagMarks(ctx) {
-            const mode = this.tileFlagMode, T = D.Tiles;
-            const tileset = $dataTilesets[$gameMap.tilesetId()];
-            if (!mode || !ctx || !tileset || !ctx.fillText) return;
-            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
-            const sheet = this.tileBrush.sheet, cols = sheet === 4 || sheet > 4 ? (sheet === 4 ? 8 : 16) : 16, rows = 16;
-            ctx.font = `bold ${Math.max(9, Math.round(th * 0.55))}px sans-serif`;
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-                const id = T.idAt(sheet, x, y);
-                if (!id) continue;
-                const m = TF.mark(tileset.flags[id] || 0, mode);
-                const cx = x * tw + tw / 2, cy = y * th + th / 2;
-                ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x * tw, y * th, tw, th);
-                if (m.dirs) {
-                    ctx.fillStyle = '#ffffff';
-                    const a = Math.max(2, tw * 0.12);
-                    if (!m.dirs.up) ctx.fillRect(cx - a, y * th + 2, a * 2, a);
-                    if (!m.dirs.down) ctx.fillRect(cx - a, (y + 1) * th - 2 - a, a * 2, a);
-                    if (!m.dirs.left) ctx.fillRect(x * tw + 2, cy - a, a, a * 2);
-                    if (!m.dirs.right) ctx.fillRect((x + 1) * tw - 2 - a, cy - a, a, a * 2);
-                    continue;
-                }
-                ctx.fillStyle = m.on ? '#ffffff' : '#ff8080';
-                ctx.fillText(m.text, cx, cy + 1);
-            }
-        }
-    });
-
-    // The Tiles card gains a Tile Settings choice.
-    const render = W.renderTilePalette;
-    W.renderTilePalette = function() {
-        const result = render.apply(this, arguments);
-        const box = typeof document !== 'undefined' ? document.getElementById('dd-tiles-palette') : null;
-        if (!box || typeof box.insertAdjacentHTML !== 'function') return result;
-        const options = [{ id: '', label: 'Paint tiles' }].concat(TF.modes)
-            .map(m => `<option value="${m.id}"${(this.tileFlagMode || '') === m.id ? ' selected' : ''}>${escapeHtml(m.id ? 'Tile settings: ' + m.label : m.label)}</option>`).join('');
-        const mode = TF.modes.find(m => m.id === this.tileFlagMode);
-        box.insertAdjacentHTML('beforeend', `
-            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 11px;">
-                <select id="dd-tile-flags-mode">${options}</select>
-                ${this.tileFlagMode ? `<div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">${escapeHtml((mode && mode.hint) || 'Click to switch it on or off')}. One Undo step a click. Save writes data/Tilesets.json; close and reopen the project in RPG Maker MZ afterwards, and don't save in MZ while it is open or it puts its own copy back.</div>` : ''}
-            </div>`);
-        const select = document.getElementById('dd-tile-flags-mode');
-        if (select) select.onchange = e => {
-            this.tileFlagMode = e.target.value || null;
-            if (this.tileFlagMode) TF.remember();
-            this.renderTilePalette();
-        };
-        return result;
-    };
-
-    // In Tile Settings, the sheet is drawn with the marks and a click steps a setting instead of picking.
-    const draw = W.drawTileSheet;
-    W.drawTileSheet = function() {
-        const result = draw.apply(this, arguments);
-        const canvas = typeof document !== 'undefined' ? document.getElementById('dd-tiles-canvas') : null;
-        if (!canvas || !this.tileFlagMode) return result;
-        const ctx = canvas.getContext && canvas.getContext('2d');
-        this.drawTileFlagMarks(ctx);
-        const at = e => {
-            const r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
-            const s = this.uiScaleNow ? this.uiScaleNow() : 1;
-            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
-            const px = ((e.clientX - r.left) / s) / tw, py = ((e.clientY - r.top) / s) / th;
-            return { x: Math.floor(px), y: Math.floor(py), fx: px - Math.floor(px), fy: py - Math.floor(py) };
-        };
-        canvas.onmousedown = e => {
-            const p = at(e);
-            this.clickTileFlag(D.Tiles.idAt(this.tileBrush.sheet, p.x, p.y), p.fx, p.fy, e.button === 2);
-        };
-        canvas.oncontextmenu = e => { if (e.preventDefault) e.preventDefault(); };
-        return result;
-    };
-})();
-// @editor-only
-//==========================================================
 // SECTION 25v: THE TILES TOOL (PAINTING MZ TILES)
 //==========================================================
 // Tiles (top bar): pick a tile from the map's tileset (A1-E tabs; drag across B-E or A5 for a block of
@@ -69341,7 +69359,9 @@ Object.assign(DocsDoodads.Workspace, {
         const m = this.liveMapData();
         if (!m) return null;
         const gm = typeof $gameMap !== 'undefined' ? $gameMap : null;
-        return { width: m.width, height: m.height, data: m.data, loopX: Boolean(gm && gm.isLoopHorizontal && gm.isLoopHorizontal()), loopY: Boolean(gm && gm.isLoopVertical && gm.isLoopVertical()) };
+        const ts = gm && gm.tileset ? gm.tileset() : null;
+        return { width: m.width, height: m.height, data: m.data, loopX: Boolean(gm && gm.isLoopHorizontal && gm.isLoopHorizontal()), loopY: Boolean(gm && gm.isLoopVertical && gm.isLoopVertical()),
+            mode: ts && Number.isInteger(ts.mode) ? ts.mode : null };
     },
 
     // ---- Painting ----
@@ -69508,6 +69528,32 @@ Object.assign(DocsDoodads.Workspace, {
         return { x: p.x, y: p.y, w: b.ids[0].length, h: b.ids.length };
     },
 
+    // A tileset sheet picked in the bag: the Tiles tool opens on that sheet when it is one of this map's,
+    // so single tiles are painted rather than the whole sheet stamped as one picture. A sheet this map's
+    // tileset doesn't use only says so (Place as Doodad on its right-click menu still places the picture).
+    // True when the click was handled here.
+    isTileSheet(asset) {
+        if (!asset || asset.type === 'prefab') return false;
+        const p = String(asset.path || '').replace(/\\/g, '/').toLowerCase();
+        return asset.category === 'Tilesets' || p.includes('img/tilesets/');
+    },
+
+    openTileSheet(asset) {
+        if (!this.isTileSheet(asset)) return false;
+        const base = String(asset.fileName || asset.path || '').replace(/\\/g, '/').split('/').pop().replace(/\.(png|webp)$/i, '');
+        const sheet = this.tilesetNames().findIndex(n => n && n.toLowerCase() === base.toLowerCase());
+        this.selectAsset(null);
+        if (sheet < 0) {
+            this.showToast(`${base} isn't in this map's tileset, so its tiles can't be painted here. Change the map's tileset in MZ, or right-click it for Place as Doodad.`);
+            return true;
+        }
+        this.tileBrush.sheet = sheet;
+        if (this.placementTool !== 'tiles') this.setPlacementTool('tiles');
+        this.renderTilePalette();
+        this.showToast(`Tiles: pick tiles from ${base} in the Tiles card, then paint them on the map.`);
+        return true;
+    },
+
     bindTilesTool() {
         const btn = typeof document !== 'undefined' ? document.getElementById('dd-tiles-btn') : null;
         if (btn) btn.onclick = () => {
@@ -69547,6 +69593,170 @@ DocsDoodads.Workspace.toolHooks.tiles = {
         g.lineStyle(0);
     }
 };
+// @editor-only
+//==========================================================
+// SECTION 25F: TILESET FLAGS ON THE TILES CARD (9.4.1)
+//==========================================================
+// Tiles card → Tile Settings: each tile on the sheet wears MZ's marks for the chosen setting (○ × ☆, the four
+// sides, ladder, bush, counter, damage floor, boat, ship, airship, terrain tag) and a click steps it as MZ's
+// database does. One Undo step a click. The running game reads $dataTilesets, so Show Collision and Check Reach
+// see a change at once. Save writes data/Tilesets.json with the rest, backed up first, and stops if the file was
+// changed since it was read.
+(function() {
+    const D = DocsDoodads, W = D.Workspace, TF = D.TileFlags;
+    const PATH = 'data/Tilesets.json';
+
+    Object.assign(TF, {
+        dirty: false,
+        snapshot: null,
+        warned: {},
+
+        // The file's state when tile settings were first opened, for the changed-since-read check.
+        remember() {
+            if (this.snapshot === null) this.snapshot = D.FS.stat(PATH) || false;
+        },
+
+        conflict() {
+            if (!this.snapshot) return false;
+            const now = D.FS.stat(PATH);
+            return Boolean(now && (now.mtimeMs !== this.snapshot.mtimeMs || now.size !== this.snapshot.size));
+        },
+
+        // Sets one tile's setting on a tileset: every id that shares it (an autotile's shapes). An Undo step.
+        apply(tilesetId, tileId, next) {
+            const tileset = typeof $dataTilesets !== 'undefined' && $dataTilesets ? $dataTilesets[tilesetId] : null;
+            if (!tileset || !Array.isArray(tileset.flags)) return false;
+            const ids = this.idsFor(tileId);
+            const before = ids.map(id => tileset.flags[id] || 0);
+            const after = ids.map(() => next);
+            if (before.every((v, i) => v === after[i])) return false;
+            const write = values => {
+                ids.forEach((id, i) => { tileset.flags[id] = values[i]; });
+                this.dirty = true;
+                D.Persistence.changed();
+                if (W.mounted && W.drawTileSheet) W.drawTileSheet();
+            };
+            D.Undo.execute({ type: 'tile_flags', label: 'Tile settings', apply: () => write(after), revert: () => write(before) });
+            return true;
+        }
+    });
+
+    D.Persistence.savers.push({
+        name: 'Tile settings',
+        dirty: () => TF.dirty,
+        conflict: () => TF.conflict(),
+        entries: () => [{ path: PATH, json: TF.fileText($dataTilesets) }],
+        committed: () => { TF.dirty = false; TF.snapshot = D.FS.stat(PATH) || false; }
+    });
+
+    Object.assign(W, {
+        tileFlagMode: null,
+
+        // How many maps use this tileset (each map file read once, on the first change).
+        countMapsUsingTileset(tilesetId) {
+            const infos = D.FS.readJson('data/MapInfos.json') || [];
+            const tilesets = {};
+            for (const info of infos) {
+                if (!info || !info.id) continue;
+                const map = D.FS.readJson(D.Persistence.mapFilePath(info.id));
+                if (map) tilesets[info.id] = map.tilesetId;
+            }
+            return TF.mapsUsing(tilesetId, tilesets);
+        },
+
+        async clickTileFlag(tileId, fx, fy, back) {
+            const mode = this.tileFlagMode;
+            const tilesetId = $gameMap.tilesetId();
+            const tileset = $dataTilesets[tilesetId];
+            if (!mode || !tileset || !tileId) return false;
+            TF.remember();
+            if (!TF.warned[tilesetId]) {
+                const n = this.countMapsUsingTileset(tilesetId);
+                const ok = await D.Ui.confirm(`${tileset.name || 'This tileset'} is used by ${n} map${n === 1 ? '' : 's'}. A change here changes all of them. Save writes data/Tilesets.json; then close and reopen the project in RPG Maker MZ (if MZ saves while it is open, it writes its own copy over these changes).`, { okLabel: 'Change It' });
+                if (!ok) return false;
+                TF.warned[tilesetId] = true;
+            }
+            const flag = tileset.flags[tileId] || 0;
+            const next = TF.step(flag, mode, { allowStar: !TF.isAutotile(tileId) && tileId < 1536, side: TF.sideAt(fx, fy), back });
+            return TF.apply(tilesetId, tileId, next);
+        },
+
+        // The marks over the sheet in Tile Settings.
+        drawTileFlagMarks(ctx) {
+            const mode = this.tileFlagMode, T = D.Tiles;
+            const tileset = $dataTilesets[$gameMap.tilesetId()];
+            if (!mode || !ctx || !tileset || !ctx.fillText) return;
+            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
+            const sheet = this.tileBrush.sheet, cols = sheet === 4 || sheet > 4 ? (sheet === 4 ? 8 : 16) : 16, rows = 16;
+            ctx.font = `bold ${Math.max(9, Math.round(th * 0.55))}px sans-serif`;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+                const id = T.idAt(sheet, x, y);
+                if (!id) continue;
+                const m = TF.mark(tileset.flags[id] || 0, mode);
+                const cx = x * tw + tw / 2, cy = y * th + th / 2;
+                ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x * tw, y * th, tw, th);
+                if (m.dirs) {
+                    ctx.fillStyle = '#ffffff';
+                    const a = Math.max(2, tw * 0.12);
+                    if (!m.dirs.up) ctx.fillRect(cx - a, y * th + 2, a * 2, a);
+                    if (!m.dirs.down) ctx.fillRect(cx - a, (y + 1) * th - 2 - a, a * 2, a);
+                    if (!m.dirs.left) ctx.fillRect(x * tw + 2, cy - a, a, a * 2);
+                    if (!m.dirs.right) ctx.fillRect((x + 1) * tw - 2 - a, cy - a, a, a * 2);
+                    continue;
+                }
+                ctx.fillStyle = m.on ? '#ffffff' : '#ff8080';
+                ctx.fillText(m.text, cx, cy + 1);
+            }
+        }
+    });
+
+    // The Tiles card gains a Tile Settings choice.
+    const render = W.renderTilePalette;
+    W.renderTilePalette = function() {
+        const result = render.apply(this, arguments);
+        const box = typeof document !== 'undefined' ? document.getElementById('dd-tiles-palette') : null;
+        if (!box || typeof box.insertAdjacentHTML !== 'function') return result;
+        const options = [{ id: '', label: 'Paint tiles' }].concat(TF.modes)
+            .map(m => `<option value="${m.id}"${(this.tileFlagMode || '') === m.id ? ' selected' : ''}>${escapeHtml(m.id ? 'Tile settings: ' + m.label : m.label)}</option>`).join('');
+        const mode = TF.modes.find(m => m.id === this.tileFlagMode);
+        box.insertAdjacentHTML('beforeend', `
+            <div style="display: flex; flex-direction: column; gap: 4px; font-size: 11px;">
+                <select id="dd-tile-flags-mode">${options}</select>
+                ${this.tileFlagMode ? `<div style="font-size: 10px; color: var(--dd-faint); line-height: 1.4;">${escapeHtml((mode && mode.hint) || 'Click to switch it on or off')}. One Undo step a click. Save writes data/Tilesets.json; close and reopen the project in RPG Maker MZ afterwards, and don't save in MZ while it is open or it puts its own copy back.</div>` : ''}
+            </div>`);
+        const select = document.getElementById('dd-tile-flags-mode');
+        if (select) select.onchange = e => {
+            this.tileFlagMode = e.target.value || null;
+            if (this.tileFlagMode) TF.remember();
+            this.renderTilePalette();
+        };
+        return result;
+    };
+
+    // In Tile Settings, the sheet is drawn with the marks and a click steps a setting instead of picking.
+    const draw = W.drawTileSheet;
+    W.drawTileSheet = function() {
+        const result = draw.apply(this, arguments);
+        const canvas = typeof document !== 'undefined' ? document.getElementById('dd-tiles-canvas') : null;
+        if (!canvas || !this.tileFlagMode) return result;
+        const ctx = canvas.getContext && canvas.getContext('2d');
+        this.drawTileFlagMarks(ctx);
+        const at = e => {
+            const r = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0 };
+            const s = this.uiScaleNow ? this.uiScaleNow() : 1;
+            const tw = $gameMap.tileWidth() * this.tileBrush.scale, th = $gameMap.tileHeight() * this.tileBrush.scale;
+            const px = ((e.clientX - r.left) / s) / tw, py = ((e.clientY - r.top) / s) / th;
+            return { x: Math.floor(px), y: Math.floor(py), fx: px - Math.floor(px), fy: py - Math.floor(py) };
+        };
+        canvas.onmousedown = e => {
+            const p = at(e);
+            this.clickTileFlag(D.Tiles.idAt(this.tileBrush.sheet, p.x, p.y), p.fx, p.fy, e.button === 2);
+        };
+        canvas.oncontextmenu = e => { if (e.preventDefault) e.preventDefault(); };
+        return result;
+    };
+})();
 // @editor-only
 //==========================================================
 // SECTION 25L: THE TIMELINES CARD (7.3.6)

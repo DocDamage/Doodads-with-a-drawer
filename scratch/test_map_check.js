@@ -119,6 +119,17 @@ D.Perspective.liveCamera = () => null;
     reach = ws.checkReach();
     assert.ok(!reach.seen[0 + 2 * 10], 'the crate\'s tile is blocked');
     assert.strictEqual(reach.count, 27);
+    // A painted collision line one cell thick across the left room cuts it in two.
+    {
+        const W = D.Walls, grid = W.blank(40, 24, 12);
+        for (let x = 0; x < 20; x++) W.setCell(grid, x, 10, true); // through tile row 2, columns 0-4
+        W.set(1, grid);
+        const cut = ws.checkReach();
+        assert.ok(!cut.seen[1 + 3 * 10], 'below the line is out of reach');
+        assert.ok(cut.seen[1 + 2 * 10], 'the tile the line runs through can still be stood on');
+        W.set(1, W.blank(40, 24, 12));
+        assert.strictEqual(ws.checkReach().count, 27, 'an empty grid changes nothing');
+    }
     // From a tile in the right room: the door and exit are fine, the chest is not.
     reach = ws.checkReach({ x: 7, y: 3 });
     assert.deepStrictEqual(reach.flagged.map(f => f.event.eventId()), [2]);

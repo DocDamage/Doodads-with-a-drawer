@@ -271,6 +271,9 @@ global.Utils.isOptionValid = (opt) => opt === "test";
 
 // The asset scan never indexes packed sheets.
 assert.strictEqual(DocsDoodads.AssetIndex.isIgnoredDirectory('_packed'), true);
+assert.strictEqual(DocsDoodads.AssetIndex.isIgnoredDirectory('ground', 'img/doodads/ground'), true, 'ground masks are not art to place');
+assert.strictEqual(DocsDoodads.AssetIndex.isIgnoredDirectory('_baked', 'img/doodads/_baked'), true, 'baked maps are not art to place');
+assert.strictEqual(DocsDoodads.AssetIndex.isIgnoredDirectory('ground', 'img/doodads/terrain/ground'), false, 'a folder of your own called ground still shows');
 
 // 6. Follow-ups from playtesting.
 // Thumbnails are keyed by the file's modified time, so a file changed while the game was closed

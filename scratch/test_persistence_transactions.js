@@ -91,6 +91,35 @@ try {
     DocsDoodads.FS.createTimestampedBackup = originalCreateBackup;
     DocsDoodads.Workspace.showToast = originalToast;
     console.log('✓ Multi-file rollback, validated restore, and backup confinement verified.');
+
+    // After a save the running game uses the saved events of its map: a changed event's page is set up
+    // again; unchanged events, other maps and a failed write leave the game alone.
+    {
+        const P = DocsDoodads.Persistence;
+        const page = text => ({ list: [{ code: 401, parameters: [text] }, { code: 0 }] });
+        const makeGe = id => ({ id, _pageIndex: 0, refreshed: 0, eventId() { return this.id; }, refresh() { this.refreshed++; this._pageIndex = 0; } });
+        const ges = [makeGe(1), makeGe(2)];
+        let refreshRequested = 0;
+        global.$dataMap = { events: [null, { id: 1, pages: [page('old')] }, { id: 2, pages: [page('same')] }] };
+        global.$gameMap = { mapId: () => 1, events: () => ges, requestRefresh() { refreshRequested++; },
+            _stagedMapData: { events: [null, { id: 1, pages: [page('new')] }, { id: 2, pages: [page('same')] }, { id: 3, pages: [page('added')] }] } };
+        assert.deepStrictEqual(P.applySavedEvents(2, $gameMap._stagedMapData), [], 'another map is not the running one');
+        DocsDoodads.FS.atomicWriteManyJson = () => ({ ok: false, error: 'no', rolledBack: true });
+        P.dirtyMap = true;
+        assert.strictEqual(P.saveAll(true), false);
+        assert.strictEqual($dataMap.events[1].pages[0].list[0].parameters[0], 'old', 'a failed save changes nothing in the game');
+        DocsDoodads.FS.atomicWriteManyJson = entries => ({ ok: true, committed: entries.map(entry => entry.path) });
+        P.dirtyMap = true;
+        assert.strictEqual(P.saveAll(true), true);
+        assert.strictEqual($dataMap.events[1].pages[0].list[0].parameters[0], 'new');
+        assert.notStrictEqual($dataMap.events[1], $gameMap._stagedMapData.events[1], 'the game gets its own copy');
+        assert.deepStrictEqual(ges.map(ge => ge.refreshed), [1, 0], 'only the changed event is set up again');
+        assert.strictEqual($dataMap.events[3], undefined, 'an added event waits for the map to load again');
+        assert.strictEqual(refreshRequested, 1);
+        DocsDoodads.FS.atomicWriteManyJson = originalAtomicWriteMany;
+        delete global.$dataMap;
+    }
+    console.log('✓ Saved events are used by the running game');
 } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
 }

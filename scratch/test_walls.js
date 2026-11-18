@@ -60,6 +60,30 @@ const W = D.Walls;
     console.log('PASS walls half-tile and rectangle rules');
 }
 
+// 2b. A line one cell thick stops a grid step across it, straight or diagonal, and nothing else.
+{
+    const grid = W.blank(12, 12, 12); // three by three tiles
+    for (let x = 0; x < 12; x++) W.setCell(grid, x, 6, true); // across the middle row of tile row 1
+    assert.strictEqual(W.blocksTile(grid, 1, 1, 48, 48), false, 'four cells of sixteen do not block the tile');
+    assert.strictEqual(W.blocksStep(grid, 1, 0, 2, 48, 48), false, 'onto the tile from above: its middle is still open');
+    assert.strictEqual(W.blocksStep(grid, 1, 1, 2, 48, 48), true, 'down across the line');
+    assert.strictEqual(W.blocksStep(grid, 1, 2, 8, 48, 48), true, 'up across the line');
+    assert.strictEqual(W.blocksStep(grid, 0, 1, 6, 48, 48), false, 'along the line');
+    const diagonal = W.blank(8, 4, 12); // two tiles side by side, a diagonal stroke between their middles
+    for (let i = 0; i < 4; i++) W.setCell(diagonal, 2 + i, i, true);
+    assert.strictEqual(W.blocksStep(diagonal, 0, 0, 6, 48, 48), true, 'a diagonal line cuts the step');
+    assert.strictEqual(W.blocksStep(diagonal, 1, 0, 4, 48, 48), true, 'both ways');
+    assert.strictEqual(W.blocksStep(W.blank(8, 8, 12), 0, 0, 6, 48, 48), false, 'nothing painted');
+    const stuck = W.blank(8, 4, 12);
+    for (let y = 1; y <= 2; y++) for (let x = 1; x <= 2; x++) W.setCell(stuck, x, y, true);
+    assert.strictEqual(W.blocksStep(stuck, 0, 0, 6, 48, 48), false, 'standing in a wall never traps');
+    assert.strictEqual(W.blocksStep(stuck, 1, 0, 4, 48, 48), true, 'a destination whose middle is painted is blocked');
+    const loop = W.blank(8, 4, 12, { loopX: true });
+    for (let y = 0; y < 4; y++) W.setCell(loop, 7, y, true);
+    assert.strictEqual(W.blocksStep(loop, 0, 0, 4, 48, 48), true, 'a line at the seam stops a step across it');
+    console.log('PASS painted lines stop grid steps');
+}
+
 // 3. Fine cells and brushes wrap at the edges of looping maps.
 {
     const grid = W.blank(4, 3, 12, { loopX: true, loopY: true });

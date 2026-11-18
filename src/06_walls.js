@@ -164,6 +164,44 @@ DocsDoodads.Walls = {
         return blocked * 2 > total;
     },
 
+    // A step from tile (tx, ty) in direction d (2/4/6/8) is cut by painted cells: no path of free cells,
+    // moving up, down, left or right inside the two tiles, joins the middle of one tile to the middle of the
+    // other. So a line one cell thick, straight or diagonal, stops a grid move across it. A start with no free
+    // middle (a character already standing in a wall) never traps it; a destination with none is blocked.
+    blocksStep(grid, tx, ty, d, tw, th) {
+        if (!grid) return false;
+        const dx = d === 4 ? -1 : d === 6 ? 1 : 0, dy = d === 8 ? -1 : d === 2 ? 1 : 0;
+        if (!dx && !dy) return false;
+        const c = grid.cell, nx = tx + dx, ny = ty + dy;
+        const span = (t, size) => [Math.floor(t * size / c), Math.ceil((t + 1) * size / c) - 1];
+        const middle = (t, size) => [Math.floor((t * size + size / 4) / c), Math.max(Math.floor((t * size + size / 4) / c), Math.ceil((t * size + size * 3 / 4) / c) - 1)];
+        const [x0] = span(Math.min(tx, nx), tw), [, x1] = span(Math.max(tx, nx), tw);
+        const [y0] = span(Math.min(ty, ny), th), [, y1] = span(Math.max(ty, ny), th);
+        const w = x1 - x0 + 1, h = y1 - y0 + 1, seen = new Uint8Array(w * h), queue = [];
+        const free = (cx, cy) => !this.getCell(grid, cx, cy);
+        const block = (t, u) => { const [ax, bx] = middle(t, tw), [ay, by] = middle(u, th); return { ax, bx, ay, by }; };
+        const from = block(tx, ty), to = block(nx, ny);
+        for (let cy = from.ay; cy <= from.by; cy++) for (let cx = from.ax; cx <= from.bx; cx++) {
+            if (free(cx, cy)) { seen[(cy - y0) * w + (cx - x0)] = 1; queue.push([cx, cy]); }
+        }
+        if (!queue.length) return false;
+        let goal = false;
+        for (let cy = to.ay; cy <= to.by && !goal; cy++) for (let cx = to.ax; cx <= to.bx; cx++) if (free(cx, cy)) { goal = true; break; }
+        if (!goal) return true;
+        for (let q = 0; q < queue.length; q++) {
+            const [cx, cy] = queue[q];
+            if (cx >= to.ax && cx <= to.bx && cy >= to.ay && cy <= to.by) return false;
+            for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                const ex = cx + ox, ey = cy + oy;
+                if (ex < x0 || ey < y0 || ex > x1 || ey > y1) continue;
+                const k = (ey - y0) * w + (ex - x0);
+                if (seen[k] || !free(ex, ey)) continue;
+                seen[k] = 1; queue.push([ex, ey]);
+            }
+        }
+        return true;
+    },
+
     brushCells(grid, cx, cy, radius, shape) {
         const r = Math.max(0, Math.min(16, Math.round(Number(radius) || 0)));
         const out = [], seen = new Set();

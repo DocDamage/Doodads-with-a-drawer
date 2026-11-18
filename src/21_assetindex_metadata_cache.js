@@ -120,8 +120,13 @@ DocsDoodads.AssetIndex = {
         }
     },
 
-    isIgnoredDirectory(name) {
-        return name === '_packed' || name === '_normals' || String(name).startsWith('.');
+    // relative: the folder's path from the project ('img/doodads/ground'). The plugin's own made pictures
+    // (ground masks, baked maps) are not art to place, so their folders stay out of the Item Bag.
+    generatedFolders: ['img/doodads/ground', 'img/doodads/_baked'],
+    isIgnoredDirectory(name, relative) {
+        if (name === '_packed' || name === '_normals' || String(name).startsWith('.')) return true;
+        const at = String(relative || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
+        return Boolean(at) && this.generatedFolders.includes(at);
     },
 
     isSupportedAssetFile(filePath) {
@@ -160,7 +165,7 @@ DocsDoodads.AssetIndex = {
                     const absolute = path.join(directory.absolute, entry.name);
                     const relative = `${directory.relative}/${entry.name}`.replace(/\\/g, '/');
                     if (entry.isDirectory()) {
-                        if (!this.isIgnoredDirectory(entry.name)) directories.push({ absolute, relative });
+                        if (!this.isIgnoredDirectory(entry.name, relative)) directories.push({ absolute, relative });
                     }
                     else if (entry.isFile() && this.isSupportedAssetFile(entry.name)) files.push({ absolute, relative });
                 }

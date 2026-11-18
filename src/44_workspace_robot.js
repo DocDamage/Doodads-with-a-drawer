@@ -26,7 +26,10 @@
                 flags: id => { const ts = window.$dataTilesets && $dataTilesets[maps[id] && maps[id].tilesetId]; return (ts && ts.flags) || []; },
                 walls: id => {
                     const saved = window.$dataDocsDoodads && $dataDocsDoodads.walls ? $dataDocsDoodads.walls[id] : null, grid = saved ? D.Walls.decode(saved) : null;
-                    return grid ? (x, y) => D.Walls.blocksTile(grid, x, y, tw, th) : null;
+                    if (!grid) return null;
+                    const tile = (x, y) => D.Walls.blocksTile(grid, x, y, tw, th);
+                    tile.step = (x, y, d) => D.Walls.blocksStep(grid, x, y, d, tw, th);
+                    return tile;
                 }
             };
         },

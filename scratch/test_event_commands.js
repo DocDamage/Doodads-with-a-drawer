@@ -54,6 +54,22 @@ assert.strictEqual(movedRows.find(row => row.code === 101).length, 5, 'moving ne
 assert.strictEqual(moved[moved.length - 1].code, 0, 'all list operations retain the final terminator');
 assert.ok(!C.remove(moved, 0).some((command, index, all) => command.code === 0 && index !== all.length - 1));
 
+// A plugin command keeps its argument lines (657): removing or moving it takes them along.
+{
+    const pluginList = [
+        { code: 230, indent: 0, parameters: [10] },
+        { code: 357, indent: 0, parameters: ['Other', 'Wave', 'Wave hello', { who: '1' }] },
+        { code: 657, indent: 0, parameters: ['Who = 1'] },
+        { code: 0, indent: 0, parameters: [] }
+    ];
+    assert.deepStrictEqual(C.describe(pluginList).map(row => [row.code, row.length]), [[230, 1], [357, 2]]);
+    assert.deepStrictEqual(C.remove(pluginList, 1).map(c => c.code), [230, 0], 'no argument line is left behind');
+    assert.deepStrictEqual(C.move(pluginList, 1, -1).map(c => c.code), [357, 657, 230, 0], 'arguments move with their command');
+    assert.deepStrictEqual(C.describe([{ code: 111, indent: 0, parameters: [0, 2, 0] }, { code: 411, indent: 0, parameters: [] },
+        { code: 412, indent: 0, parameters: [] }, { code: 8888, indent: 0, parameters: [] }, { code: 0, indent: 0, parameters: [] }]).map(row => row.label),
+    ['If', 'Else', 'End If', 'Command 8888'], 'kept commands show MZ names');
+}
+
 // MZ can place indented terminators inside a branch. Only the list's final code 0 is the list terminator.
 const conditional = [
     { code: 111, indent: 0, parameters: [0, 2, 0] },
@@ -171,6 +187,17 @@ D.Ui.confirm = async () => { confirmed = true; return true; };
     assert.strictEqual(visits[visits.length - 1], 1, 'cancelling on the destination safely returns to the source map');
     currentMap = 1; W.selectedEvent = { gameEvent, stagedEvent: originalEvent };
     assert.ok(String(W.renderEventCommandEditor).includes('Edit in MZ'));
+    // Undo and Redo of an edit draw an open Pages & Commands card for that event again.
+    {
+        let drawn = 0; const render = W.renderEventCommandEditor, doc = global.document;
+        global.document = Object.assign({}, doc, { getElementById: id => (id === 'dd-event-command-editor' ? {} : doc && doc.getElementById ? doc.getElementById(id) : null) });
+        W.renderEventCommandEditor = () => { drawn++; };
+        W._eventCommandCardIdentity = { event: originalEvent };
+        assert.strictEqual(W.refreshEventCommandEditorFor(originalEvent), true);
+        assert.strictEqual(W.refreshEventCommandEditorFor({}), false, 'another event card is left alone');
+        assert.strictEqual(drawn, 1);
+        W.renderEventCommandEditor = render; global.document = doc; W._eventCommandCardIdentity = null;
+    }
     assert.ok(String(W.editEventCommand).includes('DocsDoodads.Ui.form'));
     assert.ok(W.toolHooks.eventTransferTile);
 

@@ -33,7 +33,9 @@ Object.assign(DocsDoodads.Workspace, {
         const m = this.liveMapData();
         if (!m) return null;
         const gm = typeof $gameMap !== 'undefined' ? $gameMap : null;
-        return { width: m.width, height: m.height, data: m.data, loopX: Boolean(gm && gm.isLoopHorizontal && gm.isLoopHorizontal()), loopY: Boolean(gm && gm.isLoopVertical && gm.isLoopVertical()) };
+        const ts = gm && gm.tileset ? gm.tileset() : null;
+        return { width: m.width, height: m.height, data: m.data, loopX: Boolean(gm && gm.isLoopHorizontal && gm.isLoopHorizontal()), loopY: Boolean(gm && gm.isLoopVertical && gm.isLoopVertical()),
+            mode: ts && Number.isInteger(ts.mode) ? ts.mode : null };
     },
 
     // ---- Painting ----
@@ -198,6 +200,32 @@ Object.assign(DocsDoodads.Workspace, {
             : { x: ((id % 256) >= 128 ? 8 : 0) + (id % 8), y: Math.floor((id % 128) / 8) });
         const p = pos(first);
         return { x: p.x, y: p.y, w: b.ids[0].length, h: b.ids.length };
+    },
+
+    // A tileset sheet picked in the bag: the Tiles tool opens on that sheet when it is one of this map's,
+    // so single tiles are painted rather than the whole sheet stamped as one picture. A sheet this map's
+    // tileset doesn't use only says so (Place as Doodad on its right-click menu still places the picture).
+    // True when the click was handled here.
+    isTileSheet(asset) {
+        if (!asset || asset.type === 'prefab') return false;
+        const p = String(asset.path || '').replace(/\\/g, '/').toLowerCase();
+        return asset.category === 'Tilesets' || p.includes('img/tilesets/');
+    },
+
+    openTileSheet(asset) {
+        if (!this.isTileSheet(asset)) return false;
+        const base = String(asset.fileName || asset.path || '').replace(/\\/g, '/').split('/').pop().replace(/\.(png|webp)$/i, '');
+        const sheet = this.tilesetNames().findIndex(n => n && n.toLowerCase() === base.toLowerCase());
+        this.selectAsset(null);
+        if (sheet < 0) {
+            this.showToast(`${base} isn't in this map's tileset, so its tiles can't be painted here. Change the map's tileset in MZ, or right-click it for Place as Doodad.`);
+            return true;
+        }
+        this.tileBrush.sheet = sheet;
+        if (this.placementTool !== 'tiles') this.setPlacementTool('tiles');
+        this.renderTilePalette();
+        this.showToast(`Tiles: pick tiles from ${base} in the Tiles card, then paint them on the map.`);
+        return true;
     },
 
     bindTilesTool() {

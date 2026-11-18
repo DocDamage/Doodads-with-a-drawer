@@ -1298,6 +1298,8 @@ DocsDoodads.Workspace = {
             }
             if (this.bagPicked && this.bagPicked.size) this.clearBagPicks();
             this._bagAnchor = asset.id;
+            // A tileset sheet opens the Tiles tool on it (single tiles), not Stamp with the whole sheet.
+            if (this.openTileSheet && this.openTileSheet(asset)) return;
             this.selectAsset(asset);
             const container = document.getElementById('dd-cards-container');
             if (container) container.querySelectorAll('.dd-card').forEach(c => c.classList.remove('selected'));

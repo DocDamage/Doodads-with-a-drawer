@@ -180,6 +180,8 @@ Object.assign(DocsDoodads.Workspace, {
             if (ge && ge.isNormalPriority && ge.isNormalPriority() && !(ge.isThrough && ge.isThrough())) blockers.add(ge.x + ',' + ge.y);
         }
         const reverse = { 2: 8, 4: 6, 6: 4, 8: 2 };
+        // Painted collision: tiles mostly painted, and steps across a painted line.
+        const W = DocsDoodads.Walls, walls = W.get(gameMap.mapId()), tw = gameMap.tileWidth(), th = gameMap.tileHeight();
         return {
             width: gameMap.width(), height: gameMap.height(),
             loopX: Boolean(gameMap.isLoopHorizontal && gameMap.isLoopHorizontal()), loopY: Boolean(gameMap.isLoopVertical && gameMap.isLoopVertical()),
@@ -188,6 +190,7 @@ Object.assign(DocsDoodads.Workspace, {
                 if (!gameMap.isValid(nx, ny)) return false;
                 if (!gameMap.isPassable(x, y, dir) || !gameMap.isPassable(nx, ny, reverse[dir])) return false;
                 const key = nx + ',' + ny;
+                if (walls && (W.blocksTile(walls, nx, ny, tw, th) || W.blocksStep(walls, x, y, dir, tw, th))) return false;
                 return !blocked.has(key) && !blockers.has(key);
             }
         };

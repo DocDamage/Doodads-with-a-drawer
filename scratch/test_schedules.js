@@ -84,6 +84,20 @@ assert.deepStrictEqual([npc.x, npc.y], [2, 2]);
 R.stepEvent(npc);
 assert.deepStrictEqual([npc.x, npc.y, npc.direction()], [5, 5, 6], 'a stuck walk locates and faces after 600 eligible frames');
 assert.ok(attempts > 0);
+// A solid event is never placed onto the player or a follower when its wait runs out.
+{
+    const savedPlayer = global.$gamePlayer;
+    let onTile = true;
+    global.$gamePlayer = { isCollided: (x, y) => onTile && x === 5 && y === 5 };
+    const solid = { isThrough: () => false, isNormalPriority: () => true };
+    assert.strictEqual(R.playerOn(solid, { x: 5, y: 5 }), true);
+    assert.strictEqual(R.playerOn(solid, { x: 4, y: 5 }), false);
+    assert.strictEqual(R.playerOn({ isThrough: () => true, isNormalPriority: () => true }, { x: 5, y: 5 }), false, 'Through events may share the tile');
+    assert.strictEqual(R.playerOn({ isThrough: () => false, isNormalPriority: () => false }, { x: 5, y: 5 }), false, 'below or above characters may share the tile');
+    onTile = false;
+    assert.strictEqual(R.playerOn(solid, { x: 5, y: 5 }), false);
+    global.$gamePlayer = savedPlayer;
+}
 
 now = 10 * 60; R.updateMap($gameMap, false);
 assert.deepStrictEqual([npc.x, npc.y, npc.isTransparent(), npc.isThrough()], [7, 7, true, true]);

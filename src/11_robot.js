@@ -44,7 +44,7 @@ DocsDoodads.Robot = {
         const canStep = (x, y, d) => {
             const [nx, ny] = wrap(x + this.dirs[d][0], y + this.dirs[d][1]);
             if (!inside(nx, ny) || !pass(x, y, d) || !pass(nx, ny, 10 - d)) return false;
-            return !blockers.has(nx + ',' + ny) && !walls(nx, ny);
+            return !blockers.has(nx + ',' + ny) && !walls(nx, ny) && !(walls.step && walls.step(x, y, d));
         };
         const standable = (x, y) => inside(x, y) && !walls(x, y) && [2, 4, 6, 8].some(d => pass(x, y, d));
         return { width: w, height: h, loopX, loopY, canStep, standable };

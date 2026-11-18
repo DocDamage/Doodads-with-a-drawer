@@ -175,11 +175,23 @@ DocsDoodads.ScheduleRuntime = {
         const moving = Boolean(event.isMoving && event.isMoving());
         if (!moving && event.pos && event.pos(target.x, target.y)) { this.finishTarget(event, state); return true; }
         target.frames++;
-        if (target.frames >= 600) { this.finishTarget(event, state); return true; }
+        if (target.frames >= 600) {
+            // Never placed onto the player or a follower: a solid event waits until the tile is free.
+            if (this.playerOn(event, target)) return false;
+            this.finishTarget(event, state); return true;
+        }
         if (moving) return false;
         const direction = event.findDirectionTo ? event.findDirectionTo(target.x, target.y) : 0;
         if (direction > 0 && event.moveStraight) event.moveStraight(direction);
         return false;
+    },
+
+    // True when a solid event (same as characters, not Through) would land on the player or a follower.
+    playerOn(event, target) {
+        const player = typeof $gamePlayer !== 'undefined' ? $gamePlayer : null;
+        if (!player || !player.isCollided || (event.isThrough && event.isThrough())) return false;
+        if (event.isNormalPriority && !event.isNormalPriority()) return false;
+        return Boolean(player.isCollided(target.x, target.y));
     },
 
     invalidateEvent(event) {
