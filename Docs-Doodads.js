@@ -3348,10 +3348,14 @@ DocsDoodads.Lighting = {
     },
 
     // Plugin command fade > day/night clock (on maps that follow it) > the map's own ambient.
-    resolveAmbient({ world, minutes, mapSettings, override, switchValue } = {}) {
+    // previewing: the editor is previewing a time. Its day and night then show even with the clock off
+    // (World → Day and Night), so "make it night" in the editor looks like night. Only for what is drawn:
+    // the game itself, and gameplay checks such as light and sight, still follow the clock setting.
+    resolveAmbient({ world, minutes, mapSettings, override, switchValue, previewing } = {}) {
         if (override) return this.ambientFor(null, override);
         const time = world && world.time;
-        if (time && time.source && time.source !== 'off' && minutes !== null && minutes !== undefined
+        const clockOn = time && time.source && time.source !== 'off';
+        if (time && (clockOn || previewing) && minutes !== null && minutes !== undefined
             && DocsDoodads.TimeOfDay.appliesToMap(mapSettings)) {
             const a = DocsDoodads.TimeOfDay.ambientAt(minutes, time.keyframes);
             return { darkness: Math.max(0, Math.min(1, a.darkness)), color: a.color };
@@ -9336,6 +9340,11 @@ DocsDoodads.Atmosphere = {
         return ws && ws.mounted && ws[field] !== null && ws[field] !== undefined ? ws[field] : null;
     },
 
+    // The editor is previewing a time of day (the clock bar, Moods, Find a Tool's plain words).
+    previewingTime() {
+        return this.editorPreview('previewMinutes') !== null;
+    },
+
     // env() for the per-frame readers: one object, refreshed on each read, so thousands of doodads
     // asking for the season every frame allocate nothing. Never handed out.
     sharedEnv(withClock) {
@@ -12937,7 +12946,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Day and Night",
         "anchor": "day-and-night",
-        "firstParagraph": "- Clock: Off, Running clock (game minutes pass while the player is on a map; saved with the game), or Read from variables (your own events set the hour and minute variables). - The running clock writes the hour (and minute) into the variables you choose, so events can check the time. - Darkness through the day is a list of keyframes (hour, darkness, colour). The map's darkness is blended between them, wrapping through midnight. The defaults go dark blue at night, orange at dawn and dusk, and clear by day. - Lamps: set a doodad's Light to After dark and it fades on once darkness passes Lamps switch on at darkness, and off again in the morning. - Preview a time while editing scrubs the clock without changing the game. - Per map: Day and night on this map is Auto (follow the clock unless the map sets its own darkness, so caves stay dark), Follow the clock, or Ignore (indoors). - Plugin commands: Set Time of Day, Pass Time, Clock Control (pause, resume, speed), and Set/Reset Ambient Light, which still win over the clock while they are active. Set Time of Day keeps the day even when the new hour is earlier (give it a Day to change that); Pass Time past midnight starts the next day. - The clock outside the map: tick The clock runs in battles and in menus to keep time passing there, and set Minutes a battle takes to add that much when a battle ends (inns and sleep use Pass Time). - Calendar: the running clock counts days from day 1. Day variable and Weekday variable follow it (the weekday is 1 for the first name in Weekdays), and Named dates gives days a name (30 Harvest Festival; 1 Market every 7). The Calendar command goes to a day, moves days on, or puts the day, the weekday or the date's name in a variable; scripts use DocsDoodads.api.day(), weekday(), weekdayName(), dateName() and setDay(n). - Play Doodad Animation plays a named doodad's strip of frames once, now (a chest lid, a door), from and to the frames you give, holding the last one or going back to its own animation; with Wait the event goes on when it ends, and scripts hear animationEnd."
+        "firstParagraph": "- Clock: Off, Running clock (game minutes pass while the player is on a map; saved with the game), or Read from variables (your own events set the hour and minute variables). - The running clock writes the hour (and minute) into the variables you choose, so events can check the time. - Darkness through the day is a list of keyframes (hour, darkness, colour). The map's darkness is blended between them, wrapping through midnight. The defaults go dark blue at night, orange at dawn and dusk, and clear by day. - Lamps: set a doodad's Light to After dark and it fades on once darkness passes Lamps switch on at darkness, and off again in the morning. - Preview a time while editing scrubs the clock without changing the game. The preview shows the darkness through the day even while the Clock is Off; the game itself only gets day and night once the Clock is on. - Per map: Day and night on this map is Auto (follow the clock unless the map sets its own darkness, so caves stay dark), Follow the clock, or Ignore (indoors). - Plugin commands: Set Time of Day, Pass Time, Clock Control (pause, resume, speed), and Set/Reset Ambient Light, which still win over the clock while they are active. Set Time of Day keeps the day even when the new hour is earlier (give it a Day to change that); Pass Time past midnight starts the next day. - The clock outside the map: tick The clock runs in battles and in menus to keep time passing there, and set Minutes a battle takes to add that much when a battle ends (inns and sleep use Pass Time). - Calendar: the running clock counts days from day 1. Day variable and Weekday variable follow it (the weekday is 1 for the first name in Weekdays), and Named dates gives days a name (30 Harvest Festival; 1 Market every 7). The Calendar command goes to a day, moves days on, or puts the day, the weekday or the date's name in a variable; scripts use DocsDoodads.api.day(), weekday(), weekdayName(), dateName() and setDay(n). - Play Doodad Animation plays a named doodad's strip of frames once, now (a chest lid, a door), from and to the frames you give, holding the last one or going back to its own animation; with Wait the event goes on when it ends, and scripts hear animationEnd."
     },
     {
         "title": "Sun and Shadows",
@@ -21567,7 +21576,7 @@ if (typeof Spriteset_Map !== 'undefined') {
         const switchValue = id => (typeof $gameSwitches !== 'undefined' && $gameSwitches ? $gameSwitches.value(id) : false);
         const world = DocsDoodads.World.settings();
         let ambient = Lighting.resolveAmbient({ world, minutes: DocsDoodads.Atmosphere.minutes(), mapSettings: Lighting.mapSettings($gameMap.mapId()),
-            override: fade ? fade.current : null, switchValue });
+            override: fade ? fade.current : null, switchValue, previewing: DocsDoodads.Atmosphere.previewingTime() });
         ambient = DocsDoodads.Indoors.ambient(ambient, Lighting.mapSettings($gameMap.mapId()), DocsDoodads.Indoors.blend);
         if (workspace && workspace.mounted && workspace.lightingPreview === false) ambient = { darkness: 0, color: '#000000' };
 
@@ -21754,7 +21763,7 @@ if (typeof PluginManager !== 'undefined' && typeof PluginManager.registerCommand
 DocsDoodads.currentAmbient = function(switchValue) {
     const Lighting = DocsDoodads.Lighting;
     return Lighting.resolveAmbient({ world: DocsDoodads.World.settings(), minutes: DocsDoodads.Atmosphere.minutes(),
-        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue });
+        mapSettings: Lighting.mapSettings($gameMap.mapId()), switchValue, previewing: DocsDoodads.Atmosphere.previewingTime() });
 };
 
 // Variable mode writes the variables; otherwise the running clock jumps. Setting an earlier hour keeps the

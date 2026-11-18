@@ -319,10 +319,14 @@ DocsDoodads.Lighting = {
     },
 
     // Plugin command fade > day/night clock (on maps that follow it) > the map's own ambient.
-    resolveAmbient({ world, minutes, mapSettings, override, switchValue } = {}) {
+    // previewing: the editor is previewing a time. Its day and night then show even with the clock off
+    // (World → Day and Night), so "make it night" in the editor looks like night. Only for what is drawn:
+    // the game itself, and gameplay checks such as light and sight, still follow the clock setting.
+    resolveAmbient({ world, minutes, mapSettings, override, switchValue, previewing } = {}) {
         if (override) return this.ambientFor(null, override);
         const time = world && world.time;
-        if (time && time.source && time.source !== 'off' && minutes !== null && minutes !== undefined
+        const clockOn = time && time.source && time.source !== 'off';
+        if (time && (clockOn || previewing) && minutes !== null && minutes !== undefined
             && DocsDoodads.TimeOfDay.appliesToMap(mapSettings)) {
             const a = DocsDoodads.TimeOfDay.ambientAt(minutes, time.keyframes);
             return { darkness: Math.max(0, Math.min(1, a.darkness)), color: a.color };

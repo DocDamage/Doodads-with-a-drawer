@@ -22,6 +22,7 @@
 - From a Map File: an OpenStreetMap or GeoJSON file the user downloaded becomes roads, rivers, water, forests, buildings and bridges through Picture to Map, with the area's real size shown and the ODbL credit written to CREDITS_MAPS.txt; no download is made.
 - Item Bag and Details can move to a window of their own (desktop playtest), keeping their keys and the game running.
 - `npm run sample -- <new MZ project>` writes a sample town, field and cave with the plugin's own drawn art (docs/SAMPLE_PROJECT.md).
+- Fix: previewing a time in the editor (the clock bar, the first-map quest's "Make it night", Find a Tool's "a rainy night") now shows night even while the Clock is Off, as it is in a new project. The game itself still follows the Clock setting.
 - Fix: the first-map quest card now shows for someone new. The quest started before the editor finished opening, so its card was never drawn and its steps never ticked off.
 - Fix: with Select, the hint for a picked picture said "click the map to place it", but a click only picks. It now says to drag it onto the map or use Stamp.
 - Fix: after editing, the window came back a frame too big (848 × 702 for 832 × 663). It now goes back to its exact size and place on Done and on F5.
