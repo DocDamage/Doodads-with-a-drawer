@@ -89,6 +89,18 @@ assert.strictEqual(primsOf(read(bigGlb))[0].indices.length, 240000);
     assert.deepStrictEqual(G.boundsOf([saved[1].positions]).max.map(v => Math.round(v * 100) / 100), [5, 2, 6], 'the tree stands at its spot, two tiles tall');
     const groundOnly = await W.saveMapGlb({ values: { scale: '0.25', groundOnly: true }, framePng: async () => png });
     assert.strictEqual(primsOf(read(fs.readFileSync(groundOnly))).length, 1, 'ground only');
+    // A map that isn't in 3D is written as two triangles, even though the height grid can be built for it.
+    {
+        const active = D.Terrain.active, grid = D.Terrain.grid;
+        D.Terrain.active = () => null;
+        D.Terrain.grid = () => ({ heights: [], max: 0, min: 0, width: 10, height: 8 });
+        const flat = await W.saveMapGlb({ values: { scale: '0.25', groundOnly: true }, framePng: async () => png });
+        assert.strictEqual(primsOf(read(fs.readFileSync(flat)))[0].positions.length / 3, 4, 'a flat map: four corners');
+        D.Terrain.active = () => ({ enabled: true });
+        const level = await W.saveMapGlb({ values: { scale: '0.25', groundOnly: true }, framePng: async () => png });
+        assert.strictEqual(primsOf(read(fs.readFileSync(level)))[0].positions.length / 3, 4, 'in 3D but level everywhere: four corners too');
+        D.Terrain.active = active; D.Terrain.grid = grid;
+    }
     D.Ui.form = async () => null;
     assert.strictEqual(await W.saveMapGlb(), null, 'nothing is written without a click');
     assert.ok(W.menus().find(m => m.id === 'map').items.some(i => i.id === 'dd-map-glb-btn'));

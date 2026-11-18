@@ -13269,7 +13269,7 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Tiles (painting MZ tiles)",
         "anchor": "tiles-painting-mz-tiles",
-        "firstParagraph": "Tiles (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs A1 to E. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. Layer: Automatic puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. On a field tileset (like Overworld) the right half of A2, such as forests and hills, goes on the second layer over the ground, as in MZ, and painting ground there takes it away. Eraser takes the top tile off. Alt+click picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied. Clicking a tileset sheet in the Item Bag's Tiles category opens this card on that sheet; a sheet the map's tileset doesn't use only says so (right-click it for Place as Doodad to put the whole picture on the map)."
+        "firstParagraph": "Tiles (top bar) paints the map's own tiles during a playtest, so a map can be finished without going back to MZ. The card shows the map's tileset: tabs A1 to E. On B to E and A5, click a tile or drag across several for a block; on A1 to A4, click an autotile. Then click or drag on the map. Autotiles (water, ground, roofs, walls, waterfalls) join up with their neighbours as you paint, the way MZ's editor does it, and the tiles around a painted one change shape to match. Layer: Automatic puts A tiles on the ground layers and B to E on the upper layers (a second upper tile goes over the first); or pick a layer. On a field tileset (like Overworld) the right half of A2, such as forests and hills, goes on the second layer over the ground, as in MZ, and painting ground there takes it away. Eraser takes the top tile off. Alt+click picks up the tile under the cursor. Each stroke is one undo step; Save writes the tiles into the map file with the other map changes, and the MZ editor shows them once it reloads the project. Shadow pen and the MZ editor's special wall-joining rules are not copied. Clicking a tileset sheet in the Item Bag's Tiles category opens this card on that sheet. A sheet the map's tileset doesn't use opens Pick Tiles instead: the sheet on a grid (Tile size 16, 24, 32 or 48 pixels, the map's by default), where a click picks one tile and a drag a block of them; Stamp then places that piece as a doodad, showing only that part of the sheet. (MZ can only paint the tiles of the map's own tileset, so these become doodads rather than tiles.)"
     },
     {
         "title": "Regions",
@@ -13474,12 +13474,12 @@ DocsDoodads.HelpIndex = [
     {
         "title": "Places: maps inside maps",
         "anchor": "places-maps-inside-maps",
-        "firstParagraph": "Map → Places lists the world, its places and their rooms as a tree, with Go To and a mark on a link with no transfer, no way back, or a landing on a blocked tile. Make a Place Here (at the picked event, or where the player stands) makes the place's map (or uses one by id), a transfer there and one back at its entrance. Make a Grid of Maps cuts a big area into maps of up to 256 tiles joined as neighbours. New maps and MapInfos.json are written together with backups, or not at all, and it stops if MZ changed MapInfos.json since. Close and reopen the project in RPG Maker MZ to see them. Removing a place keeps its map and transfers."
+        "firstParagraph": "Map → Places lists the world, its places and their rooms as a tree, with Go To and a mark on a link with no transfer, no way back, or a landing on a blocked tile. Make a Place Here (at the picked event, or where the player stands) makes the place's map (or uses one by id), floored with this map's commonest walkable ground, a transfer there and one back at its entrance that lands on a walkable tile beside the door. Make a Grid of Maps cuts a big area into maps of up to 256 tiles joined as neighbours. New maps and MapInfos.json are written together with backups, or not at all, and it stops if MZ changed MapInfos.json since. Close and reopen the project in RPG Maker MZ to see them. Removing a place keeps its map and transfers."
     },
     {
         "title": "A real place",
         "anchor": "a-real-place",
-        "firstParagraph": "Map → From a Map File: download an OpenStreetMap extract (an .osm file from the site's Export) or GeoJSON yourself, pick it, choose the kind of map, and optionally a grey picture for heights. Roads, rivers, water, forests and buildings become this map's tiles through Picture to Map's building step (a bridge where a road crosses water). The card says the area's real size and how much a tile is first. Nothing is downloaded by the editor. Apply writes \"© OpenStreetMap contributors\" into CREDITSMAPS.txt: show it in your game's credits."
+        "firstParagraph": "Map → From a Map File: download an OpenStreetMap extract (an .osm file from the site's Export) or GeoJSON yourself, pick it, choose the kind of map, and optionally a grey picture for heights. Roads, rivers, water, forests and buildings become this map's tiles through Picture to Map's building step (a bridge where a road crosses water). The card lists the classes the plan uses (water, road, building outline...) with the tile for each on this tileset, shared with Picture to Map; Apply waits until at least one has a tile. The card says the area's real size and how much a tile is first. Nothing is downloaded by the editor. Apply writes \"© OpenStreetMap contributors\" into CREDITSMAPS.txt: show it in your game's credits."
     },
     {
         "title": "Baking for phones",
@@ -41819,8 +41819,37 @@ DocsDoodads.Persistence = {
             if (typeof ge.refresh === 'function') { ge._pageIndex = -2; ge.refresh(); }
             changed.push(id);
         }
+        // Events added in the editor (a transfer made by Make a Place Here, a template) join the running map as
+        // MZ makes them at map setup; events deleted there are erased. Both take effect without a map reload.
+        const events = gameMap._events;
+        if (Array.isArray(events) && typeof Game_Event === 'function') {
+            for (let id = 1; id < data.events.length; id++) {
+                const saved = data.events[id];
+                if (!saved || events[id]) continue;
+                live.events[id] = JSON.parse(JSON.stringify(saved));
+                events[id] = new Game_Event(gameMap.mapId(), id);
+                this.addEventSprite(events[id]);
+                changed.push(id);
+            }
+            for (let id = 1; id < events.length; id++) {
+                if (!events[id] || data.events[id]) continue;
+                if (typeof events[id].erase === 'function') events[id].erase();
+                live.events[id] = null;
+                changed.push(id);
+            }
+        }
         if (changed.length && typeof gameMap.requestRefresh === 'function') gameMap.requestRefresh();
         return changed;
+    },
+
+    // A sprite for an event added to the running map, in the tilemap with the other characters.
+    addEventSprite(event) {
+        const scene = typeof SceneManager !== 'undefined' ? SceneManager._scene : null, spriteset = scene && scene._spriteset;
+        if (!spriteset || !spriteset._tilemap || !Array.isArray(spriteset._characterSprites) || typeof Sprite_Character !== 'function') return null;
+        const sprite = new Sprite_Character(event);
+        spriteset._characterSprites.push(sprite);
+        spriteset._tilemap.addChild(sprite);
+        return sprite;
     },
 
     pendingMapEntries() {
@@ -42968,7 +42997,9 @@ DocsDoodads.MapImport = {
                 let name = `${base}_${mapId}_${this.slug(layer.name)}`;
                 for (let n = 2; names.has(name.toLowerCase()); n++) name = `${base}_${mapId}_${this.slug(layer.name)}_${n}`;
                 names.add(name.toLowerCase());
-                files.push({ path: `img/parallaxes/${name}.png`, kind: 'layer', width: pictureW, height: pictureH, opacity: layer.opacity, draws: layer.tiles.map(t => Object.assign({}, t, {
+                // Drawn at full strength: the layer's opacity is set once, on the picture layer below (drawing it
+                // into the picture as well made a half-transparent roof show at a quarter).
+                files.push({ path: `img/parallaxes/${name}.png`, kind: 'layer', width: pictureW, height: pictureH, opacity: 1, draws: layer.tiles.map(t => Object.assign({}, t, {
                     x: t.x * scale, y: t.y * scale, dw: t.dw * scale, dh: t.dh * scale })) });
                 layers2d.push({ image: name, place: split >= 0 && index > split ? 'front' : 'back', follow: 1, scrollX: 0, scrollY: 0, zoom: 1,
                     opacity: Math.max(0, Math.min(1, Number(layer.opacity) || 0)), blend: 'normal', loopX: false, loopY: false, wind: false });
@@ -50177,6 +50208,9 @@ DocsDoodads.Workspace = {
         // Drag payloads carry frameW/frameH; library assets carry width/height.
         d.frameW = asset.frameW || asset.width || 48;
         d.frameH = asset.frameH || asset.height || 48;
+        // A part of a sheet (a tile picked from a tileset sheet): where it starts in the picture.
+        if (asset.frameX > 0) d.frameX = asset.frameX;
+        if (asset.frameY > 0) d.frameY = asset.frameY;
         if (DocsDoodads.AnimatedImport) DocsDoodads.AnimatedImport.applyToDoodad(d, asset);
         const preferredDepth = (asset.placement && asset.placement.depth) || asset.depth;
         d.depth = DocsDoodads.Depth.modes.includes(preferredDepth) ? preferredDepth : DocsDoodads.Depth.suggestFor(asset);
@@ -52220,6 +52254,17 @@ DocsDoodads.Workspace = {
         if (img && this._ghostPath !== asset.path) {
             this._ghostPath = asset.path;
             img.src = asset.path;
+        }
+        // A part of a sheet (a picked tile) shows only that part.
+        if (img) {
+            const part = asset.tilePick ? `${asset.frameX}|${asset.frameY}|${asset.frameW}|${asset.frameH}` : '';
+            if (this._ghostPart !== part) {
+                this._ghostPart = part;
+                img.style.objectFit = part ? 'none' : '';
+                img.style.objectPosition = part ? `-${asset.frameX}px -${asset.frameY}px` : '';
+                img.style.width = part ? asset.frameW + 'px' : '';
+                img.style.height = part ? asset.frameH + 'px' : '';
+            }
         }
 
         let posX = clientX;
@@ -60488,10 +60533,18 @@ Object.assign(DocsDoodads.Workspace, {
             return true;
         },
 
+        // The kind's classes the plan uses, and which of them have a tile for this tileset.
+        geoClasses(made) {
+            const used = made ? Array.from(new Set(made.plan.cells.filter(Boolean))) : [];
+            return used.map(id => ({ id, name: (made.kind.classes.find(c => c.id === id) || { name: id }).name, tile: this.mapFromTile(made.kind.id, id) || null }));
+        },
+
         applyGeoPlan(state) {
             const made = this.geoPlan(state);
             if (!made) return false;
-            this.applyMapFrom(made.plan, made.kind);
+            const result = this.applyMapFrom(made.plan, made.kind);
+            // Nothing built (no tile chosen for any class): no credit to write, and the card stays open.
+            if (!result || !result.changes) return false;
             this.writeMapCredit();
             this.showToast('Built from the map file. CREDITS_MAPS.txt has the OpenStreetMap credit: show it in your game\'s credits.');
             return true;
@@ -60508,7 +60561,7 @@ Object.assign(DocsDoodads.Workspace, {
                 document.body.appendChild(card);
             }
             const render = () => {
-                const made = this.geoPlan(state);
+                const made = this.geoPlan(state), classes = this.geoClasses(made);
                 const kinds = this.mapKinds().map(k => `<option value="${escapeHtml(k.id)}"${k.id === state.kindId ? ' selected' : ''}>${escapeHtml(k.name)}</option>`).join('');
                 const sizeText = made ? `The area is ${Math.round(made.metres.w)} m × ${Math.round(made.metres.h)} m; on this ${made.size.w} × ${made.size.h} map a tile is about ${Math.max(1, Math.round(made.metres.w / made.size.w))} m.` : '';
                 card.innerHTML = `<div class="dd-panel-head">From a Map File <button class="dd-btn" id="dd-geo-close" type="button">Close</button></div>
@@ -60518,8 +60571,11 @@ Object.assign(DocsDoodads.Workspace, {
                     <label>Kind of map <select id="dd-geo-kind">${kinds}</select></label>
                     ${state.features ? `<div>${state.features.length} features read from ${escapeHtml(state.name)}.</div>` : ''}
                     ${sizeText ? `<div style="color:var(--dd-muted);">${escapeHtml(sizeText)}</div>` : ''}
-                    ${made ? `<div>${made.plan.features.filter(f => f.type === 'bridge').length} bridges, ${made.plan.cells.filter(Boolean).length} tiles to build. Tiles for each class come from Picture to Map's choices.</div>` : ''}
-                    <button class="dd-btn dd-btn-primary" id="dd-geo-apply" type="button"${made ? '' : ' disabled'}>Apply</button>
+                    ${made ? `<div>${made.plan.features.filter(f => f.type === 'bridge').length} bridges, ${made.plan.cells.filter(Boolean).length} tiles to build.</div>` : ''}
+                    ${classes.length ? `<div class="dd-panel-head" style="margin-top:4px;">Tiles</div><div style="color:var(--dd-muted);">The tile for each class on this tileset (shared with Picture to Map; Alt+click a tile with the Tiles tool to see its id). A class with no tile is left alone.</div>` +
+                        classes.map(c => `<label>${escapeHtml(c.name)} <input id="dd-geo-tile-${escapeHtml(c.id)}" type="number" min="0" value="${c.tile || ''}" placeholder="tile id"></label>`).join('') : ''}
+                    <button class="dd-btn dd-btn-primary" id="dd-geo-apply" type="button"${made && classes.some(c => c.tile) ? '' : ' disabled'}>Apply</button>
+                    ${made && !classes.some(c => c.tile) ? `<div style="color:var(--dd-warn);">Choose a tile for at least one class first.</div>` : ''}
                     <div style="color:var(--dd-faint);margin-top:6px;">OpenStreetMap's data needs "© OpenStreetMap contributors" in your game: Apply writes it into CREDITS_MAPS.txt.</div>`;
                 const node = id => document.getElementById(id);
                 node('dd-geo-close').onclick = () => { if (card.parentNode) card.parentNode.removeChild(card); };
@@ -60541,6 +60597,7 @@ Object.assign(DocsDoodads.Workspace, {
                     } catch (error) { this.showToast(String(error.message || error), 'error'); }
                     render();
                 };
+                for (const c of classes) { const input = node(`dd-geo-tile-${c.id}`); if (input) input.onchange = () => { this.mapFromTile(made.kind.id, c.id, input.value); render(); }; }
                 node('dd-geo-apply').onclick = () => { if (this.applyGeoPlan(state) && card.parentNode) card.parentNode.removeChild(card); };
             };
             render();
@@ -60618,7 +60675,10 @@ Object.assign(DocsDoodads.Workspace, {
             try { canvas = D.MapExport.capture(spriteset, { scale: Number(values.scale) || 0.5 }).canvas; }
             finally { for (const sprite of hidden) sprite.renderable = true; }
             const picture = canvas.toDataURL('image/png').split(',')[1];
-            const T = D.Terrain, grid = T.grid ? T.grid(true) : null;
+            // Hills and walls only when the map is in 3D and has some height; a flat map is two triangles (a
+            // 200 × 200 flat map was 160,000 vertices).
+            const T = D.Terrain, built = T.active && T.active() && T.grid ? T.grid(true) : null;
+            const grid = built && (built.max > 0 || built.min < 0) ? built : null;
             const ground = grid ? GW.groundFromTerrain(T.buildMesh(grid, 0, 0, tilesW, tilesH, tw, th, grid.style, T.light, 0), tw, th, tilesW * tw, tilesH * th) : GW.flatGround(tilesW, tilesH);
             ground.image = { bytes: Buffer.from(picture, 'base64'), mime: 'image/png' };
             ground.cutout = false;
@@ -64534,7 +64594,10 @@ Object.assign(DocsDoodads.Workspace, {
             else this.clearPlacementPreview();
         } else this.clearPlacementPreview();
         const picture = asset && asset.category !== 'Audio' && asset.type !== 'prefab' && asset.placementMode !== 'event' && !(asset.placement && asset.placement.defaultMode === 'event');
-        if (this.ghostEl) this.ghostEl.style.display = onMap && picture ? 'none' : '';
+        // The floating picture follows the pointer only while an item is being dragged from the bag. With Stamp,
+        // the item is shown on the map itself, and nothing follows the pointer over the panels and menus.
+        const floating = Boolean(this.activeDragPayload) && !(onMap && picture);
+        if (this.ghostEl) this.ghostEl.style.display = floating ? '' : 'none';
     };
     W.removeGhost = function() { this.clearPlacementPreview(); this._placementPathSeed = null; return remove.call(this); };
 }
@@ -64597,12 +64660,16 @@ if (typeof Game_Map !== 'undefined') {
             const parentId = $gameMap.mapId(), kind = P.sizes[spec.kind] ? spec.kind : 'room';
             const size = P.sizes[kind];
             const x = Math.floor(Number(spec.x) || 0), y = Math.floor(Number(spec.y) || 0);
-            const back = { x, y: Math.min($gameMap.height() - 1, y + 1) };
+            // The way back lands beside the door, on a walkable tile next to it (the one below first, as for a door
+            // in a north wall), never on the door's own tile: landing on a touch transfer would send the player
+            // straight back in.
+            const back = this.placeBackTile(x, y);
             let mapId = Math.floor(Number(spec.mapId) || 0), entrance;
             if (!mapId) {
                 const w = Math.floor(Number(spec.width) || size[0]), h = Math.floor(Number(spec.height) || size[1]);
                 entrance = P.entrance(kind, w, h);
-                const ground = window.$dataMap && $dataMap.data ? 0 : 0;
+                // The new map's floor: the commonest walkable ground tile here, so the entrance can be walked on.
+                const ground = this.commonGroundTile();
                 mapId = NM.make({ name: spec.name, width: w, height: h, tilesetId: $gameMap.tilesetId ? $gameMap.tilesetId() : 1, parentId, ground,
                     events: [P.transferEvent(1, entrance.x, entrance.y, parentId, back.x, back.y, 2, 'To ' + (spec.parentName || 'outside'))] });
             } else {
@@ -64615,6 +64682,34 @@ if (typeof Game_Map !== 'undefined') {
                 parent: { mapId: parentId, x, y }, entrance };
             this.setPlaces(P.list().concat([place]), 'Link a place');
             return place;
+        },
+
+        // A walkable tile next to (x, y) for the way back: below, then left, right and above; (x, y + 1) if none.
+        placeBackTile(x, y) {
+            const map = $gameMap, valid = (tx, ty) => tx >= 0 && ty >= 0 && tx < map.width() && ty < map.height();
+            for (const [dx, dy, d] of [[0, 1, 2], [-1, 0, 4], [1, 0, 6], [0, -1, 8]]) {
+                const tx = x + dx, ty = y + dy;
+                if (!valid(tx, ty)) continue;
+                if (map.isPassable(tx, ty, 10 - d) && !(D.Collision && D.Collision.blocksTile(tx, ty)) && !map.eventsXyNt(tx, ty).length) return { x: tx, y: ty };
+            }
+            return { x, y: Math.min(map.height() - 1, y + 1) };
+        },
+
+        // The commonest walkable bottom-layer tile on this map (0 when there is none).
+        commonGroundTile() {
+            const map = window.$dataMap, gm = $gameMap;
+            if (!map || !map.data) return 0;
+            const counts = new Map(), W = map.width, H = map.height;
+            for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+                const id = Number(map.data[y * W + x]) || 0;
+                if (!id || !gm.isPassable(x, y, 2)) continue;
+                // An autotile counts by its kind, with the plain middle shape (0) written.
+                const key = D.Tiles.isAutotile(id) ? D.Tiles.make(D.Tiles.kind(id), 0) : id;
+                counts.set(key, (counts.get(key) || 0) + 1);
+            }
+            let best = 0, most = 0;
+            for (const [id, n] of counts) if (n > most) { best = id; most = n; }
+            return best;
         },
 
         // Only the link goes; its map and transfers stay (say so).
@@ -69530,7 +69625,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     // A tileset sheet picked in the bag: the Tiles tool opens on that sheet when it is one of this map's,
     // so single tiles are painted rather than the whole sheet stamped as one picture. A sheet this map's
-    // tileset doesn't use only says so (Place as Doodad on its right-click menu still places the picture).
+    // tileset doesn't use opens the tile picker (44_workspace_tiles_picker.js): its tiles are placed as doodads.
     // True when the click was handled here.
     isTileSheet(asset) {
         if (!asset || asset.type === 'prefab') return false;
@@ -69543,8 +69638,10 @@ Object.assign(DocsDoodads.Workspace, {
         const base = String(asset.fileName || asset.path || '').replace(/\\/g, '/').split('/').pop().replace(/\.(png|webp)$/i, '');
         const sheet = this.tilesetNames().findIndex(n => n && n.toLowerCase() === base.toLowerCase());
         this.selectAsset(null);
+        // Not in this map's tileset: pick tiles from it on a grid and place them as doodads.
         if (sheet < 0) {
-            this.showToast(`${base} isn't in this map's tileset, so its tiles can't be painted here. Change the map's tileset in MZ, or right-click it for Place as Doodad.`);
+            if (this.openTilePicker) this.openTilePicker(asset);
+            else this.showToast(`${base} isn't in this map's tileset, so its tiles can't be painted here.`);
             return true;
         }
         this.tileBrush.sheet = sheet;
@@ -69755,6 +69852,126 @@ DocsDoodads.Workspace.toolHooks.tiles = {
         };
         canvas.oncontextmenu = e => { if (e.preventDefault) e.preventDefault(); };
         return result;
+    };
+})();
+// @editor-only
+//==========================================================
+// SECTION 25v2: PICKING TILES FROM ANY TILESET SHEET
+//==========================================================
+// A tileset sheet in the Item Bag that this map's tileset doesn't use opens here: the sheet on a grid, a click
+// picks one tile and a drag a block of them, and Stamp then places that piece as a doodad (the sheet cropped
+// with frameX/frameY/frameW/frameH, the way a doodad shows part of a picture). Sheets the map's tileset does use
+// open the Tiles tool instead (44_workspace_tiles.js), which paints MZ's own tiles.
+(function() {
+    const D = DocsDoodads, W = D.Workspace;
+    const sizes = [16, 24, 32, 48];
+
+    Object.assign(W, {
+        tilePickSize: 0, // 0: the map's tile size
+
+        tilePickCell() {
+            const map = typeof $gameMap !== 'undefined' && $gameMap && $gameMap.tileWidth ? $gameMap.tileWidth() : 48;
+            return Math.max(1, Math.floor(Number(this.tilePickSize) || map));
+        },
+
+        // A copy of the sheet's entry that places only the picked cells: rect in cells, cell in pixels.
+        tilePickAsset(asset, rect, cell) {
+            const r = { x: Math.max(0, Math.floor(rect.x)), y: Math.max(0, Math.floor(rect.y)), w: Math.max(1, Math.floor(rect.w)), h: Math.max(1, Math.floor(rect.h)) };
+            return Object.assign({}, asset, { frameX: r.x * cell, frameY: r.y * cell, frameW: r.w * cell, frameH: r.h * cell,
+                tilePick: Object.assign({ cell }, r) });
+        },
+
+        // The cells between two picked cells, kept inside the sheet.
+        tilePickRect(a, b, cols, rows) {
+            const clamp = (v, n) => Math.max(0, Math.min(n - 1, v));
+            const x0 = clamp(Math.min(a.x, b.x), cols), y0 = clamp(Math.min(a.y, b.y), rows);
+            const x1 = clamp(Math.max(a.x, b.x), cols), y1 = clamp(Math.max(a.y, b.y), rows);
+            return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+        },
+
+        closeTilePicker() {
+            const card = typeof document !== 'undefined' && document.getElementById ? document.getElementById('dd-tile-picker') : null;
+            if (card && card.parentNode) card.parentNode.removeChild(card);
+            this._tilePicker = null;
+        },
+
+        openTilePicker(asset) {
+            if (typeof document === 'undefined' || !document.createElement || !asset) return null;
+            const state = this._tilePicker = { asset, rect: null };
+            let card = document.getElementById('dd-tile-picker');
+            if (!card) {
+                card = document.createElement('div');
+                card.id = 'dd-tile-picker'; card.className = 'dd-glass';
+                card.style.cssText = 'position:fixed;top:88px;left:50%;transform:translateX(-50%);width:min(440px,calc(100vw - 32px));max-height:calc(100vh - 110px);overflow:auto;padding:12px;z-index:10040;font-size:11px;display:flex;flex-direction:column;gap:6px;';
+                document.body.appendChild(card);
+            }
+            const name = String(asset.fileName || asset.path || '').replace(/\.(png|webp)$/i, '');
+            const map = this.tilePickCell();
+            const options = [0].concat(sizes.filter(s => s !== map)).map(s => `<option value="${s}"${(Number(this.tilePickSize) || 0) === s ? ' selected' : ''}>${s ? s + ' px' : map + ' px (this map)'}</option>`).join('');
+            card.innerHTML = `<div class="dd-panel-head" data-dd-help="tiles-painting-mz-tiles"><span class="dd-grow">Pick Tiles: ${escapeHtml(name)}</span><button class="dd-btn" type="button" id="dd-tile-picker-close">Close</button></div>
+                <div style="color:var(--dd-muted);line-height:1.4;">This sheet isn't in this map's tileset, so its tiles are placed as doodads. Click a tile, or drag across several, then click the map (Stamp).</div>
+                <label style="display:flex;gap:6px;align-items:center;">Tile size <select id="dd-tile-picker-size">${options}</select></label>
+                <div style="overflow:auto;max-height:60vh;background:var(--dd-field);border-radius:6px;"><canvas id="dd-tile-picker-canvas" width="8" height="8" style="display:block;image-rendering:pixelated;cursor:crosshair;"></canvas></div>
+                <div id="dd-tile-picker-info" style="color:var(--dd-faint);">Nothing picked yet.</div>`;
+            const node = id => document.getElementById(id);
+            if (!node('dd-tile-picker-close')) return card;
+            node('dd-tile-picker-close').onclick = () => this.closeTilePicker();
+            node('dd-tile-picker-size').onchange = event => { this.tilePickSize = Number(event.target.value) || 0; this.openTilePicker(asset); };
+            const canvas = node('dd-tile-picker-canvas'), image = new Image();
+            const draw = () => {
+                const ctx = canvas.getContext && canvas.getContext('2d');
+                if (!ctx || !image.width) return;
+                const cell = this.tilePickCell(), k = Math.min(2, Math.max(0.25, 400 / image.width));
+                canvas.width = Math.round(image.width * k); canvas.height = Math.round(image.height * k);
+                ctx.imageSmoothingEnabled = false;
+                ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+                for (let x = cell; x < image.width; x += cell) { ctx.beginPath(); ctx.moveTo(Math.round(x * k) + 0.5, 0); ctx.lineTo(Math.round(x * k) + 0.5, canvas.height); ctx.stroke(); }
+                for (let y = cell; y < image.height; y += cell) { ctx.beginPath(); ctx.moveTo(0, Math.round(y * k) + 0.5); ctx.lineTo(canvas.width, Math.round(y * k) + 0.5); ctx.stroke(); }
+                if (state.rect) {
+                    // A dark edge under a bright one, so the box shows on light and dark sheets alike.
+                    const box = [state.rect.x * cell * k + 1, state.rect.y * cell * k + 1, state.rect.w * cell * k - 2, state.rect.h * cell * k - 2];
+                    ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 4; ctx.strokeRect(...box);
+                    ctx.strokeStyle = '#2f9bff'; ctx.lineWidth = 2; ctx.strokeRect(...box);
+                }
+                state.k = k;
+            };
+            const cellAt = event => {
+                const r = canvas.getBoundingClientRect(), s = this.uiScaleNow ? this.uiScaleNow() : 1, cell = this.tilePickCell();
+                return { x: Math.floor(((event.clientX - r.left) / s) / (state.k || 1) / cell), y: Math.floor(((event.clientY - r.top) / s) / (state.k || 1) / cell) };
+            };
+            const grid = () => ({ cols: Math.max(1, Math.floor(image.width / this.tilePickCell())), rows: Math.max(1, Math.floor(image.height / this.tilePickCell())) });
+            const pick = rect => {
+                const cell = this.tilePickCell();
+                state.rect = rect;
+                draw();
+                const picked = this.tilePickAsset(asset, rect, cell);
+                this.selectAsset(picked);
+                if (this.placementTool !== 'stamp') this.setPlacementTool('stamp');
+                const info = node('dd-tile-picker-info');
+                if (info) info.textContent = `Picked ${rect.w} × ${rect.h} tile(s) at ${rect.x}, ${rect.y}. Click the map to place it.`;
+            };
+            canvas.onmousedown = event => {
+                if (!image.width) return;
+                const start = cellAt(event), g = grid();
+                pick(this.tilePickRect(start, start, g.cols, g.rows));
+                const move = ev => pick(this.tilePickRect(start, cellAt(ev), g.cols, g.rows));
+                const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+                window.addEventListener('mousemove', move);
+                window.addEventListener('mouseup', up);
+            };
+            image.onload = draw;
+            image.onerror = () => { const info = node('dd-tile-picker-info'); if (info) info.textContent = 'This picture could not be read.'; };
+            image.src = asset.path;
+            return card;
+        }
+    });
+
+    // Picking something else in the bag, or leaving the editor, closes the picker.
+    const select = W.selectAsset;
+    W.selectAsset = function(asset) {
+        if (this._tilePicker && !(asset && asset.tilePick && asset.path === this._tilePicker.asset.path)) this.closeTilePicker();
+        return select.apply(this, arguments);
     };
 })();
 // @editor-only

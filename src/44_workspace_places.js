@@ -52,12 +52,16 @@
             const parentId = $gameMap.mapId(), kind = P.sizes[spec.kind] ? spec.kind : 'room';
             const size = P.sizes[kind];
             const x = Math.floor(Number(spec.x) || 0), y = Math.floor(Number(spec.y) || 0);
-            const back = { x, y: Math.min($gameMap.height() - 1, y + 1) };
+            // The way back lands beside the door, on a walkable tile next to it (the one below first, as for a door
+            // in a north wall), never on the door's own tile: landing on a touch transfer would send the player
+            // straight back in.
+            const back = this.placeBackTile(x, y);
             let mapId = Math.floor(Number(spec.mapId) || 0), entrance;
             if (!mapId) {
                 const w = Math.floor(Number(spec.width) || size[0]), h = Math.floor(Number(spec.height) || size[1]);
                 entrance = P.entrance(kind, w, h);
-                const ground = window.$dataMap && $dataMap.data ? 0 : 0;
+                // The new map's floor: the commonest walkable ground tile here, so the entrance can be walked on.
+                const ground = this.commonGroundTile();
                 mapId = NM.make({ name: spec.name, width: w, height: h, tilesetId: $gameMap.tilesetId ? $gameMap.tilesetId() : 1, parentId, ground,
                     events: [P.transferEvent(1, entrance.x, entrance.y, parentId, back.x, back.y, 2, 'To ' + (spec.parentName || 'outside'))] });
             } else {
@@ -70,6 +74,34 @@
                 parent: { mapId: parentId, x, y }, entrance };
             this.setPlaces(P.list().concat([place]), 'Link a place');
             return place;
+        },
+
+        // A walkable tile next to (x, y) for the way back: below, then left, right and above; (x, y + 1) if none.
+        placeBackTile(x, y) {
+            const map = $gameMap, valid = (tx, ty) => tx >= 0 && ty >= 0 && tx < map.width() && ty < map.height();
+            for (const [dx, dy, d] of [[0, 1, 2], [-1, 0, 4], [1, 0, 6], [0, -1, 8]]) {
+                const tx = x + dx, ty = y + dy;
+                if (!valid(tx, ty)) continue;
+                if (map.isPassable(tx, ty, 10 - d) && !(D.Collision && D.Collision.blocksTile(tx, ty)) && !map.eventsXyNt(tx, ty).length) return { x: tx, y: ty };
+            }
+            return { x, y: Math.min(map.height() - 1, y + 1) };
+        },
+
+        // The commonest walkable bottom-layer tile on this map (0 when there is none).
+        commonGroundTile() {
+            const map = window.$dataMap, gm = $gameMap;
+            if (!map || !map.data) return 0;
+            const counts = new Map(), W = map.width, H = map.height;
+            for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+                const id = Number(map.data[y * W + x]) || 0;
+                if (!id || !gm.isPassable(x, y, 2)) continue;
+                // An autotile counts by its kind, with the plain middle shape (0) written.
+                const key = D.Tiles.isAutotile(id) ? D.Tiles.make(D.Tiles.kind(id), 0) : id;
+                counts.set(key, (counts.get(key) || 0) + 1);
+            }
+            let best = 0, most = 0;
+            for (const [id, n] of counts) if (n > most) { best = id; most = n; }
+            return best;
         },
 
         // Only the link goes; its map and transfers stay (say so).

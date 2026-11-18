@@ -199,7 +199,9 @@ DocsDoodads.MapImport = {
                 let name = `${base}_${mapId}_${this.slug(layer.name)}`;
                 for (let n = 2; names.has(name.toLowerCase()); n++) name = `${base}_${mapId}_${this.slug(layer.name)}_${n}`;
                 names.add(name.toLowerCase());
-                files.push({ path: `img/parallaxes/${name}.png`, kind: 'layer', width: pictureW, height: pictureH, opacity: layer.opacity, draws: layer.tiles.map(t => Object.assign({}, t, {
+                // Drawn at full strength: the layer's opacity is set once, on the picture layer below (drawing it
+                // into the picture as well made a half-transparent roof show at a quarter).
+                files.push({ path: `img/parallaxes/${name}.png`, kind: 'layer', width: pictureW, height: pictureH, opacity: 1, draws: layer.tiles.map(t => Object.assign({}, t, {
                     x: t.x * scale, y: t.y * scale, dw: t.dw * scale, dh: t.dh * scale })) });
                 layers2d.push({ image: name, place: split >= 0 && index > split ? 'front' : 'back', follow: 1, scrollX: 0, scrollY: 0, zoom: 1,
                     opacity: Math.max(0, Math.min(1, Number(layer.opacity) || 0)), blend: 'normal', loopX: false, loopY: false, wind: false });

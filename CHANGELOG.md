@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Stamp: the picked item no longer follows the pointer over the panels, menus and toolbar; it shows only on the map (a drag from the Item Bag still carries its picture).
+- Pick Tiles: a tileset sheet in the Item Bag that this map's tileset doesn't use opens on a grid; a click picks one tile and a drag a block, and Stamp places just that piece as a doodad.
+- Import Map: a layer's opacity is applied once (it was drawn into the picture and set on the layer, so a 50% roof showed at about 25%).
+- From a Map File: the card has a tile for each class the plan uses; Apply waits for one, and CREDITS_MAPS.txt is written only when something was built.
+- Make a Place Here: the new map gets this map's commonest walkable ground, and the way back lands on a walkable tile beside the door.
+- Saving adds events made in the editor to the running playtest and erases deleted ones (a new place's door works without a reload).
+- Save 3D Map as File writes a map that isn't in 3D (or is level) as two triangles: a flat 200 × 200 map went from 160,000 vertices to 4.
 - Generate Map starts at a size that fits the map, so the first Preview works on small maps.
 - Picture to Map groups a picture's colours correctly: a large area of one colour no longer splits into empty copies that merged the rarer colours away.
 - On field tilesets (like Overworld) the right half of A2, such as forests, is painted on the second layer over the ground, as MZ does, so its edges no longer show black; painting ground there removes it. Picture to Map puts grass under a forest.

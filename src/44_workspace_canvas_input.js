@@ -326,6 +326,17 @@
             this._ghostPath = asset.path;
             img.src = asset.path;
         }
+        // A part of a sheet (a picked tile) shows only that part.
+        if (img) {
+            const part = asset.tilePick ? `${asset.frameX}|${asset.frameY}|${asset.frameW}|${asset.frameH}` : '';
+            if (this._ghostPart !== part) {
+                this._ghostPart = part;
+                img.style.objectFit = part ? 'none' : '';
+                img.style.objectPosition = part ? `-${asset.frameX}px -${asset.frameY}px` : '';
+                img.style.width = part ? asset.frameW + 'px' : '';
+                img.style.height = part ? asset.frameH + 'px' : '';
+            }
+        }
 
         let posX = clientX;
         let posY = clientY;

@@ -98,10 +98,14 @@ try {
         const P = DocsDoodads.Persistence;
         const page = text => ({ list: [{ code: 401, parameters: [text] }, { code: 0 }] });
         const makeGe = id => ({ id, _pageIndex: 0, refreshed: 0, eventId() { return this.id; }, refresh() { this.refreshed++; this._pageIndex = 0; } });
-        const ges = [makeGe(1), makeGe(2)];
+        const ges = [makeGe(1), makeGe(2)], removed = makeGe(4);
+        removed.erase = function() { this.erased = true; };
         let refreshRequested = 0;
-        global.$dataMap = { events: [null, { id: 1, pages: [page('old')] }, { id: 2, pages: [page('same')] }] };
+        global.Game_Event = function(mapId, id) { this.mapId = mapId; this.id = id; };
+        global.Game_Event.prototype.eventId = function() { return this.id; };
+        global.$dataMap = { events: [null, { id: 1, pages: [page('old')] }, { id: 2, pages: [page('same')] }, null, { id: 4, pages: [page('gone')] }] };
         global.$gameMap = { mapId: () => 1, events: () => ges, requestRefresh() { refreshRequested++; },
+            _events: [null, ges[0], ges[1], null, removed],
             _stagedMapData: { events: [null, { id: 1, pages: [page('new')] }, { id: 2, pages: [page('same')] }, { id: 3, pages: [page('added')] }] } };
         assert.deepStrictEqual(P.applySavedEvents(2, $gameMap._stagedMapData), [], 'another map is not the running one');
         DocsDoodads.FS.atomicWriteManyJson = () => ({ ok: false, error: 'no', rolledBack: true });
@@ -114,10 +118,12 @@ try {
         assert.strictEqual($dataMap.events[1].pages[0].list[0].parameters[0], 'new');
         assert.notStrictEqual($dataMap.events[1], $gameMap._stagedMapData.events[1], 'the game gets its own copy');
         assert.deepStrictEqual(ges.map(ge => ge.refreshed), [1, 0], 'only the changed event is set up again');
-        assert.strictEqual($dataMap.events[3], undefined, 'an added event waits for the map to load again');
+        assert.strictEqual($dataMap.events[3].pages[0].list[0].parameters[0], 'added', 'an added event joins the running map');
+        assert.ok($gameMap._events[3] instanceof Game_Event && $gameMap._events[3].id === 3, 'as a game event of its own');
+        assert.ok(removed.erased && $dataMap.events[4] === null, 'a deleted event is erased');
         assert.strictEqual(refreshRequested, 1);
         DocsDoodads.FS.atomicWriteManyJson = originalAtomicWriteMany;
-        delete global.$dataMap;
+        delete global.$dataMap; delete global.Game_Event;
     }
     console.log('✓ Saved events are used by the running game');
 } finally {

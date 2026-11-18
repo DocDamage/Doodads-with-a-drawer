@@ -204,7 +204,7 @@ Object.assign(DocsDoodads.Workspace, {
 
     // A tileset sheet picked in the bag: the Tiles tool opens on that sheet when it is one of this map's,
     // so single tiles are painted rather than the whole sheet stamped as one picture. A sheet this map's
-    // tileset doesn't use only says so (Place as Doodad on its right-click menu still places the picture).
+    // tileset doesn't use opens the tile picker (44_workspace_tiles_picker.js): its tiles are placed as doodads.
     // True when the click was handled here.
     isTileSheet(asset) {
         if (!asset || asset.type === 'prefab') return false;
@@ -217,8 +217,10 @@ Object.assign(DocsDoodads.Workspace, {
         const base = String(asset.fileName || asset.path || '').replace(/\\/g, '/').split('/').pop().replace(/\.(png|webp)$/i, '');
         const sheet = this.tilesetNames().findIndex(n => n && n.toLowerCase() === base.toLowerCase());
         this.selectAsset(null);
+        // Not in this map's tileset: pick tiles from it on a grid and place them as doodads.
         if (sheet < 0) {
-            this.showToast(`${base} isn't in this map's tileset, so its tiles can't be painted here. Change the map's tileset in MZ, or right-click it for Place as Doodad.`);
+            if (this.openTilePicker) this.openTilePicker(asset);
+            else this.showToast(`${base} isn't in this map's tileset, so its tiles can't be painted here.`);
             return true;
         }
         this.tileBrush.sheet = sheet;

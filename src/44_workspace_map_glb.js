@@ -54,7 +54,10 @@
             try { canvas = D.MapExport.capture(spriteset, { scale: Number(values.scale) || 0.5 }).canvas; }
             finally { for (const sprite of hidden) sprite.renderable = true; }
             const picture = canvas.toDataURL('image/png').split(',')[1];
-            const T = D.Terrain, grid = T.grid ? T.grid(true) : null;
+            // Hills and walls only when the map is in 3D and has some height; a flat map is two triangles (a
+            // 200 × 200 flat map was 160,000 vertices).
+            const T = D.Terrain, built = T.active && T.active() && T.grid ? T.grid(true) : null;
+            const grid = built && (built.max > 0 || built.min < 0) ? built : null;
             const ground = grid ? GW.groundFromTerrain(T.buildMesh(grid, 0, 0, tilesW, tilesH, tw, th, grid.style, T.light, 0), tw, th, tilesW * tw, tilesH * th) : GW.flatGround(tilesW, tilesH);
             ground.image = { bytes: Buffer.from(picture, 'base64'), mime: 'image/png' };
             ground.cutout = false;

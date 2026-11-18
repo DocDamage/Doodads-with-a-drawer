@@ -73,10 +73,18 @@ assert.strictEqual(there.length, 1, 'a transfer at the door');
 assert.deepStrictEqual([there[0].x, there[0].y], [6, 4]);
 assert.deepStrictEqual(there[0].target, { x: place.entrance.x, y: place.entrance.y - 1 }, 'one tile inside the entrance');
 assert.deepStrictEqual(D.Places.list().map(x => x.name), ['Bakery']);
-// Checking links: a blank new map has no tiles, so its landing tile is blocked.
-const problems = W.placeProblems(place);
-assert.ok(problems.includes('lands on a blocked tile'), 'a landing on a blocked tile is marked');
+// The new map has this map's commonest walkable ground as its floor, so its landing tile can be walked on.
+assert.ok(child.data[0] > 0 && child.data.slice(0, child.width * child.height).every(t => t === child.data[0]), 'a floor everywhere');
+let problems = W.placeProblems(place);
+assert.ok(!problems.includes('lands on a blocked tile'), 'the landing is walkable');
 assert.ok(!problems.includes('no transfer there') && !problems.includes('no way back'));
+// Checking links: a map with no tiles at all has its landing tile blocked, and that is marked.
+const bare = JSON.parse(fs.readFileSync(NM.path(place.mapId), 'utf8'));
+bare.data = bare.data.map(() => 0);
+fs.writeFileSync(NM.path(place.mapId), JSON.stringify(bare));
+problems = W.placeProblems(place);
+assert.ok(problems.includes('lands on a blocked tile'), 'a landing on a blocked tile is marked');
+fs.writeFileSync(NM.path(place.mapId), JSON.stringify(child));
 // Using a map that exists: its file gets the way back (backed up).
 const shop = W.makePlace({ x: 9, y: 4, name: 'Shop', kind: 'room', mapId: 3 });
 assert.strictEqual(P.transfersTo(JSON.parse(fs.readFileSync('data/Map003.json', 'utf8')), 1).length, 1);
